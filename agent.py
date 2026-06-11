@@ -10,6 +10,7 @@ from anthropic import Anthropic
 
 import config
 import computer
+import control
 
 client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
@@ -46,6 +47,7 @@ def _dispatch(block, approve_bash):
 def run_turn(messages, on_text, approve_bash):
     """messages: running conversation list (mutated in place). Returns it."""
     for _ in range(config.MAX_ITERATIONS):
+        control.check()                      # bail before each model call
         resp = client.beta.messages.create(
             model=config.MODEL,
             max_tokens=config.MAX_TOKENS,

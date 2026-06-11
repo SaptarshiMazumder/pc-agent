@@ -17,6 +17,7 @@ from google.genai.types import (
     Content, Part, FunctionResponse, FunctionResponsePart, FunctionResponseBlob,
 )
 
+import control
 import gemini_computer
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-computer-use-preview-10-2025")
@@ -51,6 +52,7 @@ def add_user_text(session, text):
 
 def run_turn(session, on_text, approve_bash):
     for _ in range(MAX_ITERATIONS):
+        control.check()                      # bail before each model call
         resp = client.models.generate_content(
             model=MODEL, contents=session, config=CONFIG)
         cand = resp.candidates[0]
@@ -68,6 +70,7 @@ def run_turn(session, on_text, approve_bash):
 
         responses = []
         for fc in calls:
+            control.check()                  # bail before each action
             args = dict(fc.args or {})
             ack = None
 

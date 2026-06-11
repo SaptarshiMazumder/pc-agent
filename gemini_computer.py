@@ -4,25 +4,50 @@ actions on THIS machine via pyautogui.
 
 Gemini differs from Anthropic in two ways that matter here:
   - Coordinates are NORMALIZED to a 0-1000 grid (relative to the screenshot we
-    send), so we denormalize against the real screen size.
+    send), so we denormalize against the captured area.
   - The action vocabulary is browser-oriented (navigate / go_back / search).
     On a raw desktop we map those onto keyboard shortcuts of the focused window.
 
-We keep the screenshot's aspect ratio when downscaling, otherwise normalized
-coordinates would map to the wrong pixel.
+We drive a single TRACKED browser window (see window.py): screenshots capture
+just that window and coordinates map onto its live rectangle, so monitor layout
+and focus changes don't matter. Before a window is tracked we fall back to the
+whole virtual desktop.
 """
 import io
+import os
+import sys
 import time
-import webbrowser
 
 import pyautogui
-from PIL import Image
+from PIL import Image, ImageGrab
+
+import control
+import window
 
 pyautogui.FAILSAFE = True   # slam mouse to a corner to abort
 pyautogui.PAUSE = 0.15
 
-REAL_W, REAL_H = pyautogui.size()
-SEND_W = 1280               # width we downscale screenshots to (keeps payload small)
+# Virtual-desktop geometry — used ONLY as a fallback before a window is tracked.
+if sys.platform.startswith("win"):
+    import ctypes
+    _u = ctypes.windll.user32
+    VLEFT = _u.GetSystemMetrics(76)     # SM_XVIRTUALSCREEN (can be negative)
+    VTOP = _u.GetSystemMetrics(77)      # SM_YVIRTUALSCREEN
+    VWIDTH = _u.GetSystemMetrics(78)    # SM_CXVIRTUALSCREEN
+    VHEIGHT = _u.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
+else:
+    VLEFT, VTOP = 0, 0
+    VWIDTH, VHEIGHT = pyautogui.size()
+
+SEND_MAX = int(os.getenv("SEND_MAX", "1600"))   # cap on the longest screenshot side
+
+# How much the model sees / acts on:
+#   "auto"    -> whole desktop UNTIL a browser is opened, then lock onto that
+#                window. Best of both: sees all apps generally, focus-robust on
+#                the browser once it matters. Default.
+#   "window"  -> always prefer the tracked window (desktop only before one exists).
+#   "desktop" -> always the whole virtual desktop, every app and monitor.
+CAPTURE_MODE = os.getenv("CAPTURE_MODE", "auto").lower()
 
 # Gemini key_combination uses names like "Control+A". Map to pyautogui names.
 KEY_MAP = {
@@ -40,29 +65,72 @@ def _key(token: str) -> str:
     return KEY_MAP.get(token.strip().lower(), token.strip().lower())
 
 
+def _desktop_rect():
+    return (VLEFT, VTOP, VWIDTH, VHEIGHT)
+
+
+def _use_window() -> bool:
+    """True when we should drive a single tracked window rather than the desktop."""
+    return CAPTURE_MODE != "desktop" and window.rect() is not None
+
+
+def _active_rect():
+    """The (left, top, width, height) the coordinates are normalized over."""
+    return window.rect() if _use_window() else _desktop_rect()
+
+
+def _capture_area():
+    """Return (PIL image, rect) for the area we drive: the tracked window in
+    'window' mode, or the whole virtual desktop in 'desktop' mode."""
+    if _use_window():
+        window.focus()                     # ensure our window is on top & unoccluded
+        rect = window.rect()
+        l, t, w, h = rect
+        if sys.platform.startswith("win"):
+            img = ImageGrab.grab(bbox=(l, t, l + w, t + h), all_screens=True)
+        else:
+            img = pyautogui.screenshot(region=(l, t, w, h))
+        return img, rect
+    if sys.platform.startswith("win"):
+        img = ImageGrab.grab(all_screens=True)
+    else:
+        img = pyautogui.screenshot()
+    return img, _desktop_rect()
+
+
 def screenshot_bytes() -> bytes:
-    """Downscaled PNG of the real screen, aspect ratio preserved."""
-    img = pyautogui.screenshot()
-    h = int(SEND_W * REAL_H / REAL_W)
-    img = img.resize((SEND_W, h), Image.LANCZOS)
+    """PNG of the tracked window (or full desktop fallback), capped at SEND_MAX on
+    the longest side, aspect ratio preserved."""
+    img, _ = _capture_area()
+    scale = min(1.0, SEND_MAX / max(img.width, img.height))
+    if scale < 1.0:
+        img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
 
 def _real(x, y):
-    """Normalized 0-1000 -> real pixel coordinate."""
-    return int(x / 1000 * REAL_W), int(y / 1000 * REAL_H)
+    """Normalized 0-1000 (over the captured area) -> absolute screen pixel."""
+    l, t, w, h = _active_rect()
+    return int(l + x / 1000 * w), int(t + y / 1000 * h)
+
+
+# Actions that handle their own focus/launch — don't pre-focus these.
+_SELF_FOCUS = {"open_web_browser", "navigate", "wait_5_seconds"}
 
 
 def execute(name: str, args: dict) -> dict:
     """Run one Gemini action. Return a small result dict (empty = ok)."""
+    control.check()                  # bail before physically touching the machine
+    # In window mode, re-assert focus on OUR tracked window so input lands there
+    # regardless of what may have stolen focus. In desktop mode we leave focus
+    # alone — the model acts on whatever app it sees.
+    if _use_window() and name not in _SELF_FOCUS:
+        window.focus()
     try:
         if name == "open_web_browser":
-            # NOT about:blank — Windows has no handler for the about: scheme and
-            # pops a "find an app" dialog. A real https page launches the browser.
-            webbrowser.open("https://www.google.com", new=1)
-            time.sleep(2.0)
+            window.open_and_track("https://www.google.com")
 
         elif name == "click_at":
             pyautogui.click(*_real(args["x"], args["y"]))
@@ -103,10 +171,15 @@ def execute(name: str, args: dict) -> dict:
             else:
                 pyautogui.hscroll(mag if d == "right" else -mag)
 
-        elif name == "navigate":          # focus address bar, type URL, go
+        elif name == "navigate":          # focus tracked window, then address bar
+            url = args.get("url", "")
+            if window.have_target():
+                window.focus()
+            else:                          # no browser tracked yet → open & track
+                window.open_and_track(url)
             pyautogui.hotkey("ctrl", "l")
             time.sleep(0.2)
-            pyautogui.write(args.get("url", ""), interval=0.01)
+            pyautogui.write(url, interval=0.01)
             pyautogui.press("enter")
             time.sleep(1.5)
 
