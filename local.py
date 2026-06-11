@@ -21,6 +21,11 @@ import os
 import sys
 import threading
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")   # never crash on emoji on cp1252
+except Exception:
+    pass
+
 import control
 
 

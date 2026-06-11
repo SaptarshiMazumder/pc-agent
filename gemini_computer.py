@@ -43,11 +43,13 @@ SEND_MAX = int(os.getenv("SEND_MAX", "1600"))   # cap on the longest screenshot 
 
 # How much the model sees / acts on:
 #   "auto"    -> whole desktop UNTIL a browser is opened, then lock onto that
-#                window. Best of both: sees all apps generally, focus-robust on
-#                the browser once it matters. Default.
+#                window. Sees all apps generally, focus-robust on the browser.
 #   "window"  -> always prefer the tracked window (desktop only before one exists).
 #   "desktop" -> always the whole virtual desktop, every app and monitor.
-CAPTURE_MODE = os.getenv("CAPTURE_MODE", "auto").lower()
+# Default tracks the computer-use environment: a desktop agent should see the
+# whole desktop; a browser agent benefits from window-tracking ("auto").
+_ENV = os.getenv("COMPUTER_ENV", "desktop").lower()
+CAPTURE_MODE = os.getenv("CAPTURE_MODE", "desktop" if _ENV == "desktop" else "auto").lower()
 
 # Gemini key_combination uses names like "Control+A". Map to pyautogui names.
 KEY_MAP = {

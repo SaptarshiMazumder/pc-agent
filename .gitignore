@@ -23,6 +23,9 @@ yarn-error.log*
 .env
 .env.local
 *.local
+credentials.json
+token.json
+run.log
 
 # Claude / editor / tooling
 .claude/

@@ -10,6 +10,8 @@ A "session" here is a list of google.genai Content objects (not Anthropic dicts)
 built by new_session() / add_user_text() below.
 """
 import os
+import socket
+import time
 
 from google import genai
 from google.genai import types
@@ -26,16 +28,57 @@ MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "40"))
 _API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 client = genai.Client(api_key=_API_KEY)
 
+_ENVS = {
+    "browser": types.Environment.ENVIRONMENT_BROWSER,
+    "desktop": types.Environment.ENVIRONMENT_DESKTOP,
+    "mobile": types.Environment.ENVIRONMENT_MOBILE,
+}
+# "desktop" makes Gemini a whole-computer agent (taskbar, native apps), not just
+# a browser. "browser" restricts it to web pages. Default desktop — this project
+# drives the real machine.
+COMPUTER_ENV = os.getenv("COMPUTER_ENV", "desktop").lower()
+
 CONFIG = types.GenerateContentConfig(
     system_instruction=(
-        "You control the user's real computer through the computer-use tool. "
-        "Look at each screenshot, then take ONE action at a time, re-checking the "
-        "new screenshot before the next. Be concise. If a task is ambiguous or "
-        "destructive, stop and ask before proceeding."
+        "You control the user's ENTIRE computer — mouse, keyboard, and screen — "
+        "not just a web browser. To open an application (e.g. Teams, Slack, a "
+        "file manager), click its icon on the taskbar or desktop, or use the "
+        "Start menu. Only open a web browser when the task genuinely needs a "
+        "website. Take a screenshot first to see the current state, act ONE step "
+        "at a time, and re-check the new screenshot before the next. Be concise. "
+        "If a task is ambiguous or destructive, stop and ask before proceeding."
     ),
     tools=[types.Tool(computer_use=types.ComputerUse(
-        environment=types.Environment.ENVIRONMENT_BROWSER))],
+        environment=_ENVS.get(COMPUTER_ENV, types.Environment.ENVIRONMENT_DESKTOP)))],
 )
+
+
+_TRANSIENT = (socket.gaierror, ConnectionError, TimeoutError)
+
+
+def _is_transient(e: Exception) -> bool:
+    if isinstance(e, _TRANSIENT):
+        return True
+    s = (type(e).__name__ + " " + str(e)).lower()
+    return any(k in s for k in (
+        "getaddrinfo", "temporarily", "timeout", "timed out", "connection",
+        "unavailable", "reset", "502", "503", "504", "429"))
+
+
+def generate(model, contents, config, attempts=4):
+    """client.models.generate_content with retry+backoff on transient network
+    errors (DNS blips, timeouts, 5xx). Non-transient errors raise immediately."""
+    delay = 1.0
+    for i in range(attempts):
+        control.check()
+        try:
+            return client.models.generate_content(
+                model=model, contents=contents, config=config)
+        except Exception as e:               # noqa: BLE001
+            if i == attempts - 1 or not _is_transient(e):
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 8.0)
 
 
 def new_session():
@@ -53,8 +96,7 @@ def add_user_text(session, text):
 def run_turn(session, on_text, approve_bash):
     for _ in range(MAX_ITERATIONS):
         control.check()                      # bail before each model call
-        resp = client.models.generate_content(
-            model=MODEL, contents=session, config=CONFIG)
+        resp = generate(MODEL, session, CONFIG)
         cand = resp.candidates[0]
         session.append(cand.content)
 
