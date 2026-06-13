@@ -29,29 +29,32 @@ _SCHEMA = types.Schema(
 )
 
 _TOOLS_NOTE = (
-    "Tools: run_shell (PowerShell/bash), read_file (plain text), read_document "
-    "(PDF/Word/text — use for CVs, resumes, any document), write_file, list_dir, "
-    "web_search, fetch_url, gmail/calendar (read), use_computer_visually (drives "
-    "the real screen/browser; ~10x slower than the rest).\n"
-    "Distinction: PUBLIC info (jobs, research, comparisons) lives on the open web "
-    "-> web_search + fetch_url. The USER'S OWN logged-in data (their YouTube "
-    "history, Gmail) needs their account -> API or use_computer_visually on the "
-    "direct page (e.g. youtube.com/feed/history); never bulk exports/Takeout."
+    "Tools: run_shell (PowerShell/bash), read_file (text), read_document (PDF/Word "
+    "— CVs, docs), write_file, list_dir, find_file (locate files fast), web_search "
+    "(quick facts), fetch_url (static page), a WEB BROWSER (web_open → web_snapshot "
+    "→ web_click/web_fill/web_press → re-snapshot → web_close; CDP + accessibility "
+    "@refs, for any site incl. logged-in pages), gmail/calendar (read), "
+    "use_computer_visually (LAST RESORT, ~10x slower — native DESKTOP apps only, "
+    "NEVER websites).\n"
+    "Routing: anything on the web -> the web browser loop (or web_search for a "
+    "quick fact); files -> read_document/find_file; system -> run_shell; native "
+    "desktop GUI -> use_computer_visually. Never use the visual tool for websites; "
+    "navigate straight to a target URL rather than operating a site's UI."
 )
 
 _POSTURE = {
     "accuracy": (
-        "PRIORITIZE ACCURACY over speed. NEVER answer a factual or current-info "
-        "task from the model's memory — memory is often outdated or fabricated "
-        "(that is the failure to avoid). ALWAYS ground in real, current sources: "
-        "web_search, then fetch_url the ACTUAL pages to read real entries; when "
-        "the real data only lives behind a site the agent must operate (or search "
-        "can't reach it), use use_computer_visually to read it directly — the "
-        "extra time is acceptable. Gather from MULTIPLE sources, capture a SOURCE "
-        "URL for every item/fact, and include ONLY items actually found on a real "
-        "page — never plausible guesses. For a 'list of N' task, keep going across "
-        "sources until you have N real, verified entries (or report how many you "
-        "could actually verify)."
+        "GROUND THE FACTS, THEN BE DECISIVE. The factual LIST — the actual items "
+        "and their real URLs — must come from real, current pages, never from "
+        "memory: web_open the site's SEARCH-RESULTS URL and read the whole list "
+        "from that snapshot (it carries the page TEXT + links); fetch_url only for "
+        "a specific static page. Capture a SOURCE URL for every item; for a 'list "
+        "of N', keep going until you have N verified entries (or report how many). "
+        "But the ANALYSIS the user wants — fit scores, rankings, salary/value "
+        "ESTIMATES — is yours to give from market knowledge even when the page "
+        "omits it; just LABEL estimates as estimates. Aim for a complete, "
+        "confident, ranked answer, not hedging — only stop short when a real "
+        "blocker (login/captcha/2FA) prevents getting the underlying facts."
     ),
     "speed": (
         "Prefer the FASTEST adequate method. Answering from knowledge is fine for "

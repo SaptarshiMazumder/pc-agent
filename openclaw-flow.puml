@@ -1,0 +1,275 @@
+@startuml openclaw-agentic-flow
+' ============================================================================
+'  OpenClaw — full agentic flow, terminal input -> final terminal output
+'  Style: layered component/flow diagram (read top -> bottom)
+'  Render:  plantuml openclaw-flow.puml   (or paste into plantuml.com/plantuml)
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #666666
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title OpenClaw — Agentic Execution Flow (Terminal session)\nFrom keystroke in the TUI to the streamed final answer
+
+' ===========================================================================
+' LAYER 1 — CLIENT (terminal)
+' ===========================================================================
+package "LAYER 1 · TERMINAL CLIENT (user's process)" #E8F0FE {
+  rectangle "**entry.ts → runCli()**\n<i>src/cli/run-main.ts</i>\nparses argv, picks the\n`tui` / `chat` subcommand" as ENTRY #DCEBFF
+  rectangle "**runTui()**\n<i>src/tui/tui.ts</i>\ndraws the terminal UI,\nowns the input editor" as TUI #DCEBFF
+  rectangle "**createEditorSubmitHandler()**\n<i>src/tui/tui-submit.ts</i>\nrouter for one line of input" as SUBMIT #DCEBFF
+  rectangle "**GatewayChatClient.sendChat()**\n<i>src/tui/gateway-chat.ts</i>\nwraps text into RPC frame\n{sessionKey, message, idempotencyKey}" as CHATCLIENT #DCEBFF
+}
+
+note right of SUBMIT
+  Prefix routing:
+  • "!cmd"  -> local bash line (never hits agent)
+  • "/cmd"  -> slash command (handled in client/gateway)
+  • plain text -> sendMessage()  (the agent path)
+end note
+
+' ===========================================================================
+' LAYER 2 — TRANSPORT
+' ===========================================================================
+package "LAYER 2 · TRANSPORT (WebSocket RPC)" #F3E8FF {
+  rectangle "**WebSocket frame: \"chat.send\"**\n<i>packages/gateway-protocol</i>\none persistent socket;\nsame pipe used by Discord/WA clients" as WS #ECD9FF
+}
+
+note right of WS
+  The terminal is just **one client**.
+  The gateway (next layer) is the real
+  host — this is why "everything on
+  terminal" still crosses a socket.
+end note
+
+' ===========================================================================
+' LAYER 3 — GATEWAY SERVER
+' ===========================================================================
+package "LAYER 3 · GATEWAY SERVER (the daemon / brain host)" #FDECEA {
+  rectangle "**ws message-handler**\n<i>src/gateway/server/ws-connection/</i>\nvalidates frame, dispatches RPC" as WSH #FBD9D4
+  rectangle "**chat.send handler**\n<i>src/gateway/server-methods/chat.ts</i>\n— sanitize message\n— loadSessionEntry() : sessionKey→agent\n— register ChatAbortController (1 run/session)\n— idempotency dedupe\n— **reply {runId} immediately, run async**" as CHATSEND #FBD9D4
+  rectangle "**Session store (JSONL transcript)**\n<i>…/state/sessions/<agent>/<id>.jsonl</i>\nappend-only: user / assistant /\ntool_call / tool_result rows" as SESSIONSTORE #FFE0B2
+}
+
+note right of CHATSEND
+  **Concurrency model**
+  • one active agent run per session (abort controller)
+  • idempotencyKey (runId) dedupes resend/retry
+  • client gets runId now; answer arrives via stream
+end note
+
+' ===========================================================================
+' LAYER 4 — DISPATCH / AUTO-REPLY
+' ===========================================================================
+package "LAYER 4 · DISPATCH (auto-reply pipeline)" #E6F4EA {
+  rectangle "**dispatchInboundMessage()**\n<i>src/auto-reply/dispatch.ts</i>\nbuilds a **ReplyDispatcher**\n(the streaming pipe back to client)" as DISPATCH #D4EDD9
+  rectangle "**dispatchReplyFromConfig()**\n<i>src/auto-reply/reply/dispatch-from-config.ts</i>\nruns plugin hooks, built-in commands,\nelse hands off to the agent" as DFC #D4EDD9
+  rectangle "**selectAgentHarness()**\n<i>src/agents/harness/selection.ts</i>\nembedded OpenClaw agent (default)\nor external CLI agent (Codex/Claude Code)" as HARNESS #D4EDD9
+}
+
+' ===========================================================================
+' LAYER 5 — AGENT RUN ORCHESTRATOR
+' ===========================================================================
+package "LAYER 5 · EMBEDDED AGENT RUN (orchestrator + retry loop)" #FFF4E5 {
+  rectangle "**runEmbeddedAgent()**\n<i>src/agents/embedded-agent-runner/run.ts</i>\n— enqueue on session + global lanes (serialize)\n— resolve workspace, provider, model + fallbacks\n— enter while(true) ATTEMPT loop (line ~1508)" as RUNAGENT #FFE3B3
+
+  package "Prompt assembly (each attempt)" #FFFBF0 {
+    rectangle "**buildSystemPrompt**\n<i>run/attempt-system-prompt.ts</i>\nbase rules + tool descriptions" as SYSPROMPT #FFF0CC
+    rectangle "**Workspace context**\nAGENTS.md · SOUL.md ·\nTOOLS.md · MEMORY.md" as WSFILES #FFF0CC
+    rectangle "**Skills injected**\n<i>src/skills/</i>\nname + description of each\neligible skill (INSTRUCTIONS, not tools)" as SKILLS #FFF0CC
+    rectangle "**History rebuild**\nSessionManager.open(jsonl)\n-> messages[] (all prior turns,\ntool calls + results)" as HISTORY #FFF0CC
+  }
+
+  rectangle "**runEmbeddedAttempt()**\n<i>run/attempt.ts</i>\ncreate agent session (packages/agent-core),\nregister tools, then call\n**activeSession.prompt(userText)**" as ATTEMPT #FFE3B3
+}
+
+' ===========================================================================
+' LAYER 6 — THE CORE LLM <-> TOOL LOOP
+' ===========================================================================
+package "LAYER 6 · CORE LOOP (LLM ⇄ tools, repeat until no tool calls)" #EDE7F6 {
+  rectangle "**① Build request**\nsystem prompt + messages[] + tool schemas" as L_BUILD #D8CCF0
+  rectangle "**② Stream LLM**\nprovider streamFn\n<i>packages/llm-runtime</i>\n(model from model-catalog)" as L_STREAM #D8CCF0
+  rectangle "**③ Tool calls?**\n<diamond> decision" as L_DECIDE #C9B6F0
+  rectangle "**④ beforeToolCallHook**\n<i>agent-tools.before-tool-call.ts</i>\nloop-detection · approval gate · param fixup" as L_HOOK #D8CCF0
+  rectangle "**⑤ tool.execute()**\n(toolCallId, params, signal, onUpdate)\n→ see TOOLS layer" as L_EXEC #D8CCF0
+  rectangle "**⑥ append tool_result**\nto messages[] → loop back to ①" as L_APPEND #D8CCF0
+  rectangle "**⑦ no tool calls → final text**\naccumulated assistant message" as L_FINAL #C8E6C9
+}
+
+note right of L_DECIDE
+  This is the whole "agency":
+  the model decides, per turn,
+  whether to call a tool and
+  which one. No hardcoded plan.
+  Loop continues while tool_calls
+  are present in the response.
+end note
+
+' ===========================================================================
+' LAYER 7 — TOOLS (with internal flows)
+' ===========================================================================
+package "LAYER 7 · TOOLS (registry + per-tool internals)" #E1F5FE {
+  rectangle "**Tool registry**\n<i>agent-tools.ts + openclaw-tools.ts</i>\nfiltered by **tool-policy.ts**\n(profiles: all / read-only / messages)" as REGISTRY #B3E5FC
+
+  package "browser  <i>extensions/browser/src/browser-tool.ts</i>" #E8F8FF {
+    rectangle "**action enum**\nlifecycle: start/stop/status/profiles\nnav: navigate/open/focus/close/tabs\nperceive: **snapshot**/screenshot/console\nact: **act**(click,type,fill,press,select,drag,\n      hover,wait,evaluate)/upload/dialog" as BR_ACTIONS #CFF0FF
+    rectangle "**targets**: host (your real Chrome,\nlogged-in cookies) | sandbox (Docker+noVNC)\n| node (paired device)\nvia **CDP** (Chrome DevTools Protocol)" as BR_TARGET #CFF0FF
+    rectangle "**snapshot = ARIA tree as text**\nstable element `ref`s → how the\nLLM 'sees' the page; act() targets refs.\nPage text wrapped as UNTRUSTED\n(prompt-injection guard)" as BR_SNAP #CFF0FF
+  }
+
+  package "exec / process  <i>bash-tools.exec.ts</i>" #FFF3E0 {
+    rectangle "resolve target (host/sandbox/node)\n→ approval policy (loadExecApprovals)\n→ env sanitize → preflight → spawn\n→ foreground result OR background session" as EX_FLOW #FFE6C7
+  }
+
+  package "web tools" #E8F5E9 {
+    rectangle "**web_search**\n<i>web-search/runtime.ts</i>\nprovider (Brave/…)+cache+filters" as WSEARCH #CDEBD0
+    rectangle "**web_fetch**\n<i>web-fetch/runtime.ts</i>\nHTTP→Readability→markdown,\nSSRF guard, ~750KB cap, cache" as WFETCH #CDEBD0
+  }
+
+  package "files  <i>sessions/ createCodingTools()</i>" #F3E5F5 {
+    rectangle "**read / write / edit**\nworkspace files (e.g. read your CV)" as FILES #E6CCF0
+  }
+
+  package "orchestration" #FFFDE7 {
+    rectangle "**sessions_spawn / _send / _yield**\nspawn SUB-AGENTS (own loop+session),\nmessage them, await results" as SUBAGENT #FBF7C4
+    rectangle "**cron**  schedule future/recurring runs\n**memory_search/_store**  vector DB (LanceDB)" as CRONMEM #FBF7C4
+  }
+
+  package "more" #ECEFF1 {
+    rectangle "message · tts · pdf · image/video/music\n· nodes (paired devices) · gateway (self-config)\n· skill_workshop · **MCP tools** (external servers)" as MISC #D7DEE3
+  }
+}
+
+' ===========================================================================
+' LAYER 8 — RETRY / RECOVERY DECISIONS (outer loop)
+' ===========================================================================
+package "LAYER 8 · OUTER RETRY LOGIC (after each attempt)" #FCE4EC {
+  rectangle "**context overflow?**\n→ compact.ts summarizes old turns → continue" as R_COMPACT #F8BBD0
+  rectangle "**provider/model error?**\n→ failover to fallback model → continue" as R_FAILOVER #F8BBD0
+  rectangle "**tool error (recoverable)?**\n→ retry with error context → continue" as R_TOOLERR #F8BBD0
+  rectangle "**else → RETURN result**\npayloads + meta(model,tokens,duration)" as R_RETURN #C8E6C9
+}
+
+' ===========================================================================
+' LAYER 9 — STREAM BACK + PERSIST
+' ===========================================================================
+package "LAYER 9 · OUTPUT (stream back to terminal)" #E0F2F1 {
+  rectangle "**ReplyDispatcher**\n<i>auto-reply/reply/reply-dispatcher.ts</i>\nstreams text + tool activity as events" as REPLYD #B2DFDB
+  rectangle "**gateway broadcast → chat.event**\nover the same WebSocket" as BROADCAST #B2DFDB
+  rectangle "**TUI renders live**\n<i>tui-event-handlers.ts</i>\ntext, tool runs, final answer" as TUIOUT #B2DFDB
+}
+
+' ===========================================================================
+' FLOW EDGES
+' ===========================================================================
+ENTRY --> TUI
+TUI --> SUBMIT
+SUBMIT --> CHATCLIENT : plain text
+CHATCLIENT --> WS
+WS --> WSH
+WSH --> CHATSEND
+CHATSEND <--> SESSIONSTORE : load / append
+CHATSEND --> DISPATCH : async (after runId reply)
+
+DISPATCH --> DFC
+DFC --> HARNESS
+HARNESS --> RUNAGENT
+
+RUNAGENT --> SYSPROMPT
+SYSPROMPT .. WSFILES
+SYSPROMPT .. SKILLS
+RUNAGENT --> HISTORY
+SYSPROMPT --> ATTEMPT
+HISTORY --> ATTEMPT
+ATTEMPT --> L_BUILD
+
+L_BUILD --> L_STREAM
+L_STREAM --> L_DECIDE
+L_DECIDE --> L_HOOK : yes (tool_calls)
+L_HOOK --> L_EXEC
+L_EXEC --> REGISTRY
+L_EXEC --> L_APPEND
+L_APPEND --> L_BUILD : loop
+L_DECIDE --> L_FINAL : no tool calls
+
+' tool registry to tools
+REGISTRY ..> BR_ACTIONS
+REGISTRY ..> EX_FLOW
+REGISTRY ..> WSEARCH
+REGISTRY ..> WFETCH
+REGISTRY ..> FILES
+REGISTRY ..> SUBAGENT
+REGISTRY ..> CRONMEM
+REGISTRY ..> MISC
+BR_ACTIONS --> BR_TARGET
+BR_TARGET --> BR_SNAP
+
+' attempt outcome to outer retry
+L_FINAL --> R_COMPACT : attempt done
+ATTEMPT --> R_COMPACT : (errors/overflow)
+R_COMPACT --> ATTEMPT : continue
+R_FAILOVER --> ATTEMPT : continue
+R_TOOLERR --> ATTEMPT : continue
+R_COMPACT --> R_FAILOVER
+R_FAILOVER --> R_TOOLERR
+R_TOOLERR --> R_RETURN
+
+' streaming (live during loop + final)
+L_STREAM ..> REPLYD : stream tokens
+L_EXEC ..> REPLYD : tool activity
+R_RETURN --> REPLYD : final payload
+REPLYD --> BROADCAST
+BROADCAST --> TUIOUT
+R_RETURN --> SESSIONSTORE : persist transcript
+
+' ===========================================================================
+' WORKED EXAMPLE (legend-style note)
+' ===========================================================================
+note as EXAMPLE #E3F2FD
+  **Worked example — "find LinkedIn jobs matching my CV"**
+  (any web+file task follows this shape)
+  1. read  → load your CV from workspace
+  2. browser navigate(host) → LinkedIn (your logged-in Chrome)
+  3. browser snapshot → ARIA tree of results, with refs
+  4. model reasons over tree, browser act(click/type) to filter
+  5. snapshot → extract listings; web_fetch for detail pages
+  6. (optional) memory_store preferences; sessions_spawn per job
+  7. loop ends when a turn has NO tool calls → that text =
+     the final ranked match, streamed to your terminal
+  ----
+  **Reservations / form-filling** = same loop, more browser
+  act(fill/select/click) + dialog/upload handling.
+end note
+EXAMPLE .. L_FINAL
+
+legend left
+  | Layer | Responsibility |
+  | 1 Client | terminal UI, input routing |
+  | 2 Transport | WebSocket RPC (chat.send) |
+  | 3 Gateway | session, abort, idempotency, persistence |
+  | 4 Dispatch | hooks, harness selection, reply pipe |
+  | 5 Run | prompt assembly, serialize, attempt loop |
+  | 6 Core loop | LLM ⇄ tool iteration (the "agency") |
+  | 7 Tools | browser / exec / web / files / sub-agents |
+  | 8 Retry | compaction · failover · tool-error recovery |
+  | 9 Output | stream + render + persist |
+endlegend
+
+@enduml

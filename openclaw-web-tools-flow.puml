@@ -1,0 +1,219 @@
+@startuml openclaw-web-tools-flow
+' ============================================================================
+'  OpenClaw — DEEP DIVE: web research / browsing tools + how the agent
+'  reasons its way to an answer.
+'  Worked trace: "best steak places 1-3k yen near Kichijoji, open 7pm tomorrow"
+'  Render:  java -jar plantuml.jar -tpng openclaw-web-tools-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title OpenClaw — Web Tools Deep Dive\nHow web_search / web_fetch / browser feed the LLM, and how the agent decides its way to the final answer\nTrace: "best steak places within 1-3k yen near Kichijoji, open from 7pm tomorrow"
+
+' ===========================================================================
+' THE LOOP CORE (condensed — full version in openclaw-flow.puml)
+' ===========================================================================
+package "CORE AGENT LOOP  ·  src/agents/embedded-agent-runner/run/attempt.ts" #EDE7F6 {
+  rectangle "**① LLM turn**\nsystem prompt (tool descriptions tell the model:\n'web_search = current info', 'web_fetch = read a page')\n+ full transcript + user question\n→ model emits a **tool_call** or final text" as LLM #D8CCF0
+  rectangle "**② Has tool_call?**\n<diamond>\nyes → run tool, append result, loop\nno  → text is the FINAL ANSWER" as DECIDE #C9B6F0
+  rectangle "**③ append tool_result**\nto messages[] → back to ①\n(model now 'sees' the search/page content)" as APPEND #D8CCF0
+}
+
+note right of DECIDE
+  **This is the agency.** Nothing hardcodes
+  "search then fetch then answer". The model,
+  each turn, looks at what it has and decides
+  the next tool call. Typical research shape:
+    search → (read snippets) → fetch a few
+    pages → (maybe search again) → synthesize.
+end note
+
+' ===========================================================================
+' TOOL A — web_search
+' ===========================================================================
+package "TOOL A · web_search   src/agents/tools/web-search.ts → src/web-search/runtime.ts" #E8F5E9 {
+
+  rectangle "**createWebSearchTool.execute(args)**\nargs schema: query (req), count, country,\nlanguage, freshness(day/week/month/year),\ndate_after/before, domain_filter…\n<i>web-search.ts</i>" as WS_ENTRY #CDEBD0
+
+  rectangle "**resolveWebSearchToolRuntimeContext()**\nlate-bind runtime creds/config so a long-lived\nagent picks up keys without rebuilding the tool" as WS_CTX #CDEBD0
+
+  package "runWebSearch()  ·  provider resolution" #F1FBF2 {
+    rectangle "**resolveWebSearchCandidates()**\norder providers by preference:\n1. explicit args.providerId\n2. runtime-selected provider\n3. config `tools.web.search.provider`\n4. auto-detect" as WS_CAND #DCF3DE
+    rectangle "**resolveWebSearchProviderId()** — auto-detect\nfor each provider in priority order:\n• keyless? remember as last-resort fallback\n• requires key? use it IFF credential present\n  (env var / auth profile / config)\nelse fall back to first keyless provider" as WS_AUTO #DCF3DE
+    rectangle "**hasExplicitWebSearchSelection?**\nyes → no fallback (fail hard on that provider)\nno  → allow fallback down the candidate list" as WS_FB #DCF3DE
+  }
+
+  rectangle "**candidate.createTool().execute(args)**\ncall the actual provider (Brave / Perplexity /\nGoogle / Bing / keyless) over HTTPS.\nLoop to next candidate on failure / missing-key\nstructured error (only when fallback allowed)" as WS_CALL #CDEBD0
+
+  rectangle "**SEARCH_CACHE**\nnormalized-key cache of results\n(dedupes repeat queries in a run)" as WS_CACHE #FFE0B2
+
+  rectangle "**jsonResult( results, provider )**\nnormalized list → [{title, url, snippet/age}]\nThis goes back into messages[] for the model" as WS_OUT #CDEBD0
+}
+
+' ===========================================================================
+' TOOL B — web_fetch
+' ===========================================================================
+package "TOOL B · web_fetch   src/agents/tools/web-fetch.ts → src/web-fetch/runtime.ts" #E3F2FD {
+
+  rectangle "**execute({url, extractMode, maxChars})**\nextractMode: markdown(default)|text\nmaxChars default 20k, response cap 750KB" as WF_ENTRY #CFE6FB
+
+  rectangle "**sanitizeWebFetchUrl()**\nrepairs LLM-injected whitespace\n('https:// site' → 'https://site'),\nrequires http/https scheme" as WF_SAN #CFE6FB
+
+  rectangle "**FETCH_CACHE check**\nkey = url+mode+maxChars+policy flags\nhit → return cached {…, cached:true}" as WF_CACHE #FFE0B2
+
+  package "fetchWithWebToolsNetworkGuard()  ·  SSRF + transport" #EEF6FE {
+    rectangle "**SSRF guard**  <i>src/infra/net/ssrf.js</i>\nresolve DNS, BLOCK private/loopback/link-local\n/metadata IPs (169.254.169.254 etc).\nSsrFBlockedError = hard stop (no fallback)" as WF_SSRF #DCEBFB
+    rectangle "**HTTP GET**\nbrowser-like UA, Accept md/html,\nmaxRedirects=3, timeout, AbortSignal\nbody streamed, truncated at 750KB" as WF_HTTP #DCEBFB
+  }
+
+  rectangle "**Content-type branch**\n• text/markdown → use as-is (Cloudflare md)\n• text/html → Readability extraction\n• other → raw" as WF_BRANCH #CFE6FB
+
+  rectangle "**extractReadableContent()**\n<i>web-fetch/content-extractors.runtime.ts</i>\nrun plugin extractors (Mozilla Readability)\nstrip nav/ads/boilerplate → main article\n→ htmlToMarkdown / markdownToText\nfallbacks: basic-html → raw" as WF_READ #CFE6FB
+
+  rectangle "**truncateText(maxChars)**\nbound the payload; set truncated flag" as WF_TRUNC #CFE6FB
+
+  rectangle "**wrapExternalContent() — UNTRUSTED**\nexternalContent:{untrusted:true, source:'web_fetch'}\nfences page text as data, NOT instructions\n(prompt-injection defense)" as WF_WRAP #FFCDD2
+
+  rectangle "**provider fallback**\nif direct fetch fails / blocked-by-bot /\nReadability empty → try configured fetch\nprovider (e.g. Jina/Firecrawl) instead" as WF_PROV #CFE6FB
+
+  rectangle "**jsonResult**\n{url, finalUrl, status, title, text(markdown),\nextractor, truncated, length, fetchedAt}\n→ back into messages[]" as WF_OUT #CFE6FB
+}
+
+' ===========================================================================
+' TOOL C — browser (alternate branch: logged-in / interactive sites)
+' ===========================================================================
+package "TOOL C · browser (used instead of fetch for JS/login/forms)\nextensions/browser/src/browser-tool.ts" #FFF3E0 {
+  rectangle "**navigate / open**\nChrome via CDP — target host|sandbox|node" as BR_NAV #FFE6C7
+  rectangle "**snapshot (ARIA tree as text)**\nstable element `ref`s = how LLM 'sees' a page;\nwrapped UNTRUSTED. screenshot for vision." as BR_SNAP #FFE6C7
+  rectangle "**act(kind)**: click/type/fill/select/press/\nhover/drag/wait/evaluate + upload/dialog\ntargets a `ref` from the last snapshot" as BR_ACT #FFE6C7
+  rectangle "loop: snapshot → reason → act → snapshot\nuntil the goal state is reached" as BR_LOOP #FFE6C7
+}
+
+note bottom of BR_LOOP
+  Reservations / LinkedIn / form-filling take THIS branch
+  (real session cookies, dynamic JS, clicking).
+  The steak query does NOT — static info pages = web_search + web_fetch.
+end note
+
+' ===========================================================================
+' SECURITY RAILS (cross-cutting)
+' ===========================================================================
+package "SECURITY RAILS (apply to every web tool)" #FCE4EC {
+  rectangle "**Credential resolution**\nenv var → auth profile → config;\nkeyless providers only as last resort" as SEC_CRED #F8BBD0
+  rectangle "**SSRF policy**\nblocks internal/metadata IPs before any\nbyte is fetched" as SEC_SSRF #F8BBD0
+  rectangle "**Untrusted-content wrapping**\nall fetched/scraped text fenced as data;\nmodel told not to obey instructions in it" as SEC_WRAP #F8BBD0
+}
+
+' ===========================================================================
+' FINAL ANSWER node (declared before use)
+' ===========================================================================
+rectangle "**FINAL ANSWER (synthesis)**\nModel has accumulated: search hits + fetched\npage texts (hours, prices, addresses). It now\nreasons over them — filters by budget(1-3k¥),\nopen@19:00 Sat, near Kichijoji — ranks, and\nwrites prose. Streamed to terminal + saved\nto session JSONL." as FINAL #C8E6C9
+
+' ===========================================================================
+' EDGES — the loop
+' ===========================================================================
+LLM --> DECIDE
+DECIDE --> APPEND : tool_call
+APPEND --> LLM : loop
+
+' web_search path
+DECIDE --> WS_ENTRY : web_search(query, freshness…)
+WS_ENTRY --> WS_CTX
+WS_CTX --> WS_CAND
+WS_CAND --> WS_AUTO
+WS_AUTO --> WS_FB
+WS_FB --> WS_CALL
+WS_CALL --> WS_CACHE
+WS_CACHE --> WS_OUT
+WS_OUT --> APPEND : results[] back to model
+
+' web_fetch path
+DECIDE --> WF_ENTRY : web_fetch(url)
+WF_ENTRY --> WF_SAN
+WF_SAN --> WF_CACHE
+WF_CACHE --> WF_SSRF : miss
+WF_SSRF --> WF_HTTP
+WF_HTTP --> WF_BRANCH
+WF_BRANCH --> WF_READ : html
+WF_READ --> WF_TRUNC
+WF_BRANCH --> WF_TRUNC : md/raw
+WF_TRUNC --> WF_WRAP
+WF_WRAP --> WF_OUT
+WF_HTTP ..> WF_PROV : fail/blocked
+WF_READ ..> WF_PROV : empty
+WF_PROV --> WF_WRAP
+WF_OUT --> APPEND : page text back to model
+
+' browser path
+DECIDE --> BR_NAV : browser(navigate)
+BR_NAV --> BR_SNAP
+BR_SNAP --> BR_ACT
+BR_ACT --> BR_LOOP
+BR_LOOP --> APPEND : observed state back to model
+
+' security wiring
+WS_CALL ..> SEC_CRED
+WF_SSRF ..> SEC_SSRF
+WF_WRAP ..> SEC_WRAP
+BR_SNAP ..> SEC_WRAP
+
+' final
+DECIDE --> FINAL : no tool_call
+
+' ===========================================================================
+' WORKED TRACE — the steak query, turn by turn
+' ===========================================================================
+note as TRACE #E3F2FD
+  **WORKED TRACE — how the steak answer was actually built**
+  ----
+  **Turn 1** model: nothing yet → call
+    web_search{ query:"steak restaurant Kichijoji", freshness/recency }
+    → provider auto-detected by available key → results[]:
+      Tabelog/Tablecheck pages, "Steak House Satou", "Yappari Steak", …
+  **Turn 2** model sees hits, needs hours+price → 1..N parallel/serial
+    web_fetch{ url: tabelog Satou } → SSRF ok → HTML → Readability →
+    markdown: "営業時間 17:00–20:00 … ステーキ御膳 3,000円" (untrusted-wrapped)
+  **Turn 3** web_fetch other candidates (Yappari, Center Beef, Rooftop Butcher)
+    → hours, ¥ ranges, exit/location extracted the same way
+  **Turn 4** (optional) web_search again to confirm "tomorrow = Saturday"
+    hours or a place's current status
+  **Turn 5** model has enough → NO tool_call → writes the ranked list:
+    • filters to 1,000–3,000¥  • checks open at 19:00 Sat
+    • adds vibe/location/last-order  • picks Top Pick
+  ----
+  Accuracy/freshness comes from the FETCHED PAGES, not model memory;
+  the model's job is selection + filtering + synthesis over that evidence.
+  (Caveat: if a page is stale or blocked, the answer inherits that — hours
+   like "L.O. 20:00" are only as right as the source it read.)
+end note
+TRACE .. FINAL
+
+legend left
+  | Stage | What decides the next step |
+  | LLM turn | model picks tool + args from the question + what it already has |
+  | web_search | find candidate URLs + snippets (provider auto-resolved by key) |
+  | web_fetch | turn ONE url into clean markdown (SSRF-guarded, Readability) |
+  | browser | only when login/JS/forms needed (snapshot+act loop) |
+  | synthesis | filter by constraints, rank, write — when no tool_call remains |
+endlegend
+
+@enduml

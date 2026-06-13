@@ -28,10 +28,12 @@ MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "40"))
 _API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 client = genai.Client(api_key=_API_KEY)
 
+# getattr fallbacks: some google-genai versions only ship ENVIRONMENT_BROWSER.
+_BROWSER_ENV = types.Environment.ENVIRONMENT_BROWSER
 _ENVS = {
-    "browser": types.Environment.ENVIRONMENT_BROWSER,
-    "desktop": types.Environment.ENVIRONMENT_DESKTOP,
-    "mobile": types.Environment.ENVIRONMENT_MOBILE,
+    "browser": _BROWSER_ENV,
+    "desktop": getattr(types.Environment, "ENVIRONMENT_DESKTOP", _BROWSER_ENV),
+    "mobile": getattr(types.Environment, "ENVIRONMENT_MOBILE", _BROWSER_ENV),
 }
 # "desktop" makes Gemini a whole-computer agent (taskbar, native apps), not just
 # a browser. "browser" restricts it to web pages. Default desktop — this project
@@ -49,7 +51,7 @@ CONFIG = types.GenerateContentConfig(
         "If a task is ambiguous or destructive, stop and ask before proceeding."
     ),
     tools=[types.Tool(computer_use=types.ComputerUse(
-        environment=_ENVS.get(COMPUTER_ENV, types.Environment.ENVIRONMENT_DESKTOP)))],
+        environment=_ENVS.get(COMPUTER_ENV, _BROWSER_ENV)))],
 )
 
 

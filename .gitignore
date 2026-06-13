@@ -35,3 +35,6 @@ run.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Reference material (never committed)
+reference/

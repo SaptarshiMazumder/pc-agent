@@ -1,0 +1,12 @@
+{
+  "model": "gemini/gemini-2.5-flash",
+  "host": "127.0.0.1",
+  "port": 8787,
+  "workspace": ".",
+  "state_dir": "~/.agentd",
+  "brave_api_key": null,
+  "browser_headless": true,
+  "exec_timeout_sec": 1800,
+  "max_turns": 50,
+  "agent_id": "main"
+}
