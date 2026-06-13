@@ -1,0 +1,186 @@
+@startuml agentd-flow
+' ============================================================================
+'  agentd (v2) — full backend flow, terminal input -> streamed final output
+'  Reflects the OpenClaw-faithful build: real system prompt, thinking,
+'  continuation/verification retry protocol, rich browser perception.
+'  Render (from this folder):  java -jar ../../plantuml.jar -tpng agentd-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd (v2) — Agentic Execution Flow\nTerminal query -> WebSocket gateway -> LLM⇄tool loop with continuation/verification -> streamed answer\n(faithful port of OpenClaw's answer-quality mechanics)
+
+' ===========================================================================
+' LAYER 1 — TERMINAL CLIENT
+' ===========================================================================
+package "LAYER 1 · TERMINAL CLIENT  ·  client/__main__.py" #E8F0FE {
+  rectangle "**REPL**\ninput via asyncio.to_thread(input)\ncommands: /abort /new /quit\nsessionKey = term-<uuid> (or --session)" as REPL #DCEBFF
+  rectangle "**request('chat.send', {...})**\n{sessionKey, message, idempotencyKey}\nover one WebSocket; awaits {runId}" as SEND #DCEBFF
+  rectangle "**_render(event)**\ntext_delta -> live print\n⚙ tool lines · ↻ continuation · ✗ errors" as RENDER #DCEBFF
+}
+
+' ===========================================================================
+' LAYER 2 — TRANSPORT
+' ===========================================================================
+package "LAYER 2 · TRANSPORT (WebSocket)  ·  protocol.py" #F3E8FF {
+  rectangle "**frames**: req / res / event\nchat.send · chat.abort · sessions.list\nevents broadcast as 'chat.event'" as WS #ECD9FF
+}
+
+' ===========================================================================
+' LAYER 3 — GATEWAY
+' ===========================================================================
+package "LAYER 3 · GATEWAY  ·  gateway.py" #FDECEA {
+  rectangle "**_chat_send()**\n— reject if session has an active run\n— idempotencyKey dedupe\n— reply {runId} now, run async (create_task)" as CHATSEND #FBD9D4
+  rectangle "**_run()**\nload session JSONL -> messages[]\nappend user msg -> build system prompt\nstream_fn = partial(litellm_stream, reasoning_effort)" as RUN #FBD9D4
+  rectangle "**_chat_abort()** -> abort Event + task.cancel\n**_broadcast()** -> events to all clients (prune dead)" as ABORT #FBD9D4
+  rectangle "**Session JSONL**  ·  session.py\n~/.agentd/sessions/<key>.jsonl\nheader + linear message chain (replayed on load)" as STORE #FFE0B2
+}
+
+' ===========================================================================
+' LAYER 4 — SYSTEM PROMPT
+' ===========================================================================
+package "LAYER 4 · SYSTEM PROMPT  ·  prompt.py (verbatim OpenClaw text)" #FFF4E5 {
+  rectangle "identity · **## Tooling** (+ browser operating-loop block)\n**## Tool Call Style** · **## Execution Bias** (7 bullets:\n'continue until done', 'vary source on weak result')\n**## Safety** · ## Workspace · Date · **## Runtime** (thinking=medium)" as PROMPT #FFE3B3
+  rectangle "Project Context\nAGENTS.md / SOUL.md / MEMORY.md (if present)" as CTX #FFE3B3
+}
+
+' ===========================================================================
+' LAYER 5 — CORE LOOP + CONTINUATION PROTOCOL
+' ===========================================================================
+package "LAYER 5 · AGENT LOOP  ·  loop.py  (cap = min(160, max(32, 24+8·profiles)) = 32)" #EDE7F6 {
+  rectangle "**① stream LLM**  llm.py litellm_stream\nsystem + history + tool schemas\nLiteLLM acompletion(stream, reasoning_effort)\nemits thinking_delta / text_delta / toolcall_end" as L_STREAM #D8CCF0
+  rectangle "**② tool calls?**\n<diamond>" as L_DECIDE #C9B6F0
+  rectangle "**③ execute tool calls**  _execute_tool_calls\nparallel (gather) for read/web_*;\nsequential for exec/edit/write/browser\nappend tool_result msgs in source order -> ①" as L_EXEC #D8CCF0
+
+  package "no tool calls -> is the turn actually complete?  ·  incomplete_turn.py" #F3EFFc {
+    rectangle "**classify_incomplete_turn(assistant)**\n• planning_only (promise+action verb, <700c)  limit 1\n• reasoning_only (thinking, no text)            limit 2\n• empty_response (nothing, stop)                limit 1\n-> inject VERBATIM retry instruction, continue ①" as L_CLASSIFY #E0D4F5
+    rectangle "**get_follow_up_messages()** (hook)\ninject follow-ups -> continue" as L_FOLLOW #E0D4F5
+    rectangle "**verify_answer(messages)** (hook, ≤3)\nrevision reason -> inject before-finalize prompt -> ①" as L_VERIFY #E0D4F5
+  }
+
+  rectangle "**FINAL** — genuine answer\n(or fallback text if nothing visible)\nstop_reason in stop/length/error/aborted" as L_FINAL #C8E6C9
+}
+
+note right of L_CLASSIFY
+  The fix that makes it thorough:
+  a no-tool-call turn is NOT auto-final.
+  If it's just a plan / pure reasoning /
+  empty, a typed instruction is injected
+  and the loop continues — so it keeps
+  going until it genuinely satisfies the
+  request (this is why "show me 5" -> 5).
+end note
+
+' ===========================================================================
+' LAYER 6 — TOOLS
+' ===========================================================================
+package "LAYER 6 · TOOLS  ·  tools/  (validated vs JSON schema)" #E1F5FE {
+  rectangle "**files**  read · write · edit\n(edit: exact-unique match + diff)" as T_FILES #B3E5FC
+  rectangle "**exec / process**  bash-tools\nshell, timeout, middle-truncate, background sessions" as T_EXEC #B3E5FC
+  rectangle "**web_search**  Brave (key) -> DuckDuckGo, TTL cache, count=10\n**web_fetch**  httpx -> readability/trafilatura -> markdown" as T_WEB #B3E5FC
+
+  package "browser  ·  tools/browser.py (Playwright)" #E8F8FF {
+    rectangle "**snapshot** ARIA tree -> [ref=eN]\nmode=efficient / interactive / compact / depth\n(40k cap; role sets ported verbatim)" as B_SNAP #CFF0FF
+    rectangle "**act**: click/type/fill/press/select/hover/\n**scrollIntoView**/drag/clickCoords/resize/**wait**/evaluate/**batch**\nwait: networkidle/text/selector/url/fn" as B_ACT #CFF0FF
+    rectangle "navigate · screenshot · tabs\nsettle on networkidle; stale-ref recovery" as B_NAV #CFF0FF
+  }
+}
+
+note bottom of B_ACT
+  Rich perception = the model can scroll to
+  reveal lazy-loaded items (job boards, feeds),
+  wait for networkidle, then re-snapshot — gather
+  many results instead of one shallow view.
+end note
+
+' ===========================================================================
+' LAYER 7 — OUTPUT
+' ===========================================================================
+package "LAYER 7 · OUTPUT" #E0F2F1 {
+  rectangle "**on_event -> _broadcast**\nevery loop event -> 'chat.event' frame -> all clients" as OUT #B2DFDB
+  rectangle "**persist**: each message appended to session JSONL\n(resume replays full history next run)" as PERSIST #B2DFDB
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+REPL --> SEND
+SEND --> WS
+RENDER <-- WS : chat.event stream
+WS --> CHATSEND
+CHATSEND --> RUN
+CHATSEND <--> STORE : load / dedupe
+RUN --> PROMPT
+PROMPT .. CTX
+RUN --> L_STREAM : run_agent_loop(...)
+
+L_STREAM --> L_DECIDE
+L_DECIDE --> L_EXEC : yes
+L_EXEC --> T_FILES
+L_EXEC --> T_EXEC
+L_EXEC --> T_WEB
+L_EXEC --> B_SNAP
+B_SNAP --> B_ACT
+B_ACT --> B_NAV
+L_EXEC --> L_STREAM : results -> loop
+
+L_DECIDE --> L_CLASSIFY : no tool calls
+L_CLASSIFY --> L_STREAM : inject + continue
+L_CLASSIFY --> L_FOLLOW : no retry matched
+L_FOLLOW --> L_STREAM : follow-ups -> continue
+L_FOLLOW --> L_VERIFY : none
+L_VERIFY --> L_STREAM : revision -> continue
+L_VERIFY --> L_FINAL : accept
+
+L_STREAM ..> OUT : thinking/text deltas
+L_EXEC ..> OUT : tool activity
+L_CLASSIFY ..> OUT : continuation event
+L_FINAL --> OUT : final answer
+L_FINAL --> PERSIST
+OUT --> WS
+
+' ===========================================================================
+' WORKED EXAMPLE
+' ===========================================================================
+note as EXAMPLE #E3F2FD
+  **Worked example — "find me 5 LinkedIn jobs with apply URLs"**
+  1. browser navigate -> snapshot(efficient) the search page
+  2. scrollIntoView last card -> wait networkidle -> snapshot again (reveal more)
+  3. for each job: click -> snapshot -> web_search/navigate to the REAL apply URL
+  4. self-recovers on wrong redirects ("go back and try again") — Execution Bias
+  5. continues until 5 collected (continuation protocol won't accept a short answer)
+  6. no tool calls + complete -> FINAL, streamed to terminal, saved to JSONL
+end note
+EXAMPLE .. L_FINAL
+
+legend left
+  | Layer | Responsibility |
+  | 1 Client | terminal REPL, render stream |
+  | 2 Transport | WebSocket frames |
+  | 3 Gateway | session, abort, idempotency, run lifecycle |
+  | 4 Prompt | verbatim OpenClaw operating instructions |
+  | 5 Loop | LLM⇄tools + continuation/verification retries |
+  | 6 Tools | files / exec / web / rich browser |
+  | 7 Output | broadcast stream + JSONL persist |
+endlegend
+
+@enduml

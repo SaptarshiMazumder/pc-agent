@@ -15,6 +15,7 @@ import httpx
 from . import Tool, ToolResult
 
 DEFAULT_MAX_CHARS = 20_000
+MAX_CHARS_CAP = 100_000  # allow the model to request fuller content (truncate as last resort)
 MAX_RESPONSE_BYTES = 750_000
 MAX_REDIRECTS = 3
 TIMEOUT_SEC = 30
@@ -144,7 +145,7 @@ class WebFetchTool(Tool):
             url = sanitize_url(params["url"])
         except ValueError as e:
             return ToolResult.text(str(e), is_error=True)
-        max_chars = params.get("max_chars", DEFAULT_MAX_CHARS)
+        max_chars = min(params.get("max_chars", DEFAULT_MAX_CHARS), MAX_CHARS_CAP)
         try:
             result = await fetch_url(url, max_chars)
         except httpx.HTTPError as e:

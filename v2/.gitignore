@@ -1,0 +1,22 @@
+# secrets
+.env
+
+# runtime data (sessions, screenshots)
+.agentd/
+
+# virtual environments — never commit (any name / depth)
+.venv/
+.venv
+venv/
+venv
+env/
+**/.venv/
+pyvenv.cfg
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# scratch
+tmp/

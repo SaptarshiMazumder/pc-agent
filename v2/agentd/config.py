@@ -13,35 +13,43 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# v2 project root (this file is v2/agentd/config.py). Everything agentd reads or
+# writes is anchored here so v2 is fully self-contained — it never reaches outside.
+V2_ROOT = Path(__file__).resolve().parents[1]
+
 
 @dataclass
 class Config:
-    model: str = "gemini/gemini-2.5-flash"
+    model: str = "gemini/gemini-2.5-pro"
+    reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
     workspace: Path = field(default_factory=Path.cwd)
-    state_dir: Path = field(default_factory=lambda: Path.home() / ".agentd")
+    state_dir: Path = field(default_factory=lambda: V2_ROOT / ".agentd")
     brave_api_key: str | None = None
     browser_headless: bool = True
     exec_timeout_sec: int = 1800
-    max_turns: int = 50
+    max_turns: int = 50  # legacy; the loop uses the OpenClaw iteration-cap formula
     agent_id: str = "main"
 
 
 def _load_dotenv() -> None:
-    """Load KEY=VALUE lines from ./.env or ../.env into os.environ (no override)."""
-    for candidate in (Path(".env"), Path("..") / ".env"):
-        if not candidate.is_file():
+    """Load KEY=VALUE lines from v2's own .env into os.environ (no override).
+
+    Anchored to V2_ROOT (not the cwd or any parent) so agentd uses only v2/.env
+    and never depends on a .env outside the v2 folder.
+    """
+    env_path = V2_ROOT / ".env"
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
             continue
-        for line in candidate.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key, value = key.strip(), value.strip().strip("'\"")
-            if key and value and key not in os.environ:
-                os.environ[key] = value
-        break
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -51,6 +59,7 @@ def load_config(path: Path | None = None) -> Config:
     candidates = [path] if path else [
         Path(os.environ.get("AGENTD_CONFIG", "")) if os.environ.get("AGENTD_CONFIG") else None,
         Path("agentd.config.json"),
+        V2_ROOT / "agentd.config.json",
     ]
     for candidate in candidates:
         if candidate and candidate.is_file():
@@ -64,6 +73,8 @@ def load_config(path: Path | None = None) -> Config:
 
     if os.environ.get("AGENTD_MODEL"):
         cfg.model = os.environ["AGENTD_MODEL"]
+    if os.environ.get("AGENTD_REASONING"):
+        cfg.reasoning_effort = os.environ["AGENTD_REASONING"]
     if os.environ.get("AGENTD_HOST"):
         cfg.host = os.environ["AGENTD_HOST"]
     if os.environ.get("AGENTD_PORT"):

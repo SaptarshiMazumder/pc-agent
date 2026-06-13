@@ -1,7 +1,17 @@
-# Python
+# Virtual environments — never commit, any name / any depth (with and without
+# trailing slash so they match even before the directory exists)
 .venv/
+.venv
 venv/
+venv
 env/
+ENV/
+**/.venv/
+**/venv/
+*.venv/
+pyvenv.cfg
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class

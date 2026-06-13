@@ -93,7 +93,7 @@ class WebSearchTool(Tool):
         "required": ["query"],
         "properties": {
             "query": {"type": "string", "description": "Search query."},
-            "count": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Result count (default 5)."},
+            "count": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Result count (default 10)."},
             "freshness": {
                 "type": "string",
                 "enum": ["day", "week", "month", "year"],
@@ -107,7 +107,7 @@ class WebSearchTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         query = params["query"]
-        count = params.get("count", 5)
+        count = params.get("count", 10)
         freshness = params.get("freshness")
 
         cache_key = f"{query}|{count}|{freshness}"

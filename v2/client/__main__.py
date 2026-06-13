@@ -94,6 +94,11 @@ class TerminalClient:
                 text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
                 first_line = text.splitlines()[0] if text else "error"
                 print(f"{RED}  ✗ {event.get('toolName')}: {first_line[:120]}{RESET}")
+        elif etype == "continuation":
+            if self._streamed_any_text:
+                print()
+                self._streamed_any_text = False
+            print(f"{DIM}  ↻ continue ({event.get('reason')} #{event.get('attempt')}){RESET}")
         elif etype == "agent_end":
             if self._streamed_any_text:
                 print()

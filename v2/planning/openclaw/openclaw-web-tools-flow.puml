@@ -3,7 +3,7 @@
 '  OpenClaw — DEEP DIVE: web research / browsing tools + how the agent
 '  reasons its way to an answer.
 '  Worked trace: "best steak places 1-3k yen near Kichijoji, open 7pm tomorrow"
-'  Render:  java -jar plantuml.jar -tpng openclaw-web-tools-flow.puml
+'  Render (from this folder):  java -jar ../../plantuml.jar -tpng openclaw-web-tools-flow.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA

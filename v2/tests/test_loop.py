@@ -227,6 +227,111 @@ async def test_unknown_tool():
 
 
 @pytest.mark.asyncio
+async def test_planning_only_triggers_continuation():
+    from agentd.incomplete_turn import PLANNING_ONLY_RETRY_INSTRUCTION
+
+    script = [
+        text_turn("I'll search for the files and read them to find the answer."),
+        text_turn("Found them: alpha and beta."),
+    ]
+    events, new, msgs = await collect_run(script, [])
+    # the planning-only instruction was injected as a user message
+    injected = [m for m in msgs if m.role == "user" and m.content == PLANNING_ONLY_RETRY_INSTRUCTION]
+    assert len(injected) == 1
+    # a continuation event was emitted
+    cont = [e for e in events if e.type == "continuation"]
+    assert cont and cont[0].payload["reason"] == "planning_only"
+    # and the loop continued to a real answer
+    assert msgs[-1].text == "Found them: alpha and beta."
+
+
+@pytest.mark.asyncio
+async def test_planning_only_retry_capped_at_one():
+    # both turns are plan-only; limit is 1, so it injects once then accepts the 2nd
+    script = [
+        text_turn("I'll inspect the repo and run the build."),
+        text_turn("Let me check the logs and fix the error."),
+    ]
+    events, new, msgs = await collect_run(script, [])
+    cont = [e for e in events if e.type == "continuation"]
+    assert len(cont) == 1  # capped
+
+
+@pytest.mark.asyncio
+async def test_empty_response_triggers_continuation():
+    from agentd.incomplete_turn import EMPTY_RESPONSE_RETRY_INSTRUCTION
+
+    script = [
+        [{"type": "done", "message": AssistantMessage(content=[], stop_reason="stop")}],
+        text_turn("Here is the actual answer."),
+    ]
+    events, new, msgs = await collect_run(script, [])
+    injected = [m for m in msgs if m.role == "user" and m.content == EMPTY_RESPONSE_RETRY_INSTRUCTION]
+    assert len(injected) == 1
+    assert msgs[-1].text == "Here is the actual answer."
+
+
+@pytest.mark.asyncio
+async def test_verify_answer_hook_requests_revision():
+    calls = {"n": 0}
+
+    def verify(messages):
+        calls["n"] += 1
+        return "Add more detail." if calls["n"] == 1 else None
+
+    events = []
+
+    async def on_event(ev):
+        events.append(ev)
+
+    msgs = [UserMessage(content="go")]
+    await run_agent_loop(
+        messages=msgs,
+        system_prompt="sys",
+        tools=[],
+        stream_fn=make_stream_fn([text_turn("short"), text_turn("longer answer")]),
+        model="fake",
+        on_event=on_event,
+        abort=asyncio.Event(),
+        verify_answer=verify,
+    )
+    cont = [e for e in events if e.type == "continuation" and e.payload["reason"] == "revision"]
+    assert len(cont) == 1
+    assert any(m.role == "user" and "revision request" in m.content for m in msgs)
+    assert msgs[-1].text == "longer answer"
+
+
+@pytest.mark.asyncio
+async def test_follow_up_messages_reenter_loop():
+    follow = {"sent": False}
+
+    def get_follow_ups():
+        if not follow["sent"]:
+            follow["sent"] = True
+            return [UserMessage(content="now do part two")]
+        return []
+
+    events = []
+
+    async def on_event(ev):
+        events.append(ev)
+
+    msgs = [UserMessage(content="do part one")]
+    await run_agent_loop(
+        messages=msgs,
+        system_prompt="sys",
+        tools=[],
+        stream_fn=make_stream_fn([text_turn("part one done"), text_turn("part two done")]),
+        model="fake",
+        on_event=on_event,
+        abort=asyncio.Event(),
+        get_follow_up_messages=get_follow_ups,
+    )
+    assert any(m.role == "user" and m.content == "now do part two" for m in msgs)
+    assert msgs[-1].text == "part two done"
+
+
+@pytest.mark.asyncio
 async def test_stream_error_ends_run():
     script = [
         [

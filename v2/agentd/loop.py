@@ -1,28 +1,35 @@
 """The core agent loop.
 
-Faithful port of the reference agent-loop semantics:
+Faithful port of OpenClaw's agent-loop + embedded-agent-runner continuation
+protocol. Beyond the basic ReAct cycle (LLM -> tools -> repeat), it adds:
 
-  emit agent_start
-  while turn < max_turns:
-      emit turn_start, message_start
-      stream LLM -> forward deltas as message_update -> AssistantMessage
-      persist; emit message_end
-      if no tool calls or terminal stop reason: emit turn_end; break
-      validate + execute tool calls (parallel batch / sequential in order)
-      append ToolResultMessages in assistant source order; emit turn_end
-  emit agent_end {stopReason}
+  - steering messages injected before the first turn (get_steering_messages)
+  - typed incomplete-turn retries after a no-tool-call turn:
+      planning-only / reasoning-only / empty-response  (incomplete_turn.py)
+  - follow-up message injection after a turn would end (get_follow_up_messages)
+  - a before-finalize revision hook (verify_answer) — up to 3 revisions
+  - OpenClaw's iteration cap (min(160, max(32, 24 + 8*profiles)))
 
-The stream function never raises: provider errors arrive as an
-AssistantMessage with stop_reason "error"/"aborted".
+Injected instructions are appended as synthetic user messages and the loop
+continues, exactly like OpenClaw re-prompting the model to keep going.
 """
 
 from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import Any, AsyncIterator, Callable, Protocol
+from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 
 from .events import AgentEvent, EventCallback
+from .incomplete_turn import (
+    INCOMPLETE_TURN_FALLBACK_TEXT,
+    MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
+    RETRY_INSTRUCTIONS,
+    RETRY_LIMITS,
+    build_before_finalize_retry_prompt,
+    classify_incomplete_turn,
+    resolve_max_run_loop_iterations,
+)
 from .session import SessionStore
 from .types import (
     AssistantMessage,
@@ -30,6 +37,7 @@ from .types import (
     TextContent,
     ToolCallContent,
     ToolResultMessage,
+    UserMessage,
     message_to_dict,
 )
 from .tools import Tool, ToolArgError, ToolResult, validate_args
@@ -47,7 +55,17 @@ class StreamFn(Protocol):
     ) -> AsyncIterator[dict[str, Any]]: ...
 
 
+# Stop reasons that end a turn without tool execution.
 TERMINAL_STOP_REASONS = ("stop", "length", "error", "aborted")
+
+FollowUpFn = Callable[[], Awaitable[list[Message]] | list[Message]]
+VerifyFn = Callable[[list[Message]], Awaitable[str | None] | str | None]
+
+
+async def _maybe_await(value):
+    if asyncio.iscoroutine(value):
+        return await value
+    return value
 
 
 async def run_agent_loop(
@@ -60,13 +78,21 @@ async def run_agent_loop(
     on_event: EventCallback,
     abort: asyncio.Event,
     session: SessionStore | None = None,
-    max_turns: int = 50,
+    max_iterations: int | None = None,
+    get_steering_messages: FollowUpFn | None = None,
+    get_follow_up_messages: FollowUpFn | None = None,
+    verify_answer: VerifyFn | None = None,
 ) -> list[Message]:
-    """Run the loop until the model stops calling tools. Mutates `messages`
-    in place and returns only the messages produced by this run."""
+    """Run the loop until the model produces a genuine final answer (or limits
+    are hit). Mutates `messages` in place; returns only messages produced here."""
     tool_map = {t.name: t for t in tools}
     new_messages: list[Message] = []
     stop_reason = "stop"
+    max_iters = max_iterations or resolve_max_run_loop_iterations(1)
+
+    retry_counts = {k: 0 for k in RETRY_LIMITS}
+    finalize_revisions = 0
+    produced_visible_text = False
 
     def persist(m: Message) -> None:
         messages.append(m)
@@ -74,9 +100,19 @@ async def run_agent_loop(
         if session is not None:
             session.append(m)
 
+    def inject(text: str) -> None:
+        persist(UserMessage(content=text))
+
     await on_event(AgentEvent("agent_start", {}))
     try:
-        for _turn in range(max_turns):
+        # Steering messages injected before the first turn (OpenClaw outer-loop start).
+        if get_steering_messages is not None:
+            for m in await _maybe_await(get_steering_messages()) or []:
+                persist(m)
+
+        iterations = 0
+        while iterations < max_iters:
+            iterations += 1
             await on_event(AgentEvent("turn_start", {}))
             await on_event(AgentEvent("message_start", {"role": "assistant"}))
 
@@ -108,31 +144,81 @@ async def run_agent_loop(
                     stop_reason="error", error_message="stream ended without result"
                 )
             persist(assistant)
-            await on_event(
-                AgentEvent("message_end", {"message": message_to_dict(assistant)})
-            )
+            if assistant.text.strip():
+                produced_visible_text = True
+            await on_event(AgentEvent("message_end", {"message": message_to_dict(assistant)}))
 
-            tool_calls = assistant.tool_calls
-            if not tool_calls or assistant.stop_reason in TERMINAL_STOP_REASONS:
-                stop_reason = assistant.stop_reason
+            if abort.is_set() or assistant.stop_reason == "aborted":
+                stop_reason = "aborted"
                 await on_event(AgentEvent("turn_end", {}))
                 break
 
-            results = await _execute_tool_calls(tool_calls, tool_map, abort, on_event)
-            for r in results:  # assistant source order
-                persist(r)
-                await on_event(AgentEvent("message_end", {"message": message_to_dict(r)}))
+            tool_calls = assistant.tool_calls
+            if tool_calls and assistant.stop_reason not in ("error", "aborted"):
+                results = await _execute_tool_calls(tool_calls, tool_map, abort, on_event)
+                for r in results:  # assistant source order
+                    persist(r)
+                    await on_event(AgentEvent("message_end", {"message": message_to_dict(r)}))
+                await on_event(AgentEvent("turn_end", {}))
+                if abort.is_set():
+                    stop_reason = "aborted"
+                    break
+                continue  # back to the model with tool results
+
+            # --- No tool calls: the turn would normally end. Decide if it's complete. ---
             await on_event(AgentEvent("turn_end", {}))
 
-            if abort.is_set():
-                stop_reason = "aborted"
+            if assistant.stop_reason in ("error",):
+                stop_reason = "error"
                 break
+
+            # 1. Typed incomplete-turn retries (planning/reasoning/empty).
+            kind = classify_incomplete_turn(assistant)
+            if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
+                retry_counts[kind] += 1
+                await on_event(
+                    AgentEvent("continuation", {"reason": kind, "attempt": retry_counts[kind]})
+                )
+                inject(RETRY_INSTRUCTIONS[kind])
+                continue
+
+            # 2. Follow-up message injection (harness-driven continuation).
+            if get_follow_up_messages is not None:
+                follow_ups = await _maybe_await(get_follow_up_messages()) or []
+                if follow_ups:
+                    for m in follow_ups:
+                        persist(m)
+                    continue
+
+            # 3. Before-finalize revision hook.
+            if verify_answer is not None and finalize_revisions < MAX_BEFORE_AGENT_FINALIZE_REVISIONS:
+                reason = await _maybe_await(verify_answer(messages))
+                if reason:
+                    finalize_revisions += 1
+                    await on_event(
+                        AgentEvent("continuation", {"reason": "revision", "attempt": finalize_revisions})
+                    )
+                    inject(build_before_finalize_retry_prompt(reason))
+                    continue
+
+            # Genuinely done.
+            stop_reason = assistant.stop_reason
+            break
         else:
-            stop_reason = "stop"  # max_turns exhausted
+            stop_reason = "length"  # iteration cap exhausted
     except asyncio.CancelledError:
         abort.set()
         await on_event(AgentEvent("agent_end", {"stopReason": "aborted"}))
         raise
+
+    # Fallback text when a run produced no user-visible answer at all.
+    if not produced_visible_text and stop_reason not in ("aborted",):
+        fallback = AssistantMessage(
+            content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason=stop_reason
+        )
+        persist(fallback)
+        await on_event(AgentEvent("message_end", {"message": message_to_dict(fallback)}))
+
     await on_event(AgentEvent("agent_end", {"stopReason": stop_reason}))
     return new_messages
 

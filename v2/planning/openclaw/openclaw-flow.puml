@@ -2,7 +2,7 @@
 ' ============================================================================
 '  OpenClaw — full agentic flow, terminal input -> final terminal output
 '  Style: layered component/flow diagram (read top -> bottom)
-'  Render:  plantuml openclaw-flow.puml   (or paste into plantuml.com/plantuml)
+'  Render (from this folder):  java -jar ../../plantuml.jar -tpng openclaw-flow.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA

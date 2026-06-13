@@ -10,6 +10,7 @@ Mirrors the reference gateway's chat.send semantics:
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -144,22 +145,27 @@ class Gateway:
         messages.append(user_msg)
         session.append(user_msg)
 
-        system_prompt = build_system_prompt(self.config, self.tools, self.config.model)
+        system_prompt = build_system_prompt(
+            self.config, self.tools, self.config.model, self.config.reasoning_effort
+        )
 
         async def on_event(event: AgentEvent) -> None:
             await self._broadcast(handle.session_key, handle.run_id, event)
+
+        stream_fn = functools.partial(
+            litellm_stream, reasoning_effort=self.config.reasoning_effort
+        )
 
         try:
             await run_agent_loop(
                 messages=messages,
                 system_prompt=system_prompt,
                 tools=self.tools,
-                stream_fn=litellm_stream,
+                stream_fn=stream_fn,
                 model=self.config.model,
                 on_event=on_event,
                 abort=handle.abort,
                 session=session,
-                max_turns=self.config.max_turns,
             )
         except asyncio.CancelledError:
             pass  # abort already broadcast agent_end(aborted) from the loop

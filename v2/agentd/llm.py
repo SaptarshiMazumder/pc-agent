@@ -137,6 +137,7 @@ async def litellm_stream(
     tools,
     abort: asyncio.Event,
     temperature: float | None = None,
+    reasoning_effort: str = "off",
 ) -> AsyncIterator[dict[str, Any]]:
     import litellm
 
@@ -162,6 +163,11 @@ async def litellm_stream(
             kwargs["tools"] = lite_tools
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if reasoning_effort and reasoning_effort != "off":
+            # LiteLLM maps reasoning_effort to each provider's thinking control
+            # (Gemini thinking budget, Anthropic thinking, OpenAI reasoning).
+            kwargs["reasoning_effort"] = reasoning_effort
+            kwargs["allowed_openai_params"] = ["reasoning_effort"]
 
         response = await litellm.acompletion(**kwargs)
         async for chunk in response:
