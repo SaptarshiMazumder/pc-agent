@@ -11,12 +11,42 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import fnmatch
+import os
+import sys
 from pathlib import Path
 
 from . import Tool, ToolResult
 
 MAX_READ_CHARS = 100_000
 MAX_LINE_CHARS = 2_000
+# Recursive search skips these noise/heavy/system dirs for speed (does NOT
+# restrict access — any absolute path is still readable, and you can search any
+# root). These are generic folder NAMES, identical on every machine.
+FIND_SKIP_DIRS = {
+    # caches / dev noise
+    "appdata", "node_modules", ".git", ".venv", "venv", "__pycache__",
+    ".cache", "$recycle.bin", "system volume information",
+    ".vscode", ".cursor", ".idea", "site-packages", ".npm", ".nuget",
+    # OS / program dirs (only relevant when scanning a whole drive)
+    "windows", "program files", "program files (x86)", "programdata",
+    "perflogs", "recovery", "$windows.~bt", "$windows.~ws",
+}
+
+
+def _drive_roots() -> list[Path]:
+    """All fixed drive roots (C:\\, D:\\, …) on Windows; '/' elsewhere."""
+    if sys.platform == "win32":
+        import string
+
+        return [Path(f"{d}:\\") for d in string.ascii_uppercase if os.path.exists(f"{d}:\\")]
+    return [Path("/")]
+# Real-document extensions are ranked first so noise can't bury an actual file.
+_DOC_EXTS = {
+    ".docx", ".doc", ".pdf", ".txt", ".md", ".rtf", ".odt",
+    ".xlsx", ".xls", ".pptx", ".ppt", ".csv", ".pages",
+}
+_FIND_HARD_CAP = 5000  # bound walk time; we collect then rank then trim
 
 
 def _resolve(config, path: str) -> Path:
@@ -26,9 +56,32 @@ def _resolve(config, path: str) -> Path:
     return p
 
 
+def _extract_docx(path: Path) -> str:
+    from docx import Document
+
+    doc = Document(str(path))
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+def _extract_pdf(path: Path) -> str:
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(path))
+    return "\n".join((page.extract_text() or "") for page in reader.pages)
+
+
 class ReadTool(Tool):
     name = "read"
-    description = "Read a file's contents. Supports offset (1-indexed line) and limit."
+    description = (
+        "Read a file's contents (text, code, .docx, or .pdf — documents are text-extracted). "
+        "Use an absolute path for files outside the workspace. Supports offset (1-indexed line) and limit."
+    )
     label = "Read"
     parameters = {
         "type": "object",
@@ -47,6 +100,21 @@ class ReadTool(Tool):
         path = _resolve(self.config, params["path"])
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
+
+        # Documents: extract text instead of reading raw bytes.
+        suffix = path.suffix.lower()
+        if suffix in (".docx", ".pdf"):
+            try:
+                extractor = _extract_docx if suffix == ".docx" else _extract_pdf
+                text = await asyncio.to_thread(extractor, path)
+            except Exception as e:
+                return ToolResult.text(
+                    f"Could not extract {suffix} ({type(e).__name__}: {e})", is_error=True
+                )
+            if len(text) > MAX_READ_CHARS:
+                text = text[:MAX_READ_CHARS] + "\n… [output truncated]"
+            return ToolResult.text(text or f"(no extractable text in {path.name})")
+
         try:
             raw = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -193,3 +261,120 @@ class EditTool(Tool):
             return ToolResult.text(str(e), is_error=True)
         await asyncio.to_thread(path.write_text, new_text, "utf-8")
         return ToolResult.text(f"Edited {path}:\n{diff}")
+
+
+class LsTool(Tool):
+    name = "ls"
+    description = "List the contents of a directory (cross-platform). Defaults to the workspace."
+    label = "List"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Directory path (absolute or workspace-relative)."},
+        },
+    }
+
+    def __init__(self, config):
+        self.config = config
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        path = _resolve(self.config, params.get("path") or ".")
+        if not path.exists():
+            return ToolResult.text(f"Directory not found: {path}", is_error=True)
+        if not path.is_dir():
+            return ToolResult.text(f"Not a directory: {path}", is_error=True)
+        try:
+            entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        except PermissionError:
+            return ToolResult.text(f"Permission denied: {path}", is_error=True)
+        lines = []
+        for e in entries:
+            try:
+                if e.is_dir():
+                    lines.append(f"[dir]  {e.name}/")
+                else:
+                    lines.append(f"       {e.name}  ({e.stat().st_size} bytes)")
+            except OSError:
+                lines.append(f"       {e.name}")
+        return ToolResult.text(f"{path}\n" + ("\n".join(lines) if lines else "(empty)"))
+
+
+def _find_files(roots: list[Path], pattern: str, max_results: int) -> list[str]:
+    matches: list[str] = []
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=lambda e: None):
+            # prune noise/heavy dirs in place (speed only; not an access restriction)
+            dirnames[:] = [d for d in dirnames if d.lower() not in FIND_SKIP_DIRS]
+            for name in filenames:
+                if fnmatch.fnmatch(name, pattern):
+                    matches.append(str(Path(dirpath) / name))
+            if len(matches) >= _FIND_HARD_CAP:
+                break
+        if len(matches) >= _FIND_HARD_CAP:
+            break
+
+    # Rank so real documents and shallower (user) paths surface first — a broad
+    # pattern like *CV* can't be buried under deep package/cache files.
+    def _rank(p: str) -> tuple:
+        return (0 if Path(p).suffix.lower() in _DOC_EXTS else 1, p.count(os.sep), p.lower())
+
+    matches.sort(key=_rank)
+    return matches[:max_results]
+
+
+class FindTool(Tool):
+    name = "find"
+    description = (
+        "Find files by name/glob pattern anywhere on the machine. By default it searches the "
+        "user's folder first and then the whole machine (all drives) if nothing is found, so it "
+        "is NOT limited to any one folder. Pass 'path' to target a specific root/drive (e.g. 'D:\\\\'). "
+        "Use this to LOCATE a file instead of guessing its path (e.g. pattern '*CV*.docx'). "
+        "Returns absolute paths."
+    )
+    label = "Find"
+    parameters = {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+            "pattern": {"type": "string", "description": "Filename glob, e.g. '*.pdf' or 'CV_*.docx'."},
+            "path": {"type": "string", "description": "Root directory to search (default: workspace)."},
+            "max_results": {"type": "integer", "minimum": 1, "description": "Cap on results (default 100)."},
+        },
+    }
+
+    def __init__(self, config):
+        self.config = config
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        pattern = params["pattern"]
+        max_results = params.get("max_results", 100)
+        scope = "machine"
+
+        if params.get("path"):
+            root = _resolve(self.config, params["path"])
+            if not root.is_dir():
+                return ToolResult.text(f"Search root not found: {root}", is_error=True)
+            matches = await asyncio.to_thread(_find_files, [root], pattern, max_results)
+            scope = str(root)
+        else:
+            # Stage 1: the user's folder (fast, covers Desktop/Documents/Downloads/OneDrive).
+            home = Path(self.config.workspace)
+            matches = await asyncio.to_thread(_find_files, [home], pattern, max_results)
+            scope = str(home)
+            # Stage 2: nothing there -> search the whole machine (all drives).
+            if not matches:
+                matches = await asyncio.to_thread(_find_files, _drive_roots(), pattern, max_results)
+                scope = "whole machine"
+
+        if not matches:
+            return ToolResult.text(f"No files matching '{pattern}' (searched {scope}).")
+        suffix = (
+            f"\n(showing first {max_results}; refine pattern for more)"
+            if len(matches) >= max_results
+            else ""
+        )
+        return ToolResult.text(
+            f"Found {len(matches)} match(es) for '{pattern}' (searched {scope}):\n"
+            + "\n".join(matches)
+            + suffix
+        )

@@ -66,7 +66,7 @@ def build_tools(config, browser_manager=None) -> list[Tool]:
     """Assemble the active tool list. Imported lazily so optional deps
     (playwright, ddgs, trafilatura) don't break unrelated tools."""
     from .exec_tool import ExecTool, ProcessTool
-    from .fs_tools import EditTool, ReadTool, WriteTool
+    from .fs_tools import EditTool, FindTool, LsTool, ReadTool, WriteTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -74,6 +74,8 @@ def build_tools(config, browser_manager=None) -> list[Tool]:
         ReadTool(config),
         WriteTool(config),
         EditTool(config),
+        LsTool(config),
+        FindTool(config),
         ExecTool(config),
         ProcessTool(config),
         WebSearchTool(config),

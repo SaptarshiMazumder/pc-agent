@@ -12,18 +12,60 @@ Current Date & Time -> Project Context -> Runtime.
 
 from __future__ import annotations
 
+import os
 import platform
 import socket
+import sys
 from datetime import datetime
 from pathlib import Path
 
 CONTEXT_FILES = ("AGENTS.md", "SOUL.md", "MEMORY.md")
+
+
+def resolve_user_folders() -> dict[str, str]:
+    """Resolve the machine's REAL user-folder paths at runtime (handles OneDrive
+    redirection of Desktop/Documents on Windows). Dynamic per machine — nothing
+    hardcoded."""
+    home = str(Path.home())
+    folders: dict[str, str] = {"Home": home}
+    if sys.platform == "win32":
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+            ) as k:
+                # registry value names: Desktop, Personal(=Documents),
+                # {374DE290-...}(=Downloads). Values may embed %USERPROFILE%/%OneDrive%.
+                for label, name in (
+                    ("Desktop", "Desktop"),
+                    ("Documents", "Personal"),
+                    ("Downloads", "{374DE290-123F-4565-9164-39C4925E467B}"),
+                ):
+                    try:
+                        val, _ = winreg.QueryValueEx(k, name)
+                        p = os.path.expandvars(val)
+                        if p and Path(p).is_dir():
+                            folders[label] = p
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    else:
+        for label in ("Desktop", "Documents", "Downloads"):
+            p = Path(home) / label
+            if p.is_dir():
+                folders[label] = str(p)
+    return folders
 
 # Verbatim per-tool summary strings from system-prompt.ts (lines 742-779).
 TOOL_SUMMARIES = {
     "read": "Read file contents",
     "write": "Create or overwrite files",
     "edit": "Make precise edits to files",
+    "ls": "List directory contents",
+    "find": "Find files by name/glob anywhere (use to locate a file instead of guessing its path)",
     "exec": "Run shell commands (pty available for TTY-required CLIs)",
     "process": "Manage background exec sessions",
     "web_search": "Search the web using the configured provider",
@@ -111,6 +153,17 @@ def build_system_prompt(config, tools, model: str, reasoning_effort: str = "off"
 
     # 6. Workspace
     sections.append(f"## Workspace\nYour working directory is: {config.workspace}")
+
+    # 6b. User Folders (real resolved paths — Desktop/Documents may be OneDrive-redirected)
+    folders = resolve_user_folders()
+    folder_lines = "\n".join(f"- {label}: {path}" for label, path in folders.items())
+    sections.append(
+        "## User Folders\n"
+        "Real absolute paths on this machine (Desktop/Documents may be OneDrive-redirected; "
+        "use these exact paths, not assumed ones):\n"
+        f"{folder_lines}\n"
+        "If a file isn't at the expected path, use the find tool to locate it by name."
+    )
 
     # 7. Current Date & Time
     now = datetime.now().astimezone()

@@ -24,7 +24,10 @@ class Config:
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
-    workspace: Path = field(default_factory=Path.cwd)
+    # Where file/exec tools operate. Defaults to the user's home so the agent can
+    # reach personal files ("read my CV"); override with AGENTD_WORKSPACE for a
+    # project-scoped (coding) workspace.
+    workspace: Path = field(default_factory=Path.home)
     state_dir: Path = field(default_factory=lambda: V2_ROOT / ".agentd")
     brave_api_key: str | None = None
     browser_headless: bool = True

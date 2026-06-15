@@ -181,7 +181,8 @@ class BrowserTool(Tool):
         "mode=\"efficient\" (compact, interactive-only, faster on big pages), interactive, "
         "compact, depth, max_chars.\n"
         "act kinds: click, clickCoords, type, fill, press, select, hover, scrollIntoView, "
-        "drag, wait, evaluate, resize, batch. Use a ref from the latest snapshot.\n"
+        "drag, wait, evaluate, resize. Use a ref from the latest snapshot. Call act once per "
+        "action (e.g. click a box, then a second act to type into it).\n"
         "wait supports load_state (load|domcontentloaded|networkidle), text, text_gone, "
         "selector, url, fn, time_ms — use it (esp. networkidle) after navigation/scroll.\n"
         "For long/lazy lists: scrollIntoView the last item (or evaluate window.scrollBy), "
@@ -205,7 +206,7 @@ class BrowserTool(Tool):
             "kind": {
                 "type": "string",
                 "enum": ["click", "clickCoords", "type", "fill", "press", "select",
-                         "hover", "scrollIntoView", "drag", "wait", "evaluate", "resize", "batch"],
+                         "hover", "scrollIntoView", "drag", "wait", "evaluate", "resize"],
                 "description": "Sub-action for act.",
             },
             "ref": {"type": "string", "description": "Element ref from the last snapshot (e.g. 'e3')."},
@@ -228,9 +229,6 @@ class BrowserTool(Tool):
             "selector": {"type": "string"},
             "fn": {"type": "string", "description": "JS predicate for wait."},
             "timeout_ms": {"type": "integer", "minimum": 0},
-            # batch
-            "actions": {"type": "array", "items": {"type": "object"}, "description": "batch: sub-actions."},
-            "stop_on_error": {"type": "boolean"},
             # tabs
             "tab_action": {"type": "string", "enum": ["list", "open", "close", "focus"]},
             "tab_index": {"type": "integer", "minimum": 0},
@@ -316,8 +314,6 @@ class BrowserTool(Tool):
             await src.drag_to(dst)
             await mgr.settle()
             return ToolResult.text(await self._snapshot_text(params))
-        if kind == "batch":
-            return await self._batch(params)
         if kind == "press" and not params.get("ref"):
             await page.keyboard.press(params.get("key") or "Enter")
             await mgr.settle()
@@ -371,25 +367,6 @@ class BrowserTool(Tool):
             await page.wait_for_url(params["url"], timeout=timeout)
         if params.get("fn"):
             await page.wait_for_function(params["fn"], timeout=timeout)
-
-    async def _batch(self, params: dict) -> ToolResult:
-        actions = params.get("actions") or []
-        stop_on_error = params.get("stop_on_error", True)
-        results = []
-        for i, sub in enumerate(actions):
-            sub = {**sub, "action": "act"}
-            try:
-                r = await self._act(sub)
-                results.append(f"[{i}] {'ERR' if r.is_error else 'ok'}")
-                if r.is_error and stop_on_error:
-                    results.append(f"  stopped: {r.content[0].text[:120] if r.content else ''}")
-                    break
-            except Exception as e:
-                results.append(f"[{i}] ERR {type(e).__name__}: {e}")
-                if stop_on_error:
-                    break
-        snap = await self._snapshot_text(params)
-        return ToolResult.text("batch: " + " ".join(results) + "\n\n" + snap)
 
     async def _tabs(self, params) -> ToolResult:
         mgr = self.manager

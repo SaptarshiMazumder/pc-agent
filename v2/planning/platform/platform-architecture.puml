@@ -1,0 +1,151 @@
+@startuml platform-architecture
+' ============================================================================
+'  pc-agent Platform - target architecture (v2)
+'  Local app + mandatory auth + E2E vault + 3 LLM tiers + control plane.
+'  Render (from this folder):  java -jar ../../plantuml.jar -tpng platform-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent Platform - Target Architecture (v2)\nMandatory login + local desktop app (shell + Python sidecar) + END-TO-END encrypted memory bank + 3 LLM tiers + control plane\nBackbone: Clean/Hexagonal (ports & adapters). green = exists in v2 today    amber = net-new for the platform
+
+' ===========================================================================
+' FRONT-ENDS
+' ===========================================================================
+package "FRONT-ENDS (component SPA + adapters -> one core)" #E8F0FE {
+  rectangle "**Desktop shell** (Tauri/Electron)\nrenders the Web UI in a native window\n+ spawns the agentd sidecar.\nSigned installer (.exe/.msi/.dmg) + auto-update" as SHELL #DCEBFF
+  rectangle "Web UI (React/Vue)\nsame code = web + desktop" as WEBUI #DCEBFF
+  rectangle "Terminal\n(have it)" as TERM #DCEBFF
+  rectangle "Messaging\nTelegram (pull) /\nWhatsApp,Slack (push->relay)" as MSG #DCEBFF
+}
+
+' ===========================================================================
+' LOGIN GATE (mandatory)
+' ===========================================================================
+rectangle "**LOGIN GATE (mandatory)**\nregister/login before ANY use;\npassword -> Argon2 -> client key\n(key NEVER leaves the device)" as GATE #FFCDD2
+
+' ===========================================================================
+' LOCAL AGENT APP (user's machine)
+' ===========================================================================
+package "USER'S MACHINE - agentd (Python sidecar) - HEXAGONAL core + event loop" #E6F4EA {
+  rectangle "**Ingress (channel adapter)**\nLOCAL SERVER on 127.0.0.1, token-gated\nmessage in -> stream out (chat.send)" as INGRESS #D4EDD9
+  rectangle "**Agent loop**\nLLM <-> tools, continuation/verify\n(have it)" as LOOP #D4EDD9
+  rectangle "**Policy / Guardrails** (tool chokepoint)\nauthorize each tool call:\nallow / deny / needs-approval\n+ Approval = human-in-the-loop (UI confirm)" as GUARD #FFE0B2
+  rectangle "**Tools**: read write edit ls find exec\nprocess web_search web_fetch browser\n-> act on THIS PC (files, apps, browser)" as TOOLS #D4EDD9
+  rectangle "**Crypto / key store**\nencrypt before upload,\ndecrypt after download\n(holds the only key)" as CRYPTO #FFE0B2
+  rectangle "**Memory client (sync / cache)**\nrecall runs HERE on plaintext;\nencrypts to the Memory Bank.\npluggable: local now / cloud later" as MEM #FFE0B2
+  rectangle "**Inference adapter (stream_fn)**\npicks the LLM tier by config" as INFER #D4EDD9
+}
+
+' ===========================================================================
+' LLM TIERS (privacy differs)
+' ===========================================================================
+package "LLM - three tiers (privacy differs by tier)" #FFF4E5 {
+  rectangle "**Local model** (Ollama)\nplaintext never leaves device\nPRIVATE" as LLM_LOCAL #C8E6C9
+  rectangle "**Sovereign**: user's own server\nopen model on their infra\nPRIVATE" as LLM_SOV #FFE0B2
+  rectangle "**Managed secure**: YOUR GPU VM\nopen model, stateless, NON-LOGGING\nsees plaintext only in RAM, forgets it\nPRIVATE (no third party)" as LLM_VM #FFD699
+  rectangle "**BYOK**: OpenAI/Gemini/Anthropic API\n!! data goes to that vendor !!\nNOT private from them" as LLM_BYOK #FFCDD2
+}
+
+' ===========================================================================
+' CONTROL PLANE (your cloud) - metadata + ciphertext only
+' ===========================================================================
+package "YOUR CLOUD - Control Plane (modular monolith, layered-clean; metadata + CIPHERTEXT only)" #FDECEA {
+  rectangle "**Accounts & Auth**\nlogin -> short-lived signed token\n+ entitlements (tier/quota)\n(gates LLM gateway + Vault)" as AUTH #FBD9D4
+  rectangle "**Memory Bank (canonical, E2E)**\nhistory + profile + learned + index;\nCIPHERTEXT + wrapped key only (can't read it).\nSwappable backend: DB / vector / their server" as VAULT #FBD9D4
+  rectangle "**Usage monitoring + Admin**\nper-user usage/status (metadata)\nbilling-ready; not charged in v2" as ADMIN #FBD9D4
+  rectangle "**LLM gateway**\nverify token + quota + meter,\nthen forward to the secure model" as LLMGW #FBD9D4
+  rectangle "**Message relay**\npush webhook -> app connection" as RELAY #FBD9D4
+}
+
+rectangle "**Admin (you)**\nmonitor users (metadata only)" as ADMINUSER #F5F5F5
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+SHELL --> WEBUI : renders
+SHELL ..> INGRESS : spawns sidecar
+WEBUI --> GATE
+TERM --> GATE
+MSG --> GATE
+GATE --> INGRESS : after login - localhost WS\n127.0.0.1, token-gated (in)
+
+INGRESS --> LOOP
+LOOP --> GUARD : every tool call
+GUARD --> TOOLS : if allowed/approved
+LOOP --> MEM
+MEM --> CRYPTO
+LOOP --> INFER
+
+INFER --> LLM_LOCAL : tier=local
+INFER --> LLM_SOV : tier=sovereign
+INFER --> LLM_VM : tier=managed (via gateway)
+INFER --> LLM_BYOK : tier=byok
+
+' app -> control plane : ALL OUTBOUND (agentd dials out; server never connects in)
+GATE ..> AUTH : OUT: login / token / entitlements
+CRYPTO ..> VAULT : OUT: sync CIPHERTEXT
+LOOP ..> ADMIN : OUT: report usage (metadata)
+INGRESS <.. RELAY : push DOWN the outbound link
+LLM_VM <.. LLMGW : token-gated, metered
+LLMGW ..> AUTH : verify token
+ADMINUSER --> ADMIN
+
+note as ENOTE #FFF8DC
+  MEMORY = pluggable subsystem (not just chat):
+  history + profile + learned facts + recall index.
+  One interface; swap the backend anytime
+  (local now -> cloud bank later -> their server).
+  Canonical copy in the cloud (cross-device);
+  local is a sync/cache. E2E at rest: server holds
+  ciphertext + wrapped key only, cannot read it.
+end note
+ENOTE .. VAULT
+
+note as TNOTE #E8F5E9
+  TRANSPORT / EXPOSURE - agentd has two roles:
+  - LOCAL SERVER: 127.0.0.1 WebSocket for the UI,
+    token-gated (free-port handshake from the shell).
+  - OUTBOUND CLIENT: dials the control plane + LLM.
+  The server NEVER connects in (machine behind NAT,
+  no public port); pushes ride the outbound link.
+end note
+TNOTE .. INGRESS
+
+note as PNOTE #E3F2FD
+  PLAINTEXT boundary by tier:
+  - local / sovereign : plaintext NEVER leaves the user's control
+  - managed secure    : your stateless model sees plaintext only in RAM
+                        during inference (not stored, not logged)
+  - BYOK              : plaintext goes to a third-party AI vendor
+  Vault storage is always ciphertext; only YOU (first-party) host the secure tier.
+end note
+PNOTE .. LLM_VM
+
+legend left
+  | Color | Meaning |
+  | green | exists in v2 today |
+  | amber | net-new for the platform |
+  | red   | privacy warning / mandatory gate |
+endlegend
+
+@enduml
