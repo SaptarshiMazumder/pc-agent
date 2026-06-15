@@ -7,7 +7,7 @@ plus a thin terminal client. Any LLM via LiteLLM. Self-contained: keys come from
 ## Architecture
 
 ```
-terminal client (python -m client)
+terminal client (python -m clients.terminal)
     │  WebSocket: chat.send {sessionKey, message, idempotencyKey}
     ▼
 gateway (python -m agentd)            ← responds {runId} immediately, runs async
@@ -19,6 +19,9 @@ transcripts persisted as JSONL        ← v2/.agentd/sessions/<sessionKey>.jsonl
 ```
 
 Tools: `read` `write` `edit` `exec` `process` `web_search` `web_fetch` `browser`
+
+Skills: drop-in `SKILL.md` playbooks in [skills/](skills/) — know-how the agent
+reads on demand (not callable tools). Add your own; see [skills/README.md](skills/README.md).
 
 ## Setup (one time)
 
@@ -47,7 +50,7 @@ Use the local venv's python so it stays isolated:
 .\.venv\Scripts\python.exe -X utf8 -m agentd
 
 # Terminal 2 (client)
-.\.venv\Scripts\python.exe -X utf8 -m client      # --session <id> to resume
+.\.venv\Scripts\python.exe -X utf8 -m clients.terminal      # --session <id> to resume
 ```
 
 Client commands: `/abort` `/new` `/quit`

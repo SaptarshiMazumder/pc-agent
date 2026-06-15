@@ -32,7 +32,7 @@ title pc-agent - Trust Boundaries & Data Flow\nWhat crosses each boundary, per t
 ' BOUNDARY 1 - the user (fully trusted)
 ' ===========================================================================
 package "BOUNDARY 1 : USER'S DEVICE  (fully trusted - plaintext + the key live here)" #E6F4EA {
-  rectangle "Agent loop + tools\n(plaintext: files, prompts, memory)\n+ local Memory cache/sync + recall" as DEV #C8E6C9
+  rectangle "Agent loop + tools + skills\n(plaintext: files, prompts, memory,\nlocal SKILL.md playbooks)\n+ local Memory cache/sync + recall" as DEV #C8E6C9
   rectangle "Encryption key\n(from password; never leaves)" as KEY #C8E6C9
   rectangle "Local LLM (Ollama)\n[tier: local]" as TLOCAL #C8E6C9
 }

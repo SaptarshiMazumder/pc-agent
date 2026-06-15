@@ -2,10 +2,11 @@
 
 Faithful port of OpenClaw's buildAgentSystemPrompt (reference
 src/agents/system-prompt.ts), behavior-shaping sections reproduced verbatim.
-Sections agentd can't honor (approvals/gateway/channels/skills) are omitted;
-the identity line is rebranded off "OpenClaw".
+Sections agentd can't honor (approvals/gateway/channels) are omitted; the
+identity line is rebranded off "OpenClaw". Skills (loadable SKILL.md playbooks)
+are advertised one line each and read on demand.
 
-Section order (stable): identity -> Tooling (+ browser usage block) ->
+Section order (stable): identity -> Tooling -> Skills ->
 Tool Call Style -> Execution Bias -> Safety -> Workspace ->
 Current Date & Time -> Project Context -> Runtime.
 """
@@ -73,25 +74,8 @@ TOOL_SUMMARIES = {
     "browser": "Control web browser",
 }
 
-# Distilled verbatim from extensions/browser/skills/browser-automation/SKILL.md.
-BROWSER_USAGE_BLOCK = """\
-Browser operating loop (use for anything beyond a single page check):
-- Read before you click: take action="snapshot" first; use a ref from the latest snapshot.
-- Act narrowly: prefer action="act" with a ref. After navigation, modal changes, or form
-  submission, snapshot again before the next action.
-- Long or lazy-loaded lists (job boards, feeds, search results): the first snapshot only
-  shows what is currently rendered. To gather more, act kind="scrollIntoView" on the last
-  visible item (or kind="evaluate" fn="window.scrollBy(0, 2000)"), then act kind="wait"
-  load_state="networkidle", then snapshot again. Repeat until you have enough items.
-- Avoid blind waits: wait for visible UI state (load_state="networkidle", text=..., selector=...).
-- Use mode="efficient" snapshots to cut noise on large pages; raise the limit/depth when you
-  need more of the tree.
-- Report real blockers: if the page needs login, captcha, 2FA, or a permission dialog, stop and
-  tell the user exactly what is needed. Do not claim you are not logged in just because a
-  permission or onboarding dialog is showing; inspect the visible UI first."""
 
-
-def _tooling_section(tools, has_browser: bool) -> str:
+def _tooling_section(tools) -> str:
     lines = [
         "## Tooling",
         "Available tools are policy-filtered. Names are case-sensitive; call exactly as listed.",
@@ -99,14 +83,33 @@ def _tooling_section(tools, has_browser: bool) -> str:
     for t in tools:
         summary = TOOL_SUMMARIES.get(t.name) or (t.description.splitlines()[0] if t.description else "")
         lines.append(f"- {t.name}: {summary}")
-    if has_browser:
-        lines.append("")
-        lines.append(BROWSER_USAGE_BLOCK)
     return "\n".join(lines)
 
 
-def build_system_prompt(config, tools, model: str, reasoning_effort: str = "off") -> str:
-    has_browser = any(t.name == "browser" for t in tools)
+def _skills_section(skills) -> str | None:
+    """Advertise available skills as one line each (name + when-to-use + path).
+
+    Only the descriptions live in the prompt; the agent reads the full SKILL.md on
+    demand with the `read` tool. This is progressive disclosure — adding skills
+    grows know-how without bloating the prompt.
+    """
+    if not skills:
+        return None
+    lines = [
+        "## Skills",
+        "Skills are step-by-step playbooks for specific tasks. When a user's request "
+        "clearly matches one, READ its SKILL.md with the read tool FIRST, then follow "
+        "it. Do not guess a skill's contents from its name.",
+    ]
+    for s in skills:
+        desc = s.description or "(no description)"
+        lines.append(f"- {s.name}: {desc} [read: {s.path}]")
+    return "\n".join(lines)
+
+
+def build_system_prompt(
+    config, tools, model: str, reasoning_effort: str = "off", skills=None
+) -> str:
     sections: list[str] = []
 
     # 1. Identity (rebranded)
@@ -115,8 +118,13 @@ def build_system_prompt(config, tools, model: str, reasoning_effort: str = "off"
         f"Current model identity: {model}. If asked what model you are, answer with this value."
     )
 
-    # 2. Tooling (+ browser usage block)
-    sections.append(_tooling_section(tools, has_browser))
+    # 2. Tooling (browser operating loop now lives in the browser-automation skill)
+    sections.append(_tooling_section(tools))
+
+    # 2b. Skills (loadable playbooks; one line each, read on demand)
+    skills_section = _skills_section(skills)
+    if skills_section:
+        sections.append(skills_section)
 
     # 3. Tool Call Style (verbatim, approval lines dropped)
     sections.append(

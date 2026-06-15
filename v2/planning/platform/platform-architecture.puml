@@ -51,6 +51,7 @@ package "USER'S MACHINE - agentd (Python sidecar) - HEXAGONAL core + event loop"
   rectangle "**Agent loop**\nLLM <-> tools, continuation/verify\n(have it)" as LOOP #D4EDD9
   rectangle "**Policy / Guardrails** (tool chokepoint)\nauthorize each tool call:\nallow / deny / needs-approval\n+ Approval = human-in-the-loop (UI confirm)" as GUARD #FFE0B2
   rectangle "**Tools**: read write edit ls find exec\nprocess web_search web_fetch browser\n-> act on THIS PC (files, apps, browser)" as TOOLS #D4EDD9
+  rectangle "**Skills** (local SKILL.md playbooks)\nloadable know-how, read on demand;\nadd your own (no code). pluggable:\nlocal folder now / cloud vault later" as SKILLS #D4EDD9
   rectangle "**Crypto / key store**\nencrypt before upload,\ndecrypt after download\n(holds the only key)" as CRYPTO #FFE0B2
   rectangle "**Memory client (sync / cache)**\nrecall runs HERE on plaintext;\nencrypts to the Memory Bank.\npluggable: local now / cloud later" as MEM #FFE0B2
   rectangle "**Inference adapter (stream_fn)**\npicks the LLM tier by config" as INFER #D4EDD9
@@ -92,6 +93,7 @@ GATE --> INGRESS : after login - localhost WS\n127.0.0.1, token-gated (in)
 INGRESS --> LOOP
 LOOP --> GUARD : every tool call
 GUARD --> TOOLS : if allowed/approved
+LOOP --> SKILLS : advertise one-liners +\nread playbook on demand
 LOOP --> MEM
 MEM --> CRYPTO
 LOOP --> INFER

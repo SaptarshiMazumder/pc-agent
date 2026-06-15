@@ -27,6 +27,7 @@ box "USER'S MACHINE  (local - plaintext + key live here)" #E6F4EA
   participant "Memory\n(local cache\n+ E2E vault)" as MEM
   participant "Policy +\nApproval" as POL
   participant "Tools\n(files/exec/browser)" as TOOL
+  participant "Skills\n(SKILL.md\nplaybooks)" as SKILL
 end box
 
 box "REMOTE  (your cloud / their key)" #FDECEA
@@ -49,13 +50,19 @@ MEM --> CORE : prior messages (decrypted locally)
 CORE -> MEM : recall(query)  // relevant long-term memory
 MEM --> CORE : memories
 CORE -> MEM : append(user message)   // persist
-note over CORE : build the request =\nsystem prompt + history + recalled memory + tool specs
+note over CORE : build the request = system prompt + history\n+ recalled memory + tool specs + SKILL one-liners (descriptions only)
 
 == Reason -> act LOOP ==
 loop until the LLM returns a final answer (no tool calls)
   CORE -> LLM : stream(system_prompt, messages, tools)\n--- HTTPS, plaintext to YOUR secure model ---
   LLM --> CORE : stream: thinking + text deltas + tool calls
   CORE -> UI : forward deltas (live) via Gateway
+
+  opt request matches an advertised skill (e.g. browser-automation)
+    CORE -> SKILL : read(SKILL.md path)   // an ordinary read tool call
+    SKILL --> CORE : full playbook -> enters messages[]
+    note over CORE, SKILL : the agent now follows that skill's step-by-step\nguidance for the rest of the run (read once, stays in history)
+  end
 
   alt LLM asked for tool call(s)
     CORE -> POL : authorize(tool, args, entitlements)
@@ -85,6 +92,14 @@ note over LLM
   messages[]; it remembers nothing between calls.
   "Memory" is the agent feeding history back in,
   not the model retaining anything.
+end note
+
+note over CORE, SKILL
+  SKILLS vs TOOLS: tools are callable ACTIONS; skills are
+  loadable KNOW-HOW (markdown playbooks). Only each skill's
+  one-line description is in the prompt; the body is pulled
+  in on demand via the read tool when the task matches —
+  so you can add many skills with no prompt bloat and no code.
 end note
 
 @enduml

@@ -49,6 +49,7 @@ agentd/
 │   │   ├── llm.py           # LLMService
 │   │   ├── memory.py        # MemoryRepository
 │   │   ├── tools.py         # Tool, ToolRegistry
+│   │   ├── skills.py        # Skill, SkillRegistry (loadable playbooks)
 │   │   ├── agent_engine.py  # AgentEngine (the swappable brain)
 │   │   ├── events.py        # EventStream
 │   │   ├── policy.py        # PolicyService, ApprovalService
@@ -68,6 +69,9 @@ agentd/
 │   ├── tools/
 │   │   ├── fs.py exec.py web.py browser.py
 │   │   └── registry.py      # ToolRegistry (builtin + plugins/MCP)
+│   ├── skills/
+│   │   └── file_skills.py   # FileSkillRegistry: scans skills/<name>/SKILL.md (now)
+│   │                        # (later: cloud / per-user skill vault, same interface)
 │   ├── memory/
 │   │   ├── local_store.py   # MemoryRepository via JSONL/SQLite (now)
 │   │   └── cloud_bank.py    # MemoryRepository via cloud + E2E  (later)
@@ -87,6 +91,11 @@ agentd/
     ├── config.py            # Config (engine, model/tier, memory backend, paths, endpoints)
     ├── container.py         # build implementations from config + wire into the use-cases
     └── main.py              # entrypoint: python -m agentd
+
+# content (data, not code) — lives beside the package, not inside it:
+skills/                      # one folder per skill, each with a SKILL.md playbook
+  browser-automation/SKILL.md   # ships with agentd (the browser operating loop)
+  <your-skill>/SKILL.md         # drop in your own; picked up on the next message
 ```
 
 ---
@@ -143,6 +152,14 @@ class ToolRegistry(Protocol):
     def all(self) -> list[Tool]: ...
     def get(self, name) -> Tool | None: ...
 
+# application/interfaces/skills.py  — loadable playbooks (know-how, NOT actions)
+class Skill(Protocol):
+    name: str          # short id (folder name by default)
+    description: str   # one line: WHEN to use it (matched against the request)
+    path: str          # absolute path the agent reads on demand (via the read tool)
+class SkillRegistry(Protocol):
+    def all(self) -> list[Skill]: ...    # read fresh each turn; only descriptions go in the prompt
+
 # application/interfaces/events.py
 class EventStream(Protocol):
     async def emit(self, event: AgentEvent) -> None: ...
@@ -191,11 +208,22 @@ The use-case knows **interfaces only** — never `litellm`, never a DB, never th
 Each file here **implements one interface** and is the only place external libraries / IO live:
 `infrastructure/llm/litellm.py` (calls LiteLLM), `infrastructure/memory/local_store.py` (disk),
 `infrastructure/tools/*` (file IO, subprocess, HTTP, Playwright),
+`infrastructure/skills/file_skills.py` (scans the `skills/` folder),
 `infrastructure/engine/native.py` (the reason→act loop + continuation/verify),
 `infrastructure/policy/*`, `infrastructure/controlplane/*` (outbound HTTP to your cloud).
 
 > The reason→act **loop is here**, not in the application layer — because the engine is swappable, it
 > is one implementation (`engine/native.py`) of the `AgentEngine` interface.
+
+> **Tools vs Skills** — two different things, both swappable behind their own interface. A **tool**
+> is a callable *action* (read, exec, browser) with a JSON schema; its schema is always in context. A
+> **skill** is a markdown *playbook* (`SKILL.md`) — *know-how*, not an action. The prompt builder asks
+> `SkillRegistry.all()` and lists only each skill's one-line description (progressive disclosure);
+> when a request matches, the agent reads that skill's full body **on demand using the ordinary `read`
+> tool**, then follows it. So a skill needs **no new tool and no core change** — adding one is dropping
+> a file in `skills/`. This is how you teach domain workflows (a browser routine, "export from
+> Photoshop", "fill this form") with no code and no prompt bloat. agentd ships one — `browser-automation`
+> — which is why the browser operating-loop is no longer hardcoded in the prompt: it became a skill.
 
 ---
 
@@ -250,6 +278,7 @@ read **Infrastructure** memory → **AgentEngine** loop { stream **LLM** (remote
 | `loop.py` + `incomplete_turn.py` | `infrastructure/engine/native.py` (+ `application/interfaces/agent_engine.py`) |
 | `llm.py` | `infrastructure/llm/litellm.py` (+ `application/interfaces/llm.py`) |
 | `tools/__init__.py` `Tool` | `application/interfaces/tools.py`; tools → `infrastructure/tools/*` |
+| `skills/*/SKILL.md` (content) | `application/interfaces/skills.py` + `infrastructure/skills/file_skills.py` |
 | `session.py` | `infrastructure/memory/local_store.py` (+ `application/interfaces/memory.py`) |
 | `gateway.py` | `presentation/gateway/websocket.py` |
 | `config.py` / `__main__.py` | `main/config.py` / `main/container.py` / `main/main.py` |
@@ -263,7 +292,7 @@ and tests already inject a **fake** LLM. We're formalizing the boundaries, not r
 ## 12. Why this is clean + scalable + swappable
 
 - **Swappable:** every external thing sits behind an interface — LLM, memory backend, **agent engine**,
-  tools, policy, transport. Change the implementation (one config value); inner layers untouched.
+  tools, **skills**, policy, transport. Change the implementation (one config value); inner layers untouched.
 - **Decoupled:** the dependency rule guarantees Domain/Application can't couple to a library or a UI.
 - **Testable:** run the whole use-case with a **fake** LLM + in-memory repository + a capturing
   EventStream — no network, no model (v2 already does this).
@@ -290,6 +319,7 @@ rotting into a tangle.
 | AgentEngine | native loop exists; formalize as an interface |
 | LLMService | ✅ LiteLLM |
 | ToolRegistry | ✅ registry |
+| SkillRegistry | ✅ FileSkillRegistry (scans `skills/*/SKILL.md`); ships `browser-automation` |
 | MemoryRepository | basic JSONL; generalize + add cloud bank |
 | EventStream | ✅ via on_event/gateway |
 | PolicyService / ApprovalService | none — net-new (chokepoint exists in `_execute_tool_calls`) |

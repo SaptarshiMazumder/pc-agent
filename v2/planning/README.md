@@ -10,7 +10,8 @@ next to its rendered `.png`.
   - `openclaw-flow.puml` — full agentic flow (terminal → gateway → loop → tools)
   - `openclaw-web-tools-flow.puml` — web_search / web_fetch / browser deep dive
 - **agentd/** — diagrams of **our app** (`v2/`, package `agentd`):
-  - `agentd-flow.puml` — full backend flow incl. the continuation/verification loop
+  - `agentd-flow.puml` — full backend flow incl. the continuation/verification loop and
+    skills (loadable SKILL.md playbooks, advertised in the prompt + read on demand)
 
 Add new categories as sibling folders (e.g. `comparisons/`, `tools/`, `sessions/`).
 

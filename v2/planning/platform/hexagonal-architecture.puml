@@ -80,6 +80,14 @@ package "Tools port" #F2F2F2 {
   P_TOOL --> A_TOOL1
 }
 
+package "Skills port  (loadable playbooks, read on demand)" #F2F2F2 {
+  rectangle "PORT: SkillRegistry\nall() -> [name, description, path]" as P_SKILL #E2E2E2
+  rectangle "FileSkills [now]\nskills/<name>/SKILL.md" as A_SKILL1 #C8E6C9
+  rectangle "Cloud / per-user skill vault [later]" as A_SKILL2 #FFE0B2
+  P_SKILL --> A_SKILL1
+  P_SKILL --> A_SKILL2
+}
+
 package "Memory port" #F2F2F2 {
   rectangle "PORT: Memory & History" as P_MEM #E2E2E2
   rectangle "LocalStore (JSONL) [now]" as A_MEM1 #C8E6C9
@@ -138,6 +146,7 @@ P_DRV --> CORE
 CORE --> P_ENG
 CORE --> P_INF
 CORE --> P_TOOL
+CORE --> P_SKILL
 CORE --> P_MEM
 CORE --> P_EVT
 CORE --> P_POL
@@ -153,6 +162,15 @@ note bottom of CORE
   Guardrails flow (before every tool runs): Auth gives entitlements -> Policy
   authorizes the call (allow / deny / needs-approval) -> if needs-approval, the
   Approval port asks the human -> only then does the Tools port execute.
+end note
+
+note bottom of P_SKILL
+  Skills port = loadable KNOW-HOW (markdown SKILL.md playbooks),
+  distinct from the Tools port (callable actions). The core gets only
+  one-line descriptions in the prompt; the agent reads a skill's full
+  body on demand (via the read tool) when a request matches it.
+  Add a skill = drop a file behind this port — no core change, no
+  prompt bloat. Swappable: file folder now, cloud/per-user vault later.
 end note
 
 legend bottom

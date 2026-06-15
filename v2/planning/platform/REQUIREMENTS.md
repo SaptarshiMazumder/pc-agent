@@ -199,6 +199,44 @@ cloud memory bank" = write one new adapter + flip a config value. The agent does
   **E2E prevents this by design** (you can't aggregate ciphertext you can't read). If you ever want
   it, it needs explicit opt-in or separate anonymized telemetry, kept apart from the encrypted vault.
 
+# Skills subsystem (loadable playbooks — capability without code or prompt bloat)
+
+Skills are a **first-class, pluggable** capability layer, distinct from tools and behind their own
+interface (`SkillRegistry`). A **skill is know-how, not an action**: a markdown `SKILL.md` file
+(frontmatter `name`/`description` + a step-by-step body) that teaches the agent *how* to do a
+specific task well.
+
+## Skills vs tools (they are not the same thing)
+
+- **Tool** = a callable *action* with a schema (`read`, `exec`, `browser`). Its schema is always in
+  context; calling it *does* something.
+- **Skill** = a *playbook* the agent *reads*. It adds **knowledge**, not a new action — e.g. the
+  `browser-automation` skill doesn't add a tool, it teaches the snapshot→act→scroll→wait loop for the
+  browser tool the agent already has.
+
+## How it works (progressive disclosure)
+
+The prompt advertises only each skill's **one-line description** (cheap, scales to many skills). When
+a request matches, the agent reads that skill's **full body on demand using the ordinary `read`
+tool**, and follows it. So skills need **no new tool, no core change, and no prompt bloat** — adding
+one is dropping a `SKILL.md` into the `skills/` folder; it's picked up on the next message.
+
+## Why it's worth having
+
+- **Teach domain workflows with no code** — a browser routine, "export from Photoshop", "fill this
+  expense form", "how we apply to jobs" — authored as markdown by anyone, not hardcoded in Python.
+- **No prompt bloat / no hardcoding** — the long tail of "when X, do it this way" lives in files that
+  load only when relevant, instead of bloating the system prompt or branching in code.
+- Same pattern as OpenClaw's skills and Anthropic's Agent Skills.
+
+## Swappable backend (port + adapters)
+
+- **FileSkills** — build this **now**: scans `skills/<name>/SKILL.md` on the local machine. (Done.)
+- **Cloud / per-user skill vault** — **later**: skills synced per account (and, like memory, E2E if
+  stored on our servers); same `SkillRegistry` interface, swap by config.
+- Skills are **local content on the user's machine** (like tools and files) — fully inside the trusted
+  device boundary; nothing about a skill leaves the device.
+
 # Security, Auth & Guardrails
 
 Two *different* concerns get called "security"; they bind at different places:
@@ -289,6 +327,7 @@ Swappable per user/tier; the loop doesn't care which.
 | Ingress (channel) | front-ends | terminal only — needs the adapter layer |
 | Inference (stream_fn) | LLM tier (local / BYOK / secure VM) | ✅ pluggable (LiteLLM) |
 | Tools (registry) | capabilities | ✅ pluggable |
+| **Skills** | loadable SKILL.md playbooks (know-how, read on demand) | ✅ FileSkillRegistry; ships `browser-automation` |
 | **Policy / guardrails** | authorize each tool call (allow/deny/needs-approval) at the pre-execute chokepoint | seams exist; logic cut |
 | **Approval (human-in-the-loop)** | confirm sensitive/irreversible actions via the UI | none — net-new |
 | Identity / auth | who/tenant (**mandatory login**) | none — net-new |
@@ -422,8 +461,8 @@ free-port + token handshake (for the UI) and the **outbound control-plane client
 
 ## Reuse vs net-new
 
-- **Reuse / proven:** agent core (have), tools (have), LLM tiers (have via LiteLLM), channel-adapter
-  pattern (OpenClaw blueprint).
+- **Reuse / proven:** agent core (have), tools (have), **skills** (have — FileSkillRegistry +
+  `browser-automation`), LLM tiers (have via LiteLLM), channel-adapter pattern (OpenClaw blueprint).
 - **Net-new:** the **control plane** (accounts, mandatory auth, entitlements, monitoring, relay,
   encrypted Vault sync), the **front-ends** (web UI, desktop), the **desktop shell + sidecar
   packaging** (Tauri/Electron + frozen Python + installers/signing/auto-update), the **local

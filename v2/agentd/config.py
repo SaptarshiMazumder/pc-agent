@@ -29,6 +29,10 @@ class Config:
     # project-scoped (coding) workspace.
     workspace: Path = field(default_factory=Path.home)
     state_dir: Path = field(default_factory=lambda: V2_ROOT / ".agentd")
+    # Folder of loadable skills (each subfolder holds a SKILL.md playbook). The
+    # agent reads a skill on demand when a task matches its description. Drop new
+    # skills here; override with AGENTD_SKILLS_DIR.
+    skills_dir: Path = field(default_factory=lambda: V2_ROOT / "skills")
     brave_api_key: str | None = None
     browser_headless: bool = True
     exec_timeout_sec: int = 1800
@@ -69,7 +73,7 @@ def load_config(path: Path | None = None) -> Config:
             data = json.loads(candidate.read_text(encoding="utf-8"))
             for key, value in data.items():
                 if hasattr(cfg, key):
-                    if key in ("workspace", "state_dir"):
+                    if key in ("workspace", "state_dir", "skills_dir"):
                         value = Path(value)
                     setattr(cfg, key, value)
             break
@@ -86,6 +90,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.workspace = Path(os.environ["AGENTD_WORKSPACE"])
     if os.environ.get("AGENTD_STATE_DIR"):
         cfg.state_dir = Path(os.environ["AGENTD_STATE_DIR"])
+    if os.environ.get("AGENTD_SKILLS_DIR"):
+        cfg.skills_dir = Path(os.environ["AGENTD_SKILLS_DIR"])
     if os.environ.get("AGENTD_HEADLESS"):
         cfg.browser_headless = os.environ["AGENTD_HEADLESS"].lower() not in ("0", "false", "no")
     if os.environ.get("BRAVE_API_KEY"):
@@ -93,4 +99,5 @@ def load_config(path: Path | None = None) -> Config:
 
     cfg.workspace = Path(cfg.workspace).resolve()
     cfg.state_dir = Path(cfg.state_dir)
+    cfg.skills_dir = Path(cfg.skills_dir)
     return cfg

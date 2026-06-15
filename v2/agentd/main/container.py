@@ -18,6 +18,7 @@ from agentd.infrastructure.engine.native import NativeEngine
 from agentd.infrastructure.llm.litellm import litellm_stream
 from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.infrastructure.prompt import build_system_prompt
+from agentd.infrastructure.skills import FileSkillRegistry
 from agentd.infrastructure.tools import build_tools
 from agentd.presentation.gateway import Gateway
 
@@ -41,14 +42,17 @@ def build_service(config: Config, browser_manager) -> AgentService:
     # the LLM service: LiteLLM with the configured thinking level pre-bound
     stream_fn = functools.partial(litellm_stream, reasoning_effort=config.reasoning_effort)
     engine = NativeEngine(stream_fn, config.model)   # swap here for Claude SDK / LangGraph
+    # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
+    # effect on the next message without a restart (swap here for a cloud registry)
+    skills = FileSkillRegistry(config.skills_dir)
     return AgentService(
         engine=engine,
         tools=tools,
         # how to make a session store for a given session id (swap here for a cloud store)
         make_session=lambda sid: SessionStore(config.state_dir, sid, cwd=str(config.workspace)),
-        # how to build the system prompt for a turn
+        # how to build the system prompt for a turn (skills advertised, read on demand)
         build_prompt=lambda tools: build_system_prompt(
-            config, tools, config.model, config.reasoning_effort
+            config, tools, config.model, config.reasoning_effort, skills=skills.all()
         ),
     )
 
