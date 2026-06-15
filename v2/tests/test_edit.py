@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.tools.fs_tools import apply_edits
+from agentd.infrastructure.tools.fs_tools import apply_edits
 
 
 def test_single_edit():

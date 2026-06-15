@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from .types import AssistantMessage, TextContent, ThinkingContent
+from agentd.domain.messages import AssistantMessage, TextContent, ThinkingContent
 
 # --- Verbatim instruction strings (incomplete-turn.ts) -----------------------
 

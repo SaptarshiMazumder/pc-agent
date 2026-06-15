@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.llm import (
+from agentd.infrastructure.llm.litellm import (
     _ToolCallAccumulator,
     litellm_stream,
     messages_to_litellm,
 )
-from agentd.types import (
+from agentd.domain.messages import (
     AssistantMessage,
     TextContent,
     ThinkingContent,

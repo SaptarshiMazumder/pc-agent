@@ -10,7 +10,6 @@ Mirrors the reference gateway's chat.send semantics:
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -18,15 +17,11 @@ from dataclasses import dataclass, field
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
 
-from .config import Config
-from .events import AgentEvent
-from .llm import litellm_stream
-from .loop import run_agent_loop
-from .prompt import build_system_prompt
-from .protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
-from .session import SessionStore, list_sessions
-from .tools import build_tools
-from .types import UserMessage
+from agentd.application.services.agent_service import AgentService
+from agentd.config import Config
+from agentd.domain.events import AgentEvent
+from agentd.infrastructure.memory.local_store import list_sessions
+from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
 log = logging.getLogger("agentd")
 
@@ -41,20 +36,16 @@ class RunHandle:
 
 @dataclass
 class Gateway:
+    """Transport only: accepts WebSocket frames and delegates work to the injected
+    ``service`` (the AgentService use-case). It is built by main/container.py — it no
+    longer composes anything itself."""
+
     config: Config
+    service: AgentService                          # injected use-case (does the work)
+    browser_manager: object | None = None          # injected; closed on shutdown
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
-    browser_manager: object | None = None
-
-    def __post_init__(self):
-        try:
-            from .tools.browser import BrowserManager
-
-            self.browser_manager = BrowserManager(self.config)
-        except ImportError:
-            log.warning("playwright not installed; browser tool disabled")
-        self.tools = build_tools(self.config, self.browser_manager)
 
     # ------------------------------------------------------------------ serve
 
@@ -137,35 +128,14 @@ class Gateway:
     # -------------------------------------------------------------------- run
 
     async def _run(self, handle: RunHandle, message: str) -> None:
-        session = SessionStore(
-            self.config.state_dir, handle.session_key, cwd=str(self.config.workspace)
-        )
-        messages = session.load()
-        user_msg = UserMessage(content=message)
-        messages.append(user_msg)
-        session.append(user_msg)
-
-        system_prompt = build_system_prompt(
-            self.config, self.tools, self.config.model, self.config.reasoning_effort
-        )
-
+        # The gateway (presentation) now only adapts transport: it provides the event
+        # sink (broadcast) and delegates the actual work to the AgentService use-case.
         async def on_event(event: AgentEvent) -> None:
             await self._broadcast(handle.session_key, handle.run_id, event)
 
-        stream_fn = functools.partial(
-            litellm_stream, reasoning_effort=self.config.reasoning_effort
-        )
-
         try:
-            await run_agent_loop(
-                messages=messages,
-                system_prompt=system_prompt,
-                tools=self.tools,
-                stream_fn=stream_fn,
-                model=self.config.model,
-                on_event=on_event,
-                abort=handle.abort,
-                session=session,
+            await self.service.handle_message(
+                handle.session_key, message, on_event, handle.abort
             )
         except asyncio.CancelledError:
             pass  # abort already broadcast agent_end(aborted) from the loop

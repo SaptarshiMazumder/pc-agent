@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.session import SessionStore, list_sessions
-from agentd.types import (
+from agentd.infrastructure.memory.local_store import SessionStore, list_sessions
+from agentd.domain.messages import (
     AssistantMessage,
     TextContent,
     ToolCallContent,

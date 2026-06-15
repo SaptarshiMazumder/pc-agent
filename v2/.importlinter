@@ -1,0 +1,12 @@
+[importlinter]
+root_package = agentd
+
+[importlinter:contract:clean-layers]
+name = Clean architecture layers (domain <- application <- infrastructure/presentation <- main)
+type = layers
+layers =
+    agentd.main
+    agentd.presentation
+    agentd.infrastructure
+    agentd.application
+    agentd.domain

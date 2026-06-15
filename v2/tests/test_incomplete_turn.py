@@ -3,14 +3,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.incomplete_turn import (
+from agentd.infrastructure.engine.incomplete_turn import (
     classify_incomplete_turn,
     is_empty_response,
     is_planning_only,
     is_reasoning_only,
     resolve_max_run_loop_iterations,
 )
-from agentd.types import AssistantMessage, TextContent, ThinkingContent, ToolCallContent
+from agentd.domain.messages import AssistantMessage, TextContent, ThinkingContent, ToolCallContent
 
 
 def assistant(text="", thinking="", tool_calls=None, stop_reason="stop"):

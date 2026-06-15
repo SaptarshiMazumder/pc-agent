@@ -20,7 +20,7 @@ import asyncio
 import traceback
 from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 
-from .events import AgentEvent, EventCallback
+from agentd.domain.events import AgentEvent, EventCallback
 from .incomplete_turn import (
     INCOMPLETE_TURN_FALLBACK_TEXT,
     MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
@@ -30,8 +30,8 @@ from .incomplete_turn import (
     classify_incomplete_turn,
     resolve_max_run_loop_iterations,
 )
-from .session import SessionStore
-from .types import (
+from agentd.infrastructure.memory.local_store import SessionStore
+from agentd.domain.messages import (
     AssistantMessage,
     Message,
     TextContent,
@@ -40,7 +40,7 @@ from .types import (
     UserMessage,
     message_to_dict,
 )
-from .tools import Tool, ToolArgError, ToolResult, validate_args
+from agentd.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
 
 
 class StreamFn(Protocol):
@@ -293,3 +293,31 @@ async def _execute_tool_calls(
         await run_one(i, call)
 
     return [results[i] for i in sorted(results)]
+
+
+class NativeEngine:
+    """Our hand-rolled reason->act loop, wrapped as a swappable AgentEngine.
+
+    Holds the LLM stream function + model id; ``run`` just delegates to
+    ``run_agent_loop`` (the function above). Alternative engines (Claude Agent SDK,
+    LangGraph) would be sibling classes implementing this same ``run`` shape — the
+    application's AgentService calls whichever one it was given, none the wiser.
+    """
+
+    def __init__(self, stream_fn, model: str, max_iterations: int | None = None):
+        self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
+        self._model = model                  # which model id to pass each call
+        self._max_iterations = max_iterations
+
+    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None):
+        return await run_agent_loop(
+            messages=messages,
+            system_prompt=system_prompt,
+            tools=tools,
+            stream_fn=self._stream_fn,
+            model=self._model,
+            on_event=on_event,
+            abort=abort,
+            session=session,
+            max_iterations=self._max_iterations,
+        )
