@@ -41,7 +41,7 @@ def build_service(config: Config, browser_manager) -> AgentService:
     tools = build_tools(config, browser_manager)
     # the LLM service: LiteLLM with the configured thinking level pre-bound
     stream_fn = functools.partial(litellm_stream, reasoning_effort=config.reasoning_effort)
-    engine = NativeEngine(stream_fn, config.model)   # swap here for Claude SDK / LangGraph
+    engine = NativeEngine(stream_fn, config.model, max_iterations=config.max_turns)   # swap here for Claude SDK / LangGraph
     # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
     # effect on the next message without a restart (swap here for a cloud registry)
     skills = FileSkillRegistry(config.skills_dir)

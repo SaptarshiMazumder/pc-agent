@@ -3,7 +3,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from clients.terminal.__main__ import resolve_session_choice, sessions_table
+import clients.terminal.__main__ as term
+from clients.terminal.__main__ import (
+    TerminalClient,
+    resolve_session_choice,
+    sessions_table,
+)
 
 SESSIONS = [
     {"sessionId": "term-aaa", "messages": 16, "modified": 1_700_000_000},
@@ -26,6 +31,38 @@ def test_out_of_range_is_cancel():
     assert resolve_session_choice(SESSIONS, "0") is None
     assert resolve_session_choice(SESSIONS, "3") is None
     assert resolve_session_choice([], "1") is None
+
+
+def test_welcome_banner_uses_hello_info(monkeypatch):
+    from rich.console import Console
+
+    rec = Console(width=100, record=True)
+    monkeypatch.setattr(term, "console", rec)
+    client = TerminalClient("ws://127.0.0.1:8787", "term-xyz")
+    client._print_welcome(
+        {
+            "agentName": "JARVIS",
+            "model": "gemini/gemini-2.5-pro",
+            "reasoning": "medium",
+            "gatewayUrl": "ws://127.0.0.1:8787",
+            "agentId": "main",
+            "sessions": 3,
+        }
+    )
+    out = rec.export_text()
+    assert "Hi, I'm JARVIS." in out
+    assert "gemini/gemini-2.5-pro" in out
+    assert "3 saved session(s)" in out
+    assert "/sessions" in out and "term-xyz" in out
+
+
+def test_welcome_banner_tolerates_empty_info(monkeypatch):
+    from rich.console import Console
+
+    rec = Console(width=100, record=True)
+    monkeypatch.setattr(term, "console", rec)
+    TerminalClient("ws://x", "term-1")._print_welcome({})  # must not raise
+    assert "Hi, I'm the agent." in rec.export_text()
 
 
 def test_table_builds_and_renders():

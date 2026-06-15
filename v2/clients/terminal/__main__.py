@@ -250,22 +250,44 @@ class TerminalClient:
                 console.print(Text(f"[run ended: {reason}]", style="dim"))
             self.run_done.set()
 
+    def _print_welcome(self, info: dict) -> None:
+        """Welcome banner shown on connect, before the first prompt. Every fact
+        (the agent's NAME included) comes from the gateway's `hello` handshake —
+        the client hardcodes none of it."""
+        name = info.get("agentName") or "the agent"
+        model = info.get("model", "?")
+        reasoning = info.get("reasoning", "off")
+        url = info.get("gatewayUrl") or self.url
+        agent_id = info.get("agentId", "main")
+        sessions = info.get("sessions")
+        saved = f" {sessions} saved session(s)." if sessions is not None else ""
+
+        lines = [
+            Text.from_markup(f"[bold {LIME}]Hi, I'm {name}.[/]"),
+            Text(""),
+            Text.from_markup("- Your personal agent — I act on [bold]this machine[/]: files, shell, web, a real browser."),
+            Text.from_markup(f"- Using: [bold {LIME}]{model}[/] (thinking={reasoning})."),
+            Text.from_markup(f"- Config: [bold {LIME}]valid[/]. Default agent: [bold]{agent_id}[/].{saved}"),
+            Text.from_markup(f"- Gateway: reachable at [bold {LIME}]{url}[/]."),
+            Text(""),
+            Text.from_markup(
+                f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
+            ),
+            Text.from_markup(f"[dim]session[/] [bold]{self.session_key}[/]   [dim]·  /sessions  /abort  /new  /quit[/]"),
+        ]
+        console.print(
+            Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
+        )
+
     async def run(self) -> None:
         async with websockets.connect(self.url, max_size=20 * 1024 * 1024) as ws:
             self.ws = ws
             reader = asyncio.create_task(self._reader())
-            console.print(
-                Panel.fit(
-                    Group(
-                        Text.from_markup(f"[bold black on {LIME}] agentd [/] terminal · [dim]{self.url}[/]"),
-                        Text.from_markup(f"session [bold]{self.session_key}[/]"),
-                        Text.from_markup("[dim]commands:[/] /sessions  /abort  /new  /quit"),
-                    ),
-                    border_style=LIME,
-                    title="connected",
-                    title_align="left",
-                )
-            )
+            try:
+                info = await self.request("hello", {})
+            except RuntimeError:
+                info = {}
+            self._print_welcome(info)
             try:
                 while True:
                     # Bracket the user's query in rules, like Claude / OpenClaw.

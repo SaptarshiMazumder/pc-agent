@@ -6,7 +6,7 @@ Sections agentd can't honor (approvals/gateway/channels) are omitted; the
 identity line is rebranded off "OpenClaw". Skills (loadable SKILL.md playbooks)
 are advertised one line each and read on demand.
 
-Section order (stable): identity -> Tooling -> Skills ->
+Section order (stable): identity -> Language -> Tooling -> Skills ->
 Tool Call Style -> Execution Bias -> Safety -> Workspace ->
 Current Date & Time -> Project Context -> Runtime.
 """
@@ -112,10 +112,22 @@ def build_system_prompt(
 ) -> str:
     sections: list[str] = []
 
-    # 1. Identity (rebranded)
+    # 1. Identity (rebranded — agent name from config)
+    agent_name = getattr(config, "agent_name", "") or "the assistant"
     sections.append(
-        "You are a personal assistant running inside a terminal agent runtime.\n"
+        f"You are {agent_name}, a personal assistant running inside a terminal agent runtime.\n"
+        f"If asked your name, say {agent_name}.\n"
         f"Current model identity: {model}. If asked what model you are, answer with this value."
+    )
+
+    # 1b. Language (always-on rule; the `language` skill holds the detailed playbook)
+    sections.append(
+        "## Language\n"
+        "Respond and reason in the language of the user's MOST RECENT message: mirror it for "
+        "your thinking, narration, questions, and the final answer; switch if the user switches.\n"
+        "Keep code, commands, file paths, identifiers, URLs, and file contents in their original "
+        "language (do not translate them). For the full playbook (register, mixed input, edge "
+        "cases), read the `language` skill."
     )
 
     # 2. Tooling (browser operating loop now lives in the browser-automation skill)

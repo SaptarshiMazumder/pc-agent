@@ -1,0 +1,219 @@
+@startuml openclaw-web-tools-flow-ja
+' ============================================================================
+'  OpenClaw — DEEP DIVE: web research / browsing tools + how the agent
+'  reasons its way to an answer.
+'  Worked trace: "best steak places 1-3k yen near Kichijoji, open 7pm tomorrow"
+'  Render (from this folder):  java -jar ../../plantuml.jar -charset UTF-8 -tpng openclaw-web-tools-flow-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title OpenClaw — Webツール詳細解説\nweb_search / web_fetch / browser がどうLLMへ供給され、エージェントがどう最終回答へ判断するか\nトレース：「吉祥寺周辺、1〜3千円、明日19時開店のおすすめステーキ店」
+
+' ===========================================================================
+' THE LOOP CORE (condensed — full version in openclaw-flow.puml)
+' ===========================================================================
+package "コアエージェントループ  ·  src/agents/embedded-agent-runner/run/attempt.ts" #EDE7F6 {
+  rectangle "**① LLMターン**\nシステムプロンプト（ツール説明がモデルに伝える：\n'web_search = 最新情報', 'web_fetch = ページを読む'）\n＋ 全トランスクリプト ＋ ユーザー質問\n→ モデルが **tool_call** か最終テキストを出力" as LLM #D8CCF0
+  rectangle "**② tool_call あり？**\n<diamond>\nyes → ツール実行、結果を追加、ループ\nno  → テキストが最終回答" as DECIDE #C9B6F0
+  rectangle "**③ tool_result を追加**\nmessages[] へ → ①へ戻る\n（モデルが検索／ページ内容を'見る'ようになる）" as APPEND #D8CCF0
+}
+
+note right of DECIDE
+  **これがエージェンシー（自律性）。** 「検索→取得→回答」を
+  ハードコードする箇所は無い。モデルは各ターンで
+  手持ちの情報を見て次のツール呼び出しを判断する。
+  典型的なリサーチの形：
+    検索 → （スニペットを読む） → 数ページ取得
+    → （必要なら再検索） → 統合。
+end note
+
+' ===========================================================================
+' TOOL A — web_search
+' ===========================================================================
+package "ツールA · web_search   src/agents/tools/web-search.ts → src/web-search/runtime.ts" #E8F5E9 {
+
+  rectangle "**createWebSearchTool.execute(args)**\nargs スキーマ: query (必須), count, country,\nlanguage, freshness(day/week/month/year),\ndate_after/before, domain_filter…\n<i>web-search.ts</i>" as WS_ENTRY #CDEBD0
+
+  rectangle "**resolveWebSearchToolRuntimeContext()**\nランタイムの認証情報／設定を遅延バインドし、\n長命なエージェントがツール再構築なしに鍵を取得" as WS_CTX #CDEBD0
+
+  package "runWebSearch()  ·  プロバイダ解決" #F1FBF2 {
+    rectangle "**resolveWebSearchCandidates()**\nプロバイダを優先順位付け：\n1. 明示的な args.providerId\n2. ランタイム選択プロバイダ\n3. config `tools.web.search.provider`\n4. 自動検出" as WS_CAND #DCF3DE
+    rectangle "**resolveWebSearchProviderId()** — 自動検出\n優先順位順に各プロバイダについて：\n• 鍵不要？ → 最終手段のフォールバックとして記憶\n• 鍵が必要？ → 認証情報があれば使用\n  （env var / 認証プロファイル / config）\nそれ以外は最初の鍵不要プロバイダへフォールバック" as WS_AUTO #DCF3DE
+    rectangle "**hasExplicitWebSearchSelection?**\nyes → フォールバックなし（そのプロバイダで即失敗）\nno  → 候補リストを下ってフォールバック許可" as WS_FB #DCF3DE
+  }
+
+  rectangle "**candidate.createTool().execute(args)**\n実プロバイダ（Brave / Perplexity /\nGoogle / Bing / 鍵不要）をHTTPSで呼ぶ。\n失敗／鍵欠如の構造化エラー時は次の候補へループ\n（フォールバック許可時のみ）" as WS_CALL #CDEBD0
+
+  rectangle "**SEARCH_CACHE**\n正規化キーによる結果キャッシュ\n（同一実行内の繰り返しクエリを重複排除）" as WS_CACHE #FFE0B2
+
+  rectangle "**jsonResult( results, provider )**\n正規化リスト → [{title, url, snippet/age}]\nこれが messages[] へ戻りモデルに渡る" as WS_OUT #CDEBD0
+}
+
+' ===========================================================================
+' TOOL B — web_fetch
+' ===========================================================================
+package "ツールB · web_fetch   src/agents/tools/web-fetch.ts → src/web-fetch/runtime.ts" #E3F2FD {
+
+  rectangle "**execute({url, extractMode, maxChars})**\nextractMode: markdown(既定)|text\nmaxChars 既定 20k、レスポンス上限 750KB" as WF_ENTRY #CFE6FB
+
+  rectangle "**sanitizeWebFetchUrl()**\nLLMが混入させた空白を修復\n（'https:// site' → 'https://site'）、\nhttp/https スキームを要求" as WF_SAN #CFE6FB
+
+  rectangle "**FETCH_CACHE チェック**\nkey = url+mode+maxChars+ポリシーフラグ\nヒット → キャッシュ済み {…, cached:true} を返す" as WF_CACHE #FFE0B2
+
+  package "fetchWithWebToolsNetworkGuard()  ·  SSRF + トランスポート" #EEF6FE {
+    rectangle "**SSRF ガード**  <i>src/infra/net/ssrf.js</i>\nDNS解決し、private/loopback/link-local\n/metadata IP をブロック（169.254.169.254 等）。\nSsrFBlockedError = 即時停止（フォールバックなし）" as WF_SSRF #DCEBFB
+    rectangle "**HTTP GET**\nブラウザ風 UA、Accept md/html、\nmaxRedirects=3、timeout、AbortSignal\nボディはストリーミング、750KBで切り詰め" as WF_HTTP #DCEBFB
+  }
+
+  rectangle "**Content-type 分岐**\n• text/markdown → そのまま使用（Cloudflare md）\n• text/html → Readability 抽出\n• その他 → 生データ" as WF_BRANCH #CFE6FB
+
+  rectangle "**extractReadableContent()**\n<i>web-fetch/content-extractors.runtime.ts</i>\nプラグイン抽出器を実行（Mozilla Readability）\nナビ/広告/定型文を除去 → 本文記事\n→ htmlToMarkdown / markdownToText\nフォールバック：basic-html → 生データ" as WF_READ #CFE6FB
+
+  rectangle "**truncateText(maxChars)**\nペイロードを制限、truncated フラグを設定" as WF_TRUNC #CFE6FB
+
+  rectangle "**wrapExternalContent() — 信頼できない**\nexternalContent:{untrusted:true, source:'web_fetch'}\nページテキストをデータとして囲い、命令としない\n（プロンプトインジェクション防御）" as WF_WRAP #FFCDD2
+
+  rectangle "**プロバイダフォールバック**\n直接取得が失敗／ボット遮断／\nReadability が空 → 設定済みの取得\nプロバイダ（例 Jina/Firecrawl）を代わりに試行" as WF_PROV #CFE6FB
+
+  rectangle "**jsonResult**\n{url, finalUrl, status, title, text(markdown),\nextractor, truncated, length, fetchedAt}\n→ messages[] へ戻る" as WF_OUT #CFE6FB
+}
+
+' ===========================================================================
+' TOOL C — browser (alternate branch: logged-in / interactive sites)
+' ===========================================================================
+package "ツールC · browser（JS/ログイン/フォームでは fetch の代わりに使用）\nextensions/browser/src/browser-tool.ts" #FFF3E0 {
+  rectangle "**navigate / open**\nCDP経由の Chrome — target host|sandbox|node" as BR_NAV #FFE6C7
+  rectangle "**snapshot（ARIAツリーをテキスト化）**\n安定した要素 `ref` = LLMがページを'見る'手段。\n信頼できないものとして囲う。視覚用にスクリーンショット。" as BR_SNAP #FFE6C7
+  rectangle "**act(kind)**: click/type/fill/select/press/\nhover/drag/wait/evaluate + upload/dialog\n直近スナップショットの `ref` を対象とする" as BR_ACT #FFE6C7
+  rectangle "ループ: snapshot → 思考 → act → snapshot\n目標状態に到達するまで" as BR_LOOP #FFE6C7
+}
+
+note bottom of BR_LOOP
+  予約 / LinkedIn / フォーム入力 はこの分岐を通る
+  （実セッションのCookie、動的JS、クリック）。
+  ステーキのクエリは通らない＝静的な情報ページ = web_search + web_fetch。
+end note
+
+' ===========================================================================
+' SECURITY RAILS (cross-cutting)
+' ===========================================================================
+package "セキュリティガードレール（全Webツールに適用）" #FCE4EC {
+  rectangle "**認証情報の解決**\nenv var → 認証プロファイル → config；\n鍵不要プロバイダは最終手段のみ" as SEC_CRED #F8BBD0
+  rectangle "**SSRF ポリシー**\n1バイトも取得する前に\n内部/metadata IP をブロック" as SEC_SSRF #F8BBD0
+  rectangle "**信頼できないコンテンツの囲い込み**\n取得/スクレイプした全テキストをデータとして囲い、\nその中の命令に従わないようモデルに指示" as SEC_WRAP #F8BBD0
+}
+
+' ===========================================================================
+' FINAL ANSWER node (declared before use)
+' ===========================================================================
+rectangle "**最終回答（統合）**\nモデルは蓄積済み：検索ヒット + 取得した\nページテキスト（営業時間、価格、住所）。これらを\n思考する — 予算(1〜3千円)、土曜19:00開店、\n吉祥寺近辺でフィルタ — ランク付けして\n文章を書く。ターミナルへストリーミング + \nセッション JSONL へ保存。" as FINAL #C8E6C9
+
+' ===========================================================================
+' EDGES — the loop
+' ===========================================================================
+LLM --> DECIDE
+DECIDE --> APPEND : tool_call
+APPEND --> LLM : ループ
+
+' web_search path
+DECIDE --> WS_ENTRY : web_search(query, freshness…)
+WS_ENTRY --> WS_CTX
+WS_CTX --> WS_CAND
+WS_CAND --> WS_AUTO
+WS_AUTO --> WS_FB
+WS_FB --> WS_CALL
+WS_CALL --> WS_CACHE
+WS_CACHE --> WS_OUT
+WS_OUT --> APPEND : results[] をモデルへ戻す
+
+' web_fetch path
+DECIDE --> WF_ENTRY : web_fetch(url)
+WF_ENTRY --> WF_SAN
+WF_SAN --> WF_CACHE
+WF_CACHE --> WF_SSRF : ミス
+WF_SSRF --> WF_HTTP
+WF_HTTP --> WF_BRANCH
+WF_BRANCH --> WF_READ : html
+WF_READ --> WF_TRUNC
+WF_BRANCH --> WF_TRUNC : md/raw
+WF_TRUNC --> WF_WRAP
+WF_WRAP --> WF_OUT
+WF_HTTP ..> WF_PROV : 失敗/遮断
+WF_READ ..> WF_PROV : 空
+WF_PROV --> WF_WRAP
+WF_OUT --> APPEND : ページテキストをモデルへ戻す
+
+' browser path
+DECIDE --> BR_NAV : browser(navigate)
+BR_NAV --> BR_SNAP
+BR_SNAP --> BR_ACT
+BR_ACT --> BR_LOOP
+BR_LOOP --> APPEND : 観測した状態をモデルへ戻す
+
+' security wiring
+WS_CALL ..> SEC_CRED
+WF_SSRF ..> SEC_SSRF
+WF_WRAP ..> SEC_WRAP
+BR_SNAP ..> SEC_WRAP
+
+' final
+DECIDE --> FINAL : tool_call なし
+
+' ===========================================================================
+' WORKED TRACE — the steak query, turn by turn
+' ===========================================================================
+note as TRACE #E3F2FD
+  **ワークドトレース — ステーキの回答が実際にどう構築されたか**
+  ----
+  **ターン1** モデル：まだ何もない → 呼び出し
+    web_search{ query:"steak restaurant Kichijoji", freshness/recency }
+    → 利用可能な鍵でプロバイダを自動検出 → results[]:
+      Tabelog/Tablecheck ページ, "Steak House Satou", "Yappari Steak", …
+  **ターン2** モデルがヒットを見て、営業時間+価格が必要 → 1..N 並列/直列で
+    web_fetch{ url: tabelog Satou } → SSRF ok → HTML → Readability →
+    markdown: "営業時間 17:00–20:00 … ステーキ御膳 3,000円"（信頼できないものとして囲う）
+  **ターン3** 他の候補を web_fetch（Yappari, Center Beef, Rooftop Butcher）
+    → 営業時間、¥ 帯、出口/場所を同じ方法で抽出
+  **ターン4** （任意）再度 web_search で「明日 = 土曜」の
+    営業時間や店の現状を確認
+  **ターン5** モデルに十分な情報 → tool_call なし → ランク付けリストを書く：
+    • 1,000〜3,000¥ にフィルタ  • 土曜19:00開店をチェック
+    • 雰囲気/場所/ラストオーダーを追加  • 一押しを選定
+  ----
+  正確性/鮮度は取得したページから来る、モデルの記憶ではない；
+  モデルの仕事はその証拠に対する選別 + フィルタ + 統合。
+  （注意：ページが古い/遮断されると回答もそれを引き継ぐ —
+   「L.O. 20:00」のような営業時間は読んだ情報源と同程度にしか正しくない。）
+end note
+TRACE .. FINAL
+
+legend left
+  | ステージ | 次のステップを決めるもの |
+  | LLMターン | モデルが質問 + 手持ち情報からツール + args を選ぶ |
+  | web_search | 候補URL + スニペットを探す（鍵によりプロバイダ自動解決） |
+  | web_fetch | 1つのURLをクリーンなマークダウンに変換（SSRFガード、Readability） |
+  | browser | ログイン/JS/フォームが必要な場合のみ（snapshot+act ループ） |
+  | 統合 | 制約でフィルタ、ランク付け、執筆 — tool_call が残らないとき |
+endlegend
+
+@enduml

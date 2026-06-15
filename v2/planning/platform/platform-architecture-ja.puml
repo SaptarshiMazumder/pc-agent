@@ -1,0 +1,153 @@
+@startuml platform-architecture-ja
+' ============================================================================
+'  pc-agent プラットフォーム - ターゲットアーキテクチャ (v2)
+'  ローカルアプリ + 必須ログイン + E2E ボールト + 3つのLLMティア + コントロールプレーン。
+'  描画 (このフォルダから):  java -jar ../../plantuml.jar -charset UTF-8 -tpng platform-architecture-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent プラットフォーム - ターゲットアーキテクチャ (v2)\n必須ログイン + ローカルデスクトップアプリ（シェル + Pythonサイドカー）+ エンドツーエンド暗号化メモリバンク + 3つのLLMティア + コントロールプレーン\nバックボーン: クリーン／ヘキサゴナル（ポート＆アダプタ）。 緑 = v2に現存    琥珀 = プラットフォーム向け新規
+
+' ===========================================================================
+' FRONT-ENDS
+' ===========================================================================
+package "フロントエンド（コンポーネントSPA + アダプタ -> 単一コア）" #E8F0FE {
+  rectangle "**デスクトップシェル**（Tauri/Electron）\nネイティブウィンドウでWeb UIを描画\n+ agentdサイドカーを起動。\n署名付きインストーラ（.exe/.msi/.dmg）+ 自動更新" as SHELL #DCEBFF
+  rectangle "Web UI（React/Vue）\n同一コード = web + デスクトップ" as WEBUI #DCEBFF
+  rectangle "ターミナル\n（既存）" as TERM #DCEBFF
+  rectangle "メッセージング\nTelegram（プル）/\nWhatsApp,Slack（プッシュ->リレー）" as MSG #DCEBFF
+}
+
+' ===========================================================================
+' LOGIN GATE (mandatory)
+' ===========================================================================
+rectangle "**ログインゲート（必須）**\nいかなる利用の前にも登録／ログイン;\nパスワード -> Argon2 -> クライアント鍵\n（鍵はデバイスから出ない）" as GATE #FFCDD2
+
+' ===========================================================================
+' LOCAL AGENT APP (user's machine)
+' ===========================================================================
+package "ユーザーのマシン - agentd（Pythonサイドカー）- ヘキサゴナルコア + イベントループ" #E6F4EA {
+  rectangle "**Ingress（チャネルアダプタ）**\n127.0.0.1 上のローカルサーバー、トークンゲート\nメッセージ受信 -> ストリーム出力（chat.send）" as INGRESS #D4EDD9
+  rectangle "**エージェントループ**\nLLM <-> ツール、継続／検証\n（既存）" as LOOP #D4EDD9
+  rectangle "**ポリシー／ガードレール**（ツールのチョークポイント）\n各ツール呼び出しを認可:\n許可 / 拒否 / 要承認\n+ 承認 = 人間による確認（UIで確認）" as GUARD #FFE0B2
+  rectangle "**ツール**: read write edit ls find exec\nprocess web_search web_fetch browser\n-> このPCに作用（ファイル、アプリ、browser）" as TOOLS #D4EDD9
+  rectangle "**スキル**（ローカルの SKILL.md プレイブック）\n読み込み可能なノウハウ、必要に応じて読み込む;\n自分で追加可能（コード不要）。差し替え可能:\n現在はローカルフォルダ / 将来はクラウドボールト" as SKILLS #D4EDD9
+  rectangle "**暗号／鍵ストア**\nアップロード前に暗号化、\nダウンロード後に復号\n（唯一の鍵を保持）" as CRYPTO #FFE0B2
+  rectangle "**メモリクライアント（同期／キャッシュ）**\n想起（recall）はここで平文上で実行;\nメモリバンクへ暗号化。\n差し替え可能: 現在はローカル / 将来はクラウド" as MEM #FFE0B2
+  rectangle "**推論アダプタ（stream_fn）**\n設定によりLLMティアを選択" as INFER #D4EDD9
+}
+
+' ===========================================================================
+' LLM TIERS (privacy differs)
+' ===========================================================================
+package "LLM - 3つのティア（ティアによりプライバシーが異なる）" #FFF4E5 {
+  rectangle "**ローカルモデル**（Ollama）\n平文はデバイスから出ない\nプライベート" as LLM_LOCAL #C8E6C9
+  rectangle "**ソブリン（自己ホスト）**: ユーザー自身のサーバー\n自前インフラ上のオープンモデル\nプライベート" as LLM_SOV #FFE0B2
+  rectangle "**マネージドセキュア**: あなたのGPU VM\nオープンモデル、ステートレス、非ログ\n平文をRAM上でのみ参照し、忘却する\nプライベート（第三者なし）" as LLM_VM #FFD699
+  rectangle "**BYOK**: OpenAI/Gemini/Anthropic API\n!! データはそのベンダーへ送られる !!\nそのベンダーに対してはプライベートでない" as LLM_BYOK #FFCDD2
+}
+
+' ===========================================================================
+' CONTROL PLANE (your cloud) - metadata + ciphertext only
+' ===========================================================================
+package "あなたのクラウド - コントロールプレーン（モジュラーモノリス、レイヤード・クリーン; メタデータ + 暗号文のみ）" #FDECEA {
+  rectangle "**アカウント・認証**\nログイン -> 短命の署名付きトークン\n+ 利用権限（ティア／クォータ）\n（LLMゲートウェイ + ボールトをゲート）" as AUTH #FBD9D4
+  rectangle "**メモリバンク（正本（カノニカル）、E2E）**\n履歴 + プロフィール + 学習内容 + インデックス;\n暗号文 + ラップ済み鍵のみ（読み取り不可）。\n差し替え可能なバックエンド: DB / ベクトル / ユーザーのサーバー" as VAULT #FBD9D4
+  rectangle "**使用量モニタリング + 管理**\nユーザーごとの使用量／ステータス（メタデータ）\n課金対応可能; v2では課金しない" as ADMIN #FBD9D4
+  rectangle "**LLMゲートウェイ**\nトークン + クォータ + 計測を検証し、\nセキュアモデルへ転送" as LLMGW #FBD9D4
+  rectangle "**メッセージリレー**\nプッシュWebhook -> アプリ接続" as RELAY #FBD9D4
+}
+
+rectangle "**管理（あなた）**\nユーザーを監視（メタデータのみ）" as ADMINUSER #F5F5F5
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+SHELL --> WEBUI : 描画
+SHELL ..> INGRESS : サイドカーを起動
+WEBUI --> GATE
+TERM --> GATE
+MSG --> GATE
+GATE --> INGRESS : ログイン後 - localhost WS\n127.0.0.1、トークンゲート（入力）
+
+INGRESS --> LOOP
+LOOP --> GUARD : 各ツール呼び出し
+GUARD --> TOOLS : 許可／承認された場合
+LOOP --> SKILLS : 一行要約を提示 +\n必要に応じてプレイブックを読み込む
+LOOP --> MEM
+MEM --> CRYPTO
+LOOP --> INFER
+
+INFER --> LLM_LOCAL : tier=local
+INFER --> LLM_SOV : tier=sovereign
+INFER --> LLM_VM : tier=managed（ゲートウェイ経由）
+INFER --> LLM_BYOK : tier=byok
+
+' app -> control plane : ALL OUTBOUND (agentd dials out; server never connects in)
+GATE ..> AUTH : OUT: ログイン / トークン / 利用権限
+CRYPTO ..> VAULT : OUT: 暗号文を同期
+LOOP ..> ADMIN : OUT: 使用量を報告（メタデータ）
+INGRESS <.. RELAY : アウトバウンドリンクを下りでプッシュ
+LLM_VM <.. LLMGW : トークンゲート、計測済み
+LLMGW ..> AUTH : トークンを検証
+ADMINUSER --> ADMIN
+
+note as ENOTE #FFF8DC
+  メモリ = 差し替え可能なサブシステム（チャットだけではない）:
+  履歴 + プロフィール + 学習した事実 + 想起インデックス。
+  単一インターフェース; バックエンドはいつでも差し替え可能
+  （現在はローカル -> 将来はクラウドバンク -> ユーザーのサーバー）。
+  正本（カノニカル）はクラウドに（デバイス横断）;
+  ローカルは同期／キャッシュ。保存時はE2E: サーバーは
+  暗号文 + ラップ済み鍵のみを保持し、読み取れない。
+end note
+ENOTE .. VAULT
+
+note as TNOTE #E8F5E9
+  トランスポート／公開 - agentd には2つの役割:
+  - ローカルサーバー: UI向けの 127.0.0.1 WebSocket、
+    トークンゲート（シェルからの空きポートハンドシェイク）。
+  - アウトバウンドクライアント: コントロールプレーン + LLM へ発信。
+  サーバーは決して受信接続しない（マシンはNAT配下、
+  公開ポートなし）; プッシュはアウトバウンドリンクに乗る。
+end note
+TNOTE .. INGRESS
+
+note as PNOTE #E3F2FD
+  ティア別の平文境界:
+  - local / sovereign : 平文はユーザーの管理下から決して出ない
+  - managed secure    : ステートレスモデルが推論中にRAM上でのみ
+                        平文を参照（保存しない、ログしない）
+  - BYOK              : 平文は第三者のAIベンダーへ送られる
+  ボールトのストレージは常に暗号文; セキュアティアをホストするのはあなた（ファーストパーティ）のみ。
+end note
+PNOTE .. LLM_VM
+
+legend left
+  | Color | Meaning |
+  | green | v2に現存 |
+  | amber | プラットフォーム向け新規 |
+  | red   | プライバシー警告／必須ゲート |
+endlegend
+
+@enduml

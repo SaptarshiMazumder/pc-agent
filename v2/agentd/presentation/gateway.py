@@ -85,6 +85,8 @@ class Gateway:
                 payload = await self._chat_send(req.params)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
+            elif req.method == "hello":
+                payload = self._hello()
             elif req.method == "sessions.list":
                 payload = {"sessions": list_sessions(self.config.state_dir)}
             else:
@@ -93,6 +95,23 @@ class Gateway:
         except Exception as e:
             log.exception("dispatch error for %s", req.method)
             return Response(id=req.id, ok=False, payload={"error": f"{type(e).__name__}: {e}"})
+
+    def _hello(self) -> dict:
+        """Handshake: identity + status a client renders as its welcome banner.
+
+        The agent NAME (and all these facts) are owned by the server's config — the
+        single source of truth — so every front-end shows the same thing without
+        hardcoding any of it.
+        """
+        return {
+            "agentName": self.config.agent_name,
+            "agentId": self.config.agent_id,
+            "model": self.config.model,
+            "reasoning": self.config.reasoning_effort,
+            "gatewayUrl": f"ws://{self.config.host}:{self.config.port}",
+            "workspace": str(self.config.workspace),
+            "sessions": len(list_sessions(self.config.state_dir)),
+        }
 
     async def _chat_send(self, params: dict) -> dict:
         session_key = params.get("sessionKey") or "default"

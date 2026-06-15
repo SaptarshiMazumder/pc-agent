@@ -20,6 +20,10 @@ V2_ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass
 class Config:
+    # The agent's persona name (how it introduces itself + identifies in the prompt).
+    # Single source of truth: the server owns it; clients fetch it via the `hello`
+    # handshake. Override with AGENTD_AGENT_NAME.
+    agent_name: str = "JARVIS"
     model: str = "gemini/gemini-2.5-pro"
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
@@ -36,7 +40,7 @@ class Config:
     brave_api_key: str | None = None
     browser_headless: bool = True
     exec_timeout_sec: int = 1800
-    max_turns: int = 50  # legacy; the loop uses the OpenClaw iteration-cap formula
+    max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
 
 
@@ -78,6 +82,8 @@ def load_config(path: Path | None = None) -> Config:
                     setattr(cfg, key, value)
             break
 
+    if os.environ.get("AGENTD_AGENT_NAME"):
+        cfg.agent_name = os.environ["AGENTD_AGENT_NAME"]
     if os.environ.get("AGENTD_MODEL"):
         cfg.model = os.environ["AGENTD_MODEL"]
     if os.environ.get("AGENTD_REASONING"):
@@ -86,6 +92,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.host = os.environ["AGENTD_HOST"]
     if os.environ.get("AGENTD_PORT"):
         cfg.port = int(os.environ["AGENTD_PORT"])
+    if os.environ.get("AGENTD_MAX_TURNS"):
+        cfg.max_turns = int(os.environ["AGENTD_MAX_TURNS"])
     if os.environ.get("AGENTD_WORKSPACE"):
         cfg.workspace = Path(os.environ["AGENTD_WORKSPACE"])
     if os.environ.get("AGENTD_STATE_DIR"):
