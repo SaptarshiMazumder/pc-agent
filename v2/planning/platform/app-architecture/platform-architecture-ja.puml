@@ -2,7 +2,7 @@
 ' ============================================================================
 '  pc-agent プラットフォーム - ターゲットアーキテクチャ (v2)
 '  ローカルアプリ + 必須ログイン + E2E ボールト + 3つのLLMティア + コントロールプレーン。
-'  描画 (このフォルダから):  java -jar ../../plantuml.jar -charset UTF-8 -tpng platform-architecture-ja.puml
+'  描画 (このフォルダから):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng platform-architecture-ja.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA

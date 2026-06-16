@@ -4,7 +4,7 @@
 '  Two sides: DRIVING (primary) adapters call IN; DRIVEN (secondary) ports are
 '  called OUT. Each driven port is grouped with its own adapters to keep lines
 '  short and non-crossing.
-'  Render (from this folder):  java -jar ../../plantuml.jar -tpng hexagonal-architecture.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng hexagonal-architecture.puml
 ' ============================================================================
 
 left to right direction

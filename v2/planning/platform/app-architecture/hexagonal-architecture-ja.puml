@@ -4,7 +4,7 @@
 '  2つの側面: 駆動（プライマリ）アダプタは内側を呼び出す; 被駆動（セカンダリ）
 '  ポートは外側へ呼び出される。各被駆動ポートは自身のアダプタとグループ化し、
 '  線を短く交差させないようにする。
-'  Render (from this folder):  java -jar ../../plantuml.jar -charset UTF-8 -tpng hexagonal-architecture-ja.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng hexagonal-architecture-ja.puml
 ' ============================================================================
 
 left to right direction

@@ -2,7 +2,7 @@
 ' ============================================================================
 '  pc-agent Platform - TRUST BOUNDARIES & data flow per tier
 '  What data crosses which boundary, and where third parties are excluded.
-'  Render (from this folder):  java -jar ../../plantuml.jar -tpng trust-boundary.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng trust-boundary.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA

@@ -370,8 +370,8 @@ Guidance: **build the control plane as a modular monolith first**, not microserv
 The **agent engine itself is swappable** — the reason→act loop is not hardwired into the app; it sits
 behind an `AgentEngine` port. Adapters:
 
-- **Native engine — CURRENT DEFAULT.** Our hand-rolled loop ([loop.py](../../agentd/loop.py)) + the
-  OpenClaw-faithful continuation/verification protocol ([incomplete_turn.py](../../agentd/incomplete_turn.py)),
+- **Native engine — CURRENT DEFAULT.** Our hand-rolled loop ([loop.py](../../../agentd/loop.py)) + the
+  OpenClaw-faithful continuation/verification protocol ([incomplete_turn.py](../../../agentd/incomplete_turn.py)),
   driven by **LiteLLM**. **Provider-agnostic** → works with all three LLM tiers. This is what v2 runs today.
 - **Claude Agent SDK** — a pluggable option, **but Claude-only**: it bundles Anthropic's provider and
   bypasses our Inference port, so that session **cannot** use the BYOK / local / secure-VM tiers.
@@ -456,7 +456,7 @@ agentd has **two roles in opposite directions**:
 hands the token to agentd), or **all account calls go through agentd**. Default: UI does login
 directly; agentd handles agent traffic.
 
-**v2 status:** the localhost WebSocket gateway exists ([gateway.py](../../agentd/gateway.py)). To add:
+**v2 status:** the localhost WebSocket gateway exists ([gateway.py](../../../agentd/gateway.py)). To add:
 free-port + token handshake (for the UI) and the **outbound control-plane client** (for the server).
 
 ## Reuse vs net-new

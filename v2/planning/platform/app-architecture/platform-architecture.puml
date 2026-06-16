@@ -2,7 +2,7 @@
 ' ============================================================================
 '  pc-agent Platform - target architecture (v2)
 '  Local app + mandatory auth + E2E vault + 3 LLM tiers + control plane.
-'  Render (from this folder):  java -jar ../../plantuml.jar -tpng platform-architecture.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng platform-architecture.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA

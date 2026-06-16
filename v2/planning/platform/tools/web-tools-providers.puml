@@ -1,0 +1,119 @@
+@startuml web-tools-providers
+' ============================================================================
+'  agentd - Web-facing tools: provider architecture
+'  web_search (the provider matrix incl. Gemini Google-Search grounding),
+'  web_fetch, and browser. Shows how we use Gemini's native search via the
+'  Gemini key, and how every other provider (LLM-native + agnostic) plugs in
+'  behind the SAME SearchProvider port -- the tool stays backend-agnostic.
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng web-tools-providers.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Web Tools Provider Architecture\nweb_search routes through a config-ordered SearchProvider chain; Gemini grounding is just one adapter (free with the Gemini key)\ngreen = in v2 today   amber = net-new   gray = port   red = weak fallback
+
+' ===========================================================================
+' THE TOOL + PORT + CHAIN
+' ===========================================================================
+package "web_search  (dispatcher -- NOT coupled to any backend)" #E1F5FE {
+  rectangle "**web_search** tool\nparams: query, count, freshness\ncalls the provider chain only" as TOOL #CFF0FF
+  rectangle "PORT: SearchProvider\nsearch(query, count, freshness)\n-> [ {title, url, snippet, ...} ]" as PORT #E2E2E2
+  rectangle "**Provider CHAIN** (ordered, from config)\nAGENTD_SEARCH_PROVIDERS = gemini,brave,duckduckgo\ntry in order -> first non-empty wins\n-> normalize to a common shape -> TTL cache" as CHAIN #CFF0FF
+}
+
+' ===========================================================================
+' LLM-NATIVE PROVIDERS  (reuse the LLM's OWN key -- no separate search key)
+' ===========================================================================
+package "LLM-NATIVE providers   (search runs INSIDE the LLM call; uses the LLM provider's key)" #E8F5E9 {
+  rectangle "**Gemini grounding**  [now / default on Gemini]\nGemini API generateContent with\ntools = [ { google_search: {} } ]\nkey = GEMINI_API_KEY (already have it)\n-> Google results + grounding citations\nFREE allowance, then cheap" as GEM #C8E6C9
+  rectangle "OpenAI native  [later]\nResponses API web_search tool\nkey = OPENAI_API_KEY  (billed per search)" as OAI #FFE0B2
+  rectangle "Kimi (Moonshot) · MiniMax · xAI  [later]\neach via its own LLM key" as OTHERN #FFE0B2
+}
+
+' ===========================================================================
+' AGNOSTIC PROVIDERS  (own dedicated key; work with ANY LLM)
+' ===========================================================================
+package "AGNOSTIC providers   (dedicated search key; work with ANY LLM)" #FFF4E5 {
+  rectangle "**Brave**  [key already set]\nBRAVE_API_KEY (free tier ~2k/mo)\nindependent index, near-Google quality" as BRAVE #C8E6C9
+  rectangle "Tavily · Exa  [later]\nAI-search APIs tuned for agents (own key)" as TAVEXA #FFE0B2
+  rectangle "SearXNG  [later]\nself-hosted meta-search (free, private)" as SEARX #FFE0B2
+  rectangle "**DuckDuckGo**  [now]\nkeyless LAST-RESORT fallback\n(thin results -- today's default = the problem)" as DDG #FFCDD2
+}
+
+' ===========================================================================
+' GEMINI GROUNDING - the exact flow (OpenClaw's gemini-web-search-provider equivalent)
+' ===========================================================================
+package "How Gemini grounding works  (mirrors OpenClaw extensions/google/gemini-web-search-provider)" #EDE7F6 {
+  rectangle "1. web_search(query)  ->  GeminiSearchProvider\n2. Gemini API: contents=query, tools=[google_search]\n   (LiteLLM passes the googleSearch tool through)\n3. Gemini searches Google SERVER-SIDE during the call\n4. returns answer + groundingMetadata (source URLs/titles)\n5. provider normalizes -> [ {title, url, snippet} ]\n--\nNote: this happens INSIDE one Gemini call, billed to the\nGemini key -- which is why OpenClaw needed no search key\nand showed no separate web_search step." as GEMFLOW #C7B8EA
+}
+
+' ===========================================================================
+' SIBLING WEB TOOLS  (same dispatcher+provider pattern)
+' ===========================================================================
+package "Sibling web-facing tools  (same pattern, own provider ports)" #E1F5FE {
+  rectangle "**web_fetch**\nFetchProvider: httpx GET -> readable markdown [now]\nESCALATE to browser for JS-heavy / blocked pages [later]" as FETCH #CFF0FF
+  rectangle "**browser**  (BrowserProvider)\nPlaywright local [now] -> remote CDP / cloud [later]\nsnapshot / act / scroll / wait -- guided by the\nbrowser-automation SKILL.md" as BROW #CFF0FF
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+TOOL --> PORT
+PORT --> CHAIN
+
+CHAIN --> GEM : (1) if running on Gemini
+CHAIN --> BRAVE : (2) fallback / any LLM
+CHAIN --> DDG : (3) last resort
+
+' all providers realize the one SearchProvider port
+GEM ..up.> PORT
+OAI ..up.> PORT
+OTHERN ..up.> PORT
+BRAVE ..up.> PORT
+TAVEXA ..up.> PORT
+SEARX ..up.> PORT
+DDG ..up.> PORT
+
+GEM .. GEMFLOW
+
+note bottom of GEMFLOW
+  KEY TRADE-OFF -- two kinds of provider:
+  * LLM-NATIVE (Gemini/OpenAI/Kimi...): no extra key, but
+    TIED to that LLM. Free only where the provider makes it
+    free (Gemini grounding = free tier). Switch LLM -> put
+    that LLM's native provider first in the chain.
+  * AGNOSTIC (Brave/Tavily/...): works with ANY LLM, but
+    needs its OWN key (often a free tier).
+  The tool imports NEITHER -- only the adapters do. The
+  chain order is config, so swapping is a config change.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | in v2 today |
+  | amber | net-new |
+  | red   | weak keyless fallback (the current default to move off) |
+  | gray  | port = interface |
+  | blue  | tool / chain |
+endlegend
+
+@enduml

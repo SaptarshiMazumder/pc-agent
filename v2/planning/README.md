@@ -12,8 +12,13 @@ next to its rendered `.png`.
 - **agentd/** — diagrams of **our app** (`v2/`, package `agentd`):
   - `agentd-flow.puml` — full backend flow incl. the continuation/verification loop and
     skills (loadable SKILL.md playbooks, advertised in the prompt + read on demand)
+- **platform/** — design docs + diagrams for the target platform, split by subject:
+  - `app-architecture/` — overall clean/hexagonal app architecture: `ARCHITECTURE.md`,
+    `REQUIREMENTS.md`, and the diagrams (`hexagonal-architecture`, `platform-architecture`,
+    `request-flow`, `trust-boundary`).
+  - `tools/` — how tools are built (scalable provider/adapter pattern). *Design in progress.*
 
-Add new categories as sibling folders (e.g. `comparisons/`, `tools/`, `sessions/`).
+Add new categories as sibling folders (e.g. `comparisons/`, `sessions/`).
 
 ## Japanese versions
 
@@ -29,7 +34,9 @@ names, file names, and identifiers stay in English). They use a CJK font
 
 ## Rendering
 
-The shared `plantuml.jar` sits at the repo root. From inside a category folder:
+The shared `plantuml.jar` sits at the repo root (`v2/`). Use a relative path with
+one `../` per folder depth — `../../` from a top-level category (`agentd/`,
+`openclaw/`), `../../../` from a nested one (`platform/app-architecture/`):
 
 ```
 java -jar ../../plantuml.jar -tpng <name>.puml
@@ -39,4 +46,5 @@ PLANTUML_LIMIT_SIZE=16384 java -DPLANTUML_LIMIT_SIZE=16384 -jar ../../plantuml.j
 java -jar ../../plantuml.jar -checkonly <name>.puml
 # Japanese version (UTF-8 required):
 java -jar ../../plantuml.jar -charset UTF-8 -tpng <name>-ja.puml
+# from a nested folder (e.g. platform/app-architecture/) use ../../../ instead.
 ```

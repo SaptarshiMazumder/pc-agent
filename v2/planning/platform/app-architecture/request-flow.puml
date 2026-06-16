@@ -2,7 +2,7 @@
 ' ============================================================================
 '  pc-agent - Runtime flow of ONE user message through all layers
 '  (the dynamic view: time flows downward; the reason->act LOOP is the key part)
-'  Render (from this folder):  java -jar ../../plantuml.jar -tpng request-flow.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng request-flow.puml
 ' ============================================================================
 
 skinparam backgroundColor #FAFAFA
