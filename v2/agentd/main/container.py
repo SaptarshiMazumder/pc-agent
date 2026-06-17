@@ -37,9 +37,20 @@ def build_browser_manager(config: Config):
     return build_browser_provider(config)
 
 
-def build_service(config: Config, browser_manager) -> AgentService:
+def build_computer_provider(config: Config):
+    """Build the computer-use OS backend (pyautogui), or None if disabled/missing.
+
+    OFF unless AGENTD_COMPUTER_ENABLED=1 — this tool drives the real desktop, so it
+    is opt-in. The factory is the one place the backend is selected.
+    """
+    from agentd.infrastructure.tools.computer import build_computer_provider as _build
+
+    return _build(config)
+
+
+def build_service(config: Config, browser_manager, computer_provider=None) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations."""
-    tools = build_tools(config, browser_manager)
+    tools = build_tools(config, browser_manager, computer_provider)
     # the LLM service: LiteLLM with the configured thinking level pre-bound
     stream_fn = functools.partial(litellm_stream, reasoning_effort=config.reasoning_effort)
     engine = NativeEngine(stream_fn, config.model, max_iterations=config.max_turns)   # swap here for Claude SDK / LangGraph
@@ -61,5 +72,6 @@ def build_service(config: Config, browser_manager) -> AgentService:
 def build_gateway(config: Config) -> Gateway:
     """Top-level: build everything and return the ready-to-serve Gateway."""
     browser_manager = build_browser_manager(config)
-    service = build_service(config, browser_manager)
+    computer_provider = build_computer_provider(config)
+    service = build_service(config, browser_manager, computer_provider)
     return Gateway(config=config, service=service, browser_manager=browser_manager)

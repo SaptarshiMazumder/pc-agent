@@ -47,6 +47,21 @@ class Config:
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
 
+    # --- computer-use (PC GUI automation) tool ---------------------------------
+    # OFF by default: this tool drives the REAL mouse/keyboard/screen, so it ships
+    # disabled and is only registered when AGENTD_COMPUTER_ENABLED=1. Every step
+    # sends a full-screen screenshot to `computer_model` (may contain sensitive
+    # on-screen data) — point it at a trusted/Vertex endpoint for sensitive use.
+    computer_enabled: bool = False
+    # The vision model that drives the see->click loop (decoupled from `model`;
+    # the main agent can be any LLM). Default = Gemini's dedicated computer-use
+    # model, driven via google-genai. Override with AGENTD_COMPUTER_MODEL.
+    computer_model: str = "gemini-2.5-computer-use-preview-10-2025"
+    computer_max_steps: int = 25       # loop step cap; override AGENTD_COMPUTER_MAX_STEPS
+    computer_send_max: int = 1280      # cap the longest screenshot side sent to the model
+    computer_capture: str = "primary"  # primary | virtual (multi-monitor, best-effort)
+    computer_pause: float = 0.15       # pyautogui inter-action settle delay (seconds)
+
 
 def _load_dotenv() -> None:
     """Load KEY=VALUE lines from v2's own .env into os.environ (no override).
@@ -112,6 +127,14 @@ def load_config(path: Path | None = None) -> Config:
         cfg.search_providers = [
             s.strip() for s in os.environ["AGENTD_SEARCH_PROVIDERS"].split(",") if s.strip()
         ]
+    if os.environ.get("AGENTD_COMPUTER_ENABLED"):
+        cfg.computer_enabled = os.environ["AGENTD_COMPUTER_ENABLED"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_COMPUTER_MODEL"):
+        cfg.computer_model = os.environ["AGENTD_COMPUTER_MODEL"]
+    if os.environ.get("AGENTD_COMPUTER_MAX_STEPS"):
+        cfg.computer_max_steps = int(os.environ["AGENTD_COMPUTER_MAX_STEPS"])
+    if os.environ.get("AGENTD_COMPUTER_CAPTURE"):
+        cfg.computer_capture = os.environ["AGENTD_COMPUTER_CAPTURE"]
 
     cfg.workspace = Path(cfg.workspace).resolve()
     cfg.state_dir = Path(cfg.state_dir)

@@ -13,3 +13,8 @@ pypdf>=4.0
 pytest>=8
 pytest-asyncio>=0.24
 import-linter>=2.0
+# computer-use tool (optional; only needed when AGENTD_COMPUTER_ENABLED=1).
+# The tool degrades to "disabled" if these are missing.
+pyautogui>=0.9.54
+Pillow>=10
+google-genai>=0.3

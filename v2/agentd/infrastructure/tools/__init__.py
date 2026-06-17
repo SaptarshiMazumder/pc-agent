@@ -91,7 +91,7 @@ def validate_args(tool: Tool, args: dict[str, Any]) -> dict[str, Any]:
     return args
 
 
-def build_tools(config, browser_manager=None) -> list[Tool]:
+def build_tools(config, browser_manager=None, computer_provider=None) -> list[Tool]:
     """The REGISTRY: assemble the list of active tools.
 
     Tool classes are imported lazily (inside this function) so that an optional
@@ -121,4 +121,8 @@ def build_tools(config, browser_manager=None) -> list[Tool]:
         from .browser import BrowserTool
 
         tools.append(BrowserTool(config, browser_manager))
+    if computer_provider is not None:
+        from .computer import ComputerTool
+
+        tools.append(ComputerTool(config, computer_provider))
     return tools

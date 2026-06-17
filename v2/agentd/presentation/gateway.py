@@ -31,6 +31,7 @@ class RunHandle:
     run_id: str
     session_key: str
     abort: asyncio.Event
+    client_id: str | None = None  # the client connection that started this run
     task: asyncio.Task | None = None
 
 
@@ -61,6 +62,10 @@ class Gateway:
                     await self.browser_manager.close()
 
     async def _handle_conn(self, ws: ServerConnection) -> None:
+        # Each connection — terminal, desktop, mobile, a channel adapter, anything —
+        # gets a stable client id. Runs it starts are tagged with it, so when this
+        # connection drops we can stop exactly that client's in-flight work.
+        client_id = uuid.uuid4().hex
         self.clients.add(ws)
         try:
             async for raw in ws:
@@ -70,19 +75,20 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
-                    response = await self._dispatch(frame)
+                    response = await self._dispatch(frame, client_id)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
             pass
         finally:
             self.clients.discard(ws)
+            await self._abort_client_runs(client_id)
 
     # --------------------------------------------------------------- dispatch
 
-    async def _dispatch(self, req: Request) -> Response:
+    async def _dispatch(self, req: Request, client_id: str | None = None) -> Response:
         try:
             if req.method == "chat.send":
-                payload = await self._chat_send(req.params)
+                payload = await self._chat_send(req.params, client_id)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
             elif req.method == "hello":
@@ -113,7 +119,7 @@ class Gateway:
             "sessions": len(list_sessions(self.config.state_dir)),
         }
 
-    async def _chat_send(self, params: dict) -> dict:
+    async def _chat_send(self, params: dict, client_id: str | None = None) -> dict:
         session_key = params.get("sessionKey") or "default"
         message = params.get("message") or ""
         if not message.strip():
@@ -130,18 +136,40 @@ class Gateway:
         run_id = uuid.uuid4().hex[:12]
         if idem:
             self.idempotency[idem] = run_id
-        handle = RunHandle(run_id=run_id, session_key=session_key, abort=asyncio.Event())
+        handle = RunHandle(
+            run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
+        )
         handle.task = asyncio.create_task(self._run(handle, message))
         self.runs[session_key] = handle
         return {"runId": run_id}
 
+    def _abort_handle(self, handle: RunHandle) -> bool:
+        """Signal a run to stop: set its abort flag (cooperative — the loop/tools
+        check it) and cancel its task. Returns False if it wasn't running."""
+        if handle.task is None or handle.task.done():
+            return False
+        handle.abort.set()
+        handle.task.cancel()
+        return True
+
+    async def _abort_client_runs(self, client_id: str) -> None:
+        """When a client connection ends, stop every in-flight run it started.
+
+        Transport-agnostic: any front-end (terminal, desktop, mobile, a messaging
+        channel adapter) that drops its connection has its own work cancelled —
+        e.g. a computer-use run stops driving the PC the moment you close the app.
+        Runs started by OTHER clients are untouched.
+        """
+        for handle in list(self.runs.values()):
+            if handle.client_id == client_id and self._abort_handle(handle):
+                log.info("client %s disconnected; aborting run %s (session %s)",
+                         client_id, handle.run_id, handle.session_key)
+
     async def _chat_abort(self, params: dict) -> dict:
         session_key = params.get("sessionKey") or "default"
         handle = self.runs.get(session_key)
-        if handle is None or handle.task is None or handle.task.done():
+        if handle is None or not self._abort_handle(handle):
             return {"aborted": False, "reason": "no active run"}
-        handle.abort.set()
-        handle.task.cancel()
         return {"aborted": True, "runId": handle.run_id}
 
     # -------------------------------------------------------------------- run
