@@ -100,7 +100,9 @@ def build_tools(config, browser_manager=None) -> list[Tool]:
     provided (it needs Playwright).
     """
     from .exec_tool import ExecTool, ProcessTool
+    from .fetch import build_fetch_providers
     from .fs_tools import EditTool, FindTool, LsTool, ReadTool, WriteTool
+    from .search import build_search_providers
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -112,8 +114,8 @@ def build_tools(config, browser_manager=None) -> list[Tool]:
         FindTool(config),
         ExecTool(config),
         ProcessTool(config),
-        WebSearchTool(config),
-        WebFetchTool(config),
+        WebSearchTool(config, build_search_providers(config)),
+        WebFetchTool(config, build_fetch_providers(config, browser_manager)),
     ]
     if browser_manager is not None:
         from .browser import BrowserTool

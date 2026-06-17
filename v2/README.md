@@ -36,7 +36,7 @@ Then create `v2/.env` (copy `.env.example` and fill in a provider key):
 
 ```
 GEMINI_API_KEY=...            # or ANTHROPIC_API_KEY / OPENAI_API_KEY
-AGENTD_MODEL=gemini/gemini-2.5-pro    # any LiteLLM model id
+AGENTD_MODEL=gemini/gemini-3.1-pro-preview    # any LiteLLM model id (default)
 AGENTD_REASONING=medium               # off | low | medium | high (thinking)
 BRAVE_API_KEY=...                      # optional; web_search falls back to DuckDuckGo
 ```

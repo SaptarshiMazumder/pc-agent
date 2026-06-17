@@ -1,9 +1,9 @@
 """Configuration: optional JSON file + environment overrides.
 
 Env vars: AGENTD_MODEL, AGENTD_HOST, AGENTD_PORT, AGENTD_WORKSPACE,
-AGENTD_STATE_DIR, AGENTD_HEADLESS, BRAVE_API_KEY. Provider API keys
-(ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...) are read by
-LiteLLM directly from the environment.
+AGENTD_STATE_DIR, AGENTD_HEADLESS, AGENTD_SEARCH_PROVIDERS, BRAVE_API_KEY.
+Provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...) are
+read by LiteLLM directly from the environment.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class Config:
     # Single source of truth: the server owns it; clients fetch it via the `hello`
     # handshake. Override with AGENTD_AGENT_NAME.
     agent_name: str = "JARVIS"
-    model: str = "gemini/gemini-2.5-pro"
+    model: str = "gemini/gemini-3.1-pro-preview"
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
@@ -38,6 +38,10 @@ class Config:
     # skills here; override with AGENTD_SKILLS_DIR.
     skills_dir: Path = field(default_factory=lambda: V2_ROOT / "skills")
     brave_api_key: str | None = None
+    # Explicit web_search provider chain order (e.g. ["gemini","brave","duckduckgo"]).
+    # None = auto: gemini (if on a Gemini model + key) -> brave (if key) -> duckduckgo.
+    # Override with AGENTD_SEARCH_PROVIDERS (comma-separated).
+    search_providers: list[str] | None = None
     browser_headless: bool = True
     exec_timeout_sec: int = 1800
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
@@ -104,6 +108,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.browser_headless = os.environ["AGENTD_HEADLESS"].lower() not in ("0", "false", "no")
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
+    if os.environ.get("AGENTD_SEARCH_PROVIDERS"):
+        cfg.search_providers = [
+            s.strip() for s in os.environ["AGENTD_SEARCH_PROVIDERS"].split(",") if s.strip()
+        ]
 
     cfg.workspace = Path(cfg.workspace).resolve()
     cfg.state_dir = Path(cfg.state_dir)

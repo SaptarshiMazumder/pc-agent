@@ -26,14 +26,15 @@ log = logging.getLogger("agentd")
 
 
 def build_browser_manager(config: Config):
-    """Build the Playwright browser manager, or None if Playwright isn't installed."""
-    try:
-        from agentd.infrastructure.tools.browser import BrowserManager
+    """Build the browser provider (Playwright today), or None if unavailable.
 
-        return BrowserManager(config)
-    except ImportError:
-        log.warning("playwright not installed; browser tool disabled")
-        return None
+    Delegates to the browser package's factory — the one place a browser backend
+    is selected. The returned provider is shared by the `browser` tool and the
+    `web_fetch` browser-render escalation.
+    """
+    from agentd.infrastructure.tools.browser import build_browser_provider
+
+    return build_browser_provider(config)
 
 
 def build_service(config: Config, browser_manager) -> AgentService:

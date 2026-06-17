@@ -1,176 +1,20 @@
 """browser tool: Playwright-driven Chrome with rich ARIA-snapshot perception.
 
-Faithful port of OpenClaw's browser tool core (extensions/browser/src/browser/):
+The dispatcher over a BrowserProvider (Playwright today). Faithful port of
+OpenClaw's browser tool core (extensions/browser/src/browser/):
   actions: navigate | snapshot | act | screenshot | tabs
   act kinds: click | clickCoords | type | fill | press | select | hover |
              scrollIntoView | drag | wait | evaluate | resize | batch
-
-Key perception features ported so long / lazy-loaded pages work:
-  - snapshot planning: interactive / compact / depth / limit / max_chars /
-    mode="efficient" (efficient => interactive, compact, depth=6, 8k chars)
-  - scrollIntoView + a real wait (networkidle/text/selector/url/fn) so the
-    model can reveal and gather lazy-loaded list items
-  - role sets ported verbatim from snapshot-roles.ts
-  - stale-ref recovery guidance
 """
 
 from __future__ import annotations
 
-import asyncio
-import re
 import time
 from pathlib import Path
 
-from . import Tool, ToolResult
+from agentd.infrastructure.tools.browser.snapshot import resolve_snapshot_plan
 
-# constants.ts
-DEFAULT_AI_SNAPSHOT_MAX_CHARS = 40_000
-DEFAULT_AI_SNAPSHOT_EFFICIENT_MAX_CHARS = 8_000
-DEFAULT_AI_SNAPSHOT_EFFICIENT_DEPTH = 6
-
-# snapshot-roles.ts (verbatim)
-INTERACTIVE_ROLES = {
-    "button", "checkbox", "combobox", "link", "listbox", "menuitem",
-    "menuitemcheckbox", "menuitemradio", "option", "radio", "searchbox",
-    "slider", "spinbutton", "switch", "tab", "textbox", "treeitem",
-}
-CONTENT_ROLES = {
-    "article", "cell", "columnheader", "gridcell", "heading", "listitem",
-    "main", "navigation", "region", "rowheader",
-}
-STRUCTURAL_ROLES = {
-    "application", "directory", "document", "generic", "grid", "group",
-    "ignored", "list", "menu", "menubar", "none", "presentation", "row",
-    "rowgroup", "table", "tablist", "toolbar", "tree", "treegrid",
-}
-
-# aria_snapshot lines: `  - button "Submit"` / `- link "Home":` / `- heading "Hi" [level=1]`
-_NODE_RE = re.compile(r"^(\s*)-\s+([a-z]+)(?:\s+\"((?:[^\"\\]|\\.)*)\")?(.*)$")
-_NETWORKIDLE_TIMEOUT_MS = 8_000
-
-
-class BrowserManager:
-    """Lazy singleton owning the Playwright browser; lives on the gateway loop."""
-
-    def __init__(self, config):
-        import playwright  # noqa: F401  (raise ImportError early if missing)
-
-        self.config = config
-        self._pw = None
-        self._browser = None
-        self.context = None
-        self.active_page = None
-        self.ref_map: dict[str, dict] = {}
-
-    async def ensure(self):
-        if self._browser is not None:
-            return
-        from playwright.async_api import async_playwright
-
-        self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=self.config.browser_headless)
-        self.context = await self._browser.new_context()
-        self.active_page = await self.context.new_page()
-
-    async def close(self):
-        if self._browser is not None:
-            try:
-                await self._browser.close()
-            except Exception:
-                pass
-        if self._pw is not None:
-            try:
-                await self._pw.stop()
-            except Exception:
-                pass
-        self._browser = None
-        self._pw = None
-
-    async def settle(self):
-        """Best-effort wait for the network to go idle after nav/interaction."""
-        try:
-            await self.active_page.wait_for_load_state("networkidle", timeout=_NETWORKIDLE_TIMEOUT_MS)
-        except Exception:
-            pass
-
-    # ----------------------------------------------------------- snapshot
-
-    async def snapshot(
-        self,
-        *,
-        interactive: bool = False,
-        compact: bool = False,
-        depth: int | None = None,
-        max_chars: int = DEFAULT_AI_SNAPSHOT_MAX_CHARS,
-    ) -> str:
-        await self.ensure()
-        page = self.active_page
-        raw = await page.locator("body").aria_snapshot()
-        self.ref_map = {}
-        counter = 0
-        seen: dict[tuple[str, str], int] = {}
-        out_lines = []
-        for line in raw.splitlines():
-            m = _NODE_RE.match(line)
-            if not m:
-                out_lines.append(line)
-                continue
-            indent, role, name, rest = m.group(1), m.group(2), m.group(3), m.group(4)
-            indent_depth = len(indent) // 2
-            if depth is not None and indent_depth > depth:
-                continue
-            is_interactive = role in INTERACTIVE_ROLES
-            if interactive and not is_interactive and role not in CONTENT_ROLES:
-                continue
-            if compact and role in STRUCTURAL_ROLES and not name:
-                continue
-            if is_interactive:
-                counter += 1
-                ref = f"e{counter}"
-                key = (role, name or "")
-                nth = seen.get(key, 0)
-                seen[key] = nth + 1
-                self.ref_map[ref] = {"role": role, "name": name or "", "nth": nth}
-                name_part = f' "{name}"' if name else ""
-                out_lines.append(f"{indent}- {role}{name_part}{rest} [ref={ref}]")
-            else:
-                out_lines.append(line)
-        text = "\n".join(out_lines)
-        if len(text) > max_chars:
-            text = text[:max_chars] + "\n\n[...TRUNCATED - page too large; use mode=efficient or a higher limit]"
-        title = await page.title()
-        return f"Page: {title}\nURL: {page.url}\n\n{text}"
-
-    def resolve_ref(self, ref: str):
-        entry = self.ref_map.get(ref)
-        if entry is None:
-            raise ValueError(
-                f"Unknown ref '{ref}'. Run a new snapshot and use a ref from that snapshot."
-            )
-        page = self.active_page
-        loc = (
-            page.get_by_role(entry["role"], name=entry["name"], exact=True)
-            if entry["name"]
-            else page.get_by_role(entry["role"])
-        )
-        return loc.nth(entry["nth"])
-
-
-def _resolve_snapshot_plan(params: dict) -> dict:
-    mode = params.get("mode")
-    if mode == "efficient":
-        return {
-            "interactive": params.get("interactive", True),
-            "compact": params.get("compact", True),
-            "depth": params.get("depth", DEFAULT_AI_SNAPSHOT_EFFICIENT_DEPTH),
-            "max_chars": params.get("max_chars", DEFAULT_AI_SNAPSHOT_EFFICIENT_MAX_CHARS),
-        }
-    return {
-        "interactive": params.get("interactive", False),
-        "compact": params.get("compact", False),
-        "depth": params.get("depth"),
-        "max_chars": params.get("max_chars", DEFAULT_AI_SNAPSHOT_MAX_CHARS),
-    }
+from .. import Tool, ToolResult
 
 
 class BrowserTool(Tool):
@@ -235,9 +79,9 @@ class BrowserTool(Tool):
         },
     }
 
-    def __init__(self, config, manager: BrowserManager):
+    def __init__(self, config, manager):
         self.config = config
-        self.manager = manager
+        self.manager = manager  # BrowserProvider (PlaywrightBrowserProvider today)
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -246,7 +90,7 @@ class BrowserTool(Tool):
             return ToolResult.text(f"browser error: {type(e).__name__}: {e}", is_error=True)
 
     async def _snapshot_text(self, params: dict) -> str:
-        return await self.manager.snapshot(**_resolve_snapshot_plan(params))
+        return await self.manager.snapshot(**resolve_snapshot_plan(params))
 
     async def _execute(self, params) -> ToolResult:
         action = params["action"]
