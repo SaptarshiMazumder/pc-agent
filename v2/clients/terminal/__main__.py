@@ -62,6 +62,7 @@ console = Console(
 # Per-tool icon + lime shade, keyed by the gateway's real tool names, so each
 # tool is distinguishable by both glyph and shade (all within the lime family).
 TOOL_STYLE = {
+    "update_plan": ("☑", LIME_BRIGHT),
     "read": ("◆", LIME_MID),
     "ls": ("▦", LIME_MID),
     "find": ("◎", LIME_MID),
@@ -124,6 +125,31 @@ def sessions_table(sessions: list[dict], current: str | None = None) -> Table:
 def result_text(result: dict) -> str:
     blocks = (result or {}).get("content") or []
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+
+
+# Render the structured `update_plan` plan as a Claude-Code-style checklist. The
+# backend emits ONLY structured data (the plan array of {step, status}); each client
+# is free to render it however it likes — this is the terminal client's take. Other
+# clients read the same `args.plan` and draw their own widget; nothing is coupled to
+# this display.
+PLAN_MARKS = {
+    "completed": ("☒", "dim strike"),
+    "in_progress": ("☐", f"bold {LIME_BRIGHT}"),
+    "pending": ("☐", "dim"),
+}
+
+
+def render_plan(plan: list) -> Text:
+    t = Text()
+    rows = [s for s in plan if isinstance(s, dict)]
+    for i, step in enumerate(rows):
+        mark, style = PLAN_MARKS.get(step.get("status", "pending"), ("☐", "dim"))
+        desc = str(step.get("step", "")).strip()
+        t.append("  ⎿ " if i == 0 else "     ")  # ⎿ on the first row, aligned after
+        t.append(f"{mark} {desc}", style=style)
+        if i < len(rows) - 1:
+            t.append("\n")
+    return t
 
 
 class TerminalClient:
@@ -224,11 +250,17 @@ class TerminalClient:
         elif etype == "tool_execution_start":
             self._close_live()
             name = event.get("toolName", "?")
+            args = event.get("args") or {}
             icon, color = tool_style(name)
+            # update_plan: draw the structured plan as a checklist (Claude-Code style)
+            if name == "update_plan" and isinstance(args.get("plan"), list):
+                console.print(Text(f" {icon} Update Plan ", style=f"bold {color} on grey23"))
+                console.print(render_plan(args["plan"]))
+                return
             line = Text()
             # icon + full tool name sit inside a grey background block
             line.append(f" {icon} {name} ", style=f"bold {color} on grey23")
-            line.append(f" ({summarize_args(event.get('args') or {})})", style="dim")
+            line.append(f" ({summarize_args(args)})", style="dim")
             console.print(line)
         elif etype == "tool_execution_end":
             name = event.get("toolName", "?")

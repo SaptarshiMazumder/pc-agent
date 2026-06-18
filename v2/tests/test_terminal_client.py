@@ -6,9 +6,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import clients.terminal.__main__ as term
 from clients.terminal.__main__ import (
     TerminalClient,
+    render_plan,
     resolve_session_choice,
     sessions_table,
 )
+
+
+def test_render_plan_checklist_marks_and_text():
+    plan = [
+        {"step": "find: locate CV", "status": "completed"},
+        {"step": "browser: open LinkedIn", "status": "in_progress"},
+        {"step": "reply: summarize", "status": "pending"},
+    ]
+    plain = render_plan(plan).plain
+    assert "☒ find: locate CV" in plain          # completed
+    assert "☐ browser: open LinkedIn" in plain    # in_progress
+    assert "☐ reply: summarize" in plain          # pending
+    assert plain.startswith("  ⎿ ")               # Claude-Code-style first row
+
+
+def test_render_plan_tolerates_unknown_status_and_junk():
+    plain = render_plan([{"step": "x", "status": "weird"}, "junk", {"step": "y", "status": "pending"}]).plain
+    assert "☐ x" in plain and "☐ y" in plain      # junk entry skipped, unknown -> box
 
 SESSIONS = [
     {"sessionId": "term-aaa", "messages": 16, "modified": 1_700_000_000},
