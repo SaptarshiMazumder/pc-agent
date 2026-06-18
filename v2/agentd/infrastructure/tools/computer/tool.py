@@ -21,10 +21,19 @@ class ComputerTool(Tool):
     description = (
         "Operate the computer's GUI to accomplish a task, like a human at the keyboard: "
         "open and control ANY application — click, type, scroll, drag, upload files, change "
-        "settings. Give ONE high-level task in plain language (e.g. \"open Notepad, type the "
-        "meeting notes, and save as notes.txt on the Desktop\"); it runs autonomously and "
-        "returns a summary of what it did. Use this for desktop GUI actions that can't be done "
-        "with the file, shell, or browser tools."
+        "settings — AND drive the user's REAL web browser, which is already signed in to "
+        "their accounts. Give ONE high-level task in plain language (e.g. \"open Notepad, "
+        "type the meeting notes, and save as notes.txt on the Desktop\", or \"open my "
+        "LinkedIn profile and read my headline\"); it runs autonomously and returns a "
+        "summary of what it did.\n"
+        "When to use this vs the other tools:\n"
+        "- Desktop GUI actions (apps, settings, files a human would click) -> use this.\n"
+        "- Any website that needs the USER'S OWN login/session or visual interaction "
+        "(e.g. 'my LinkedIn', their webmail, a logged-in dashboard, posting/editing on "
+        "their account) -> use this. The separate `browser` tool is a FRESH, "
+        "NOT-logged-in browser and will hit a sign-in wall on those.\n"
+        "- Public, read-only web content (look something up, read an open article) -> "
+        "prefer `web_search` / `browser` instead; they're faster."
     )
     parameters = {
         "type": "object",

@@ -1,8 +1,10 @@
 @startuml request-flowchart
 ' ============================================================================
-'  agentd - Request Flowchart: one user message, end to end, top to bottom.
-'  A plain vertical flowchart (not a sequence diagram) showing every layer and
-'  the reason -> act loop. Render (from this folder):
+'  agentd - Request Flow + DETAILED Agent Loop (one user message, top to bottom).
+'  Shows every decision in the reason->act loop, the incomplete-turn handling,
+'  tool selection, and the sealed `computer` sub-loop.
+'  GOLD steps = PROPOSED (plan-first), not built yet — for review before we add it.
+'  Render (from this folder):
 '    java -jar ../../../plantuml.jar -tpng request-flowchart.puml
 ' ============================================================================
 
@@ -23,74 +25,109 @@ skinparam partitionBorderColor #9AA0B5
 skinparam partitionFontStyle bold
 skinparam partitionFontSize 13
 
-title agentd - Request Flowchart\nOne user message, top to bottom, through every layer (the reason -> act loop is the heart)
+title agentd - Request Flow + Agent Loop (detailed)\nEvery decision in the reason -> act loop.  GOLD = PROPOSED (plan-first), not built yet.
 
 start
 
-partition "1 . CLIENT   (terminal / desktop / mobile / messaging channel)" #E8F0FE {
-  :User types a message;
-  :Send  chat.send { sessionKey, message }\nover ONE WebSocket connection;
+partition "1 . CLIENT" #E8F0FE {
+  :User sends a message over one WebSocket;
 }
 
-partition "2 . GATEWAY   (presentation · localhost WS · token-gated)" #FDECEA {
-  :Receive chat.send;
-  :Reply { runId } immediately,\nthen run the agent ASYNC (non-blocking);
-  :Tag the run with this client\n(client disconnects -> its run is aborted);
+partition "2 . GATEWAY  (presentation, localhost)" #FDECEA {
+  :reply { runId } immediately, run the agent ASYNC;
+  :tag the run with this client (disconnect -> abort);
 }
 
-partition "3 . APPLICATION   (AgentService.handle_message)" #E8F5E9 {
-  :Load this session's history from JSONL;
-  :Append the new user message;
-  :Build the system prompt\n(identity · ## Language · tools · ## Skills · safety · runtime);
+partition "3 . APPLICATION  (AgentService.handle_message)" #E8F5E9 {
+  :load session history (JSONL);
+  :append the user message;
+  :build the system prompt\n(identity . ## Language . tool list + descriptions . ## Skills . safety);
 }
 
-partition "4 . AGENT LOOP   (engine · reason -> act · repeats until done)" #EDE7F6 {
-  repeat :loop start;
-    :(1) STREAM THE LLM   litellm_stream\nsend system prompt + FULL history + tool schemas\nidle-timeout 120s + request-timeout -> a hung call ends gracefully\nstream thinking + text deltas to the user LIVE;
+partition "4 . AGENT LOOP   (engine: reason -> act, repeats until done / error / max turns)" #EDE7F6 {
 
-    switch (step 2 - what did the model produce?)
+  :inject steering messages (optional, before the first turn);
+
+  repeat :begin a turn   (turn_start, message_start);
+
+    :STEP 1 - STREAM THE LLM   (litellm_stream)\nsend: system prompt + FULL history + every tool's SCHEMA & DESCRIPTION\nmodel streams:  (a) thinking  ->  (b) visible text  ->  (c) maybe TOOL CALLS\nguards: idle-timeout 120s + request-timeout  (a hung stream ends gracefully);
+
+    'STEP 1b - PLAN-FIRST (PROPOSED, not built): GATED on complexity, NOT always.
+    if (STEP 1b - PROPOSED: is the task COMPLEX / multi-step, and no plan yet?) then (yes - complex)
+      #Gold:call the `plan` tool -> numbered steps + WHICH TOOL each needs.\nSaved to history, shown + updated every turn. (It's a TOOL CALL, so the\nloop treats planning as an ACTION, not a "stalling" text turn.);
+    else (no - simple / 1-2 steps)
+      #Gold:SKIP planning - just act on it directly\n(no plan tool, no overhead);
+    endif
+
+    switch (STEP 2 - what did the model produce this turn?)
+
     case ( it requested TOOL CALLS )
+      :the model ALREADY chose each tool\nby matching the task to the tool DESCRIPTIONS\n(better descriptions -> better tool choice);
       partition "5 . TOOLS   (EVERY call wrapped by GuardedTool)" #E1F5FE {
-        :Validate args vs the tool's JSON schema;
-        :GuardedTool — per-tool timeout + retry + error-norm\n(a slow / stuck tool -> clean error, the run keeps going);
-        :Run the tool:\nread · write · edit · exec · process ·\nweb_search · web_fetch · browser · computer;
-        :Append the tool result(s) to history;
+        :validate args vs the tool's JSON schema\n(bad args -> error result, no execution);
+        :GuardedTool: per-tool TIMEOUT + RETRY + error-normalize\n(slow / stuck tool -> clean error, the run continues);
+        :run the chosen tool ->\nread . write . edit . ls . find . exec . process .\nweb_search . web_fetch . browser . plan(PROPOSED) . computer;
+        :append the tool result(s) to history;
       }
-    case ( a FINAL ANSWER (text, no tools) )
-      :Accept it as the answer;
-    case ( only a PLAN / REASONING / EMPTY )
-      :Inject a continuation instruction\n("don't just plan - act now / produce the answer");
+      #Gold:(PROPOSED) mark the current plan step done / update the plan;
+      ->results feed back to STEP 1;
+
+    case ( a FINAL TEXT answer )
+      :classify the turn - is it ACTUALLY complete?\n(engine: classify_incomplete_turn);
+      if (planning-only / reasoning-only / EMPTY?) then (INCOMPLETE)
+        :emit `continuation`; inject\n"don't just plan - ACT now / produce the answer"\n(capped: a few retries per kind);
+      elseif (a follow-up message is queued?) then (yes)
+        :inject the follow-up message\n(get_follow_up_messages hook);
+      elseif (the verify hook wants a revision?) then (yes)
+        :emit `continuation`; inject the revision request\n(verify_answer hook, capped);
+      else (GENUINELY DONE)
+        :accept it as the FINAL answer\n(this is the only path that EXITS the loop normally);
+      endif
+
+    case ( ERROR or ABORTED )
+      :end the run\n(error -> surface the exact message;  aborted -> stop);
+
     endswitch
-  repeat while (tools ran, or a continuation was injected?) is (yes -> keep going) not (no -> answer is ready)
+
+  repeat while (keep going?) is (yes -> next step) not (no - done / error / max turns);
 }
 
 partition "6 . OUTPUT" #E0F2F1 {
-  :Stream every event -> chat.event -> all connected clients\n(thinking · text · tool activity · tool_progress);
-  :Persist each message -> session JSONL\n(so a later run can replay the full history);
+  :stream every event -> all clients\n(thinking . text . tool activity . tool_progress . plan[PROPOSED]);
+  :persist each message -> session JSONL (replayable next run);
 }
 
 :User sees the streamed answer;
 stop
 
 note right
-  WHY A LOOP?  The LLM is STATELESS - it remembers
-  nothing between calls. So step (1) re-sends the FULL
-  messages[] every time (history + tool results), the
-  model decides ONE next move, the loop runs it, and
-  feeds the result back. "Memory" = the loop re-feeding
-  history, not the model retaining anything. The loop
-  ends when the model returns a real answer with no
-  further tool calls (and no continuation is triggered).
+  WHY A LOOP?  The LLM is STATELESS - it remembers nothing
+  between calls. STEP 1 re-sends the FULL history every time;
+  the model decides ONE next move; the loop runs it and feeds
+  the result back. "Memory" = the loop re-feeding history.
+  The loop ends only when the model returns a real answer with
+  NO tool calls and NO continuation triggered (or error / max turns).
+end note
+
+note left
+  THE `computer` TOOL IS A SEALED SUB-AGENT (not the main loop above).
+  When the main agent calls it, an INNER loop runs on its own:
+      screenshot primary monitor -> vision model picks ONE action
+      -> open_browser / click / type / scroll / drag -> repeat
+      (up to the step cap) -> return a TEXT SUMMARY.
+  It is GUI-ONLY: it CANNOT call web_search / browser / read / etc.
+  ==> So the main agent must give it a NARROW task, and do the
+      faster public lookups (web_search / browser) at the MAIN level.
+  This is exactly what PLAN-FIRST (gold) is meant to enforce:
+  decompose -> `computer` for the logged-in step, fast tools for the rest.
 end note
 
 legend left
-  | Layer | Does |
-  | 1 Client | take input, render the streamed reply |
-  | 2 Gateway | accept the message, run async, abort on disconnect |
-  | 3 Application | load history + build the prompt |
-  | 4 Agent loop | stream LLM -> run tools -> repeat until done |
-  | 5 Tools | guarded execution (timeout/retry) of each action |
-  | 6 Output | broadcast events + persist the transcript |
+  | Colour | Meaning |
+  | white | CURRENT logic (already in engine/native.py) |
+  | gold | PROPOSED plan-first / `plan` tool - NOT built yet (under review) |
+  | Loop exits when | final answer . error . aborted . max turns |
+  | Continuation kinds | planning_only . reasoning_only . empty . revision . follow-up |
 endlegend
 
 @enduml

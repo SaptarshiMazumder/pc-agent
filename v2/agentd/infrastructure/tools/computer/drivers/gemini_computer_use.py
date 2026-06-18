@@ -26,14 +26,25 @@ from agentd.infrastructure.tools.computer.actions import parse_function_call
 log = logging.getLogger("agentd")
 
 _SYSTEM_INSTRUCTION = (
-    "You control the user's ENTIRE computer — mouse, keyboard, and screen — not "
-    "just a web browser. To open an application (Notepad, Teams, VS Code, a file "
-    "manager), click its taskbar/desktop icon or use the Start menu (press the "
-    "Windows key, type the app name, Enter). Only open a web browser when the task "
-    "genuinely needs a website. You are given a screenshot each turn; act ONE step "
-    "at a time and re-check the new screenshot before the next. When the task is "
-    "fully complete (or is impossible/ambiguous), stop calling actions and reply "
-    "with a short plain-text summary of what you did or why you stopped. Be concise."
+    "You control the user's ENTIRE computer — mouse, keyboard, and screen.\n"
+    "\n"
+    "OPEN A WEBSITE (e.g. LinkedIn, YouTube, Google): call the `open_browser` function "
+    "with the FULL url — it opens the browser DIRECTLY at that page. Use it EVERY time "
+    "you need a website. Never type a url into the Start menu and never type a shell "
+    "command like 'start chrome'. After it opens, operate the page normally (click, type, scroll).\n"
+    "\n"
+    "OPEN A DESKTOP APP (Notepad, Paint, VS Code): click its TASKBAR or desktop icon. "
+    "Only if there is no icon, press the Windows key, then in the NEXT screenshot "
+    "confirm the Start menu actually opened before typing the app name + Enter.\n"
+    "\n"
+    "CRITICAL: after pressing the Windows key, launching an app, or navigating, the "
+    "screen needs a moment. ALWAYS look at the fresh screenshot and CONFIRM the target "
+    "window or menu is actually open and focused BEFORE you type — otherwise your "
+    "keystrokes land in the wrong window (e.g. the editor behind it).\n"
+    "\n"
+    "Act ONE step at a time and re-check the new screenshot before the next. When the "
+    "task is complete (or impossible/ambiguous), stop calling actions and reply with a "
+    "short plain-text summary of what you did or why you stopped. Be concise."
 )
 
 _TRANSIENT = (socket.gaierror, ConnectionError, TimeoutError)
@@ -74,9 +85,30 @@ class GeminiComputerUseDriver:
         timeout_ms = int(getattr(self._config, "computer_call_timeout_seconds", 120.0) * 1000)
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
         env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", types.Environment.ENVIRONMENT_BROWSER)
+        # Custom verb so the model can open the browser DIRECTLY (we launch Chrome in
+        # code) instead of fumbling the URL into the Start menu. Desktop-app control
+        # (the predefined computer_use functions) is unchanged.
+        open_browser_fn = types.FunctionDeclaration(
+            name="open_browser",
+            description=(
+                "Open the web browser DIRECTLY at a URL. ALWAYS use this to reach any "
+                "website (LinkedIn, YouTube, Google, ...) — never type a URL into the "
+                "Start menu. The browser opens at the page; then operate it normally."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={"url": types.Schema(
+                    type=types.Type.STRING,
+                    description="Full URL including https:// (e.g. https://www.linkedin.com)")},
+                required=["url"],
+            ),
+        )
         cfg = types.GenerateContentConfig(
             system_instruction=_SYSTEM_INSTRUCTION,
-            tools=[types.Tool(computer_use=types.ComputerUse(environment=env))],
+            tools=[
+                types.Tool(computer_use=types.ComputerUse(environment=env)),
+                types.Tool(function_declarations=[open_browser_fn]),
+            ],
         )
 
         def _gen(contents):

@@ -103,10 +103,12 @@ def build_tools(config, browser_manager=None, computer_provider=None) -> list[To
     from .fetch import build_fetch_providers
     from .fs_tools import EditTool, FindTool, LsTool, ReadTool, WriteTool
     from .search import build_search_providers
+    from .update_plan_tool import UpdatePlanTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
     tools: list[Tool] = [
+        UpdatePlanTool(),
         ReadTool(config),
         WriteTool(config),
         EditTool(config),

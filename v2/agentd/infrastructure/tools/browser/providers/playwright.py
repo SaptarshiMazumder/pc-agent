@@ -3,6 +3,8 @@ adapter; formerly browser.BrowserManager, behavior unchanged)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agentd.infrastructure.tools.browser.snapshot import (
     CONTENT_ROLES,
     DEFAULT_AI_SNAPSHOT_MAX_CHARS,
@@ -27,16 +29,35 @@ class PlaywrightBrowserProvider:
         self.ref_map: dict[str, dict] = {}
 
     async def ensure(self):
-        if self._browser is not None:
+        if self.context is not None:
             return
         from playwright.async_api import async_playwright
 
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=self.config.browser_headless)
-        self.context = await self._browser.new_context()
-        self.active_page = await self.context.new_page()
+        if getattr(self.config, "browser_persistent", True):
+            # Persistent context: cookies/logins are saved to the profile dir and
+            # reused across runs (the browser stays signed in). Log in once headed
+            # via `python -m agentd.main.browser_login`.
+            profile_dir = Path(self.config.state_dir) / "browser-profile"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            self.context = await self._pw.chromium.launch_persistent_context(
+                str(profile_dir), headless=self.config.browser_headless
+            )
+            # a persistent context owns its own browser; it opens with one page
+            self.active_page = (
+                self.context.pages[0] if self.context.pages else await self.context.new_page()
+            )
+        else:  # ephemeral: a fresh, not-logged-in context each run
+            self._browser = await self._pw.chromium.launch(headless=self.config.browser_headless)
+            self.context = await self._browser.new_context()
+            self.active_page = await self.context.new_page()
 
     async def close(self):
+        if self.context is not None:
+            try:
+                await self.context.close()
+            except Exception:
+                pass
         if self._browser is not None:
             try:
                 await self._browser.close()
@@ -47,8 +68,10 @@ class PlaywrightBrowserProvider:
                 await self._pw.stop()
             except Exception:
                 pass
+        self.context = None
         self._browser = None
         self._pw = None
+        self.active_page = None
 
     async def settle(self):
         """Best-effort wait for the network to go idle after nav/interaction."""

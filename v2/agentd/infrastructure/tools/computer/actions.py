@@ -24,7 +24,7 @@ KEY_MAP = {
 # the safety classification / future approval gate.
 MUTATING_ACTIONS = {
     "click_at", "type_text_at", "key_combination", "drag_and_drop",
-    "open_web_browser", "navigate",
+    "open_web_browser", "open_browser", "navigate",
 }
 
 

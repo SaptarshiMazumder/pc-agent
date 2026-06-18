@@ -62,6 +62,7 @@ def resolve_user_folders() -> dict[str, str]:
 
 # Verbatim per-tool summary strings from system-prompt.ts (lines 742-779).
 TOOL_SUMMARIES = {
+    "update_plan": "Track short work plan",
     "read": "Read file contents",
     "write": "Create or overwrite files",
     "edit": "Make precise edits to files",
@@ -137,6 +138,27 @@ def build_system_prompt(
     skills_section = _skills_section(skills)
     if skills_section:
         sections.append(skills_section)
+
+    # 2c. Planning — a STRONG nudge (Gemini doesn't self-plan from the tool
+    # description alone the way GPT-5 does, which is all OpenClaw relies on).
+    if any(getattr(t, "name", "") == "update_plan" for t in tools):
+        sections.append(
+            "## Planning\n"
+            "For ANY task that takes more than one step, your FIRST action MUST be to call "
+            "`update_plan` — do NOT start the work before you have a plan. BREAK THE TASK "
+            "DOWN into the smallest concrete steps, and for EACH step name the specific "
+            "tool it uses. Trigger planning whenever the task: needs more than one tool, "
+            "has more than ~2 steps, processes MULTIPLE items (several people / files / "
+            "links), or reads as 'do X, then Y, then Z'. Keep the plan current with "
+            "`update_plan` as you go (mark steps in_progress / completed), and use the BEST "
+            "tool per step — `browser` (it is SIGNED IN via a persistent profile) or "
+            "`web_search` for the web; `computer` ONLY when a task truly needs the real "
+            "desktop GUI. ONLY skip planning for a genuinely simple, single-step request.\n"
+            "Example - \"check my unread LinkedIn messages and who the recent senders are\":\n"
+            "  1. browser: open LinkedIn messaging; count unread; note the recent senders\n"
+            "  2. web_search: for each sender, find their business + public profile link\n"
+            "  3. reply: summarize the unread count + the people"
+        )
 
     # 3. Tool Call Style (verbatim, approval lines dropped)
     sections.append(

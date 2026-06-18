@@ -43,6 +43,10 @@ class Config:
     # Override with AGENTD_SEARCH_PROVIDERS (comma-separated).
     search_providers: list[str] | None = None
     browser_headless: bool = True
+    # Persistent browser profile: keep cookies/logins on disk (<state_dir>/browser-profile)
+    # so the `browser` tool stays SIGNED IN across runs. Log in once (headed) via
+    # `python -m agentd.main.browser_login`. AGENTD_BROWSER_PERSISTENT=0 to disable.
+    browser_persistent: bool = True
     exec_timeout_sec: int = 1800
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
@@ -78,6 +82,10 @@ class Config:
     # for inspection. OFF by default (privacy + unbounded disk growth). Turn on while
     # developing with AGENTD_COMPUTER_SAVE_SCREENSHOTS=1, off again when done.
     computer_save_screenshots: bool = False
+    # Multi-monitor: when capturing the primary monitor, pull any window that opens
+    # on another monitor back onto the primary (captured) one + maximize, so the
+    # tool can see it. Windows-only, best-effort. AGENTD_COMPUTER_CORRAL=0 to disable.
+    computer_corral_to_primary: bool = True
 
 
 def _load_dotenv() -> None:
@@ -138,6 +146,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.skills_dir = Path(os.environ["AGENTD_SKILLS_DIR"])
     if os.environ.get("AGENTD_HEADLESS"):
         cfg.browser_headless = os.environ["AGENTD_HEADLESS"].lower() not in ("0", "false", "no")
+    if os.environ.get("AGENTD_BROWSER_PERSISTENT"):
+        cfg.browser_persistent = (
+            os.environ["AGENTD_BROWSER_PERSISTENT"].lower() not in ("0", "false", "no", "")
+        )
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
     if os.environ.get("AGENTD_SEARCH_PROVIDERS"):
@@ -157,6 +169,10 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_COMPUTER_SAVE_SCREENSHOTS"):
         cfg.computer_save_screenshots = (
             os.environ["AGENTD_COMPUTER_SAVE_SCREENSHOTS"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_COMPUTER_CORRAL"):
+        cfg.computer_corral_to_primary = (
+            os.environ["AGENTD_COMPUTER_CORRAL"].lower() not in ("0", "false", "no", "")
         )
     if os.environ.get("AGENTD_COMPUTER_CALL_TIMEOUT"):
         cfg.computer_call_timeout_seconds = float(os.environ["AGENTD_COMPUTER_CALL_TIMEOUT"])

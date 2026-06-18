@@ -36,6 +36,43 @@ def _set_dpi_awareness() -> None:
             pass
 
 
+def _corral_foreground_to_primary() -> None:
+    """Windows, best-effort: if the foreground window sits on a NON-primary monitor,
+    move it onto the primary (captured) monitor and maximize it — so the computer
+    tool, which screenshots only the primary monitor, can actually see it. Windows
+    places new app/browser windows wherever it likes on multi-monitor setups; this
+    keeps the agent's work on the one screen it's looking at. Never raises."""
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        u = ctypes.windll.user32
+        # 64-bit-safe handle marshalling (default restype c_int truncates HWND/HMONITOR).
+        u.GetForegroundWindow.restype = ctypes.c_void_p
+        u.MonitorFromWindow.restype = ctypes.c_void_p
+        u.MonitorFromWindow.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+        u.MonitorFromPoint.restype = ctypes.c_void_p
+        u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        u.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+        u.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+
+        hwnd = u.GetForegroundWindow()
+        if not hwnd:
+            return
+        primary = u.MonitorFromPoint(wintypes.POINT(0, 0), 1)  # MONITOR_DEFAULTTOPRIMARY
+        if u.MonitorFromWindow(hwnd, 2) == primary:            # MONITOR_DEFAULTTONEAREST
+            return  # already on the captured monitor — leave it alone
+        u.ShowWindow(hwnd, 9)                                  # SW_RESTORE (un-maximize so it can move)
+        u.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0004)  # SWP_NOSIZE|NOZORDER -> top-left to (0,0)
+        u.ShowWindow(hwnd, 3)                                  # SW_MAXIMIZE on the primary monitor
+        time.sleep(0.2)                                        # let it finish before the screenshot
+    except Exception:  # noqa: BLE001 — corralling must never break a run
+        pass
+
+
 def _virtual_rect() -> tuple[int, int, int, int]:
     if sys.platform.startswith("win"):
         import ctypes
@@ -57,14 +94,18 @@ class PyAutoGuiProvider:
         if config.computer_capture == "virtual":
             self.region = _virtual_rect()
             self._capture = lambda: ImageGrab.grab(all_screens=True)
+            self._corral = False  # capturing all monitors already — nothing to corral
         else:  # primary monitor (default, most reliable grounding)
             w, h = pyautogui.size()
             self.region = (0, 0, w, h)
             self._capture = pyautogui.screenshot
+            self._corral = getattr(config, "computer_corral_to_primary", True)
 
     # ---------------------------------------------------------------- eyes
 
     def screenshot(self) -> bytes:
+        if self._corral:  # pull any off-monitor window onto the captured screen first
+            _corral_foreground_to_primary()
         img = self._capture()
         scale = min(1.0, self.send_max / max(img.width, img.height))
         if scale < 1.0:
@@ -119,6 +160,8 @@ class PyAutoGuiProvider:
                 pyautogui.moveTo(*self._real(a["x"], a["y"]))
                 pyautogui.dragTo(*self._real(a["destination_x"], a["destination_y"]),
                                  duration=0.4, button="left")
+            elif action == "open_browser":  # custom verb: open the default browser at a url
+                webbrowser.open(a.get("url") or "https://www.google.com")
             elif action == "open_web_browser":
                 webbrowser.open("https://www.google.com")
             elif action == "navigate":
