@@ -14,6 +14,8 @@ from .. import Tool, ToolResult
 
 class ComputerTool(Tool):
     name = "computer"
+    default_timeout_sec = None  # step cap + per-call timeout in the driver govern this
+    default_retryable = False
     label = "Computer"
     concurrency = "sequential"  # drives the one real desktop; never run in parallel
     description = (

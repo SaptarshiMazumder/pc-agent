@@ -15,7 +15,9 @@ next to its rendered `.png`.
 - **platform/** — design docs + diagrams for the target platform, split by subject:
   - `app-architecture/` — overall clean/hexagonal app architecture: `ARCHITECTURE.md`,
     `REQUIREMENTS.md`, and the diagrams (`hexagonal-architecture`, `platform-architecture`,
-    `request-flow`, `trust-boundary`).
+    `trust-boundary`). **`request-flowchart`** is the easy-read top-down flowchart of one
+    request through every layer (the reason→act loop); `request-flow` is the older
+    sequence-diagram view of the same.
   - `tools/` — how tools are built (scalable provider/adapter pattern). *Design in progress.*
 
 Add new categories as sibling folders (e.g. `comparisons/`, `sessions/`).

@@ -246,7 +246,12 @@ class TerminalClient:
         elif etype == "agent_end":
             self._close_live()
             reason = event.get("stopReason")
-            if reason and reason != "stop":
+            if reason == "error":
+                console.print(Text("[run ended: error]", style="bold red"))
+                err = event.get("error")
+                if err:  # surface the exact reason (rate limit, auth, etc.)
+                    console.print(Text(str(err), style="red"))
+            elif reason and reason != "stop":
                 console.print(Text(f"[run ended: {reason}]", style="dim"))
             self.run_done.set()
 

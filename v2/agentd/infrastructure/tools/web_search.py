@@ -16,6 +16,9 @@ from . import Tool, ToolResult
 
 class WebSearchTool(Tool):
     name = "web_search"
+    default_timeout_sec = 30.0
+    default_retryable = True
+    default_max_retries = 2
     description = "Search the web for current information. Returns titles, URLs, and snippets."
     label = "Web Search"
     parameters = {

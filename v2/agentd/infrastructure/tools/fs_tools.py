@@ -78,6 +78,9 @@ def _extract_pdf(path: Path) -> str:
 
 class ReadTool(Tool):
     name = "read"
+    default_timeout_sec = 30.0
+    default_retryable = True
+    default_max_retries = 1
     description = (
         "Read a file's contents (text, code, .docx, or .pdf — documents are text-extracted). "
         "Use an absolute path for files outside the workspace. Supports offset (1-indexed line) and limit."
@@ -142,6 +145,7 @@ class ReadTool(Tool):
 
 class WriteTool(Tool):
     name = "write"
+    default_timeout_sec = 60.0
     description = "Create or overwrite a file with the given content."
     label = "Write"
     concurrency = "sequential"
@@ -224,6 +228,7 @@ def apply_edits(original: str, edits: list[dict]) -> tuple[str, str]:
 
 class EditTool(Tool):
     name = "edit"
+    default_timeout_sec = 60.0
     description = "Make precise text replacements in a file. Each oldText must match exactly once."
     label = "Edit"
     concurrency = "sequential"
@@ -265,6 +270,9 @@ class EditTool(Tool):
 
 class LsTool(Tool):
     name = "ls"
+    default_timeout_sec = 30.0
+    default_retryable = True
+    default_max_retries = 1
     description = "List the contents of a directory (cross-platform). Defaults to the workspace."
     label = "List"
     parameters = {
@@ -324,6 +332,9 @@ def _find_files(roots: list[Path], pattern: str, max_results: int) -> list[str]:
 
 class FindTool(Tool):
     name = "find"
+    default_timeout_sec = 60.0
+    default_retryable = True
+    default_max_retries = 1
     description = (
         "Find files by name/glob pattern anywhere on the machine. By default it searches the "
         "user's folder first and then the whole machine (all drives) if nothing is found, so it "

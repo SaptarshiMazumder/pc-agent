@@ -43,6 +43,9 @@ def _render(result: FetchResult) -> str:
 
 class WebFetchTool(Tool):
     name = "web_fetch"
+    default_timeout_sec = 120.0  # may escalate to browser-render
+    default_retryable = True
+    default_max_retries = 2
     description = "Fetch a URL and return its readable content as markdown."
     label = "Web Fetch"
     parameters = {

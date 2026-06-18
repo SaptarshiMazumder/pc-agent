@@ -168,6 +168,15 @@ class _ToolCallAccumulator:
         return out
 
 
+def _is_local_provider(model: str) -> bool:
+    """True for local/self-hosted models (Ollama / LM Studio / vLLM / loopback),
+    which legitimately stay silent for long stretches while loading weights — so
+    the network-silence idle watchdog should not apply to them."""
+    m = (model or "").lower()
+    return (m.startswith(("ollama/", "lm_studio/", "hosted_vllm/", "openai/local"))
+            or "localhost" in m or "127.0.0.1" in m)
+
+
 async def litellm_stream(
     *,
     model: str,
@@ -177,6 +186,8 @@ async def litellm_stream(
     abort: asyncio.Event,
     temperature: float | None = None,
     reasoning_effort: str = "off",
+    idle_timeout_sec: float | None = None,
+    request_timeout_sec: float | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one model reply. Builds the request, streams chunks, assembles them
     into a final AssistantMessage, and yields progress events along the way.
@@ -212,12 +223,27 @@ async def litellm_stream(
             # (Gemini thinking budget, Anthropic thinking, OpenAI reasoning).
             kwargs["reasoning_effort"] = reasoning_effort
             kwargs["allowed_openai_params"] = ["reasoning_effort"]
+        if request_timeout_sec:
+            kwargs["request_timeout"] = request_timeout_sec  # hard ceiling per call
 
-        # --- Consume the stream chunk by chunk ---
+        # Local models (Ollama/LM Studio) legitimately go silent for minutes while
+        # loading/thinking, so skip the network-silence idle watchdog for them.
+        effective_idle = None if _is_local_provider(model) else idle_timeout_sec
+
+        # --- Consume the stream chunk by chunk (idle-guarded) ---
         response = await litellm.acompletion(**kwargs)
-        async for chunk in response:
+        it = response.__aiter__()
+        while True:
             if abort.is_set():  # user cancelled mid-stream -> stop reading
                 aborted = True
+                break
+            try:
+                chunk = (await asyncio.wait_for(it.__anext__(), timeout=effective_idle)
+                         if effective_idle else await it.__anext__())
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:  # no chunk for too long -> treat as a hang
+                error_message = f"LLM idle timeout after {effective_idle}s (no response)"
                 break
 
             # token usage usually arrives in a final chunk (because include_usage=True)

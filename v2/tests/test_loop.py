@@ -343,3 +343,25 @@ async def test_stream_error_ends_run():
     ]
     events, new, msgs = await collect_run(script, [])
     assert events[-1].payload["stopReason"] == "error"
+    assert events[-1].payload.get("error") == "provider down"  # exact reason surfaced
+
+
+class ProgressTool(Tool):
+    name = "prog"
+    description = "emits progress"
+    label = "Prog"
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        if on_update:
+            on_update("working...")
+        return ToolResult.text("done")
+
+
+@pytest.mark.asyncio
+async def test_on_update_forwarded_as_tool_progress():
+    script = [tool_turn([("t1", "prog", {})]), text_turn("ok")]
+    events, new, msgs = await collect_run(script, [ProgressTool()])
+    await asyncio.sleep(0.05)  # let the fire-and-forget tool_progress emit flush
+    prog = [e for e in events if e.type == "tool_progress"]
+    assert prog and prog[0].payload["text"] == "working..." and prog[0].payload["toolName"] == "prog"

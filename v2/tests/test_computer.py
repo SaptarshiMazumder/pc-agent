@@ -98,8 +98,11 @@ def _always(parts):
     return gen
 
 
-def _cfg(tmp_path, max_steps=25):
-    return SimpleNamespace(computer_max_steps=max_steps, state_dir=tmp_path)
+def _cfg(tmp_path, max_steps=25, save_screenshots=False):
+    return SimpleNamespace(
+        computer_max_steps=max_steps, state_dir=tmp_path,
+        computer_save_screenshots=save_screenshots,
+    )
 
 
 async def _run(provider, gen, tmp_path, task="do it", max_steps=25, abort=None):
@@ -118,8 +121,21 @@ async def test_executes_actions_then_returns_summary(tmp_path):
     summary = await _run(p, gen, tmp_path)
     assert summary == "Done: typed hello."
     assert [a[0] for a in p.acts] == ["click_at", "type_text_at"]
-    # screenshots saved (step 0 + 2 action steps)
-    assert any(tmp_path.rglob("step-*.png"))
+    # default: screenshots are sent to the model only — never written to disk
+    assert not any(tmp_path.rglob("*.png"))
+
+
+@pytest.mark.asyncio
+async def test_saves_screenshots_when_flag_on(tmp_path):
+    p = FakeProvider()
+    gen = _scripted_gen([
+        [_fc("click_at", x=1, y=1)],
+        [SimpleNamespace(text="done", function_call=None)],
+    ])
+    d = GeminiComputerUseDriver(
+        p, "m", _cfg(tmp_path, save_screenshots=True), generate_fn=gen)
+    await d.run("task", asyncio.Event())
+    assert list(tmp_path.rglob("step-*.png"))  # step 0 + action step persisted
 
 
 @pytest.mark.asyncio
@@ -149,6 +165,21 @@ async def test_step_cap(tmp_path):
     summary = await _run(p, gen, tmp_path, max_steps=3)
     assert "step cap" in summary.lower()
     assert len(p.acts) == 3
+
+
+@pytest.mark.asyncio
+async def test_model_call_error_ends_run(tmp_path):
+    # a hung/timed-out model call (the http_options/backstop path) surfaces as a
+    # clean error string, not a hang.
+    p = FakeProvider()
+
+    def boom(contents):
+        raise TimeoutError("deadline exceeded (504)")
+
+    d = GeminiComputerUseDriver(p, "m", _cfg(tmp_path), generate_fn=boom)
+    summary = await d.run("task", asyncio.Event())
+    assert "Computer-use model error" in summary and "TimeoutError" in summary
+    assert p.acts == []  # never reached an action
 
 
 @pytest.mark.asyncio

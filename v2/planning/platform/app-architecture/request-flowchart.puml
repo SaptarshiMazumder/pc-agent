@@ -1,0 +1,96 @@
+@startuml request-flowchart
+' ============================================================================
+'  agentd - Request Flowchart: one user message, end to end, top to bottom.
+'  A plain vertical flowchart (not a sequence diagram) showing every layer and
+'  the reason -> act loop. Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng request-flowchart.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title agentd - Request Flowchart\nOne user message, top to bottom, through every layer (the reason -> act loop is the heart)
+
+start
+
+partition "1 . CLIENT   (terminal / desktop / mobile / messaging channel)" #E8F0FE {
+  :User types a message;
+  :Send  chat.send { sessionKey, message }\nover ONE WebSocket connection;
+}
+
+partition "2 . GATEWAY   (presentation · localhost WS · token-gated)" #FDECEA {
+  :Receive chat.send;
+  :Reply { runId } immediately,\nthen run the agent ASYNC (non-blocking);
+  :Tag the run with this client\n(client disconnects -> its run is aborted);
+}
+
+partition "3 . APPLICATION   (AgentService.handle_message)" #E8F5E9 {
+  :Load this session's history from JSONL;
+  :Append the new user message;
+  :Build the system prompt\n(identity · ## Language · tools · ## Skills · safety · runtime);
+}
+
+partition "4 . AGENT LOOP   (engine · reason -> act · repeats until done)" #EDE7F6 {
+  repeat :loop start;
+    :(1) STREAM THE LLM   litellm_stream\nsend system prompt + FULL history + tool schemas\nidle-timeout 120s + request-timeout -> a hung call ends gracefully\nstream thinking + text deltas to the user LIVE;
+
+    switch (step 2 - what did the model produce?)
+    case ( it requested TOOL CALLS )
+      partition "5 . TOOLS   (EVERY call wrapped by GuardedTool)" #E1F5FE {
+        :Validate args vs the tool's JSON schema;
+        :GuardedTool — per-tool timeout + retry + error-norm\n(a slow / stuck tool -> clean error, the run keeps going);
+        :Run the tool:\nread · write · edit · exec · process ·\nweb_search · web_fetch · browser · computer;
+        :Append the tool result(s) to history;
+      }
+    case ( a FINAL ANSWER (text, no tools) )
+      :Accept it as the answer;
+    case ( only a PLAN / REASONING / EMPTY )
+      :Inject a continuation instruction\n("don't just plan - act now / produce the answer");
+    endswitch
+  repeat while (tools ran, or a continuation was injected?) is (yes -> keep going) not (no -> answer is ready)
+}
+
+partition "6 . OUTPUT" #E0F2F1 {
+  :Stream every event -> chat.event -> all connected clients\n(thinking · text · tool activity · tool_progress);
+  :Persist each message -> session JSONL\n(so a later run can replay the full history);
+}
+
+:User sees the streamed answer;
+stop
+
+note right
+  WHY A LOOP?  The LLM is STATELESS - it remembers
+  nothing between calls. So step (1) re-sends the FULL
+  messages[] every time (history + tool results), the
+  model decides ONE next move, the loop runs it, and
+  feeds the result back. "Memory" = the loop re-feeding
+  history, not the model retaining anything. The loop
+  ends when the model returns a real answer with no
+  further tool calls (and no continuation is triggered).
+end note
+
+legend left
+  | Layer | Does |
+  | 1 Client | take input, render the streamed reply |
+  | 2 Gateway | accept the message, run async, abort on disconnect |
+  | 3 Application | load history + build the prompt |
+  | 4 Agent loop | stream LLM -> run tools -> repeat until done |
+  | 5 Tools | guarded execution (timeout/retry) of each action |
+  | 6 Output | broadcast events + persist the transcript |
+endlegend
+
+@enduml

@@ -54,7 +54,9 @@ class GeminiComputerUseDriver:
         self._model = model
         self._config = config
         self._max_steps = config.computer_max_steps
-        self._shots_dir = Path(config.state_dir) / "screenshots" / f"computer-{int(time.time())}"
+        # DEV ONLY: persist screenshots for inspection (AGENTD_COMPUTER_SAVE_SCREENSHOTS).
+        self._save_shots = getattr(config, "computer_save_screenshots", False)
+        self._state_dir = getattr(config, "state_dir", None)
         self._generate_fn = generate_fn or self._default_generate_fn()
 
     # ------------------------------------------------------------- model call
@@ -66,7 +68,11 @@ class GeminiComputerUseDriver:
         from google.genai import types
 
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        client = genai.Client(api_key=api_key)
+        # http_options timeout (ms) is the REAL network ceiling that actually aborts
+        # a hung request; the run loop's wait_for is only a backstop (it can't kill
+        # the worker thread, so the SDK timeout must fire first).
+        timeout_ms = int(getattr(self._config, "computer_call_timeout_seconds", 120.0) * 1000)
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
         env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", types.Environment.ENVIRONMENT_BROWSER)
         cfg = types.GenerateContentConfig(
             system_instruction=_SYSTEM_INSTRUCTION,
@@ -92,14 +98,26 @@ class GeminiComputerUseDriver:
     async def run(self, task: str, abort, on_update=None) -> str:
         from google.genai import types
 
-        self._shots_dir.mkdir(parents=True, exist_ok=True)
+        # By default screenshots go to the model only. When the dev flag is on we
+        # also persist each one to a per-run folder for inspection.
+        shots_dir = None
+        if self._save_shots and self._state_dir is not None:
+            shots_dir = Path(self._state_dir) / "screenshots" / f"computer-{int(time.time())}"
+            shots_dir.mkdir(parents=True, exist_ok=True)
 
         def _shot_part():
             png = self._provider.screenshot()
             return png, types.Part.from_bytes(data=png, mime_type="image/png")
 
+        def _save(png: bytes, step: int) -> None:
+            if shots_dir is not None:
+                try:
+                    (shots_dir / f"step-{step:02d}.png").write_bytes(png)
+                except OSError:
+                    pass
+
         png, shot = _shot_part()
-        self._save(png, 0)
+        _save(png, 0)
         contents = [types.Content(role="user", parts=[types.Part(text=task), shot])]
 
         last_text = ""
@@ -108,8 +126,11 @@ class GeminiComputerUseDriver:
                 return f"Aborted by user after {step - 1} step(s). {last_text}".strip()
 
             try:
-                resp = await asyncio.to_thread(self._generate_fn, contents)
-            except Exception as e:  # noqa: BLE001
+                resp = await asyncio.wait_for(
+                    asyncio.to_thread(self._generate_fn, contents),
+                    timeout=getattr(self._config, "computer_call_timeout_seconds", 120.0) + 5,
+                )
+            except Exception as e:  # noqa: BLE001  (incl. asyncio.TimeoutError backstop)
                 return f"Computer-use model error after {step - 1} step(s): {type(e).__name__}: {e}"
 
             cand = resp.candidates[0]
@@ -143,8 +164,8 @@ class GeminiComputerUseDriver:
                 data.update(result)
                 if ack:
                     data["safety_acknowledgement"] = "true"
-                png, shot = _shot_part()
-                self._save(png, step)
+                png, _ = _shot_part()
+                _save(png, step)
                 responses.append(types.FunctionResponse(
                     name=name, response=data,
                     parts=[types.FunctionResponsePart(
@@ -155,9 +176,3 @@ class GeminiComputerUseDriver:
 
         return (f"Reached the step cap ({self._max_steps}) without the model signalling "
                 f"completion. Last note: {last_text}").strip()
-
-    def _save(self, png: bytes, step: int) -> None:
-        try:
-            (self._shots_dir / f"step-{step:02d}.png").write_bytes(png)
-        except OSError:
-            pass

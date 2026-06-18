@@ -68,16 +68,20 @@ package "Agent engine port" #F2F2F2 {
 
 package "Inference port" #F2F2F2 {
   rectangle "PORT: Inference" as P_INF #E2E2E2
+  rectangle "**idle/hang timeout (120s)** [now]\n+ request_timeout · (+ failover later)" as A_INFG #C8E6C9
   rectangle "LiteLLM [llm.py]" as A_INF1 #C8E6C9
   rectangle "Local / BYOK / Secure-VM tiers" as A_INF2 #C8E6C9
-  P_INF --> A_INF1
+  P_INF --> A_INFG
+  A_INFG --> A_INF1
   P_INF --> A_INF2
 }
 
 package "Tools port" #F2F2F2 {
   rectangle "PORT: Tools" as P_TOOL #E2E2E2
-  rectangle "read write edit ls find exec\nprocess web_search web_fetch browser" as A_TOOL1 #C8E6C9
-  P_TOOL --> A_TOOL1
+  rectangle "**GuardedTool middleware** [now]\nper-tool timeout + retry + error-norm\n(policy: override > tool default > global)\nwraps EVERY tool, present + future" as A_GUARD #C8E6C9
+  rectangle "read write edit ls find exec\nprocess web_search web_fetch browser computer" as A_TOOL1 #C8E6C9
+  P_TOOL --> A_GUARD
+  A_GUARD --> A_TOOL1
 }
 
 package "Skills port  (loadable playbooks, read on demand)" #F2F2F2 {
@@ -159,9 +163,11 @@ note bottom of CORE
   Swap any adapter (even the AGENT ENGINE: native loop / Claude SDK / LangGraph)
   without touching the core.
   --
-  Guardrails flow (before every tool runs): Auth gives entitlements -> Policy
-  authorizes the call (allow / deny / needs-approval) -> if needs-approval, the
-  Approval port asks the human -> only then does the Tools port execute.
+  Tool chokepoint = the GuardedTool middleware wrapping EVERY tool (wired once in
+  the composition root). Reliability binds here NOW: per-tool timeout + retry +
+  error-norm, config-resolved (override > tool default > global). Governance binds
+  here LATER: Auth gives entitlements -> Policy authorizes (allow / deny /
+  needs-approval) -> Approval asks the human -> only then does the tool execute.
 end note
 
 note bottom of P_SKILL

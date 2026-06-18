@@ -49,12 +49,12 @@ rectangle "**LOGIN GATE (mandatory)**\nregister/login before ANY use;\npassword 
 package "USER'S MACHINE - agentd (Python sidecar) - HEXAGONAL core + event loop" #E6F4EA {
   rectangle "**Ingress (channel adapter)**\nLOCAL SERVER on 127.0.0.1, token-gated\nmessage in -> stream out (chat.send)" as INGRESS #D4EDD9
   rectangle "**Agent loop**\nLLM <-> tools, continuation/verify\n(have it)" as LOOP #D4EDD9
-  rectangle "**Policy / Guardrails** (tool chokepoint)\nauthorize each tool call:\nallow / deny / needs-approval\n+ Approval = human-in-the-loop (UI confirm)" as GUARD #FFE0B2
-  rectangle "**Tools**: read write edit ls find exec\nprocess web_search web_fetch browser\n-> act on THIS PC (files, apps, browser)" as TOOLS #D4EDD9
+  rectangle "**Reliability + Policy / Guardrails** (tool chokepoint = GuardedTool)\n[now] per-tool timeout + retry + error-norm (config: override>tool>global)\n[later] authorize allow/deny/needs-approval + Approval (human-in-the-loop)" as GUARD #FFE0B2
+  rectangle "**Tools**: read write edit ls find exec\nprocess web_search web_fetch browser computer\n-> act on THIS PC (files, apps, browser, GUI)" as TOOLS #D4EDD9
   rectangle "**Skills** (local SKILL.md playbooks)\nloadable know-how, read on demand;\nadd your own (no code). pluggable:\nlocal folder now / cloud vault later" as SKILLS #D4EDD9
   rectangle "**Crypto / key store**\nencrypt before upload,\ndecrypt after download\n(holds the only key)" as CRYPTO #FFE0B2
   rectangle "**Memory client (sync / cache)**\nrecall runs HERE on plaintext;\nencrypts to the Memory Bank.\npluggable: local now / cloud later" as MEM #FFE0B2
-  rectangle "**Inference adapter (stream_fn)**\npicks the LLM tier by config" as INFER #D4EDD9
+  rectangle "**Inference adapter (stream_fn)**\npicks the LLM tier by config\n+ idle/hang timeout (120s) + request_timeout\n(+ model failover later)" as INFER #D4EDD9
 }
 
 ' ===========================================================================

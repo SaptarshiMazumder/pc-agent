@@ -47,6 +47,18 @@ class Config:
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
 
+    # --- reliability / guardrails (applied to EVERY tool via GuardedTool) -------
+    # Per-tool effective values resolve: tool_overrides[name] > the tool's own
+    # declared default (default_* class attr) > these globals.
+    tool_timeout_default: float = 300.0   # wall-clock per tool call (AGENTD_TOOL_TIMEOUT); per-tool null = no wrapper
+    tool_retries_default: int = 0         # extra attempts on transient errors (AGENTD_TOOL_RETRIES)
+    # Per-tool overrides, e.g. {"computer": {"timeout_sec": 900}, "exec": {"timeout_sec": null},
+    # "web_search": {"timeout_sec": 20, "max_retries": 3, "retryable": true}}. JSON config only.
+    tool_overrides: dict = field(default_factory=dict)
+    # Loop/LLM-level timeouts.
+    llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
+    llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
+
     # --- computer-use (PC GUI automation) tool ---------------------------------
     # OFF by default: this tool drives the REAL mouse/keyboard/screen, so it ships
     # disabled and is only registered when AGENTD_COMPUTER_ENABLED=1. Every step
@@ -58,9 +70,14 @@ class Config:
     # model, driven via google-genai. Override with AGENTD_COMPUTER_MODEL.
     computer_model: str = "gemini-2.5-computer-use-preview-10-2025"
     computer_max_steps: int = 25       # loop step cap; override AGENTD_COMPUTER_MAX_STEPS
-    computer_send_max: int = 1280      # cap the longest screenshot side sent to the model
+    computer_send_max: int = 1440      # longest screenshot side sent to the model (Gemini docs recommend ~1440x900); AGENTD_COMPUTER_SEND_MAX
     computer_capture: str = "primary"  # primary | virtual (multi-monitor, best-effort)
     computer_pause: float = 0.15       # pyautogui inter-action settle delay (seconds)
+    computer_call_timeout_seconds: float = 120.0  # per model call in the driver (AGENTD_COMPUTER_CALL_TIMEOUT)
+    # DEV ONLY: persist each step's screenshot to state_dir/screenshots/computer-<ts>/
+    # for inspection. OFF by default (privacy + unbounded disk growth). Turn on while
+    # developing with AGENTD_COMPUTER_SAVE_SCREENSHOTS=1, off again when done.
+    computer_save_screenshots: bool = False
 
 
 def _load_dotenv() -> None:
@@ -135,6 +152,22 @@ def load_config(path: Path | None = None) -> Config:
         cfg.computer_max_steps = int(os.environ["AGENTD_COMPUTER_MAX_STEPS"])
     if os.environ.get("AGENTD_COMPUTER_CAPTURE"):
         cfg.computer_capture = os.environ["AGENTD_COMPUTER_CAPTURE"]
+    if os.environ.get("AGENTD_COMPUTER_SEND_MAX"):
+        cfg.computer_send_max = int(os.environ["AGENTD_COMPUTER_SEND_MAX"])
+    if os.environ.get("AGENTD_COMPUTER_SAVE_SCREENSHOTS"):
+        cfg.computer_save_screenshots = (
+            os.environ["AGENTD_COMPUTER_SAVE_SCREENSHOTS"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_COMPUTER_CALL_TIMEOUT"):
+        cfg.computer_call_timeout_seconds = float(os.environ["AGENTD_COMPUTER_CALL_TIMEOUT"])
+    if os.environ.get("AGENTD_TOOL_TIMEOUT"):
+        cfg.tool_timeout_default = float(os.environ["AGENTD_TOOL_TIMEOUT"])
+    if os.environ.get("AGENTD_TOOL_RETRIES"):
+        cfg.tool_retries_default = int(os.environ["AGENTD_TOOL_RETRIES"])
+    if os.environ.get("AGENTD_LLM_IDLE_TIMEOUT"):
+        cfg.llm_idle_timeout_seconds = float(os.environ["AGENTD_LLM_IDLE_TIMEOUT"])
+    if os.environ.get("AGENTD_LLM_REQUEST_TIMEOUT"):
+        cfg.llm_request_timeout_seconds = float(os.environ["AGENTD_LLM_REQUEST_TIMEOUT"])
 
     cfg.workspace = Path(cfg.workspace).resolve()
     cfg.state_dir = Path(cfg.state_dir)

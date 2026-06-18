@@ -50,9 +50,20 @@ def build_computer_provider(config: Config):
 
 def build_service(config: Config, browser_manager, computer_provider=None) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations."""
-    tools = build_tools(config, browser_manager, computer_provider)
-    # the LLM service: LiteLLM with the configured thinking level pre-bound
-    stream_fn = functools.partial(litellm_stream, reasoning_effort=config.reasoning_effort)
+    from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+
+    # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
+    # per-tool policy resolved from config. New tools are guarded automatically.
+    tools = [GuardedTool(t, resolve_policy(config, t))
+             for t in build_tools(config, browser_manager, computer_provider)]
+    # the LLM service: LiteLLM with the configured thinking level + idle/request
+    # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
+    stream_fn = functools.partial(
+        litellm_stream,
+        reasoning_effort=config.reasoning_effort,
+        idle_timeout_sec=config.llm_idle_timeout_seconds,
+        request_timeout_sec=config.llm_request_timeout_seconds,
+    )
     engine = NativeEngine(stream_fn, config.model, max_iterations=config.max_turns)   # swap here for Claude SDK / LangGraph
     # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
     # effect on the next message without a restart (swap here for a cloud registry)

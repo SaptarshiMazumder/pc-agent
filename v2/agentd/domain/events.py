@@ -37,6 +37,7 @@ class AgentEvent:
     """One progress notification.
 
     ``type`` is the event name (e.g. "text_delta", "tool_execution_start",
+    "tool_progress" (incremental tool updates: retries / timeouts / computer steps),
     "agent_end"); ``payload`` carries any extra data for that event (e.g. the text
     delta string, the tool name, the stop reason).
     """

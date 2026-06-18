@@ -68,7 +68,7 @@ package "LAYER 4 · SYSTEM PROMPT  ·  prompt.py (verbatim OpenClaw text)" #FFF4
 ' LAYER 5 — CORE LOOP + CONTINUATION PROTOCOL
 ' ===========================================================================
 package "LAYER 5 · AGENT LOOP  ·  loop.py  (cap = min(160, max(32, 24+8·profiles)) = 32)" #EDE7F6 {
-  rectangle "**① stream LLM**  llm.py litellm_stream\nsystem + history + tool schemas\nLiteLLM acompletion(stream, reasoning_effort)\nemits thinking_delta / text_delta / toolcall_end" as L_STREAM #D8CCF0
+  rectangle "**① stream LLM**  llm.py litellm_stream\nsystem + history + tool schemas\nLiteLLM acompletion(stream, reasoning_effort)\n**+ idle_timeout(120s) · request_timeout** -> error done = graceful end\nemits thinking_delta / text_delta / toolcall_end" as L_STREAM #D8CCF0
   rectangle "**② tool calls?**\n<diamond>" as L_DECIDE #C9B6F0
   rectangle "**③ execute tool calls**  _execute_tool_calls\nparallel (gather) for read/web_*;\nsequential for exec/edit/write/browser\nappend tool_result msgs in source order -> ①" as L_EXEC #D8CCF0
 
@@ -115,6 +115,7 @@ SKILLNOTE .. SKILLS
 ' LAYER 6 — TOOLS
 ' ===========================================================================
 package "LAYER 6 · TOOLS  ·  tools/  (validated vs JSON schema)" #E1F5FE {
+  rectangle "**GuardedTool middleware**  tools/guard.py  (wraps EVERY tool)\nper-tool **timeout** (wait_for, inner-only) · **retry** (transient+backoff)\n**error-norm** · **on_update -> tool_progress**\npolicy resolved: override > tool default > global" as GUARD #FFE0B2
   rectangle "**files**  read · write · edit\n(edit: exact-unique match + diff)" as T_FILES #B3E5FC
   rectangle "**exec / process**  bash-tools\nshell, timeout, middle-truncate, background sessions" as T_EXEC #B3E5FC
   rectangle "**web_search**  Brave (key) -> DuckDuckGo, TTL cache, count=10\n**web_fetch**  httpx -> readability/trafilatura -> markdown" as T_WEB #B3E5FC
@@ -157,10 +158,11 @@ RUN --> L_STREAM : run_agent_loop(...)
 
 L_STREAM --> L_DECIDE
 L_DECIDE --> L_EXEC : yes
-L_EXEC --> T_FILES
-L_EXEC --> T_EXEC
-L_EXEC --> T_WEB
-L_EXEC --> B_SNAP
+L_EXEC --> GUARD : every tool call (timeout/retry/error-norm)
+GUARD --> T_FILES
+GUARD --> T_EXEC
+GUARD --> T_WEB
+GUARD --> B_SNAP
 B_SNAP --> B_ACT
 B_ACT --> B_NAV
 L_EXEC --> L_STREAM : results -> loop
@@ -179,6 +181,7 @@ L_VERIFY --> L_FINAL : accept
 
 L_STREAM ..> OUT : thinking/text deltas
 L_EXEC ..> OUT : tool activity
+GUARD ..> OUT : tool_progress (retries / timeouts / steps)
 L_CLASSIFY ..> OUT : continuation event
 L_FINAL --> OUT : final answer
 L_FINAL --> PERSIST

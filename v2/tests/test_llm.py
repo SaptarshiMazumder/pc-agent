@@ -200,3 +200,77 @@ async def test_litellm_stream_provider_error_never_raises(monkeypatch):
     assert done["type"] == "done"
     assert done["message"].stop_reason == "error"
     assert "provider down" in done["message"].error_message
+
+
+class StallingStream:
+    """A stream whose chunks never arrive (simulates a hung/silent model)."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.Event().wait()  # blocks forever
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_emits_error_done(monkeypatch):
+    async def fake_acompletion(**kwargs):
+        return StallingStream()
+
+    import litellm
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    events = []
+    async for ev in litellm_stream(
+        model="gemini/gemini-3.1-pro-preview", system_prompt="S",
+        messages=[UserMessage(content="hi")], tools=[], abort=asyncio.Event(),
+        idle_timeout_sec=0.05,
+    ):
+        events.append(ev)
+
+    done = events[-1]
+    assert done["type"] == "done" and done["message"].stop_reason == "error"
+    assert "idle timeout" in done["message"].error_message
+
+
+@pytest.mark.asyncio
+async def test_request_timeout_passed_to_acompletion(monkeypatch):
+    captured = {}
+
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+        return FakeStream([
+            make_chunk(delta=make_delta(content="hi")),
+            make_chunk(delta=make_delta(), finish_reason="stop"),
+        ])
+
+    import litellm
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    async for _ in litellm_stream(
+        model="gemini/x", system_prompt="S", messages=[UserMessage(content="hi")],
+        tools=[], abort=asyncio.Event(), request_timeout_sec=99,
+    ):
+        pass
+    assert captured.get("request_timeout") == 99
+
+
+@pytest.mark.asyncio
+async def test_local_provider_skips_idle(monkeypatch):
+    # local model + a stalling stream: idle is SKIPPED, so no idle error fires —
+    # the stream stays open. We prove it by timing the consumer out ourselves.
+    async def fake_acompletion(**kwargs):
+        return StallingStream()
+
+    import litellm
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    async def consume():
+        async for _ in litellm_stream(
+            model="ollama/llama3", system_prompt="S", messages=[UserMessage(content="hi")],
+            tools=[], abort=asyncio.Event(), idle_timeout_sec=0.05,
+        ):
+            pass
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(consume(), timeout=0.3)  # never emits idle error -> we time out

@@ -108,6 +108,8 @@ _REGISTRY = ProcessRegistry()
 
 class ExecTool(Tool):
     name = "exec"
+    default_timeout_sec = None  # self-limits via exec_timeout_sec; no GuardedTool wrapper
+    default_retryable = False
     description = "Run a shell command and return its output. Set background=true for long-running commands."
     label = "Exec"
     concurrency = "sequential"
@@ -177,6 +179,8 @@ class ExecTool(Tool):
 
 class ProcessTool(Tool):
     name = "process"
+    default_timeout_sec = None
+    default_retryable = False
     description = "Manage background exec sessions: list, poll for new output, or kill."
     label = "Process"
     parameters = {

@@ -88,6 +88,7 @@ async def run_agent_loop(
     tool_map = {t.name: t for t in tools}
     new_messages: list[Message] = []
     stop_reason = "stop"
+    error_text: str | None = None  # human-readable reason when stop_reason == "error"
     max_iters = max_iterations or resolve_max_run_loop_iterations(1)
 
     retry_counts = {k: 0 for k in RETRY_LIMITS}
@@ -170,6 +171,7 @@ async def run_agent_loop(
 
             if assistant.stop_reason in ("error",):
                 stop_reason = "error"
+                error_text = assistant.error_message
                 break
 
             # 1. Typed incomplete-turn retries (planning/reasoning/empty).
@@ -219,7 +221,10 @@ async def run_agent_loop(
         persist(fallback)
         await on_event(AgentEvent("message_end", {"message": message_to_dict(fallback)}))
 
-    await on_event(AgentEvent("agent_end", {"stopReason": stop_reason}))
+    end_payload = {"stopReason": stop_reason}
+    if error_text:
+        end_payload["error"] = error_text
+    await on_event(AgentEvent("agent_end", end_payload))
     return new_messages
 
 
@@ -244,12 +249,23 @@ async def _execute_tool_calls(
                 {"toolCallId": call.id, "toolName": call.name, "args": call.arguments},
             )
         )
+        # Forward a tool's incremental progress (GuardedTool retries/timeouts, the
+        # computer tool's per-step updates) as tool_progress events. Sync callback
+        # (the contract type); the async emit is scheduled fire-and-forget.
+        def _on_update(update) -> None:
+            if isinstance(update, str):
+                text = update
+            else:  # a ToolResult — join its text blocks
+                text = "".join(getattr(b, "text", "") for b in getattr(update, "content", []))
+            asyncio.create_task(on_event(AgentEvent(
+                "tool_progress", {"toolCallId": call.id, "toolName": call.name, "text": text})))
+
         if tool is None:
             result = ToolResult.text(f"Unknown tool: {call.name}", is_error=True)
         else:
             try:
                 args = validate_args(tool, call.arguments)
-                result = await tool.execute(call.id, args, abort)
+                result = await tool.execute(call.id, args, abort, _on_update)
             except ToolArgError as e:
                 result = ToolResult.text(str(e), is_error=True)
             except asyncio.CancelledError:

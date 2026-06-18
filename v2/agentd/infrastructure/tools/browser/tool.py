@@ -19,6 +19,8 @@ from .. import Tool, ToolResult
 
 class BrowserTool(Tool):
     name = "browser"
+    default_timeout_sec = 180.0  # a single browser action (navigate/snapshot/act)
+    default_retryable = False
     description = (
         "Control a web browser. Actions: navigate, snapshot, act, screenshot, tabs.\n"
         "snapshot returns the page as an accessibility tree with [ref=eN] markers; params: "
