@@ -35,6 +35,11 @@ class AgentService:
         self._make_session = make_session
         self._build_prompt = build_prompt
 
+    def add_tools(self, tools: list) -> None:
+        """Register more tools after construction (e.g. MCP tools discovered async
+        at gateway startup). They join the same toolset the engine and prompt use."""
+        self._tools.extend(tools)
+
     async def handle_message(self, session_id: str, text: str,
                              on_event: EventSink, abort) -> None:
         """Run one turn end to end for the given session."""

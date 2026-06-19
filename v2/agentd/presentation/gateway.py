@@ -44,6 +44,7 @@ class Gateway:
     config: Config
     service: AgentService                          # injected use-case (does the work)
     browser_manager: object | None = None          # injected; closed on shutdown
+    mcp_provider: object | None = None             # injected; discovered at startup, closed on shutdown
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -51,6 +52,7 @@ class Gateway:
     # ------------------------------------------------------------------ serve
 
     async def serve(self) -> None:
+        await self._discover_mcp_tools()  # connect external MCP servers, add their tools
         async with serve(self._handle_conn, self.config.host, self.config.port):
             log.info("listening on ws://%s:%s", self.config.host, self.config.port)
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
@@ -60,6 +62,26 @@ class Gateway:
             finally:
                 if self.browser_manager is not None:
                     await self.browser_manager.close()
+                if self.mcp_provider is not None:
+                    await self.mcp_provider.aclose()
+
+    async def _discover_mcp_tools(self) -> None:
+        """Connect to configured MCP servers and add their tools to the toolset,
+        each wrapped in GuardedTool like every other tool. Best-effort: a failed
+        connection is logged and never blocks the gateway from serving."""
+        if self.mcp_provider is None:
+            return
+        try:
+            from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+
+            raw = await self.mcp_provider.discover()
+            self.service.add_tools(
+                [GuardedTool(t, resolve_policy(self.config, t)) for t in raw]
+            )
+            if raw:
+                log.info("MCP: added %d tool(s) to the toolset", len(raw))
+        except Exception as e:  # noqa: BLE001 — MCP must never block serving
+            log.warning("MCP discovery failed: %s", e)
 
     async def _handle_conn(self, ws: ServerConnection) -> None:
         # Each connection — terminal, desktop, mobile, a channel adapter, anything —

@@ -76,14 +76,62 @@ def _extract_pdf(path: Path) -> str:
     return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
+def _extract_xlsx(path: Path) -> str:
+    from openpyxl import load_workbook
+
+    # data_only -> computed values (not formulas); read_only -> handles large sheets
+    wb = load_workbook(str(path), read_only=True, data_only=True)
+    try:
+        parts: list[str] = []
+        for ws in wb.worksheets:
+            parts.append(f"# Sheet: {ws.title}")
+            for row in ws.iter_rows(values_only=True):
+                cells = ["" if v is None else str(v) for v in row]
+                if any(c.strip() for c in cells):  # skip fully-empty rows
+                    parts.append(" | ".join(cells).rstrip(" |"))
+        return "\n".join(parts)
+    finally:
+        wb.close()
+
+
+def _extract_pptx(path: Path) -> str:
+    from pptx import Presentation
+
+    prs = Presentation(str(path))
+    parts: list[str] = []
+    for i, slide in enumerate(prs.slides, 1):
+        parts.append(f"# Slide {i}")
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                t = shape.text_frame.text.strip()
+                if t:
+                    parts.append(t)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    cells = [c.text.strip() for c in row.cells]
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+# suffix -> text extractor (documents are text-extracted instead of read as bytes)
+_EXTRACTORS = {
+    ".docx": _extract_docx,
+    ".pdf": _extract_pdf,
+    ".xlsx": _extract_xlsx,
+    ".pptx": _extract_pptx,
+}
+
+
 class ReadTool(Tool):
     name = "read"
     default_timeout_sec = 30.0
     default_retryable = True
     default_max_retries = 1
     description = (
-        "Read a file's contents (text, code, .docx, or .pdf — documents are text-extracted). "
-        "Use an absolute path for files outside the workspace. Supports offset (1-indexed line) and limit."
+        "Read a file's contents (text, code, .docx, .pdf, .xlsx, .pptx — documents are "
+        "text-extracted). Use an absolute path for files outside the workspace. Supports "
+        "offset (1-indexed line) and limit."
     )
     label = "Read"
     parameters = {
@@ -106,9 +154,9 @@ class ReadTool(Tool):
 
         # Documents: extract text instead of reading raw bytes.
         suffix = path.suffix.lower()
-        if suffix in (".docx", ".pdf"):
+        extractor = _EXTRACTORS.get(suffix)
+        if extractor is not None:
             try:
-                extractor = _extract_docx if suffix == ".docx" else _extract_pdf
                 text = await asyncio.to_thread(extractor, path)
             except Exception as e:
                 return ToolResult.text(

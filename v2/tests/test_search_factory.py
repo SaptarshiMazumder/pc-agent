@@ -15,24 +15,24 @@ def _names(cfg):
     return [p.name for p in build_search_providers(cfg)]
 
 
-def test_default_gemini_first_with_keys(monkeypatch):
+def test_default_gemini_first_when_key_present(monkeypatch):
+    # Mirrors OpenClaw: gemini reuses the model key, so it's primary (20) ahead of
+    # parallel (76) and duckduckgo (100).
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    assert _names(_cfg(brave="bk")) == ["gemini", "brave", "duckduckgo"]
+    assert _names(_cfg()) == ["gemini", "parallel", "duckduckgo"]
 
 
-def test_default_no_brave(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    assert _names(_cfg(brave=None)) == ["gemini", "duckduckgo"]
-
-
-def test_default_non_gemini_model(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    assert _names(_cfg(model="openai/gpt-5.5", brave=None)) == ["duckduckgo"]
-
-
-def test_default_no_gemini_key(monkeypatch):
+def test_default_parallel_first_without_gemini_key(monkeypatch):
+    # No Gemini key -> Parallel's keyless Search MCP becomes the primary, like OpenClaw.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    assert _names(_cfg(brave="bk")) == ["brave", "duckduckgo"]
+    assert _names(_cfg()) == ["parallel", "duckduckgo"]
+
+
+def test_parallel_disabled_leaves_duckduckgo(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    cfg = _cfg()
+    cfg.parallel_search_enabled = False
+    assert _names(cfg) == ["duckduckgo"]
 
 
 def test_explicit_override_respected_and_unknowns_dropped(monkeypatch):

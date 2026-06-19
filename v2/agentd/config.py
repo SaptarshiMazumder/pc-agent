@@ -19,12 +19,34 @@ V2_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass
+class McpServerConfig:
+    """One external MCP server to connect to (JSON config only).
+
+    stdio: set `command` (and optional `env`) — agentd launches it as a subprocess.
+    http (later phase): set `url` (and optional `headers`). `allow` optionally
+    restricts which of the server's tools are exposed.
+    """
+    name: str                                   # namespace, e.g. "google"
+    transport: str = "stdio"                    # "stdio" | "http"
+    command: list | None = None                 # stdio: ["uvx", "workspace-mcp", ...]
+    env: dict | None = None                     # stdio: extra env for the subprocess
+    url: str | None = None                      # http: server endpoint
+    headers: dict | None = None                 # http: auth headers
+    enabled: bool = True
+    allow: list | None = None                   # optional tool allowlist (bare names)
+
+
+@dataclass
 class Config:
     # The agent's persona name (how it introduces itself + identifies in the prompt).
     # Single source of truth: the server owns it; clients fetch it via the `hello`
     # handshake. Override with AGENTD_AGENT_NAME.
     agent_name: str = "JARVIS"
     model: str = "gemini/gemini-3.1-pro-preview"
+    # Dedicated model for web_search grounding — kept FAST + cheap, decoupled from the
+    # main model. Grounding on a heavy reasoning model (e.g. 3.1-pro ~33s) blows the
+    # web_search timeout; flash grounds in ~6s. Override with AGENTD_SEARCH_MODEL.
+    search_model: str = "gemini/gemini-2.5-flash"
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
@@ -38,8 +60,16 @@ class Config:
     # skills here; override with AGENTD_SKILLS_DIR.
     skills_dir: Path = field(default_factory=lambda: V2_ROOT / "skills")
     brave_api_key: str | None = None
-    # Explicit web_search provider chain order (e.g. ["gemini","brave","duckduckgo"]).
-    # None = auto: gemini (if on a Gemini model + key) -> brave (if key) -> duckduckgo.
+    # Parallel's hosted Search MCP (https://search.parallel.ai/mcp) — the keyless,
+    # streamable-HTTP search backend OpenClaw uses as its zero-config default. Free
+    # tier needs NO key; PARALLEL_API_KEY only raises rate limits. AGENTD_PARALLEL_SEARCH=0
+    # to disable.
+    parallel_search_enabled: bool = True
+    parallel_search_url: str = "https://search.parallel.ai/mcp"
+    parallel_api_key: str | None = None
+    # Explicit web_search provider chain order (e.g. ["parallel","duckduckgo"]).
+    # None = auto: matches OpenClaw's no-keys default — parallel (keyless Search MCP)
+    # -> duckduckgo. Gemini/Brave stay available but, like OpenClaw, are not auto-on.
     # Override with AGENTD_SEARCH_PROVIDERS (comma-separated).
     search_providers: list[str] | None = None
     browser_headless: bool = True
@@ -62,6 +92,11 @@ class Config:
     # Loop/LLM-level timeouts.
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
+
+    # --- MCP servers (external tool connectors) --------------------------------
+    # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
+    # tools are discovered at startup and namespaced as "<name>__<tool>".
+    mcp_servers: list = field(default_factory=list)
 
     # --- computer-use (PC GUI automation) tool ---------------------------------
     # OFF by default: this tool drives the REAL mouse/keyboard/screen, so it ships
@@ -130,6 +165,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.agent_name = os.environ["AGENTD_AGENT_NAME"]
     if os.environ.get("AGENTD_MODEL"):
         cfg.model = os.environ["AGENTD_MODEL"]
+    if os.environ.get("AGENTD_SEARCH_MODEL"):
+        cfg.search_model = os.environ["AGENTD_SEARCH_MODEL"]
     if os.environ.get("AGENTD_REASONING"):
         cfg.reasoning_effort = os.environ["AGENTD_REASONING"]
     if os.environ.get("AGENTD_HOST"):
@@ -152,6 +189,10 @@ def load_config(path: Path | None = None) -> Config:
         )
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
+    if os.environ.get("AGENTD_PARALLEL_SEARCH") is not None:
+        cfg.parallel_search_enabled = os.environ["AGENTD_PARALLEL_SEARCH"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("PARALLEL_API_KEY"):
+        cfg.parallel_api_key = os.environ["PARALLEL_API_KEY"]
     if os.environ.get("AGENTD_SEARCH_PROVIDERS"):
         cfg.search_providers = [
             s.strip() for s in os.environ["AGENTD_SEARCH_PROVIDERS"].split(",") if s.strip()
@@ -184,6 +225,13 @@ def load_config(path: Path | None = None) -> Config:
         cfg.llm_idle_timeout_seconds = float(os.environ["AGENTD_LLM_IDLE_TIMEOUT"])
     if os.environ.get("AGENTD_LLM_REQUEST_TIMEOUT"):
         cfg.llm_request_timeout_seconds = float(os.environ["AGENTD_LLM_REQUEST_TIMEOUT"])
+
+    # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
+    cfg.mcp_servers = [
+        s if isinstance(s, McpServerConfig) else McpServerConfig(**s)
+        for s in (cfg.mcp_servers or [])
+        if isinstance(s, (dict, McpServerConfig))
+    ]
 
     cfg.workspace = Path(cfg.workspace).resolve()
     cfg.state_dir = Path(cfg.state_dir)

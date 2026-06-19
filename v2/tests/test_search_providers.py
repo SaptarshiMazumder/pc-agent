@@ -74,34 +74,55 @@ async def test_ddg_wraps_sync_and_ignores_freshness(monkeypatch):
 
 # ---- Gemini grounding (parse only; no network) ------------------------
 
-def _fake_gemini_resp(answer, chunks):
-    msg = SimpleNamespace(content=answer)
-    choice = SimpleNamespace(message=msg)
-    return SimpleNamespace(
-        choices=[choice],
-        vertex_ai_grounding_metadata=[{"groundingChunks": chunks}],
-    )
+class _FakeHeadResp:
+    def __init__(self, url):
+        self.url = url
 
 
-def test_gemini_parse_answer_plus_citations():
+class _FakeGeminiClient:
+    """Resolves a redirect by rewriting 'redirect://x' -> 'https://real/x', so the
+    test can assert the URL was actually resolved (OpenClaw's redirect step)."""
+
+    async def head(self, url, follow_redirects=True, timeout=None):
+        return _FakeHeadResp(url.replace("redirect://", "https://real/"))
+
+
+def _gen_data(answer, chunks):
+    # Raw Gemini generateContent JSON shape.
+    cand = {"content": {"parts": [{"text": answer}] if answer else []}}
+    if chunks is not None:
+        cand["groundingMetadata"] = {"groundingChunks": chunks}
+    return {"candidates": [cand]}
+
+
+@pytest.mark.asyncio
+async def test_gemini_parse_answer_plus_resolved_citations():
     chunks = [
-        {"web": {"uri": "https://x", "title": "X"}},
-        {"web": {"uri": "https://y", "title": "Y"}},
-        {"web": {"uri": "https://z", "title": "Z"}},
+        {"web": {"uri": "redirect://x", "title": "X"}},
+        {"web": {"uri": "redirect://y", "title": "Y"}},
+        {"web": {"uri": "redirect://z", "title": "Z"}},
     ]
-    resp = _fake_gemini_resp("the answer", chunks)
-    out = GeminiGroundingProvider._parse(resp, count=2)
+    p = GeminiGroundingProvider("gemini/x", "k")
+    out = await p._parse(_FakeGeminiClient(), _gen_data("the answer", chunks), count=2)
     assert out[0] == SearchResult(title="Gemini grounded answer", url="", snippet="the answer")
-    # citations truncated to count=2
-    assert [r.url for r in out[1:]] == ["https://x", "https://y"]
+    # redirect URLs resolved + citations truncated to count=2
+    assert [r.url for r in out[1:]] == ["https://real/x", "https://real/y"]
+    assert out[1].title == "X"
 
 
-def test_gemini_parse_no_grounding_returns_empty():
-    resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="ungrounded"))],
-        vertex_ai_grounding_metadata=None,
-    )
-    assert GeminiGroundingProvider._parse(resp, count=5) == []
+@pytest.mark.asyncio
+async def test_gemini_returns_answer_even_without_chunks():
+    # OpenClaw-parity fix: the synthesized answer is returned even with ZERO grounding
+    # chunks (the old code dropped it and fell through to DuckDuckGo).
+    p = GeminiGroundingProvider("gemini/x", "k")
+    out = await p._parse(_FakeGeminiClient(), _gen_data("ungrounded answer", []), count=5)
+    assert out == [SearchResult(title="Gemini grounded answer", url="", snippet="ungrounded answer")]
+
+
+@pytest.mark.asyncio
+async def test_gemini_no_candidates_returns_empty():
+    p = GeminiGroundingProvider("gemini/x", "k")
+    assert await p._parse(_FakeGeminiClient(), {"candidates": []}, count=5) == []
 
 
 def test_gemini_available(monkeypatch):

@@ -80,9 +80,23 @@ def build_service(config: Config, browser_manager, computer_provider=None) -> Ag
     )
 
 
+def build_mcp_provider(config: Config):
+    """Build the MCP client provider (external tool connectors), or None if no
+    servers are configured / the `mcp` SDK is absent. The gateway discovers its
+    tools asynchronously at startup (discovery needs an event loop)."""
+    from agentd.infrastructure.tools.mcp import build_mcp_provider as _build
+
+    return _build(config)
+
+
 def build_gateway(config: Config) -> Gateway:
     """Top-level: build everything and return the ready-to-serve Gateway."""
     browser_manager = build_browser_manager(config)
     computer_provider = build_computer_provider(config)
     service = build_service(config, browser_manager, computer_provider)
-    return Gateway(config=config, service=service, browser_manager=browser_manager)
+    return Gateway(
+        config=config,
+        service=service,
+        browser_manager=browser_manager,
+        mcp_provider=build_mcp_provider(config),
+    )

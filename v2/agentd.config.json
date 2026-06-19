@@ -1,0 +1,11 @@
+{
+  "mcp_servers": [
+    {
+      "name": "google",
+      "command": ["uvx", "workspace-mcp", "--tools", "gmail", "drive", "calendar"],
+      "env": {
+        "OAUTHLIB_INSECURE_TRANSPORT": "1"
+      }
+    }
+  ]
+}
