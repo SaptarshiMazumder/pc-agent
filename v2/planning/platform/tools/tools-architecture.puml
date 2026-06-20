@@ -34,7 +34,7 @@ title agentd - Tool Architecture\nEvery tool implements the Tool port; backend-t
 ' CONSUMER - the agent loop
 ' ===========================================================================
 package "AGENT LOOP (consumer)  ·  infrastructure/engine" #EDE7F6 {
-  rectangle "for each tool call the LLM emits:\n1. validate args vs the tool's JSON schema\n2. (future) policy.authorize -> allow / deny / needs-approval\n3. execute  (parallel by default; sequential if tool says so)\n4. ToolResult -> append to messages -> back to the LLM" as LOOP #C7B8EA
+  rectangle "for each tool call the LLM emits:\n1. validate args vs the tool's JSON schema\n2. policy.authorize -> allow / deny  (PolicyGuard decorator; see tool-hardening-policy.puml)\n3. execute  (parallel by default; sequential if tool says so)\n4. ToolResult -> append to messages -> back to the LLM" as LOOP #C7B8EA
 }
 
 ' ===========================================================================
@@ -69,8 +69,12 @@ package "INFRASTRUCTURE - tools/ (adapters)" #E1F5FE {
   }
 
   package "BrowserProvider adapters" #E8F8FF {
-    rectangle "Playwright (local) [now]" as A_PW #C8E6C9
-    rectangle "Remote CDP / cloud browser [later]" as A_CDP #FFE0B2
+    rectangle "Playwright (local, own profile) [now]" as A_PW #C8E6C9
+    rectangle "CDP-attach (drive the user's LIVE Chrome,\nconnect_over_cdp) [net-new -> OC parity]" as A_CDP #FFE0B2
+  }
+
+  package "browser capability parity with OpenClaw  (net-new act kinds / handlers)" #E8F8FF {
+    rectangle "setInputFiles  (file upload; OC set-input-files)\ndownload capture  (page.on('download') -> state_dir)" as A_BCAP #FFE0B2
   }
 }
 
@@ -78,8 +82,8 @@ package "INFRASTRUCTURE - tools/ (adapters)" #E1F5FE {
 ' MAIN - composition root (the ONLY place a backend is named)
 ' ===========================================================================
 package "MAIN - composition root  ·  main/container.py" #FDECEA {
-  rectangle "build_tools(config)\n- build each tool\n- for dispatcher tools: assemble the provider chain FROM CONFIG\n- (future) wrap each tool in GuardedTool(policy, approval)\n- return [Tool] for the registry" as BUILD #FBD9D4
-  rectangle "config\nAGENTD_SEARCH_PROVIDERS = gemini,brave,duckduckgo\nprovider keys: GEMINI / BRAVE / TAVILY / ...\nbrowser = playwright | remote" as CFG #FBD9D4
+  rectangle "build_tools(config, engine)\n- build each tool\n- for dispatcher tools: assemble the provider chain FROM CONFIG\n- wrap each tool: PolicyGuard(GuardedTool(tool))\n- inject the PolicyEngine into fetch + browser providers\n- return [Tool] for the registry" as BUILD #FBD9D4
+  rectangle "config\nAGENTD_SEARCH_PROVIDERS = gemini,brave,duckduckgo\nAGENTD_POLICIES = ssrf,navigation,act_policy  ([] => off)\nprovider keys: GEMINI / BRAVE / TAVILY / ...\nbrowser = playwright | cdp" as CFG #FBD9D4
 }
 
 ' ===========================================================================
@@ -101,6 +105,7 @@ T_SEARCH --> A_SNATIVE : runs the chain
 T_SEARCH --> A_SAGN
 T_BROW --> A_PW
 T_BROW --> A_CDP
+T_BROW ..> A_BCAP : act kinds
 
 ' composition root selects + orders the adapters per config
 BUILD ..> A_SNATIVE : select + order

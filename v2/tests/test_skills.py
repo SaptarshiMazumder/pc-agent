@@ -86,3 +86,26 @@ def test_prompt_section_lists_each_skill():
     assert "## Skills" in section
     assert "sample-skill: does the sample" in section
     assert "[read: /s/x/SKILL.md]" in section
+
+
+def test_registry_parses_always_flag_and_body(tmp_path):
+    _make_skill(
+        tmp_path,
+        "router",
+        "---\nname: router\ndescription: routing\nalways: true\n---\n# Router\nALWAYS-ON BODY\n",
+    )
+    s = FileSkillRegistry(tmp_path).all()[0]
+    assert s.always is True
+    assert "ALWAYS-ON BODY" in s.body
+
+
+def test_always_skill_is_inlined_not_just_advertised():
+    always = Skill(name="router", description="routing", path="/s/router/SKILL.md",
+                   always=True, body="# Router\nALWAYS-ON RULES")
+    on_demand = Skill(name="helper", description="a helper", path="/s/helper/SKILL.md")
+    section = _skills_section([always, on_demand])
+    # always-on skill: full body inlined, no "read:" needed
+    assert "ALWAYS-ON RULES" in section
+    assert "Skill: router (always applies)" in section
+    # on-demand skill: advertised with a read path, body NOT inlined
+    assert "helper: a helper [read: /s/helper/SKILL.md]" in section

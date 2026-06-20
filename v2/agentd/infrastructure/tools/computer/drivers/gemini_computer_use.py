@@ -28,7 +28,7 @@ log = logging.getLogger("agentd")
 _SYSTEM_INSTRUCTION = (
     "You control the user's ENTIRE computer — mouse, keyboard, and screen.\n"
     "\n"
-    "OPEN A WEBSITE (e.g. LinkedIn, YouTube, Google): call the `open_browser` function "
+    "OPEN A WEBSITE : call the `open_browser` function "
     "with the FULL url — it opens the browser DIRECTLY at that page. Use it EVERY time "
     "you need a website. Never type a url into the Start menu and never type a shell "
     "command like 'start chrome'. After it opens, operate the page normally (click, type, scroll).\n"
@@ -99,7 +99,7 @@ class GeminiComputerUseDriver:
                 type=types.Type.OBJECT,
                 properties={"url": types.Schema(
                     type=types.Type.STRING,
-                    description="Full URL including https:// (e.g. https://www.linkedin.com)")},
+                    description="Full URL including https://")},
                 required=["url"],
             ),
         )

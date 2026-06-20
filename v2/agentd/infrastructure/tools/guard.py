@@ -18,8 +18,12 @@ chokepoint; not built here.)
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
+from collections import deque
 from dataclasses import dataclass
+
+from agentd.domain.messages import TextContent
 
 from . import Tool, ToolResult
 
@@ -46,6 +50,8 @@ class ToolPolicy:
     retry_on_timeout: bool          # also retry when the wrapper times out
     base_backoff_sec: float
     max_backoff_sec: float
+    loop_max_repeats: int = 0           # block after this many IDENTICAL consecutive calls (0 = off)
+    loop_warn_after_errors: int = 0     # nudge after this many consecutive errors (0 = off)
 
 
 def _resolve(overrides: dict, tool, field: str, global_default):
@@ -67,6 +73,10 @@ def resolve_policy(config, tool) -> ToolPolicy:
         retry_on_timeout=_resolve(overrides, tool, "retry_on_timeout", False),
         base_backoff_sec=_resolve(overrides, tool, "base_backoff_sec", 0.5),
         max_backoff_sec=_resolve(overrides, tool, "max_backoff_sec", 8.0),
+        loop_max_repeats=_resolve(overrides, tool, "loop_max_repeats",
+                                  getattr(config, "tool_loop_max_repeats_default", 5)),
+        loop_warn_after_errors=_resolve(overrides, tool, "loop_warn_after_errors",
+                                        getattr(config, "tool_loop_warn_after_errors_default", 4)),
     )
 
 
@@ -78,6 +88,10 @@ class GuardedTool(Tool):
     def __init__(self, inner: Tool, policy: ToolPolicy):
         self._inner = inner
         self._policy = policy
+        # loop-detection state (per tool, lives for the session)
+        self._last_fp: str | None = None
+        self._repeat_count = 0
+        self._consec_errors = 0
 
     # --- delegate the contract attributes to the inner tool ----------------
     @property
@@ -100,8 +114,53 @@ class GuardedTool(Tool):
     def concurrency(self) -> str:
         return self._inner.concurrency
 
+    # --- loop detection (same chokepoint as timeout/retry) ----------------
+    def _fingerprint(self, params) -> str:
+        try:
+            return json.dumps(params, sort_keys=True, default=str)
+        except Exception:  # noqa: BLE001
+            return repr(params)
+
+    def _loop_block(self, params) -> ToolResult | None:
+        """Block an IDENTICAL call repeated too many times in a row."""
+        limit = self._policy.loop_max_repeats
+        fp = self._fingerprint(params)
+        if fp == self._last_fp:
+            self._repeat_count += 1
+        else:
+            self._last_fp = fp
+            self._repeat_count = 1
+        if limit and self._repeat_count > limit:
+            return ToolResult.text(
+                f"loop guard: '{self.name}' was called with identical arguments "
+                f"{self._repeat_count} times in a row. Stop repeating this exact call — "
+                f"change the arguments, switch tools (e.g. use the browser for "
+                f"login-walled/blocked content), or report the blocker to the user.",
+                is_error=True,
+            )
+        return None
+
+    def _loop_annotate(self, result: ToolResult) -> ToolResult:
+        """Soft nudge after several consecutive errors from this tool."""
+        warn = self._policy.loop_warn_after_errors
+        self._consec_errors = self._consec_errors + 1 if result.is_error else 0
+        if warn and self._consec_errors >= warn:
+            result.content.append(TextContent(text=(
+                f"\n\n[loop guard] '{self.name}' has failed {self._consec_errors} times "
+                f"in a row. Stop retrying the same approach — try a different tool "
+                f"(e.g. the browser for gated content) or report the blocker."
+            )))
+        return result
+
     # --- the guarded execution --------------------------------------------
     async def execute(self, tool_call_id, params, abort, on_update=None) -> ToolResult:
+        blocked = self._loop_block(params)
+        if blocked is not None:
+            return blocked
+        result = await self._guarded_run(tool_call_id, params, abort, on_update)
+        return self._loop_annotate(result)
+
+    async def _guarded_run(self, tool_call_id, params, abort, on_update=None) -> ToolResult:
         p = self._policy
         attempt = 0
         while True:

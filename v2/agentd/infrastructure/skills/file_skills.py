@@ -72,7 +72,14 @@ def _load_one(skill_md: Path) -> Skill | None:
     meta, body = _parse_frontmatter(text)
     name = meta.get("name") or skill_md.parent.name
     description = meta.get("description") or _first_meaningful_line(body)
-    return Skill(name=name, description=description, path=str(skill_md.resolve()))
+    always = meta.get("always", "").strip().lower() in ("true", "1", "yes", "on")
+    return Skill(
+        name=name,
+        description=description,
+        path=str(skill_md.resolve()),
+        always=always,
+        body=body.strip() if always else "",
+    )
 
 
 class FileSkillRegistry:

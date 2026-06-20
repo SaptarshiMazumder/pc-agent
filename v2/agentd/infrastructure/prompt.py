@@ -13,12 +13,15 @@ Current Date & Time -> Project Context -> Runtime.
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import socket
 import sys
 from datetime import datetime
 from pathlib import Path
+
+log = logging.getLogger("agentd")
 
 CONTEXT_FILES = ("AGENTS.md", "SOUL.md", "MEMORY.md")
 
@@ -88,24 +91,42 @@ def _tooling_section(tools) -> str:
 
 
 def _skills_section(skills) -> str | None:
-    """Advertise available skills as one line each (name + when-to-use + path).
+    """Build the Skills prompt section.
 
-    Only the descriptions live in the prompt; the agent reads the full SKILL.md on
-    demand with the `read` tool. This is progressive disclosure — adding skills
-    grows know-how without bloating the prompt.
+    Two tiers:
+    - ``always`` skills have their FULL body inlined every turn (routing rules that
+      must always apply, e.g. web-access) — these aren't left to the model's choice
+      to read.
+    - the rest are advertised one line each (name + when-to-use + path) and read on
+      demand with the `read` tool (progressive disclosure — no prompt bloat).
+
+    Logs which skills are always-injected vs advertised so skill usage is visible.
     """
     if not skills:
+        log.info("skills: none discovered")
         return None
-    lines = [
-        "## Skills",
-        "Skills are step-by-step playbooks for specific tasks. When a user's request "
-        "clearly matches one, READ its SKILL.md with the read tool FIRST, then follow "
-        "it. Do not guess a skill's contents from its name.",
-    ]
-    for s in skills:
-        desc = s.description or "(no description)"
-        lines.append(f"- {s.name}: {desc} [read: {s.path}]")
-    return "\n".join(lines)
+    always = [s for s in skills if getattr(s, "always", False) and getattr(s, "body", "")]
+    on_demand = [s for s in skills if s not in always]
+    log.info(
+        "skills: %d discovered | always-injected: %s | advertised(read-on-demand): %s",
+        len(skills),
+        [s.name for s in always] or "—",
+        [s.name for s in on_demand] or "—",
+    )
+
+    parts: list[str] = ["## Skills"]
+    if on_demand:
+        parts.append(
+            "Skills are step-by-step playbooks for specific tasks. When a user's request "
+            "clearly matches one, READ its SKILL.md with the read tool FIRST, then follow "
+            "it. Do not guess a skill's contents from its name."
+        )
+        for s in on_demand:
+            parts.append(f"- {s.name}: {s.description or '(no description)'} [read: {s.path}]")
+    for s in always:
+        # full body inlined — always in context, no read needed
+        parts.append(f"### Skill: {s.name} (always applies)\n{s.body}")
+    return "\n".join(parts)
 
 
 def build_system_prompt(
@@ -154,10 +175,12 @@ def build_system_prompt(
             "tool per step — `browser` (it is SIGNED IN via a persistent profile) or "
             "`web_search` for the web; `computer` ONLY when a task truly needs the real "
             "desktop GUI. ONLY skip planning for a genuinely simple, single-step request.\n"
-            "Example - \"check my unread LinkedIn messages and who the recent senders are\":\n"
-            "  1. browser: open LinkedIn messaging; count unread; note the recent senders\n"
-            "  2. web_search: for each sender, find their business + public profile link\n"
-            "  3. reply: summarize the unread count + the people"
+            "Example - \"summarize the 3 latest posts on a blog into a file\":\n"
+            "  1. web_fetch: fetch the blog index; note the 3 latest post URLs\n"
+            "  2. web_fetch: fetch each post; extract the key points\n"
+            "  3. write: save the summaries to a file\n"
+            "Pick each step's tool by what it needs (public page vs signed-in/blocked); "
+            "follow the web-access rules above."
         )
 
     # 3. Tool Call Style (verbatim, approval lines dropped)

@@ -46,7 +46,12 @@ class WebFetchTool(Tool):
     default_timeout_sec = 120.0  # may escalate to browser-render
     default_retryable = True
     default_max_retries = 2
-    description = "Fetch a URL and return its readable content as markdown."
+    description = (
+        "Fetch a URL and return its readable content as markdown. Fetches the page "
+        "ANONYMOUSLY (no login, no session). For pages behind a sign-in, your own "
+        "accounts, interactive flows, or when a fetch comes back blocked/empty/"
+        "login-walled, use the browser tool instead."
+    )
     label = "Web Fetch"
     parameters = {
         "type": "object",

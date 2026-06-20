@@ -12,11 +12,14 @@ from __future__ import annotations
 import asyncio
 import difflib
 import fnmatch
+import logging
 import os
 import sys
 from pathlib import Path
 
 from . import Tool, ToolResult
+
+log = logging.getLogger("agentd")
 
 MAX_READ_CHARS = 100_000
 MAX_LINE_CHARS = 2_000
@@ -151,6 +154,15 @@ class ReadTool(Tool):
         path = _resolve(self.config, params["path"])
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
+
+        # Observability: surface when the agent reads an on-demand skill playbook.
+        if path.name == "SKILL.md":
+            try:
+                skills_dir = Path(getattr(self.config, "skills_dir", "")).resolve()
+                if skills_dir in path.resolve().parents:
+                    log.info("skill read: %s (%s)", path.parent.name, path)
+            except Exception:  # noqa: BLE001
+                pass
 
         # Documents: extract text instead of reading raw bytes.
         suffix = path.suffix.lower()

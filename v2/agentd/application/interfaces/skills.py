@@ -33,6 +33,8 @@ class Skill:
     name: str          # short id, e.g. "photoshop-export" (folder name if unspecified)
     description: str    # one line: WHEN to use this skill (matched against the task)
     path: str          # absolute path to the SKILL.md the agent should read
+    always: bool = False  # if true, the full body is INLINED into the prompt every turn
+    body: str = ""        # the playbook body (only needed/populated for always-on skills)
 
 
 class SkillRegistry(Protocol):

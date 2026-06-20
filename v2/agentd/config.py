@@ -77,6 +77,27 @@ class Config:
     # so the `browser` tool stays SIGNED IN across runs. Log in once (headed) via
     # `python -m agentd.main.browser_login`. AGENTD_BROWSER_PERSISTENT=0 to disable.
     browser_persistent: bool = True
+    # CDP-attach: when set, the browser tool drives the user's ALREADY-RUNNING
+    # Chromium over the DevTools protocol instead of launching its own (so it uses
+    # the user's live profile/cookies). Start Chrome with
+    # `--remote-debugging-port=9222` and set AGENTD_BROWSER_CDP_URL=http://localhost:9222.
+    # Empty = launch our own Playwright browser (the default). A session can't switch
+    # browsers mid-run (see interfaces/browser.py), so this is chosen once at startup.
+    browser_cdp_url: str | None = None
+    # Capture file downloads triggered in the browser into <state_dir>/downloads.
+    # AGENTD_BROWSER_DOWNLOADS=0 to disable.
+    browser_downloads: bool = True
+    # Use the INSTALLED Google Chrome ("chrome") instead of Playwright's bundled
+    # Chromium. Real Chrome is far less likely to be blocked by sites' automation
+    # detection (e.g. Google's "this browser is not secure" on login). Falls back to
+    # bundled Chromium if Chrome isn't installed. Set "" to force bundled. AGENTD_BROWSER_CHANNEL.
+    browser_channel: str = "chrome"
+    # Strip Playwright's automation fingerprints (--enable-automation,
+    # navigator.webdriver) so logins on automation-sensitive sites work.
+    # AGENTD_BROWSER_STEALTH=0 to disable.
+    browser_stealth: bool = True
+    # How many recent console messages per tab the `console` action can return.
+    browser_console_buffer: int = 200
     exec_timeout_sec: int = 1800
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
@@ -86,6 +107,11 @@ class Config:
     # declared default (default_* class attr) > these globals.
     tool_timeout_default: float = 300.0   # wall-clock per tool call (AGENTD_TOOL_TIMEOUT); per-tool null = no wrapper
     tool_retries_default: int = 0         # extra attempts on transient errors (AGENTD_TOOL_RETRIES)
+    # Loop detection (same GuardedTool chokepoint; per-tool overridable via tool_overrides):
+    # block a call repeated with IDENTICAL args more than N times in a row (0 = off),
+    # and append a "stop retrying / switch tools" nudge after N consecutive errors (0 = off).
+    tool_loop_max_repeats_default: int = 5
+    tool_loop_warn_after_errors_default: int = 4
     # Per-tool overrides, e.g. {"computer": {"timeout_sec": 900}, "exec": {"timeout_sec": null},
     # "web_search": {"timeout_sec": 20, "max_retries": 3, "retryable": true}}. JSON config only.
     tool_overrides: dict = field(default_factory=dict)
@@ -186,6 +212,18 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_BROWSER_PERSISTENT"):
         cfg.browser_persistent = (
             os.environ["AGENTD_BROWSER_PERSISTENT"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_BROWSER_CDP_URL"):
+        cfg.browser_cdp_url = os.environ["AGENTD_BROWSER_CDP_URL"].strip() or None
+    if os.environ.get("AGENTD_BROWSER_DOWNLOADS"):
+        cfg.browser_downloads = (
+            os.environ["AGENTD_BROWSER_DOWNLOADS"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_BROWSER_CHANNEL") is not None:
+        cfg.browser_channel = os.environ["AGENTD_BROWSER_CHANNEL"].strip()
+    if os.environ.get("AGENTD_BROWSER_STEALTH"):
+        cfg.browser_stealth = (
+            os.environ["AGENTD_BROWSER_STEALTH"].lower() not in ("0", "false", "no", "")
         )
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]

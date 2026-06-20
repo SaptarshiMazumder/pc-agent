@@ -29,8 +29,18 @@ async def _run() -> None:
     print(f"Opening a visible browser using profile:\n  {profile_dir}")
     print("Log into the sites you need (LinkedIn, Gmail, ...), then CLOSE the window to save.")
 
+    from agentd.infrastructure.tools.browser.providers.playwright import (
+        launch_with_fallback,
+        stealth_chromium_kwargs,
+    )
+
     pw = await async_playwright().start()
-    context = await pw.chromium.launch_persistent_context(str(profile_dir), headless=False)
+    # Same stealth launch as the agent's browser (real Chrome channel + no automation
+    # fingerprints) so Google et al. don't block the login with "browser not secure".
+    kw = stealth_chromium_kwargs(config, headless=False, persistent=True)
+    context = await launch_with_fallback(
+        lambda **k: pw.chromium.launch_persistent_context(str(profile_dir), **k), kw
+    )
     page = context.pages[0] if context.pages else await context.new_page()
     try:
         await page.goto("https://www.google.com")

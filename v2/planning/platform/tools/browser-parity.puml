@@ -1,0 +1,135 @@
+@startuml browser-parity
+' ============================================================================
+'  agentd - Browser Tool + Skill: OpenClaw Parity / Superiority map
+'  The FULL browser surface (tool actions + act kinds + snapshot/screenshot
+'  params + tabs + profiles + the skill), split into:
+'    TIER A = browser CAPABILITY  -> we match ALL of it + add more
+'    TIER B = OC distributed INFRA -> deliberately deferred (not a capability gap)
+'  Companion doc: browser-parity.md   Hardening is separate: tool-hardening-policy.puml
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng browser-parity.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Browser Tool + Skill: OpenClaw Parity / Superiority\nTier A = browser capability (match all + exceed)   Tier B = OC distributed infra (deferred)\ngreen = in v2 today   amber = net-new (Tier A)   gray = deferred (Tier B)
+
+' ===========================================================================
+' THE TOOL (dispatcher) + PORT
+' ===========================================================================
+package "browser tool  (dispatcher -- one BrowserProvider behind the port)" #E1F5FE {
+  rectangle "**browser** tool\nactions: navigate · snapshot · act · screenshot · tabs [now]\n+ console · pdf · dialog · upload · status · doctor · profiles [net-new]" as TOOL #CFF0FF
+  rectangle "PORT: BrowserProvider\nensure · snapshot · resolve_ref · settle · close\n(+ per-tab handles, profiles)" as PORT #E2E2E2
+}
+
+' ===========================================================================
+' TIER A - CAPABILITY (match all of OC + add more)
+' ===========================================================================
+package "TIER A : BROWSER CAPABILITY   (parity + superiority -- implement)" #E8F5E9 {
+
+  rectangle "**act kinds** [now, parity]\nclick · clickCoords · type · fill · press · select\nhover · scrollIntoView · drag · wait · evaluate · resize" as ACTK #C8E6C9
+
+  rectangle "**act params** [net-new enrich]\ndoubleClick · button · modifiers · slowly · delayMs\nfields (multi-field fill in ONE act) · frame (iframes)\ntargetId (per-tab act)" as ACTP #FFE0B2
+
+  rectangle "**snapshot** [now + enrich]\nnow: mode=efficient · interactive · compact · depth · max_chars\nnet-new: refs=aria (durable) · urls · labels · selector · frame" as SNAP #FFE0B2
+
+  rectangle "**screenshot** [enrich]\nnow: viewport png only\nnet-new: fullPage · jpeg · element/ref · labels" as SHOT #FFE0B2
+
+  rectangle "**tabs: STABLE HANDLES** [net-new -- correctness fix]\nlabel + tabId (t1) + suggestedTargetId\ntargetId on snapshot/act/screenshot; per-tab ref_map\n(replaces brittle positional tab_index)" as TABS #FFE0B2
+
+  rectangle "**new actions** [net-new]\nconsole (logs) · pdf (export) · dialog (alert/confirm/prompt)\nupload (file input) · status · doctor · profiles" as NEWA #FFE0B2
+
+  rectangle "**download capture** [net-new]\npage.on('download') -> state_dir" as DLOAD #FFE0B2
+}
+
+' ===========================================================================
+' PROVIDER ADAPTERS (behind the one port)
+' ===========================================================================
+package "BrowserProvider adapters" #E8F8FF {
+  rectangle "Playwright (local, own persistent profile) [now]" as A_PW #C8E6C9
+  rectangle "**CDP-attach** (drive the user's LIVE Chrome) [net-new]\nconnect_over_cdp -> profile=\"user\"\n(the one real 'live browser' gap)" as A_CDP #FFE0B2
+}
+
+' ===========================================================================
+' TIER B - OC DISTRIBUTED INFRA (deferred; NOT a capability gap)
+' ===========================================================================
+package "TIER B : OC DISTRIBUTED INFRA   (deferred unless multi-host is needed)" #ECEFF1 {
+  rectangle "browser-control SERVER (separate process)\nremote start / stop lifecycle" as B_SRV #CFD8DC
+  rectangle "target = sandbox | host | node\nnode-proxy routing across machines" as B_TGT #CFD8DC
+}
+
+' ===========================================================================
+' THE SKILL (kept in lockstep with the tool)
+' ===========================================================================
+package "skill: browser-automation/SKILL.md  (playbook -- parity + superiority)" #EDE7F6 {
+  rectangle "KEEP [now]: snapshot->act->re-snapshot loop ·\nstale-ref recovery · real-blocker reporting ·\n**lazy-list scroll loop (better than OC)**" as SK_KEEP #C7B8EA
+  rectangle "ADD [net-new]: stable tab handles · refs=aria ·\nurls/labels · profile=user attach (+timeout caveat) ·\nstatus/doctor/profiles preflight · dialog/upload/pdf/console" as SK_ADD #D7CCF0
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+TOOL --> PORT
+PORT --> A_PW
+PORT --> A_CDP
+
+TOOL --> ACTK
+TOOL --> ACTP
+TOOL --> SNAP
+TOOL --> SHOT
+TOOL --> TABS
+TOOL --> NEWA
+A_PW ..> DLOAD : capture
+A_CDP ..> PORT : realizes [later]
+
+' tier B routes the same tool through remote browsers (deferred)
+TOOL ..> B_SRV : (deferred)
+B_SRV ..> B_TGT
+
+' skill governs how the tool is driven
+SK_KEEP ..> TOOL : guides
+SK_ADD ..> TOOL : guides new caps
+
+note right of TABS
+  WHY THIS IS A CORRECTNESS FIX, not a feature:
+  positional tab_index shifts when tabs open/close, so a
+  ref captured on "tab 2" can act on whatever is now at
+  index 2. Stable tabId/label + per-tab ref_map make a
+  wrong-tab action fail fast instead of acting silently.
+end note
+
+note bottom of B_TGT
+  TIER B is OC's MULTI-HOST deployment model (a browser
+  server process + sandbox/host/node routing), NOT a
+  browser capability. agentd runs Playwright in-process,
+  so skipping Tier B loses NO page-level ability. Revisit
+  only if we ever need to drive browsers on other machines.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today (parity already) |
+  | amber | net-new Tier A (implement -> parity + superiority) |
+  | gray  | deferred Tier B (OC distributed infra) |
+  | purple| the skill playbook |
+endlegend
+
+@enduml

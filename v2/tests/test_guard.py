@@ -40,8 +40,10 @@ class FakeTool(Tool):
             self.finally_ran = True
 
 
-def _pol(timeout=None, max_retries=0, retryable=False, retry_on_timeout=False):
-    return ToolPolicy(timeout, max_retries, retryable, retry_on_timeout, 0.01, 0.05)
+def _pol(timeout=None, max_retries=0, retryable=False, retry_on_timeout=False,
+         loop_max_repeats=0, loop_warn_after_errors=0):
+    return ToolPolicy(timeout, max_retries, retryable, retry_on_timeout, 0.01, 0.05,
+                      loop_max_repeats, loop_warn_after_errors)
 
 
 async def _run(tool, on_update=None, abort=None):
@@ -127,6 +129,45 @@ async def test_on_update_retry_notice():
     res = await _run(GuardedTool(inner, _pol(retryable=True, max_retries=2)),
                      on_update=lambda u: notices.append(u))
     assert not res.is_error and notices  # a retry notice was emitted
+
+
+# ---- loop detection ---------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_loop_blocks_identical_repeats():
+    inner = FakeTool()
+    g = GuardedTool(inner, _pol(loop_max_repeats=3))
+    abort = asyncio.Event()
+    # 3 identical calls allowed, 4th blocked without running the inner tool
+    for _ in range(3):
+        r = await g.execute("c", {"command": "x"}, abort)
+        assert not r.is_error
+    blocked = await g.execute("c", {"command": "x"}, abort)
+    assert blocked.is_error and "loop guard" in blocked.content[0].text
+    assert inner.calls == 3  # inner never ran on the blocked call
+
+
+@pytest.mark.asyncio
+async def test_loop_resets_on_different_args():
+    inner = FakeTool()
+    g = GuardedTool(inner, _pol(loop_max_repeats=2))
+    abort = asyncio.Event()
+    await g.execute("c", {"command": "a"}, abort)
+    await g.execute("c", {"command": "a"}, abort)
+    # different args -> counter resets, not blocked
+    r = await g.execute("c", {"command": "b"}, abort)
+    assert not r.is_error and inner.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_loop_nudge_after_consecutive_errors():
+    inner = FakeTool(exc=ValueError("bad"), exc_times=99)  # always errors (non-transient)
+    g = GuardedTool(inner, _pol(loop_warn_after_errors=2))
+    abort = asyncio.Event()
+    r1 = await g.execute("c", {"n": 1}, abort)
+    assert "loop guard" not in r1.content[-1].text
+    r2 = await g.execute("c", {"n": 2}, abort)  # 2nd consecutive error -> nudge appended
+    assert any("loop guard" in b.text for b in r2.content)
 
 
 # ---- delegation + helpers --------------------------------------------

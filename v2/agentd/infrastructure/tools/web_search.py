@@ -19,7 +19,15 @@ class WebSearchTool(Tool):
     default_timeout_sec = 30.0
     default_retryable = True
     default_max_retries = 2
-    description = "Search the web for current information. Returns titles, URLs, and snippets."
+    description = (
+        "Search the web for current information. Returns titles, URLs, and snippets.\n"
+        "Write the query as a natural-language phrase describing what you want. Do NOT use "
+        "search-engine operators like site:, quotes, OR, or intitle: — the search "
+        "backend is semantic and ignores/mishandles them, giving worse results.\n"
+        "Returns only PUBLIC, anonymous web content. It cannot reach pages behind a "
+        "login, your own accounts, or sites that block crawlers (most social networks). "
+        "For anything that needs a signed-in session, use the browser tool."
+    )
     label = "Web Search"
     parameters = {
         "type": "object",
