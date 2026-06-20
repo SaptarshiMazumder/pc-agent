@@ -1,0 +1,72 @@
+@startuml agent-autonomy-flow
+' ============================================================================
+'  agentd — one agent turn + the autonomy loop (think / iterate / verify / learn)
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-autonomy-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BorderColor #888888
+  BackgroundColor #C8E6C9
+  DiamondBackgroundColor #FFF3D6
+  DiamondBorderColor #C9B458
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Autonomy + request flow (one agent turn)\nthink -> act -> verify -> learn
+
+start
+:Trigger arrives;
+note right
+  user message (terminal / channel)
+  OR scheduler tick (heartbeat / cron)
+  -> both just post a turn to a session
+end note
+
+:Gateway resolves agent\nfrom session key  agent:<id>:...;
+:Load definition (agent.toml)\n+ bootstrap files\nIDENTITY / AGENTS / HEARTBEAT / MEMORY;
+:Assemble prompt\n+ skills catalog + scoped tools;
+
+if (active goal?) then (yes)
+  :get_goal -> check token budget;
+else (no)
+endif
+
+repeat
+  :LLM turn  (think / reason);
+  if (tool call?) then (yes)
+    :GuardedTool\ntimeout / retry + hooks + approval;
+    if (risky -> needs approval?) then (yes)
+      :await human approval;
+    else (no)
+    endif
+    :execute tool\nfiles / web / mcp / computer / ...;
+    :feed result back to the loop;
+  else (no)
+  endif
+  if (verify needed?) then (yes)
+    :spawn sub-agent to verify\n(independent check);
+  else (no)
+  endif
+repeat while (goal unmet AND budget left?) is (yes)
+->no;
+
+:Write MEMORY.md + daily note;
+if (learned a reusable workflow?) then (yes)
+  :skill_workshop -> author new SKILL.md\n(available next run);
+else (no)
+endif
+
+:Respond / notify (origin channel);
+:Persist transcript (JSONL)\n+ schedule next tick;
+stop
+
+@enduml

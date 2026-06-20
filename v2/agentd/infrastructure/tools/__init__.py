@@ -127,4 +127,14 @@ def build_tools(config, browser_manager=None, computer_provider=None) -> list[To
         from .computer import ComputerTool
 
         tools.append(ComputerTool(config, computer_provider))
+    # Agent-invoked answer-review tool (AGENTD_VERIFY_TOOL=1). Off => not registered
+    # at all, so it's exactly as if the feature never existed.
+    if getattr(config, "verify_tool", False):
+        from agentd.infrastructure.verify import LlmJudgeVerifier, build_judge_fn
+
+        judge = build_judge_fn(config)
+        if judge is not None:
+            from .verify_tool import VerifyTool
+
+            tools.append(VerifyTool(config, LlmJudgeVerifier(judge)))
     return tools

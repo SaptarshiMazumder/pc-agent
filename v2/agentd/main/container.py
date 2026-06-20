@@ -64,7 +64,14 @@ def build_service(config: Config, browser_manager, computer_provider=None) -> Ag
         idle_timeout_sec=config.llm_idle_timeout_seconds,
         request_timeout_sec=config.llm_request_timeout_seconds,
     )
-    engine = NativeEngine(stream_fn, config.model, max_iterations=config.max_turns)   # swap here for Claude SDK / LangGraph
+    # Decoupled liveness seam (default OFF => unchanged behavior). Answer verification
+    # is the agent-invoked `verify_answer` tool (registered in build_tools), not a loop hook.
+    from agentd.infrastructure.liveness import build_observers
+
+    engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
+        stream_fn, config.model, max_iterations=config.max_turns,
+        observers=build_observers(config),
+    )
     # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
     # effect on the next message without a restart (swap here for a cloud registry)
     skills = FileSkillRegistry(config.skills_dir)

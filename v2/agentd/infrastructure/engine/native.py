@@ -17,9 +17,11 @@ continues, exactly like OpenClaw re-prompting the model to keep going.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import traceback
 from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 
+from agentd.application.interfaces.run_observer import RunObserver, ToolEvent
 from agentd.domain.events import AgentEvent, EventCallback
 from .incomplete_turn import (
     INCOMPLETE_TURN_FALLBACK_TEXT,
@@ -68,6 +70,34 @@ async def _maybe_await(value):
     return value
 
 
+# After this many liveness halts in a run without recovery, stop (safety backstop).
+STUCK_CAP = 3
+
+
+def _notify_tool(observers, ev: ToolEvent) -> list[str]:
+    out = []
+    for o in observers:
+        try:
+            r = o.on_tool(ev)
+        except Exception:  # noqa: BLE001 — an observer must never break the run
+            r = None
+        if r:
+            out.append(r)
+    return out
+
+
+def _notify_turn(observers, index: int) -> list[str]:
+    out = []
+    for o in observers:
+        try:
+            r = o.on_turn(index)
+        except Exception:  # noqa: BLE001
+            r = None
+        if r:
+            out.append(r)
+    return out
+
+
 async def run_agent_loop(
     *,
     messages: list[Message],
@@ -82,6 +112,7 @@ async def run_agent_loop(
     get_steering_messages: FollowUpFn | None = None,
     get_follow_up_messages: FollowUpFn | None = None,
     verify_answer: VerifyFn | None = None,
+    observers: list[RunObserver] | None = None,
 ) -> list[Message]:
     """Run the loop until the model produces a genuine final answer (or limits
     are hit). Mutates `messages` in place; returns only messages produced here."""
@@ -95,6 +126,12 @@ async def run_agent_loop(
     finalize_revisions = 0
     produced_visible_text = False
 
+    # --- decoupled liveness seam (default off => unchanged behavior) ---
+    observers = observers or []
+    for o in observers:
+        o.reset()
+    stuck_halts = 0
+
     def persist(m: Message) -> None:
         messages.append(m)
         new_messages.append(m)
@@ -103,6 +140,20 @@ async def run_agent_loop(
 
     def inject(text: str) -> None:
         persist(UserMessage(content=text))
+
+    async def handle_halts(halts: list[str]) -> bool:
+        """A liveness observer flagged the run as stuck. Inject a steering message
+        and continue; after STUCK_CAP unrecovered halts, signal the loop to stop."""
+        nonlocal stuck_halts
+        halts = [h for h in halts if h]
+        if not halts:
+            return False
+        stuck_halts += 1
+        await on_event(AgentEvent("continuation", {"reason": "stuck", "attempt": stuck_halts}))
+        if stuck_halts > STUCK_CAP:
+            return True  # repeated nudges ignored -> stop (safety backstop)
+        inject("[liveness] " + " ".join(dict.fromkeys(halts)))
+        return False
 
     await on_event(AgentEvent("agent_start", {}))
     try:
@@ -156,7 +207,9 @@ async def run_agent_loop(
 
             tool_calls = assistant.tool_calls
             if tool_calls and assistant.stop_reason not in ("error", "aborted"):
-                results = await _execute_tool_calls(tool_calls, tool_map, abort, on_event)
+                results, tool_halts = await _execute_tool_calls(
+                    tool_calls, tool_map, abort, on_event, observers
+                )
                 for r in results:  # assistant source order
                     persist(r)
                     await on_event(AgentEvent("message_end", {"message": message_to_dict(r)}))
@@ -164,10 +217,22 @@ async def run_agent_loop(
                 if abort.is_set():
                     stop_reason = "aborted"
                     break
+                # liveness: per-tool halts + per-turn check (default off => empty)
+                if await handle_halts(tool_halts + _notify_turn(observers, iterations)):
+                    stop_reason = "stuck"
+                    break
                 continue  # back to the model with tool results
 
             # --- No tool calls: the turn would normally end. Decide if it's complete. ---
             await on_event(AgentEvent("turn_end", {}))
+
+            # liveness: tick the turn (a no-tool turn isn't "grinding"; usually a no-op)
+            no_tool_halts = _notify_turn(observers, iterations)
+            if no_tool_halts:
+                if await handle_halts(no_tool_halts):
+                    stop_reason = "stuck"
+                    break
+                continue
 
             if assistant.stop_reason in ("error",):
                 stop_reason = "error"
@@ -192,7 +257,7 @@ async def run_agent_loop(
                         persist(m)
                     continue
 
-            # 3. Before-finalize revision hook.
+            # 3. Before-finalize revision hook (legacy callable seam).
             if verify_answer is not None and finalize_revisions < MAX_BEFORE_AGENT_FINALIZE_REVISIONS:
                 reason = await _maybe_await(verify_answer(messages))
                 if reason:
@@ -202,6 +267,9 @@ async def run_agent_loop(
                     )
                     inject(build_before_finalize_retry_prompt(reason))
                     continue
+
+            # (Answer verification is now the agent-invoked `verify_answer` TOOL — it is
+            # NOT a loop hook. The loop knows nothing about it.)
 
             # Genuinely done.
             stop_reason = assistant.stop_reason
@@ -233,16 +301,22 @@ async def _execute_tool_calls(
     tool_map: dict[str, Tool],
     abort: asyncio.Event,
     on_event: EventCallback,
-) -> list[ToolResultMessage]:
+    observers: list[RunObserver] | None = None,
+) -> tuple[list[ToolResultMessage], list[str]]:
     """Execute one assistant turn's tool calls.
 
     Parallel-capable tools run concurrently; sequential tools run in source
-    order after the parallel batch. Results are returned in source order.
+    order after the parallel batch. Results are returned in source order. Also
+    notifies liveness observers before/after each call and returns any halt
+    reasons they raised (empty when no observers are configured).
     """
+    observers = observers or []
     results: dict[int, ToolResultMessage] = {}
+    halts: list[str] = []
 
     async def run_one(index: int, call: ToolCallContent) -> None:
         tool = tool_map.get(call.name)
+        halts.extend(_notify_tool(observers, ToolEvent(call.name, call.arguments, "before")))
         await on_event(
             AgentEvent(
                 "tool_execution_start",
@@ -282,6 +356,11 @@ async def _execute_tool_calls(
             is_error=result.is_error,
         )
         results[index] = msg
+        rtext = "".join(getattr(b, "text", "") for b in result.content)
+        digest = hashlib.sha1(rtext.encode("utf-8", "ignore")).hexdigest()[:12] if rtext else None
+        halts.extend(_notify_tool(
+            observers, ToolEvent(call.name, call.arguments, "after",
+                                 is_error=result.is_error, result_digest=digest)))
         await on_event(
             AgentEvent(
                 "tool_execution_end",
@@ -308,7 +387,7 @@ async def _execute_tool_calls(
     for i, call in sequential:
         await run_one(i, call)
 
-    return [results[i] for i in sorted(results)]
+    return [results[i] for i in sorted(results)], halts
 
 
 class NativeEngine:
@@ -320,10 +399,12 @@ class NativeEngine:
     application's AgentService calls whichever one it was given, none the wiser.
     """
 
-    def __init__(self, stream_fn, model: str, max_iterations: int | None = None):
+    def __init__(self, stream_fn, model: str, max_iterations: int | None = None,
+                 observers=None):
         self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
         self._model = model                  # which model id to pass each call
         self._max_iterations = max_iterations
+        self._observers = observers or []    # decoupled liveness seam (default off)
 
     async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None):
         return await run_agent_loop(
@@ -336,4 +417,5 @@ class NativeEngine:
             abort=abort,
             session=session,
             max_iterations=self._max_iterations,
+            observers=self._observers,
         )

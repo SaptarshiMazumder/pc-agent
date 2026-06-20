@@ -1,0 +1,107 @@
+@startuml agent-system-architecture
+' ============================================================================
+'  agentd — Agent System architecture (long-running autonomous agents)
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-system-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 20
+skinparam ranksep 75
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 12
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Agent System Architecture\ngreen = exists today    amber = net-new (this plan)    gray = port (interface)
+
+' --- DRIVERS (invocation surfaces) -----------------------------------------
+package "Invocation surfaces" #E8F0FE {
+  rectangle "Terminal client" as TERM #C8E6C9
+  rectangle "Channels\nemail / WhatsApp / Slack" as CHAN #FFE9C7
+  rectangle "Scheduler\nheartbeat + cron" as SCHED #FFE9C7
+}
+
+' --- GATEWAY ---------------------------------------------------------------
+package "Gateway  (one long-running process; local OR cloud)" #EDE7F6 {
+  rectangle "Connection handler + Router\nresolve agent from session key\nagent:<id>:<channel>:<peer>" as GW #FFE9C7
+  rectangle "Engine / turn loop\nreason -> act -> verify" as ENG #C8E6C9
+}
+
+' --- REGISTRY + DEFINITION -------------------------------------------------
+package "Agent registry + definitions" #F2F2F2 {
+  rectangle "PORT: AgentRegistry" as P_REG #E2E2E2
+  rectangle "Agent directory   agents/<id>/\nagent.toml  IDENTITY  AGENTS  HEARTBEAT\nMEMORY  skills/  workspace/" as ADIR #FFE9C7
+}
+
+' --- PER-TURN ASSEMBLY (engine internals) ----------------------------------
+package "Per-turn assembly" #F2F2F2 {
+  rectangle "Bootstrap loader\nIDENTITY/AGENTS/HEARTBEAT/MEMORY -> prompt" as BOOT #FFE9C7
+  rectangle "Skills catalog\nSKILL.md, read on demand" as SK #C8E6C9
+  rectangle "Tools -> GuardedTool\n(+ hooks / approval gate)" as TOOLS #C8E6C9
+  rectangle "Sub-agent spawner" as SPAWN #FFE9C7
+  rectangle "Goals\nobjective + token budget" as GOAL #FFE9C7
+}
+
+' --- STATE -----------------------------------------------------------------
+package "State" #F2F2F2 {
+  rectangle "Per-agent sessions (JSONL)\nstate_dir/agents/<id>/sessions/*.jsonl" as SESS #C8E6C9
+  rectangle "Durable ledger (SQLite)\ncron jobs - goals - run history" as LEDGER #FFE9C7
+  rectangle "Memory\nMEMORY.md + memory/YYYY-MM-DD.md + search" as MEM #FFE9C7
+}
+
+' --- OUTBOUND --------------------------------------------------------------
+package "Outbound" #F2F2F2 {
+  rectangle "LLM  (LiteLLM, any model)" as LLM #C8E6C9
+  rectangle "MCP servers (stdio + http)" as MCP #C8E6C9
+  rectangle "Host: files / exec / browser / computer" as HOST #C8E6C9
+}
+
+TERM  --> GW
+CHAN  --> GW
+SCHED --> GW
+GW    --> P_REG
+P_REG --> ADIR
+GW    --> ENG
+ENG   --> BOOT
+BOOT  --> ADIR
+ENG   --> SK
+ENG   --> TOOLS
+ENG   --> SPAWN
+ENG   --> GOAL
+ENG   --> SESS
+SCHED --> LEDGER
+GOAL  --> LEDGER
+ENG   --> MEM
+ENG   --> LLM
+TOOLS --> MCP
+TOOLS --> HOST
+SPAWN --> ENG
+
+note right of TOOLS
+  GuardedTool is the single chokepoint:
+  timeout / retry (today)
+  + hooks + approval (Phase 4)
+end note
+
+note bottom of SESS
+  Transcripts are durable on disk;
+  the live run lives in gateway memory.
+end note
+
+@enduml

@@ -76,6 +76,7 @@ TOOL_SUMMARIES = {
     "web_search": "Search the web using the configured provider",
     "web_fetch": "Fetch and extract readable content from a URL",
     "browser": "Control web browser",
+    "verify_answer": "Review your draft answer before sending (catches missing items / unsupported claims)",
 }
 
 
@@ -183,6 +184,17 @@ def build_system_prompt(
             "follow the web-access rules above."
         )
 
+    # 2d. Verify step (only when the verify_answer tool is available).
+    if any(getattr(t, "name", "") == "verify_answer" for t in tools):
+        sections.append(
+            "## Verify Before You Send\n"
+            "For any substantial answer (lists, research, multi-step results, factual claims), "
+            "add a final VERIFY step to your plan: call `verify_answer` with your full draft "
+            "BEFORE replying. If it returns NEEDS WORK, fix the issues and re-check, then send "
+            "ONE clean final answer. Never apologize or react to feedback the user didn't give — "
+            "the review is yours, internal; the user only sees the finished answer."
+        )
+
     # 3. Tool Call Style (verbatim, approval lines dropped)
     sections.append(
         "## Tool Call Style\n"
@@ -202,6 +214,17 @@ def build_system_prompt(
         "- Final answer needs evidence: test/build/lint, screenshot, inspection, tool output, or a named blocker.\n"
         "- Longer work: brief progress update, then keep going; use background work or sub-agents when they fit."
     )
+
+    # 4c. Completeness self-check (opt-in #1; the in-band complement to the Verifier).
+    if getattr(config, "completeness_check", False):
+        sections.append(
+            "## Before You Finish\n"
+            "Before giving a FINAL answer, check it against the request: is EVERY part "
+            "addressed (counts, each named item, each sub-question), and is each claim "
+            "backed by evidence you actually obtained (tool output) — not guessed? If "
+            "anything is missing or unverified, keep working or say plainly what you "
+            "couldn't get. Never fabricate URLs, names, or facts to look complete."
+        )
 
     # 5. Safety (verbatim)
     sections.append(

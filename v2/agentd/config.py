@@ -146,6 +146,17 @@ class Config:
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
 
+    # --- quality + liveness (decoupled seams; all default OFF => unchanged behavior) ---
+    # Liveness observers that detect a stuck/looping run, comma-separated.
+    # Options: callrate (varying-arg flail), noprogress (no new info N turns). AGENTD_LIVENESS.
+    liveness: list[str] | None = None
+    # The agent-invoked `verify_answer` TOOL (the agent reviews its own draft before
+    # replying). OFF => the tool is not registered at all — exactly as if it never existed.
+    verify_tool: bool = False                  # AGENTD_VERIFY_TOOL
+    verify_model: str | None = None            # judge model for the tool (defaults to search_model -> model); AGENTD_VERIFY_MODEL
+    # Include the in-band "## Before You Finish" completeness self-check in the prompt.
+    completeness_check: bool = False           # AGENTD_COMPLETENESS_CHECK
+
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
     # tools are discovered at startup and namespaced as "<name>__<tool>".
@@ -308,6 +319,16 @@ def load_config(path: Path | None = None) -> Config:
         cfg.llm_idle_timeout_seconds = float(os.environ["AGENTD_LLM_IDLE_TIMEOUT"])
     if os.environ.get("AGENTD_LLM_REQUEST_TIMEOUT"):
         cfg.llm_request_timeout_seconds = float(os.environ["AGENTD_LLM_REQUEST_TIMEOUT"])
+    if os.environ.get("AGENTD_LIVENESS"):
+        cfg.liveness = [s.strip() for s in os.environ["AGENTD_LIVENESS"].split(",") if s.strip()]
+    if os.environ.get("AGENTD_VERIFY_TOOL"):
+        cfg.verify_tool = os.environ["AGENTD_VERIFY_TOOL"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_VERIFY_MODEL"):
+        cfg.verify_model = os.environ["AGENTD_VERIFY_MODEL"]
+    if os.environ.get("AGENTD_COMPLETENESS_CHECK"):
+        cfg.completeness_check = (
+            os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in ("0", "false", "no", "")
+        )
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [

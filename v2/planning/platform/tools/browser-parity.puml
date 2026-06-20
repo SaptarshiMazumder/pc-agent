@@ -30,42 +30,52 @@ skinparam note {
   BorderColor #C9B458
 }
 
-title agentd - Browser Tool + Skill: OpenClaw Parity / Superiority\nTier A = browser capability (match all + exceed)   Tier B = OC distributed infra (deferred)\ngreen = in v2 today   amber = net-new (Tier A)   gray = deferred (Tier B)
+title agentd - Browser Tool + Skill: OpenClaw Parity / Superiority\nSTATUS: Tier A IMPLEMENTED (capability parity + superiority) · Tier B deferred (OC distributed infra)\ngreen = in v2 today   gray = deferred (Tier B)
 
 ' ===========================================================================
 ' THE TOOL (dispatcher) + PORT
 ' ===========================================================================
 package "browser tool  (dispatcher -- one BrowserProvider behind the port)" #E1F5FE {
-  rectangle "**browser** tool\nactions: navigate · snapshot · act · screenshot · tabs [now]\n+ console · pdf · dialog · upload · status · doctor · profiles [net-new]" as TOOL #CFF0FF
-  rectangle "PORT: BrowserProvider\nensure · snapshot · resolve_ref · settle · close\n(+ per-tab handles, profiles)" as PORT #E2E2E2
+  rectangle "**browser** tool [now]\nactions: navigate · snapshot · act · screenshot · tabs ·\nconsole · pdf · dialog · upload · status · doctor · profiles" as TOOL #CFF0FF
+  rectangle "PORT: BrowserProvider\nensure · snapshot · resolve_ref · settle · close\nresolve_target · tab_handle · list_tabs · status · doctor · profiles" as PORT #E2E2E2
 }
 
 ' ===========================================================================
-' TIER A - CAPABILITY (match all of OC + add more)
+' TIER A - CAPABILITY (match all of OC + add more)  — IMPLEMENTED
 ' ===========================================================================
-package "TIER A : BROWSER CAPABILITY   (parity + superiority -- implement)" #E8F5E9 {
+package "TIER A : BROWSER CAPABILITY   (parity + superiority -- IMPLEMENTED)" #E8F5E9 {
 
-  rectangle "**act kinds** [now, parity]\nclick · clickCoords · type · fill · press · select\nhover · scrollIntoView · drag · wait · evaluate · resize" as ACTK #C8E6C9
+  rectangle "**act kinds** [now]\nclick · clickCoords · type · fill · press · select\nhover · scrollIntoView · drag · wait · evaluate · resize" as ACTK #C8E6C9
 
-  rectangle "**act params** [net-new enrich]\ndoubleClick · button · modifiers · slowly · delayMs\nfields (multi-field fill in ONE act) · frame (iframes)\ntargetId (per-tab act)" as ACTP #FFE0B2
+  rectangle "**act params** [now]\ndoubleClick · button · modifiers · slowly · delayMs\nfields (multi-field fill in ONE act) · frame (iframes)\ntargetId (per-tab act)" as ACTP #C8E6C9
 
-  rectangle "**snapshot** [now + enrich]\nnow: mode=efficient · interactive · compact · depth · max_chars\nnet-new: refs=aria (durable) · urls · labels · selector · frame" as SNAP #FFE0B2
+  rectangle "**snapshot** [now]\nmode=efficient · compact · depth · max_chars\nrefs=aria (durable, default) · urls · labels · selector · frame" as SNAP #C8E6C9
 
-  rectangle "**screenshot** [enrich]\nnow: viewport png only\nnet-new: fullPage · jpeg · element/ref · labels" as SHOT #FFE0B2
+  rectangle "**screenshot** [now]\nfullPage · png/jpeg · element/ref · labels" as SHOT #C8E6C9
 
-  rectangle "**tabs: STABLE HANDLES** [net-new -- correctness fix]\nlabel + tabId (t1) + suggestedTargetId\ntargetId on snapshot/act/screenshot; per-tab ref_map\n(replaces brittle positional tab_index)" as TABS #FFE0B2
+  rectangle "**tabs: STABLE HANDLES** [now]\nlabel + tabId (t1) + suggestedTargetId\ntargetId on snapshot/act/screenshot; per-tab refs\n(replaces brittle positional tab_index)" as TABS #C8E6C9
 
-  rectangle "**new actions** [net-new]\nconsole (logs) · pdf (export) · dialog (alert/confirm/prompt)\nupload (file input) · status · doctor · profiles" as NEWA #FFE0B2
+  rectangle "**new actions** [now]\nconsole · pdf · dialog · upload · status · doctor · profiles" as NEWA #C8E6C9
 
-  rectangle "**download capture** [net-new]\npage.on('download') -> state_dir" as DLOAD #FFE0B2
+  rectangle "**download capture** [now]\npage.on('download') -> state_dir" as DLOAD #C8E6C9
 }
 
 ' ===========================================================================
-' PROVIDER ADAPTERS (behind the one port)
+' BORROWED FROM agent-browser (Vercel)  — IMPLEMENTED
 ' ===========================================================================
-package "BrowserProvider adapters" #E8F8FF {
-  rectangle "Playwright (local, own persistent profile) [now]" as A_PW #C8E6C9
-  rectangle "**CDP-attach** (drive the user's LIVE Chrome) [net-new]\nconnect_over_cdp -> profile=\"user\"\n(the one real 'live browser' gap)" as A_CDP #FFE0B2
+package "BORROWED FROM agent-browser   (ported into our engine)" #E8F5E9 {
+  rectangle "**cursor-interactive scan** [now]\nrefs non-ARIA clickables (cursor:pointer / onclick /\ntabindex / contenteditable) as [ref=cN]" as BORROW_CI #C8E6C9
+  rectangle "**Chrome-profile copy** [now]\nseed login from a named/real Chrome profile\n(AGENTD_BROWSER_CHROME_PROFILE)" as BORROW_PROF #C8E6C9
+  rectangle "**covered/stale 'why' diagnostic** + action-timeout [now]\nfast-fail click with 'covered by <x>' / 'stale' recovery hint" as BORROW_DIAG #C8E6C9
+}
+
+' ===========================================================================
+' PROVIDER ADAPTERS / ENGINES (behind the one port; engine chosen at startup)
+' ===========================================================================
+package "BrowserProvider engines  (2 toggles; ours wins ties)" #E8F8FF {
+  rectangle "Playwright (local; stealth launch + profile copy) [now, default]" as A_PW #C8E6C9
+  rectangle "**CDP-attach** (drive the user's LIVE Chrome) [now]\nconnect_over_cdp via AGENTD_BROWSER_CDP_URL" as A_CDP #C8E6C9
+  rectangle "**agent-browser** (Vercel) via its MCP server [now, opt-in]\nAGENTD_BROWSER_AGENT_BROWSER=1 (our browser tool omitted;\nits agentbrowser__* tools surface through our MCP client)" as A_AB #C8E6C9
 }
 
 ' ===========================================================================
@@ -80,8 +90,8 @@ package "TIER B : OC DISTRIBUTED INFRA   (deferred unless multi-host is needed)"
 ' THE SKILL (kept in lockstep with the tool)
 ' ===========================================================================
 package "skill: browser-automation/SKILL.md  (playbook -- parity + superiority)" #EDE7F6 {
-  rectangle "KEEP [now]: snapshot->act->re-snapshot loop ·\nstale-ref recovery · real-blocker reporting ·\n**lazy-list scroll loop (better than OC)**" as SK_KEEP #C7B8EA
-  rectangle "ADD [net-new]: stable tab handles · refs=aria ·\nurls/labels · profile=user attach (+timeout caveat) ·\nstatus/doctor/profiles preflight · dialog/upload/pdf/console" as SK_ADD #D7CCF0
+  rectangle "[now]: snapshot->act->re-snapshot loop · stale-ref recovery ·\nreal-blocker reporting · **lazy-list scroll loop (better than OC)**" as SK_KEEP #C7B8EA
+  rectangle "[now]: stable tab handles · refs=aria · urls/labels ·\nlogin-pause + [auth] note · status/doctor/profiles ·\ndialog/upload/pdf/console · web-access routing (always-injected)" as SK_ADD #C7B8EA
 }
 
 ' ===========================================================================
@@ -90,6 +100,7 @@ package "skill: browser-automation/SKILL.md  (playbook -- parity + superiority)"
 TOOL --> PORT
 PORT --> A_PW
 PORT --> A_CDP
+PORT --> A_AB : (opt-in engine)
 
 TOOL --> ACTK
 TOOL --> ACTP
@@ -98,7 +109,9 @@ TOOL --> SHOT
 TOOL --> TABS
 TOOL --> NEWA
 A_PW ..> DLOAD : capture
-A_CDP ..> PORT : realizes [later]
+SNAP ..> BORROW_CI : cN refs
+A_PW ..> BORROW_PROF : seed login
+TOOL ..> BORROW_DIAG : on act timeout
 
 ' tier B routes the same tool through remote browsers (deferred)
 TOOL ..> B_SRV : (deferred)
@@ -126,8 +139,7 @@ end note
 
 legend bottom
   | Color | Meaning |
-  | green | exists in v2 today (parity already) |
-  | amber | net-new Tier A (implement -> parity + superiority) |
+  | green | implemented in v2 today (Tier A parity + superiority + agent-browser borrowings) |
   | gray  | deferred Tier B (OC distributed infra) |
   | purple| the skill playbook |
 endlegend
