@@ -8,6 +8,7 @@ markdownify>=0.13
 ddgs>=2.0
 playwright>=1.49
 jsonschema>=4.21
+croniter>=2.0     # cron-expression scheduling (day-of-week, etc.) for the cron tool
 python-docx>=1.1
 pypdf>=4.0
 openpyxl>=3.1

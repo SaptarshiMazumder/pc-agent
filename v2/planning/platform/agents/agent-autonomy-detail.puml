@@ -1,0 +1,85 @@
+@startuml agent-autonomy-detail
+' ============================================================================
+'  Phase 2 - Autonomy subsystem (component detail)
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-autonomy-detail.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 18
+skinparam ranksep 70
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam database {
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Phase 2 - Autonomy subsystem (detail)\ngreen = exists today    amber = Phase 2 (this note)    gray = port
+
+package "Trigger (driver)" #E8F0FE {
+  rectangle "Scheduler loop  (ONE shared)\nticks; checks each agent's interval +\ndue cron jobs; active-hours; flood-guard" as SCHED #FFE9C7
+}
+
+package "Application" #F2F2F2 {
+  rectangle "PORT: TaskStore" as P_TS #E2E2E2
+  rectangle "AutonomyService\nfires(agent, mode); posts the turn;\nrecords run outcomes" as AUTO #FFE9C7
+  rectangle "AgentService (mode-aware)\nassembles tools + bootstrap per RUN MODE" as SVC #C8E6C9
+}
+
+package "Gateway" #EDE7F6 {
+  rectangle "internal post_turn(agent_id, mode)\nreuses the handle_message path" as GW #FFE9C7
+}
+
+package "Infrastructure" #F2F2F2 {
+  database "SQLite ledger  (<state_dir>/autonomy.sqlite)\n--\ntasks (cron jobs)\nheartbeats (interval, next_due)\ngoals (objective, budget)\nruns (history)" as DB #FFE9C7
+  rectangle "Engine (reason -> act loop)\nreports token usage -> goals" as ENG #C8E6C9
+}
+
+package "Tools  (the agent calls these)" #F2F2F2 {
+  rectangle "cron  - add / list / remove" as T_CRON #FFE9C7
+  rectangle "create_goal / update_goal / get_goal" as T_GOAL #FFE9C7
+  rectangle "heartbeat_respond  (heartbeat mode only)" as T_HB #FFE9C7
+}
+
+SCHED --> P_TS : due jobs / heartbeats?
+P_TS ..> DB
+SCHED --> AUTO : fire(agent, mode, payload)
+AUTO --> GW : post turn (no user)
+GW --> SVC
+SVC --> ENG : run (mode tools + HEARTBEAT.md if tick)
+ENG --> T_HB
+T_HB --> AUTO : outcome + notify + nextCheck
+AUTO --> DB : record run, set next_due
+T_CRON --> DB : write a job
+T_GOAL --> DB : read / write goal
+ENG ..> T_GOAL : token usage updates budget
+
+note right of SVC
+  RUN MODE = interactive | heartbeat | cron.
+  heartbeat -> + HEARTBEAT.md + heartbeat_respond.
+  interactive (today) -> neither;
+  reactive chat path is unchanged.
+end note
+
+note bottom of DB
+  ONE shared ledger; every row keyed by agent_id.
+  Restart recovery: read next_due on boot + resume.
+end note
+
+@enduml

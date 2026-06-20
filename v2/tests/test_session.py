@@ -16,6 +16,19 @@ from agentd.domain.messages import (
 )
 
 
+def test_agent_session_key_with_colons_is_filesystem_safe(tmp_path):
+    # agent:<id>:<peer> keys contain ':' (illegal in a Windows filename) — the store
+    # must sanitize the PATH while keeping the real key in the header.
+    store = SessionStore(tmp_path, "agent:spending-agent:dev")
+    assert store.load() == []                          # creates the file, no crash
+    store.append(UserMessage(content="hi"))
+    assert ":" not in store.path.name                  # filename sanitized
+    reloaded = SessionStore(tmp_path, "agent:spending-agent:dev").load()
+    assert len(reloaded) == 1 and reloaded[0].content == "hi"
+    header = json.loads(store.path.read_text(encoding="utf-8").splitlines()[0])
+    assert header["id"] == "agent:spending-agent:dev"  # real key preserved in header
+
+
 def test_message_roundtrip():
     msgs = [
         UserMessage(content="hello"),
@@ -80,3 +93,38 @@ def test_list_sessions(tmp_path):
     assert len(sessions) == 1
     assert sessions[0]["sessionId"] == "sessA"
     assert sessions[0]["messages"] == 1
+
+
+def test_gateway_sessions_list_is_agent_scoped(tmp_path):
+    # Each agent partitions its own transcripts; sessions.list must return the
+    # CALLING agent's threads (so you can resume the right one), not the default's.
+    from types import SimpleNamespace
+
+    from agentd.presentation.gateway import Gateway
+
+    main_dir = tmp_path
+    sp_dir = tmp_path / "agents" / "spending-agent"
+    SessionStore(main_dir, "term-main1").load()          # main's thread
+    SessionStore(sp_dir, "term-sp1").load()              # spending-agent's threads
+    SessionStore(sp_dir, "term-sp2").load()
+
+    class _Reg:
+        _dirs = {"main": main_dir, "spending-agent": sp_dir}
+
+        def get(self, aid):
+            if aid not in self._dirs:
+                raise KeyError(aid)
+            return SimpleNamespace(state_dir=self._dirs[aid])
+
+    gw = Gateway(config=SimpleNamespace(state_dir=main_dir), service=None, registry=_Reg())
+
+    default = gw._sessions_list({})                       # no agentId -> default (main)
+    assert {s["sessionId"] for s in default["sessions"]} == {"term-main1"}
+    assert default["agentId"] == "main"
+
+    scoped = gw._sessions_list({"agentId": "spending-agent"})   # the agent's OWN threads
+    assert {s["sessionId"] for s in scoped["sessions"]} == {"term-sp1", "term-sp2"}
+    assert scoped["agentId"] == "spending-agent"
+
+    unknown = gw._sessions_list({"agentId": "nope"})     # unknown -> falls back to default
+    assert unknown["agentId"] == "main"

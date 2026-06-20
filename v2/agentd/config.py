@@ -59,6 +59,12 @@ class Config:
     # agent reads a skill on demand when a task matches its description. Drop new
     # skills here; override with AGENTD_SKILLS_DIR.
     skills_dir: Path = field(default_factory=lambda: V2_ROOT / "skills")
+    # Folder of agent DEFINITIONS — each `agents/<id>/` holds an optional agent.toml
+    # (model, tool allow/deny, skill allowlist, workspace, heartbeat) + bootstrap
+    # markdown (IDENTITY/AGENTS/USER/MEMORY) + skills/. The single-agent app is just
+    # the `main` agent synthesized from this config; drop a new `agents/<id>/` dir to
+    # add an independent agent. Override with AGENTD_AGENTS_DIR.
+    agents_dir: Path = field(default_factory=lambda: V2_ROOT / "agents")
     brave_api_key: str | None = None
     # Parallel's hosted Search MCP (https://search.parallel.ai/mcp) — the keyless,
     # streamable-HTTP search backend OpenClaw uses as its zero-config default. Free
@@ -157,6 +163,14 @@ class Config:
     # Include the in-band "## Before You Finish" completeness self-check in the prompt.
     completeness_check: bool = False           # AGENTD_COMPLETENESS_CHECK
 
+    # --- autonomy (heartbeat) — Phase 2 ----------------------------------------
+    # OFF by default. When on, the shared scheduler wakes each agent that declares a
+    # `heartbeat` interval (in its agent.toml) to read its HEARTBEAT.md and act on a
+    # tick. The reactive chat path is unchanged either way. AGENTD_AUTONOMY=1 to enable.
+    autonomy_enabled: bool = False
+    heartbeat_default_interval: str = ""       # e.g. "30m"; per-agent agent.toml overrides
+    heartbeat_active_hours: str = ""           # e.g. "08:00-22:00" (empty = always)
+
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
     # tools are discovered at startup and namespaced as "<name>__<tool>".
@@ -220,7 +234,7 @@ def load_config(path: Path | None = None) -> Config:
             data = json.loads(candidate.read_text(encoding="utf-8"))
             for key, value in data.items():
                 if hasattr(cfg, key):
-                    if key in ("workspace", "state_dir", "skills_dir"):
+                    if key in ("workspace", "state_dir", "skills_dir", "agents_dir"):
                         value = Path(value)
                     setattr(cfg, key, value)
             break
@@ -245,6 +259,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.state_dir = Path(os.environ["AGENTD_STATE_DIR"])
     if os.environ.get("AGENTD_SKILLS_DIR"):
         cfg.skills_dir = Path(os.environ["AGENTD_SKILLS_DIR"])
+    if os.environ.get("AGENTD_AGENTS_DIR"):
+        cfg.agents_dir = Path(os.environ["AGENTD_AGENTS_DIR"])
     if os.environ.get("AGENTD_HEADLESS"):
         cfg.browser_headless = os.environ["AGENTD_HEADLESS"].lower() not in ("0", "false", "no")
     if os.environ.get("AGENTD_BROWSER_PERSISTENT"):
@@ -283,6 +299,12 @@ def load_config(path: Path | None = None) -> Config:
         cfg.browser_action_timeout_ms = int(os.environ["AGENTD_BROWSER_ACTION_TIMEOUT"])
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
+    if os.environ.get("AGENTD_AUTONOMY") is not None:
+        cfg.autonomy_enabled = os.environ["AGENTD_AUTONOMY"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
+        cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
+    if os.environ.get("AGENTD_HEARTBEAT_HOURS"):
+        cfg.heartbeat_active_hours = os.environ["AGENTD_HEARTBEAT_HOURS"]
     if os.environ.get("AGENTD_PARALLEL_SEARCH") is not None:
         cfg.parallel_search_enabled = os.environ["AGENTD_PARALLEL_SEARCH"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("PARALLEL_API_KEY"):

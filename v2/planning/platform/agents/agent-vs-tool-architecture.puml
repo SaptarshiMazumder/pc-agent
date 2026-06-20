@@ -1,0 +1,102 @@
+@startuml agent-vs-tool-architecture
+' ============================================================================
+'  What makes an AGENT vs a TOOL — and what is SHARED (one) vs PER-AGENT.
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-vs-tool-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 16
+skinparam ranksep 65
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title What makes an AGENT vs a TOOL  -  SHARED (one) vs PER-AGENT\ngreen = we have it today (reactive session chat)    amber = Phase 2+ (net-new)
+
+' --- DRIVERS: they INVOKE the agent (call in) ------------------------------
+package "DRIVERS  -  invoke the agent (call IN)" #E8F0FE {
+  rectangle "Terminal client\n(session chat)  - TODAY" as TERM #C8E6C9
+  rectangle "Channels\nemail / WhatsApp / Slack" as CHAN #FFE9C7
+  rectangle "**Scheduler**  = heartbeat + cron RUNNERS\nONE shared loop - fires whichever agent is DUE" as SCHED #FFE9C7
+}
+
+' --- SHARED machinery: ONE per gateway, serves EVERY agent -----------------
+package "SHARED  -  ONE per gateway (serves EVERY agent)" #EDE7F6 {
+  rectangle "Gateway + Router\nresolve agent from session key" as GW #C8E6C9
+  rectangle "Engine (reason -> act loop)\nstateless per turn; runs ANY agent" as ENG #C8E6C9
+  rectangle "MCP client" as MCP #C8E6C9
+  rectangle "SQLite ledger\njobs - goals - run history (agent_id column)" as LED #FFE9C7
+}
+
+' --- PER-AGENT: what makes "an agent" (one set per agent instance) ---------
+package "PER-AGENT  -  what makes 'an agent'  (agents/<id>/)" #FFF3E0 {
+  rectangle "Definition\nagent.toml + IDENTITY/AGENTS (persona)" as DEF #C8E6C9
+  rectangle "Scope\ntools allow/deny - skills - MODEL" as SCOPE #C8E6C9
+  rectangle "heartbeat interval\n(field today; used by the runner in P2)" as HB #FFE9C7
+  rectangle "Sessions (JSONL, partitioned per agent)" as SESS #C8E6C9
+  rectangle "Memory\nMEMORY.md + daily notes" as MEM #FFE9C7
+}
+
+' --- TOOLS: the agent CALLS these (mid-turn). Shared objects, scoped per turn.
+package "TOOLS  -  the agent CALLS these (mid-turn); scoped per agent" #F2F2F2 {
+  rectangle "read  write  edit  exec  process\nweb_search  web_fetch  browser  computer  update_plan" as T_OLD #C8E6C9
+  rectangle "**cron**  - schedule / list / cancel jobs" as T_CRON #FFE9C7
+  rectangle "create_goal / update_goal / get_goal" as T_GOAL #FFE9C7
+  rectangle "heartbeat_respond  - record a tick outcome" as T_HB #FFE9C7
+}
+
+' --- flows ----------------------------------------------------------------
+TERM  --> GW : posts a turn
+CHAN  --> GW : posts a turn
+SCHED --> GW : posts a turn (no user)
+SCHED --> LED : reads DUE jobs + heartbeats
+
+GW  --> DEF : which agent?
+GW  --> ENG
+ENG --> SCOPE : filters tools/skills + picks model
+ENG --> T_OLD : runs tool calls
+ENG --> SESS : load / persist
+ENG --> MEM
+T_OLD ..> MCP
+
+T_CRON --> LED : writes a job
+T_GOAL --> LED : read / write goal
+
+note right of SCHED
+  NOT one runner per agent.
+  ONE loop checks every agent's
+  heartbeat interval + due cron jobs,
+  then posts a turn to agent:<id>:...
+  (the SAME door a client uses).
+end note
+
+note bottom of DEF
+  PER-AGENT = the DATA + DEFINITION
+  (persona, scope, model, sessions, memory, jobs/goals).
+  The MACHINERY (engine, scheduler, tools, MCP, ledger)
+  is SHARED - one of each, serving all agents.
+end note
+
+note bottom of T_OLD
+  A TOOL = the agent calls it DURING a turn (reactive).
+  A RUNNER = it calls the agent to START a turn (proactive).
+  That is why heartbeat/cron-runner are NOT tools.
+end note
+
+@enduml

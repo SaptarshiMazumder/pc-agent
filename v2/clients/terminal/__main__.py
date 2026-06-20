@@ -27,6 +27,16 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 import websockets
+from pygments.style import Style
+from pygments.token import (
+    Comment,
+    Keyword,
+    Name,
+    Number,
+    Operator,
+    String,
+    Token,
+)
 from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
@@ -37,24 +47,75 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+# ── Color policy ──────────────────────────────────────────────────────────────
+# Per user request: every *colored* element derives from lime green; greys,
+# white and black are deliberately left untouched. The previous multi-hue values
+# are kept inline as `# was: …` fallbacks so the old scheme can be restored.
+
 # Signature accent for this client (distinct from Claude Code's orange).
 LIME = "#a6e22e"
 
-# A monochrome lime ramp: tools stay differentiable via shade, not hue.
+# A monochrome lime ramp: elements stay differentiable via shade, not hue.
 LIME_BRIGHT = "#d7ff6e"
 LIME_PALE = "#bef264"
 LIME_MID = "#84cc16"
 LIME_DEEP = "#65a30d"
 
-# Override rich's default (blue) markdown link styling so URLs read lime.
-# highlight=False stops rich's ReprHighlighter from recoloring URLs/paths/numbers
-# (blue/cyan) inside the tool lines we style ourselves.
+# Semantic roles — formerly red/green/yellow. Green/yellow now map to lime
+# shades (distinguished by brightness); ERROR stays RED on purpose (per user) so
+# failures remain unmistakable. Old lime alternative kept inline as a fallback.
+OK_COLOR = LIME             # was: "green"  -> lime (success / enabled)
+RUNNING_COLOR = LIME_DEEP   # was: "yellow" -> lime (in-flight)
+ERROR_COLOR = "red"         # KEPT red (per user request)   # lime fallback: LIME_BRIGHT
+
+
+class _LimeCodeStyle(Style):
+    """Monochrome-lime Pygments style for fenced code blocks, so syntax
+    highlighting stays in the lime family instead of rich's default rainbow
+    (monokai). Plain code text falls back to a neutral grey (left untouched)."""
+
+    background_color = "#0c0c0c"
+    styles = {
+        Token: "#d4d4d4",              # default code text — neutral grey (kept)
+        Comment: f"italic {LIME_DEEP}",
+        Keyword: f"bold {LIME}",
+        Operator: LIME,
+        Name.Function: LIME_PALE,
+        Name.Class: f"bold {LIME_PALE}",
+        Name.Builtin: LIME_MID,
+        String: LIME_MID,
+        Number: LIME_MID,
+    }
+
+
+CODE_THEME = _LimeCodeStyle   # passed to Markdown(code_theme=…); was: rich default "monokai"
+
+# Override rich's default (blue/cyan/magenta) markdown + repr styling so all
+# colored output reads lime. highlight=False stops rich's ReprHighlighter from
+# recoloring URLs/paths/numbers (blue/cyan); the markdown.* keys de-rainbow
+# headings, inline code, block quotes and list bullets; the error/ok/running
+# style names are reused as [markup] throughout.
 console = Console(
     highlight=False,
     theme=Theme(
         {
             "markdown.link": LIME,
             "markdown.link_url": f"underline {LIME_MID}",
+            "markdown.h1": f"bold {LIME_BRIGHT}",      # was: rich default (reverse/white)
+            "markdown.h2": f"bold {LIME}",
+            "markdown.h3": f"bold {LIME_PALE}",
+            "markdown.h4": f"bold {LIME_MID}",
+            "markdown.h5": LIME_MID,
+            "markdown.h6": LIME_DEEP,
+            "markdown.code": LIME,                     # was: "bold cyan"
+            "markdown.item.bullet": f"bold {LIME}",    # was: "bold yellow"
+            "markdown.item.number": f"bold {LIME}",    # was: "bold yellow"
+            "markdown.block_quote": LIME_DEEP,         # was: "magenta"
+            "markdown.hr": f"dim {LIME}",
+            # semantic role styles — used as [error] / [ok] / [running] markup
+            "error": f"bold {ERROR_COLOR}",            # red (kept per user)
+            "ok": OK_COLOR,                            # was: "green" -> lime
+            "running": RUNNING_COLOR,                  # was: "yellow" -> lime
         }
     ),
 )
@@ -75,6 +136,9 @@ TOOL_STYLE = {
     "browser": ("●", LIME_BRIGHT),
 }
 DEFAULT_TOOL_STYLE = ("⏺", LIME)
+
+# /sessions shows the most-recent N by default; 'all' (or a number) expands it.
+SESSIONS_DEFAULT = 15
 
 
 def tool_style(name: str) -> tuple[str, str]:
@@ -153,9 +217,10 @@ def render_plan(plan: list) -> Text:
 
 
 class TerminalClient:
-    def __init__(self, url: str, session_key: str):
+    def __init__(self, url: str, session_key: str, agent_id: str | None = None):
         self.url = url
         self.session_key = session_key
+        self.agent_id = agent_id        # explicit agent selection (None = the default agent)
         self.ws = None
         self.pending: dict[str, asyncio.Future] = {}
         self.run_done = asyncio.Event()
@@ -190,7 +255,7 @@ class TerminalClient:
                         self._render(payload.get("event") or {})
         except websockets.ConnectionClosed:
             self._close_live()
-            console.print("\n[bold red]connection closed[/]")
+            console.print("\n[error]connection closed[/]")
             self.run_done.set()
 
     # --- live streaming of assistant text & reasoning --------------------
@@ -206,7 +271,7 @@ class TerminalClient:
                 Text("✻ thinking", style="grey50"),
                 Padding(Text(self._buf, style="italic grey50"), (0, 0, 0, 2)),
             )
-        return Markdown(self._buf)
+        return Markdown(self._buf, code_theme=CODE_THEME)  # was: default monokai (rainbow)
 
     def _ensure_live(self, mode: str) -> None:
         # Switching between thinking and answer starts a fresh region so the
@@ -267,7 +332,7 @@ class TerminalClient:
             text = result_text(event.get("result") or {})
             first_line = (text.splitlines()[0] if text else "").strip()
             if event.get("isError"):
-                console.print(Text(f"  ⎿ {first_line[:160] or 'error'}", style="red"))
+                console.print(Text(f"  ⎿ {first_line[:160] or 'error'}", style="error"))
             elif first_line:
                 console.print(Text(f"  ⎿ {first_line[:160]}", style="dim"))
         elif etype == "continuation":
@@ -279,10 +344,10 @@ class TerminalClient:
             self._close_live()
             reason = event.get("stopReason")
             if reason == "error":
-                console.print(Text("[run ended: error]", style="bold red"))
+                console.print(Text("[run ended: error]", style="error"))
                 err = event.get("error")
                 if err:  # surface the exact reason (rate limit, auth, etc.)
-                    console.print(Text(str(err), style="red"))
+                    console.print(Text(str(err), style="error"))
             elif reason and reason != "stop":
                 console.print(Text(f"[run ended: {reason}]", style="dim"))
             self.run_done.set()
@@ -310,7 +375,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]session[/] [bold]{self.session_key}[/]   [dim]·  /sessions  /abort  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /cron  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -343,21 +408,140 @@ class TerminalClient:
                         self.session_key = f"term-{uuid.uuid4().hex[:8]}"
                         console.print(f"[{LIME}]new session:[/] [bold]{self.session_key}[/]")
                         continue
-                    if line == "/sessions":
+                    if line == "/agents":
                         try:
-                            payload = await self.request("sessions.list", {})
+                            payload = await self.request("agents.list", {})
                         except RuntimeError as e:
-                            console.print(f"[red]{e}[/]")
+                            console.print(f"[error]{e}[/]")
                             continue
-                        sessions = payload.get("sessions") or []
+                        agents = payload.get("agents") or []
+                        current = self.agent_id or payload.get("default") or "main"
+                        for a in agents:
+                            mark = f"[{LIME}]→[/]" if a["id"] == current else " "
+                            console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
+                        console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
+                        continue
+                    if line == "/agent" or line.startswith("/agent "):
+                        parts = line.split(maxsplit=1)
+                        if len(parts) == 1:
+                            console.print(f"[dim]current agent:[/] [bold]{self.agent_id or 'main'}[/]"
+                                          "  [dim](/agents to list, /agent <id> to switch)[/]")
+                            continue
+                        target = parts[1].strip()
+                        self.agent_id = None if target in ("main", "default") else target
+                        self.session_key = f"term-{uuid.uuid4().hex[:8]}"   # fresh thread per agent
+                        console.print(f"[{LIME}]agent:[/] [bold]{self.agent_id or 'main'}[/] "
+                                      f"[dim](new session {self.session_key})[/]")
+                        continue
+                    if line == "/cron" or line.startswith("/cron ") or line == "/jobs":
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1] in ("history", "runs", "log"):
+                            p = {"limit": 200}
+                            if len(parts) >= 3:
+                                p["id"] = parts[2]               # history for one job
+                            try:
+                                resp = await self.request("cron.runs", p)
+                            except RuntimeError as e:
+                                console.print(f"[error]{e}[/]")
+                                continue
+                            if not resp.get("autonomy"):
+                                console.print("[dim]autonomy is off — set AGENTD_AUTONOMY=1[/]")
+                                continue
+                            hist = resp.get("runs") or []
+                            if not hist:
+                                console.print("[dim]no run history yet[/]")
+                                continue
+                            table = Table(show_header=True, header_style=f"bold {LIME}", box=None, pad_edge=False)
+                            for col in ("started", "finished", "dur", "agent", "task", "status"):
+                                table.add_column(col)
+                            for r in hist:
+                                dur = f"{r['durationSec']}s" if r.get("durationSec") is not None else "—"
+                                color = {"ok": "ok", "error": "error"}.get(r["status"], "running")
+                                table.add_row(r["startedAt"], r.get("finishedAt") or "—", dur,
+                                              r["agentId"], r["taskId"], f"[{color}]{r['status']}[/]")
+                            console.print(table)
+                            console.print(f"[dim]{len(hist)} run(s)[/]")
+                            continue
+                        if len(parts) >= 3 and parts[1] in ("rm", "remove", "run", "on", "off"):
+                            sub, tid = parts[1], parts[2]
+                            method = {"rm": "cron.remove", "remove": "cron.remove",
+                                      "run": "cron.run", "on": "cron.update", "off": "cron.update"}[sub]
+                            p = {"id": tid}
+                            if sub == "on":
+                                p["enabled"] = True
+                            if sub == "off":
+                                p["enabled"] = False
+                            try:
+                                resp = await self.request(method, p)
+                                console.print(f"[{LIME}]{sub} {tid}[/] [dim]{resp}[/]")
+                            except RuntimeError as e:
+                                console.print(f"[error]{e}[/]")
+                            continue
+                        try:
+                            payload = await self.request("cron.list", {})
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        if not payload.get("autonomy"):
+                            console.print("[dim]autonomy is off — set AGENTD_AUTONOMY=1 and restart the gateway[/]")
+                            continue
+                        jobs = payload.get("jobs") or []
+                        if not jobs:
+                            console.print("[dim]no scheduled jobs[/]")
+                        else:
+                            table = Table(show_header=True, header_style=f"bold {LIME}", box=None, pad_edge=False)
+                            for col in ("id", "agent", "schedule", "next", "on", "payload"):
+                                table.add_column(col)
+                            for j in jobs:
+                                table.add_row(
+                                    j["id"], j["agentId"], j["schedule"], j["nextDue"],
+                                    "[ok]on[/]" if j["enabled"] else "[dim]off[/]",
+                                    (j["payload"] or "")[:48])
+                            console.print(table)
+                        runs = payload.get("runs") or []
+                        if runs:
+                            console.print("[dim]recent runs:[/]")
+                            for r in runs[:5]:
+                                console.print(f"  [dim]{r['at']}[/] {r['agentId']} [{r['taskId']}] {r['status']}")
+                        if jobs:
+                            console.print("[dim]manage: /cron rm <id> · /cron run <id> · /cron off|on <id> · /cron history [id][/]")
+                        continue
+                    if line == "/sessions" or line.startswith("/sessions "):
+                        # scope to the agent we're on — each agent has its own threads
+                        parts = line.split(maxsplit=1)
+                        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+                        params = {"agentId": self.agent_id} if self.agent_id else {}
+                        try:
+                            payload = await self.request("sessions.list", params)
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        sessions = payload.get("sessions") or []   # newest first (gateway-sorted)
+                        who = payload.get("agentId") or self.agent_id or "main"
                         if not sessions:
-                            console.print("[dim]no saved sessions yet[/]")
+                            console.print(f"[dim]no saved sessions for agent '{who}' yet[/]")
                             continue
-                        console.print(sessions_table(sessions, self.session_key))
-                        pick = await asyncio.to_thread(
-                            console.input, "[dim]resume # (blank to cancel):[/] "
-                        )
-                        chosen = resolve_session_choice(sessions, pick)
+                        # how many to show: default 15; 'all'/'*' or a number expands it
+                        if arg in ("all", "*", "more"):
+                            n = len(sessions)
+                        elif arg.isdigit():
+                            n = max(1, int(arg))
+                        else:
+                            n = SESSIONS_DEFAULT
+                        while True:                                # re-render if they ask for 'all'
+                            shown = sessions[:n]
+                            console.print(f"[dim]sessions for agent[/] [bold]{who}[/] "
+                                          f"[dim](showing {len(shown)} of {len(sessions)}):[/]")
+                            console.print(sessions_table(shown, self.session_key))
+                            hint = "resume # (blank to cancel"
+                            if n < len(sessions):
+                                hint += f", 'all' to see {len(sessions)}"
+                            pick = await asyncio.to_thread(console.input, f"[dim]{hint}):[/] ")
+                            if (pick or "").strip().lower() in ("all", "*", "more") and n < len(sessions):
+                                n = len(sessions)
+                                continue
+                            break
+                        chosen = resolve_session_choice(shown, pick)
                         if chosen is None:
                             console.print("[dim]cancelled[/]")
                         else:
@@ -372,24 +556,24 @@ class TerminalClient:
                             payload = await self.request("chat.abort", {"sessionKey": self.session_key})
                             console.print(f"[dim]{payload}[/]")
                         except RuntimeError as e:
-                            console.print(f"[red]{e}[/]")
+                            console.print(f"[error]{e}[/]")
                         continue
 
                     try:
                         self.run_done.clear()
-                        await self.request(
-                            "chat.send",
-                            {
-                                "sessionKey": self.session_key,
-                                "message": line,
-                                "idempotencyKey": uuid.uuid4().hex,
-                            },
-                        )
+                        params = {
+                            "sessionKey": self.session_key,
+                            "message": line,
+                            "idempotencyKey": uuid.uuid4().hex,
+                        }
+                        if self.agent_id:
+                            params["agentId"] = self.agent_id   # backend resolves the agent
+                        await self.request("chat.send", params)
                         await self.run_done.wait()
                     except RuntimeError as e:
                         self.run_done.set()
                         self._close_live()
-                        console.print(f"[red]{e}[/]")
+                        console.print(f"[error]{e}[/]")
             finally:
                 self._close_live()
                 reader.cancel()
@@ -399,9 +583,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="agentd terminal client")
     parser.add_argument("--url", default="ws://127.0.0.1:8787")
     parser.add_argument("--session", default=None, help="session key to resume")
+    parser.add_argument("--agent", default=None,
+                        help="agent id to talk to (default: the gateway's default agent)")
     args = parser.parse_args()
     session_key = args.session or f"term-{uuid.uuid4().hex[:8]}"
-    client = TerminalClient(args.url, session_key)
+    client = TerminalClient(args.url, session_key, agent_id=args.agent)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

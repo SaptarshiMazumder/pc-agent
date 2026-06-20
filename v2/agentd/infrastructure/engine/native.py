@@ -406,13 +406,14 @@ class NativeEngine:
         self._max_iterations = max_iterations
         self._observers = observers or []    # decoupled liveness seam (default off)
 
-    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None):
+    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
+                  model=None):
         return await run_agent_loop(
             messages=messages,
             system_prompt=system_prompt,
             tools=tools,
             stream_fn=self._stream_fn,
-            model=self._model,
+            model=model or self._model,          # per-agent override, else the engine default
             on_event=on_event,
             abort=abort,
             session=session,

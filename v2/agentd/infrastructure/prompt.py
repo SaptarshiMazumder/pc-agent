@@ -131,17 +131,34 @@ def _skills_section(skills) -> str | None:
 
 
 def build_system_prompt(
-    config, tools, model: str, reasoning_effort: str = "off", skills=None
+    config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
+    heartbeat: str = "",
 ) -> str:
     sections: list[str] = []
 
-    # 1. Identity (rebranded — agent name from config)
-    agent_name = getattr(config, "agent_name", "") or "the assistant"
+    # Agent identity / workspace / id come from the resolved agent when present, else
+    # from config (single-agent back-compat). `agent` is an AgentSpec (duck-typed).
+    persona_name = (getattr(agent, "name", None) if agent else None) \
+        or getattr(config, "agent_name", "") or "the assistant"
+    workspace = (getattr(agent, "workspace", None) if agent else None) or config.workspace
+    runtime_agent_id = (getattr(agent, "id", None) if agent else None) \
+        or getattr(config, "agent_id", "main")
+
+    # 1. Identity (rebranded — agent name)
     sections.append(
-        f"You are {agent_name}, a personal assistant running inside a terminal agent runtime.\n"
-        f"If asked your name, say {agent_name}.\n"
+        f"You are {persona_name}, a personal assistant running inside a terminal agent runtime.\n"
+        f"If asked your name, say {persona_name}.\n"
         f"Current model identity: {model}. If asked what model you are, answer with this value."
     )
+
+    # 1a. Agent definition (IDENTITY/AGENTS/USER/MEMORY bootstrap), if any — high priority.
+    instructions = (getattr(agent, "instructions", "") if agent else "") or ""
+    if instructions:
+        sections.append(instructions)
+
+    # 1b. Heartbeat checklist (HEARTBEAT.md) — passed ONLY on an autonomous tick.
+    if heartbeat:
+        sections.append(heartbeat)
 
     # 1b. Language (always-on rule; the `language` skill holds the detailed playbook)
     sections.append(
@@ -240,7 +257,7 @@ def build_system_prompt(
     )
 
     # 6. Workspace
-    sections.append(f"## Workspace\nYour working directory is: {config.workspace}")
+    sections.append(f"## Workspace\nYour working directory is: {workspace}")
 
     # 6b. User Folders (real resolved paths — Desktop/Documents may be OneDrive-redirected)
     folders = resolve_user_folders()
@@ -263,7 +280,7 @@ def build_system_prompt(
     # 8. Project Context (AGENTS.md / SOUL.md / MEMORY.md if present)
     context_parts = []
     for name in CONTEXT_FILES:
-        f = Path(config.workspace) / name
+        f = Path(workspace) / name
         if f.is_file():
             try:
                 content = f.read_text(encoding="utf-8").strip()
@@ -281,7 +298,7 @@ def build_system_prompt(
     # 9. Runtime (OpenClaw pipe format)
     sections.append(
         "## Runtime\n"
-        f"Runtime: agent={config.agent_id} | host={socket.gethostname()} | "
+        f"Runtime: agent={runtime_agent_id} | host={socket.gethostname()} | "
         f"os={platform.system()} ({platform.machine()}) | model={model} | thinking={reasoning_effort}"
     )
 

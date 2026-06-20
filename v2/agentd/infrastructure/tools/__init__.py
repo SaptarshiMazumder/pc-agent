@@ -91,7 +91,8 @@ def validate_args(tool: Tool, args: dict[str, Any]) -> dict[str, Any]:
     return args
 
 
-def build_tools(config, browser_manager=None, computer_provider=None) -> list[Tool]:
+def build_tools(config, browser_manager=None, computer_provider=None,
+                task_store=None) -> list[Tool]:
     """The REGISTRY: assemble the list of active tools.
 
     Tool classes are imported lazily (inside this function) so that an optional
@@ -119,6 +120,20 @@ def build_tools(config, browser_manager=None, computer_provider=None) -> list[To
         WebSearchTool(config, build_search_providers(config)),
         WebFetchTool(config, build_fetch_providers(config, browser_manager)),
     ]
+    # Autonomy: heartbeat_respond is built only when autonomy is enabled (it's then
+    # exposed ONLY on a heartbeat tick — see domain.agent.apply_mode). Off => the tool
+    # never exists, so interactive chat is exactly as before.
+    if getattr(config, "autonomy_enabled", False):
+        from .heartbeat_tool import HeartbeatRespondTool
+
+        tools.append(HeartbeatRespondTool())
+        # cron + goal — durable scheduling + objective tracking (need the ledger).
+        if task_store is not None:
+            from .cron_tool import CronTool
+            from .goal_tool import GoalTool
+
+            tools.append(CronTool(task_store))
+            tools.append(GoalTool(task_store))   # SqliteTaskStore implements GoalStore too
     if browser_manager is not None:
         from .browser import BrowserTool
 

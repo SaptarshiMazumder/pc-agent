@@ -16,8 +16,11 @@ from __future__ import annotations
 from typing import Callable
 
 from agentd.application.interfaces.agent_engine import AgentEngine
+from agentd.application.interfaces.agents import AgentRegistry
 from agentd.application.interfaces.events import EventSink
 from agentd.application.interfaces.memory import SessionStore
+from agentd.application.run_context import RunContext, set_run_context
+from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
 from agentd.domain.messages import UserMessage
 
 
@@ -27,35 +30,63 @@ class AgentService:
         *,
         engine: AgentEngine,
         tools: list,
-        make_session: Callable[[str], SessionStore],  # session_id -> a SessionStore
-        build_prompt: Callable[[list], str],          # tools -> the system prompt text
+        registry: AgentRegistry,                            # which agent handles a session
+        make_session: Callable[[str, AgentSpec], SessionStore],  # (id, agent) -> store
+        build_prompt: Callable[[list, AgentSpec, str], str],  # (tools, agent, mode) -> prompt
     ):
         self._engine = engine
         self._tools = tools
+        self._registry = registry
         self._make_session = make_session
         self._build_prompt = build_prompt
 
+    def _resolve_agent(self, session_id: str, agent_id: str | None):
+        """Explicit agent_id wins (a client naming the agent); else resolve from the
+        session key. An unknown explicit id falls back to the default agent."""
+        if agent_id:
+            try:
+                return self._registry.get(agent_id)
+            except KeyError:
+                pass
+        return self._registry.resolve(session_id)
+
     def add_tools(self, tools: list) -> None:
         """Register more tools after construction (e.g. MCP tools discovered async
-        at gateway startup). They join the same toolset the engine and prompt use."""
+        at gateway startup). They join the full toolset; each turn is then scoped to
+        the resolved agent's allow/deny."""
         self._tools.extend(tools)
 
     async def handle_message(self, session_id: str, text: str,
-                             on_event: EventSink, abort) -> None:
-        """Run one turn end to end for the given session."""
-        session = self._make_session(session_id)         # the memory store for this session
+                             on_event: EventSink, abort,
+                             mode: str = RunMode.INTERACTIVE,
+                             agent_id: str | None = None) -> None:
+        """Run one turn end to end for the resolved agent.
+
+        ``mode`` is the run mode (interactive | heartbeat | cron). ``agent_id`` is an
+        EXPLICIT agent selection from a client (it wins); when absent, the agent is
+        resolved from the session key (autonomy uses ``agent:<id>:heartbeat``). An
+        unknown override falls back to the default agent. Defaults keep the reactive
+        path unchanged.
+        """
+        agent = self._resolve_agent(session_id, agent_id)  # explicit override or session key
+        # expose the run context to context-aware tools (e.g. cron tags its task with
+        # this agent). Task-local, so concurrent runs never cross.
+        set_run_context(RunContext(agent_id=agent.id, session_key=session_id, mode=mode))
+        tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
+        session = self._make_session(session_id, agent)   # per-agent session store
         messages = session.load()                         # prior history (read)
         user_msg = UserMessage(content=text)
         messages.append(user_msg)                         # add the new user turn to context
         session.append(user_msg)                          # persist it
-        system_prompt = self._build_prompt(self._tools)   # identity + tool list + context
+        system_prompt = self._build_prompt(tools, agent, mode)  # identity + bootstrap + tools
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)
         await self._engine.run(
             messages=messages,
             system_prompt=system_prompt,
-            tools=self._tools,
+            tools=tools,
             on_event=on_event,
             abort=abort,
             session=session,
+            model=agent.model,        # per-agent override (None = the engine default)
         )

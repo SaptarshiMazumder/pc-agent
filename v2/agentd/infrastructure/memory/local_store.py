@@ -18,6 +18,7 @@ the lines in order to rebuild the ``list[Message]`` the agent re-feeds to the LL
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,9 +37,12 @@ class SessionStore:
     """Reads/writes one session's transcript file (``<state_dir>/sessions/<id>.jsonl``)."""
 
     def __init__(self, state_dir: Path, session_id: str, cwd: str = ""):
-        self.session_id = session_id
+        self.session_id = session_id  # the real logical key (kept in the header)
         self.cwd = cwd  # working dir recorded in the header (informational)
-        self.path = Path(state_dir) / "sessions" / f"{session_id}.jsonl"
+        # Agent session keys contain ':' (e.g. agent:<id>:<peer>) which is illegal in a
+        # Windows filename — sanitize for the PATH only (keep the real key in the header).
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", session_id)
+        self.path = Path(state_dir) / "sessions" / f"{safe}.jsonl"
         self._last_id: str | None = None  # id of the last appended line (for parentId chaining)
 
     def load(self) -> list[Message]:

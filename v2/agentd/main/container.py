@@ -48,14 +48,19 @@ def build_computer_provider(config: Config):
     return _build(config)
 
 
-def build_service(config: Config, browser_manager, computer_provider=None) -> AgentService:
-    """Assemble the AgentService use-case from concrete implementations."""
+def build_service(config: Config, browser_manager, computer_provider=None,
+                  registry=None, task_store=None) -> AgentService:
+    """Assemble the AgentService use-case from concrete implementations.
+
+    `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
+    the gateway and service share them; if omitted, a file-backed registry is built
+    here (single-agent / tests) and there is no task ledger."""
     from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
 
     # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
     # per-tool policy resolved from config. New tools are guarded automatically.
     tools = [GuardedTool(t, resolve_policy(config, t))
-             for t in build_tools(config, browser_manager, computer_provider)]
+             for t in build_tools(config, browser_manager, computer_provider, task_store)]
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -75,16 +80,38 @@ def build_service(config: Config, browser_manager, computer_provider=None) -> Ag
     # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
     # effect on the next message without a restart (swap here for a cloud registry)
     skills = FileSkillRegistry(config.skills_dir)
+    # the agent registry: which agent owns a session + its persona/scope. The
+    # single-agent app is the `main` agent synthesized from config (back-compat).
+    from agentd.domain.agent import RunMode, select_skills
+    from agentd.infrastructure.agents import FileAgentRegistry
+
+    registry = registry or FileAgentRegistry(config)
     return AgentService(
         engine=engine,
         tools=tools,
-        # how to make a session store for a given session id (swap here for a cloud store)
-        make_session=lambda sid: SessionStore(config.state_dir, sid, cwd=str(config.workspace)),
-        # how to build the system prompt for a turn (skills advertised, read on demand)
-        build_prompt=lambda tools: build_system_prompt(
-            config, tools, config.model, config.reasoning_effort, skills=skills.all()
+        registry=registry,
+        # per-agent session store: agent.state_dir partitions sessions (main = legacy path)
+        make_session=lambda sid, agent: SessionStore(
+            agent.state_dir, sid, cwd=str(agent.workspace)
+        ),
+        # prompt for the resolved agent + run mode: its identity/bootstrap + scoped
+        # skills + its model; on a heartbeat tick, also inject HEARTBEAT.md.
+        build_prompt=lambda tools, agent, mode: build_system_prompt(
+            config, tools, agent.model or config.model, config.reasoning_effort,
+            skills=select_skills(skills.all(), agent), agent=agent,
+            heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
         ),
     )
+
+
+def build_task_store(config: Config):
+    """The durable cron ledger (SQLite) — only when autonomy is enabled; None otherwise.
+    Shared by the cron tool (writes jobs) and the scheduler (fires due jobs)."""
+    if not getattr(config, "autonomy_enabled", False):
+        return None
+    from agentd.infrastructure.tasks import SqliteTaskStore
+
+    return SqliteTaskStore(config.state_dir / "autonomy.sqlite")
 
 
 def build_mcp_provider(config: Config):
@@ -127,10 +154,19 @@ def build_gateway(config: Config) -> Gateway:
         log.info("browser engine: playwright/cdp (built-in)")
         browser_manager = build_browser_manager(config)
     computer_provider = build_computer_provider(config)
-    service = build_service(config, browser_manager, computer_provider)
+    # one registry, shared by the service (resolves the agent per turn) and the
+    # gateway (drives the heartbeat scheduler).
+    from agentd.infrastructure.agents import FileAgentRegistry
+
+    registry = FileAgentRegistry(config)
+    task_store = build_task_store(config)   # durable cron ledger (None unless autonomy on)
+    service = build_service(config, browser_manager, computer_provider,
+                            registry=registry, task_store=task_store)
     return Gateway(
         config=config,
         service=service,
         browser_manager=browser_manager,
         mcp_provider=build_mcp_provider(config),
+        registry=registry,
+        task_store=task_store,
     )

@@ -1,0 +1,62 @@
+@startuml agent-heartbeat-sequence
+' ============================================================================
+'  Phase 2 - one heartbeat tick (autonomous, no user)
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-heartbeat-sequence.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam sequence {
+  ArrowColor #555555
+  LifeLineBorderColor #999999
+  ParticipantBorderColor #888888
+  ParticipantBackgroundColor #EDE7F6
+  ParticipantFontSize 11
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Phase 2 - one heartbeat tick (autonomous, no user present)
+
+participant "Scheduler\n(shared loop)" as S
+database "SQLite ledger" as DB
+participant "AutonomyService" as A
+participant "Gateway" as G
+participant "AgentService\n(mode=heartbeat)" as SVC
+participant "Engine" as E
+participant "Agent tools" as T
+actor "User\n(channel)" as U
+
+S -> DB : which agents are due?
+DB --> S : agent X (next_due passed)
+S -> A : fire(X, heartbeat)
+A -> G : post_turn("agent:X:heartbeat",\n"Read HEARTBEAT.md. Act, or reply nothing-to-do")
+G -> SVC : handle_message(mode=heartbeat)
+
+note over SVC
+  assemble: X persona + HEARTBEAT.md
+  + tools (X-scoped + heartbeat_respond)
+end note
+
+SVC -> E : run turn
+E -> T : check things (read / web / mcp ...)
+T --> E : results
+E -> T : heartbeat_respond(outcome, notify, nextCheck)
+T --> A : outcome
+
+A -> DB : record run + set next_due
+
+alt notify = true
+  A -> U : send summary (origin / last contact)
+else nothing to do
+  A -> A : stay silent
+end
+
+S -> S : sleep until next due
+
+@enduml
