@@ -23,6 +23,54 @@ from agentd.infrastructure.tools.browser.snapshot import (
 
 log = logging.getLogger("agentd")
 
+# Cursor-interactive scan (ported from agent-browser's find_cursor_interactive_elements):
+# find elements the ARIA tree misses — clickable <div>s, onclick handlers, focusable
+# (tabindex), contenteditable — and tag each with data-agentd-ci="cN" so it can be
+# resolved like any ref. Skips native/already-ARIA-interactive elements, hidden/zero-size
+# ones, and child elements that only inherit cursor:pointer from a tagged parent.
+_CURSOR_SCAN_JS = r"""
+() => {
+  const CAP = 80;
+  const NATIVE = new Set(['A','BUTTON','INPUT','SELECT','TEXTAREA','OPTION','SUMMARY','LABEL','AREA']);
+  const IROLES = new Set(['button','link','checkbox','radio','menuitem','menuitemcheckbox',
+    'menuitemradio','tab','switch','option','textbox','combobox','slider','spinbutton',
+    'searchbox','treeitem']);
+  document.querySelectorAll('[data-agentd-ci]').forEach(e => e.removeAttribute('data-agentd-ci'));
+  const out = [];
+  let n = 0;
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (n >= CAP) break;
+    if (NATIVE.has(el.tagName)) continue;
+    const role = el.getAttribute('role');
+    if (role && IROLES.has(role)) continue;          // already in the ARIA tree
+    if (el.closest('[aria-hidden="true"],[hidden]')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    const onclick = el.hasAttribute('onclick');
+    const ti = el.getAttribute('tabindex');
+    const focusable = ti !== null && ti !== '-1';
+    const editable = el.isContentEditable;
+    const pointer = cs.cursor === 'pointer';
+    if (!(onclick || focusable || editable || pointer)) continue;
+    if (pointer && !onclick && !focusable && !editable) {
+      const p = el.parentElement;                    // dedupe inherited cursor:pointer
+      if (p && getComputedStyle(p).cursor === 'pointer') continue;
+    }
+    n += 1;
+    const ref = 'c' + n;
+    el.setAttribute('data-agentd-ci', ref);
+    let t = (el.innerText || el.getAttribute('aria-label') || el.title || '').trim();
+    t = t.replace(/\s+/g, ' ').slice(0, 80);
+    out.push({ref, tag: el.tagName.toLowerCase(), text: t,
+              box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]});
+  }
+  return out;
+}
+"""
+
 
 class BaseBrowserSession:
     """Owns the Playwright context + tab/listener bookkeeping; lives on the loop."""
@@ -55,6 +103,12 @@ class BaseBrowserSession:
         if self.context is not None:
             return
         self._pw, self.context = await self._create_context()
+        try:
+            # cap per-action waits (Playwright defaults to 30s) so a covered/stale
+            # element fails fast and the agent can recover instead of hanging.
+            self.context.set_default_timeout(getattr(self.config, "browser_action_timeout_ms", 12000))
+        except Exception:
+            pass
         try:
             self.context.on("page", self._track_page)
         except Exception:
@@ -229,8 +283,29 @@ class BaseBrowserSession:
             raw, depth=depth, compact=compact, urls=urls, max_chars=max_chars
         )
         title = await page.title()
+        extra = await self._cursor_scan(page, labels=labels)
         note = await self._auth_note(page)
-        return f"Page: {title}\nURL: {page.url}\nTab: {self.tab_handle(page)}\n\n{text}{note}"
+        return f"Page: {title}\nURL: {page.url}\nTab: {self.tab_handle(page)}\n\n{text}{extra}{note}"
+
+    async def _cursor_scan(self, page, labels: bool = False) -> str:
+        """List non-ARIA clickable elements with [ref=cN] (see _CURSOR_SCAN_JS)."""
+        if not getattr(self.config, "browser_cursor_scan", True):
+            return ""
+        try:
+            items = await page.evaluate(_CURSOR_SCAN_JS)
+        except Exception:  # noqa: BLE001
+            return ""
+        if not items:
+            return ""
+        lines = []
+        for it in items:
+            name = f' "{it["text"]}"' if it.get("text") else ""
+            box = f' [box={",".join(str(b) for b in it["box"])}]' if labels else ""
+            lines.append(f'- clickable{name} <{it["tag"]}> [ref={it["ref"]}]{box}')
+        return (
+            "\n\n[non-ARIA clickables — interactive elements the accessibility tree misses; "
+            "use these refs like any other]\n" + "\n".join(lines)
+        )
 
     async def _auth_note(self, page) -> str:
         """Generic sign-in signal (no site-specific rules): if the page has a
@@ -248,9 +323,12 @@ class BaseBrowserSession:
         return ""
 
     def resolve_ref(self, ref: str, page=None):
-        # Playwright's aria-ref already encodes the frame (refs look like e3 or
-        # f1e2), so resolution is always page-level — no frame_locator wrapping.
+        # Two ref schemes: cursor-scan refs (cN) resolve by our data attribute;
+        # everything else is a Playwright aria-ref (e3 / f1e2 — frame already encoded,
+        # so resolution is page-level, no frame_locator wrapping).
         page = page or self.active_page
+        if ref[:1] == "c" and ref[1:].isdigit():
+            return page.locator(f'[data-agentd-ci="{ref}"]')
         return page.locator(f"aria-ref={ref}")
 
     # ----------------------------------------------------------- introspection

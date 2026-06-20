@@ -89,9 +89,36 @@ def build_mcp_provider(config: Config):
     return _build(config)
 
 
+def _add_agent_browser_mcp_server(config: Config) -> None:
+    """Register the external `agent-browser` engine as an stdio MCP server, so its
+    tools are discovered through the existing MCP client (namespaced agentbrowser__*).
+    Idempotent. agent-browser must be installed; if it isn't, MCP discovery skips it
+    gracefully (and there will be no browser — the operator opted in)."""
+    from agentd.config import McpServerConfig
+
+    existing = config.mcp_servers or []
+    if any(getattr(s, "name", "") == "agentbrowser" for s in existing):
+        return
+    cmd = config.agent_browser_command or ["agent-browser", "mcp"]
+    config.mcp_servers = list(existing) + [
+        McpServerConfig(name="agentbrowser", transport="stdio", command=cmd)
+    ]
+    log.info("browser engine: agent-browser via MCP (command: %s)", " ".join(cmd))
+
+
 def build_gateway(config: Config) -> Gateway:
     """Top-level: build everything and return the ready-to-serve Gateway."""
-    browser_manager = build_browser_manager(config)
+    from agentd.config import resolve_browser_engine
+
+    engine = resolve_browser_engine(config)
+    if engine == "agent_browser":
+        # Use the external engine: omit our built-in browser tool and surface
+        # agent-browser's tools via MCP instead.
+        _add_agent_browser_mcp_server(config)
+        browser_manager = None
+    else:
+        log.info("browser engine: playwright/cdp (built-in)")
+        browser_manager = build_browser_manager(config)
     computer_provider = build_computer_provider(config)
     service = build_service(config, browser_manager, computer_provider)
     return Gateway(

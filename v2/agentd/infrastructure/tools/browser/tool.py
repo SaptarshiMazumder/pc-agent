@@ -27,6 +27,21 @@ _MODIFIER_ALIASES = {
     "meta": "Meta", "shift": "Shift", "alt": "Alt", "option": "Alt",
 }
 
+# Why an action failed: stale / off-screen / covered (agent-browser-style diagnostic).
+_COVER_CHECK_JS = r"""el => {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return {state: 'hidden'};
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) return {state: 'offscreen'};
+  const top = document.elementFromPoint(cx, cy);
+  if (!top) return {state: 'offscreen'};
+  if (top === el || el.contains(top) || top.contains(el)) return {state: 'ok'};
+  const id = top.id ? ('#' + top.id) : '';
+  const cls = (typeof top.className === 'string' && top.className.trim())
+      ? ('.' + top.className.trim().split(/\s+/)[0]) : '';
+  return {state: 'covered', by: top.tagName.toLowerCase() + id + cls};
+}"""
+
 
 class BrowserTool(Tool):
     name = "browser"
@@ -267,44 +282,70 @@ class BrowserTool(Tool):
             return ToolResult.text(f"act kind={kind} requires ref (or fields for fill)", is_error=True)
         loc = mgr.resolve_ref(ref, page)
 
-        if kind == "click":
-            kwargs = {}
-            if timeout is not None:
-                kwargs["timeout"] = timeout
-            if params.get("button"):
-                kwargs["button"] = params["button"]
-            if params.get("modifiers"):
-                kwargs["modifiers"] = self._modifiers(params["modifiers"])
-            if params.get("double_click"):
-                await loc.dblclick(**kwargs)
-            else:
-                await loc.click(**kwargs)
-            await mgr.settle()
-        elif kind == "fill":
-            await loc.fill(params.get("text") or "", **({"timeout": timeout} if timeout else {}))
-        elif kind == "type":
-            if params.get("slowly"):
-                await loc.press_sequentially(params.get("text") or "", delay=params.get("delay_ms"))
-            else:
-                await loc.fill(params.get("text") or "")
-            if params.get("submit"):
-                await loc.press("Enter")
+        try:
+            if kind == "click":
+                kwargs = {}
+                if timeout is not None:
+                    kwargs["timeout"] = timeout
+                if params.get("button"):
+                    kwargs["button"] = params["button"]
+                if params.get("modifiers"):
+                    kwargs["modifiers"] = self._modifiers(params["modifiers"])
+                if params.get("double_click"):
+                    await loc.dblclick(**kwargs)
+                else:
+                    await loc.click(**kwargs)
                 await mgr.settle()
-        elif kind == "press":
-            await loc.press(params.get("key") or "Enter", **({"delay": params["delay_ms"]} if params.get("delay_ms") else {}))
-            await mgr.settle()
-        elif kind == "select":
-            values = params.get("values") or ([params["value"]] if params.get("value") else [])
-            await loc.select_option(values, **({"timeout": timeout} if timeout else {}))
-        elif kind == "hover":
-            await loc.hover(**({"timeout": timeout} if timeout else {}))
-        elif kind == "scrollIntoView":
-            await loc.scroll_into_view_if_needed(**({"timeout": timeout} if timeout else {}))
-            await mgr.settle()
-        else:
-            return ToolResult.text(f"Unknown act kind: {kind}", is_error=True)
+            elif kind == "fill":
+                await loc.fill(params.get("text") or "", **({"timeout": timeout} if timeout else {}))
+            elif kind == "type":
+                if params.get("slowly"):
+                    await loc.press_sequentially(params.get("text") or "", delay=params.get("delay_ms"))
+                else:
+                    await loc.fill(params.get("text") or "")
+                if params.get("submit"):
+                    await loc.press("Enter")
+                    await mgr.settle()
+            elif kind == "press":
+                await loc.press(params.get("key") or "Enter", **({"delay": params["delay_ms"]} if params.get("delay_ms") else {}))
+                await mgr.settle()
+            elif kind == "select":
+                values = params.get("values") or ([params["value"]] if params.get("value") else [])
+                await loc.select_option(values, **({"timeout": timeout} if timeout else {}))
+            elif kind == "hover":
+                await loc.hover(**({"timeout": timeout} if timeout else {}))
+            elif kind == "scrollIntoView":
+                await loc.scroll_into_view_if_needed(**({"timeout": timeout} if timeout else {}))
+                await mgr.settle()
+            else:
+                return ToolResult.text(f"Unknown act kind: {kind}", is_error=True)
+        except Exception as e:  # noqa: BLE001 — fail fast with a recovery hint on timeouts
+            if "timeout" in type(e).__name__.lower() or "timeout" in str(e).lower():
+                hint = await self._action_failure_hint(page, ref)
+                return ToolResult.text(f"act {kind} on '{ref}' failed: {hint}", is_error=True)
+            raise
 
         return ToolResult.text(await self._snapshot_text(params, target_id))
+
+    async def _action_failure_hint(self, page, ref) -> str:
+        """Why an action timed out — stale / off-screen / covered — with the recovery step."""
+        try:
+            loc = self.manager.resolve_ref(ref, page)
+            if await loc.count() == 0:
+                return (f"ref '{ref}' is stale (no longer on the page) — take a fresh snapshot "
+                        f"and use a ref from it.")
+            info = await loc.first.evaluate(_COVER_CHECK_JS)
+            state = info.get("state")
+            if state == "covered":
+                return (f"it is covered by <{info.get('by')}> at its click point — dismiss that "
+                        f"overlay/popup (or scroll it away), then re-snapshot and retry.")
+            if state in ("hidden", "offscreen"):
+                return ("it is off-screen/not visible — scroll it into view (act scrollIntoView "
+                        "or evaluate window.scrollBy), then re-snapshot and retry.")
+            return ("it didn't become clickable in time — the page likely changed; take a fresh "
+                    "snapshot and retry.")
+        except Exception:  # noqa: BLE001
+            return "it didn't become clickable in time — take a fresh snapshot and retry."
 
     def _modifiers(self, mods) -> list[str]:
         return [_MODIFIER_ALIASES.get(str(m).lower(), str(m)) for m in mods]

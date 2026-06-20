@@ -4,12 +4,87 @@ BaseBrowserSession; this adapter only knows how to LAUNCH the context."""
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import shutil
+import sys
 from pathlib import Path
 
 from agentd.infrastructure.tools.browser.providers.base import BaseBrowserSession
 
 log = logging.getLogger("agentd")
+
+# Directories never worth copying when seeding from a real Chrome profile (caches /
+# transient state — excluding them keeps the copy small and avoids most locked files).
+_PROFILE_EXCLUDE = (
+    "Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache", "DawnWebGPUCache",
+    "GraphiteDawnCache", "ShaderCache", "Service Worker", "component_crx_cache",
+    "extensions_crx_cache", "Crashpad", "Crash Reports", "blob_storage",
+)
+
+
+def _chrome_user_data_dir() -> Path | None:
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA")
+        return Path(base) / "Google" / "Chrome" / "User Data" if base else None
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+    return Path.home() / ".config" / "google-chrome"
+
+
+def resolve_chrome_profile(name_or_path: str) -> Path | None:
+    """Resolve a Chrome profile by absolute path, dir name ("Default"/"Profile 1"),
+    or display name (matched via the User Data 'Local State' info_cache)."""
+    p = Path(name_or_path)
+    if p.is_absolute() and p.is_dir():
+        return p
+    udd = _chrome_user_data_dir()
+    if not udd or not udd.is_dir():
+        return None
+    if (udd / name_or_path).is_dir():
+        return udd / name_or_path
+    try:
+        ls = json.loads((udd / "Local State").read_text(encoding="utf-8"))
+        for d, info in (ls.get("profile", {}).get("info_cache", {}) or {}).items():
+            if info.get("name") == name_or_path and (udd / d).is_dir():
+                return udd / d
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def seed_profile_from_chrome(name_or_path: str, target: Path) -> bool:
+    """Copy a real Chrome profile (cookies/logins, caches excluded) into `target`
+    ONCE, so the browser reuses that login. Idempotent (skips if already seeded).
+    Best-effort: a locked Cookies DB (Chrome running) is skipped with a warning."""
+    if (target / "Default").exists():
+        return True  # already seeded — reuse
+    src = resolve_chrome_profile(name_or_path)
+    if src is None:
+        log.warning("browser: Chrome profile '%s' not found; using a fresh profile", name_or_path)
+        return False
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copytree(
+            src, target / "Default",
+            ignore=shutil.ignore_patterns(*_PROFILE_EXCLUDE),
+            dirs_exist_ok=True,
+        )
+    except shutil.Error as e:  # some files locked (Chrome open) — keep what copied
+        log.warning("browser: some profile files were skipped (close Chrome for a full copy): %s",
+                    str(e)[:200])
+    except Exception as e:  # noqa: BLE001
+        log.warning("browser: profile copy failed (%s); using a fresh profile", e)
+        return False
+    # 'Local State' holds the DPAPI-bound cookie-encryption key — needed to decrypt
+    # the copied cookies as the same OS user.
+    try:
+        shutil.copy2(src.parent / "Local State", target / "Local State")
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("browser: seeded profile from Chrome '%s' -> %s", name_or_path, target)
+    return True
 
 
 def stealth_chromium_kwargs(config, *, headless: bool, persistent: bool) -> dict:
@@ -64,8 +139,14 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
         if self.mode == "persistent":
             # Persistent context: cookies/logins are saved to the profile dir and
             # reused across runs (the browser stays signed in). Log in once headed
-            # via `python -m agentd.main.browser_login`.
-            profile_dir = Path(self.config.state_dir) / "browser-profile"
+            # via `python -m agentd.main.browser_login`, OR seed from an existing
+            # Chrome profile via browser_chrome_profile (login reuse, no manual login).
+            chrome_profile = getattr(self.config, "browser_chrome_profile", None)
+            if chrome_profile:
+                profile_dir = Path(self.config.state_dir) / "browser-profile-imported"
+                seed_profile_from_chrome(chrome_profile, profile_dir)
+            else:
+                profile_dir = Path(self.config.state_dir) / "browser-profile"
             profile_dir.mkdir(parents=True, exist_ok=True)
             kw = stealth_chromium_kwargs(
                 self.config, headless=self.config.browser_headless, persistent=True

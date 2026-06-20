@@ -96,8 +96,35 @@ class Config:
     # navigator.webdriver) so logins on automation-sensitive sites work.
     # AGENTD_BROWSER_STEALTH=0 to disable.
     browser_stealth: bool = True
+    # --- browser ENGINE selection (two independent toggles) --------------------
+    # Default = our built-in Playwright/CDP engine. To use the external Vercel
+    # `agent-browser` engine (via its MCP server) instead, turn ours OFF and
+    # agent-browser ON. Rules: ours wins if BOTH are on; ours is used if BOTH are
+    # off (never lose the browser). agent-browser must be installed separately
+    # (`npm i -g agent-browser && agent-browser install`); configure its behaviour
+    # with its own AGENT_BROWSER_* env vars (e.g. AGENT_BROWSER_PROFILE, _HEADED).
+    browser_engine_playwright: bool = True       # AGENTD_BROWSER_PLAYWRIGHT
+    browser_engine_agent_browser: bool = False   # AGENTD_BROWSER_AGENT_BROWSER
+    # Command that launches agent-browser's MCP server (stdio). Default: ["agent-browser","mcp"].
+    agent_browser_command: list | None = None    # AGENTD_AGENT_BROWSER_COMMAND (space-separated)
+    # Surface non-ARIA clickable elements (cursor:pointer / onclick / tabindex /
+    # contenteditable) in snapshots with [ref=cN], so the agent can target clickable
+    # <div>s and styled controls the accessibility tree misses (ported from
+    # agent-browser's cursor scan). AGENTD_BROWSER_CURSOR_SCAN=0 to disable.
+    browser_cursor_scan: bool = True
+    # Seed the browser profile from an existing CHROME profile (login reuse): a profile
+    # dir name ("Default", "Profile 1"), its display name, or an absolute path. Copied
+    # ONCE (cookies/logins, caches excluded) into <state_dir>/browser-profile-imported.
+    # Close Chrome first for a clean copy (the live Cookies DB is locked while it runs).
+    # AGENTD_BROWSER_CHROME_PROFILE.
+    browser_chrome_profile: str | None = None
     # How many recent console messages per tab the `console` action can return.
     browser_console_buffer: int = 200
+    # Default per-action timeout (ms) for click/fill/select/hover/etc. Playwright's
+    # own default is 30s, which makes a covered/stale element hang the whole flow for
+    # 30s; a shorter cap fails fast so the agent can re-snapshot and recover.
+    # AGENTD_BROWSER_ACTION_TIMEOUT (ms).
+    browser_action_timeout_ms: int = 12000
     exec_timeout_sec: int = 1800
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
@@ -225,6 +252,24 @@ def load_config(path: Path | None = None) -> Config:
         cfg.browser_stealth = (
             os.environ["AGENTD_BROWSER_STEALTH"].lower() not in ("0", "false", "no", "")
         )
+    if os.environ.get("AGENTD_BROWSER_PLAYWRIGHT"):
+        cfg.browser_engine_playwright = (
+            os.environ["AGENTD_BROWSER_PLAYWRIGHT"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_BROWSER_AGENT_BROWSER"):
+        cfg.browser_engine_agent_browser = (
+            os.environ["AGENTD_BROWSER_AGENT_BROWSER"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_AGENT_BROWSER_COMMAND"):
+        cfg.agent_browser_command = os.environ["AGENTD_AGENT_BROWSER_COMMAND"].split()
+    if os.environ.get("AGENTD_BROWSER_CURSOR_SCAN"):
+        cfg.browser_cursor_scan = (
+            os.environ["AGENTD_BROWSER_CURSOR_SCAN"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_BROWSER_CHROME_PROFILE"):
+        cfg.browser_chrome_profile = os.environ["AGENTD_BROWSER_CHROME_PROFILE"].strip() or None
+    if os.environ.get("AGENTD_BROWSER_ACTION_TIMEOUT"):
+        cfg.browser_action_timeout_ms = int(os.environ["AGENTD_BROWSER_ACTION_TIMEOUT"])
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
     if os.environ.get("AGENTD_PARALLEL_SEARCH") is not None:
@@ -275,3 +320,20 @@ def load_config(path: Path | None = None) -> Config:
     cfg.state_dir = Path(cfg.state_dir)
     cfg.skills_dir = Path(cfg.skills_dir)
     return cfg
+
+
+def resolve_browser_engine(config) -> str:
+    """Decide the browser engine from the two toggles.
+
+    Returns "playwright" (our built-in engine) or "agent_browser" (external, via
+    its MCP server). Ours is the default and wins ties: agent-browser is used ONLY
+    when ours is explicitly OFF and agent-browser is ON. Both off => ours, so the
+    browser is never accidentally lost.
+    """
+    use_pw = getattr(config, "browser_engine_playwright", True)
+    use_ab = getattr(config, "browser_engine_agent_browser", False)
+    if use_pw:
+        return "playwright"
+    if use_ab:
+        return "agent_browser"
+    return "playwright"
