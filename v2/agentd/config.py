@@ -170,6 +170,16 @@ class Config:
     autonomy_enabled: bool = False
     heartbeat_default_interval: str = ""       # e.g. "30m"; per-agent agent.toml overrides
     heartbeat_active_hours: str = ""           # e.g. "08:00-22:00" (empty = always)
+    # Outbound notifications (Phase 5a): the gateway reaches the user when a scheduled
+    # run ends blocked/failed (client-push + durable). On by default; AGENTD_NOTIFY=0
+    # disables. Only ever fires under autonomy (no cron runs => nothing to notify).
+    notify_enabled: bool = True
+    # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
+    # Each: {type: email|memory, agent, notify_to?, poll_query?, *_tool?}. A channel
+    # polls for inbound messages -> runs its agent -> replies on the same channel; one
+    # with `notify_to` also delivers notifications there (reuses the one transport).
+    channels: list = field(default_factory=list)
+    channel_poll_seconds: float = 15.0         # inbound poll cadence (AGENTD_CHANNEL_POLL)
 
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
@@ -301,6 +311,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
     if os.environ.get("AGENTD_AUTONOMY") is not None:
         cfg.autonomy_enabled = os.environ["AGENTD_AUTONOMY"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("AGENTD_NOTIFY"):
+        cfg.notify_enabled = os.environ["AGENTD_NOTIFY"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("AGENTD_CHANNEL_POLL"):
+        cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
         cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
     if os.environ.get("AGENTD_HEARTBEAT_HOURS"):

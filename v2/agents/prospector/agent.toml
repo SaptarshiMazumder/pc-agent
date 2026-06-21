@@ -1,0 +1,5 @@
+name = "Prospector"
+
+# All tools available (browser, web_fetch/search, read/write/edit/ls/find, exec/process,
+# goal, report_outcome, Gmail MCP). Unrestricted so the scrape+analyze+deliver loop can't
+# be tripped by a missing tool. No heartbeat — a daily CRON job drives it (set separately).

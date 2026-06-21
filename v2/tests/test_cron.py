@@ -263,6 +263,18 @@ def test_store_run_history(tmp_path):
     store.close()
 
 
+def test_store_run_outcome(tmp_path):
+    store = SqliteTaskStore(tmp_path / "a.sqlite")
+    store.finish_run(store.record_run("t1", "main"), "blocked",
+                     outcome="blocked", detail="needs Drive auth")
+    r = store.recent_runs(task_id="t1")[0]
+    assert r.status == "blocked" and r.outcome == "blocked" and r.detail == "needs Drive auth"
+    store.finish_run(store.record_run("t2", "main"), "ok")      # no outcome declared
+    r2 = store.recent_runs(task_id="t2")[0]
+    assert r2.status == "ok" and r2.outcome is None and r2.detail == ""
+    store.close()
+
+
 @pytest.mark.asyncio
 async def test_cron_tool_status_runs_wake(tmp_path):
     import time as _t
@@ -368,6 +380,13 @@ def test_gateway_cron_runs_full_history(tmp_path):
     assert {r["status"] for r in out["runs"]} == {"ok", "error", "running"}
     durs = {r["status"]: r["durationSec"] for r in out["runs"]}
     assert durs["running"] is None and durs["ok"] is not None and durs["error"] is not None  # finished have a duration
+    assert all("outcome" in r and "detail" in r for r in out["runs"])   # outcome surfaced
+
+    # a blocked outcome shows through cron.runs
+    store.finish_run(store.record_run("t3", "alpha"), "blocked",
+                     outcome="blocked", detail="needs Drive auth")
+    blocked = gw._cron_runs({"id": "t3"})["runs"][0]
+    assert blocked["status"] == "blocked" and blocked["detail"] == "needs Drive auth"
 
     only_t1 = gw._cron_runs({"id": "t1"})["runs"]         # filter by job
     assert len(only_t1) == 2 and all(r["taskId"] == "t1" for r in only_t1)

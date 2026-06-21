@@ -47,14 +47,15 @@ package "Gateway" #EDE7F6 {
 }
 
 package "Infrastructure" #F2F2F2 {
-  database "SQLite ledger  (<state_dir>/autonomy.sqlite)\n--\ntasks (cron jobs)\nheartbeats (interval, next_due)\ngoals (objective, budget)\nruns (history)" as DB #FFE9C7
+  database "SQLite ledger  (<state_dir>/autonomy.sqlite)\n--\ntasks (cron jobs)\nheartbeats (interval, next_due)\ngoals (objective, budget)\nruns (history: status / outcome / detail)" as DB #FFE9C7
   rectangle "Engine (reason -> act loop)\nreports token usage -> goals" as ENG #C8E6C9
 }
 
 package "Tools  (the agent calls these)" #F2F2F2 {
-  rectangle "cron  - add / list / remove" as T_CRON #FFE9C7
+  rectangle "cron  - add/list/get/update/remove\nrun / runs / status / wake" as T_CRON #FFE9C7
   rectangle "create_goal / update_goal / get_goal" as T_GOAL #FFE9C7
   rectangle "heartbeat_respond  (heartbeat mode only)" as T_HB #FFE9C7
+  rectangle "report_outcome  (cron mode only)\ndone / blocked / failed + detail" as T_OUT #FFE9C7
 }
 
 SCHED --> P_TS : due jobs / heartbeats?
@@ -62,10 +63,12 @@ P_TS ..> DB
 SCHED --> AUTO : fire(agent, mode, payload)
 AUTO --> GW : post turn (no user)
 GW --> SVC
-SVC --> ENG : run (mode tools + HEARTBEAT.md if tick)
+SVC --> ENG : run (mode tools + HEARTBEAT.md if tick / report_outcome if cron)
 ENG --> T_HB
+ENG --> T_OUT
 T_HB --> AUTO : outcome + notify + nextCheck
-AUTO --> DB : record run, set next_due
+T_OUT --> AUTO : done / blocked / failed + detail
+AUTO --> DB : record run (status+outcome+detail), set next_due
 T_CRON --> DB : write a job
 T_GOAL --> DB : read / write goal
 ENG ..> T_GOAL : token usage updates budget
@@ -73,8 +76,10 @@ ENG ..> T_GOAL : token usage updates budget
 note right of SVC
   RUN MODE = interactive | heartbeat | cron.
   heartbeat -> + HEARTBEAT.md + heartbeat_respond.
-  interactive (today) -> neither;
-  reactive chat path is unchanged.
+  cron -> + scheduled-run note + report_outcome
+  (declare done/blocked/failed; history shows
+  *did it work*, not just *did it run*).
+  interactive (today) -> none; chat path unchanged.
 end note
 
 note bottom of DB

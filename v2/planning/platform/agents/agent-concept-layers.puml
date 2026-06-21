@@ -1,0 +1,98 @@
+@startuml agent-concept-layers
+' ============================================================================
+'  Concept map: Tool vs Connector vs Channel vs MCP vs Plugin vs Skill,
+'  shown as containment layers ("circles within circles") for BOTH
+'  the Claude ecosystem and OpenClaw.
+'
+'  Reading rule: the model in the centre can ONLY call TOOLS. Every box that
+'  WRAPS a tool is just packaging that delivers tools (+ instructions) to it.
+'
+'  Render: java -jar ../../../plantuml.jar -tpng agent-concept-layers.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 14
+skinparam ranksep 26
+skinparam ArrowColor #555555
+skinparam package {
+  BorderColor #777777
+  FontStyle bold
+  FontSize 14
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 14
+  FontStyle bold
+}
+
+title Layers of capability - what contains what\n(orange = TOOL | blue = one-service integration | purple = bundle | green = instructions)
+
+' ----- the universal centre -------------------------------------------------
+rectangle "AGENT LOOP / LLM\n**can ONLY call Tools**" as CORE #FFFFFF
+
+' ===========================================================================
+'  CLAUDE
+' ===========================================================================
+package "CLAUDE  (claude.ai / Desktop / Code)" #FFF3E0 {
+
+  rectangle "**PLUGIN** - distributable bundle\n(installed from a marketplace)" as C_PLUGIN #E1BEE7 {
+
+    rectangle "Slash commands" as C_CMD #ECEFF1
+    rectangle "Subagents" as C_AGT #ECEFF1
+    rectangle "Hooks" as C_HOOK #ECEFF1
+    rectangle "**Skill**\nSKILL.md = on-demand instructions" as C_SKILL #C8E6C9
+
+    rectangle "**CONNECTOR** = remote MCP server\n(one SaaS, OAuth: Gmail / Notion / Figma)" as C_CONN #BBDEFB {
+      rectangle "Tool\n(read_email)" as C_T1 #FFE0B2
+      rectangle "Tool\n(send_email)" as C_T2 #FFE0B2
+    }
+  }
+}
+
+' ===========================================================================
+'  OPENCLAW
+' ===========================================================================
+package "OPENCLAW" #E8F0FE {
+
+  rectangle "**PLUGIN / EXTENSION** - ownership bundle\n(owns a whole company or feature)" as O_PLUGIN #E1BEE7 {
+
+    rectangle "Capabilities\n(provider / speech / web-search contracts)" as O_CAP #ECEFF1
+    rectangle "CLI commands / HTTP routes / services" as O_CLI #ECEFF1
+    rectangle "Hooks" as O_HOOK #ECEFF1
+    rectangle "**Skill**\ncontent pack (instructions)" as O_SKILL #C8E6C9
+
+    rectangle "**CHANNEL** = messaging surface\n(Slack / Discord / WhatsApp)" as O_CHAN #BBDEFB {
+      rectangle "shared **message** Tool" as O_T1 #FFE0B2
+    }
+
+    rectangle "**MCP server** = external tools" as O_MCP #BBDEFB {
+      rectangle "Tool" as O_T2 #FFE0B2
+    }
+  }
+}
+
+' ----- the model only ever touches the orange (tool) layer -------------------
+CORE --> C_T1 : calls
+CORE --> C_T2 : calls
+CORE --> O_T1 : calls
+CORE --> O_T2 : calls
+CORE ..> C_SKILL : reads instructions
+CORE ..> O_SKILL : reads instructions
+
+note bottom of CORE
+  **Same rule on both sides:**
+  1. TOOL (orange) = the atom the model actually invokes.
+  2. CONNECTOR / CHANNEL / MCP (blue) = ONE service's set of tools.
+  3. PLUGIN (purple) = a bundle that may hold many of the blue boxes
+     PLUS commands, agents, hooks and skills.
+  4. SKILL (green) = instructions injected into context, not a callable.
+
+  "Connector" is a Claude word; OpenClaw splits the same idea into
+  **Channel** (chat surfaces) + **MCP server** (external tools).
+  Blue boxes can also exist standalone - they don't *need* a plugin.
+end note
+
+@enduml

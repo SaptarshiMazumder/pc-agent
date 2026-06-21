@@ -100,6 +100,8 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             config, tools, agent.model or config.model, config.reasoning_effort,
             skills=select_skills(skills.all(), agent), agent=agent,
             heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
+            cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
+            channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
         ),
     )
 

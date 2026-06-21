@@ -250,6 +250,9 @@ class TerminalClient:
                                 RuntimeError((frame.get("payload") or {}).get("error", "request failed"))
                             )
                 elif frame.get("type") == "event":
+                    if frame.get("event") == "notification":          # session-less, global
+                        self._render_notification(frame.get("payload") or {})
+                        continue
                     payload = frame.get("payload") or {}
                     if payload.get("sessionKey") == self.session_key:
                         self._render(payload.get("event") or {})
@@ -301,6 +304,18 @@ class TerminalClient:
             self._live = None
             self._mode = None
             self._buf = ""
+
+    def _render_notification(self, n: dict) -> None:
+        """A live notification pushed by the gateway (e.g. a scheduled run got blocked).
+        Session-less — shown wherever you are, in a lime-bordered box."""
+        self._close_live()
+        body = Text()
+        body.append(f"🔔 {n.get('text', 'notification')}\n", style=f"bold {LIME}")
+        if n.get("detail"):
+            body.append(n["detail"], style="dim")
+        console.print(Panel.fit(
+            body, border_style=LIME,
+            title=f"notification · {n.get('kind', 'info')}", title_align="left"))
 
     # --- event rendering -------------------------------------------------
 
@@ -375,7 +390,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /cron  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -452,13 +467,17 @@ class TerminalClient:
                                 console.print("[dim]no run history yet[/]")
                                 continue
                             table = Table(show_header=True, header_style=f"bold {LIME}", box=None, pad_edge=False)
-                            for col in ("started", "finished", "dur", "agent", "task", "status"):
+                            for col in ("started", "finished", "dur", "agent", "task", "status", "detail"):
                                 table.add_column(col)
+                            # error/failed = red (kept); ok = lime; blocked/aborted/running = lime-deep
+                            colorof = {"ok": "ok", "error": "error", "failed": "error",
+                                       "blocked": "running", "aborted": "running", "running": "running"}
                             for r in hist:
                                 dur = f"{r['durationSec']}s" if r.get("durationSec") is not None else "—"
-                                color = {"ok": "ok", "error": "error"}.get(r["status"], "running")
+                                color = colorof.get(r["status"], "running")
                                 table.add_row(r["startedAt"], r.get("finishedAt") or "—", dur,
-                                              r["agentId"], r["taskId"], f"[{color}]{r['status']}[/]")
+                                              r["agentId"], r["taskId"], f"[{color}]{r['status']}[/]",
+                                              (r.get("detail") or "")[:44])
                             console.print(table)
                             console.print(f"[dim]{len(hist)} run(s)[/]")
                             continue
@@ -502,9 +521,40 @@ class TerminalClient:
                         if runs:
                             console.print("[dim]recent runs:[/]")
                             for r in runs[:5]:
-                                console.print(f"  [dim]{r['at']}[/] {r['agentId']} [{r['taskId']}] {r['status']}")
+                                tail = f" [dim]— {r['detail']}[/]" if r.get("detail") else ""
+                                console.print(f"  [dim]{r['at']}[/] {r['agentId']} [{r['taskId']}] {r['status']}{tail}")
                         if jobs:
                             console.print("[dim]manage: /cron rm <id> · /cron run <id> · /cron off|on <id> · /cron history [id][/]")
+                        continue
+                    if line in ("/notifications", "/notifs", "/n") or line.startswith(("/notifications ", "/notifs ")):
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1] in ("ack", "read"):
+                            nid = parts[2] if len(parts) >= 3 else "*"
+                            try:
+                                resp = await self.request("notifications.ack", {"id": nid})
+                                console.print(f"[dim]acked {resp.get('acked', 0)}[/]")
+                            except RuntimeError as e:
+                                console.print(f"[error]{e}[/]")
+                            continue
+                        try:
+                            payload = await self.request("notifications.list", {})
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        if not payload.get("autonomy"):
+                            console.print("[dim]autonomy is off — no notifications[/]")
+                            continue
+                        ns = payload.get("notifications") or []
+                        if not ns:
+                            console.print("[dim]no notifications[/]")
+                            continue
+                        for x in ns:
+                            mark = "[bold]●[/]" if not x["read"] else "[dim]○[/]"
+                            kc = "error" if x["kind"] == "failed" else "ok"
+                            tail = f" [dim]— {x['detail']}[/]" if x.get("detail") else ""
+                            console.print(f"  {mark} [dim]{x['at']}[/] [{kc}]{x['kind']}[/] "
+                                          f"[bold]{x['agentId']}[/] {x['text']}{tail}  [dim]{x['id']}[/]")
+                        console.print("[dim]ack: /notifications ack <id>  (or 'ack' for all)[/]")
                         continue
                     if line == "/sessions" or line.startswith("/sessions "):
                         # scope to the agent we're on — each agent has its own threads

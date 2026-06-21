@@ -19,11 +19,13 @@ from datetime import datetime
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
 
+from agentd.application.run_context import take_run_outcome
 from agentd.application.services.agent_service import AgentService
 from agentd.config import Config
-from agentd.domain.agent import RunMode
+from agentd.domain.agent import RunMode, agent_id_from_session_key
 from agentd.domain.autonomy import ScheduledTask
 from agentd.domain.events import AgentEvent
+from agentd.domain.notify import Notification
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
@@ -68,6 +70,9 @@ class Gateway:
     mcp_provider: object | None = None             # injected; discovered at startup, closed on shutdown
     registry: object | None = None                 # injected; the agent registry (for the scheduler)
     task_store: object | None = None               # injected; durable cron ledger (Phase 2b), or None
+    notifier: object | None = None                  # built in serve(); outbound user notifications (5a)
+    channels: list = field(default_factory=list)    # active messaging channels (5b), built in serve()
+    channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -76,7 +81,10 @@ class Gateway:
 
     async def serve(self) -> None:
         await self._discover_mcp_tools()  # connect external MCP servers, add their tools
+        self._build_channels()            # messaging channels (5b) — email needs MCP tools first
+        self._build_notifier()            # outbound notifications (client-push + durable + channels)
         scheduler_task = self._start_scheduler()  # autonomy (heartbeat); None if disabled
+        poller_task = self._start_channel_poller()  # inbound channels; None if no channels
         async with serve(self._handle_conn, self.config.host, self.config.port):
             log.info("listening on ws://%s:%s", self.config.host, self.config.port)
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
@@ -86,6 +94,8 @@ class Gateway:
             finally:
                 if scheduler_task is not None:
                     scheduler_task.cancel()
+                if poller_task is not None:
+                    poller_task.cancel()
                 if self.task_store is not None:
                     self.task_store.close()
                 if self.browser_manager is not None:
@@ -107,6 +117,99 @@ class Gateway:
             task_store=self.task_store, fire_task=self._post_cron,   # cron (2b)
         )
         return asyncio.create_task(scheduler.run(), name="autonomy-scheduler")
+
+    # ------------------------------------------------------------- channels (5b)
+
+    def _build_channels(self) -> None:
+        """Build messaging channels from config (default none). Email channels invoke
+        the Gmail MCP via _invoke_tool. A channel with `notify_to` also becomes a
+        ChannelNotifier so notifications reach you on it (reuses the one transport)."""
+        cfgs = getattr(self.config, "channels", None) or []
+        if not cfgs:
+            return
+        from agentd.infrastructure.channels import build_channel
+        from agentd.infrastructure.notify import ChannelNotifier
+
+        for c in cfgs:
+            try:
+                ch = build_channel(c, self._invoke_tool)
+            except Exception:  # noqa: BLE001 — a bad channel never blocks serving
+                log.warning("failed to build channel %s", c, exc_info=True)
+                continue
+            if ch is None:
+                continue
+            self.channels.append(ch)
+            notify_to = (c.get("notify_to") or "").strip()
+            if notify_to:
+                self.channel_notifiers.append(ChannelNotifier(ch, notify_to))
+            log.info("channel ready: %s -> agent %s", ch.name, getattr(ch, "agent_id", "?"))
+
+    def _start_channel_poller(self):
+        """One shared loop polling every channel for inbound messages. None if no channels."""
+        if not self.channels:
+            return None
+        from agentd.infrastructure.channels import ChannelPoller
+
+        poller = ChannelPoller(
+            self.channels, self._fire_channel,
+            interval=float(getattr(self.config, "channel_poll_seconds", 15.0)))
+        return asyncio.create_task(poller.run(), name="channel-poller")
+
+    async def _invoke_tool(self, name: str, params: dict) -> str:
+        """Invoke a registered (namespaced MCP) tool by name OUTSIDE the agent loop —
+        lets a channel send/poll via an MCP (e.g. Gmail). Returns the tool's text."""
+        tool = self.service.find_tool(name)
+        if tool is None:
+            raise RuntimeError(f"tool not available: {name}")
+        result = await tool.execute(uuid.uuid4().hex[:8], params or {}, asyncio.Event())
+        text = "".join(getattr(b, "text", "") for b in (result.content or []))
+        if result.is_error:
+            raise RuntimeError(text or f"{name} failed")
+        return text
+
+    async def _fire_channel(self, channel, msg) -> None:
+        """An inbound message arrived -> run the bound agent on a conversation-bound
+        session and reply on the SAME channel. Busy-guarded per peer."""
+        agent_id = getattr(channel, "agent_id", "main")
+        session_key = f"agent:{agent_id}:{channel.name}:{msg.peer}"
+        existing = self.runs.get(session_key)
+        if existing is not None and existing.task is not None and not existing.task.done():
+            return  # a run for this peer is already in flight; next poll picks it up
+        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
+                           abort=asyncio.Event(), client_id=None)
+        handle.task = asyncio.create_task(self._run_channel(handle, channel, msg, agent_id))
+        self.runs[session_key] = handle
+        log.info("channel %s: message from %s -> run %s", channel.name, msg.peer, handle.run_id)
+
+    async def _run_channel(self, handle: "RunHandle", channel, msg, agent_id: str) -> None:
+        await self._run(handle, msg.text, mode=RunMode.CHANNEL, agent_id=agent_id)
+        reply = self._last_answer(agent_id, handle.session_key)
+        if reply:
+            try:
+                await channel.send(msg.peer, reply)
+            except Exception:  # noqa: BLE001
+                log.warning("channel reply send failed (%s)", channel.name, exc_info=True)
+
+    def _last_answer(self, agent_id: str, session_key: str) -> str:
+        """The agent's last assistant text in this session — the reply to send back."""
+        from agentd.domain.messages import AssistantMessage, TextContent
+        from agentd.infrastructure.memory.local_store import SessionStore
+
+        try:
+            state_dir = self.config.state_dir
+            if self.registry is not None:
+                try:
+                    state_dir = self.registry.get(agent_id).state_dir
+                except KeyError:
+                    pass
+            for m in reversed(SessionStore(state_dir, session_key).load()):
+                if isinstance(m, AssistantMessage):
+                    text = "".join(c.text for c in m.content if isinstance(c, TextContent))
+                    if text.strip():
+                        return text.strip()
+        except Exception:  # noqa: BLE001
+            log.warning("could not read channel reply for %s", session_key, exc_info=True)
+        return ""
 
     async def _post_cron(self, task) -> bool:
         """Fire a due scheduled task as a cron-mode run (the agent executes its
@@ -211,6 +314,10 @@ class Gateway:
                 payload = self._cron_run(req.params)
             elif req.method == "cron.runs":
                 payload = self._cron_runs(req.params)
+            elif req.method == "notifications.list":
+                payload = self._notifications_list(req.params)
+            elif req.method == "notifications.ack":
+                payload = self._notifications_ack(req.params)
             else:
                 return Response(id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"})
             return Response(id=req.id, ok=True, payload=payload)
@@ -263,6 +370,7 @@ class Gateway:
         } for t in self.task_store.list(None)]
         runs = [{
             "taskId": r.task_id, "agentId": r.agent_id, "status": r.status,
+            "detail": r.detail,
             "at": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M"),
         } for r in self.task_store.recent_runs(limit=10)]
         return {"autonomy": True, "jobs": jobs, "runs": runs}
@@ -280,6 +388,7 @@ class Gateway:
             limit = 200
         runs = [{
             "id": r.id, "taskId": r.task_id, "agentId": r.agent_id, "status": r.status,
+            "outcome": r.outcome, "detail": r.detail,
             "startedAt": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M:%S"),
             "finishedAt": (datetime.fromtimestamp(r.finished_at).strftime("%H:%M:%S")
                            if r.finished_at else None),
@@ -436,6 +545,7 @@ class Gateway:
             await self._broadcast(handle.session_key, handle.run_id, event)
 
         status = "ok"
+        err_msg = ""
         try:
             await self.service.handle_message(
                 handle.session_key, message, on_event, handle.abort,
@@ -445,6 +555,7 @@ class Gateway:
             status = "aborted"  # abort already broadcast agent_end(aborted) from the loop
         except Exception as e:
             status = "error"
+            err_msg = str(e)
             log.exception("run %s crashed", handle.run_id)
             await self._broadcast(
                 handle.session_key,
@@ -452,25 +563,98 @@ class Gateway:
                 AgentEvent("agent_end", {"stopReason": "error", "error": str(e)}),
             )
         finally:
-            # record the outcome of a cron run in the history ledger
+            # record the outcome of a cron run in the history ledger. Headline `status`
+            # precedence: engine error/abort wins; else fold in the agent's declared
+            # outcome (report_outcome -> done/blocked/failed), defaulting to ok.
+            declared = take_run_outcome()          # (raw_status, detail) | None
+            outcome = detail = None
+            if declared:
+                outcome, detail = declared
+                if status == "ok":
+                    status = {"done": "ok", "blocked": "blocked",
+                              "failed": "failed"}.get(outcome, "ok")
             if handle.cron_run_id is not None and self.task_store is not None:
                 try:
-                    self.task_store.finish_run(handle.cron_run_id, status)
+                    self.task_store.finish_run(
+                        handle.cron_run_id, status, outcome=outcome, detail=detail or "")
                 except Exception:  # noqa: BLE001
                     pass
+            # reach the user when a SCHEDULED run couldn't finish on its own (5a) —
+            # gated on cron_run_id so interactive/heartbeat runs never push a notice.
+            if (self.notifier is not None and handle.cron_run_id is not None
+                    and status in ("blocked", "failed", "error")):
+                await self._notify_run(handle, status, detail or err_msg)
 
     async def _broadcast(self, session_key: str, run_id: str, event: AgentEvent) -> None:
-        frame = dump_frame(
-            Event(
-                event="chat.event",
-                payload={"sessionKey": session_key, "runId": run_id, "event": event.to_dict()},
-            )
-        )
+        await self._send_all(dump_frame(Event(
+            event="chat.event",
+            payload={"sessionKey": session_key, "runId": run_id, "event": event.to_dict()},
+        )))
+
+    async def _send_all(self, frame: str) -> None:
+        """Send one frame to every connected client, pruning dead connections."""
         dead = []
         for ws in self.clients:
             try:
                 await ws.send(frame)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 dead.append(ws)
         for ws in dead:
             self.clients.discard(ws)
+
+    # ---------------------------------------------------------- notifications
+
+    def _build_notifier(self) -> None:
+        """Compose the outbound notify channels (client-push + durable store). Default
+        on; AGENTD_NOTIFY=0 disables it. The task_store doubles as the NotifyStore."""
+        if self.notifier is not None or not getattr(self.config, "notify_enabled", True):
+            return
+        from agentd.infrastructure.notify import build_notifier
+
+        self.notifier = build_notifier(
+            self.task_store, self._push_notification, extra=self.channel_notifiers)
+
+    async def _push_notification(self, n: Notification) -> None:
+        """Broadcast a notification to connected clients (session-less, event=notification)."""
+        await self._send_all(dump_frame(Event(event="notification", payload={
+            "id": n.id, "agentId": n.agent_id, "kind": n.kind,
+            "text": n.text, "detail": n.detail,
+            "at": datetime.fromtimestamp(n.created_at or time.time()).strftime("%Y-%m-%d %H:%M"),
+        })))
+
+    async def _notify_run(self, handle: "RunHandle", status: str, detail: str) -> None:
+        """A scheduled run ended blocked/failed -> notify the user (5a)."""
+        agent_id = agent_id_from_session_key(handle.session_key)
+        n = Notification(
+            id=uuid.uuid4().hex[:12], agent_id=agent_id, kind=status,
+            text=f"{agent_id} — scheduled run {status}", detail=detail, created_at=time.time())
+        try:
+            await self.notifier.notify(n)
+        except Exception:  # noqa: BLE001 — notify must never break the run
+            log.warning("notify failed", exc_info=True)
+
+    def _notifications_list(self, params: dict) -> dict:
+        if self.task_store is None:
+            return {"autonomy": False, "notifications": []}
+        try:
+            limit = max(1, min(int(params.get("limit", 50)), 500))
+        except (TypeError, ValueError):
+            limit = 50
+        ns = self.task_store.notifications(
+            agent_id=(params.get("agentId") or "").strip() or None,
+            unread_only=bool(params.get("unread", False)), limit=limit)
+        return {"autonomy": True, "notifications": [{
+            "id": n.id, "agentId": n.agent_id, "kind": n.kind, "text": n.text,
+            "detail": n.detail, "read": n.read,
+            "at": datetime.fromtimestamp(n.created_at).strftime("%Y-%m-%d %H:%M"),
+        } for n in ns]}
+
+    def _notifications_ack(self, params: dict) -> dict:
+        if self.task_store is None:
+            return {"acked": 0}
+        nid = (params.get("id") or "").strip()
+        if nid in ("*", "all"):                     # ack everything unread
+            acked = sum(1 for n in self.task_store.notifications(unread_only=True, limit=1000)
+                        if self.task_store.ack(n.id))
+            return {"acked": acked}
+        return {"acked": int(bool(nid and self.task_store.ack(nid))), "id": nid}

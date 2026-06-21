@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 
 from agentd.domain.autonomy import Goal, RunRecord, ScheduledTask
+from agentd.domain.notify import Notification
 from agentd.infrastructure.autonomy.schedule import next_due_after
 
 _SCHEMA = """
@@ -48,12 +49,25 @@ CREATE TABLE IF NOT EXISTS runs (
   agent_id    TEXT NOT NULL,
   started_at  REAL NOT NULL,
   finished_at REAL,
-  status      TEXT NOT NULL DEFAULT 'running'   -- running | ok | error | aborted
+  status      TEXT NOT NULL DEFAULT 'running',  -- running | ok | blocked | failed | error | aborted
+  outcome     TEXT,                             -- agent-declared: done | blocked | failed
+  detail      TEXT NOT NULL DEFAULT ''          -- one-line reason
 );
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at);
+CREATE TABLE IF NOT EXISTS notifications (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  kind        TEXT NOT NULL,                    -- blocked | failed | info
+  text        TEXT NOT NULL,
+  detail      TEXT NOT NULL DEFAULT '',
+  created_at  REAL NOT NULL DEFAULT 0,
+  read        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(read, created_at);
 """
 
-_RUN_COLS = ("id", "task_id", "agent_id", "started_at", "finished_at", "status")
+_RUN_COLS = ("id", "task_id", "agent_id", "started_at", "finished_at", "status", "outcome", "detail")
+_NOTIF_COLS = ("id", "agent_id", "kind", "text", "detail", "created_at", "read")
 
 _COLS = ("id", "agent_id", "session_key", "kind", "payload", "next_due",
          "every_seconds", "cron_expr", "tz", "enabled", "created_at", "delivery")
@@ -84,10 +98,15 @@ class SqliteTaskStore:
         self._db = sqlite3.connect(str(self._path))
         self._db.executescript(_SCHEMA)
         # migrate older DBs that predate newer columns (each ALTER is a no-op if present)
-        for col, ddl in (("delivery", "TEXT NOT NULL DEFAULT 'run'"),
-                         ("cron_expr", "TEXT"), ("tz", "TEXT")):
+        for table, col, ddl in (
+            ("tasks", "delivery", "TEXT NOT NULL DEFAULT 'run'"),
+            ("tasks", "cron_expr", "TEXT"),
+            ("tasks", "tz", "TEXT"),
+            ("runs", "outcome", "TEXT"),                       # agent-declared outcome
+            ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),    # one-line reason
+        ):
             try:
-                self._db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
             except sqlite3.OperationalError:
                 pass
         self._db.commit()
@@ -188,9 +207,11 @@ class SqliteTaskStore:
         self._db.commit()
         return run_id
 
-    def finish_run(self, run_id: str, status: str) -> None:
-        self._db.execute("UPDATE runs SET finished_at=?, status=? WHERE id=?",
-                         (time.time(), status, run_id))
+    def finish_run(self, run_id: str, status: str,
+                   outcome: str | None = None, detail: str = "") -> None:
+        self._db.execute(
+            "UPDATE runs SET finished_at=?, status=?, outcome=?, detail=? WHERE id=?",
+            (time.time(), status, outcome, detail or "", run_id))
         self._db.commit()
 
     def recent_runs(self, agent_id: str | None = None, task_id: str | None = None,
@@ -205,6 +226,38 @@ class SqliteTaskStore:
             f"SELECT {','.join(_RUN_COLS)} FROM runs{clause} ORDER BY started_at DESC LIMIT ?",
             (*args, limit)).fetchall()
         return [RunRecord(*r) for r in rows]
+
+    # ---- NotifyStore (outbound user notifications, Phase 5a) ----------------
+
+    def save(self, n: Notification) -> str:
+        notif_id = n.id or uuid.uuid4().hex[:12]
+        self._db.execute(
+            "INSERT OR REPLACE INTO notifications "
+            "(id, agent_id, kind, text, detail, created_at, read) VALUES (?,?,?,?,?,?,?)",
+            (notif_id, n.agent_id, n.kind, n.text, n.detail,
+             n.created_at or time.time(), int(n.read)))
+        self._db.commit()
+        return notif_id
+
+    def notifications(self, agent_id: str | None = None, unread_only: bool = False,
+                      limit: int = 50) -> list[Notification]:
+        where, args = [], []
+        if agent_id:
+            where.append("agent_id=?"); args.append(agent_id)
+        if unread_only:
+            where.append("read=0")
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        rows = self._db.execute(
+            f"SELECT {','.join(_NOTIF_COLS)} FROM notifications{clause} "
+            "ORDER BY created_at DESC LIMIT ?", (*args, limit)).fetchall()
+        return [Notification(
+            id=r[0], agent_id=r[1], kind=r[2], text=r[3], detail=r[4],
+            created_at=r[5], read=bool(r[6])) for r in rows]
+
+    def ack(self, notif_id: str) -> bool:
+        cur = self._db.execute("UPDATE notifications SET read=1 WHERE id=?", (notif_id,))
+        self._db.commit()
+        return cur.rowcount > 0
 
     def close(self) -> None:
         try:

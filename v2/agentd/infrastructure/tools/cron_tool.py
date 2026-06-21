@@ -146,7 +146,8 @@ class CronTool(Tool):
             lines.append("Recent runs:")
             for r in runs:
                 when = datetime.fromtimestamp(r.started_at).strftime("%m-%d %H:%M")
-                lines.append(f"  - {when} {r.agent_id} [{r.task_id}] {r.status}")
+                tail = f" — {r.detail}" if r.detail else ""
+                lines.append(f"  - {when} {r.agent_id} [{r.task_id}] {r.status}{tail}")
         return ToolResult.text("\n".join(lines),
                                details={"active": len(active), "agents": sorted(by_agent)})
 
@@ -157,7 +158,8 @@ class CronTool(Tool):
         if not runs:
             return ToolResult.text("No run history yet.")
         lines = [f"{datetime.fromtimestamp(r.started_at).strftime('%Y-%m-%d %H:%M')} "
-                 f"[{r.task_id}] {r.agent_id} -> {r.status}" for r in runs]
+                 f"[{r.task_id}] {r.agent_id} -> {r.status}"
+                 + (f" — {r.detail}" if r.detail else "") for r in runs]
         return ToolResult.text("Run history:\n" + "\n".join(lines),
                                details=[r.__dict__ for r in runs])
 

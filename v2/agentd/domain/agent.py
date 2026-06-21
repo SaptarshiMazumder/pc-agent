@@ -89,10 +89,14 @@ class RunMode:
     INTERACTIVE = "interactive"
     HEARTBEAT = "heartbeat"
     CRON = "cron"
+    CHANNEL = "channel"        # replying to a peer on a messaging channel (Phase 5b)
 
 
 # tool name -> the ONLY run mode it is exposed in (absent from this map = every mode).
-_MODE_ONLY = {"heartbeat_respond": RunMode.HEARTBEAT}
+_MODE_ONLY = {
+    "heartbeat_respond": RunMode.HEARTBEAT,
+    "report_outcome": RunMode.CRON,        # scheduled runs declare done/blocked/failed
+}
 
 
 def apply_mode(tools: list, mode: str) -> list:

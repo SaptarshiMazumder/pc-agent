@@ -130,9 +130,31 @@ def _skills_section(skills) -> str | None:
     return "\n".join(parts)
 
 
+CRON_OUTCOME_NOTE = (
+    "## Scheduled run\n"
+    "You are running as a SCHEDULED job (cron), not an interactive chat — no human is "
+    "watching live, so you cannot ask and wait for a reply. Do as much as you can "
+    "autonomously. When you finish, call `report_outcome` EXACTLY ONCE to record how it "
+    "went: status='done' if you completed the task; 'blocked' if you could not proceed "
+    "without the user (e.g. missing authorization, credentials, or input) — put the exact "
+    "blocker in `detail`; 'failed' if it errored. This is the ONLY way the user learns "
+    "whether the job worked."
+)
+
+
+CHANNEL_NOTE = (
+    "## Messaging channel\n"
+    "You are replying to a person over a messaging channel (email / chat), NOT an "
+    "interactive terminal. Your final reply is sent to them verbatim as the message, so: "
+    "write it as a direct, self-contained message to the user; no terminal formatting or "
+    "meta-commentary; keep it appropriately concise. Use your tools to do the work first, "
+    "then write the reply as your last message."
+)
+
+
 def build_system_prompt(
     config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
-    heartbeat: str = "",
+    heartbeat: str = "", cron: bool = False, channel: bool = False,
 ) -> str:
     sections: list[str] = []
 
@@ -159,6 +181,16 @@ def build_system_prompt(
     # 1b. Heartbeat checklist (HEARTBEAT.md) — passed ONLY on an autonomous tick.
     if heartbeat:
         sections.append(heartbeat)
+
+    # 1b'. Scheduled-run note — passed ONLY on a cron run: tells the agent it's
+    # unattended and to call report_outcome at the end (done/blocked/failed).
+    if cron:
+        sections.append(CRON_OUTCOME_NOTE)
+
+    # 1b''. Channel note — passed ONLY on a channel reply: its final message is sent
+    # to the peer verbatim, so write a direct, self-contained reply.
+    if channel:
+        sections.append(CHANNEL_NOTE)
 
     # 1b. Language (always-on rule; the `language` skill holds the detailed playbook)
     sections.append(

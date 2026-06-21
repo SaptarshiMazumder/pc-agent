@@ -125,8 +125,10 @@ def build_tools(config, browser_manager=None, computer_provider=None,
     # never exists, so interactive chat is exactly as before.
     if getattr(config, "autonomy_enabled", False):
         from .heartbeat_tool import HeartbeatRespondTool
+        from .outcome_tool import ReportOutcomeTool
 
         tools.append(HeartbeatRespondTool())
+        tools.append(ReportOutcomeTool())   # exposed ONLY on a cron run (apply_mode)
         # cron + goal — durable scheduling + objective tracking (need the ledger).
         if task_store is not None:
             from .cron_tool import CronTool

@@ -33,14 +33,23 @@ class ScheduledTask:
 
 @dataclass(frozen=True)
 class RunRecord:
-    """One fire of a scheduled task — the audit/history row ('what ran when')."""
+    """One fire of a scheduled task — the audit/history row ('what ran when').
+
+    ``status`` is the headline (running | ok | blocked | failed | error | aborted):
+    engine-level error/aborted, else the agent's declared outcome folded in.
+    ``outcome`` is the raw agent declaration (done | blocked | failed | None) and
+    ``detail`` its one-line reason — so history shows *did it actually work*, not
+    just *did it run*.
+    """
 
     id: str
     task_id: str
     agent_id: str
     started_at: float
     finished_at: float | None = None
-    status: str = "running"      # running | ok | error | aborted
+    status: str = "running"      # running | ok | blocked | failed | error | aborted
+    outcome: str | None = None   # agent-declared: done | blocked | failed
+    detail: str = ""             # one-line reason (e.g. "needs Google Drive auth")
 
 
 @dataclass(frozen=True)

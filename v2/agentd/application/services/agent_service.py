@@ -56,6 +56,11 @@ class AgentService:
         the resolved agent's allow/deny."""
         self._tools.extend(tools)
 
+    def find_tool(self, name: str):
+        """Look up a registered tool by name (e.g. a namespaced MCP tool a channel
+        invokes outside the agent loop). Returns the Tool or None."""
+        return next((t for t in self._tools if getattr(t, "name", None) == name), None)
+
     async def handle_message(self, session_id: str, text: str,
                              on_event: EventSink, abort,
                              mode: str = RunMode.INTERACTIVE,
