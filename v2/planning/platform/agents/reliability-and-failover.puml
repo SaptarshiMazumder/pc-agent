@@ -1,0 +1,67 @@
+@startuml reliability-and-failover
+' ============================================================================
+'  The reliability stack: GuardedTool (timeout/retry/error-norm) + LLM idle/
+'  request timeout + model FAILOVER (S11) + liveness watchdogs.
+'  Render: java -jar ../../../plantuml.jar -tpng reliability-and-failover.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 16
+skinparam ranksep 45
+skinparam ArrowColor #666666
+skinparam ArrowFontSize 10
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 8
+}
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Reliability stack\namber = S11 (new this pass)   green = built earlier (verified)
+
+package "Tool path (every tool flows through here)" #F2F2F2 {
+  rectangle "Engine loop\nissues tool calls" as ENG #C8E6C9
+  rectangle "GuardedTool  (the chokepoint)\nper-tool: timeout (wait_for, inner-only) ·\nretry (transient + backoff) · error-normalize ·\non_update -> tool_progress\npolicy: override > tool-default > global" as GUARD #C8E6C9
+  rectangle "the real tool\n(read/exec/web/browser/computer/MCP/…)" as TOOL #C8E6C9
+}
+
+package "Model path" #F2F2F2 {
+  rectangle "failover_stream  [S11]\nretry NEXT model on a CLEAN error\n(errored before any output); pass error\nthrough once output streamed\nAGENTD_MODEL_FALLBACKS" as FAIL #FFE9C7
+  rectangle "litellm_stream\nidle_timeout (120s, _is_local skip) +\nrequest_timeout (hard ceiling);\nnever raises -> done(stop_reason)" as LLM #C8E6C9
+}
+
+package "Liveness (decoupled observers, default off)" #F2F2F2 {
+  rectangle "CallRateBrake\nloop / runaway detection" as BRAKE #C8E6C9
+  rectangle "no-progress watchdog\nscreen-unchanged / no-output" as WATCH #C8E6C9
+}
+
+package "Deferred" #ECEFF1 {
+  rectangle "S12 tool-call-repair\n(promote leaked text tool-calls)\nDEFERRED — low ROI w/ native models" as REPAIR #DDDDDD
+  rectangle "S13 Policy/Approval\nat the SAME GuardedTool chokepoint\nDEFERRED — governance" as POL #DDDDDD
+}
+
+ENG --> GUARD : execute(call)
+GUARD --> TOOL : inner.execute (timeout/retry around it)
+ENG --> FAIL : stream a turn
+FAIL --> LLM : try model[i]; on clean error -> model[i+1]
+ENG ..> BRAKE : observe
+ENG ..> WATCH : observe
+GUARD ..> POL : (future) authorize before execute
+LLM ..> REPAIR : (future) repair leaked tool calls
+
+note bottom of GUARD
+  Wired once in container.build_service: every tool —
+  present and future — is wrapped automatically. An
+  idle-timeout from the model layer is a CLEAN error,
+  so failover catches it too.
+end note
+
+@enduml

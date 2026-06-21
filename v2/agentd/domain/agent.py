@@ -28,8 +28,14 @@ class AgentSpec:
     tools_allow: tuple[str, ...] | None = None    # None = all tools
     tools_deny: tuple[str, ...] = ()
     skills_allow: tuple[str, ...] | None = None   # None = all skills
+    # Capability gates — None = inherit the global config default; True/False = per-agent.
+    # These drive the "What you are" self-knowledge section so a definition is self-describing.
+    autonomy_enabled: bool | None = None          # may schedule (cron) + wake on a heartbeat
+    notify_enabled: bool | None = None            # may reach the user (notifications)
+    channels_enabled: bool | None = None          # may be reached on a messaging channel
     heartbeat: str | None = None                  # autonomy interval, e.g. "15m" (Phase 2)
     heartbeat_instructions: str = ""              # HEARTBEAT.md, injected only on a tick
+    version: str = "1"                            # agent-definition version (S18, from agent.toml)
 
 
 def agent_id_from_session_key(session_key: str) -> str:

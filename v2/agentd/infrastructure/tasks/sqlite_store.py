@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 
 from agentd.domain.autonomy import Goal, RunRecord, ScheduledTask
+from agentd.domain.commitment import Commitment
 from agentd.domain.notify import Notification
 from agentd.infrastructure.autonomy.schedule import next_due_after
 
@@ -30,7 +31,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   tz            TEXT,                    -- IANA timezone for the cron expr
   enabled       INTEGER NOT NULL DEFAULT 1,
   created_at    REAL NOT NULL DEFAULT 0,
-  delivery      TEXT NOT NULL DEFAULT 'run'   -- 'run' | 'message'
+  delivery      TEXT NOT NULL DEFAULT 'run',  -- 'run' | 'message'
+  failure_alert INTEGER NOT NULL DEFAULT 0    -- notify after N consecutive failed runs (0=off)
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(enabled, next_due);
 CREATE TABLE IF NOT EXISTS goals (
@@ -64,13 +66,22 @@ CREATE TABLE IF NOT EXISTS notifications (
   read        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(read, created_at);
+CREATE TABLE IF NOT EXISTS commitments (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  due_at      REAL,
+  status      TEXT NOT NULL DEFAULT 'open',     -- open | done | dropped
+  created_at  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_commit_agent ON commitments(agent_id, status);
 """
 
 _RUN_COLS = ("id", "task_id", "agent_id", "started_at", "finished_at", "status", "outcome", "detail")
 _NOTIF_COLS = ("id", "agent_id", "kind", "text", "detail", "created_at", "read")
 
 _COLS = ("id", "agent_id", "session_key", "kind", "payload", "next_due",
-         "every_seconds", "cron_expr", "tz", "enabled", "created_at", "delivery")
+         "every_seconds", "cron_expr", "tz", "enabled", "created_at", "delivery", "failure_alert")
 _GOAL_COLS = ("id", "agent_id", "session_key", "objective", "token_budget", "status", "created_at")
 
 
@@ -81,6 +92,7 @@ def _row_to_task(row) -> ScheduledTask:
         kind=d["kind"], payload=d["payload"], next_due=d["next_due"],
         every_seconds=d["every_seconds"], cron_expr=d.get("cron_expr"), tz=d.get("tz"),
         enabled=bool(d["enabled"]), created_at=d["created_at"], delivery=d.get("delivery", "run"),
+        failure_alert=int(d.get("failure_alert") or 0),
     )
 
 
@@ -102,6 +114,7 @@ class SqliteTaskStore:
             ("tasks", "delivery", "TEXT NOT NULL DEFAULT 'run'"),
             ("tasks", "cron_expr", "TEXT"),
             ("tasks", "tz", "TEXT"),
+            ("tasks", "failure_alert", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "outcome", "TEXT"),                       # agent-declared outcome
             ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),    # one-line reason
         ):
@@ -116,11 +129,11 @@ class SqliteTaskStore:
         self._db.execute(
             "INSERT OR REPLACE INTO tasks "
             "(id, agent_id, session_key, kind, payload, next_due, every_seconds, "
-            " cron_expr, tz, enabled, created_at, delivery) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " cron_expr, tz, enabled, created_at, delivery, failure_alert) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (task_id, task.agent_id, task.session_key, task.kind, task.payload,
              task.next_due, task.every_seconds, task.cron_expr, task.tz,
-             int(task.enabled), task.created_at, task.delivery),
+             int(task.enabled), task.created_at, task.delivery, int(task.failure_alert)),
         )
         self._db.commit()
         return task_id
@@ -155,6 +168,17 @@ class SqliteTaskStore:
         cur = self._db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self._db.commit()
         return cur.rowcount > 0
+
+    def purge_agent(self, agent_id: str) -> dict:
+        """Delete every row belonging to one agent across all ledgers (tasks, goals,
+        runs, notifications, commitments). Returns per-table counts. Used when an agent
+        is deleted, so no orphaned cron job can fire after its definition is gone."""
+        counts: dict[str, int] = {}
+        for table in ("tasks", "goals", "runs", "notifications", "commitments"):
+            cur = self._db.execute(f"DELETE FROM {table} WHERE agent_id=?", (agent_id,))
+            counts[table] = cur.rowcount
+        self._db.commit()
+        return counts
 
     def due(self, now: float) -> list[ScheduledTask]:
         rows = self._db.execute(
@@ -214,6 +238,20 @@ class SqliteTaskStore:
             (time.time(), status, outcome, detail or "", run_id))
         self._db.commit()
 
+    def consecutive_failures(self, task_id: str) -> int:
+        """How many of this task's MOST-RECENT finished runs failed in a row (failed/error/
+        aborted) — for failure-alert escalation. Stops at the first ok/blocked run."""
+        rows = self._db.execute(
+            "SELECT status FROM runs WHERE task_id=? AND finished_at IS NOT NULL "
+            "ORDER BY started_at DESC LIMIT 50", (task_id,)).fetchall()
+        n = 0
+        for (status,) in rows:
+            if status in ("failed", "error", "aborted"):
+                n += 1
+            else:
+                break
+        return n
+
     def recent_runs(self, agent_id: str | None = None, task_id: str | None = None,
                     limit: int = 20) -> list[RunRecord]:
         where, args = [], []
@@ -256,6 +294,38 @@ class SqliteTaskStore:
 
     def ack(self, notif_id: str) -> bool:
         cur = self._db.execute("UPDATE notifications SET read=1 WHERE id=?", (notif_id,))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    # ---- commitments (open loops / follow-ups, S15) -------------------------
+
+    def add_commitment(self, c: Commitment) -> str:
+        cid = c.id or uuid.uuid4().hex[:12]
+        self._db.execute(
+            "INSERT OR REPLACE INTO commitments (id, agent_id, text, due_at, status, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (cid, c.agent_id, c.text, c.due_at, c.status, c.created_at or time.time()))
+        self._db.commit()
+        return cid
+
+    def commitments(self, agent_id: str | None = None, open_only: bool = True,
+                    limit: int = 50) -> list[Commitment]:
+        where, args = [], []
+        if agent_id:
+            where.append("agent_id=?"); args.append(agent_id)
+        if open_only:
+            where.append("status='open'")
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        rows = self._db.execute(
+            "SELECT id, agent_id, text, due_at, status, created_at FROM commitments"
+            f"{clause} ORDER BY (due_at IS NULL), due_at ASC, created_at DESC LIMIT ?",
+            (*args, limit)).fetchall()
+        return [Commitment(id=r[0], agent_id=r[1], text=r[2], due_at=r[3],
+                           status=r[4], created_at=r[5]) for r in rows]
+
+    def resolve_commitment(self, commitment_id: str, status: str) -> bool:
+        cur = self._db.execute("UPDATE commitments SET status=? WHERE id=?",
+                               (status, commitment_id))
         self._db.commit()
         return cur.rowcount > 0
 

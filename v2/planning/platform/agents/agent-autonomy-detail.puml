@@ -47,7 +47,7 @@ package "Gateway" #EDE7F6 {
 }
 
 package "Infrastructure" #F2F2F2 {
-  database "SQLite ledger  (<state_dir>/autonomy.sqlite)\n--\ntasks (cron jobs)\nheartbeats (interval, next_due)\ngoals (objective, budget)\nruns (history: status / outcome / detail)" as DB #FFE9C7
+  database "SQLite ledger  (<state_dir>/autonomy.sqlite)\n--\ntasks (cron jobs + failure_alert)  [S14]\ngoals (objective, budget)\nruns (history: status / outcome / detail)\nnotifications (outbound)\ncommitments (open loops)  [S15]" as DB #FFE9C7
   rectangle "Engine (reason -> act loop)\nreports token usage -> goals" as ENG #C8E6C9
 }
 
@@ -56,6 +56,7 @@ package "Tools  (the agent calls these)" #F2F2F2 {
   rectangle "create_goal / update_goal / get_goal" as T_GOAL #FFE9C7
   rectangle "heartbeat_respond  (heartbeat mode only)" as T_HB #FFE9C7
   rectangle "report_outcome  (cron mode only)\ndone / blocked / failed + detail" as T_OUT #FFE9C7
+  rectangle "commitment  [S15]\nadd / list / done / drop (open loops)" as T_COMMIT #FFE9C7
 }
 
 SCHED --> P_TS : due jobs / heartbeats?
@@ -69,8 +70,10 @@ ENG --> T_OUT
 T_HB --> AUTO : outcome + notify + nextCheck
 T_OUT --> AUTO : done / blocked / failed + detail
 AUTO --> DB : record run (status+outcome+detail), set next_due
+AUTO --> DB : [S14] after N consecutive failures: PAUSE job + notify
 T_CRON --> DB : write a job
 T_GOAL --> DB : read / write goal
+T_COMMIT --> DB : track / resolve open loops
 ENG ..> T_GOAL : token usage updates budget
 
 note right of SVC

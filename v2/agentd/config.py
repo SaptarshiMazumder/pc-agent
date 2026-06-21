@@ -160,8 +160,34 @@ class Config:
     # replying). OFF => the tool is not registered at all — exactly as if it never existed.
     verify_tool: bool = False                  # AGENTD_VERIFY_TOOL
     verify_model: str | None = None            # judge model for the tool (defaults to search_model -> model); AGENTD_VERIFY_MODEL
-    # Include the in-band "## Before You Finish" completeness self-check in the prompt.
-    completeness_check: bool = False           # AGENTD_COMPLETENESS_CHECK
+    # Include the in-band "## Before You Finish" honesty/completeness self-check. ON by
+    # default (S3 — honesty by default): the agent must back claims with real evidence and
+    # never fabricate. AGENTD_COMPLETENESS_CHECK=0 to disable.
+    completeness_check: bool = True            # AGENTD_COMPLETENESS_CHECK
+    # Default agent PERSONA/disposition. Loaded from the editable SOUL.md (persona_file)
+    # with a built-in fallback; an agent's IDENTITY can override its tone. AGENTD_PERSONA=0.
+    persona_enabled: bool = True               # AGENTD_PERSONA
+    persona_file: str | None = None            # path to SOUL.md; default set in load_config; AGENTD_PERSONA_FILE
+    # Long-term memory (Phase 3): when on, the agent gets remember/memory_search/memory_get
+    # tools backed by a durable bank (<state_dir>/memory.sqlite) it can recall across
+    # sessions. OFF by default (additive; AGENTD_MEMORY=1 to enable).
+    memory_enabled: bool = False               # AGENTD_MEMORY
+    # Context compaction (Phase 3.5 / S7): cap the message history sent to the model to the
+    # most-recent N (boundary-safe truncation). 0 = off (send everything). AGENTD_CONTEXT_MAX.
+    context_max_messages: int = 0
+    # Sub-agents (Phase 4a / S8): the agent can delegate a subtask to a fresh child run via
+    # `spawn_subagent` and get its result back. OFF by default; AGENTD_SUBAGENTS=1 to enable.
+    subagents_enabled: bool = False            # AGENTD_SUBAGENTS
+    subagent_max: int = 4                      # max concurrent child runs (runaway guard)
+    # skill_workshop (S10): the agent authors reusable SKILL.md playbooks at runtime.
+    # OFF by default; AGENTD_SKILL_WORKSHOP=1 to enable.
+    skill_workshop: bool = False               # AGENTD_SKILL_WORKSHOP
+    # Model failover (S11): models to try, in order, when the primary errors before any
+    # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
+    model_fallbacks: list = field(default_factory=list)
+    # Execution sandbox (S17, seam): "" / "local" = run on host (default, unchanged);
+    # "docker"/"ssh" select an isolating adapter (not yet implemented). AGENTD_SANDBOX.
+    sandbox: str = ""
 
     # --- autonomy (heartbeat) — Phase 2 ----------------------------------------
     # OFF by default. When on, the shared scheduler wakes each agent that declares a
@@ -211,6 +237,26 @@ class Config:
     computer_corral_to_primary: bool = True
 
 
+def _dotenv_value(raw: str) -> str:
+    """Parse a raw .env value: strip surrounding quotes and a trailing inline comment.
+
+    Conventions (match common dotenv parsers), so a commented line like
+    ``AGENTD_NOTIFY=1   # on`` yields ``1`` and not ``1   # on``:
+      * a quoted value (``"..."`` / ``'...'``) is taken verbatim — a ``#`` inside is literal
+      * otherwise an inline comment starts at the first whitespace-then-``#`` (`` #`` / ``\\t#``)
+      * a leading ``#`` (e.g. ``#fff``) is kept — only a ``#`` AFTER whitespace is a comment
+    """
+    value = raw.strip()
+    if value[:1] in ("'", '"'):
+        quote = value[0]
+        end = value.find(quote, 1)
+        return value[1:end] if end != -1 else value[1:]
+    cuts = [i for i in (value.find(" #"), value.find("\t#")) if i != -1]
+    if cuts:
+        value = value[:min(cuts)]
+    return value.rstrip()
+
+
 def _load_dotenv() -> None:
     """Load KEY=VALUE lines from v2's own .env into os.environ (no override).
 
@@ -225,7 +271,7 @@ def _load_dotenv() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip("'\"")
+        key, value = key.strip(), _dotenv_value(value)
         if key and value and key not in os.environ:
             os.environ[key] = value
 
@@ -365,6 +411,20 @@ def load_config(path: Path | None = None) -> Config:
         cfg.completeness_check = (
             os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in ("0", "false", "no", "")
         )
+    if os.environ.get("AGENTD_PERSONA"):
+        cfg.persona_enabled = os.environ["AGENTD_PERSONA"].lower() not in ("0", "false", "no", "")
+    cfg.persona_file = os.environ.get("AGENTD_PERSONA_FILE") or cfg.persona_file \
+        or str(Path(cfg.state_dir).parent / "SOUL.md")   # default: the repo-root SOUL.md (editable)
+    if os.environ.get("AGENTD_MEMORY"):
+        cfg.memory_enabled = os.environ["AGENTD_MEMORY"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_CONTEXT_MAX"):
+        cfg.context_max_messages = int(os.environ["AGENTD_CONTEXT_MAX"])
+    if os.environ.get("AGENTD_SUBAGENTS"):
+        cfg.subagents_enabled = os.environ["AGENTD_SUBAGENTS"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_SKILL_WORKSHOP"):
+        cfg.skill_workshop = os.environ["AGENTD_SKILL_WORKSHOP"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_MODEL_FALLBACKS"):
+        cfg.model_fallbacks = [s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()]
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [

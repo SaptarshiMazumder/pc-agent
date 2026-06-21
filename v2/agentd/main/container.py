@@ -48,19 +48,32 @@ def build_computer_provider(config: Config):
     return _build(config)
 
 
+def build_memory_bank(config: Config):
+    """The durable long-term memory store (SQLite) — only when memory is enabled; None
+    otherwise. Shared by the memory tools (recall/write) across the agent's sessions."""
+    if not getattr(config, "memory_enabled", False):
+        return None
+    from pathlib import Path
+
+    from agentd.infrastructure.memory.bank import SqliteMemoryBank
+
+    return SqliteMemoryBank(Path(config.state_dir) / "memory.sqlite")
+
+
 def build_service(config: Config, browser_manager, computer_provider=None,
-                  registry=None, task_store=None) -> AgentService:
+                  registry=None, task_store=None, memory_bank=None) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
 
     `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
     the gateway and service share them; if omitted, a file-backed registry is built
-    here (single-agent / tests) and there is no task ledger."""
+    here (single-agent / tests) and there is no task ledger. `memory_bank` is the durable
+    long-term memory (None unless memory is enabled)."""
     from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
 
     # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
     # per-tool policy resolved from config. New tools are guarded automatically.
     tools = [GuardedTool(t, resolve_policy(config, t))
-             for t in build_tools(config, browser_manager, computer_provider, task_store)]
+             for t in build_tools(config, browser_manager, computer_provider, task_store, memory_bank)]
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -69,13 +82,26 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         idle_timeout_sec=config.llm_idle_timeout_seconds,
         request_timeout_sec=config.llm_request_timeout_seconds,
     )
+    # Model failover (S11): on a clean primary error, retry the turn on the next model.
+    # No fallbacks => returns the stream unwrapped (unchanged).
+    if getattr(config, "model_fallbacks", None):
+        from agentd.infrastructure.llm.failover import make_failover_stream
+
+        stream_fn = make_failover_stream(stream_fn, config.model_fallbacks)
     # Decoupled liveness seam (default OFF => unchanged behavior). Answer verification
     # is the agent-invoked `verify_answer` tool (registered in build_tools), not a loop hook.
     from agentd.infrastructure.liveness import build_observers
 
+    # Context compaction (S7): cap history to the most-recent N messages (boundary-safe).
+    # 0 => None => send everything (unchanged).
+    context_policy = None
+    if getattr(config, "context_max_messages", 0):
+        from agentd.infrastructure.context import WindowContextPolicy
+
+        context_policy = WindowContextPolicy(config.context_max_messages)
     engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
         stream_fn, config.model, max_iterations=config.max_turns,
-        observers=build_observers(config),
+        observers=build_observers(config), context_policy=context_policy,
     )
     # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
     # effect on the next message without a restart (swap here for a cloud registry)
@@ -162,8 +188,9 @@ def build_gateway(config: Config) -> Gateway:
 
     registry = FileAgentRegistry(config)
     task_store = build_task_store(config)   # durable cron ledger (None unless autonomy on)
+    memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
     service = build_service(config, browser_manager, computer_provider,
-                            registry=registry, task_store=task_store)
+                            registry=registry, task_store=task_store, memory_bank=memory_bank)
     return Gateway(
         config=config,
         service=service,
@@ -171,4 +198,5 @@ def build_gateway(config: Config) -> Gateway:
         mcp_provider=build_mcp_provider(config),
         registry=registry,
         task_store=task_store,
+        memory_bank=memory_bank,
     )

@@ -17,6 +17,8 @@ import os
 import sys
 from pathlib import Path
 
+from agentd.application.run_context import current_workspace
+
 from . import Tool, ToolResult
 
 log = logging.getLogger("agentd")
@@ -55,7 +57,8 @@ _FIND_HARD_CAP = 5000  # bound walk time; we collect then rank then trim
 def _resolve(config, path: str) -> Path:
     p = Path(path)
     if not p.is_absolute():
-        p = Path(config.workspace) / p
+        # the calling agent's workspace (per-run) wins; else the global config workspace
+        p = Path(current_workspace(str(config.workspace))) / p
     return p
 
 

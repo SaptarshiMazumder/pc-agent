@@ -390,7 +390,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -436,11 +436,47 @@ class TerminalClient:
                             console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
                         console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
                         continue
+                    if line.startswith("/agent-rm") or line.startswith("/agent-delete"):
+                        parts = line.split(maxsplit=1)
+                        target = parts[1].strip() if len(parts) > 1 else ""
+                        if not target:
+                            console.print("[dim]usage: /agent-rm <id>  — permanently deletes the agent[/]")
+                            continue
+                        if target in ("main", "default"):
+                            console.print("[error]cannot delete the default agent 'main'[/]")
+                            continue
+                        console.print(
+                            f"[error]PERMANENTLY deletes[/] [bold]{target}[/]: "
+                            "definition + workspace files + sessions + memory + cron jobs.")
+                        confirm = await asyncio.to_thread(
+                            console.input, f"[dim]type [bold]{target}[/] to confirm:[/] ")
+                        if confirm.strip() != target:
+                            console.print("[dim]cancelled[/]")
+                            continue
+                        try:
+                            resp = await self.request("agents.remove", {"agentId": target})
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        if not resp.get("removed"):
+                            console.print(f"[error]{resp.get('error', 'failed')}[/]")
+                            continue
+                        cron = resp.get("cron") or {}
+                        cron_n = sum(cron.values()) if isinstance(cron, dict) else 0
+                        console.print(
+                            f"[{LIME}]deleted[/] [bold]{target}[/]  "
+                            f"[dim]sessions={resp.get('sessions')} · memory={resp.get('memory', 0)} rows"
+                            f" · cron/ledger={cron_n} rows[/]")
+                        if self.agent_id == target:        # we were on it -> hop back to main
+                            self.agent_id = None
+                            self.session_key = f"term-{uuid.uuid4().hex[:8]}"
+                            console.print(f"[dim]switched to main (new session {self.session_key})[/]")
+                        continue
                     if line == "/agent" or line.startswith("/agent "):
                         parts = line.split(maxsplit=1)
                         if len(parts) == 1:
                             console.print(f"[dim]current agent:[/] [bold]{self.agent_id or 'main'}[/]"
-                                          "  [dim](/agents to list, /agent <id> to switch)[/]")
+                                          "  [dim](/agents to list, /agent <id> to switch, /agent-rm <id> to delete)[/]")
                             continue
                         target = parts[1].strip()
                         self.agent_id = None if target in ("main", "default") else target

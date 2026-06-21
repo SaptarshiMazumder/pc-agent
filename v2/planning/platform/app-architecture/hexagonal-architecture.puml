@@ -68,7 +68,7 @@ package "Agent engine port" #F2F2F2 {
 
 package "Inference port" #F2F2F2 {
   rectangle "PORT: Inference" as P_INF #E2E2E2
-  rectangle "**idle/hang timeout (120s)** [now]\n+ request_timeout · (+ failover later)" as A_INFG #C8E6C9
+  rectangle "**idle/hang timeout (120s) + request_timeout\n+ MODEL FAILOVER** [now, S11]\nfailover_stream: retry next model on a clean error" as A_INFG #C8E6C9
   rectangle "LiteLLM [llm.py]" as A_INF1 #C8E6C9
   rectangle "Local / BYOK / Secure-VM tiers" as A_INF2 #C8E6C9
   P_INF --> A_INFG
@@ -79,9 +79,11 @@ package "Inference port" #F2F2F2 {
 package "Tools port" #F2F2F2 {
   rectangle "PORT: Tools" as P_TOOL #E2E2E2
   rectangle "**GuardedTool middleware** [now]\nper-tool timeout + retry + error-norm\n(policy: override > tool default > global)\nwraps EVERY tool, present + future" as A_GUARD #C8E6C9
-  rectangle "read write edit ls find exec\nprocess web_search web_fetch browser computer" as A_TOOL1 #C8E6C9
+  rectangle "core: read write edit ls find exec process\nweb_search web_fetch browser computer · MCP tools" as A_TOOL1 #C8E6C9
+  rectangle "agent organs (flag-gated): cron · goal ·\nheartbeat_respond · report_outcome · commitment ·\nremember/memory_search/memory_get/consolidate ·\nspawn_subagent · skill_workshop · verify_answer" as A_TOOL2 #C8E6C9
   P_TOOL --> A_GUARD
   A_GUARD --> A_TOOL1
+  A_GUARD --> A_TOOL2
 }
 
 package "Skills port  (loadable playbooks, read on demand)" #F2F2F2 {
@@ -92,14 +94,40 @@ package "Skills port  (loadable playbooks, read on demand)" #F2F2F2 {
   P_SKILL --> A_SKILL2
 }
 
-package "Memory port" #F2F2F2 {
-  rectangle "PORT: Memory & History" as P_MEM #E2E2E2
+package "Memory ports" #F2F2F2 {
+  rectangle "PORT: SessionStore (transcripts)" as P_MEM #E2E2E2
   rectangle "LocalStore (JSONL) [now]" as A_MEM1 #C8E6C9
-  rectangle "Cloud Memory Bank (E2E) [later]" as A_MEM2 #FFE0B2
-  rectangle "Vector store / their server" as A_MEM3 #FFE0B2
+  rectangle "PORT: MemoryBank (long-term) [now, S4]" as P_BANK #E2E2E2
+  rectangle "SqliteMemoryBank (FTS5 + LIKE) [now]\nremember/search/get/consolidate; cross-session" as A_MEM2 #C8E6C9
+  rectangle "Vector / embeddings (same port) [later]" as A_MEM3 #FFE0B2
   P_MEM --> A_MEM1
-  P_MEM --> A_MEM2
-  P_MEM --> A_MEM3
+  P_BANK --> A_MEM2
+  P_BANK --> A_MEM3
+}
+
+package "Context port  [now, S7]" #F2F2F2 {
+  rectangle "PORT: ContextPolicy\nprepare(messages) -> compacted view" as P_CTX #E2E2E2
+  rectangle "WindowContextPolicy [now]\nrecent-N, boundary-safe (default off)" as A_CTX1 #C8E6C9
+  rectangle "LLM-summary policy [later]" as A_CTX2 #FFE0B2
+  P_CTX --> A_CTX1
+  P_CTX --> A_CTX2
+}
+
+package "Channels + Notify ports  [now, 5a/5b]" #F2F2F2 {
+  rectangle "PORT: Notifier / NotifyStore [now]" as P_NOT #E2E2E2
+  rectangle "ClientPush · Store · ChannelNotifier [now]" as A_NOT1 #C8E6C9
+  rectangle "PORT: Channel (poll + send) [now]" as P_CHN #E2E2E2
+  rectangle "Email (Gmail MCP) · Memory(test) [now]\nWhatsApp/Slack/Telegram = +1 adapter" as A_CHN1 #C8E6C9
+  P_NOT --> A_NOT1
+  P_CHN --> A_CHN1
+}
+
+package "Sandbox port  [seam, S17]" #F2F2F2 {
+  rectangle "PORT: Sandbox (run command)" as P_SBX #E2E2E2
+  rectangle "LocalSandbox (host) [now]" as A_SBX1 #C8E6C9
+  rectangle "Docker / SSH isolation [later]" as A_SBX2 #FFE0B2
+  P_SBX --> A_SBX1
+  P_SBX --> A_SBX2
 }
 
 package "Events port" #F2F2F2 {
@@ -110,26 +138,28 @@ package "Events port" #F2F2F2 {
   P_EVT --> A_EVT2
 }
 
-package "Policy / Guardrails port  (checked before every tool runs)" #F2F2F2 {
+package "Policy / Guardrails port  (S13 DEFERRED - governance)" #F2F2F2 {
   rectangle "PORT: Policy\nauthorize(tool,args,ctx)\n= allow / deny / needs-approval" as P_POL #E2E2E2
-  rectangle "Tier tool-allowlist" as A_POL1 #FFE0B2
-  rectangle "Argument checks\n(paths, recipients, SSRF/egress)" as A_POL2 #FFE0B2
-  rectangle "Rate limits / quotas" as A_POL3 #FFE0B2
+  rectangle "Tier tool-allowlist" as A_POL1 #DDDDDD
+  rectangle "Argument checks\n(paths, recipients, SSRF/egress)" as A_POL2 #DDDDDD
+  rectangle "Rate limits / quotas" as A_POL3 #DDDDDD
   P_POL --> A_POL1
   P_POL --> A_POL2
   P_POL --> A_POL3
 }
 
-package "Approval port  (human-in-the-loop)" #F2F2F2 {
+package "Approval port  (S13 DEFERRED - HITL)" #F2F2F2 {
   rectangle "PORT: Approval" as P_APR #E2E2E2
-  rectangle "UI confirm prompt\n(send email? destructive exec?)" as A_APR1 #FFE0B2
+  rectangle "UI confirm / notify-and-wait\n(send email? destructive exec?\nfixes computer-tool ToS auto-ack)" as A_APR1 #DDDDDD
   P_APR --> A_APR1
 }
 
-package "Identity port" #F2F2F2 {
-  rectangle "PORT: Auth\n(login + entitlements)" as P_AUTH #E2E2E2
-  rectangle "Control-plane auth (token)" as A_AUTH1 #FFE0B2
+package "Identity / Auth-profiles port" #F2F2F2 {
+  rectangle "PORT: Auth / AuthProfileStore" as P_AUTH #E2E2E2
+  rectangle "AuthProfile rotation + cooldown [now, S16]\n(multi-account; wiring to MCP/providers later)" as A_AUTH1 #C8E6C9
+  rectangle "Control-plane auth (token) [later]" as A_AUTH2 #FFE0B2
   P_AUTH --> A_AUTH1
+  P_AUTH --> A_AUTH2
 }
 
 package "Metering port" #F2F2F2 {
@@ -152,7 +182,12 @@ CORE --> P_INF
 CORE --> P_TOOL
 CORE --> P_SKILL
 CORE --> P_MEM
+CORE --> P_BANK
+CORE --> P_CTX
 CORE --> P_EVT
+CORE --> P_NOT
+CORE --> P_CHN
+CORE --> P_SBX
 CORE --> P_POL
 CORE --> P_APR
 CORE --> P_AUTH

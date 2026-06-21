@@ -52,6 +52,9 @@ class CronTool(Tool):
                         "description": "Instruction to run, or text to deliver (add/update)."},
             "deliver": {"type": "string", "enum": ["run", "message"],
                         "description": "'run' (default) executes payload; 'message' sends it verbatim."},
+            "failure_alert": {"type": "integer",
+                              "description": "Auto-pause the job + alert the user after this many "
+                                             "consecutive failures (0 = off)."},
             "cron": {"type": "string",
                      "description": "Cron expression, e.g. '55 19 * * 6' (Sat 19:55). Day-of-week capable."},
             "tz": {"type": "string", "description": "IANA timezone for the cron expression, e.g. 'Asia/Tokyo'."},
@@ -121,6 +124,7 @@ class CronTool(Tool):
                 session_key=f"agent:{agent_id}:cron", payload=payload,
                 enabled=True, created_at=time.time(),
                 delivery=deliver if deliver in ("run", "message") else "run",
+                failure_alert=int(params.get("failure_alert") or 0),
                 **sched,
             )
             self._store.add(task)

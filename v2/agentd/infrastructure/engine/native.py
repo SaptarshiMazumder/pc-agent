@@ -113,6 +113,7 @@ async def run_agent_loop(
     get_follow_up_messages: FollowUpFn | None = None,
     verify_answer: VerifyFn | None = None,
     observers: list[RunObserver] | None = None,
+    context_policy=None,
 ) -> list[Message]:
     """Run the loop until the model produces a genuine final answer (or limits
     are hit). Mutates `messages` in place; returns only messages produced here."""
@@ -169,10 +170,13 @@ async def run_agent_loop(
             await on_event(AgentEvent("message_start", {"role": "assistant"}))
 
             assistant: AssistantMessage | None = None
+            # compact the model's VIEW of history if a policy is set (never mutates the
+            # real transcript; default None => send everything, unchanged).
+            send_messages = context_policy.prepare(messages) if context_policy else messages
             async for ev in stream_fn(
                 model=model,
                 system_prompt=system_prompt,
-                messages=messages,
+                messages=send_messages,
                 tools=tools,
                 abort=abort,
             ):
@@ -400,11 +404,12 @@ class NativeEngine:
     """
 
     def __init__(self, stream_fn, model: str, max_iterations: int | None = None,
-                 observers=None):
+                 observers=None, context_policy=None):
         self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
         self._model = model                  # which model id to pass each call
         self._max_iterations = max_iterations
         self._observers = observers or []    # decoupled liveness seam (default off)
+        self._context_policy = context_policy  # compaction policy (S7); None = send all
 
     async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
                   model=None):
@@ -419,4 +424,5 @@ class NativeEngine:
             session=session,
             max_iterations=self._max_iterations,
             observers=self._observers,
+            context_policy=self._context_policy,
         )

@@ -1,0 +1,54 @@
+@startuml subagents
+' ============================================================================
+'  Sub-agent delegation (S8/S9): spawn_subagent -> isolated child run -> result.
+'  Render: java -jar ../../../plantuml.jar -tpng subagents.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam sequenceMessageAlign center
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+skinparam participant {
+  BorderColor #888888
+}
+
+title Sub-agent delegation (S8/S9) — AGENTD_SUBAGENTS=1\nparent delegates a self-contained task; child runs isolated; result returns
+
+participant "Parent run\n(agent A, session …:dev)" as P
+participant "spawn_subagent tool\n(infra; injected spawn_fn)" as TOOL
+participant "Gateway\n_spawn_subagent" as GW
+participant "Child run (own asyncio.Task)\nagent:A:sub:<runId>" as C
+participant "SessionStore\n(child transcript)" as S
+
+P -> TOOL : spawn_subagent(task[, agent])\n(concurrency=parallel; may fan several out)
+TOOL -> GW : spawn_fn(agent_id, task)
+note over GW
+  Guards before running:
+  • depth-1: a ':sub:' caller can't spawn more
+  • cap: subagent_active < subagent_max (default 4)
+  • agent must exist in the registry
+end note
+GW -> C : create_task(_run(child, task, mode=INTERACTIVE))
+note right of C
+  OWN Task => its own copied contextvar, so the
+  child's set_run_context can't clobber the parent's
+  run-context. Reuses the normal _run machinery.
+end note
+C -> S : agent does the task, writes its answer
+GW -> S : _last_answer(child) reads last assistant text
+GW --> TOOL : result text
+TOOL --> P : ToolResult(result)\n(parent continues, combines results)
+
+note over P, S
+  Lean today: spawn -> await -> return (synchronous per call), parallel via
+  multiple calls. Full yield/async-completion orchestration = later refinement.
+end note
+
+@enduml

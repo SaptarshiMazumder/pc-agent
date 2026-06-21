@@ -84,11 +84,19 @@ class FileAgentRegistry:
         c = self._config
         ws = data.get("workspace")
         if ws:
-            workspace = Path(ws).expanduser()
+            workspace = Path(ws).expanduser()           # explicit path wins
         elif (d / "workspace").is_dir():
+            workspace = d / "workspace"                 # existing per-agent dir
+        elif agent_id != "main":
+            # a named agent gets its OWN isolated workspace by default (created on demand),
+            # so its files never collide with main or another agent.
             workspace = d / "workspace"
+            try:
+                workspace.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
         else:
-            workspace = Path(c.workspace)
+            workspace = Path(c.workspace)               # main: shared global (back-compat)
 
         tools = data.get("tools") or {}
         allow = tools.get("allow")
@@ -96,6 +104,10 @@ class FileAgentRegistry:
         skills_allow = data.get("skills")
         model = data.get("model")
         heartbeat = data.get("heartbeat")
+
+        # [capabilities] gates the "What you are" self-knowledge. Absent key => None =>
+        # inherit the global default; an explicit true/false overrides it for this agent.
+        caps = data.get("capabilities") or {}
 
         return AgentSpec(
             id=agent_id,
@@ -107,8 +119,12 @@ class FileAgentRegistry:
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
+            autonomy_enabled=caps.get("autonomy"),
+            notify_enabled=caps.get("notify"),
+            channels_enabled=caps.get("channels"),
             heartbeat=str(heartbeat) if heartbeat else None,
             heartbeat_instructions=load_heartbeat(d),
+            version=str(data.get("version") or "1"),
         )
 
     # ---- AgentRegistry ------------------------------------------------------
@@ -121,3 +137,31 @@ class FileAgentRegistry:
 
     def list_ids(self) -> list[str]:
         return sorted(self._specs)
+
+    def remove(self, agent_id: str) -> dict:
+        """Delete an agent's DEFINITION dir (agent.toml/IDENTITY/… + its workspace) and
+        its sessions dir, and forget it in-memory so no restart is needed. Refuses
+        `main` (always-present default). The shared sqlite ledgers (memory/autonomy) are
+        purged by their stores, not here. Returns what was removed.
+        """
+        import shutil
+
+        agent_id = (agent_id or "").strip().lower()
+        if agent_id == "main":
+            raise ValueError("cannot delete the default agent 'main'")
+        if agent_id not in self._specs:
+            raise KeyError(agent_id)
+
+        removed = {"id": agent_id, "definition": False, "sessions": False}
+        def_dir = self._agents_dir / agent_id          # definition + workspace/ live here
+        if def_dir.is_dir():
+            shutil.rmtree(def_dir, ignore_errors=True)
+            removed["definition"] = not def_dir.exists()
+        state_dir = Path(self._state_dir_for(agent_id))  # <state_dir>/agents/<id>/ (sessions)
+        if state_dir.is_dir():
+            shutil.rmtree(state_dir, ignore_errors=True)
+            removed["sessions"] = not state_dir.exists()
+        del self._specs[agent_id]
+        log.info("agents: removed '%s' (definition=%s sessions=%s)",
+                 agent_id, removed["definition"], removed["sessions"])
+        return removed

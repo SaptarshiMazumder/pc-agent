@@ -23,7 +23,47 @@ from pathlib import Path
 
 log = logging.getLogger("agentd")
 
-CONTEXT_FILES = ("AGENTS.md", "SOUL.md", "MEMORY.md")
+# SOUL.md is NOT here — it's the editable persona, loaded via `persona_file` (one place,
+# no double-load). Project Context covers the rest.
+CONTEXT_FILES = ("AGENTS.md", "MEMORY.md")
+
+# Default disposition every agent runs with (the base "persona"). Modeled on OpenClaw's
+# SOUL — the thing that makes the agent a thoughtful collaborator rather than a head-down
+# tool-runner. Injected into the base prompt (config.persona_enabled, default on); an
+# agent's IDENTITY.md, loaded right after, can refine or override its tone.
+PERSONA = (
+    "## How you work\n"
+    "- Be genuinely useful, not performative. Skip filler — do the thing. Recommend a "
+    "path; don't recite every option.\n"
+    "- Be resourceful before asking: read the file, check the context, search, try it. "
+    "Then ask only the ONE decision that actually blocks safe progress — not a survey.\n"
+    "- For big, ambiguous, or multi-session work, briefly propose your approach and "
+    "confirm before heavy or hard-to-undo steps. Turn a real limitation into a design "
+    "choice — don't bulldoze ahead on a flawed assumption.\n"
+    "- Be honest above everything. NEVER fabricate data, results, sources, or "
+    "capabilities. If you couldn't get something, say so plainly. \"Done\" requires "
+    "evidence you actually obtained — not a guess, a hand-written stand-in, or a hopeful "
+    "summary. If a tool/site/login fails, report the real blocker; don't paper over it.\n"
+    "- Use judgment: prefer the lightest method that works; don't over-engineer.\n"
+    "- Earn trust: be bold on reversible, internal actions (read, organize, draft); be "
+    "careful on external or irreversible ones (send, post, delete, pay) — confirm first.\n"
+    "Follow this unless a more specific instruction below overrides it."
+)
+
+
+def _load_persona(config) -> str:
+    """The default persona, preferring an EDITABLE file (config.persona_file, e.g. the repo
+    SOUL.md) so it can be tuned without touching code; falls back to the PERSONA constant if
+    the file is missing/empty (so deleting it never breaks the agent)."""
+    path = getattr(config, "persona_file", None)
+    if path:
+        try:
+            txt = Path(path).read_text(encoding="utf-8").strip()
+            if txt:
+                return txt
+        except OSError:
+            pass
+    return PERSONA
 
 
 def resolve_user_folders() -> dict[str, str]:
@@ -89,6 +129,66 @@ def _tooling_section(tools) -> str:
         summary = TOOL_SUMMARIES.get(t.name) or (t.description.splitlines()[0] if t.description else "")
         lines.append(f"- {t.name}: {summary}")
     return "\n".join(lines)
+
+
+def _capabilities_section(tools, config, agent=None) -> str | None:
+    """The agent's self-knowledge: WHAT IT IS (a persistent agent) and the capabilities it can
+    compose — derived DYNAMICALLY from the tools actually present + autonomy/channel state.
+    Empty (returns None) for a bare setup, so there's no noise; auto-grows as later steps
+    add memory/sub-agent capabilities. This is what lets the agent *propose architectures*
+    ("a daily cron that does X, reports outcome, notifies on blocker") instead of bulldozing.
+
+    Each gate resolves PER-AGENT-with-fallback: the AgentSpec value wins when set
+    (True/False), else the global config default — so a definition is self-describing.
+    """
+    names = {getattr(t, "name", "") for t in tools}
+
+    def _gate(attr: str, global_val) -> bool:
+        spec_val = getattr(agent, attr, None) if agent else None
+        return bool(global_val) if spec_val is None else bool(spec_val)
+
+    autonomy = _gate("autonomy_enabled", getattr(config, "autonomy_enabled", False))
+    notify = _gate("notify_enabled", getattr(config, "notify_enabled", False))
+    channels = _gate("channels_enabled", getattr(config, "channels", None))
+
+    bullets: list[str] = []
+    if "cron" in names or autonomy:
+        bullets.append(
+            "- **Schedule** future / recurring work with `cron` — reminders, check-back-later, "
+            "daily or weekly jobs. (Do NOT emulate scheduling with exec sleep-loops or an OS "
+            "cron / Task Scheduler.) A scheduled run records its outcome (done / blocked / failed)."
+        )
+    if autonomy:
+        bullets.append(
+            "- **Wake yourself** on a periodic heartbeat to handle standing tasks (HEARTBEAT.md) "
+            "without being asked."
+        )
+    if notify and (autonomy or channels):
+        bullets.append(
+            "- **Reach the user** — a blocked/failed scheduled run notifies them; you can get "
+            "their attention even when no chat is open."
+        )
+    if channels:
+        bullets.append("- **Be reached** on a messaging channel (e.g. email) and reply back on it.")
+    if {"memory_search", "memory_get", "remember"} & names:
+        bullets.append("- **Remember across sessions** — recall with the memory tools, write durable notes.")
+    if {"spawn_subagent", "subagents"} & names:
+        bullets.append(
+            "- **Delegate** heavy or parallelizable work with `spawn_subagent` — a long read, "
+            "research, a separate analysis — rather than doing it all in one thread; you can "
+            "spawn several at once and combine their results.")
+
+    if not bullets:
+        return None
+    return (
+        "## What you are\n"
+        "You run inside a persistent gateway, not a one-shot script. Beyond acting now you can:\n"
+        + "\n".join(bullets)
+        + "\nSo when a request implies ongoing or autonomous work (\"monitor X\", \"remind me\", "
+        "\"do this daily\", \"watch for Y\", \"keep it updated\"), PROPOSE how you'd compose these "
+        "— e.g. a cron job that does the work, records its outcome, and notifies you on a blocker — "
+        "and confirm before setting it up. Don't reinvent them with brittle workarounds."
+    )
 
 
 def _skills_section(skills) -> str | None:
@@ -173,6 +273,12 @@ def build_system_prompt(
         f"Current model identity: {model}. If asked what model you are, answer with this value."
     )
 
+    # 1a'. Default persona/disposition (collaborator, honest, propose+confirm). Base-level
+    # so EVERY agent + plain chat gets it; loaded from the editable SOUL.md (constant
+    # fallback). The agent's IDENTITY (next) can refine the tone.
+    if getattr(config, "persona_enabled", True):
+        sections.append(_load_persona(config))
+
     # 1a. Agent definition (IDENTITY/AGENTS/USER/MEMORY bootstrap), if any — high priority.
     instructions = (getattr(agent, "instructions", "") if agent else "") or ""
     if instructions:
@@ -205,6 +311,13 @@ def build_system_prompt(
     # 2. Tooling (browser operating loop now lives in the browser-automation skill)
     sections.append(_tooling_section(tools))
 
+    # 2a'. What you are — self-knowledge of the agent's own organs (cron/heartbeat/notify/
+    # channels/memory/sub-agents), built dynamically from what's actually available, so the
+    # agent can PROPOSE composing them for ongoing/autonomous work. None for a bare setup.
+    capabilities = _capabilities_section(tools, config, agent)
+    if capabilities:
+        sections.append(capabilities)
+
     # 2b. Skills (loadable playbooks; one line each, read on demand)
     skills_section = _skills_section(skills)
     if skills_section:
@@ -236,12 +349,13 @@ def build_system_prompt(
     # 2d. Verify step (only when the verify_answer tool is available).
     if any(getattr(t, "name", "") == "verify_answer" for t in tools):
         sections.append(
-            "## Verify Before You Send\n"
-            "For any substantial answer (lists, research, multi-step results, factual claims), "
-            "add a final VERIFY step to your plan: call `verify_answer` with your full draft "
-            "BEFORE replying. If it returns NEEDS WORK, fix the issues and re-check, then send "
-            "ONE clean final answer. Never apologize or react to feedback the user didn't give — "
-            "the review is yours, internal; the user only sees the finished answer."
+            "## Verify Before You Send (required)\n"
+            "For any substantial answer (lists, research, multi-step results, factual claims, "
+            "or anything you deliver/email), you MUST call `verify_answer` with your full draft "
+            "BEFORE replying. If it returns NEEDS WORK, you MUST fix the issues and re-verify — "
+            "do NOT send an answer that failed verification. Loop until it passes, or stop and "
+            "report the blocker honestly. The review is internal; the user sees only the "
+            "finished answer (never apologize for feedback they didn't give)."
         )
 
     # 3. Tool Call Style (verbatim, approval lines dropped)
@@ -264,8 +378,9 @@ def build_system_prompt(
         "- Longer work: brief progress update, then keep going; use background work or sub-agents when they fit."
     )
 
-    # 4c. Completeness self-check (opt-in #1; the in-band complement to the Verifier).
-    if getattr(config, "completeness_check", False):
+    # 4c. Completeness / honesty self-check — ON by default (S3): back claims with evidence,
+    # never fabricate. The in-band complement to the Verifier.
+    if getattr(config, "completeness_check", True):
         sections.append(
             "## Before You Finish\n"
             "Before giving a FINAL answer, check it against the request: is EVERY part "

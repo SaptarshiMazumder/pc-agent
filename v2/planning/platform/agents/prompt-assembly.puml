@@ -1,0 +1,75 @@
+@startuml prompt-assembly
+' ============================================================================
+'  build_system_prompt — the exact section order (infrastructure/prompt.py).
+'  Highlights the Tier-0 behavioral work: persona (SOUL.md), self-knowledge,
+'  honesty-by-default + verify gate.  Render: java -jar ../../../plantuml.jar -tpng prompt-assembly.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 8
+skinparam ranksep 18
+skinparam ArrowColor #888888
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 8
+}
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title build_system_prompt — section order (top = highest priority)\namber = new (Tier 0 behavioral)    blue = mode-conditional    green = pre-existing
+
+package "Base prompt (every agent + plain chat)" #F2F2F2 {
+  rectangle "1.  Identity\n'You are <name>… model identity'" as I #C8E6C9
+  rectangle "1a'. PERSONA  [S1 / S0.5]\nresourceful-then-ask-ONE-Q · propose+confirm on\nbig/irreversible · NEVER fabricate (done=evidence)\n· trust(bold-reversible/careful-external)\nLOADED FROM editable SOUL.md (persona_file),\nconstant fallback · persona_enabled" as P #FFE9C7
+  rectangle "1a. Agent IDENTITY.md\n(per-agent bootstrap — can refine persona)" as ID #C8E6C9
+  rectangle "1b. HEARTBEAT.md   (heartbeat mode only)" as HB #DAE8FC
+  rectangle "1b'. Scheduled-run note + report_outcome   (cron mode only)" as CR #DAE8FC
+  rectangle "1b''. Channel reply note   (channel mode only)" as CH #DAE8FC
+  rectangle "1c. Language" as L #C8E6C9
+  rectangle "2.  Tooling  (one line per available tool)" as T #C8E6C9
+  rectangle "2a'. ## What you are  [S2]\nDYNAMIC from organs present: schedule(cron) ·\nwake(heartbeat) · reach-user(notify) · be-reached\n(channels) · remember(memory) · delegate(subagents)\n=> closes with 'PROPOSE an architecture + confirm'" as WHO #FFE9C7
+  rectangle "2b. Skills  (advertised; read on demand)" as SK #C8E6C9
+  rectangle "2c. Planning  (if update_plan — strong nudge)" as PL #C8E6C9
+  rectangle "2d. Verify Before You Send (REQUIRED)  [S3]\nMUST verify substantial/delivered answers;\nNEEDS-WORK => fix + re-verify; never ship a failed verify" as V #FFE9C7
+  rectangle "3.  Tool Call Style" as TCS #C8E6C9
+  rectangle "4.  Execution Bias  (act · continue-until-done · evidence)" as EB #C8E6C9
+  rectangle "4c. Before You Finish — honesty  [S3]\nON BY DEFAULT (completeness_check): every part\naddressed + evidence-backed; NEVER fabricate" as H #FFE9C7
+  rectangle "5.  Safety   ·   6. Workspace + User Folders\n7. Date/Time   ·   8. Project Context (AGENTS.md/MEMORY.md)   ·   9. Runtime" as REST #C8E6C9
+}
+
+I --> P
+P --> ID
+ID --> HB
+HB --> CR
+CR --> CH
+CH --> L
+L --> T
+T --> WHO
+WHO --> SK
+SK --> PL
+PL --> V
+V --> TCS
+TCS --> EB
+EB --> H
+H --> REST
+
+note right of P
+  This is "the SOUL" — what made OpenClaw's plain
+  'main' feel rich. It lives in the BASE prompt, so
+  EVERY agent + chat gets it (not per-agent).
+end note
+
+note right of WHO
+  Returns nothing for a bare setup (no organs) =>
+  no noise; auto-grows as memory/sub-agents enable.
+end note
+
+@enduml

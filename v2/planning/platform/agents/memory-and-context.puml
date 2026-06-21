@@ -1,0 +1,86 @@
+@startuml memory-and-context
+' ============================================================================
+'  Long-term memory (S4-S6) + context compaction (S7), layered.
+'  Render: java -jar ../../../plantuml.jar -tpng memory-and-context.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 16
+skinparam ranksep 45
+skinparam ArrowColor #666666
+skinparam ArrowFontSize 10
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 8
+}
+skinparam database {
+  BorderColor #888888
+}
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Memory (S4-S6) + Context compaction (S7)\namber = new   green = pre-existing
+
+package "Tools  (infrastructure; agent-scoped via run-context)" #F2F2F2 {
+  rectangle "remember\nwrite a durable note" as T_REM #FFE9C7
+  rectangle "memory_search\nFTS recall across sessions" as T_SRCH #FFE9C7
+  rectangle "memory_get\nfetch one item by id" as T_GET #FFE9C7
+  rectangle "memory_consolidate  [S6]\ndedup exact-duplicate notes" as T_CON #FFE9C7
+}
+
+package "Application (ports)" #F2F2F2 {
+  rectangle "PORT: MemoryBank\nsave / search / get / recent / delete" as P_BANK #FFE9C7
+  rectangle "PORT: ContextPolicy  [S7]\nprepare(messages) -> messages" as P_CTX #FFE9C7
+}
+
+package "Infrastructure (adapters)" #F2F2F2 {
+  database "SqliteMemoryBank\n<state_dir>/memory.sqlite\nFTS5 (+ LIKE fallback), agent-scoped\nrows: id/agent_id/source/text/created_at" as BANK #FFE9C7
+  rectangle "consolidate(bank, agent)\nkeep newest of each dup" as CONS #FFE9C7
+  rectangle "WindowContextPolicy\nkeep recent N from a USER turn\n(never split tool-call/result)" as WIN #FFE9C7
+}
+
+package "Engine / loop" #F2F2F2 {
+  rectangle "NativeEngine.run_agent_loop\nsend_messages = context_policy.prepare(messages)\n(NON-mutating view; default None = send all)" as ENG #C8E6C9
+}
+
+package "Wiring (composition root)" #EDE7F6 {
+  rectangle "container.build_memory_bank(config)\n(None unless memory_enabled)\n-> build_service -> build_tools\nAGENTD_MEMORY=1" as WIRE #FFE9C7
+  rectangle "config.context_max_messages>0\n-> WindowContextPolicy -> NativeEngine\nAGENTD_CONTEXT_MAX" as WIRE2 #FFE9C7
+}
+
+T_REM --> P_BANK
+T_SRCH --> P_BANK
+T_GET --> P_BANK
+T_CON --> CONS
+CONS --> P_BANK
+P_BANK <|.. BANK
+WIRE --> BANK
+WIRE ..> T_REM : registers tools
+
+P_CTX <|.. WIN
+WIRE2 --> WIN
+WIN --> ENG
+ENG ..> P_CTX : applies per call
+
+note bottom of BANK
+  Cross-session learning: what an agent `remember`s in
+  one chat is recalled (memory_search) in the next.
+  Embeddings / semantic search slot behind the SAME
+  MemoryBank port later.
+end note
+
+note right of ENG
+  Long sessions/channels won't hit the context wall:
+  the model sees a compacted VIEW; the real transcript
+  on disk is untouched. LLM-summary policy = same port.
+end note
+
+@enduml

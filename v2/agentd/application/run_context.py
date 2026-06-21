@@ -17,6 +17,7 @@ class RunContext:
     agent_id: str
     session_key: str
     mode: str
+    workspace: str = ""   # the agent's working dir for file/exec tools ("" = use the global default)
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
@@ -28,6 +29,20 @@ def set_run_context(ctx: RunContext) -> None:
 
 def current_run_context() -> RunContext | None:
     return _current.get()
+
+
+def current_workspace(default: str | None = None) -> str | None:
+    """The working dir for the CURRENT run's file/exec tools.
+
+    Tools are shared singletons built with the global config, so they call this to
+    honour per-agent isolation: returns the agent's per-run workspace when set, else
+    ``default`` (the global config workspace). Empty/unset -> ``default`` keeps `main`
+    on the legacy shared workspace (back-compat).
+    """
+    ctx = _current.get()
+    if ctx is not None and ctx.workspace:
+        return ctx.workspace
+    return default
 
 
 # --- run outcome sink -------------------------------------------------------

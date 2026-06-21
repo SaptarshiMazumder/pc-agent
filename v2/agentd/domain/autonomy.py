@@ -29,6 +29,7 @@ class ScheduledTask:
     enabled: bool = True
     created_at: float = 0.0
     delivery: str = "run"       # "run" = agent executes payload | "message" = deliver verbatim
+    failure_alert: int = 0      # notify the user after N consecutive failed runs (0 = off)
 
 
 @dataclass(frozen=True)

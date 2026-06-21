@@ -14,6 +14,8 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
+from agentd.application.run_context import current_workspace
+
 from . import Tool, ToolResult
 
 OUTPUT_CAP = 50_000
@@ -134,7 +136,7 @@ class ExecTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         command = params["command"]
-        cwd = params.get("cwd") or str(self.config.workspace)
+        cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
         env = {**os.environ, **(params.get("env") or {})}
         timeout = params.get("timeout_sec") or self.config.exec_timeout_sec
 

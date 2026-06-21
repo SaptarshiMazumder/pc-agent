@@ -19,7 +19,7 @@ from datetime import datetime
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
 
-from agentd.application.run_context import take_run_outcome
+from agentd.application.run_context import current_run_context, take_run_outcome
 from agentd.application.services.agent_service import AgentService
 from agentd.config import Config
 from agentd.domain.agent import RunMode, agent_id_from_session_key
@@ -56,6 +56,8 @@ class RunHandle:
     client_id: str | None = None  # the client connection that started this run
     task: asyncio.Task | None = None
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
+    cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
+    cron_failure_alert: int = 0      # auto-pause + alert after N consecutive failures (0=off)
 
 
 @dataclass
@@ -70,9 +72,11 @@ class Gateway:
     mcp_provider: object | None = None             # injected; discovered at startup, closed on shutdown
     registry: object | None = None                 # injected; the agent registry (for the scheduler)
     task_store: object | None = None               # injected; durable cron ledger (Phase 2b), or None
+    memory_bank: object | None = None               # injected; long-term memory store (S4), or None
     notifier: object | None = None                  # built in serve(); outbound user notifications (5a)
     channels: list = field(default_factory=list)    # active messaging channels (5b), built in serve()
     channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
+    subagent_active: int = 0                         # in-flight sub-agent runs (runaway guard, S8)
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -81,6 +85,7 @@ class Gateway:
 
     async def serve(self) -> None:
         await self._discover_mcp_tools()  # connect external MCP servers, add their tools
+        self._build_subagents()           # the spawn_subagent tool (S8), if enabled
         self._build_channels()            # messaging channels (5b) — email needs MCP tools first
         self._build_notifier()            # outbound notifications (client-push + durable + channels)
         scheduler_task = self._start_scheduler()  # autonomy (heartbeat); None if disabled
@@ -143,6 +148,46 @@ class Gateway:
             if notify_to:
                 self.channel_notifiers.append(ChannelNotifier(ch, notify_to))
             log.info("channel ready: %s -> agent %s", ch.name, getattr(ch, "agent_id", "?"))
+
+    def _build_subagents(self) -> None:
+        """Register the spawn_subagent tool (S8) when enabled — the agent can delegate a
+        subtask to a fresh child run and get its result back."""
+        if not getattr(self.config, "subagents_enabled", False):
+            return
+        from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+        from agentd.infrastructure.tools.subagent_tool import SpawnSubagentTool
+
+        tool = SpawnSubagentTool(self._spawn_subagent)
+        self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
+        log.info("sub-agents enabled (max %d concurrent)", getattr(self.config, "subagent_max", 4))
+
+    async def _spawn_subagent(self, agent_id: str | None, task: str) -> str:
+        """Run a self-contained CHILD agent turn and return its final answer. Called from
+        within the parent's tool execution; the child runs as its own asyncio.Task so its
+        run-context (contextvar) never clobbers the parent's. Capped + depth-limited."""
+        ctx = current_run_context()
+        parent_agent = (ctx.agent_id if ctx else None) or "main"
+        parent_key = ctx.session_key if ctx else ""
+        if ":sub:" in parent_key:                       # depth-1: a sub-agent can't spawn more
+            return "sub-agents cannot themselves spawn sub-agents (depth limit)."
+        cap = int(getattr(self.config, "subagent_max", 4))
+        if self.subagent_active >= cap:
+            return f"sub-agent limit reached ({cap} concurrent); try again when some finish."
+
+        child_agent = (agent_id or parent_agent)
+        if self.registry is not None and child_agent not in self.registry.list_ids():
+            return f"unknown agent: {child_agent}"
+        session_key = f"agent:{child_agent}:sub:{uuid.uuid4().hex[:8]}"
+        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
+                           abort=asyncio.Event(), client_id=None)
+        self.subagent_active += 1
+        try:
+            # own Task => its own copied context => child set_run_context can't leak to parent
+            await asyncio.create_task(
+                self._run(handle, task, mode=RunMode.INTERACTIVE, agent_id=child_agent))
+        finally:
+            self.subagent_active -= 1
+        return self._last_answer(child_agent, session_key) or "(sub-agent produced no answer)"
 
     def _start_channel_poller(self):
         """One shared loop polling every channel for inbound messages. None if no channels."""
@@ -227,6 +272,8 @@ class Gateway:
                            abort=asyncio.Event(), client_id=None)
         if self.task_store is not None:
             handle.cron_run_id = self.task_store.record_run(task.id, task.agent_id)  # history
+            handle.cron_task_id = task.id
+            handle.cron_failure_alert = getattr(task, "failure_alert", 0)
         handle.task = asyncio.create_task(self._run(handle, message, mode=RunMode.CRON))
         self.runs[session_key] = handle
         log.info("cron fire: task %s -> run %s (%s)", task.id, run_id, session_key)
@@ -302,6 +349,8 @@ class Gateway:
                 payload = self._sessions_list(req.params)
             elif req.method == "agents.list":
                 payload = self._agents_list()
+            elif req.method == "agents.remove":
+                payload = self._agents_remove(req.params)
             elif req.method == "cron.list":
                 payload = self._cron_list()
             elif req.method == "cron.add":
@@ -346,9 +395,34 @@ class Gateway:
         default = getattr(self.config, "agent_id", "main")
         if self.registry is None:
             return {"agents": [{"id": default, "name": self.config.agent_name}], "default": default}
-        agents = [{"id": aid, "name": self.registry.get(aid).name}
+        agents = [{"id": aid, "name": self.registry.get(aid).name,
+                   "version": getattr(self.registry.get(aid), "version", "1")}
                   for aid in self.registry.list_ids()]
         return {"agents": agents, "default": default if default in {a["id"] for a in agents} else "main"}
+
+    def _agents_remove(self, params: dict) -> dict:
+        """Permanently delete an agent EVERYWHERE — the one destructive surface any client
+        uses. Purges the shared ledgers (memory + cron/goals/runs/notifs/commitments) first
+        so nothing can fire orphaned, then deletes the definition + workspace + sessions and
+        forgets it (no restart). Refuses 'main'."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        if not agent_id:
+            return {"removed": False, "error": "agentId required"}
+        if agent_id == "main":
+            return {"removed": False, "error": "cannot delete the default agent 'main'"}
+        if self.registry is None:
+            return {"removed": False, "error": "no agent registry"}
+        if agent_id not in self.registry.list_ids():
+            return {"removed": False, "error": f"unknown agent: {agent_id}"}
+
+        cron = self.task_store.purge_agent(agent_id) if self.task_store is not None else {}
+        memory = self.memory_bank.purge_agent(agent_id) if self.memory_bank is not None else 0
+        removed = self.registry.remove(agent_id)   # definition + workspace + sessions, drop from cache
+        log.info("agents.remove %s -> %s cron=%s memory=%s", agent_id, removed, cron, memory)
+        return {"removed": True, "agentId": agent_id,
+                "definition": removed.get("definition", False),
+                "sessions": removed.get("sessions", False),
+                "cron": cron, "memory": memory}
 
     def _cron_list(self) -> dict:
         """Scheduled jobs across ALL agents + recent runs — the uniform 'list my jobs'
@@ -584,6 +658,21 @@ class Gateway:
             if (self.notifier is not None and handle.cron_run_id is not None
                     and status in ("blocked", "failed", "error")):
                 await self._notify_run(handle, status, detail or err_msg)
+            # failure-alert escalation (S14): after N consecutive failures, AUTO-PAUSE the
+            # job so a broken task stops running forever, and tell the user to fix it.
+            if (handle.cron_failure_alert and self.task_store is not None
+                    and status in ("failed", "error", "aborted")
+                    and self.task_store.consecutive_failures(handle.cron_task_id)
+                    >= handle.cron_failure_alert):
+                try:
+                    self.task_store.update(handle.cron_task_id, enabled=0)
+                    if self.notifier is not None:
+                        await self._notify_run(
+                            handle, "failed",
+                            f"paused after {handle.cron_failure_alert} consecutive failures — "
+                            f"needs your attention.")
+                except Exception:  # noqa: BLE001
+                    pass
 
     async def _broadcast(self, session_key: str, run_id: str, event: AgentEvent) -> None:
         await self._send_all(dump_frame(Event(

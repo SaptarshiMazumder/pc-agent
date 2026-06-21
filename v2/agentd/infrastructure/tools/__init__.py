@@ -92,7 +92,7 @@ def validate_args(tool: Tool, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_tools(config, browser_manager=None, computer_provider=None,
-                task_store=None) -> list[Tool]:
+                task_store=None, memory_bank=None) -> list[Tool]:
     """The REGISTRY: assemble the list of active tools.
 
     Tool classes are imported lazily (inside this function) so that an optional
@@ -131,11 +131,32 @@ def build_tools(config, browser_manager=None, computer_provider=None,
         tools.append(ReportOutcomeTool())   # exposed ONLY on a cron run (apply_mode)
         # cron + goal — durable scheduling + objective tracking (need the ledger).
         if task_store is not None:
+            from .commitment_tool import CommitmentTool
             from .cron_tool import CronTool
             from .goal_tool import GoalTool
 
             tools.append(CronTool(task_store))
             tools.append(GoalTool(task_store))   # SqliteTaskStore implements GoalStore too
+            tools.append(CommitmentTool(task_store))   # open-loop / follow-up tracker (S15)
+    # Long-term memory (Phase 3): recall + write across sessions. Built only when enabled
+    # AND a bank is wired. OFF => the tools never exist (toolset unchanged).
+    if getattr(config, "memory_enabled", False) and memory_bank is not None:
+        from .memory_tools import (
+            MemoryConsolidateTool,
+            MemoryGetTool,
+            MemorySearchTool,
+            RememberTool,
+        )
+
+        tools.append(RememberTool(memory_bank))
+        tools.append(MemorySearchTool(memory_bank))
+        tools.append(MemoryGetTool(memory_bank))
+        tools.append(MemoryConsolidateTool(memory_bank))
+    # skill_workshop (S10): author reusable SKILL.md playbooks at runtime. OFF => absent.
+    if getattr(config, "skill_workshop", False):
+        from .skill_tool import SkillWorkshopTool
+
+        tools.append(SkillWorkshopTool(config))
     if browser_manager is not None:
         from .browser import BrowserTool
 
