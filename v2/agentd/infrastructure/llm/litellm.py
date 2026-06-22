@@ -44,6 +44,7 @@ from agentd.domain.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
 
 # Map a provider's "why did you stop" reason -> our internal stop_reason vocabulary.
 FINISH_REASON_MAP = {
@@ -64,13 +65,12 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
     its own past reasoning re-fed).
     """
     out: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    emitted_call_ids: set[str] = set()        # tool-call ids actually sent, for pairing
     for m in messages:
         if isinstance(m, UserMessage):
             out.append({"role": "user", "content": m.content})
         elif isinstance(m, AssistantMessage):
-            entry: dict[str, Any] = {"role": "assistant"}
             text = m.text  # visible text only; thinking blocks are dropped outbound
-            entry["content"] = text or None
             tool_calls = [
                 {
                     "id": tc.id,
@@ -80,6 +80,12 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
                 }
                 for tc in m.tool_calls
             ]
+            # Drop the UI-only "couldn't generate" placeholder: it has no tool call and, if it
+            # lands between a tool call and its result, strict providers (Gemini) reject the
+            # whole history with "missing corresponding tool call".
+            if not tool_calls and text.strip() == INCOMPLETE_TURN_FALLBACK_TEXT:
+                continue
+            entry: dict[str, Any] = {"role": "assistant", "content": text or None}
             if tool_calls:
                 entry["tool_calls"] = tool_calls
             # a turn with neither text nor tool calls (e.g. an errored turn) is useless
@@ -87,7 +93,13 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
             if entry["content"] is None and not tool_calls:
                 continue
             out.append(entry)
+            emitted_call_ids.update(tc.id for tc in m.tool_calls)
         elif isinstance(m, ToolResultMessage):
+            # Drop an ORPHANED tool result — one whose tool call wasn't emitted above (lost to a
+            # placeholder/errored turn). A tool message with no matching call is rejected by
+            # strict providers (Gemini): "missing corresponding tool call".
+            if m.tool_call_id not in emitted_call_ids:
+                continue
             text = m.text or "(no output)"
             if m.is_error:
                 text = f"ERROR: {text}"  # surface tool failures to the model as text

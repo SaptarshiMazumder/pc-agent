@@ -447,6 +447,17 @@ def build_system_prompt(
     if workspace_resources:
         sections.append(workspace_resources)
 
+    # 6a''. Scratch hygiene — a sanctioned throwaway area so intermediates don't clutter the
+    # workspace or get indexed/summarized, plus a nudge to clean up when a task ends.
+    sections.append(
+        "## Workspace hygiene\n"
+        "Write throwaway/intermediate files (temp data, downloads, debug dumps, base64 blobs) "
+        "under a `tmp/` subfolder of your workspace — `tmp/` is auto-cleaned by age and is NEVER "
+        "indexed or summarized. Keep only real deliverables at the workspace root. When a task is "
+        "done, delete intermediate files you created that aren't the deliverable (`resource` "
+        "delete a file, or `resource` cleanup to clear `tmp/`)."
+    )
+
     # 6b. User Folders (real resolved paths — Desktop/Documents may be OneDrive-redirected)
     folders = resolve_user_folders()
     folder_lines = "\n".join(f"- {label}: {path}" for label, path in folders.items())

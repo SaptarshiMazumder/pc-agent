@@ -9,6 +9,10 @@ behavior is unchanged by default.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger("agentd")
+
 
 def make_failover_stream(inner, fallbacks):
     fallbacks = [f for f in (fallbacks or []) if f]
@@ -29,8 +33,14 @@ def make_failover_stream(inner, fallbacks):
                 yield ev
             if done_ev is None:
                 return
-            stop = getattr(done_ev.get("message"), "stop_reason", None)
+            msg = done_ev.get("message")
+            stop = getattr(msg, "stop_reason", None)
             if stop == "error" and not produced and i < len(candidates) - 1:
+                # MONITOR: primary model failed -> falling back. One clear, greppable line,
+                # WITH the underlying provider error so you can see WHY it failed.
+                reason = getattr(msg, "error_message", None) or "no detail"
+                log.warning("MODEL FALLBACK: '%s' errored before output -> falling back to '%s'"
+                            "  | reason: %s", m, candidates[i + 1], reason)
                 continue                  # clean error + a fallback left -> try next, suppress this
             yield done_ev
             return

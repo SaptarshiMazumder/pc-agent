@@ -18,7 +18,6 @@ from agentd.infrastructure.engine.native import NativeEngine
 from agentd.infrastructure.llm.litellm import litellm_stream
 from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.infrastructure.prompt import build_system_prompt
-from agentd.infrastructure.skills import FileSkillRegistry
 from agentd.infrastructure.tools import build_tools
 from agentd.presentation.gateway import Gateway
 
@@ -108,40 +107,40 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         stream_fn, config.model, max_iterations=config.max_turns,
         observers=build_observers(config), context_policy=context_policy,
     )
-    # skills are read fresh per turn, so dropping a SKILL.md into the folder takes
-    # effect on the next message without a restart (swap here for a cloud registry)
-    skills = FileSkillRegistry(config.skills_dir)
-    # the agent registry: which agent owns a session + its persona/scope. The
-    # single-agent app is the `main` agent synthesized from config (back-compat).
+    # the agent registry: which agent owns a session + its persona/scope.
     from agentd.domain.agent import RunMode, merge_skills, select_skills
     from agentd.infrastructure.agents import FileAgentRegistry
     from agentd.infrastructure.skills.file_skills import load_skills_dir
 
-    # Layered skills (OpenClaw-style): the agent sees the shared GLOBAL library
-    # (allowlist-filtered) PLUS its OWN agents/<id>/skills/, where its own skills
-    # override a global one of the same name.
-    def resolve_skills(agent):
-        global_skills = select_skills(skills.all(), agent)
-        own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
-        return merge_skills(global_skills, own)
-
     registry = registry or FileAgentRegistry(config)
+
+    # Layered skills (read fresh per turn, so a new SKILL.md takes effect next message):
+    # MAIN's skills (agents/main/skills/) are the SHARED/global library that EVERY agent
+    # inherits. A named agent ALSO sees its OWN agents/<id>/skills/ (its own overrides a
+    # global of the same name). main sees only its own (= the global). Inheritance is
+    # ONE-WAY: main never sees a named agent's skills, nor do siblings see each other's.
+    main_skills_dir = registry.get("main").skills_dir
+
+    def resolve_skills(agent):
+        global_skills = select_skills(load_skills_dir(main_skills_dir), agent)
+        if agent.id == "main":
+            return global_skills                       # main = its own skills (the global)
+        own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
+        return merge_skills(global_skills, own)         # named: global + own (own wins)
     # workspace-awareness layer (TURN seam): a manifest of the agent's files in every
     # prompt, so resources it created stay visible. The described Resource Manager wins
     # when on; else the plain workspace index; else nothing (all cut-out-able by flag).
     from agentd.infrastructure.workspace import build_workspace_index
+    from agentd.infrastructure.workspace.cleanup import sweep_scratch
     workspace_index = resource_manager or build_workspace_index(config)
-    return AgentService(
-        engine=engine,
-        tools=tools,
-        registry=registry,
-        # per-agent session store: agent.state_dir partitions sessions (main = legacy path)
-        make_session=lambda sid, agent: SessionStore(
-            agent.state_dir, sid, cwd=str(agent.workspace)
-        ),
-        # prompt for the resolved agent + run mode: its identity/bootstrap + scoped
-        # skills + its model; on a heartbeat tick, also inject HEARTBEAT.md.
-        build_prompt=lambda tools, agent, mode: build_system_prompt(
+
+    def _build_prompt(tools, agent, mode):
+        # prompt for the resolved agent + run mode: its identity/bootstrap + scoped skills +
+        # model; on a heartbeat tick also inject HEARTBEAT.md. FIRST: scratch hygiene —
+        # auto-sweep <workspace>/tmp/ by age once per run (ungated, cheap, bounded to the
+        # scratch dir) so throwaway files never pile up or get enriched.
+        sweep_scratch(agent.workspace, getattr(config, "scratch_ttl_hours", 0.0))
+        return build_system_prompt(
             config, tools, agent.model or config.model, config.reasoning_effort,
             skills=resolve_skills(agent), agent=agent,
             heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
@@ -149,7 +148,17 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
                                  if workspace_index else ""),
+        )
+
+    return AgentService(
+        engine=engine,
+        tools=tools,
+        registry=registry,
+        # per-agent session store: agent.state_dir partitions sessions (all under agents/<id>/)
+        make_session=lambda sid, agent: SessionStore(
+            agent.state_dir, sid, cwd=str(agent.workspace)
         ),
+        build_prompt=_build_prompt,
     )
 
 

@@ -86,6 +86,18 @@ def test_reconcile_skips_home_directory(tmp_path):
     assert items == [] and capped is False
 
 
+def test_reconcile_skips_tmp_scratch(tmp_path):
+    # the tmp/ scratch dir is never indexed or enriched (throwaway files)
+    ws = tmp_path / "ws"; ws.mkdir()
+    (ws / "keep.py").write_text("x", encoding="utf-8")
+    (ws / "tmp").mkdir()
+    (ws / "tmp" / "junk.txt").write_text("x", encoding="utf-8")
+    m, _ = _mgr(tmp_path)
+    items, _ = m.reconcile(ws, "ag")
+    rels = [r.rel_path for r in items]
+    assert "keep.py" in rels and not any("tmp/" in r for r in rels)
+
+
 def test_reconcile_prunes_deleted_file(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     m, store = _mgr(tmp_path)

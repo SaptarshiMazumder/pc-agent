@@ -4,11 +4,12 @@
 (model, tool allow/deny, skill allowlist, workspace, heartbeat) plus bootstrap
 markdown (IDENTITY/AGENTS/USER/MEMORY) read by `load_bootstrap`.
 
-Backward compatibility is the rule: `main` is ALWAYS present. If no `agents/main/`
-dir exists it is SYNTHESIZED from config, on the LEGACY session path
-(`<state_dir>/sessions/`), so existing transcripts and single-agent behavior are
-byte-for-byte unchanged. Every OTHER agent partitions to
-`<state_dir>/agents/<id>/sessions/`. One bad agent dir never breaks the rest.
+`main` is ALWAYS present and is now a FIRST-CLASS agent like any other: rooted at
+`agents/main/` (workspace at `agents/main/workspace/`, skills at `agents/main/skills/`)
+and partitioned to `<state_dir>/agents/main/sessions/`. If no `agents/main/` dir exists
+it is SYNTHESIZED with those same paths. main's `skills/` is the SHARED/global library
+every agent inherits; each named agent's `skills/` is private to it. One bad agent dir
+never breaks the rest.
 """
 
 from __future__ import annotations
@@ -58,21 +59,30 @@ class FileAgentRegistry:
         return specs
 
     def _synthesize_main(self) -> AgentSpec:
+        # main is a FIRST-CLASS agent rooted at agents/main/ (no agents/main/ dir on disk
+        # yet -> use the same paths it WOULD load from, so behaviour is identical once the
+        # dir exists). main's skills are the SHARED/global library every agent inherits.
         c = self._config
+        d = self._agents_dir / "main"
+        workspace = d / "workspace"
+        try:
+            workspace.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         return AgentSpec(
             id="main",
             name=getattr(c, "agent_name", "") or "the assistant",
-            workspace=Path(c.workspace),
-            state_dir=Path(c.state_dir),          # legacy flat path (back-compat)
+            workspace=workspace,
+            state_dir=self._state_dir_for("main"),
             instructions="",
             model=None,
             tools_allow=None, tools_deny=(), skills_allow=None,
+            skills_dir=d / "skills",              # main's skills = the global library
         )
 
     def _state_dir_for(self, agent_id: str) -> Path:
-        # main keeps the legacy session path; every other agent partitions.
-        base = Path(self._config.state_dir)
-        return base if agent_id == "main" else base / "agents" / agent_id
+        # every agent (main included) partitions to <state_dir>/agents/<id>/.
+        return Path(self._config.state_dir) / "agents" / agent_id
 
     def _load_dir(self, agent_id: str, d: Path) -> AgentSpec:
         data: dict = {}
@@ -81,22 +91,17 @@ class FileAgentRegistry:
             with toml_path.open("rb") as f:
                 data = tomllib.load(f)
 
-        c = self._config
         ws = data.get("workspace")
         if ws:
             workspace = Path(ws).expanduser()           # explicit path wins
-        elif (d / "workspace").is_dir():
-            workspace = d / "workspace"                 # existing per-agent dir
-        elif agent_id != "main":
-            # a named agent gets its OWN isolated workspace by default (created on demand),
-            # so its files never collide with main or another agent.
+        else:
+            # EVERY agent (main included) gets its OWN isolated workspace at
+            # agents/<id>/workspace/ (created on demand), so files never collide.
             workspace = d / "workspace"
             try:
                 workspace.mkdir(parents=True, exist_ok=True)
             except OSError:
                 pass
-        else:
-            workspace = Path(c.workspace)               # main: shared global (back-compat)
 
         tools = data.get("tools") or {}
         allow = tools.get("allow")
@@ -119,7 +124,7 @@ class FileAgentRegistry:
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
-            skills_dir=workspace / "skills",  # the agent's OWN skills (<workspace>/skills/)
+            skills_dir=d / "skills",          # the agent's OWN skills (agents/<id>/skills/)
             google_account=str(data.get("google_account") or ""),
             google_accounts=tuple(str(a) for a in (data.get("google_accounts") or [])),
             autonomy_enabled=caps.get("autonomy"),

@@ -26,6 +26,7 @@ _SKIP_DIRS = {
     ".mypy_cache", ".pytest_cache", "browser-profile", "sessions", ".agentd",
     ".idea", ".vscode", "dist", "build", ".cache",
     "skills",   # the agent's skills live here but are advertised in the Skills section, not as resources
+    "tmp",      # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed/enriched
 }
 _SKIP_SUFFIX = (".pyc", ".pyo", ".lock", ".tmp", ".log")
 _SCAN_CAP = 5000
@@ -193,6 +194,18 @@ class ResourceManager:
     def list_resources(self, workspace, agent_id: str) -> list[Resource]:
         items, _ = self.reconcile(workspace, agent_id)
         return items
+
+    def cleanup(self, workspace, agent_id: str, *, patterns=(), dry_run: bool = False) -> list[str]:
+        """Tidy the workspace: delete scratch (all of tmp/) + any file matching the glob
+        `patterns`, dropping their index rows too. dry_run -> just the would-delete list.
+        Bounded to the workspace (refuses home)."""
+        from agentd.infrastructure.workspace import cleanup as ws_cleanup
+        targets = ws_cleanup.plan_cleanup(workspace, patterns=tuple(patterns))
+        if not dry_run:
+            ws_cleanup.cleanup(workspace, patterns=tuple(patterns))
+            for rel in targets:
+                self._store.delete(agent_id, rel)
+        return targets
 
     # ---- background enrichment (expensive describe, OFF the agent's path) ----
 

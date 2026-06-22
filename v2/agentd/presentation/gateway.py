@@ -22,7 +22,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from agentd.application.run_context import current_run_context, take_run_outcome
 from agentd.application.services.agent_service import AgentService
 from agentd.config import Config
-from agentd.domain.agent import RunMode, agent_id_from_session_key
+from agentd.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.notify import Notification
@@ -367,6 +367,8 @@ class Gateway:
                 payload = self._notifications_list(req.params)
             elif req.method == "notifications.ack":
                 payload = self._notifications_ack(req.params)
+            elif req.method == "workspace.cleanup":
+                payload = self._workspace_cleanup(req.params)
             else:
                 return Response(id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"})
             return Response(id=req.id, ok=True, payload=payload)
@@ -423,6 +425,27 @@ class Gateway:
                 "definition": removed.get("definition", False),
                 "sessions": removed.get("sessions", False),
                 "cron": cron, "memory": memory}
+
+    def _workspace_cleanup(self, params: dict) -> dict:
+        """Tidy an agent's workspace: delete scratch (all of <workspace>/tmp/) + any file
+        matching the given glob patterns. Dry-run by DEFAULT (returns what WOULD be deleted);
+        apply=true actually deletes. Stale index rows auto-prune on the agent's next turn."""
+        from agentd.infrastructure.workspace.cleanup import cleanup, plan_cleanup
+        agent_id = (params.get("agentId") or "main").strip().lower()
+        patterns = tuple(params.get("patterns") or ())
+        apply = bool(params.get("apply"))
+        if self.registry is None:
+            return {"error": "no agent registry"}
+        try:
+            ws = self.registry.get(agent_id).workspace
+        except KeyError:
+            return {"error": f"no such agent: {agent_id}"}
+        if apply:
+            deleted = cleanup(ws, patterns=patterns)
+            log.info("workspace.cleanup %s -> deleted %d", agent_id, len(deleted))
+            return {"agentId": agent_id, "applied": True, "deleted": deleted, "count": len(deleted)}
+        targets = plan_cleanup(ws, patterns=patterns)
+        return {"agentId": agent_id, "applied": False, "wouldDelete": targets, "count": len(targets)}
 
     def _cron_list(self) -> dict:
         """Scheduled jobs across ALL agents + recent runs — the uniform 'list my jobs'
@@ -487,8 +510,9 @@ class Gateway:
         if self.registry is not None and agent_id not in self.registry.list_ids():
             raise ValueError(f"unknown agent: {agent_id}")
         deliver = (params.get("deliver") or "run").strip()
+        tid = uuid.uuid4().hex[:12]
         task = ScheduledTask(
-            id=uuid.uuid4().hex[:12], agent_id=agent_id, session_key=f"agent:{agent_id}:cron",
+            id=tid, agent_id=agent_id, session_key=cron_session_key(agent_id, tid),
             payload=payload, enabled=True, created_at=time.time(),
             delivery=deliver if deliver in ("run", "message") else "run",
             **resolve_schedule(params))

@@ -59,15 +59,49 @@ def test_error_tool_result_marked():
     out = messages_to_litellm(
         "S",
         [
+            AssistantMessage(
+                content=[ToolCallContent(id="x", name="exec", arguments={})],
+                stop_reason="toolUse",
+            ),
             ToolResultMessage(
                 tool_call_id="x",
                 tool_name="exec",
                 content=[TextContent(text="boom")],
                 is_error=True,
-            )
+            ),
         ],
     )
-    assert out[1]["content"] == "ERROR: boom"
+    assert out[-1]["content"] == "ERROR: boom"
+
+
+def test_drops_placeholder_and_orphaned_tool_result():
+    # Regression: a "couldn't generate" placeholder persisted BETWEEN a tool call and its
+    # result, plus an orphaned tool result, must be sanitized out so strict providers
+    # (Gemini) don't reject the whole history with "missing corresponding tool call".
+    from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
+
+    history = [
+        AssistantMessage(
+            content=[ToolCallContent(id="c1", name="sheet", arguments={})],
+            stop_reason="toolUse",
+        ),
+        AssistantMessage(  # placeholder wedged between the call and its result
+            content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason="error"
+        ),
+        ToolResultMessage(tool_call_id="c1", tool_name="sheet",
+                          content=[TextContent(text="OK")]),
+        ToolResultMessage(tool_call_id="ghost", tool_name="x",  # no matching call -> orphan
+                          content=[TextContent(text="orphan")]),
+    ]
+    out = messages_to_litellm("S", history)
+    # placeholder dropped -> exactly one assistant (the tool-call turn)
+    assert sum(1 for m in out if m["role"] == "assistant") == 1
+    # only the matching tool result survives; the orphan is gone
+    tools = [m for m in out if m["role"] == "tool"]
+    assert len(tools) == 1 and tools[0]["tool_call_id"] == "c1"
+    # and the tool-call assistant is IMMEDIATELY followed by its result (Gemini-valid)
+    ia = next(i for i, m in enumerate(out) if m["role"] == "assistant")
+    assert out[ia + 1]["role"] == "tool" and out[ia + 1]["tool_call_id"] == "c1"
 
 
 def frag(index=None, id=None, name=None, arguments=None):

@@ -24,15 +24,17 @@ class ResourceTool(Tool):
     description = (
         "Manage your workspace resources (scripts, docs, images, data) with a live, "
         "described index. Actions: list (described catalog) · read · create · edit · "
-        "delete · describe (refresh a resource's description). Prefer this over raw file "
-        "writes for materials you want catalogued and reused later."
+        "delete · describe (refresh a resource's description) · cleanup (delete throwaway "
+        "files in your tmp/ scratch dir). Prefer this over raw file writes for materials you "
+        "want catalogued and reused later. Write intermediate/throwaway files under tmp/ "
+        "(never indexed) and run cleanup when a task is done."
     )
     parameters = {
         "type": "object",
         "properties": {
             "action": {"type": "string",
-                       "enum": ["list", "read", "create", "edit", "delete", "describe"]},
-            "path": {"type": "string", "description": "workspace-relative path (not for 'list')."},
+                       "enum": ["list", "read", "create", "edit", "delete", "describe", "cleanup"]},
+            "path": {"type": "string", "description": "workspace-relative path (not for 'list'/'cleanup')."},
             "content": {"type": "string", "description": "file content (for create/edit)."},
         },
         "required": ["action"],
@@ -57,6 +59,12 @@ class ResourceTool(Tool):
             if action == "list":
                 manifest = self._m.manifest(ws, agent_id)
                 return ToolResult.text(manifest or "(no resources yet)")
+            if action == "cleanup":
+                deleted = self._m.cleanup(ws, agent_id)   # purge <workspace>/tmp/ scratch
+                if not deleted:
+                    return ToolResult.text("nothing to clean (tmp/ is empty)")
+                return ToolResult.text(
+                    f"cleaned {len(deleted)} scratch file(s) from tmp/: " + ", ".join(deleted[:20]))
             if not path:
                 return ToolResult.text(f"action '{action}' needs a path", is_error=True)
             if action == "read":

@@ -562,6 +562,42 @@ class TerminalClient:
                         if jobs:
                             console.print("[dim]manage: /cron rm <id> · /cron run <id> · /cron off|on <id> · /cron history [id][/]")
                         continue
+                    if line == "/cleanup" or line.startswith("/cleanup "):
+                        # /cleanup [agent] [--pat=GLOB ...] [--yes]
+                        # dry-run preview by default; --yes (or -y) actually deletes.
+                        parts = line.split()
+                        agent = self.agent_id or "main"
+                        apply = False
+                        pats: list[str] = []
+                        for tok in parts[1:]:
+                            if tok in ("--yes", "-y", "yes"):
+                                apply = True
+                            elif tok.startswith("--pat="):
+                                pats.append(tok[len("--pat="):])
+                            else:
+                                agent = tok.strip().lower()        # positional = agent id
+                        try:
+                            resp = await self.request(
+                                "workspace.cleanup", {"agentId": agent, "apply": apply, "patterns": pats})
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        if resp.get("error"):
+                            console.print(f"[error]{resp['error']}[/]")
+                            continue
+                        files = (resp.get("deleted") if apply else resp.get("wouldDelete")) or []
+                        if not files:
+                            console.print(f"[dim]{agent}: nothing to clean (tmp/ empty, no pattern matches)[/]")
+                            continue
+                        verb = "deleted" if apply else "would delete"
+                        console.print(f"[{LIME}]{agent}: {verb} {len(files)} file(s)[/]")
+                        for f in files[:40]:
+                            console.print(f"  [dim]{f}[/]")
+                        if len(files) > 40:
+                            console.print(f"  [dim]… and {len(files) - 40} more[/]")
+                        if not apply:
+                            console.print(f"[dim]run `/cleanup {agent} --yes` to delete (add --pat=GLOB to target more)[/]")
+                        continue
                     if line in ("/notifications", "/notifs", "/n") or line.startswith(("/notifications ", "/notifs ")):
                         parts = line.split()
                         if len(parts) >= 2 and parts[1] in ("ack", "read"):

@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime
 
 from agentd.application.run_context import current_run_context
+from agentd.domain.agent import cron_session_key
 from agentd.domain.autonomy import ScheduledTask
 from agentd.infrastructure.autonomy.schedule import resolve_schedule
 
@@ -119,9 +120,10 @@ class CronTool(Tool):
             except ValueError as e:
                 return ToolResult.text(str(e), is_error=True)
             deliver = (params.get("deliver") or "run").strip()
+            tid = uuid.uuid4().hex[:12]
             task = ScheduledTask(
-                id=uuid.uuid4().hex[:12], agent_id=agent_id,
-                session_key=f"agent:{agent_id}:cron", payload=payload,
+                id=tid, agent_id=agent_id,
+                session_key=cron_session_key(agent_id, tid), payload=payload,
                 enabled=True, created_at=time.time(),
                 delivery=deliver if deliver in ("run", "message") else "run",
                 failure_alert=int(params.get("failure_alert") or 0),
@@ -173,8 +175,9 @@ class CronTool(Tool):
         if not text:
             return ToolResult.text("wake needs 'text' (what to do now)", is_error=True)
         target = (params.get("agentId") or "").strip() or agent_id
+        tid = uuid.uuid4().hex[:12]
         task = ScheduledTask(
-            id=uuid.uuid4().hex[:12], agent_id=target, session_key=f"agent:{target}:cron",
+            id=tid, agent_id=target, session_key=cron_session_key(target, tid),
             kind="at", payload=text, next_due=time.time(), every_seconds=None,
             enabled=True, created_at=time.time(), delivery="run")
         self._store.add(task)

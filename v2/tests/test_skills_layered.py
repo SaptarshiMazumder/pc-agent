@@ -1,6 +1,6 @@
-"""Layered skills: an agent reads the shared GLOBAL library + its OWN agents/<id>/skills/,
-with its own skills overriding a global one of the same name; skill_workshop writes into the
-calling agent's own dir (the default `main` writes global)."""
+"""Layered skills: an agent reads the shared GLOBAL library (= MAIN's agents/main/skills/)
+PLUS its OWN agents/<id>/skills/, its own overriding a global of the same name; skill_workshop
+writes into the calling agent's own agents/<id>/skills/ (main's own IS the global library)."""
 
 import asyncio
 import sys
@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentd.application import run_context as rc
 from agentd.application.interfaces.skills import Skill
 from agentd.application.run_context import RunContext
-from agentd.domain.agent import merge_skills
+from agentd.domain.agent import merge_skills, select_skills
+from agentd.infrastructure.agents import FileAgentRegistry
 from agentd.infrastructure.skills.file_skills import load_skills_dir
 from agentd.infrastructure.tools.skill_tool import SkillWorkshopTool
 
@@ -52,7 +53,8 @@ def _cfg(tmp_path):
     return SimpleNamespace(agents_dir=tmp_path / "agents", skills_dir=tmp_path / "skills")
 
 
-def test_skill_workshop_writes_to_agents_workspace_skills(tmp_path):
+def test_skill_workshop_writes_to_agents_skills(tmp_path):
+    # a named agent writes into its OWN agents/<id>/skills/ (out of the workspace), private to it
     ws = tmp_path / "agents" / "scout" / "workspace"
     tool = SkillWorkshopTool(_cfg(tmp_path))
     tok = rc._current.set(RunContext("scout", "s", "interactive", workspace=str(ws)))
@@ -61,11 +63,13 @@ def test_skill_workshop_writes_to_agents_workspace_skills(tmp_path):
                                        "description": "when X", "body": "do Y"}, asyncio.Event()))
     finally:
         rc._current.reset(tok)
-    f = ws / "skills" / "my-flow" / "SKILL.md"           # <workspace>/skills/<name>/SKILL.md
+    f = tmp_path / "agents" / "scout" / "skills" / "my-flow" / "SKILL.md"   # agents/<id>/skills/
     assert f.is_file() and "name: my-flow" in f.read_text(encoding="utf-8")
+    assert not (ws / "skills").exists()                  # NOT inside the workspace anymore
 
 
 def test_skill_workshop_main_writes_global(tmp_path):
+    # main writes into agents/main/skills/ — which IS the shared/global library every agent reads
     tool = SkillWorkshopTool(_cfg(tmp_path))
     tok = rc._current.set(RunContext("main", "s", "interactive"))
     try:
@@ -73,5 +77,43 @@ def test_skill_workshop_main_writes_global(tmp_path):
                                        "description": "d", "body": "b"}, asyncio.Event()))
     finally:
         rc._current.reset(tok)
-    assert (tmp_path / "skills" / "g" / "SKILL.md").is_file()        # main -> global library
-    assert not (tmp_path / "agents" / "main").exists()
+    assert (tmp_path / "agents" / "main" / "skills" / "g" / "SKILL.md").is_file()
+
+
+# ---- read matrix: main = global to ALL; named private; one-way -------------
+
+def _put_skill(agents_dir, agent, skill):
+    d = agents_dir / agent / "skills" / skill
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {skill}\ndescription: d\n---\nb\n", encoding="utf-8")
+
+
+def test_skill_read_matrix(tmp_path):
+    # main's skills are the GLOBAL library every agent reads; each named agent's own skills
+    # are PRIVATE to it. Inheritance is one-way (main never sees a named agent; siblings don't
+    # see each other). This mirrors container.resolve_skills exactly.
+    agents = tmp_path / "agents"
+    _put_skill(agents, "main", "shared")
+    _put_skill(agents, "scout", "scout-own")
+    _put_skill(agents, "other", "other-secret")
+    cfg = SimpleNamespace(agent_name="JARVIS", workspace=tmp_path / "ws",
+                          state_dir=tmp_path / "state", agents_dir=agents)
+    reg = FileAgentRegistry(cfg)
+    main_dir = reg.get("main").skills_dir
+
+    def reads(agent_id):                                  # == container.resolve_skills
+        agent = reg.get(agent_id)
+        glob = select_skills(load_skills_dir(main_dir), agent)
+        if agent.id == "main":
+            return {s.name for s in glob}
+        own = load_skills_dir(agent.skills_dir)
+        return {s.name for s in merge_skills(glob, own)}
+
+    assert reads("main") == {"shared"}                    # main: only the global (its own)
+    assert reads("scout") == {"shared", "scout-own"}      # named: global + own
+    assert reads("other") == {"shared", "other-secret"}
+    # one-way: nobody sees another named agent's private skills, and main sees no named skills
+    assert "scout-own" not in reads("other")
+    assert "other-secret" not in reads("scout")
+    assert reads("main") == {"shared"}

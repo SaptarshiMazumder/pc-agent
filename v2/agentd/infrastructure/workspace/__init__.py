@@ -33,6 +33,7 @@ _SKIP_DIRS = {
     "__pycache__", ".git", ".hg", ".svn", "node_modules", ".venv", "venv",
     ".mypy_cache", ".pytest_cache", "browser-profile", "sessions", ".agentd",
     ".idea", ".vscode", "dist", "build", ".cache", "skills",
+    "tmp",   # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed
 }
 _SKIP_SUFFIX = (".pyc", ".pyo", ".lock", ".tmp", ".log")
 _SCAN_CAP = 5000          # hard ceiling on entries examined (protects huge dirs, e.g. home)

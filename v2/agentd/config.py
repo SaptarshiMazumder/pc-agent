@@ -55,16 +55,19 @@ class Config:
     # project-scoped (coding) workspace.
     workspace: Path = field(default_factory=Path.home)
     state_dir: Path = field(default_factory=lambda: V2_ROOT / ".agentd")
-    # Folder of loadable skills (each subfolder holds a SKILL.md playbook). The
-    # agent reads a skill on demand when a task matches its description. Drop new
-    # skills here; override with AGENTD_SKILLS_DIR.
-    skills_dir: Path = field(default_factory=lambda: V2_ROOT / "skills")
+    # The SHARED/global skills library = MAIN's skills (agents/main/skills/). Every agent
+    # inherits these; a named agent adds its own private agents/<id>/skills/ on top. Drop a
+    # shared SKILL.md into agents/main/skills/; override the pointer with AGENTD_SKILLS_DIR.
+    skills_dir: Path = field(default_factory=lambda: V2_ROOT / "agents" / "main" / "skills")
     # Folder of agent DEFINITIONS — each `agents/<id>/` holds an optional agent.toml
     # (model, tool allow/deny, skill allowlist, workspace, heartbeat) + bootstrap
     # markdown (IDENTITY/AGENTS/USER/MEMORY) + skills/. The single-agent app is just
     # the `main` agent synthesized from this config; drop a new `agents/<id>/` dir to
     # add an independent agent. Override with AGENTD_AGENTS_DIR.
     agents_dir: Path = field(default_factory=lambda: V2_ROOT / "agents")
+    # Scratch hygiene: <workspace>/tmp/ is a sanctioned throwaway dir (never indexed/enriched);
+    # files in it older than this many hours are auto-swept at turn start. 0 disables the sweep.
+    scratch_ttl_hours: float = 24.0           # AGENTD_SCRATCH_TTL_HOURS
     brave_api_key: str | None = None
     # Parallel's hosted Search MCP (https://search.parallel.ai/mcp) — the keyless,
     # streamable-HTTP search backend OpenClaw uses as its zero-config default. Free
@@ -404,6 +407,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.workspace_index_enabled = os.environ["AGENTD_WORKSPACE_INDEX"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_WORKSPACE_INDEX_MAX"):
         cfg.workspace_index_max_files = int(os.environ["AGENTD_WORKSPACE_INDEX_MAX"])
+    if os.environ.get("AGENTD_SCRATCH_TTL_HOURS"):
+        cfg.scratch_ttl_hours = float(os.environ["AGENTD_SCRATCH_TTL_HOURS"])
     if os.environ.get("AGENTD_RESOURCES"):
         cfg.resource_manager_enabled = os.environ["AGENTD_RESOURCES"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_RESOURCES_MAX"):

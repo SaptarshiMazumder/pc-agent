@@ -94,11 +94,12 @@ class ReadTool(Tool):
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
 
-        # Observability: surface when the agent reads an on-demand skill playbook.
+        # Observability: surface when the agent reads an on-demand skill playbook
+        # (any agent's agents/<id>/skills/ — main's is the shared library).
         if path.name == "SKILL.md":
             try:
-                skills_dir = Path(getattr(self.config, "skills_dir", "")).resolve()
-                if skills_dir in path.resolve().parents:
+                agents_dir = Path(getattr(self.config, "agents_dir", "")).resolve()
+                if str(agents_dir) and agents_dir in path.resolve().parents:
                     log.info("skill read: %s (%s)", path.parent.name, path)
             except Exception:  # noqa: BLE001
                 pass

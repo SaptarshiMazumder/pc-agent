@@ -57,6 +57,16 @@ def test_skips_noise_dirs_and_files(tmp_path):
     assert not any("__pycache__" in p or ".git" in p for p in paths)
 
 
+def test_tmp_scratch_dir_not_indexed(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "real.py").write_text("x", encoding="utf-8")
+    (ws / "tmp").mkdir()
+    (ws / "tmp" / "junk.txt").write_text("x", encoding="utf-8")
+    paths = [r.rel_path for r in FileWorkspaceIndex().scan(ws)]
+    assert "real.py" in paths
+    assert not any(p.startswith("tmp/") for p in paths)        # scratch dir excluded
+
+
 def test_classifies_unknown_as_other(tmp_path):
     ws = _ws(tmp_path)
     (ws / "a.py").write_text("x", encoding="utf-8")

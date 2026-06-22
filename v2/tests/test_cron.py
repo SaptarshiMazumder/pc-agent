@@ -88,7 +88,8 @@ async def test_cron_tool_add_every_lists_under_calling_agent(tmp_path):
     assert res.is_error is False
     t = store.list("watcher")[0]
     assert t.agent_id == "watcher" and t.kind == "every" and t.every_seconds == 900.0
-    assert t.session_key == "agent:watcher:cron" and t.payload == "check inbox"
+    # per-task session key (independent session per job), agent still recoverable from parts[1]
+    assert t.session_key == f"agent:watcher:cron:{t.id}" and t.payload == "check inbox"
     listed = await tool.execute("c", {"action": "list"}, asyncio.Event())
     assert "check inbox" in listed.content[0].text
     store.close()

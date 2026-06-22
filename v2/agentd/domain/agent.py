@@ -28,7 +28,7 @@ class AgentSpec:
     tools_allow: tuple[str, ...] | None = None    # None = all tools
     tools_deny: tuple[str, ...] = ()
     skills_allow: tuple[str, ...] | None = None   # None = all (global) skills
-    skills_dir: Path | None = None                # the agent's OWN skills dir (<workspace>/skills/)
+    skills_dir: Path | None = None                # the agent's OWN skills dir (agents/<id>/skills/)
     google_account: str = ""                      # the ONE Google account this agent acts as (workspace MCP)
     google_accounts: tuple[str, ...] = ()         # OR several it may use (multi-account: pass user_google_email)
     # Capability gates — None = inherit the global config default; True/False = per-agent.
@@ -52,6 +52,16 @@ def agent_id_from_session_key(session_key: str) -> str:
         if len(parts) >= 2 and parts[1]:
             return parts[1]
     return "main"
+
+
+def cron_session_key(agent_id: str, task_id: str) -> str:
+    """The session key for one scheduled job's runs — the inverse of
+    ``agent_id_from_session_key``. PER-TASK (``agent:<id>:cron:<task_id>``), not a shared
+    ``agent:<id>:cron``, so different jobs run on INDEPENDENT sessions: they execute
+    concurrently and keep separate transcripts instead of serializing on (and bloating) one
+    shared thread. The agent is still ``parts[1]``, so routing/parsing is unchanged.
+    """
+    return f"agent:{agent_id}:cron:{task_id}"
 
 
 def _matches(name: str, pattern: str) -> bool:

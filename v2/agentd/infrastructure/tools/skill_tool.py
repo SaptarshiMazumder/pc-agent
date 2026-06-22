@@ -1,9 +1,9 @@
 """skill_workshop — the agent captures a reusable procedure as a SKILL.md at runtime (S10).
 
-Writes the skill into the CALLING AGENT'S OWN workspace skills dir
-(`<workspace>/skills/<name>/SKILL.md`, i.e. agents/<id>/workspace/skills/) so a self-authored
-skill is per-agent and overrides a global one of the same name (OpenClaw's workspace-wins model).
-The default `main` agent (shared/global workspace) writes to the global library instead.
+Writes the skill into the CALLING AGENT'S OWN skills dir (`agents/<id>/skills/<name>/SKILL.md`)
+so a self-authored skill is per-agent and overrides a global one of the same name. The default
+`main` agent's skills ARE the shared/global library (agents/main/skills/), so when main authors
+a skill it becomes available to EVERY agent — one-way: a named agent's skills stay private to it.
 Skills are re-read fresh each turn, so a new/edited skill is available on the NEXT turn.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentd.application.run_context import current_run_context, current_workspace
+from agentd.application.run_context import current_run_context
 
 from . import Tool, ToolResult
 
@@ -43,13 +43,15 @@ class SkillWorkshopTool(Tool):
         self._config = config
 
     def _target_dir(self) -> Path:
-        """The calling agent's OWN <workspace>/skills/; the global library for `main`/no context."""
+        """The calling agent's OWN agents/<id>/skills/ — main's IS the shared/global library.
+        Tied to the agent's definition dir (agents_dir/<id>/skills), matching the registry, so
+        it's correct even when the agent's workspace is relocated elsewhere."""
         ctx = current_run_context()
         agent_id = (ctx.agent_id if ctx else "") or "main"
-        workspace = current_workspace(None)
-        if agent_id != "main" and workspace:
-            return Path(workspace) / "skills"            # agents/<id>/workspace/skills/
-        return Path(getattr(self._config, "skills_dir", "skills"))   # main / fallback -> global
+        agents_dir = getattr(self._config, "agents_dir", None)
+        if agents_dir:
+            return Path(agents_dir) / agent_id / "skills"   # agents/<id>/skills/ (main's = global)
+        return Path(getattr(self._config, "skills_dir", "skills"))   # fallback -> global library
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         target = self._target_dir()

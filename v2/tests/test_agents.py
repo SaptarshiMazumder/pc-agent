@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentd.domain.agent import (
     AgentSpec,
     agent_id_from_session_key,
+    cron_session_key,
     select_skills,
     select_tools,
 )
@@ -44,6 +45,18 @@ def test_agent_id_from_session_key():
     assert agent_id_from_session_key("default") == "main"       # legacy plain key
     assert agent_id_from_session_key("agent:") == "main"
     assert agent_id_from_session_key("") == "main"
+    # per-task cron keys (4 segments) still resolve the agent from parts[1]
+    assert agent_id_from_session_key("agent:expense-calc:cron:abc123") == "expense-calc"
+
+
+def test_cron_session_key_is_per_task_and_round_trips():
+    k1 = cron_session_key("expense-calc", "abc123")
+    k2 = cron_session_key("expense-calc", "def456")
+    assert k1 == "agent:expense-calc:cron:abc123"
+    assert k1 != k2                                       # per-task -> independent sessions
+    # the agent is still recoverable (routing/parsing unchanged)
+    assert agent_id_from_session_key(k1) == "expense-calc"
+    assert agent_id_from_session_key(k2) == "expense-calc"
 
 
 # ---- tool / skill scoping --------------------------------------------------
@@ -93,8 +106,10 @@ def test_registry_synthesizes_main_when_no_agents_dir(tmp_path):
     assert reg.list_ids() == ["main"]
     main = reg.get("main")
     assert main.name == "JARVIS"
-    assert main.state_dir == cfg.state_dir          # legacy flat path (back-compat)
-    assert main.workspace == cfg.workspace
+    # main is now a first-class agent rooted at agents/main/ (no home/flat special-case)
+    assert main.workspace == cfg.agents_dir / "main" / "workspace"
+    assert main.skills_dir == cfg.agents_dir / "main" / "skills"   # main's = the global library
+    assert main.state_dir == cfg.state_dir / "agents" / "main"     # partitions like every agent
     assert main.tools_allow is None and main.instructions == ""
     assert reg.resolve("default") is main           # legacy keys -> main
     assert reg.resolve("agent:nope:x") is main      # unknown agent -> main
@@ -124,14 +139,16 @@ def test_registry_loads_file_agent(tmp_path):
     assert reg.resolve("default").id == "main"      # main still default
 
 
-def test_file_defined_main_keeps_legacy_session_path(tmp_path):
+def test_file_defined_main_partitions_like_others(tmp_path):
     agents = tmp_path / "agents"
     (agents / "main").mkdir(parents=True)
     (agents / "main" / "IDENTITY.md").write_text("Main persona.", encoding="utf-8")
     cfg = _cfg(tmp_path, agents_dir=agents)
     reg = FileAgentRegistry(cfg)
     main = reg.get("main")
-    assert main.state_dir == cfg.state_dir          # legacy, even when file-defined
+    assert main.state_dir == cfg.state_dir / "agents" / "main"   # main partitions like every agent
+    assert main.workspace == agents / "main" / "workspace"
+    assert main.skills_dir == agents / "main" / "skills"         # main's = the global library
     assert "Main persona." in main.instructions
 
 
