@@ -23,7 +23,7 @@ from agentd.application.run_context import current_run_context, take_run_outcome
 from agentd.application.services.agent_service import AgentService
 from agentd.config import Config
 from agentd.domain.agent import RunMode, agent_id_from_session_key
-from agentd.domain.autonomy import ScheduledTask
+from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.notify import Notification
 from agentd.infrastructure.memory.local_store import list_sessions
@@ -637,16 +637,16 @@ class Gateway:
                 AgentEvent("agent_end", {"stopReason": "error", "error": str(e)}),
             )
         finally:
-            # record the outcome of a cron run in the history ledger. Headline `status`
-            # precedence: engine error/abort wins; else fold in the agent's declared
-            # outcome (report_outcome -> done/blocked/failed), defaulting to ok.
+            # RUN seam: fold the agent's declared outcome into the headline status via the
+            # pure policy. With enforce_outcome on, a cron run that finished `ok` but
+            # declared nothing becomes `incomplete` (no silent success) — a decoupled
+            # layer you can cut with AGENTD_ENFORCE_OUTCOME=0.
             declared = take_run_outcome()          # (raw_status, detail) | None
-            outcome = detail = None
-            if declared:
-                outcome, detail = declared
-                if status == "ok":
-                    status = {"done": "ok", "blocked": "blocked",
-                              "failed": "failed"}.get(outcome, "ok")
+            status, outcome, detail = resolve_run_outcome(
+                status, declared,
+                enforce=getattr(self.config, "enforce_outcome", True),
+                is_cron=handle.cron_run_id is not None,
+            )
             if handle.cron_run_id is not None and self.task_store is not None:
                 try:
                     self.task_store.finish_run(
@@ -656,7 +656,7 @@ class Gateway:
             # reach the user when a SCHEDULED run couldn't finish on its own (5a) —
             # gated on cron_run_id so interactive/heartbeat runs never push a notice.
             if (self.notifier is not None and handle.cron_run_id is not None
-                    and status in ("blocked", "failed", "error")):
+                    and status in ("blocked", "failed", "error", "incomplete")):
                 await self._notify_run(handle, status, detail or err_msg)
             # failure-alert escalation (S14): after N consecutive failures, AUTO-PAUSE the
             # job so a broken task stops running forever, and tell the user to fix it.

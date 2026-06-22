@@ -27,7 +27,8 @@ class AgentSpec:
     model: str | None = None                      # per-agent model override (carried; wired later)
     tools_allow: tuple[str, ...] | None = None    # None = all tools
     tools_deny: tuple[str, ...] = ()
-    skills_allow: tuple[str, ...] | None = None   # None = all skills
+    skills_allow: tuple[str, ...] | None = None   # None = all (global) skills
+    skills_dir: Path | None = None                # the agent's OWN skills dir (<workspace>/skills/)
     # Capability gates — None = inherit the global config default; True/False = per-agent.
     # These drive the "What you are" self-knowledge section so a definition is self-describing.
     autonomy_enabled: bool | None = None          # may schedule (cron) + wake on a heartbeat
@@ -82,6 +83,16 @@ def select_skills(skills: list, spec: AgentSpec) -> list:
     if allow is None:
         return list(skills)
     return [s for s in skills if any(_matches(getattr(s, "name", ""), a) for a in allow)]
+
+
+def merge_skills(base: list, overlay: list) -> list:
+    """Layer two skill lists by name: an ``overlay`` skill REPLACES a ``base`` one of the
+    same name. Used so an agent's OWN skills override the shared global library (OpenClaw's
+    workspace-wins precedence). Duck-typed on ``.name``; order is base-then-new-overlay."""
+    by_name: dict = {getattr(s, "name", ""): s for s in base}
+    for s in overlay:
+        by_name[getattr(s, "name", "")] = s
+    return list(by_name.values())
 
 
 class RunMode:

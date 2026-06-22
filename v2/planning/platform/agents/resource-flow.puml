@@ -1,0 +1,71 @@
+@startuml resource-flow
+' ============================================================================
+'  Resource creation + the BACKGROUND enrichment flow (cheap-sync vs expensive-async).
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng resource-flow.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam sequenceMessageAlign center
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+skinparam participant {
+  BorderColor #888888
+}
+skinparam sequenceGroupBackgroundColor #EEF3FB
+
+title Resource creation + enrichment - cheap work is SYNC, expensive work is BACKGROUND
+
+participant "Agent\n(model)" as A
+participant "resource tool" as T
+participant "ResourceManager" as M
+participant "BasicDescriber\n(sync, cheap)" as B
+database "SqliteResourceStore\nresources.sqlite" as S
+participant "_enrich task\n(background)" as E
+participant "Gemini vision\nrich_fn (in thread)" as G
+
+== SYNC - on the agent's critical path (sub-millisecond) ==
+A -> T : resource create(path, content)
+T -> M : create()
+M -> M : write the file
+M -> B : describe(kind, sample)
+B --> M : "PNG image, 1200x800"  (first-line / dims)
+M -> S : put(basic description)
+M --> T : Resource
+T -> M : enqueue_enrich(resource)
+note right of M
+  fire-and-forget: schedule a background
+  task, return INSTANTLY. deduped per
+  (agent, path, size+mtime).
+end note
+T --> A : "created path"  ->  agent CONTINUES (never waits)
+
+== BACKGROUND - independent, off-path, bounded concurrency ==
+M ->> E : asyncio.create_task(_enrich)
+E -> E : acquire semaphore (<= enrich_max=3)
+E -> G : describe_rich -> rich_fn(image bytes)\nvia asyncio.to_thread (off the loop)
+G --> E : "bar chart of monthly costs by category"
+E -> S : put(vision caption)  -- cache ENRICHED
+note over E, S
+  the agent's turn already finished; this ran in
+  parallel and blocked nothing. no rich_fn (vision off)
+  => no task at all, basic stays.
+end note
+
+== NEXT TURN - the manifest reflects it ==
+A -> M : (prompt assembly) manifest(workspace, agent)
+M -> S : reconcile: read cached descriptions
+S --> M : caption (now enriched)
+M --> A : ## Your workspace resources\n  chart.png (..) - bar chart of monthly costs by category
+
+note across
+  Cheap index = SYNC (like OpenClaw's skill dir-scan).  Expensive understanding = an
+  INDEPENDENT background pass (like OpenClaw's media-understanding) - never on the agent's path.
+end note
+
+@enduml

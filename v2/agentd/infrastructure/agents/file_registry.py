@@ -119,6 +119,7 @@ class FileAgentRegistry:
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
+            skills_dir=workspace / "skills",  # the agent's OWN skills (<workspace>/skills/)
             autonomy_enabled=caps.get("autonomy"),
             notify_enabled=caps.get("notify"),
             channels_enabled=caps.get("channels"),

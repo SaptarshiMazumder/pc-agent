@@ -1,0 +1,107 @@
+@startuml agentd-vs-openclaw-scaffold
+' ============================================================================
+'  agentd (ours) vs OpenClaw — the agent scaffold, layer by layer.
+'  green = HARD (enforced by code / automatic, model cannot skip)
+'  amber = THIN / partial / optional
+'  red   = BRITTLE (observed being skipped -> silent gap)
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng agentd-vs-openclaw-scaffold.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 10
+skinparam ranksep 14
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 6
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Agent scaffold, layer by layer - agentd (ours) vs OpenClaw\ngreen = HARD (code-enforced / automatic)   amber = thin / optional   red = BRITTLE (model skips it -> silent gap)
+
+' ----- column headers -----
+rectangle "LAYER" as L0 #CFD8DC
+rectangle "AGENTD  (ours)" as A0 #B0BEC5
+rectangle "OPENCLAW  (reference)" as B0 #B0BEC5
+
+' ----- LAYER labels (left column) -----
+rectangle "1 · Triggers" as L1 #ECEFF1
+rectangle "2 · Prompt\nassembly" as L2 #ECEFF1
+rectangle "3 · Engine /\nloop" as L3 #ECEFF1
+rectangle "4 · TOOL seam\n(pre/post tool)" as L4 #ECEFF1
+rectangle "5 · TURN seam\n(memory)" as L5 #ECEFF1
+rectangle "6 · RUN seam\n(outcome)" as L6 #ECEFF1
+rectangle "7 · Memory +\nknowledge" as L7 #ECEFF1
+rectangle "8 · Skills /\nself-improve" as L8 #ECEFF1
+rectangle "9 · Workspace /\nexec / sandbox" as L9 #ECEFF1
+
+' ----- AGENTD column -----
+rectangle "chat · email channel · cron / heartbeat" as A1 #C8E6C9
+rectangle "SOUL · IDENTITY · skills (advertised)\nhonesty = prompt nudge (SOFT)" as A2 #C8E6C9
+rectangle "native loop · model failover · idle/req timeout" as A3 #C8E6C9
+rectangle "**GuardedTool**: timeout + retry + error-norm\n= HARD.   policy / approval = deferred" as A4 #C8E6C9
+rectangle "ContextPolicy compaction ONLY.\nno auto-inject · no auto-capture.\nmemory = optional tool  ->  0 rows written" as A5 #FFCDD2
+rectangle "report_outcome = OPTIONAL  ->  run logged\nok with outcome=None.  Cannot tell a real\nsuccess from a silent failure." as A6 #FFCDD2
+rectangle "Sqlite FTS5 + LIKE (keyword only).\nconsolidate = dedup.\nNO embeddings · NO dreaming" as A7 #FFE0B2
+rectangle "skill_workshop create / update.\nNO autocapture (no learning loop)" as A8 #FFE0B2
+rectangle "per-agent workspace (new).\nexec NOT OS-aware (-p folder bug).\nLocalSandbox seam only" as A9 #FFE0B2
+
+' ----- OPENCLAW column -----
+rectangle "chat · Slack/WhatsApp/Telegram/Discord/… · cron / heartbeat" as B1 #C8E6C9
+rectangle "SOUL · AGENTS · skills (XML + version hash)\nhonesty" as B2 #C8E6C9
+rectangle "harness loop wrapping the Codex app-server" as B3 #C8E6C9
+rectangle "**native-hook-relay** pre/post tool  ->\npolicy + approval + loop-detect = HARD" as B4 #C8E6C9
+rectangle "active-memory auto-INJECT every turn\n+ lancedb auto-CAPTURE = HARD (a hook, not a choice)" as B5 #C8E6C9
+rectangle "session-end HOOKS: outcome handling +\nskill autocapture + memory ingestion = HARD" as B6 #C8E6C9
+rectangle "sqlite-vec EMBEDDINGS + FTS5 hybrid\n+ DREAMING (3-phase scored promotion) + wiki" as B7 #C8E6C9
+rectangle "skill_workshop + AUTOCAPTURE: scans the\ntranscript for corrections  ->  proposes a skill" as B8 #C8E6C9
+rectangle "persistent workspace + docker / ssh sandbox" as B9 #C8E6C9
+
+' ----- vertical stacks -----
+L0 -[hidden]d- L1
+L1 -[hidden]d- L2
+L2 -[hidden]d- L3
+L3 -[hidden]d- L4
+L4 -[hidden]d- L5
+L5 -[hidden]d- L6
+L6 -[hidden]d- L7
+L7 -[hidden]d- L8
+L8 -[hidden]d- L9
+
+A0 -[hidden]d- A1
+A1 -[hidden]d- A2
+A2 -[hidden]d- A3
+A3 -[hidden]d- A4
+A4 -[hidden]d- A5
+A5 -[hidden]d- A6
+A6 -[hidden]d- A7
+A7 -[hidden]d- A8
+A8 -[hidden]d- A9
+
+B0 -[hidden]d- B1
+B1 -[hidden]d- B2
+B2 -[hidden]d- B3
+B3 -[hidden]d- B4
+B4 -[hidden]d- B5
+B5 -[hidden]d- B6
+B6 -[hidden]d- B7
+B7 -[hidden]d- B8
+B8 -[hidden]d- B9
+
+' ----- column order (left to right) -----
+L0 -[hidden]r- A0
+A0 -[hidden]r- B0
+
+legend bottom
+  Read DOWN the agentd column: it is solid green through the TOOL seam (GuardedTool is real,
+  code-enforced) - then turns RED at the TURN and RUN seams. That is the brittleness: memory and
+  outcome are OPTIONAL tool calls the model skips, so memory stays at 0 rows and every cron run is
+  logged "ok" with no proof it worked. OpenClaw makes those same seams HARD (hooks, not requests),
+  so they cannot be skipped. The fix is not more prompting - it is code at the TURN and RUN seams.
+endlegend
+
+@enduml

@@ -53,6 +53,33 @@ class RunRecord:
     detail: str = ""             # one-line reason (e.g. "needs Google Drive auth")
 
 
+def resolve_run_outcome(
+    base_status: str,
+    declared: tuple[str, str] | None,
+    *,
+    enforce: bool,
+    is_cron: bool,
+) -> tuple[str, str | None, str]:
+    """RUN-seam policy (pure): fold the agent's declared outcome into the headline status.
+
+    Precedence: an engine-level error/abort in ``base_status`` always wins. Otherwise a
+    declared outcome maps done->ok / blocked->blocked / failed->failed. The reliability
+    rule: when ``enforce`` is on and a CRON run finished ``ok`` but the agent declared
+    NOTHING (``report_outcome`` skipped), the run is marked ``incomplete`` — so it can't
+    be logged as a silent success it never verified. Returns (status, outcome, detail).
+    """
+    outcome: str | None = None
+    detail = ""
+    status = base_status
+    if declared:
+        outcome, detail = declared
+        if status == "ok":
+            status = {"done": "ok", "blocked": "blocked", "failed": "failed"}.get(outcome, "ok")
+    elif enforce and is_cron and status == "ok":
+        status, detail = "incomplete", "run finished without the agent declaring an outcome"
+    return status, outcome, detail
+
+
 @dataclass(frozen=True)
 class Goal:
     """An objective (+ optional token budget) bounding a long task. The agent checks

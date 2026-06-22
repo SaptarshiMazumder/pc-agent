@@ -200,6 +200,30 @@ class Config:
     # run ends blocked/failed (client-push + durable). On by default; AGENTD_NOTIFY=0
     # disables. Only ever fires under autonomy (no cron runs => nothing to notify).
     notify_enabled: bool = True
+    # RUN seam (reliability): a scheduled run that finishes without the agent declaring an
+    # outcome (report_outcome) is recorded as `incomplete`, not a silent `ok` — so a run
+    # can't claim success it never verified. AGENTD_ENFORCE_OUTCOME=0 to cut this layer.
+    enforce_outcome: bool = True
+    # TURN seam (workspace awareness): inject a manifest of the agent's workspace files
+    # (scripts/docs/images/data) into every prompt so resources it created are always
+    # visible and reusable. AGENTD_WORKSPACE_INDEX=0 to cut this layer.
+    workspace_index_enabled: bool = True
+    workspace_index_max_files: int = 100       # cap the manifest (AGENTD_WORKSPACE_INDEX_MAX)
+    # Resource Manager (OpenClaw-style): a cached, DESCRIBED index of workspace resources
+    # (scripts/docs/images/data) + a `resource` CRUD tool. Supersedes the plain workspace
+    # index for the manifest when on. AGENTD_RESOURCES=0 to cut this layer.
+    resource_manager_enabled: bool = True
+    resource_index_max_files: int = 100        # cap the index (AGENTD_RESOURCES_MAX)
+    # Optional Gemini VISION captions for image resources, computed in the manager's
+    # BACKGROUND (never on the agent's path). OFF by default: it sends image bytes to
+    # Google + costs API calls. AGENTD_RESOURCE_VISION=1 to enable.
+    resource_vision_enabled: bool = False             # caption images  (AGENTD_RESOURCE_VISION)
+    # LLM one-line SUMMARIES for text resources (scripts/docs/data + extracted docx/pdf/xlsx),
+    # computed in the BACKGROUND. OFF by default: it sends file content to Google + costs API
+    # calls. AGENTD_RESOURCE_SUMMARIZE=1. Both tiers reuse the same model/timeout below.
+    resource_summarize_enabled: bool = False          # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
+    resource_vision_model: str = "gemini-2.5-flash"   # AGENTD_RESOURCE_VISION_MODEL (used for both)
+    resource_vision_timeout_seconds: float = 60.0
     # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
     # Each: {type: email|memory, agent, notify_to?, poll_query?, *_tool?}. A channel
     # polls for inbound messages -> runs its agent -> replies on the same channel; one
@@ -359,6 +383,22 @@ def load_config(path: Path | None = None) -> Config:
         cfg.autonomy_enabled = os.environ["AGENTD_AUTONOMY"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("AGENTD_NOTIFY"):
         cfg.notify_enabled = os.environ["AGENTD_NOTIFY"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("AGENTD_ENFORCE_OUTCOME"):
+        cfg.enforce_outcome = os.environ["AGENTD_ENFORCE_OUTCOME"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_WORKSPACE_INDEX"):
+        cfg.workspace_index_enabled = os.environ["AGENTD_WORKSPACE_INDEX"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_WORKSPACE_INDEX_MAX"):
+        cfg.workspace_index_max_files = int(os.environ["AGENTD_WORKSPACE_INDEX_MAX"])
+    if os.environ.get("AGENTD_RESOURCES"):
+        cfg.resource_manager_enabled = os.environ["AGENTD_RESOURCES"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_RESOURCES_MAX"):
+        cfg.resource_index_max_files = int(os.environ["AGENTD_RESOURCES_MAX"])
+    if os.environ.get("AGENTD_RESOURCE_VISION"):
+        cfg.resource_vision_enabled = os.environ["AGENTD_RESOURCE_VISION"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_RESOURCE_SUMMARIZE"):
+        cfg.resource_summarize_enabled = os.environ["AGENTD_RESOURCE_SUMMARIZE"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_RESOURCE_VISION_MODEL"):
+        cfg.resource_vision_model = os.environ["AGENTD_RESOURCE_VISION_MODEL"]
     if os.environ.get("AGENTD_CHANNEL_POLL"):
         cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):

@@ -255,6 +255,7 @@ CHANNEL_NOTE = (
 def build_system_prompt(
     config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
     heartbeat: str = "", cron: bool = False, channel: bool = False,
+    workspace_resources: str = "",
 ) -> str:
     sections: list[str] = []
 
@@ -405,6 +406,12 @@ def build_system_prompt(
 
     # 6. Workspace
     sections.append(f"## Workspace\nYour working directory is: {workspace}")
+
+    # 6a'. Workspace resources (TURN seam) — a manifest of files already in the workspace,
+    # injected so scripts/docs/images/data the agent created stay visible + reusable. Built
+    # outside (infrastructure) and passed in as text, so this stays pure. "" => no section.
+    if workspace_resources:
+        sections.append(workspace_resources)
 
     # 6b. User Folders (real resolved paths — Desktop/Documents may be OneDrive-redirected)
     folders = resolve_user_folders()

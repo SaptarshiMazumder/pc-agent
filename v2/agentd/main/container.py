@@ -68,12 +68,17 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     the gateway and service share them; if omitted, a file-backed registry is built
     here (single-agent / tests) and there is no task ledger. `memory_bank` is the durable
     long-term memory (None unless memory is enabled)."""
+    from agentd.infrastructure.resources import build_resource_manager
     from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
 
+    # Resource Manager: a described, cached index of workspace resources + a CRUD tool
+    # (None unless enabled). Shared as both the manifest source and the `resource` tool.
+    resource_manager = build_resource_manager(config)
     # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
     # per-tool policy resolved from config. New tools are guarded automatically.
     tools = [GuardedTool(t, resolve_policy(config, t))
-             for t in build_tools(config, browser_manager, computer_provider, task_store, memory_bank)]
+             for t in build_tools(config, browser_manager, computer_provider, task_store,
+                                   memory_bank, resource_manager)]
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -108,10 +113,24 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     skills = FileSkillRegistry(config.skills_dir)
     # the agent registry: which agent owns a session + its persona/scope. The
     # single-agent app is the `main` agent synthesized from config (back-compat).
-    from agentd.domain.agent import RunMode, select_skills
+    from agentd.domain.agent import RunMode, merge_skills, select_skills
     from agentd.infrastructure.agents import FileAgentRegistry
+    from agentd.infrastructure.skills.file_skills import load_skills_dir
+
+    # Layered skills (OpenClaw-style): the agent sees the shared GLOBAL library
+    # (allowlist-filtered) PLUS its OWN agents/<id>/skills/, where its own skills
+    # override a global one of the same name.
+    def resolve_skills(agent):
+        global_skills = select_skills(skills.all(), agent)
+        own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
+        return merge_skills(global_skills, own)
 
     registry = registry or FileAgentRegistry(config)
+    # workspace-awareness layer (TURN seam): a manifest of the agent's files in every
+    # prompt, so resources it created stay visible. The described Resource Manager wins
+    # when on; else the plain workspace index; else nothing (all cut-out-able by flag).
+    from agentd.infrastructure.workspace import build_workspace_index
+    workspace_index = resource_manager or build_workspace_index(config)
     return AgentService(
         engine=engine,
         tools=tools,
@@ -124,10 +143,12 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         # skills + its model; on a heartbeat tick, also inject HEARTBEAT.md.
         build_prompt=lambda tools, agent, mode: build_system_prompt(
             config, tools, agent.model or config.model, config.reasoning_effort,
-            skills=select_skills(skills.all(), agent), agent=agent,
+            skills=resolve_skills(agent), agent=agent,
             heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
             cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
+            workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
+                                 if workspace_index else ""),
         ),
     )
 

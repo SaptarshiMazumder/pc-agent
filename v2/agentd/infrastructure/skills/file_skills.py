@@ -82,6 +82,27 @@ def _load_one(skill_md: Path) -> Skill | None:
     )
 
 
+def load_skills_dir(skills_dir: Path | str) -> list[Skill]:
+    """Scan ONE folder for ``*/SKILL.md`` -> list[Skill] (empty if the dir is absent).
+
+    The shared loader used for both the global library and an agent's own skills dir.
+    """
+    d = Path(skills_dir)
+    if not d.is_dir():
+        return []
+    skills: list[Skill] = []
+    for child in sorted(d.iterdir()):
+        if not child.is_dir():
+            continue
+        skill_md = child / SKILL_FILE
+        if not skill_md.is_file():
+            continue
+        skill = _load_one(skill_md)
+        if skill is not None:
+            skills.append(skill)
+    return skills
+
+
 class FileSkillRegistry:
     """Scan ``skills_dir`` for ``*/SKILL.md`` and return their metadata.
 
@@ -93,16 +114,4 @@ class FileSkillRegistry:
         self._dir = Path(skills_dir)
 
     def all(self) -> list[Skill]:
-        if not self._dir.is_dir():
-            return []
-        skills: list[Skill] = []
-        for child in sorted(self._dir.iterdir()):
-            if not child.is_dir():
-                continue
-            skill_md = child / SKILL_FILE
-            if not skill_md.is_file():
-                continue
-            skill = _load_one(skill_md)
-            if skill is not None:
-                skills.append(skill)
-        return skills
+        return load_skills_dir(self._dir)

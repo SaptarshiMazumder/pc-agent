@@ -92,7 +92,7 @@ def validate_args(tool: Tool, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_tools(config, browser_manager=None, computer_provider=None,
-                task_store=None, memory_bank=None) -> list[Tool]:
+                task_store=None, memory_bank=None, resource_manager=None) -> list[Tool]:
     """The REGISTRY: assemble the list of active tools.
 
     Tool classes are imported lazily (inside this function) so that an optional
@@ -157,6 +157,12 @@ def build_tools(config, browser_manager=None, computer_provider=None,
         from .skill_tool import SkillWorkshopTool
 
         tools.append(SkillWorkshopTool(config))
+    # Resource Manager: described, CRUD-able workspace resources (list/read/create/edit/
+    # delete/describe), kept in a cached index. OFF / no manager => the tool never exists.
+    if resource_manager is not None:
+        from .resource_tool import ResourceTool
+
+        tools.append(ResourceTool(resource_manager))
     if browser_manager is not None:
         from .browser import BrowserTool
 

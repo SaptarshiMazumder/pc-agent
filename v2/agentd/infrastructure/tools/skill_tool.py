@@ -1,14 +1,18 @@
 """skill_workshop — the agent captures a reusable procedure as a SKILL.md at runtime (S10).
 
-Writes `<skills_dir>/<name>/SKILL.md` (frontmatter + playbook). FileSkillRegistry reads skills
-fresh each turn, so a new/edited skill is available on the NEXT turn (hot-reload). This is how
-the agent turns "how I did X" into a repeatable, deployable skill.
+Writes the skill into the CALLING AGENT'S OWN workspace skills dir
+(`<workspace>/skills/<name>/SKILL.md`, i.e. agents/<id>/workspace/skills/) so a self-authored
+skill is per-agent and overrides a global one of the same name (OpenClaw's workspace-wins model).
+The default `main` agent (shared/global workspace) writes to the global library instead.
+Skills are re-read fresh each turn, so a new/edited skill is available on the NEXT turn.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from agentd.application.run_context import current_run_context, current_workspace
 
 from . import Tool, ToolResult
 
@@ -36,13 +40,23 @@ class SkillWorkshopTool(Tool):
     }
 
     def __init__(self, config):
-        self._dir = Path(getattr(config, "skills_dir", "skills"))
+        self._config = config
+
+    def _target_dir(self) -> Path:
+        """The calling agent's OWN <workspace>/skills/; the global library for `main`/no context."""
+        ctx = current_run_context()
+        agent_id = (ctx.agent_id if ctx else "") or "main"
+        workspace = current_workspace(None)
+        if agent_id != "main" and workspace:
+            return Path(workspace) / "skills"            # agents/<id>/workspace/skills/
+        return Path(getattr(self._config, "skills_dir", "skills"))   # main / fallback -> global
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        target = self._target_dir()
         action = (params.get("action") or "").strip().lower()
         if action == "list":
-            names = sorted(p.parent.name for p in self._dir.glob("*/SKILL.md")) \
-                if self._dir.exists() else []
+            names = sorted(p.parent.name for p in target.glob("*/SKILL.md")) \
+                if target.exists() else []
             return ToolResult.text("Skills:\n" + "\n".join(f"- {n}" for n in names)
                                    if names else "(no skills yet)")
         if action not in ("create", "update"):
@@ -54,7 +68,7 @@ class SkillWorkshopTool(Tool):
         desc = (params.get("description") or "").strip()
         if not body:
             return ToolResult.text("a skill needs a 'body' (the playbook)", is_error=True)
-        d = self._dir / name
+        d = target / name
         d.mkdir(parents=True, exist_ok=True)
         (d / "SKILL.md").write_text(
             f"---\nname: {name}\ndescription: {desc}\n---\n\n{body}\n", encoding="utf-8")
