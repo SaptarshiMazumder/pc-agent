@@ -48,6 +48,16 @@ def _sig(size: int, mtime: float) -> str:
     return f"{size}-{int(mtime)}"
 
 
+def _is_home(p: Path) -> bool:
+    """The user's HOME directory is never a curated agent workspace (it's `main`'s
+    default). Indexing it would crawl AppData/OneDrive/etc. — slow + a privacy hole —
+    so the manager skips it entirely."""
+    try:
+        return p.resolve() == Path.home().resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 class ResourceManager:
     def __init__(self, store, describer, *, max_files: int = 100, rich_fn=None, enrich_max: int = 3):
         self._store = store
@@ -88,7 +98,7 @@ class ResourceManager:
 
     def reconcile(self, workspace, agent_id: str) -> tuple[list[Resource], bool]:
         root = Path(workspace)
-        if not root.is_dir():
+        if not root.is_dir() or _is_home(root):     # never crawl the home folder (main's default)
             return [], False
         out: list[Resource] = []
         examined = 0
@@ -198,12 +208,14 @@ class ResourceManager:
         No-op without a rich_fn (nothing expensive to do) or outside an event loop."""
         if self._rich_fn is None:
             return
+        if getattr(res, "enriched", False):  # PERSISTED: already enriched -> never re-run (survives restart)
+            return
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             return
         key = (agent_id, res.rel_path, res.sig)
-        if key in self._enriched:            # this exact version already enriched/queued
+        if key in self._enriched:            # in-flight this session
             return
         self._enriched.add(key)
         task = asyncio.create_task(self._enrich(workspace, agent_id, res.rel_path))
@@ -230,10 +242,13 @@ class ResourceManager:
         desc = ""
         if self._rich_fn is not None:
             desc = await self._rich_fn(kind, p, sample)
+        rich = bool(desc)                                          # the expensive describer succeeded
         if not desc:                                               # rich declined / failed -> basic
             desc = self._describer.describe(kind, p, sample)
         st = p.stat()
+        # enriched=True only on a real rich result -> persisted, never re-run on restart;
+        # a transient failure (rich="") stays False so it can retry later.
         self._store.put(agent_id, Resource(
             os.path.relpath(str(p), str(Path(workspace).resolve())).replace("\\", "/"),
-            kind, st.st_size, _sig(st.st_size, st.st_mtime), desc, time.time()))
+            kind, st.st_size, _sig(st.st_size, st.st_mtime), desc, time.time(), enriched=rich))
         return desc

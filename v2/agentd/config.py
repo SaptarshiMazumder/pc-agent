@@ -229,7 +229,11 @@ class Config:
     # computed in the BACKGROUND. OFF by default: it sends file content to Google + costs API
     # calls. AGENTD_RESOURCE_SUMMARIZE=1. Both tiers reuse the same model/timeout below.
     resource_summarize_enabled: bool = False          # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
-    resource_vision_model: str = "gemini-2.5-flash"   # AGENTD_RESOURCE_VISION_MODEL (used for both)
+    # Image captions go through google-genai (Gemini only). Text summaries go through litellm,
+    # so they can use ANY provider (gemini/openai/lm_studio/...). Empty summary model falls
+    # back to the verify model, then the main model.
+    resource_vision_model: str = "gemini-2.5-flash"   # AGENTD_RESOURCE_VISION_MODEL (Gemini, vision)
+    resource_summary_model: str = ""                  # AGENTD_RESOURCE_SUMMARY_MODEL (litellm "provider/model")
     resource_vision_timeout_seconds: float = 60.0
     # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
     # Each: {type: email|memory, agent, notify_to?, poll_query?, *_tool?}. A channel
@@ -410,6 +414,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.resource_summarize_enabled = os.environ["AGENTD_RESOURCE_SUMMARIZE"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_RESOURCE_VISION_MODEL"):
         cfg.resource_vision_model = os.environ["AGENTD_RESOURCE_VISION_MODEL"]
+    if os.environ.get("AGENTD_RESOURCE_SUMMARY_MODEL"):
+        cfg.resource_summary_model = os.environ["AGENTD_RESOURCE_SUMMARY_MODEL"]
     if os.environ.get("AGENTD_CHANNEL_POLL"):
         cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):

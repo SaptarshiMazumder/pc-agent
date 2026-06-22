@@ -39,6 +39,11 @@ def test_missing_workspace_no_manifest(tmp_path):
     assert FileWorkspaceIndex().manifest(tmp_path / "does-not-exist") == ""
 
 
+def test_home_directory_never_indexed():
+    # main's default workspace = home -> skip it (don't crawl AppData/OneDrive/etc.)
+    assert FileWorkspaceIndex().manifest(Path.home()) == ""
+
+
 def test_skips_noise_dirs_and_files(tmp_path):
     ws = _ws(tmp_path)
     (ws / "__pycache__").mkdir()

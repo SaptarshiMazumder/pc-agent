@@ -59,6 +59,12 @@ def set_run_outcome(status: str, detail: str = "") -> None:
     _outcome.set((status, detail))
 
 
+def current_run_outcome() -> tuple[str, str] | None:
+    """PEEK the declared outcome without clearing it (take_run_outcome consumes it).
+    Lets the service check whether the agent called report_outcome before finishing."""
+    return _outcome.get()
+
+
 def take_run_outcome() -> tuple[str, str] | None:
     """Read + clear the declared outcome for the current run (None if none declared)."""
     val = _outcome.get()

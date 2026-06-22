@@ -1,13 +1,11 @@
-"""Rich resource describer (Gemini) — the optional rich_fn for the Resource Manager.
+"""Rich resource describer — the optional rich_fn for the Resource Manager.
 
-Produces a GOOD one-line description per resource, in the manager's BACKGROUND (off the
-agent's path):
-  * images           -> a vision CAPTION                         (AGENTD_RESOURCE_VISION=1)
-  * scripts/docs/data -> an LLM SUMMARY of the content           (AGENTD_RESOURCE_SUMMARIZE=1)
-    (reusing documents.extract_text for docx/pdf/xlsx/pptx)
-Two independent opt-in gates because both send content to Google + cost API calls. Returns
-"" when a tier is off / unsupported / on error, so the deterministic BasicDescriber stays
-the fallback. The real model call runs in a worker thread so it never blocks the loop.
+Two INDEPENDENT tiers, both in the manager's BACKGROUND (off the agent's path):
+  * IMAGES     -> a vision CAPTION via google-genai (Gemini only)   AGENTD_RESOURCE_VISION=1
+  * text/docs  -> an LLM SUMMARY via litellm (ANY provider)         AGENTD_RESOURCE_SUMMARIZE=1
+So you can keep image captions on Gemini while pointing text summaries at a local/other model
+(AGENTD_RESOURCE_SUMMARY_MODEL=lm_studio/qwen | openai/gpt-... | gemini/...). Each tier returns
+"" when off / unavailable / on error, so the deterministic BasicDescriber stays the fallback.
 """
 
 from __future__ import annotations
@@ -49,59 +47,65 @@ def _text_for(path: Path, sample: bytes) -> str:
 
 
 def build_rich_fn(config):
-    """Return an async ``(kind, path, sample) -> str`` describer, or None when no tier is on
-    (or no API key) — in which case the manager stays entirely on BasicDescriber."""
+    """Return an async ``(kind, path, sample) -> str`` describer, or None if no tier can run.
+
+    vision tier needs a Gemini key (google-genai); summary tier needs a litellm model.
+    """
     want_vision = bool(getattr(config, "resource_vision_enabled", False))
     want_summary = bool(getattr(config, "resource_summarize_enabled", False))
-    if not (want_vision or want_summary):
+
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    vision_model = getattr(config, "resource_vision_model", "gemini-2.5-flash")
+    timeout_s = getattr(config, "resource_vision_timeout_seconds", 60.0)
+    # summaries use their own litellm model, else the verify model, else the main model
+    summary_model = (getattr(config, "resource_summary_model", "")
+                     or getattr(config, "verify_model", None) or getattr(config, "model", None))
+
+    vision_ok = want_vision and bool(gemini_key)
+    summary_ok = want_summary and bool(summary_model)
+    if not (vision_ok or summary_ok):
         return None
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        log.info("resource rich-describe on but no GEMINI_API_KEY -> staying on basic")
-        return None
 
-    model = getattr(config, "resource_vision_model", "gemini-2.5-flash")
-    timeout_ms = int(getattr(config, "resource_vision_timeout_seconds", 60.0) * 1000)
-    client = None  # built lazily on first real use
+    _vclient = None
 
-    def _client():
-        nonlocal client
-        if client is None:
-            from google import genai
-            from google.genai import types
-            client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
-        return client
-
-    def _caption(sample: bytes, mime: str) -> str:
+    def _caption(sample: bytes, mime: str) -> str:           # google-genai (Gemini, vision)
+        nonlocal _vclient
+        from google import genai
         from google.genai import types
-        resp = _client().models.generate_content(
-            model=model,
+        if _vclient is None:
+            _vclient = genai.Client(api_key=gemini_key,
+                                    http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
+        resp = _vclient.models.generate_content(
+            model=vision_model,
             contents=[types.Part.from_bytes(data=sample, mime_type=mime), _CAPTION_PROMPT])
         return (getattr(resp, "text", "") or "").strip()
 
-    def _summarize(content: str, name: str) -> str:
-        resp = _client().models.generate_content(
-            model=model,
-            contents=[_SUMMARY_PROMPT.format(name=name, content=content[:_MAX_SUMMARY_CHARS])])
-        return (getattr(resp, "text", "") or "").strip()
+    async def _summary(content: str, name: str) -> str:      # litellm (ANY provider)
+        import litellm
+        resp = await litellm.acompletion(
+            model=summary_model,
+            messages=[{"role": "user", "content":
+                       _SUMMARY_PROMPT.format(name=name, content=content[:_MAX_SUMMARY_CHARS])}],
+            temperature=0, timeout=timeout_s)
+        return (resp.choices[0].message.content or "").strip()
 
     async def rich_fn(kind: str, path: Path, sample: bytes) -> str:
         try:
             if kind == KIND_IMAGE:
-                if not (want_vision and sample):
+                if not (vision_ok and sample):
                     return ""
                 mime = mimetypes.guess_type(str(path))[0] or "image/png"
                 text = await asyncio.to_thread(_caption, sample, mime)
             else:
-                if not want_summary:
+                if not summary_ok:
                     return ""
                 content = _text_for(path, sample)
                 if not content:
-                    return ""                                  # opaque binary -> basic
-                text = await asyncio.to_thread(_summarize, content, path.name)
+                    return ""
+                text = await _summary(content, path.name)
         except Exception:  # noqa: BLE001 — any failure -> fall back to the basic description
             log.debug("rich describe failed for %s", path, exc_info=True)
             return ""
-        return " ".join(text.split())[:200]                    # collapse to one bounded line
+        return " ".join(text.split())[:200]
 
     return rich_fn

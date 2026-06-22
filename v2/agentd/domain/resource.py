@@ -44,3 +44,5 @@ class Resource:
     sig: str = ""            # cheap change-signature (size + mtime) for cache staleness
     description: str = ""     # first-line summary / image dims / vision caption
     updated_at: float = 0.0
+    enriched: bool = False   # the EXPENSIVE describer already ran for this sig (persisted,
+    #                          so a restart never re-summarizes an unchanged file)

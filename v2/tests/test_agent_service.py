@@ -10,9 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pathlib import Path
 
+from agentd.application import run_context as rc
+from agentd.application.run_context import set_run_outcome
 from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import AgentSpec
+from agentd.domain.agent import AgentSpec, RunMode
 from agentd.domain.messages import UserMessage
+
+
+async def _sink(_ev):
+    pass
 
 
 class FakeRegistry:
@@ -140,3 +146,60 @@ async def test_per_agent_model_override_reaches_engine():
 
     await svc.handle_message("agent:support:x", "hi", sink, asyncio.Event())
     assert engine.calls[0]["model"] == "gemini/gemini-2.5-flash"
+
+
+class _OutcomeEngine:
+    """Declares an outcome only on its Nth run — simulates the agent forgetting, then declaring."""
+    def __init__(self, declare_on_run):
+        self.runs = 0
+        self._on = declare_on_run
+
+    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None):
+        self.runs += 1
+        if self.runs == self._on:
+            set_run_outcome("done", "all good")
+        return []
+
+
+def _svc(engine, agent_id="job"):
+    spec = AgentSpec(id=agent_id, name="J", workspace=Path("."), state_dir=Path("."))
+    return AgentService(engine=engine, tools=["report_outcome"], registry=FakeRegistry(spec),
+                        make_session=lambda sid, agent: FakeSession(),
+                        build_prompt=lambda tools, agent, mode: "SYS")
+
+
+@pytest.mark.asyncio
+async def test_cron_forces_outcome_when_agent_skips_it():
+    # agent declares only on the 2nd run -> the forced follow-up makes it happen
+    engine = _OutcomeEngine(declare_on_run=2)
+    tok = rc._outcome.set(None)
+    try:
+        await _svc(engine).handle_message("agent:job:x", "do it", _sink, asyncio.Event(),
+                                          mode=RunMode.CRON)
+        assert engine.runs == 2                          # a 2nd, forcing turn ran
+        assert rc.current_run_outcome() == ("done", "all good")
+    finally:
+        rc._outcome.reset(tok)
+
+
+@pytest.mark.asyncio
+async def test_cron_no_nudge_when_already_declared():
+    engine = _OutcomeEngine(declare_on_run=1)            # declares on the first run
+    tok = rc._outcome.set(None)
+    try:
+        await _svc(engine).handle_message("agent:job:x", "do it", _sink, asyncio.Event(),
+                                          mode=RunMode.CRON)
+        assert engine.runs == 1                          # no follow-up needed
+    finally:
+        rc._outcome.reset(tok)
+
+
+@pytest.mark.asyncio
+async def test_interactive_run_is_never_forced():
+    engine = _OutcomeEngine(declare_on_run=99)           # never declares
+    tok = rc._outcome.set(None)
+    try:
+        await _svc(engine, "main").handle_message("s1", "hi", _sink, asyncio.Event())  # interactive
+        assert engine.runs == 1                          # only cron runs are forced
+    finally:
+        rc._outcome.reset(tok)

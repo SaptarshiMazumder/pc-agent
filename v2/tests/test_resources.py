@@ -79,6 +79,13 @@ def test_manifest_has_descriptions(tmp_path):
     assert "## Your workspace resources" in man and "gen.py" in man and "makes the sheet" in man
 
 
+def test_reconcile_skips_home_directory(tmp_path):
+    # main's workspace defaults to home — never crawl/summarize it (slow + privacy)
+    m, _ = _mgr(tmp_path)
+    items, capped = m.reconcile(Path.home(), "ag")
+    assert items == [] and capped is False
+
+
 def test_reconcile_prunes_deleted_file(tmp_path):
     ws = tmp_path / "ws"; ws.mkdir()
     m, store = _mgr(tmp_path)
@@ -167,6 +174,41 @@ def test_enrich_deduped_per_file_version(tmp_path):
     assert len(calls) == 1                            # enriched once for this version
 
 
+def test_enriched_flag_persists_across_restart(tmp_path):
+    # enrich once -> the `enriched` flag is stored; a fresh manager on the SAME db
+    # (a "restart", empty in-memory dedup) does NOT re-run the expensive describe.
+    ws = tmp_path / "ws"; ws.mkdir()
+    (ws / "a.py").write_text("# does X\nprint(1)\n", encoding="utf-8")
+    db = tmp_path / "r.sqlite"
+    calls = []
+
+    async def rich(kind, path, sample):
+        calls.append(path.name)
+        return "summary of a.py"
+
+    store1 = SqliteResourceStore(db)
+    m1 = ResourceManager(store1, BasicDescriber(), rich_fn=rich)
+
+    async def run1():
+        m1.reconcile(ws, "ag")
+        await asyncio.gather(*m1._enrich_tasks)
+    asyncio.run(run1())
+    assert calls == ["a.py"]                           # summarized once
+    assert store1.get("ag", "a.py").enriched is True   # flag persisted in the DB
+    store1.close()
+
+    # "restart": brand-new manager + store on the same DB, fresh in-memory state
+    store2 = SqliteResourceStore(db)
+    m2 = ResourceManager(store2, BasicDescriber(), rich_fn=rich)
+
+    async def run2():
+        m2.reconcile(ws, "ag")
+        await asyncio.gather(*m2._enrich_tasks)
+    asyncio.run(run2())
+    assert calls == ["a.py"]                           # NOT re-summarized after restart
+    store2.close()
+
+
 def test_enqueue_enrich_noop_without_rich_fn(tmp_path):
     # no rich_fn -> nothing expensive -> no background task at all (basic stays sync)
     ws = tmp_path / "ws"; ws.mkdir()
@@ -223,8 +265,28 @@ def test_build_rich_fn_on_for_summarize_only(monkeypatch):
     from agentd.infrastructure.resources.vision import build_rich_fn
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fn = build_rich_fn(SimpleNamespace(resource_summarize_enabled=True,
+                                       resource_summary_model="lm_studio/qwen",
                                        resource_vision_model="m", resource_vision_timeout_seconds=5))
     assert fn is not None                          # summarize alone is enough to build it
+
+
+def test_summary_tier_needs_no_gemini_key(monkeypatch):
+    # text summaries go through litellm -> they do NOT need a Gemini key (the split)
+    from agentd.infrastructure.resources.vision import build_rich_fn
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    fn = build_rich_fn(SimpleNamespace(resource_summarize_enabled=True,
+                                       resource_summary_model="lm_studio/qwen",
+                                       resource_vision_timeout_seconds=5))
+    assert fn is not None                          # summary tier works with no Gemini key
+
+
+def test_vision_only_without_key_is_none(monkeypatch):
+    # vision needs google-genai + a Gemini key; without it (and no summary tier) -> None
+    from agentd.infrastructure.resources.vision import build_rich_fn
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    assert build_rich_fn(SimpleNamespace(resource_vision_enabled=True)) is None
 
 
 def test_rich_fn_skips_text_when_summarize_off(monkeypatch):

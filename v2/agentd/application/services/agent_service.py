@@ -19,7 +19,7 @@ from agentd.application.interfaces.agent_engine import AgentEngine
 from agentd.application.interfaces.agents import AgentRegistry
 from agentd.application.interfaces.events import EventSink
 from agentd.application.interfaces.memory import SessionStore
-from agentd.application.run_context import RunContext, set_run_context
+from agentd.application.run_context import RunContext, current_run_outcome, set_run_context
 from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
 from agentd.domain.messages import UserMessage
 
@@ -96,3 +96,19 @@ class AgentService:
             session=session,
             model=agent.model,        # per-agent override (None = the engine default)
         )
+        # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
+        # calling report_outcome (common: it did the work but skipped the bookkeeping), force
+        # ONE follow-up turn to make it declare — so a successful run isn't mislabeled
+        # 'incomplete'. Fires at most once; if it still won't declare, the gateway marks it.
+        if (mode == RunMode.CRON and not abort.is_set()
+                and current_run_outcome() is None):
+            nudge = UserMessage(content=(
+                "You are a SCHEDULED run and finished WITHOUT recording the outcome. Call "
+                "`report_outcome` now, exactly once: status='done' if you completed the task, "
+                "'blocked' if you could not proceed (put the blocker in `detail`), or 'failed' "
+                "if it errored. Do this now — it is the only way the user learns the result."))
+            messages.append(nudge)
+            session.append(nudge)
+            await self._engine.run(
+                messages=messages, system_prompt=system_prompt, tools=tools,
+                on_event=on_event, abort=abort, session=session, model=agent.model)

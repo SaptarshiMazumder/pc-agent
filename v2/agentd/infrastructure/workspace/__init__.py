@@ -79,6 +79,11 @@ class FileWorkspaceIndex:
         root = Path(workspace)
         if not root.is_dir():
             return []
+        try:                                         # never crawl the home folder (main's default)
+            if root.resolve() == Path.home().resolve():
+                return []
+        except (OSError, RuntimeError):
+            pass
         out: list[WorkspaceResource] = []
         examined = 0
         for dirpath, dirnames, filenames in os.walk(root):
