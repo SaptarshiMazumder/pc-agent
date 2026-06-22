@@ -120,6 +120,8 @@ class FileAgentRegistry:
             tools_deny=tuple(deny),
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
             skills_dir=workspace / "skills",  # the agent's OWN skills (<workspace>/skills/)
+            google_account=str(data.get("google_account") or ""),
+            google_accounts=tuple(str(a) for a in (data.get("google_accounts") or [])),
             autonomy_enabled=caps.get("autonomy"),
             notify_enabled=caps.get("notify"),
             channels_enabled=caps.get("channels"),

@@ -80,6 +80,45 @@ def test_per_agent_gate_unset_inherits_global():
     assert "Wake yourself" in p
 
 
+def test_google_account_note_when_set():
+    p = build_system_prompt(_cfg(), [_tool("read")], "m", agent=_agent(google_account="x@y.com"))
+    assert "## Google account" in p and "x@y.com" in p and "user_google_email" in p
+
+
+def test_no_google_account_note_when_unset():
+    p = build_system_prompt(_cfg(), [_tool("read")], "m", agent=_agent())
+    assert "## Google account" not in p
+
+
+def test_google_note_general_guidance_when_google_tools_present_no_account():
+    # NO account configured, but a Google MCP tool is present -> general anti-flail guidance
+    p = build_system_prompt(_cfg(), [_tool("google__gmail_send")], "m", agent=_agent())
+    assert "## Google accounts" in p
+    assert "NOT accounts you log in as" in p         # general identity-vs-recipient rule
+    assert "user_google_email" in p                  # task-driven: explains how to pick, zero config
+    assert "Default to" not in p                     # but no account is pinned
+
+
+def test_google_account_global_default_applies():
+    # set once globally -> every agent uses it, no per-agent toml needed
+    p = build_system_prompt(_cfg(google_account="g@x.com"), [_tool("read")], "m", agent=_agent())
+    assert "## Google account" in p and "g@x.com" in p
+
+
+def test_per_agent_google_account_overrides_global():
+    p = build_system_prompt(_cfg(google_account="global@x.com"), [_tool("read")], "m",
+                            agent=_agent(google_account="agent@x.com"))
+    assert "agent@x.com" in p and "global@x.com" not in p
+
+
+def test_google_multi_account_guidance():
+    # an agent that may use SEVERAL accounts -> told to pick per resource via user_google_email
+    p = build_system_prompt(_cfg(), [_tool("google__gmail_send")], "m",
+                            agent=_agent(google_accounts=("a@x.com", "b@x.com")))
+    assert "a@x.com" in p and "b@x.com" in p
+    assert "user_google_email" in p and "owns each resource" in p
+
+
 def test_per_agent_channels_gate_opts_in_when_global_none():
     # no global channels, but the agent definition enables being reached -> "Be reached"
     cfg = _cfg(autonomy_enabled=False, notify_enabled=True, channels=[])

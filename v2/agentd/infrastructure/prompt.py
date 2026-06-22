@@ -131,6 +131,14 @@ def _tooling_section(tools) -> str:
     return "\n".join(lines)
 
 
+_GOOGLE_HINTS = ("gmail", "drive", "calendar", "google", "workspace", "sheet", "docs")
+
+
+def _has_google_tools(tools) -> bool:
+    """True if a Google Workspace MCP tool is in the toolset (e.g. google__gmail_send)."""
+    return any(any(h in getattr(t, "name", "").lower() for h in _GOOGLE_HINTS) for t in tools)
+
+
 def _capabilities_section(tools, config, agent=None) -> str | None:
     """The agent's self-knowledge: WHAT IT IS (a persistent agent) and the capabilities it can
     compose — derived DYNAMICALLY from the tools actually present + autonomy/channel state.
@@ -318,6 +326,32 @@ def build_system_prompt(
     capabilities = _capabilities_section(tools, config, agent)
     if capabilities:
         sections.append(capabilities)
+
+    # 2a''. Google account guidance. The GENERAL rule (identity vs recipient; don't flail on
+    # auth) is shown whenever the Google MCP is present — no config needed. A pinned account
+    # (per-agent agent.toml, else the global default) only ADDS the specific "act as X" line.
+    single = (getattr(agent, "google_account", "") if agent else "") or getattr(config, "google_account", "")
+    accounts = list(getattr(agent, "google_accounts", ()) if agent else ()) or ([single] if single else [])
+    if accounts or _has_google_tools(tools):
+        # Zero-config + fully task-driven: nothing has to be declared. The agent picks the
+        # account per call from what the task implies, for any number of authorized accounts.
+        note = [
+            "## Google accounts",
+            "The workspace MCP can have ONE or MANY Google accounts authorized — you do NOT need any "
+            "pre-configured. Every Google call takes a `user_google_email`: set it to the account the "
+            "task refers to (the OWNER of the data/calendar, or the mailbox the user named). You may use "
+            "DIFFERENT accounts within the same task — read from one, act in another — just pass the right "
+            "email per call. Email RECIPIENTS and people you SHARE a file with are just addresses in the "
+            "request — NOT accounts you log in as. If the account you need is not authorized yet, the tool "
+            "will say so — then ask the user to authorize it (or call `report_outcome` status='blocked'); "
+            "NEVER spawn sub-agents or retry-loop to switch accounts.",
+        ]
+        if len(accounts) == 1:
+            note.append(f"Default to **{accounts[0]}** unless the task names another account.")
+        elif len(accounts) > 1:
+            note.append("This agent's accounts: " + ", ".join(f"**{a}**" for a in accounts)
+                        + " — use the one that owns each resource.")
+        sections.append("\n".join(note))
 
     # 2b. Skills (loadable playbooks; one line each, read on demand)
     skills_section = _skills_section(skills)

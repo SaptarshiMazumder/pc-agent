@@ -658,18 +658,19 @@ class Gateway:
             if (self.notifier is not None and handle.cron_run_id is not None
                     and status in ("blocked", "failed", "error", "incomplete")):
                 await self._notify_run(handle, status, detail or err_msg)
-            # failure-alert escalation (S14): after N consecutive failures, AUTO-PAUSE the
-            # job so a broken task stops running forever, and tell the user to fix it.
-            if (handle.cron_failure_alert and self.task_store is not None
-                    and status in ("failed", "error", "aborted")
-                    and self.task_store.consecutive_failures(handle.cron_task_id)
-                    >= handle.cron_failure_alert):
+            # failure-alert escalation (S14): after N consecutive failed/incomplete runs,
+            # AUTO-PAUSE the job so a broken task stops running (+ spamming) forever. The
+            # job's own failure_alert wins; else the global default (cron_failure_alert_default).
+            alert = handle.cron_failure_alert or getattr(self.config, "cron_failure_alert_default", 0)
+            if (alert and self.task_store is not None
+                    and status in ("failed", "error", "aborted", "incomplete")
+                    and self.task_store.consecutive_failures(handle.cron_task_id) >= alert):
                 try:
                     self.task_store.update(handle.cron_task_id, enabled=0)
                     if self.notifier is not None:
                         await self._notify_run(
                             handle, "failed",
-                            f"paused after {handle.cron_failure_alert} consecutive failures — "
+                            f"paused after {alert} consecutive failed/incomplete runs — "
                             f"needs your attention.")
                 except Exception:  # noqa: BLE001
                     pass

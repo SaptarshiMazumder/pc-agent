@@ -54,7 +54,10 @@ with pd.ExcelWriter('Expenses_History.xlsx', engine='openpyxl') as writer:
     dates = sorted(dates, reverse=True)
     
     for d in dates:
-        day_df = df[df['Date'].dt.strftime('%Y-%m-%d') == d]
+        day_df = df[df['Date'].dt.strftime('%Y-%m-%d') == d].copy()
+        total_amt = day_df['Amount_JPY'].sum()
+        total_row = pd.DataFrame([{'Date': 'Total', 'Time': '', 'Merchant': '', 'Category': '', 'Amount_JPY': total_amt}])
+        day_df = pd.concat([day_df, total_row], ignore_index=True)
         day_df.to_excel(writer, sheet_name=d, index=False)
 
 # Plotting
@@ -64,7 +67,11 @@ idx = pd.date_range(min_date, max_date)
 daily = daily.reindex(idx, fill_value=0)
 
 weekly_cat = df.groupby([pd.Grouper(key='Date', freq='W-MON'), 'Category'])['Amount_JPY'].sum().unstack(fill_value=0)
-weekly_cat.index = weekly_cat.index.strftime('Week of %Y-%m-%d')
+new_idx = []
+for d in weekly_cat.index:
+    start_d = d - pd.Timedelta(days=6)
+    new_idx.append(f"{start_d.strftime('%m-%d')} to {d.strftime('%m-%d')}")
+weekly_cat.index = new_idx
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
 
@@ -76,9 +83,10 @@ ax1.grid(True, linestyle='--', alpha=0.6)
 ax1.tick_params(axis='x', rotation=45)
 
 if not weekly_cat.empty:
+    data_year = df['Date'].dt.year.max()
     weekly_cat.plot(kind='bar', stacked=True, ax=ax2, colormap='Set2', edgecolor='black')
-    ax2.set_title('Weekly Spending by Category', fontsize=14)
-    ax2.set_xlabel('Week Ending (Monday)')
+    ax2.set_title(f'Weekly Spending by Category (Year: {data_year})', fontsize=14)
+    ax2.set_xlabel('Week (Start to End)')
     ax2.set_ylabel('Amount (JPY)')
     ax2.legend(title='Category', bbox_to_anchor=(1.05, 1), loc='upper left')
     ax2.grid(axis='y', linestyle='--', alpha=0.6)

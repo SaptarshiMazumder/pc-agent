@@ -29,6 +29,8 @@ class AgentSpec:
     tools_deny: tuple[str, ...] = ()
     skills_allow: tuple[str, ...] | None = None   # None = all (global) skills
     skills_dir: Path | None = None                # the agent's OWN skills dir (<workspace>/skills/)
+    google_account: str = ""                      # the ONE Google account this agent acts as (workspace MCP)
+    google_accounts: tuple[str, ...] = ()         # OR several it may use (multi-account: pass user_google_email)
     # Capability gates — None = inherit the global config default; True/False = per-agent.
     # These drive the "What you are" self-knowledge section so a definition is self-describing.
     autonomy_enabled: bool | None = None          # may schedule (cron) + wake on a heartbeat

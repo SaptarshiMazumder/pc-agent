@@ -239,14 +239,16 @@ class SqliteTaskStore:
         self._db.commit()
 
     def consecutive_failures(self, task_id: str) -> int:
-        """How many of this task's MOST-RECENT finished runs failed in a row (failed/error/
-        aborted) — for failure-alert escalation. Stops at the first ok/blocked run."""
+        """How many of this task's MOST-RECENT finished runs went wrong in a row (failed/
+        error/aborted/incomplete) — for failure-alert escalation. Stops at the first
+        ok/blocked run. `incomplete` counts so a job that never declares an outcome can't
+        spam forever — it auto-pauses like any other repeatedly-broken job."""
         rows = self._db.execute(
             "SELECT status FROM runs WHERE task_id=? AND finished_at IS NOT NULL "
             "ORDER BY started_at DESC LIMIT 50", (task_id,)).fetchall()
         n = 0
         for (status,) in rows:
-            if status in ("failed", "error", "aborted"):
+            if status in ("failed", "error", "aborted", "incomplete"):
                 n += 1
             else:
                 break

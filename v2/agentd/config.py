@@ -204,6 +204,13 @@ class Config:
     # outcome (report_outcome) is recorded as `incomplete`, not a silent `ok` — so a run
     # can't claim success it never verified. AGENTD_ENFORCE_OUTCOME=0 to cut this layer.
     enforce_outcome: bool = True
+    # A scheduled job auto-PAUSES (and notifies once) after this many consecutive
+    # failed/incomplete runs, so a chronically-broken job stops re-running + spamming.
+    # A job's own failure_alert (agent.toml) overrides this. AGENTD_CRON_FAILURE_ALERT=0 to disable.
+    cron_failure_alert_default: int = 3
+    # Default Google account for the workspace MCP — set ONCE here and every agent uses it;
+    # an agent's own `google_account` in agent.toml overrides it. AGENTD_GOOGLE_ACCOUNT.
+    google_account: str = ""
     # TURN seam (workspace awareness): inject a manifest of the agent's workspace files
     # (scripts/docs/images/data) into every prompt so resources it created are always
     # visible and reusable. AGENTD_WORKSPACE_INDEX=0 to cut this layer.
@@ -385,6 +392,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.notify_enabled = os.environ["AGENTD_NOTIFY"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("AGENTD_ENFORCE_OUTCOME"):
         cfg.enforce_outcome = os.environ["AGENTD_ENFORCE_OUTCOME"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_CRON_FAILURE_ALERT"):
+        cfg.cron_failure_alert_default = int(os.environ["AGENTD_CRON_FAILURE_ALERT"])
+    if os.environ.get("AGENTD_GOOGLE_ACCOUNT"):
+        cfg.google_account = os.environ["AGENTD_GOOGLE_ACCOUNT"].strip()
     if os.environ.get("AGENTD_WORKSPACE_INDEX"):
         cfg.workspace_index_enabled = os.environ["AGENTD_WORKSPACE_INDEX"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_WORKSPACE_INDEX_MAX"):

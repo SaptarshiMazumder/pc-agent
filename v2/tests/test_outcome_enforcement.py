@@ -44,3 +44,21 @@ def test_engine_error_wins_over_missing_declaration():
 
 def test_aborted_preserved():
     assert resolve_run_outcome("aborted", None, enforce=True, is_cron=True)[0] == "aborted"
+
+
+def test_consecutive_failures_counts_incomplete(tmp_path):
+    # a chronically-incomplete job accrues failures -> can auto-pause (no infinite spam)
+    import time
+
+    from agentd.domain.autonomy import ScheduledTask
+    from agentd.infrastructure.tasks.sqlite_store import SqliteTaskStore
+
+    s = SqliteTaskStore(tmp_path / "a.sqlite")
+    s.add(ScheduledTask(id="t", agent_id="a", session_key="k", kind="every",
+                        payload="p", next_due=time.time(), every_seconds=60))
+    for _ in range(3):
+        s.finish_run(s.record_run("t", "a"), "incomplete")
+    assert s.consecutive_failures("t") == 3        # incomplete now counts
+    s.finish_run(s.record_run("t", "a"), "ok")     # a good run resets the streak
+    assert s.consecutive_failures("t") == 0
+    s.close()
