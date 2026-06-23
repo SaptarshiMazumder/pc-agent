@@ -54,10 +54,32 @@ class RunHandle:
     session_key: str
     abort: asyncio.Event
     client_id: str | None = None  # the client connection that started this run
+    parent_session_key: str | None = None  # set for a SUB-AGENT run -> its progress is
+    #                                         relayed (compactly) to the parent's view
     task: asyncio.Task | None = None
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
     cron_failure_alert: int = 0      # auto-pause + alert after N consecutive failures (0=off)
+
+
+def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | None:
+    """Compact ONE child-run event into a single `subagent_event` for the PARENT's view —
+    only the meaningful beats: start, each tool the child runs, and done/error. Raw text /
+    thinking deltas are dropped (relaying them would flood the parent, especially with several
+    children running at once). Returns None to skip. The client renders these dimmed/indented
+    so a parent run shows its sub-agents working instead of going silent."""
+    child = agent_id_from_session_key(child_session_key)
+    if event.type == "agent_start":
+        return AgentEvent("subagent_event", {"childAgent": child, "kind": "start"})
+    if event.type == "tool_execution_start":
+        return AgentEvent("subagent_event", {"childAgent": child, "kind": "tool",
+                                             "tool": event.payload.get("toolName", "")})
+    if event.type == "agent_end":
+        err = event.payload.get("error")
+        return AgentEvent("subagent_event", {
+            "childAgent": child, "kind": "error" if err else "done",
+            "detail": err or event.payload.get("stopReason", "")})
+    return None
 
 
 @dataclass
@@ -89,7 +111,8 @@ class Gateway:
         self._build_channels()            # messaging channels (5b) — email needs MCP tools first
         self._build_notifier()            # outbound notifications (client-push + durable + channels)
         scheduler_task = self._start_scheduler()  # autonomy (heartbeat); None if disabled
-        poller_task = self._start_channel_poller()  # inbound channels; None if no channels
+        poller_task = self._start_channel_poller()  # inbound poll channels; None if none
+        webhook_task = self._start_webhook_server()  # inbound push channels (LINE); None if none
         async with serve(self._handle_conn, self.config.host, self.config.port):
             log.info("listening on ws://%s:%s", self.config.host, self.config.port)
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
@@ -101,6 +124,8 @@ class Gateway:
                     scheduler_task.cancel()
                 if poller_task is not None:
                     poller_task.cancel()
+                if webhook_task is not None:
+                    webhook_task.cancel()
                 if self.task_store is not None:
                     self.task_store.close()
                 if self.browser_manager is not None:
@@ -179,7 +204,8 @@ class Gateway:
             return f"unknown agent: {child_agent}"
         session_key = f"agent:{child_agent}:sub:{uuid.uuid4().hex[:8]}"
         handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
-                           abort=asyncio.Event(), client_id=None)
+                           abort=asyncio.Event(), client_id=None,
+                           parent_session_key=parent_key or None)  # relay progress to parent
         self.subagent_active += 1
         try:
             # own Task => its own copied context => child set_run_context can't leak to parent
@@ -199,6 +225,21 @@ class Gateway:
             self.channels, self._fire_channel,
             interval=float(getattr(self.config, "channel_poll_seconds", 15.0)))
         return asyncio.create_task(poller.run(), name="channel-poller")
+
+    def _start_webhook_server(self):
+        """One HTTP server hosting every PUSH channel (those exposing ``webhook_path``) on
+        its own path. Inbound events fire through the SAME ``_fire_channel`` path as polled
+        channels, so the run/reply/notify machinery is reused. None if no push channels."""
+        push = [c for c in self.channels if getattr(c, "webhook_path", None)]
+        if not push:
+            return None
+        from agentd.infrastructure.channels.webhook import WebhookServer
+
+        server = WebhookServer(
+            push, self._fire_channel,
+            host=getattr(self.config, "webhook_host", "0.0.0.0"),
+            port=int(getattr(self.config, "webhook_port", 8788)))
+        return asyncio.create_task(server.run(), name="webhook-server")
 
     async def _invoke_tool(self, name: str, params: dict) -> str:
         """Invoke a registered (namespaced MCP) tool by name OUTSIDE the agent loop —
@@ -641,6 +682,12 @@ class Gateway:
         # `agent_id` is an explicit client agent selection (else resolved from the key).
         async def on_event(event: AgentEvent) -> None:
             await self._broadcast(handle.session_key, handle.run_id, event)
+            # SUB-AGENT visibility: relay a compact beat to the PARENT's view so a blocked
+            # parent shows its children working instead of going silent.
+            if handle.parent_session_key:
+                relayed = subagent_relay(handle.session_key, event)
+                if relayed is not None:
+                    await self._broadcast(handle.parent_session_key, handle.run_id, relayed)
 
         status = "ok"
         err_msg = ""

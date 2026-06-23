@@ -24,4 +24,24 @@ def build_channel(cfg: dict, invoke):
         return EmailChannel(invoke, agent_id=agent_id, cfg=cfg)
     if ctype == "memory":                       # test/local only
         return MemoryChannel(agent_id=agent_id)
+    if ctype == "line":
+        import os
+
+        from agentd.infrastructure.channels.line_channel import LineChannel
+
+        # secrets come from env (never the config file); a per-channel `env_suffix` lets
+        # multiple LINE accounts coexist, e.g. LINE_CHANNEL_SECRET_OWNER. Config keys
+        # `channel_secret`/`access_token` override env if explicitly set.
+        sfx = (cfg.get("env_suffix") or "").strip()
+        sfx = f"_{sfx.upper()}" if sfx else ""
+        secret = cfg.get("channel_secret") or os.environ.get(f"LINE_CHANNEL_SECRET{sfx}", "")
+        token = cfg.get("access_token") or os.environ.get(f"LINE_CHANNEL_ACCESS_TOKEN{sfx}", "")
+        if not (secret and token):
+            raise ValueError(
+                f"line channel needs LINE_CHANNEL_SECRET{sfx} + LINE_CHANNEL_ACCESS_TOKEN{sfx} "
+                "(or channel_secret/access_token in config)")
+        return LineChannel(
+            agent_id=agent_id, channel_secret=secret, access_token=token,
+            policy=cfg.get("policy", "open"), allow_from=cfg.get("allow_from", []),
+            webhook_path=cfg.get("webhook_path", "/line/webhook"))
     return None

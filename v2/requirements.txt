@@ -2,6 +2,7 @@ litellm>=1.60
 websockets>=13
 rich>=13
 httpx>=0.27
+aiohttp>=3.10     # webhook ingress server for push channels (LINE, Phase 5b/L2)
 trafilatura>=1.12
 readability-lxml>=0.8
 markdownify>=0.13

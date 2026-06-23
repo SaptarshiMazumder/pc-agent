@@ -24,6 +24,10 @@ Event sequence emitted per run (mirrors the reference agent loop):
   turn_end
   ... more turns (the loop) ...
   agent_end {stopReason}
+
+A nested SUB-AGENT run's beats are relayed to the PARENT's stream as a compact
+``subagent_event`` (kind: start / tool / done / error), synthesized by the gateway, so a
+parent that's blocked on a child shows the child working instead of going silent.
 """
 
 from __future__ import annotations

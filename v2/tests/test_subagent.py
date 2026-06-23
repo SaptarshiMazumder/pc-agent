@@ -50,3 +50,28 @@ async def test_spawn_cap_and_depth_guards(tmp_path):
 
     set_run_context(RunContext("main", "agent:main:sub:abc", "interactive"))
     assert "depth limit" in await gw._spawn_subagent(None, "x")             # a sub can't spawn
+
+
+def test_subagent_relay_compacts_meaningful_beats_only():
+    # the PARENT-view relay: only start / tool / done / error become a compact subagent_event;
+    # raw text/thinking deltas (and tool-end) are dropped so the parent isn't flooded.
+    from agentd.domain.events import AgentEvent
+    from agentd.presentation.gateway import subagent_relay
+
+    ck = "agent:scout:sub:abcd1234"        # child session key -> agent resolved as "scout"
+    start = subagent_relay(ck, AgentEvent("agent_start", {}))
+    assert start.type == "subagent_event"
+    assert start.payload == {"childAgent": "scout", "kind": "start"}
+
+    tool = subagent_relay(ck, AgentEvent("tool_execution_start", {"toolName": "exec", "args": {}}))
+    assert tool.payload == {"childAgent": "scout", "kind": "tool", "tool": "exec"}
+
+    done = subagent_relay(ck, AgentEvent("agent_end", {"stopReason": "stop"}))
+    assert done.payload == {"childAgent": "scout", "kind": "done", "detail": "stop"}
+
+    err = subagent_relay(ck, AgentEvent("agent_end", {"stopReason": "error", "error": "boom"}))
+    assert err.payload == {"childAgent": "scout", "kind": "error", "detail": "boom"}
+
+    assert subagent_relay(ck, AgentEvent("message_update",
+                                         {"kind": "text_delta", "delta": "hi"})) is None
+    assert subagent_relay(ck, AgentEvent("tool_execution_end", {"toolName": "exec"})) is None

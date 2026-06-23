@@ -355,6 +355,20 @@ class TerminalClient:
             console.print(
                 Text(f"  ↻ continue ({event.get('reason')} #{event.get('attempt')})", style=f"dim {LIME_DEEP}")
             )
+        elif etype == "subagent_event":
+            # nested-run visibility: a sub-agent's compact beats, relayed to the parent view
+            self._close_live()
+            child = event.get("childAgent", "?")
+            kind = event.get("kind")
+            if kind == "start":
+                console.print(Text(f"  ▶ subagent {child} started", style=f"dim {LIME_DEEP}"))
+            elif kind == "tool":
+                console.print(Text(f"    ↳ {child} · {event.get('tool', '?')}", style="dim"))
+            elif kind == "error":
+                console.print(Text(f"  ✗ subagent {child}: {(event.get('detail') or 'error')[:120]}",
+                                   style="error"))
+            else:  # done
+                console.print(Text(f"  ✓ subagent {child} done", style=f"dim {LIME}"))
         elif etype == "agent_end":
             self._close_live()
             reason = event.get("stopReason")

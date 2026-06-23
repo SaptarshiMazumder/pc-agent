@@ -2,10 +2,30 @@
   "mcp_servers": [
     {
       "name": "google",
-      "command": ["uvx", "workspace-mcp", "--tools", "gmail", "drive", "calendar"],
+      "command": [
+        "uvx",
+        "workspace-mcp",
+        "--tools",
+        "gmail",
+        "drive",
+        "calendar"
+      ],
       "env": {
         "OAUTHLIB_INSECURE_TRANSPORT": "1"
       }
     }
-  ]
+  ],
+  "channels": [
+    {
+      "type": "line",
+      "agent": "cost-calc",
+      "policy": "allowlist",
+      "allow_from": [
+        "Ua85981bcdeb5448ad930d20051018d65"
+      ],
+      "webhook_path": "/line/webhook"
+    }
+  ],
+  "webhook_host": "0.0.0.0",
+  "webhook_port": 8788
 }

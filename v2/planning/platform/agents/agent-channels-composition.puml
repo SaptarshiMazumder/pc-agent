@@ -1,0 +1,86 @@
+@startuml agent-channels-composition
+' ============================================================================
+'  Architecture invariant: external requirements (audiences, roles, tenants)
+'  are handled by COMPOSITION at the edge - many channels x agents x policies
+'  over ONE unchanged core. Owner-control + customer-bot are just two bindings.
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng agent-channels-composition.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 20
+skinparam ranksep 55
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title External requirements = composition at the edge\nmany channels x agents x policies  ·  ONE core that never changes
+
+actor "Owner" as OWNER
+actor "Customer" as CUST
+
+package "Edge: channel adapters (Channel port)  — add ONE per new platform" #F2F2F2 {
+  rectangle "Terminal\n(WS client)" as TERM #C8E6C9
+  rectangle "Owner channel\nLINE/Telegram\npolicy: allowlist\ncommands: on" as OCH #FFE9C7
+  rectangle "Restaurant OA\nLINE\npolicy: open\ncommands: off" as RCH #FFE9C7
+  rectangle "... future channel\n(config + adapter)" as FUT #DDDDDD
+}
+
+package "CORE RUNTIME — never changes" #E1F5FE {
+  rectangle "Gateway run/dispatch\n+ WebhookServer (one server, many paths)\n+ policy gate per channel" as GW #BBDEFB
+  rectangle "AgentService.handle_message\n-> Engine loop -> tools (scoped)\n-> SessionStore transcripts" as CORE #BBDEFB
+}
+
+package "Composition: agents = directories (data, no code)" #E8F5E9 {
+  rectangle "main agent\nFULL tools\n(shell·computer·fs)" as MAIN #C8E6C9
+  rectangle "restaurant agent\nCONSTRAINED\n[tools]=create_reservation" as REST #FFE9C7
+  rectangle "... future agent\n(agents/<id>/)" as AFUT #DDDDDD
+}
+
+OWNER --> TERM
+OWNER --> OCH
+CUST  --> RCH
+
+TERM --> GW
+OCH  --> GW : allowlist (owner only)
+RCH  --> GW : open (everyone)
+FUT  ..> GW
+
+GW --> CORE
+CORE --> MAIN  : owner channels -> main
+CORE --> REST  : restaurant OA -> restaurant
+CORE ..> AFUT
+
+note bottom of GW
+  The core only ever runs "agent X on session Y
+  with tool-scope Z". It has no concept of
+  'owner' or 'customer' - that is the binding's job.
+end note
+
+note right of REST
+  SAFETY chokepoint: a public channel binds only
+  to a constrained agent. main is reachable ONLY
+  via an allowlist channel or the terminal.
+end note
+
+note bottom of AFUT
+  New audience / role / tenant / bot
+  = a config.channels entry + an agents/<id>/ dir.
+  Core untouched. Edge adapter reused.
+end note
+
+@enduml

@@ -1,0 +1,96 @@
+@startuml agent-channels-line
+' ============================================================================
+'  LINE channel — restaurant customer-service bot.
+'  Customer DMs the restaurant's LINE Official Account -> a CONSTRAINED
+'  restaurant agent answers (FAQ + reservations), escalates to the owner.
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng agent-channels-line.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 18
+skinparam ranksep 55
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title LINE restaurant bot — customer in · constrained agent · reservations + owner handoff\ngreen = reused as-is   amber = this build (L1-L3, R1-R3)   gray = hardening (L5)
+
+actor "Customer\n(LINE userId)" as CUST
+actor "Owner\n(terminal)" as OWNER
+cloud "Restaurant LINE OA\n(Messaging API)" as LINE
+node "Tunnel / cloud host\n(cloudflared, dev)" as TUN #EEEEEE
+
+package "Infrastructure: transport + ingress" #F2F2F2 {
+  rectangle "WebhookServer (aiohttp)  [L2]\nPOST /line/webhook\nverify sig -> 401 · ack 200 · dedup" as WH #FFE9C7
+  rectangle "LineChannel  [L1]\nverify() · parse_events()\npolicy: open (verify sig always)\nsend() = reply-token-first, push fallback" as LC #FFE9C7
+}
+
+package "Gateway (presentation)" #EDE7F6 {
+  rectangle "_fire_channel -> _run_channel\nsession = agent:restaurant:line:<customerId>\n(per-customer thread, free)" as GW #C8E6C9
+  rectangle "AgentService.handle_message\nmode = CHANNEL" as SVC #C8E6C9
+  rectangle "Notifier (5a)\n(owner alerts)" as NOTIF #C8E6C9
+}
+
+package "Restaurant agent = a DIRECTORY (data, not code)  [R1]" #E8F5E9 {
+  rectangle "IDENTITY.md persona\nmenu · hours · location · policy" as IDENT #FFE9C7
+  rectangle "[tools] allow = <reservation MCP>\nNO exec/computer/fs/shell" as SCOPE #FFE9C7
+  rectangle "Reservation MCP  [R2]\n(Sheets/Calendar/custom) — CONFIG" as RES #FFE9C7
+}
+
+database "Sheet / Calendar\n(tenant backend, via MCP)" as STORE #FFE9C7
+database "SessionStore\nagent:restaurant:line:<customerId>" as SS #C8E6C9
+
+CUST --> LINE : DM "table for 2 tonight?"
+LINE --> TUN : webhook (signed)
+TUN --> WH : POST /line/webhook
+WH --> LC : verify() + parse_events()
+WH --> GW : fire(channel, InboundMessage)
+GW --> SVC : run
+SVC --> SS : load + persist
+SVC --> IDENT : persona + knowledge
+SVC --> SCOPE : tool scope (chokepoint)
+SCOPE --> RES : reservation MCP call
+RES --> STORE : record booking
+RES --> NOTIF : new-booking / handoff alert
+NOTIF --> OWNER : "new reservation / handoff"
+SVC --> GW : reply / confirmation
+GW --> LC : channel.send(customerId, text)
+LC --> LINE : reply-token (free) or push
+LINE --> CUST : reply
+
+note bottom of LC
+  Reply-token replies are FREE; push counts
+  against LINE's monthly quota. ONE send()
+  serves replies AND owner notifications.
+end note
+
+note right of SCOPE
+  SAFETY: public input never reaches main.
+  The AGENT BINDING + its [tools] allow is the
+  chokepoint - no shell / computer-use / fs.
+  (Reservation = an MCP, configured not coded.)
+end note
+
+note bottom of WH
+  L5 hardening: durable dedup (sqlite),
+  owner-on-LINE controls (session router +
+  /new /resume), pairing (S13), rate limit,
+  group support, reservations via calendar MCP.
+end note
+
+@enduml

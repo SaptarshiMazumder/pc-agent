@@ -40,6 +40,34 @@ def test_build_channel_by_type():
     assert build_channel({"type": "carrier-pigeon"}, None) is None
 
 
+def test_build_channel_line_from_config_creds():
+    from agentd.infrastructure.channels.line_channel import LineChannel
+
+    ch = build_channel({"type": "line", "agent": "restaurant", "policy": "open",
+                        "channel_secret": "s", "access_token": "t"}, None)
+    assert isinstance(ch, LineChannel)
+    assert ch.agent_id == "restaurant" and ch.policy == "open" and ch.webhook_path == "/line/webhook"
+
+
+def test_build_channel_line_env_suffix_for_second_account(monkeypatch):
+    from agentd.infrastructure.channels.line_channel import LineChannel
+
+    monkeypatch.setenv("LINE_CHANNEL_SECRET_OWNER", "s2")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN_OWNER", "t2")
+    ch = build_channel({"type": "line", "agent": "main", "policy": "allowlist",
+                        "allow_from": ["Uo"], "env_suffix": "owner",
+                        "webhook_path": "/line-owner/webhook"}, None)
+    assert isinstance(ch, LineChannel)
+    assert ch.policy == "allowlist" and ch.webhook_path == "/line-owner/webhook"
+
+
+def test_build_channel_line_missing_creds_raises(monkeypatch):
+    monkeypatch.delenv("LINE_CHANNEL_SECRET", raising=False)
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    with pytest.raises(ValueError):
+        build_channel({"type": "line"}, None)
+
+
 # ---- ChannelNotifier (the no-duplication bridge) ----------------------------
 
 @pytest.mark.asyncio

@@ -239,11 +239,16 @@ class Config:
     resource_summary_model: str = ""                  # AGENTD_RESOURCE_SUMMARY_MODEL (litellm "provider/model")
     resource_vision_timeout_seconds: float = 60.0
     # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
-    # Each: {type: email|memory, agent, notify_to?, poll_query?, *_tool?}. A channel
-    # polls for inbound messages -> runs its agent -> replies on the same channel; one
-    # with `notify_to` also delivers notifications there (reuses the one transport).
+    # Each: {type: email|memory|line, agent, policy?, allow_from?, webhook_path?,
+    # notify_to?, ...}. A poll channel polls for inbound -> runs its agent -> replies on
+    # the same channel; a PUSH channel (line) instead receives via the webhook server
+    # below. One with `notify_to` also delivers notifications there (one transport reused).
     channels: list = field(default_factory=list)
     channel_poll_seconds: float = 15.0         # inbound poll cadence (AGENTD_CHANNEL_POLL)
+    # Webhook ingress for PUSH channels (LINE etc.). Started only when a channel exposes a
+    # webhook_path. Bind loopback + a tunnel/relay in front for reachability.
+    webhook_host: str = "0.0.0.0"              # AGENTD_WEBHOOK_HOST
+    webhook_port: int = 8788                   # AGENTD_WEBHOOK_PORT
 
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
@@ -423,6 +428,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.resource_summary_model = os.environ["AGENTD_RESOURCE_SUMMARY_MODEL"]
     if os.environ.get("AGENTD_CHANNEL_POLL"):
         cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
+    if os.environ.get("AGENTD_WEBHOOK_HOST"):
+        cfg.webhook_host = os.environ["AGENTD_WEBHOOK_HOST"]
+    if os.environ.get("AGENTD_WEBHOOK_PORT"):
+        cfg.webhook_port = int(os.environ["AGENTD_WEBHOOK_PORT"])
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
         cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
     if os.environ.get("AGENTD_HEARTBEAT_HOURS"):
