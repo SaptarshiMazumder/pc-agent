@@ -139,6 +139,20 @@ def test_registry_loads_file_agent(tmp_path):
     assert reg.resolve("default").id == "main"      # main still default
 
 
+def test_registry_parses_safe_to_send_audience(tmp_path):
+    agents = tmp_path / "agents"
+    sup = agents / "support"
+    sup.mkdir(parents=True)
+    (sup / "agent.toml").write_text(
+        'name = "Support"\n[safe_to_send]\naudience = "External"\n',   # case-normalized
+        encoding="utf-8",
+    )
+    reg = FileAgentRegistry(_cfg(tmp_path, agents_dir=agents))
+    assert reg.get("support").audience == "external"
+    # absent section -> "" (the agent is not gated)
+    assert reg.get("main").audience == ""
+
+
 def test_file_defined_main_partitions_like_others(tmp_path):
     agents = tmp_path / "agents"
     (agents / "main").mkdir(parents=True)

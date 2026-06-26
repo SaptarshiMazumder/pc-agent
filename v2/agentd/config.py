@@ -68,6 +68,12 @@ class Config:
     # Scratch hygiene: <workspace>/tmp/ is a sanctioned throwaway dir (never indexed/enriched);
     # files in it older than this many hours are auto-swept at turn start. 0 disables the sweep.
     scratch_ttl_hours: float = 24.0           # AGENTD_SCRATCH_TTL_HOURS
+    # Durable event log (observability): record EVERY run's event stream to
+    # <state_dir>/events/<agent>-<run>.jsonl, so a run's play-by-play is viewable even with NO
+    # client attached (cron/channel/heartbeat/sub-agent). OFF by default; AGENTD_EVENT_LOG=1.
+    # Watch live with: python -m clients.watch [agent|run|latest] -f
+    event_log_enabled: bool = False           # AGENTD_EVENT_LOG
+    event_log_max_runs: int = 200             # keep the most recent N run files (AGENTD_EVENT_LOG_MAX)
     brave_api_key: str | None = None
     # Parallel's hosted Search MCP (https://search.parallel.ai/mcp) — the keyless,
     # streamable-HTTP search backend OpenClaw uses as its zero-config default. Free
@@ -167,6 +173,18 @@ class Config:
     # default (S3 — honesty by default): the agent must back claims with real evidence and
     # never fabricate. AGENTD_COMPLETENESS_CHECK=0 to disable.
     completeness_check: bool = True            # AGENTD_COMPLETENESS_CHECK
+    # Execution contract (OpenClaw). "strict-agentic" forces the planning-only "stop talking,
+    # act now" nudge on for EVERY model; "" (default) leaves it to the per-model gate (only the
+    # Gemini family gets it). A plain conversational agent is then never nudged. AGENTD_EXECUTION_CONTRACT.
+    execution_contract: str = ""
+    # OUT-OF-BAND SAFE-TO-SEND GATE (privacy egress check): before a reply leaves on a PUBLIC
+    # channel, an independent judge LLM checks it against the agent's OWN operating rules (its
+    # AGENTS.md) and BLOCKS anything that would leak (other people's data, info the rules say
+    # to withhold, etc.), replacing it with a safe message. Interactive/owner sessions are
+    # NEVER gated. FAIL-CLOSED: a judge error blocks that one reply. The agent stays fully
+    # capable; this only governs what may be DISCLOSED to a channel recipient.
+    safe_to_send_check: bool = True            # AGENTD_SAFE_TO_SEND (0 to disable)
+    safe_to_send_model: str | None = None      # judge model (defaults verify->search->model); AGENTD_SAFE_TO_SEND_MODEL
     # Default agent PERSONA/disposition. Loaded from the editable SOUL.md (persona_file)
     # with a built-in fallback; an agent's IDENTITY can override its tone. AGENTD_PERSONA=0.
     persona_enabled: bool = True               # AGENTD_PERSONA
@@ -249,6 +267,9 @@ class Config:
     # webhook_path. Bind loopback + a tunnel/relay in front for reachability.
     webhook_host: str = "0.0.0.0"              # AGENTD_WEBHOOK_HOST
     webhook_port: int = 8788                   # AGENTD_WEBHOOK_PORT
+    # Public base URL the gateway is reachable at (your ngrok/tunnel/domain), used to build
+    # tappable links — e.g. the /connect login-setup form. Blank = no auto links. AGENTD_PUBLIC_URL.
+    public_url: str = ""                       # e.g. https://6dda-….ngrok-free.app
 
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
@@ -414,6 +435,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.workspace_index_max_files = int(os.environ["AGENTD_WORKSPACE_INDEX_MAX"])
     if os.environ.get("AGENTD_SCRATCH_TTL_HOURS"):
         cfg.scratch_ttl_hours = float(os.environ["AGENTD_SCRATCH_TTL_HOURS"])
+    if os.environ.get("AGENTD_EVENT_LOG"):
+        cfg.event_log_enabled = os.environ["AGENTD_EVENT_LOG"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_EVENT_LOG_MAX"):
+        cfg.event_log_max_runs = int(os.environ["AGENTD_EVENT_LOG_MAX"])
     if os.environ.get("AGENTD_RESOURCES"):
         cfg.resource_manager_enabled = os.environ["AGENTD_RESOURCES"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_RESOURCES_MAX"):
@@ -432,6 +457,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.webhook_host = os.environ["AGENTD_WEBHOOK_HOST"]
     if os.environ.get("AGENTD_WEBHOOK_PORT"):
         cfg.webhook_port = int(os.environ["AGENTD_WEBHOOK_PORT"])
+    if os.environ.get("AGENTD_PUBLIC_URL"):
+        cfg.public_url = os.environ["AGENTD_PUBLIC_URL"].strip()
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
         cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
     if os.environ.get("AGENTD_HEARTBEAT_HOURS"):
@@ -482,6 +509,14 @@ def load_config(path: Path | None = None) -> Config:
         cfg.completeness_check = (
             os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in ("0", "false", "no", "")
         )
+    if os.environ.get("AGENTD_EXECUTION_CONTRACT"):
+        cfg.execution_contract = os.environ["AGENTD_EXECUTION_CONTRACT"].strip()
+    if os.environ.get("AGENTD_SAFE_TO_SEND"):
+        cfg.safe_to_send_check = (
+            os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")
+        )
+    if os.environ.get("AGENTD_SAFE_TO_SEND_MODEL"):
+        cfg.safe_to_send_model = os.environ["AGENTD_SAFE_TO_SEND_MODEL"]
     if os.environ.get("AGENTD_PERSONA"):
         cfg.persona_enabled = os.environ["AGENTD_PERSONA"].lower() not in ("0", "false", "no", "")
     cfg.persona_file = os.environ.get("AGENTD_PERSONA_FILE") or cfg.persona_file \

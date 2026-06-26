@@ -60,7 +60,8 @@ def build_memory_bank(config: Config):
 
 
 def build_service(config: Config, browser_manager, computer_provider=None,
-                  registry=None, task_store=None, memory_bank=None) -> AgentService:
+                  registry=None, task_store=None, memory_bank=None,
+                  credential_store=None, connect_token_store=None) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
 
     `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
@@ -74,10 +75,11 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # (None unless enabled). Shared as both the manifest source and the `resource` tool.
     resource_manager = build_resource_manager(config)
     # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
-    # per-tool policy resolved from config. New tools are guarded automatically.
+    # per-tool policy resolved from config. New tools are guarded automatically. The credential
+    # vault + connect-token store are injected (shared with the gateway's /connect web form).
     tools = [GuardedTool(t, resolve_policy(config, t))
              for t in build_tools(config, browser_manager, computer_provider, task_store,
-                                   memory_bank, resource_manager)]
+                                   memory_bank, resource_manager, credential_store, connect_token_store)]
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -106,6 +108,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
         stream_fn, config.model, max_iterations=config.max_turns,
         observers=build_observers(config), context_policy=context_policy,
+        execution_contract=getattr(config, "execution_contract", ""),
     )
     # the agent registry: which agent owns a session + its persona/scope.
     from agentd.domain.agent import RunMode, merge_skills, select_skills
@@ -219,8 +222,17 @@ def build_gateway(config: Config) -> Gateway:
     registry = FileAgentRegistry(config)
     task_store = build_task_store(config)   # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
+    # Login vault + connect-token store — built ONCE and SHARED by the simple_login tool
+    # (mints links) and the gateway's /connect web form (writes the captured creds), so a
+    # credential saved via the form is immediately visible to the tool. None unless AGENTD_VAULT_KEY.
+    from agentd.infrastructure.credentials import ConnectTokenStore, build_credential_store
+    credential_store = build_credential_store(config)
+    connect_token_store = ConnectTokenStore() if credential_store is not None else None
     service = build_service(config, browser_manager, computer_provider,
-                            registry=registry, task_store=task_store, memory_bank=memory_bank)
+                            registry=registry, task_store=task_store, memory_bank=memory_bank,
+                            credential_store=credential_store, connect_token_store=connect_token_store)
+    from agentd.infrastructure.events import build_event_log
+    from agentd.infrastructure.safe_to_send import build_safe_to_send_gate
     return Gateway(
         config=config,
         service=service,
@@ -229,4 +241,8 @@ def build_gateway(config: Config) -> Gateway:
         registry=registry,
         task_store=task_store,
         memory_bank=memory_bank,
+        event_log=build_event_log(config),   # durable per-run event stream (None unless enabled)
+        credential_store=credential_store,   # /connect form writes here (shared with simple_login)
+        connect_tokens=connect_token_store,
+        safe_to_send_gate=build_safe_to_send_gate(config),  # egress privacy gate (None unless enabled)
     )

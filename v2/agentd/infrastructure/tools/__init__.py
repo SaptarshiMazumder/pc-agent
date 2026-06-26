@@ -92,7 +92,8 @@ def validate_args(tool: Tool, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_tools(config, browser_manager=None, computer_provider=None,
-                task_store=None, memory_bank=None, resource_manager=None) -> list[Tool]:
+                task_store=None, memory_bank=None, resource_manager=None,
+                credential_store=None, connect_tokens=None) -> list[Tool]:
     """The REGISTRY: assemble the list of active tools.
 
     Tool classes are imported lazily (inside this function) so that an optional
@@ -167,6 +168,14 @@ def build_tools(config, browser_manager=None, computer_provider=None,
         from .browser import BrowserTool
 
         tools.append(BrowserTool(config, browser_manager))
+        # simple_login: vault-backed login (password never reaches the model). Needs both a
+        # browser AND a credential vault (AGENTD_VAULT_KEY); absent either, the tool is gone.
+        if credential_store is not None:
+            from .login_tool import SimpleLoginTool
+
+            tools.append(SimpleLoginTool(credential_store, browser_manager,
+                                         connect_tokens=connect_tokens,
+                                         public_url=getattr(config, "public_url", "")))
     if computer_provider is not None:
         from .computer import ComputerTool
 

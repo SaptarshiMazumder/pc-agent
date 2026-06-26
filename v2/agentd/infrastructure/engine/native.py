@@ -28,6 +28,7 @@ from .incomplete_turn import (
     MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
     RETRY_INSTRUCTIONS,
     RETRY_LIMITS,
+    PlanningContext,
     build_before_finalize_retry_prompt,
     classify_incomplete_turn,
     resolve_max_run_loop_iterations,
@@ -109,6 +110,7 @@ async def run_agent_loop(
     abort: asyncio.Event,
     session: SessionStore | None = None,
     max_iterations: int | None = None,
+    execution_contract: str = "",
     get_steering_messages: FollowUpFn | None = None,
     get_follow_up_messages: FollowUpFn | None = None,
     verify_answer: VerifyFn | None = None,
@@ -126,6 +128,9 @@ async def run_agent_loop(
     retry_counts = {k: 0 for k in RETRY_LIMITS}
     finalize_revisions = 0
     produced_visible_text = False
+    # the user's triggering request, captured BEFORE any steering/retry injection — used to
+    # gate the planning-only nudge (OpenClaw: only fire it when the user asked the agent to act).
+    user_prompt = next((mm.content for mm in reversed(messages) if isinstance(mm, UserMessage)), "")
 
     # --- decoupled liveness seam (default off => unchanged behavior) ---
     observers = observers or []
@@ -243,8 +248,10 @@ async def run_agent_loop(
                 error_text = assistant.error_message
                 break
 
-            # 1. Typed incomplete-turn retries (planning/reasoning/empty).
-            kind = classify_incomplete_turn(assistant)
+            # 1. Typed incomplete-turn retries (planning/reasoning/empty). planning_only is
+            #    gated (OpenClaw): only an agentic task-runner on an actionable prompt gets it.
+            kind = classify_incomplete_turn(assistant, PlanningContext(
+                user_prompt=user_prompt, model=model, execution_contract=execution_contract))
             if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
                 retry_counts[kind] += 1
                 await on_event(
@@ -404,12 +411,13 @@ class NativeEngine:
     """
 
     def __init__(self, stream_fn, model: str, max_iterations: int | None = None,
-                 observers=None, context_policy=None):
+                 observers=None, context_policy=None, execution_contract: str = ""):
         self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
         self._model = model                  # which model id to pass each call
         self._max_iterations = max_iterations
         self._observers = observers or []    # decoupled liveness seam (default off)
         self._context_policy = context_policy  # compaction policy (S7); None = send all
+        self._execution_contract = execution_contract  # gates the planning-only nudge (OpenClaw)
 
     async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
                   model=None):
@@ -425,4 +433,5 @@ class NativeEngine:
             max_iterations=self._max_iterations,
             observers=self._observers,
             context_policy=self._context_policy,
+            execution_contract=self._execution_contract,
         )

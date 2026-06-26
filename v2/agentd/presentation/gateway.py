@@ -95,6 +95,10 @@ class Gateway:
     registry: object | None = None                 # injected; the agent registry (for the scheduler)
     task_store: object | None = None               # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None               # injected; long-term memory store (S4), or None
+    event_log: object | None = None                 # injected; durable per-run event stream, or None
+    credential_store: object | None = None          # injected; login vault (/connect form writes here)
+    connect_tokens: object | None = None            # injected; one-time /connect-link tokens
+    safe_to_send_gate: object | None = None         # injected; out-of-band privacy gate on channel replies
     notifier: object | None = None                  # built in serve(); outbound user notifications (5a)
     channels: list = field(default_factory=list)    # active messaging channels (5b), built in serve()
     channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
@@ -128,6 +132,8 @@ class Gateway:
                     webhook_task.cancel()
                 if self.task_store is not None:
                     self.task_store.close()
+                if self.event_log is not None:
+                    self.event_log.close()
                 if self.browser_manager is not None:
                     await self.browser_manager.close()
                 if self.mcp_provider is not None:
@@ -231,14 +237,17 @@ class Gateway:
         its own path. Inbound events fire through the SAME ``_fire_channel`` path as polled
         channels, so the run/reply/notify machinery is reused. None if no push channels."""
         push = [c for c in self.channels if getattr(c, "webhook_path", None)]
-        if not push:
+        connect_on = self.credential_store is not None and self.connect_tokens is not None
+        if not push and not connect_on:          # nothing needs the HTTP server
             return None
         from agentd.infrastructure.channels.webhook import WebhookServer
 
         server = WebhookServer(
             push, self._fire_channel,
             host=getattr(self.config, "webhook_host", "0.0.0.0"),
-            port=int(getattr(self.config, "webhook_port", 8788)))
+            port=int(getattr(self.config, "webhook_port", 8788)),
+            credential_store=self.credential_store if connect_on else None,
+            connect_tokens=self.connect_tokens if connect_on else None)
         return asyncio.create_task(server.run(), name="webhook-server")
 
     async def _invoke_tool(self, name: str, params: dict) -> str:
@@ -271,10 +280,91 @@ class Gateway:
         await self._run(handle, msg.text, mode=RunMode.CHANNEL, agent_id=agent_id)
         reply = self._last_answer(agent_id, handle.session_key)
         if reply:
+            # EGRESS PRIVACY GATE: if this agent is tagged `audience = "external"` in its toml, an
+            # independent judge verifies the reply is safe to send against the agent's OWN rules
+            # BEFORE it leaves — blocked -> a safe replacement goes instead. Agents not tagged
+            # external (and all interactive/websocket replies) are never gated.
+            reply = await self._verify_safe_to_send(handle, agent_id, msg.text, reply)
             try:
                 await channel.send(msg.peer, reply)
             except Exception:  # noqa: BLE001
                 log.warning("channel reply send failed (%s)", channel.name, exc_info=True)
+
+    async def _verify_safe_to_send(self, handle: "RunHandle", agent_id: str,
+                                   question: str, answer: str) -> str:
+        """Run the out-of-band safe-to-send gate on an outbound channel reply and return the
+        text to actually send: the original answer if cleared, or a safe replacement if blocked.
+        Applies ONLY to agents tagged `audience = "external"` in their toml; anything else
+        (no gate built, agent unset / "internal" / other) passes through unchanged. Every
+        decision is logged + recorded to the event log (audit: what was withheld and why)."""
+        gate = self.safe_to_send_gate
+        if gate is None:
+            return answer
+        spec = self._spec(agent_id)
+        # Apply the gate ONLY to agents declared external-facing. Absent / "internal" / anything
+        # else => not gated.
+        if spec is None or spec.audience != "external":
+            return answer
+        from agentd.application.interfaces.safe_to_send import SafeToSendContext
+
+        verdict = await gate.check(SafeToSendContext(
+            audience=spec.audience, policy=spec.instructions or "",
+            conversation=self._recent_dialog(agent_id, handle.session_key),
+            question=question, answer=answer))
+        if verdict.safe:
+            self._emit_gate_event(handle, "allowed", "")
+            return answer
+        log.warning("safe-to-send: BLOCKED reply for agent %s (%s)", agent_id, verdict.reason)
+        self._emit_gate_event(handle, "blocked", verdict.reason)
+        return verdict.safe_reply or (
+            "Sorry, I'm not able to share that here. Could you give me a few more details "
+            "about your own request so I can help you directly?")
+
+    def _spec(self, agent_id: str):
+        """The AgentSpec for an id, or None (no registry / unknown id)."""
+        if self.registry is None:
+            return None
+        try:
+            return self.registry.get(agent_id)
+        except KeyError:
+            return None
+
+    def _recent_dialog(self, agent_id: str, session_key: str, turns: int = 12) -> str:
+        """The last `turns` user/assistant lines of this session, so the gate's judge can tell
+        the recipient's OWN info (and whether they've identified themselves) from a real leak.
+        Best-effort: any failure -> "" (the gate just judges with less context)."""
+        try:
+            from agentd.domain.messages import AssistantMessage, UserMessage
+            from agentd.infrastructure.memory.local_store import SessionStore
+
+            spec = self._spec(agent_id)
+            state_dir = spec.state_dir if spec is not None else getattr(self.config, "state_dir", None)
+            if state_dir is None:
+                return ""
+            msgs = SessionStore(state_dir, session_key).load()
+            lines = []
+            for m in msgs[-turns:]:
+                if isinstance(m, UserMessage):
+                    t = (m.content or "").strip()
+                    if t:
+                        lines.append(f"Customer: {t}")
+                elif isinstance(m, AssistantMessage):
+                    t = m.text.strip()
+                    if t:
+                        lines.append(f"Assistant: {t}")
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001 — context is a nice-to-have, never break the gate
+            return ""
+
+    def _emit_gate_event(self, handle: "RunHandle", decision: str, reason: str) -> None:
+        """Record a safe-to-send decision to the durable event log (best-effort)."""
+        if self.event_log is None:
+            return
+        try:
+            self.event_log.emit(handle.session_key, handle.run_id,
+                                AgentEvent("safe_to_send", {"decision": decision, "reason": reason}))
+        except Exception:  # noqa: BLE001
+            pass
 
     def _last_answer(self, agent_id: str, session_key: str) -> str:
         """The agent's last assistant text in this session — the reply to send back."""
@@ -682,6 +772,10 @@ class Gateway:
         # `agent_id` is an explicit client agent selection (else resolved from the key).
         async def on_event(event: AgentEvent) -> None:
             await self._broadcast(handle.session_key, handle.run_id, event)
+            # OBSERVABILITY: durably record EVERY event so a run is viewable even with no client
+            # attached (cron/channel/heartbeat/sub-agent). Best-effort; never breaks the run.
+            if self.event_log is not None:
+                self.event_log.emit(handle.session_key, handle.run_id, event)
             # SUB-AGENT visibility: relay a compact beat to the PARENT's view so a blocked
             # parent shows its children working instead of going silent.
             if handle.parent_session_key:
@@ -702,11 +796,10 @@ class Gateway:
             status = "error"
             err_msg = str(e)
             log.exception("run %s crashed", handle.run_id)
-            await self._broadcast(
-                handle.session_key,
-                handle.run_id,
-                AgentEvent("agent_end", {"stopReason": "error", "error": str(e)}),
-            )
+            crash = AgentEvent("agent_end", {"stopReason": "error", "error": str(e)})
+            await self._broadcast(handle.session_key, handle.run_id, crash)
+            if self.event_log is not None:
+                self.event_log.emit(handle.session_key, handle.run_id, crash)
         finally:
             # RUN seam: fold the agent's declared outcome into the headline status via the
             # pure policy. With enforce_outcome on, a cron run that finished `ok` but

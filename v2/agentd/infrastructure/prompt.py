@@ -185,6 +185,13 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
             "- **Delegate** heavy or parallelizable work with `spawn_subagent` — a long read, "
             "research, a separate analysis — rather than doing it all in one thread; you can "
             "spawn several at once and combine their results.")
+    if "simple_login" in names:
+        bullets.append(
+            "- **Log into sites** you have saved credentials for with `simple_login` (open the "
+            "login page, then call it) — you never see the password. On a 2FA prompt it returns "
+            "OTP_REQUIRED: ask the user for the one-time code, then call again with `otp`. If "
+            "there's no saved login it returns a one-time setup link; never ask "
+            "for a password in chat.")
 
     if not bullets:
         return None

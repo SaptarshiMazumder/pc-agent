@@ -18,10 +18,10 @@
   "channels": [
     {
       "type": "line",
-      "agent": "cost-calc",
+      "agent": "sakana-sushi",
       "policy": "allowlist",
       "allow_from": [
-        "Ua85981bcdeb5448ad930d20051018d65"
+        "*"
       ],
       "webhook_path": "/line/webhook"
     }

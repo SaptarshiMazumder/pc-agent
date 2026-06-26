@@ -114,6 +114,11 @@ class FileAgentRegistry:
         # inherit the global default; an explicit true/false overrides it for this agent.
         caps = data.get("capabilities") or {}
 
+        # [safe_to_send] audience = "external" => apply the privacy gate to this agent's channel
+        # replies. Absent / "internal" / anything else => the gate is NOT applied to this agent.
+        sts = data.get("safe_to_send") or {}
+        audience = str(sts.get("audience") or "").strip().lower()
+
         return AgentSpec(
             id=agent_id,
             name=str(data.get("name") or agent_id),
@@ -127,6 +132,7 @@ class FileAgentRegistry:
             skills_dir=d / "skills",          # the agent's OWN skills (agents/<id>/skills/)
             google_account=str(data.get("google_account") or ""),
             google_accounts=tuple(str(a) for a in (data.get("google_accounts") or [])),
+            audience=audience,
             autonomy_enabled=caps.get("autonomy"),
             notify_enabled=caps.get("notify"),
             channels_enabled=caps.get("channels"),

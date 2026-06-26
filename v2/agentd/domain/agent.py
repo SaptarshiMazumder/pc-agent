@@ -31,6 +31,9 @@ class AgentSpec:
     skills_dir: Path | None = None                # the agent's OWN skills dir (agents/<id>/skills/)
     google_account: str = ""                      # the ONE Google account this agent acts as (workspace MCP)
     google_accounts: tuple[str, ...] = ()         # OR several it may use (multi-account: pass user_google_email)
+    audience: str = ""                            # "external" => apply the safe-to-send privacy gate to
+    #                                               this agent's channel replies. Absent / "internal" /
+    #                                               anything else => NOT gated. From agent.toml.
     # Capability gates — None = inherit the global config default; True/False = per-agent.
     # These drive the "What you are" self-knowledge section so a definition is self-describing.
     autonomy_enabled: bool | None = None          # may schedule (cron) + wake on a heartbeat

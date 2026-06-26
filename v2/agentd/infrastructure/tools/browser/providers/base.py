@@ -100,8 +100,13 @@ class BaseBrowserSession:
         raise NotImplementedError
 
     async def ensure(self):
-        if self.context is not None:
+        # SELF-HEAL: only reuse the session if the browser is still ALIVE. A closed/crashed
+        # browser (e.g. the headed window was closed) leaves a stale, non-null `context`; without
+        # this liveness check every later `new_page()` raises TargetClosedError and the whole
+        # (shared) browser wedges until the gateway restarts. A dead handle -> tear down + relaunch.
+        if self.context is not None and self._connected():
             return
+        await self._discard()                          # clear any dead/stale handle first
         self._pw, self.context = await self._create_context()
         try:
             # cap per-action waits (Playwright defaults to 30s) so a covered/stale
@@ -113,11 +118,39 @@ class BaseBrowserSession:
             self.context.on("page", self._track_page)
         except Exception:
             pass
+        try:
+            # if the browser/context dies under us, drop the handle so the NEXT ensure relaunches.
+            self.context.once("close", self._on_session_closed)
+        except Exception:
+            pass
         for page in list(self.context.pages):
             self._track_page(page)
         if not self.context.pages:
             await self.context.new_page()  # fires _track_page
         self.active_page = self.context.pages[0]
+
+    def _connected(self) -> bool:
+        """Whether the launched browser is still alive (so ``context.new_page()`` will work)."""
+        br = self._browser
+        if br is None:
+            return self.context is not None            # providers that don't expose a Browser
+        try:
+            return bool(br.is_connected())
+        except Exception:
+            return False
+
+    def _on_session_closed(self, *_):
+        """The browser/context closed out from under us (window closed, crash) — drop the stale
+        handles so the next ``ensure()`` relaunches instead of using a dead context."""
+        self.context = None
+        self.active_page = None
+
+    async def _discard(self):
+        """Tear down a dead/stale session before relaunching. Best-effort; never raises."""
+        try:
+            await self.close()
+        except Exception:
+            pass
 
     async def close(self):
         for obj in (self.context, self._browser, self._pw):

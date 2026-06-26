@@ -95,7 +95,7 @@ def tool_turn(calls):
     return evs
 
 
-async def collect_run(script, tools, messages=None):
+async def collect_run(script, tools, messages=None, model="fake", execution_contract=""):
     events = []
 
     async def on_event(ev: AgentEvent):
@@ -107,9 +107,10 @@ async def collect_run(script, tools, messages=None):
         system_prompt="sys",
         tools=tools,
         stream_fn=make_stream_fn(script),
-        model="fake",
+        model=model,
         on_event=on_event,
         abort=asyncio.Event(),
+        execution_contract=execution_contract,
     )
     return events, new, msgs
 
@@ -234,7 +235,10 @@ async def test_planning_only_triggers_continuation():
         text_turn("I'll search for the files and read them to find the answer."),
         text_turn("Found them: alpha and beta."),
     ]
-    events, new, msgs = await collect_run(script, [])
+    # planning_only is now GATED: an agentic task-runner (strict-agentic) on an actionable prompt.
+    events, new, msgs = await collect_run(
+        script, [], messages=[UserMessage(content="can you find the files?")],
+        execution_contract="strict-agentic")
     # the planning-only instruction was injected as a user message
     injected = [m for m in msgs if m.role == "user" and m.content == PLANNING_ONLY_RETRY_INSTRUCTION]
     assert len(injected) == 1
@@ -252,7 +256,9 @@ async def test_planning_only_retry_capped_at_one():
         text_turn("I'll inspect the repo and run the build."),
         text_turn("Let me check the logs and fix the error."),
     ]
-    events, new, msgs = await collect_run(script, [])
+    events, new, msgs = await collect_run(
+        script, [], messages=[UserMessage(content="can you build the repo?")],
+        execution_contract="strict-agentic")
     cont = [e for e in events if e.type == "continuation"]
     assert len(cont) == 1  # capped
 

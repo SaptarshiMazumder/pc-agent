@@ -1,0 +1,13 @@
+# sakana-sushi — customer-facing reservation agent.
+# Block tools this agent must never use. `deny` wins over everything; the tool is removed
+# from the agent's toolset entirely, so the model never sees it or can call it.
+[tools]
+deny = ["simple_login"]
+
+# Egress privacy gate. Set audience = "external" to GATE this agent's channel replies: an
+# independent judge checks each reply against this agent's AGENTS.md before it's sent and
+# blocks anything that would leak. Absent, "internal", or anything else => the gate is NOT
+# applied. sakana talks to customers, so it's external.
+# --- TEMPORARILY OFF --- re-enable by uncommenting the audience line below.
+[safe_to_send]
+# audience = "external"
