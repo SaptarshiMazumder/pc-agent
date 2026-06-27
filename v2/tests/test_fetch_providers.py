@@ -7,9 +7,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application.interfaces.fetch import FetchProvider, FetchResult
-from agentd.infrastructure.tools.fetch.extract import extract_html, sanitize_url, truncate
-from agentd.infrastructure.tools.fetch.factory import build_fetch_providers
-from agentd.infrastructure.tools.web_fetch import _CACHE, MIN_USEFUL_CHARS, WebFetchTool
+from fetch.extract import extract_html, sanitize_url, truncate
+from fetch.factory import build_fetch_providers
+from web_fetch import _CACHE, MIN_USEFUL_CHARS, WebFetchTool
 
 LONG = "x" * (MIN_USEFUL_CHARS + 50)
 THIN = "tiny"

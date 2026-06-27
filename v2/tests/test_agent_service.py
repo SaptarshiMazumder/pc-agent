@@ -70,7 +70,7 @@ async def test_handle_message_orchestration():
         tools=["read", "exec"],
         registry=FakeRegistry(spec),
         make_session=lambda sid, agent: sess,
-        build_prompt=lambda tools, agent, mode: f"SYS({len(tools)})",
+        build_prompt=lambda tools, agent, mode, query="": f"SYS({len(tools)})",
     )
 
     async def sink(_ev):
@@ -117,7 +117,7 @@ async def test_explicit_agent_id_overrides_session_key_resolution():
     svc = AgentService(
         engine=FakeEngine(), tools=[], registry=TwoAgentRegistry(),
         make_session=lambda sid, agent: FakeSession(),
-        build_prompt=lambda tools, agent, mode: captured.setdefault("agent", agent.id) or "SYS",
+        build_prompt=lambda tools, agent, mode, query="": captured.setdefault("agent", agent.id) or "SYS",
     )
 
     async def sink(_e):
@@ -138,7 +138,7 @@ async def test_per_agent_model_override_reaches_engine():
         tools=[],
         registry=FakeRegistry(spec),
         make_session=lambda sid, agent: FakeSession(),
-        build_prompt=lambda tools, agent, mode: "SYS",
+        build_prompt=lambda tools, agent, mode, query="": "SYS",
     )
 
     async def sink(_ev):
@@ -165,7 +165,7 @@ def _svc(engine, agent_id="job"):
     spec = AgentSpec(id=agent_id, name="J", workspace=Path("."), state_dir=Path("."))
     return AgentService(engine=engine, tools=["report_outcome"], registry=FakeRegistry(spec),
                         make_session=lambda sid, agent: FakeSession(),
-                        build_prompt=lambda tools, agent, mode: "SYS")
+                        build_prompt=lambda tools, agent, mode, query="": "SYS")
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ from agentd.domain.autonomy import ScheduledTask
 from agentd.domain.commitment import Commitment
 from agentd.infrastructure.auth import SqliteAuthProfileStore
 from agentd.infrastructure.tasks import SqliteTaskStore
-from agentd.infrastructure.tools.commitment_tool import CommitmentTool
+from commitment_tool import CommitmentTool
 
 
 # ---- S14: failure-alert (consecutive failures) ------------------------------

@@ -1,0 +1,4 @@
+id = "planning"
+name = "Planning"
+kind = "native"
+entry = "planning_plugin:register"

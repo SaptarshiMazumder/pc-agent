@@ -27,6 +27,10 @@ class PluginManifest:
     scripts: tuple = ()             # declared helper scripts bundled in the plugin folder
     data: tuple = ()                # declared data files bundled in the plugin folder
     root: Path | None = None        # the plugin's directory (added to sys.path for native)
+    # COMPATIBILITY gate (one of the 4 load gates): a plugin is skipped unless its platform /
+    # binaries / env are present. Keys: "os" (platform allowlist, e.g. ["windows","linux"]),
+    # "bins" (all on PATH), "env" (all set). Empty => always compatible. From [requires] in the toml.
+    requires: dict = field(default_factory=dict)
 
 
 def load_manifest(path: Path) -> PluginManifest | None:
@@ -54,6 +58,11 @@ def load_manifest(path: Path) -> PluginManifest | None:
     for rel in (*scripts, *files):                   # declared-but-missing => warn (never fatal)
         if not (root / rel).exists():
             log.warning("plugins: '%s' declares missing asset %r", pid, rel)
+    raw_req = dict(data.get("requires") or {})
+    requires = {k: [str(x).strip().lower() if k == "os" else str(x).strip()
+                    for x in (raw_req.get(k) or []) if str(x).strip()]
+                for k in ("os", "bins", "env")}
+    requires = {k: v for k, v in requires.items() if v}     # keep only declared keys
     return PluginManifest(
         id=pid,
         name=str(data.get("name") or pid),
@@ -64,4 +73,5 @@ def load_manifest(path: Path) -> PluginManifest | None:
         scripts=scripts,
         data=files,
         root=root,
+        requires=requires,
     )

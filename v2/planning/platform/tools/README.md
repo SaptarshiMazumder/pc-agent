@@ -35,6 +35,13 @@ tools (each native/provider integration is one isolated adapter behind a port).
   package profile, never the folder**. Money/licensing is **out of scope** (it would attach at
   the Provisioned gate). Design-only.
 
+- **[`extension-migration-plan.md`](extension-migration-plan.md)** — the **phased migration** to
+  OpenClaw's uniform model: one `extensions/` home for all tool code (built-in + downloaded),
+  each bundling **tools + skills + card**; core becomes framework-only; MCP stays a central
+  connection registry; skills get **gating + a prompt budget** so a big library never floods the
+  prompt. Additive phases (A–D) first, the dependency-injection enabler (E), then the core move
+  in batches (F–G) — green suite + lint at every phase.
+
 Render: `java -jar ../../../plantuml.jar -tpng <name>.puml` (see [../../README.md](../../README.md)).
 
 > Next step: implement the `SearchProvider` port + `providers/` adapters and the

@@ -44,6 +44,14 @@ def google_section(tools, agent, config) -> str:
     elif len(accounts) > 1:
         note.append("This agent's accounts: " + ", ".join(f"**{a}**" for a in accounts)
                     + " — use the one that owns each resource.")
+    # Usage guidance for the Workspace tools (these act on the user's REAL account).
+    note.append(
+        "These tools act on the user's real Google account, so treat every WRITE — sending mail, "
+        "creating/moving calendar events, sharing/deleting Drive files — as effectively "
+        "irreversible: confirm before doing it and report what changed (ids/links). Gmail: act on "
+        "the thread in context; never add recipients or send without confirmation. Calendar: check "
+        "conflicts and state the timezone. Drive: prefer link/share over download; never delete a "
+        "file unless the user named it.")
     return "\n".join(note)
 
 

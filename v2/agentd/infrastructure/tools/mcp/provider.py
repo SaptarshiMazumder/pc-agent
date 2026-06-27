@@ -52,6 +52,23 @@ class McpProvider:
             log.info("MCP server '%s': %d tool(s) discovered", cfg.name, len(specs))
         return tools
 
+    async def add_server(self, cfg) -> list[Tool]:
+        """Hot-add ONE server at runtime: connect, list its tools, keep the session for clean
+        shutdown. Returns its (namespaced) tools, or [] if it can't connect (never raises)."""
+        try:
+            session = await self._session_factory(cfg)
+            specs = await session.list_tools()
+        except Exception as e:  # noqa: BLE001 — a failed hot-add never breaks the gateway
+            log.warning("MCP hot-add '%s' failed: %s", getattr(cfg, "name", "?"), e)
+            return []
+        self._sessions.append(session)
+        self._configs.append(cfg)
+        allow = getattr(cfg, "allow", None)
+        tools = [McpTool(session, spec, f"{cfg.name}__{spec.name}")
+                 for spec in specs if not (allow and spec.name not in allow)]
+        log.info("MCP hot-add '%s': %d tool(s)", cfg.name, len(tools))
+        return tools
+
     async def aclose(self) -> None:
         for session in self._sessions:
             try:

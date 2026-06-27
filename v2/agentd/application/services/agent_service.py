@@ -24,17 +24,33 @@ from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
 from agentd.domain.messages import UserMessage
 
 
-def _tool_info(t) -> dict:
-    """A client-renderable summary of one tool (duck-typed; works on a GuardedTool too).
-    `source` is best-effort: MCP tools are namespaced (server__tool); everything else 'tool'."""
+def tool_source(t) -> str:
+    """Where a tool came from: ``plugin:<id>`` (tagged at load), ``mcp:<server>`` (namespaced
+    name), else ``internal`` (build_tools). The GuardedTool wrapper carries the resolved value in
+    ``.source`` (set in the composition root); this derives it when that's absent."""
+    src = getattr(t, "source", None)
+    if src:
+        return src
+    pid = getattr(t, "_plugin_id", None)
+    if pid:
+        return f"plugin:{pid}"
     name = getattr(t, "name", "") or ""
+    if "__" in name:
+        return "mcp:" + name.split("__", 1)[0]
+    return "internal"
+
+
+def _tool_info(t) -> dict:
+    """A client-renderable summary of one tool (duck-typed; works on a GuardedTool too):
+    name + label + summary (the tool's ``description`` first line) + concurrency + accurate
+    ``source`` (internal / plugin:<id> / mcp:<server>)."""
     desc = (getattr(t, "description", "") or "").strip()
     return {
-        "name": name,
+        "name": getattr(t, "name", "") or "",
         "label": getattr(t, "label", "") or "",
         "summary": desc.splitlines()[0].strip() if desc else "",
         "concurrency": getattr(t, "concurrency", "parallel"),
-        "source": "mcp" if "__" in name else "tool",
+        "source": tool_source(t),
     }
 
 
@@ -46,7 +62,7 @@ class AgentService:
         tools: list,
         registry: AgentRegistry,                            # which agent handles a session
         make_session: Callable[[str, AgentSpec], SessionStore],  # (id, agent) -> store
-        build_prompt: Callable[[list, AgentSpec, str], str],  # (tools, agent, mode) -> prompt
+        build_prompt: Callable[..., str],  # (tools, agent, mode, query="") -> prompt
     ):
         self._engine = engine
         self._tools = tools
@@ -74,6 +90,13 @@ class AgentService:
         """Look up a registered tool by name (e.g. a namespaced MCP tool a channel
         invokes outside the agent loop). Returns the Tool or None."""
         return next((t for t in self._tools if getattr(t, "name", None) == name), None)
+
+    def remove_tools(self, prefix: str) -> int:
+        """Drop every tool whose name starts with ``prefix`` from the live catalog (e.g.
+        ``notion__`` when an MCP server is removed). Returns how many were dropped."""
+        before = len(self._tools)
+        self._tools = [t for t in self._tools if not getattr(t, "name", "").startswith(prefix)]
+        return before - len(self._tools)
 
     def list_tools(self, agent_id: str | None = None) -> list:
         """Enumerate the live tool catalog (read-only; safe to call any time).
@@ -114,7 +137,8 @@ class AgentService:
         user_msg = UserMessage(content=text)
         messages.append(user_msg)                         # add the new user turn to context
         session.append(user_msg)                          # persist it
-        system_prompt = self._build_prompt(tools, agent, mode)  # identity + bootstrap + tools
+        system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
+
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)
         await self._engine.run(

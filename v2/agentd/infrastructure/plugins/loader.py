@@ -16,11 +16,15 @@ from agentd.infrastructure.plugins.manifest import PluginManifest
 log = logging.getLogger("agentd")
 
 
-def load_plugin_entry(manifest: PluginManifest, config) -> tuple[list, list]:
+def load_plugin_entry(manifest: PluginManifest, config, deps: dict | None = None) -> tuple[list, list]:
     """Import ``manifest.entry`` ("module:func"), call ``func(api, ctx)``, and return the
     plugin's contributions: ``(tools, prompt_sections)``. Used for BOTH native plugins (tools +
     sections) and mcp plugins that ALSO have an entry (sections only — tools come from the
-    server). The plugin's own dir is put on ``sys.path`` first so a drop-in folder is importable."""
+    server). The plugin's own dir is put on ``sys.path`` first so a drop-in folder is importable.
+
+    ``deps`` are the injected runtime handles (browser, task_store, …) forwarded onto the
+    PluginContext; unknown keys are ignored so adding a handle never breaks an older plugin."""
+    from dataclasses import fields
     module_name, _, func_name = manifest.entry.partition(":")
     func_name = func_name or "register"
     try:
@@ -34,7 +38,9 @@ def load_plugin_entry(manifest: PluginManifest, config) -> tuple[list, list]:
                         module_name, func_name)
             return [], []
         api = CollectingPluginApi()
-        register(api, PluginContext(config=config, plugin_dir=root))
+        valid = {f.name for f in fields(PluginContext)} - {"config", "plugin_dir"}
+        ctx_deps = {k: v for k, v in (deps or {}).items() if k in valid}
+        register(api, PluginContext(config=config, plugin_dir=root, **ctx_deps))
         log.info("plugins: loaded plugin '%s' (%d tool(s), %d prompt section(s))",
                  manifest.id, len(api.tools), len(api.prompt_sections))
         return api.tools, api.prompt_sections

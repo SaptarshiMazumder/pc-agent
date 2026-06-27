@@ -169,9 +169,21 @@ class Config:
     # Where drop-in plugins live (each <plugins_dir>/<id>/plugin.toml). Default <V2_ROOT>/plugins;
     # AGENTD_PLUGINS_DIR overrides. (pip plugins are found via entry-points, no dir needed.)
     plugins_dir: str = ""
-    # Where INTERNAL tools' CARDS live (tools/<name>.md — summary + instruction block, kept OUT
-    # of the code in infrastructure/tools/). Default <V2_ROOT>/tools; AGENTD_TOOLS_DIR overrides.
-    tools_dir: str = ""
+    # Where the SHIPPED built-in capability bundles live (the agent's standard library: fs, shell,
+    # web, browser, …). ALWAYS scanned, independently of plugins_dir, so overriding the user dir
+    # never drops the built-ins. Fixed to <V2_ROOT>/plugins; not env-overridable.
+    builtin_plugins_dir: str = ""
+    # Skill ADVERTISEMENT budget (OpenClaw parity): the ## Skills list is capped at this many
+    # entries / chars; over budget it degrades to compact (name+path) + a "+N more" note, so a
+    # big skill library never floods the prompt. AGENTD_SKILLS_PROMPT_MAX / _CHARS.
+    skills_prompt_max: int = 150
+    skills_prompt_chars: int = 18000
+    # Relevance-filtered skills (optional, post-parity): when ON, advertise only the top-K skills
+    # most semantically related to the current message (embeddings), instead of the whole budgeted
+    # library. OFF by default => current behavior. Needs an embedding model. AGENTD_SKILLS_RELEVANCE*.
+    skills_relevance_enabled: bool = False
+    skills_relevance_top_k: int = 30
+    skills_relevance_model: str = ""
     # Loop/LLM-level timeouts.
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
@@ -535,10 +547,19 @@ def load_config(path: Path | None = None) -> Config:
         cfg.plugins_dir = os.environ["AGENTD_PLUGINS_DIR"].strip()
     if not cfg.plugins_dir:                              # default: the repo-level drop-in folder
         cfg.plugins_dir = str(V2_ROOT / "plugins")
-    if os.environ.get("AGENTD_TOOLS_DIR"):
-        cfg.tools_dir = os.environ["AGENTD_TOOLS_DIR"].strip()
-    if not cfg.tools_dir:                                # default: the repo-level tool-cards folder
-        cfg.tools_dir = str(V2_ROOT / "tools")
+    # the shipped built-ins always load from <V2_ROOT>/plugins, even if plugins_dir is overridden.
+    cfg.builtin_plugins_dir = str(V2_ROOT / "plugins")
+    if os.environ.get("AGENTD_SKILLS_PROMPT_MAX"):
+        cfg.skills_prompt_max = int(os.environ["AGENTD_SKILLS_PROMPT_MAX"])
+    if os.environ.get("AGENTD_SKILLS_PROMPT_CHARS"):
+        cfg.skills_prompt_chars = int(os.environ["AGENTD_SKILLS_PROMPT_CHARS"])
+    if os.environ.get("AGENTD_SKILLS_RELEVANCE_ENABLED"):
+        cfg.skills_relevance_enabled = \
+            os.environ["AGENTD_SKILLS_RELEVANCE_ENABLED"].lower() in ("1", "true", "yes", "on")
+    if os.environ.get("AGENTD_SKILLS_RELEVANCE_TOP_K"):
+        cfg.skills_relevance_top_k = int(os.environ["AGENTD_SKILLS_RELEVANCE_TOP_K"])
+    if os.environ.get("AGENTD_SKILLS_RELEVANCE_MODEL"):
+        cfg.skills_relevance_model = os.environ["AGENTD_SKILLS_RELEVANCE_MODEL"].strip()
     if os.environ.get("AGENTD_SAFE_TO_SEND"):
         cfg.safe_to_send_check = (
             os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")

@@ -115,9 +115,9 @@ def register(api, ctx):
 
 def test_native_plugin_contributes_tools_and_prompt_sections(tmp_path):
     pdir = _make_plugin(tmp_path, pid="hp", mod="agentd_hp_mod", body=_PLUGIN_WITH_SECTION)
-    tools, sections, servers = discover_plugin_contributions(_cfg(pdir))
+    tools, sections, servers, skills = discover_plugin_contributions(_cfg(pdir))
     assert [t.name for t in tools] == ["hello2"]
-    assert servers == [] and len(sections) == 1
+    assert servers == [] and skills == [] and len(sections) == 1
     assert sections[0]([SimpleNamespace(name="hello2")], None, None) == "## Hello block"
 
 
@@ -126,9 +126,19 @@ def test_mcp_plugin_contributes_a_server_config(tmp_path):
     d.mkdir(parents=True)
     (d / "plugin.toml").write_text(
         'id = "myremote"\nname = "R"\nkind = "mcp"\n[mcp]\ncommand = ["uvx", "x"]\n', encoding="utf-8")
-    tools, sections, servers = discover_plugin_contributions(_cfg(tmp_path / "plugins"))
+    tools, sections, servers, skills = discover_plugin_contributions(_cfg(tmp_path / "plugins"))
     assert tools == [] and sections == []
     assert len(servers) == 1 and servers[0].name == "myremote" and servers[0].command == ["uvx", "x"]
+
+
+def test_plugin_bundled_skills_dir_is_discovered(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="sk", mod="agentd_sk_mod")
+    skdir = tmp_path / "plugins" / "sk" / "skills" / "demo"
+    skdir.mkdir(parents=True)
+    (skdir / "SKILL.md").write_text("---\nname: demo\ndescription: a demo skill\n---\nbody",
+                                    encoding="utf-8")
+    _, _, _, skill_dirs = discover_plugin_contributions(_cfg(pdir))
+    assert len(skill_dirs) == 1 and skill_dirs[0].name == "skills"
 
 
 # ── bundled scripts/data: declaration + the ctx.resource() resolver ──────────
@@ -167,5 +177,106 @@ def test_manifest_declares_scripts_and_data(tmp_path):
 def test_plugin_reads_bundled_data_via_ctx_resource(tmp_path):
     pdir = _make_plugin(tmp_path, pid="rp", mod="agentd_rp_mod", body=_PLUGIN_USES_RESOURCE)
     (tmp_path / "plugins" / "rp" / "ref.txt").write_text("HELLO", encoding="utf-8")
-    tools, _, _ = discover_plugin_contributions(_cfg(pdir))
+    tools, _, _, _ = discover_plugin_contributions(_cfg(pdir))
     assert tools and tools[0].bundled == "HELLO"      # the plugin resolved + read its own data
+
+
+# ── dependency injection: a plugin tool gets the same singletons the built-ins do ─────────────
+
+_PLUGIN_USES_DEPS = '''
+class DepTool:
+    name = "dep_tool"
+    description = "uses injected deps"
+    parameters = {"type": "object"}
+    label = "Dep"
+    concurrency = "parallel"
+    def __init__(self, browser, task_store):
+        self.browser, self.task_store = browser, task_store
+    async def execute(self, *a, **k):
+        return None
+
+def register(api, ctx):
+    api.register_tool(DepTool(ctx.browser, ctx.task_store))   # pulls deps off the context
+'''
+
+
+def test_plugin_receives_injected_deps(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="dep", mod="agentd_dep_mod", body=_PLUGIN_USES_DEPS)
+    browser, store = object(), object()
+    tools, _, _, _ = discover_plugin_contributions(_cfg(pdir), {"browser": browser, "task_store": store})
+    assert tools[0].browser is browser and tools[0].task_store is store
+
+
+def test_unknown_deps_ignored_absent_ones_are_none(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="dep2", mod="agentd_dep2_mod", body=_PLUGIN_USES_DEPS)
+    # an unknown handle is dropped (forward-compat), and a dep that wasn't provided is None
+    tools, _, _, _ = discover_plugin_contributions(_cfg(pdir), {"bogus_handle": object()})
+    assert tools[0].browser is None and tools[0].task_store is None
+
+
+# ── 4-gate loading: compatibility (os/bins/env) + entitlement (the distribution seam) ─────────
+
+def _append_toml(tmp_path, pid, extra):
+    toml = tmp_path / "plugins" / pid / "plugin.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + extra, encoding="utf-8")
+
+
+def test_manifest_parses_requires(tmp_path):
+    d = tmp_path / "plugins" / "rq"
+    d.mkdir(parents=True)
+    (d / "plugin.toml").write_text(
+        'id = "rq"\nname = "R"\nkind = "native"\nentry = "m:register"\n'
+        '[requires]\nos = ["Linux", "Windows"]\nbins = ["git"]\nenv = ["HOME"]\n', encoding="utf-8")
+    m = load_manifest(d / "plugin.toml")
+    assert m.requires == {"os": ["linux", "windows"], "bins": ["git"], "env": ["HOME"]}
+
+
+def test_incompatible_os_skips_plugin(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="osx", mod="agentd_osx_mod")
+    _append_toml(tmp_path, "osx", '[requires]\nos = ["plan9"]\n')   # never the current platform
+    assert discover_plugin_tools(_cfg(pdir)) == []
+
+
+def test_missing_bin_skips_plugin(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="bn", mod="agentd_bn_mod")
+    _append_toml(tmp_path, "bn", '[requires]\nbins = ["definitely_absent_bin_zzz_123"]\n')
+    assert discover_plugin_tools(_cfg(pdir)) == []
+
+
+def test_compatible_requires_still_loads(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="ok", mod="agentd_ok_mod")
+    _append_toml(tmp_path, "ok", '[requires]\nenv = ["PATH"]\n')     # PATH is always set
+    assert [t.name for t in discover_plugin_tools(_cfg(pdir))] == ["hello_plugin"]
+
+
+def test_entitlement_can_deny_and_allow(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="ent", mod="agentd_ent_mod")
+
+    class Deny:
+        def is_entitled(self, manifest):
+            return False
+
+    class Allow:
+        def is_entitled(self, manifest):
+            return manifest.id == "ent"
+
+    assert discover_plugin_contributions(_cfg(pdir), None, Deny())[0] == []
+    assert [t.name for t in discover_plugin_contributions(_cfg(pdir), None, Allow())[0]] == ["hello_plugin"]
+
+
+def test_entitlement_fails_open_on_error(tmp_path):
+    pdir = _make_plugin(tmp_path, pid="ent2", mod="agentd_ent2_mod")
+
+    class Boom:
+        def is_entitled(self, manifest):
+            raise RuntimeError("policy bug")
+
+    # a broken policy must not silently disable tools — it fails OPEN (allowed), logged.
+    assert [t.name for t in discover_plugin_contributions(_cfg(pdir), None, Boom())[0]] == ["hello_plugin"]
+
+
+def test_default_entitlement_allows_all(tmp_path):
+    from agentd.infrastructure.plugins import AllowAllEntitlement
+    pdir = _make_plugin(tmp_path, pid="ent3", mod="agentd_ent3_mod")
+    tools = discover_plugin_contributions(_cfg(pdir), None, AllowAllEntitlement())[0]
+    assert [t.name for t in tools] == ["hello_plugin"]

@@ -36,7 +36,7 @@ async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
         from agentd.infrastructure.tools.browser.providers.playwright import PlaywrightBrowserProvider
     except ImportError:
         pytest.skip("playwright not installed")
-    from agentd.infrastructure.tools.browser.tool import BrowserTool
+    from browser_tool import BrowserTool
 
     mgr = PlaywrightBrowserProvider(_cfg(tmp_path))
     try:

@@ -18,7 +18,6 @@ from agentd.infrastructure.engine.native import NativeEngine
 from agentd.infrastructure.llm.litellm import litellm_stream
 from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.infrastructure.prompt import build_system_prompt
-from agentd.infrastructure.tools import build_tools
 from agentd.presentation.gateway import Gateway
 
 log = logging.getLogger("agentd")
@@ -81,23 +80,37 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # startup and pass through the SAME enablement there.) The credential vault + connect-token
     # store are injected (shared with the gateway's /connect web form).
     from agentd.domain.agent import apply_enablement
-    from agentd.infrastructure.cards import load_cards
-    from agentd.infrastructure.plugins import discover_plugin_contributions
+    from agentd.infrastructure.plugins import AllowAllEntitlement, discover_plugin_contributions
 
     # plugins contribute tools (join the catalog), prompt sections (teach the model how to use
     # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
-    # build_mcp_provider, called AFTER build_service, picks them up).
-    plugin_tools, plugin_sections, plugin_mcp_servers = discover_plugin_contributions(config)
+    # build_mcp_provider, called AFTER build_service, picks them up). A plugin's tools receive the
+    # SAME injected singletons the built-ins do (browser, ledgers, stores) via its PluginContext.
+    plugin_deps = {
+        "browser": browser_manager, "computer": computer_provider,
+        "task_store": task_store, "memory_bank": memory_bank,
+        "resource_manager": resource_manager, "credential_store": credential_store,
+        "connect_token_store": connect_token_store,
+    }
+    # ENTITLEMENT seam (4th load gate): default = entitle every compatible plugin. A commercial
+    # build swaps this for a plan/tenant-aware policy here, without touching the core or plugins.
+    entitlement = AllowAllEntitlement()
+    plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = \
+        discover_plugin_contributions(config, plugin_deps, entitlement)
     if plugin_mcp_servers:
         config.mcp_servers = list(config.mcp_servers or []) + plugin_mcp_servers
-    raw = build_tools(config, browser_manager, computer_provider, task_store,
-                      memory_bank, resource_manager, credential_store, connect_token_store)
-    raw += plugin_tools
-    raw = apply_enablement(raw, getattr(config, "tools_enabled", None),
+    # The catalog is assembled ENTIRELY by plugin discovery now — built-in capability bundles
+    # (plugins/) + third-party plugins both flow through discover_plugin_contributions. The core
+    # contributes no tool implementations (they all live outside agentd/). Global on/off filter,
+    # then wrap EVERY tool in the reliability middleware + tag its source.
+    raw = apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
                            getattr(config, "tools_disabled", ()))
-    tools = [GuardedTool(t, resolve_policy(config, t)) for t in raw]
-    # Tool cards (summaries + instruction blocks) loaded once; injected into every prompt build.
-    cards = load_cards(getattr(config, "tools_dir", "") or None)
+    from agentd.application.services.agent_service import tool_source
+    tools = []
+    for t in raw:
+        gt = GuardedTool(t, resolve_policy(config, t))
+        gt.source = tool_source(t)             # plugin:<id> / mcp:<server> — tagged for the catalog
+        tools.append(gt)
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -131,7 +144,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # the agent registry: which agent owns a session + its persona/scope.
     from agentd.domain.agent import RunMode, merge_skills, select_skills
     from agentd.infrastructure.agents import FileAgentRegistry
-    from agentd.infrastructure.skills.file_skills import load_skills_dir
+    from agentd.infrastructure.skills.file_skills import load_skills_dir, skill_eligible
 
     registry = registry or FileAgentRegistry(config)
 
@@ -142,12 +155,18 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # ONE-WAY: main never sees a named agent's skills, nor do siblings see each other's.
     main_skills_dir = registry.get("main").skills_dir
 
+    # plugins bundle their own skills (plugins/<id>/skills/) — they join the SHARED set every
+    # agent sees, alongside main's global library (a same-named plugin skill wins over global).
+    plugin_skills = [s for d in plugin_skill_dirs for s in load_skills_dir(d)]
+
     def resolve_skills(agent):
-        global_skills = select_skills(load_skills_dir(main_skills_dir), agent)
+        shared = select_skills(merge_skills(load_skills_dir(main_skills_dir), plugin_skills), agent)
         if agent.id == "main":
-            return global_skills                       # main = its own skills (the global)
-        own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
-        return merge_skills(global_skills, own)         # named: global + own (own wins)
+            result = shared                            # main = global + plugin skills
+        else:
+            own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
+            result = merge_skills(shared, own)         # named: shared + own (own wins)
+        return [s for s in result if skill_eligible(s, config)]   # requires gate (bins/env/config)
     # workspace-awareness layer (TURN seam): a manifest of the agent's files in every
     # prompt, so resources it created stay visible. The described Resource Manager wins
     # when on; else the plain workspace index; else nothing (all cut-out-able by flag).
@@ -155,21 +174,30 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     from agentd.infrastructure.workspace.cleanup import sweep_scratch
     workspace_index = resource_manager or build_workspace_index(config)
 
-    def _build_prompt(tools, agent, mode):
+    # Optional relevance filter (post-parity): advertise only the top-K skills most related to the
+    # current message. Built lazily; None unless enabled + a model is configured => no behavior change.
+    from agentd.infrastructure.skills.relevance import build_skill_embed_fn, rank_skills_by_relevance
+    skill_embed_fn = build_skill_embed_fn(config)
+
+    def _build_prompt(tools, agent, mode, query=""):
         # prompt for the resolved agent + run mode: its identity/bootstrap + scoped skills +
         # model; on a heartbeat tick also inject HEARTBEAT.md. FIRST: scratch hygiene —
         # auto-sweep <workspace>/tmp/ by age once per run (ungated, cheap, bounded to the
         # scratch dir) so throwaway files never pile up or get enriched.
         sweep_scratch(agent.workspace, getattr(config, "scratch_ttl_hours", 0.0))
+        skills = resolve_skills(agent)
+        if skill_embed_fn is not None:                  # relevance filter (no-op when fn is None)
+            skills = rank_skills_by_relevance(
+                skills, query, skill_embed_fn, getattr(config, "skills_relevance_top_k", 30))
         return build_system_prompt(
             config, tools, agent.model or config.model, config.reasoning_effort,
-            skills=resolve_skills(agent), agent=agent,
+            skills=skills, agent=agent,
             heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
             cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
                                  if workspace_index else ""),
-            cards=cards, plugin_sections=plugin_sections,   # self-describing tools + plugins
+            plugin_sections=plugin_sections,   # tools self-describe; plugins add guidance sections
         )
 
     return AgentService(

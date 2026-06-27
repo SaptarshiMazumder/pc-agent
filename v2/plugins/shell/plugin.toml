@@ -1,0 +1,4 @@
+id = "shell"
+name = "Shell"
+kind = "native"
+entry = "shell_plugin:register"

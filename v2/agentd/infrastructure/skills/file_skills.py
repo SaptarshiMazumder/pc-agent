@@ -63,6 +63,10 @@ def _first_meaningful_line(body: str) -> str:
     return ""
 
 
+def _csv(value: str) -> list:
+    return [x.strip() for x in (value or "").split(",") if x.strip()]
+
+
 def _load_one(skill_md: Path) -> Skill | None:
     try:
         text = skill_md.read_text(encoding="utf-8")
@@ -73,13 +77,37 @@ def _load_one(skill_md: Path) -> Skill | None:
     name = meta.get("name") or skill_md.parent.name
     description = meta.get("description") or _first_meaningful_line(body)
     always = meta.get("always", "").strip().lower() in ("true", "1", "yes", "on")
+    requires = {k: v for k, v in (
+        ("bins", _csv(meta.get("requires_bins", ""))),
+        ("env", _csv(meta.get("requires_env", ""))),
+        ("config", _csv(meta.get("requires_config", ""))),
+    ) if v}
     return Skill(
         name=name,
         description=description,
         path=str(skill_md.resolve()),
         always=always,
         body=body.strip() if always else "",
+        requires=requires,
     )
+
+
+def skill_eligible(skill, config=None) -> bool:
+    """OpenClaw's `requires` gate: a skill is eligible only if its declared deps are present —
+    all `bins` on PATH, all `env` vars set, all `config` attrs truthy. No requires => always
+    eligible. IO-touching (PATH/env), so kept out of the pure domain layer."""
+    req = getattr(skill, "requires", None) or {}
+    if not req:
+        return True
+    import os
+    import shutil
+    if any(shutil.which(b) is None for b in req.get("bins", [])):
+        return False
+    if any(not os.environ.get(e) for e in req.get("env", [])):
+        return False
+    if any(not getattr(config, c, None) for c in req.get("config", [])):
+        return False
+    return True
 
 
 def load_skills_dir(skills_dir: Path | str) -> list[Skill]:

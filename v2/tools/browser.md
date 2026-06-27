@@ -1,3 +1,0 @@
----
-summary: Control web browser
----

@@ -67,7 +67,7 @@ async def _run(tool, **params):
 
 
 async def test_browser_tool_full_smoke(tmp_path):
-    from agentd.infrastructure.tools.browser.tool import BrowserTool
+    from browser_tool import BrowserTool
 
     mgr, cfg = _provider(tmp_path)
     try:

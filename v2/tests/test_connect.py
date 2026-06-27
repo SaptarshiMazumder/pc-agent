@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentd.application.run_context import RunContext, set_run_context
 from agentd.infrastructure.channels.webhook import WebhookServer
 from agentd.infrastructure.credentials import ConnectTokenStore
-from agentd.infrastructure.tools.login_tool import SimpleLoginTool
+from login_tool import SimpleLoginTool
 
 
 def test_token_mint_resolve_consume_is_single_use():

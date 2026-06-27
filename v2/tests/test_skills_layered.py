@@ -15,7 +15,7 @@ from agentd.application.run_context import RunContext
 from agentd.domain.agent import merge_skills, select_skills
 from agentd.infrastructure.agents import FileAgentRegistry
 from agentd.infrastructure.skills.file_skills import load_skills_dir
-from agentd.infrastructure.tools.skill_tool import SkillWorkshopTool
+from skill_tool import SkillWorkshopTool
 
 
 def _skill(name, desc="d"):

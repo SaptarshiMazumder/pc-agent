@@ -404,7 +404,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /tools  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /tools  /mcp  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -469,9 +469,60 @@ class TerminalClient:
                         console.print(f"[dim]{len(tools)} tool(s) — {scope}[/]")
                         for t in tools:
                             src = t.get("source", "")
-                            tag = f" [dim]({src})[/]" if src and src != "tool" else ""
+                            tag = f" [dim]({src})[/]" if src and src != "internal" else ""
                             console.print(f"  [bold]{t.get('name', '')}[/]{tag}  [dim]{t.get('summary', '')}[/]")
                         console.print("[dim]/tools <id> for another agent · /tools all for the whole catalog[/]")
+                        continue
+                    if line == "/mcp" or line.startswith("/mcp "):
+                        # central MCP-server registry: list / hot-add (live, no restart) / remove.
+                        parts = line.split(maxsplit=2)
+                        sub = parts[1] if len(parts) > 1 else "list"
+                        rest = parts[2] if len(parts) > 2 else ""
+                        try:
+                            if sub in ("list", ""):
+                                payload = await self.request("mcp.list", {})
+                                servers = payload.get("servers") or []
+                                console.print(f"[dim]{len(servers)} MCP server(s)[/]")
+                                for s in servers:
+                                    dot = f"[{LIME}]●[/]" if s.get("connected") else "[dim]○[/]"
+                                    where = " ".join(s.get("command") or []) or s.get("url") or ""
+                                    console.print(f"  {dot} [bold]{s['name']}[/]  [dim]{where}[/]")
+                                console.print("[dim]/mcp add <name> -- <cmd…> · /mcp add <name> --url <url> · /mcp remove <name>[/]")
+                            elif sub == "add":
+                                toks = rest.split()
+                                if not toks:
+                                    console.print("[dim]usage: /mcp add <name> -- <cmd…>  |  /mcp add <name> --url <url>[/]")
+                                    continue
+                                params = {"name": toks[0]}
+                                if "--url" in toks:
+                                    i = toks.index("--url")
+                                    params["url"] = toks[i + 1] if i + 1 < len(toks) else ""
+                                elif "--" in toks:
+                                    params["command"] = toks[toks.index("--") + 1:]
+                                else:
+                                    console.print("[dim]need `-- <cmd…>` (stdio) or `--url <url>` (http)[/]")
+                                    continue
+                                console.print(f"[dim]connecting MCP '{params['name']}'…[/]")
+                                payload = await self.request("mcp.add", params)
+                                if payload.get("added"):
+                                    console.print(
+                                        f"[{LIME}]added[/] [bold]{params['name']}[/] — "
+                                        f"{len(payload.get('tools') or [])} tool(s)  "
+                                        f"[dim]persisted={payload.get('persisted')}[/]")
+                                else:
+                                    console.print(f"[error]{payload.get('error', 'failed')}[/]")
+                            elif sub in ("remove", "rm"):
+                                if not rest.strip():
+                                    console.print("[dim]usage: /mcp remove <name>[/]")
+                                    continue
+                                payload = await self.request("mcp.remove", {"name": rest.strip()})
+                                console.print(
+                                    f"[{LIME}]removed[/] [bold]{rest.strip()}[/]" if payload.get("removed")
+                                    else f"[error]{payload.get('error', 'failed')}[/]")
+                            else:
+                                console.print("[dim]/mcp list | add <name> -- <cmd…> | remove <name>[/]")
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
                         continue
                     if line.startswith("/agent-rm") or line.startswith("/agent-delete"):
                         parts = line.split(maxsplit=1)

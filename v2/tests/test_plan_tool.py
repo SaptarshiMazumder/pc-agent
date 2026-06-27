@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "plugins" / "planning"))
 
-from agentd.infrastructure.tools.update_plan_tool import UpdatePlanTool
+from planning_plugin import UpdatePlanTool  # built-in 'planning' bundle
 
 
 @pytest.mark.asyncio
@@ -59,7 +61,7 @@ def test_registered_in_container():
     assert "update_plan" in [t.name for t in svc._tools]
 
 
-def test_planning_section_present_with_update_plan():
+def test_tooling_line_uses_the_tool_description():
     from agentd.infrastructure.prompt import build_system_prompt
 
     class _Cfg:
@@ -68,11 +70,15 @@ def test_planning_section_present_with_update_plan():
         agent_id = "main"
 
     p = build_system_prompt(_Cfg(), [UpdatePlanTool()], "m")
-    assert "update_plan: Track short work plan" in p          # tooling line
-    assert "## Planning" in p                                  # strong nudge present
-    assert "FIRST action MUST be to call" in p
-    # and absent when the tool isn't registered
-    assert "## Planning" not in build_system_prompt(_Cfg(), [], "m")
+    assert "update_plan: Update current run plan" in p        # tooling line = description first line
+
+
+def test_planning_directive_is_a_bundle_prompt_section():
+    # the ## Planning nudge is contributed by the planning bundle, gated on update_plan being present.
+    import planning_plugin
+    shown = planning_plugin._planning_section([UpdatePlanTool()], None, None)
+    assert "## Planning" in shown and "FIRST action MUST be to call" in shown
+    assert planning_plugin._planning_section([], None, None) == ""   # gated off when the tool is absent
 
 
 def test_description_says_break_down_with_tools():

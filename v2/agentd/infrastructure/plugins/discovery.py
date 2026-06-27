@@ -20,29 +20,48 @@ from agentd.infrastructure.plugins.manifest import PluginManifest, load_manifest
 log = logging.getLogger("agentd")
 
 
-def discover_plugin_contributions(config) -> tuple[list, list, list]:
-    """Everything enabled, installed plugins contribute: ``(tools, prompt_sections, mcp_servers)``.
+def discover_plugin_contributions(config, deps: dict | None = None,
+                                  entitlement=None) -> tuple[list, list, list, list]:
+    """Everything enabled, installed plugins contribute:
+    ``(tools, prompt_sections, mcp_servers, skill_dirs)``.
 
-    - native plugins  -> tools (+ optional prompt sections), via their entry.
+    - native plugins  -> tools (+ optional prompt sections), via their entry. A tool self-describes
+      via its ``description``; any strong/shared guidance is a PROMPT SECTION the plugin registers
+      (``register_prompt_section`` — e.g. the planning/verify/google bundles), gated by the plugin.
     - mcp plugins     -> an McpServerConfig (its tools appear when the gateway connects it),
-      PLUS optional prompt sections if the plugin also declares an ``entry`` (e.g. the google
-      plugin contributes its ## Google accounts block this way).
+      PLUS optional prompt sections if the plugin also declares an ``entry``.
+    - any plugin      -> its ``skills/`` dir is advertised like any skill folder.
+
+    ``deps`` are injected runtime handles (browser, task_store, …) forwarded to each native
+    plugin's PluginContext, so a plugin tool can use the same singletons the built-ins do.
     """
     tools: list = []
     sections: list = []
     servers: list = []
-    for manifest in _discover_manifests(config):
+    skill_dirs: list = []
+    for manifest in _discover_manifests(config, entitlement):
         if manifest.kind == "mcp":
             servers.append(_mcp_server_config(manifest))
+        native_tools, native_sections = ([], [])
         if manifest.entry:                     # native, or mcp-with-entry (prompt sections etc.)
-            t, s = load_plugin_entry(manifest, config)
-            tools.extend(t)
-            sections.extend(s)
-    return tools, sections, servers
+            native_tools, native_sections = load_plugin_entry(manifest, config, deps)
+        for t in native_tools:                 # tag provenance so the catalog can show plugin:<id>
+            try:
+                t._plugin_id = manifest.id
+            except (AttributeError, TypeError):
+                pass
+        tools.extend(native_tools)
+        sections.extend(native_sections)
+        # the plugin's bundled skills (plugins/<id>/skills/) -> advertised like top-level skills.
+        if manifest.root is not None:
+            sk = manifest.root / "skills"
+            if sk.is_dir():
+                skill_dirs.append(sk)
+    return tools, sections, servers, skill_dirs
 
 
 def discover_plugin_tools(config) -> list:
-    """Back-compat: just the tools (callers that don't need sections/servers)."""
+    """Back-compat: just the tools (callers that don't need sections/servers/skills)."""
     return discover_plugin_contributions(config)[0]
 
 
@@ -66,14 +85,79 @@ def _gate(config, plugin_id: str, author_default: bool) -> bool:
     return bool(plugins.get(plugin_id, author_default))
 
 
-def _discover_manifests(config) -> list[PluginManifest]:
+def _compatible(manifest) -> bool:
+    """COMPATIBILITY gate: the plugin's declared platform/binaries/env must be present. Mirrors the
+    skill `requires` gate. Empty requirements => always compatible. IO (platform/PATH/env)."""
+    req = getattr(manifest, "requires", None) or {}
+    if not req:
+        return True
+    import os
+    import shutil
+    import sys
+    oses = req.get("os") or []
+    if oses and sys.platform not in oses and _os_family(sys.platform) not in oses:
+        return False
+    if any(shutil.which(b) is None for b in req.get("bins", [])):
+        return False
+    if any(not os.environ.get(e) for e in req.get("env", [])):
+        return False
+    return True
+
+
+def _os_family(platform: str) -> str:
+    """Map sys.platform to a friendly family name a manifest is likely to use."""
+    if platform.startswith("win"):
+        return "windows"
+    if platform == "darwin":
+        return "macos"
+    if platform.startswith("linux"):
+        return "linux"
+    return platform
+
+
+def _entitled(entitlement, manifest) -> bool:
+    """ENTITLEMENT gate (the distribution seam): an injected policy decides if this plugin is
+    allowed. None => entitle everything (open-source default). Never raises — a broken policy
+    fails OPEN (the bundle is treated as entitled) so a policy bug can't silently disable tools."""
+    if entitlement is None:
+        return True
+    try:
+        return bool(entitlement.is_entitled(manifest))
+    except Exception as e:  # noqa: BLE001
+        log.warning("plugins: entitlement check errored for '%s' (allowing): %s",
+                    getattr(manifest, "id", "?"), e)
+        return True
+
+
+def _passes_gates(config, manifest, entitlement) -> bool:
+    """The plugin LOAD decision — the 4-gate model (installed is implicit: we have a manifest):
+    ENABLED (config/manifest) + COMPATIBLE (os/bins/env) + ENTITLED (injected policy). Logs WHY a
+    plugin is skipped so a missing tool is debuggable."""
+    if not _gate(config, manifest.id, manifest.enabled):
+        log.info("plugins: '%s' disabled by config", manifest.id)
+        return False
+    if not _compatible(manifest):
+        log.info("plugins: '%s' skipped — incompatible (requires=%s)", manifest.id, manifest.requires)
+        return False
+    if not _entitled(entitlement, manifest):
+        log.info("plugins: '%s' skipped — not entitled", manifest.id)
+        return False
+    return True
+
+
+def _discover_manifests(config, entitlement=None) -> list[PluginManifest]:
     out: list[PluginManifest] = []
     seen: set[str] = set()
 
-    # 1. drop-in directory  (guard the empty string -> Path("") is ".", which we must NOT scan)
-    raw_dir = getattr(config, "plugins_dir", "") or ""
-    d = Path(raw_dir)
-    if raw_dir and d.is_dir():
+    # 1. drop-in DIRECTORIES: the shipped built-in bundles (always) + the user drop-in dir. The
+    # built-in root is scanned FIRST and independently of plugins_dir, so overriding plugins_dir
+    # never drops the standard library. Same dir listed twice => deduped by id (harmless).
+    # (Guard the empty string -> Path("") is ".", which we must NOT scan.)
+    for raw_dir in (getattr(config, "builtin_plugins_dir", "") or "",
+                    getattr(config, "plugins_dir", "") or ""):
+        d = Path(raw_dir)
+        if not (raw_dir and d.is_dir()):
+            continue
         for sub in sorted(d.iterdir()):
             mf = sub / "plugin.toml"
             if not (sub.is_dir() and mf.is_file()):
@@ -81,18 +165,17 @@ def _discover_manifests(config) -> list[PluginManifest]:
             m = load_manifest(mf)
             if m is None or m.id in seen:
                 continue
-            if not _gate(config, m.id, m.enabled):
-                log.info("plugins: '%s' disabled by config", m.id)
+            if not _passes_gates(config, m, entitlement):
                 continue
             seen.add(m.id)
             out.append(m)
 
     # 2. pip entry points
-    out.extend(_entrypoint_manifests(config, seen))
+    out.extend(_entrypoint_manifests(config, seen, entitlement))
     return out
 
 
-def _entrypoint_manifests(config, seen: set[str]) -> list[PluginManifest]:
+def _entrypoint_manifests(config, seen: set[str], entitlement=None) -> list[PluginManifest]:
     out: list[PluginManifest] = []
     try:
         from importlib.metadata import entry_points
@@ -103,10 +186,10 @@ def _entrypoint_manifests(config, seen: set[str]) -> list[PluginManifest]:
     for ep in eps:
         if ep.name in seen:
             continue
-        if not _gate(config, ep.name, True):
-            log.info("plugins: '%s' (entry point) disabled by config", ep.name)
-            continue
         entry = ep.value if ":" in ep.value else f"{ep.value}:register"
+        m = PluginManifest(id=ep.name, name=ep.name, kind="native", entry=entry, root=None)
+        if not _passes_gates(config, m, entitlement):
+            continue
         seen.add(ep.name)
-        out.append(PluginManifest(id=ep.name, name=ep.name, kind="native", entry=entry, root=None))
+        out.append(m)
     return out

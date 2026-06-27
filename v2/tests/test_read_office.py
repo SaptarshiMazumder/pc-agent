@@ -7,7 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.tools.fs_tools import ReadTool
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "core_fs"))
+from fs_tools import ReadTool  # built-in 'core_fs' bundle
 
 
 async def _read(path: Path) -> str:

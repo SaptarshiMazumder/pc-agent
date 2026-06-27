@@ -41,9 +41,18 @@ def test_full_catalog_lists_every_tool_with_summary_and_source():
                [_spec("main")])
     info = svc.list_tools()
     assert [t["name"] for t in info] == ["read", "google__gmail_send"]
-    assert info[0]["summary"] == "Read a file."        # first line only
-    assert info[0]["source"] == "tool"
-    assert info[1]["source"] == "mcp"                  # namespaced server__tool
+    assert info[0]["summary"] == "Read a file."        # first line of the tool's description
+    assert info[0]["source"] == "internal"             # untagged, non-namespaced -> internal
+    assert info[1]["source"] == "mcp:google"           # namespaced server__tool -> mcp:<server>
+
+
+def test_source_reflects_plugin_tag_and_explicit_override():
+    pl = FT("hello", "Hi.")
+    pl._plugin_id = "greeter"                           # tagged at plugin load
+    explicit = FT("notion__page", "Page.")
+    explicit.source = "mcp:notion"                      # GuardedTool-stamped value wins
+    info = _svc([pl, explicit], [_spec("main")]).list_tools()
+    assert info[0]["source"] == "plugin:greeter" and info[1]["source"] == "mcp:notion"
 
 
 def test_per_agent_view_applies_allow_deny():

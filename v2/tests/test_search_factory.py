@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.tools.search.factory import build_search_providers
+from search.factory import build_search_providers
 
 
 def _cfg(model="gemini/gemini-2.5-pro", brave=None, search_providers=None):

@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application.interfaces.verifier import Verdict
-from agentd.infrastructure.tools.verify_tool import VerifyTool
+from verify_tool import VerifyTool
 
 
 class _StubVerifier:
@@ -44,26 +44,42 @@ async def test_verify_tool_needs_work_surfaces_reasons():
     assert stub.last_ctx.task == "5 items" and stub.last_ctx.evidence == ["found A,B,C"]
 
 
-def test_verify_tool_registered_only_in_tool_mode():
+def test_verify_tool_registered_only_when_enabled():
+    # verify migrated to the built-in 'verify' bundle (plugins/verify/); its config-gating now
+    # lives in the plugin's register(), so assert against that directly.
+    import verify_plugin
     from agentd.config import load_config
-    from agentd.infrastructure.tools import build_tools
+
+    class _Api:
+        def __init__(self):
+            self.tools = []
+
+        def register_tool(self, t):
+            self.tools.append(t)
+
+        def register_prompt_section(self, section):
+            pass
+
+    class _Ctx:
+        def __init__(self, cfg):
+            self.config = cfg
 
     cfg = load_config()
     cfg.verify_tool = False
-    assert not any(t.name == "verify_answer" for t in build_tools(cfg))
+    api = _Api()
+    verify_plugin.register(api, _Ctx(cfg))
+    assert not any(t.name == "verify_answer" for t in api.tools)
 
     cfg.verify_tool = True
     cfg.verify_model = "gemini/gemini-2.5-flash"
-    assert any(t.name == "verify_answer" for t in build_tools(cfg))
+    api = _Api()
+    verify_plugin.register(api, _Ctx(cfg))
+    assert any(t.name == "verify_answer" for t in api.tools)
 
 
 def test_verify_prompt_section_only_when_tool_present():
-    from agentd.config import load_config
-    from agentd.infrastructure.prompt import build_system_prompt
-
-    cfg = load_config()
-    tool = VerifyTool(cfg, _StubVerifier(Verdict(ok=True)))
-    with_tool = build_system_prompt(cfg, [tool], cfg.model, "medium", skills=[])
-    without = build_system_prompt(cfg, [], cfg.model, "medium", skills=[])
-    assert "## Verify Before You Send" in with_tool
-    assert "Verify Before You Send" not in without
+    # the ## Verify directive is a prompt section contributed by the verify bundle, gated on the tool.
+    import verify_plugin
+    assert "## Verify Before You Send" in verify_plugin._verify_section(
+        [SimpleNamespace(name="verify_answer")], None, None)
+    assert verify_plugin._verify_section([SimpleNamespace(name="read")], None, None) == ""

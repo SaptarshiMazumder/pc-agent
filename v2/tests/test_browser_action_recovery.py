@@ -40,7 +40,7 @@ async def _provider(tmp_path):
         await mgr.ensure()
     except Exception as e:  # noqa: BLE001
         pytest.skip(f"cannot launch chromium: {e}")
-    from agentd.infrastructure.tools.browser.tool import BrowserTool
+    from browser_tool import BrowserTool
     return mgr, BrowserTool(mgr.config, mgr)
 
 

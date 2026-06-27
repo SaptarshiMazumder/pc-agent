@@ -18,7 +18,7 @@ from agentd.domain.resource import Resource
 from agentd.infrastructure.resources.describe import BasicDescriber, _image_dims
 from agentd.infrastructure.resources.manager import ResourceManager
 from agentd.infrastructure.resources.store import SqliteResourceStore
-from agentd.infrastructure.tools.resource_tool import ResourceTool
+from resource_tool import ResourceTool
 
 
 def _png(w, h):

@@ -7,9 +7,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application.interfaces.search import SearchResult
-from agentd.infrastructure.tools.search.cache import _CACHE
-from agentd.infrastructure.tools.search.format import format_results
-from agentd.infrastructure.tools.web_search import WebSearchTool
+from search.cache import _CACHE
+from search.format import format_results
+from web_search import WebSearchTool
 
 
 class FakeProvider:

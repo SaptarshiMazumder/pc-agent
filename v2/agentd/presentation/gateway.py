@@ -82,6 +82,55 @@ def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | No
     return None
 
 
+def _guarded_with_source(tools, config) -> list:
+    """Wrap tools in GuardedTool AND stamp their catalog ``source`` (mcp:<server> for the
+    namespaced MCP tools that flow through here). Mirrors the container's wrap step."""
+    from agentd.application.services.agent_service import tool_source
+    from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+    out = []
+    for t in tools:
+        gt = GuardedTool(t, resolve_policy(config, t))
+        gt.source = tool_source(t)
+        out.append(gt)
+    return out
+
+
+def _server_dict(s) -> dict:
+    """Serialize an McpServerConfig back to a JSON-config dict (omit empty fields)."""
+    out: dict = {"name": getattr(s, "name", "")}
+    for k in ("transport", "command", "env", "url", "headers"):
+        v = getattr(s, k, None)
+        if v:
+            out[k] = v
+    return out
+
+
+def _persist_mcp_servers(config) -> bool:
+    """Write ``config.mcp_servers`` back to agentd.config.json (so a hot-add survives restart).
+    Preserves every other key in the file. Best-effort: a write failure is logged, not fatal."""
+    import json
+    import os
+    from pathlib import Path
+
+    from agentd.config import V2_ROOT
+    path = None
+    for cand in (os.environ.get("AGENTD_CONFIG"), "agentd.config.json",
+                 str(V2_ROOT / "agentd.config.json")):
+        if cand and Path(cand).is_file():
+            path = Path(cand)
+            break
+    if path is None:
+        path = V2_ROOT / "agentd.config.json"          # create at the default location
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        data["mcp_servers"] = [_server_dict(s) for s in (config.mcp_servers or [])]
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return True
+    except Exception as e:  # noqa: BLE001 — persistence is best-effort
+        log.warning("could not persist mcp_servers to %s: %s", path, e)
+        return False
+
+
 @dataclass
 class Gateway:
     """Transport only: accepts WebSocket frames and delegates work to the injected
@@ -434,15 +483,12 @@ class Gateway:
             return
         try:
             from agentd.domain.agent import apply_enablement
-            from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
 
             raw = await self.mcp_provider.discover()
             # apply the SAME global on/off as the rest of the catalog (uniform layer-2 enablement)
             raw = apply_enablement(raw, getattr(self.config, "tools_enabled", None),
                                    getattr(self.config, "tools_disabled", ()))
-            self.service.add_tools(
-                [GuardedTool(t, resolve_policy(self.config, t)) for t in raw]
-            )
+            self.service.add_tools(_guarded_with_source(raw, self.config))
             if raw:
                 log.info("MCP: added %d tool(s) to the toolset", len(raw))
         except Exception as e:  # noqa: BLE001 — MCP must never block serving
@@ -486,6 +532,12 @@ class Gateway:
                 payload = self._agents_list()
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
+            elif req.method == "mcp.add":
+                payload = await self._mcp_add(req.params)
+            elif req.method == "mcp.list":
+                payload = self._mcp_list()
+            elif req.method == "mcp.remove":
+                payload = self._mcp_remove(req.params)
             elif req.method == "agents.remove":
                 payload = self._agents_remove(req.params)
             elif req.method == "cron.list":
@@ -527,6 +579,79 @@ class Gateway:
                 agent_id = "main"
                 state_dir = self.registry.get("main").state_dir
         return {"sessions": list_sessions(state_dir), "agentId": agent_id}
+
+    async def _mcp_add(self, params: dict) -> dict:
+        """Hot-add an MCP server: build the config, connect it LIVE, merge its tools into the
+        catalog (no restart), and PERSIST to config.mcp_servers (writes agentd.config.json). The
+        central registry for bare connections — `claude mcp add` / `openclaw mcp add` equivalent."""
+        from agentd.config import McpServerConfig
+        from agentd.domain.agent import apply_enablement
+
+        name = (params.get("name") or "").strip()
+        command = params.get("command") or None
+        url = (params.get("url") or "").strip() or None
+        if not name:
+            return {"added": False, "error": "name required"}
+        if not (command or url):
+            return {"added": False, "error": "need a command (stdio) or url (http)"}
+        if any(getattr(s, "name", "") == name for s in (self.config.mcp_servers or [])):
+            return {"added": False, "error": f"server '{name}' already exists"}
+        cfg = McpServerConfig(name=name, transport="http" if url else "stdio",
+                              command=command, url=url, env=params.get("env") or None,
+                              headers=params.get("headers") or None)
+        provider = self._ensure_mcp_provider()
+        if provider is None:
+            return {"added": False, "error": "MCP SDK not installed (pip install mcp)"}
+        tools = await provider.add_server(cfg)
+        if not tools:
+            return {"added": False, "error": f"could not connect to '{name}'"}
+        tools = apply_enablement(tools, getattr(self.config, "tools_enabled", None),
+                                 getattr(self.config, "tools_disabled", ()))
+        self.service.add_tools(_guarded_with_source(tools, self.config))
+        self.config.mcp_servers = list(self.config.mcp_servers or []) + [cfg]
+        persisted = _persist_mcp_servers(self.config)
+        log.info("mcp.add '%s' -> %d tool(s), persisted=%s", name, len(tools), persisted)
+        return {"added": True, "name": name, "tools": [getattr(t, "name", "") for t in tools],
+                "persisted": persisted}
+
+    def _ensure_mcp_provider(self):
+        """The live MCP provider, building an empty one on first hot-add if none exists yet
+        (no servers were configured at startup). None if the `mcp` SDK isn't installed."""
+        if self.mcp_provider is not None:
+            return self.mcp_provider
+        try:
+            import mcp  # noqa: F401
+            from agentd.infrastructure.tools.mcp.provider import McpProvider
+            from agentd.infrastructure.tools.mcp.session import create_session
+            self.mcp_provider = McpProvider([], create_session)
+            return self.mcp_provider
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _mcp_list(self) -> dict:
+        """Every MCP server — config-registered AND plugin-MCP — with whether its tools are live.
+        The unified 'what MCP do I have' surface (matches /tools for tools)."""
+        loaded = {info["name"].split("__", 1)[0]
+                  for info in self.service.list_tools() if "__" in info.get("name", "")}
+        servers = [{
+            "name": getattr(s, "name", ""), "transport": getattr(s, "transport", "stdio"),
+            "command": getattr(s, "command", None), "url": getattr(s, "url", None),
+            "connected": getattr(s, "name", "") in loaded,
+        } for s in (self.config.mcp_servers or [])]
+        return {"servers": servers, "count": len(servers)}
+
+    def _mcp_remove(self, params: dict) -> dict:
+        """Remove an MCP server: drop it from config (persisted) + drop its live tools."""
+        name = (params.get("name") or "").strip()
+        if not name:
+            return {"removed": False, "error": "name required"}
+        servers = [s for s in (self.config.mcp_servers or []) if getattr(s, "name", "") != name]
+        if len(servers) == len(self.config.mcp_servers or []):
+            return {"removed": False, "error": f"no such server: {name}"}
+        self.config.mcp_servers = servers
+        dropped = self.service.remove_tools(f"{name}__")
+        _persist_mcp_servers(self.config)
+        return {"removed": True, "name": name, "toolsDropped": dropped}
 
     def _tools_list(self, params: dict) -> dict:
         """The live tool catalog — the uniform 'what tools exist' surface any client can render.

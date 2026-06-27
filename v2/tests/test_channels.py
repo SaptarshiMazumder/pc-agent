@@ -135,8 +135,8 @@ async def test_poller_fires_each_new_message_and_isolates_bad_channel():
 # ---- run mode ---------------------------------------------------------------
 
 def test_channel_mode_hides_autonomous_only_tools():
-    from agentd.infrastructure.tools.heartbeat_tool import HeartbeatRespondTool
-    from agentd.infrastructure.tools.outcome_tool import ReportOutcomeTool
+    from heartbeat_tool import HeartbeatRespondTool
+    from outcome_tool import ReportOutcomeTool
 
     tools = [HeartbeatRespondTool(), ReportOutcomeTool()]
     assert apply_mode(tools, RunMode.CHANNEL) == []        # neither leaks into a channel reply

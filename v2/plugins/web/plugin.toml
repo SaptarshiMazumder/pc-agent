@@ -1,0 +1,4 @@
+id = "web"
+name = "Web"
+kind = "native"
+entry = "web_plugin:register"

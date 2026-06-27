@@ -1,3 +1,0 @@
----
-summary: Read file contents
----

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application.run_context import RunContext, set_run_context
 from agentd.domain.credential import Credential
-from agentd.infrastructure.tools.login_tool import SimpleLoginTool
+from login_tool import SimpleLoginTool
 
 
 class FakePage:

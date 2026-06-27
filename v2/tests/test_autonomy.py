@@ -19,7 +19,7 @@ from agentd.infrastructure.autonomy.scheduler import (
     parse_interval,
 )
 from agentd.infrastructure.prompt import build_system_prompt
-from agentd.infrastructure.tools.heartbeat_tool import HeartbeatRespondTool
+from heartbeat_tool import HeartbeatRespondTool
 
 
 class _T:
@@ -159,7 +159,7 @@ async def test_service_heartbeat_mode_assembly():
         def append(self, m):
             return "id"
 
-    def bp(tools, agent, mode):
+    def bp(tools, agent, mode, query=""):
         captured["mode"] = mode
         return "SYS"
 

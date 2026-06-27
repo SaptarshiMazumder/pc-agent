@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentd.application.run_context import RunContext, set_run_context
 from agentd.domain.autonomy import Goal
 from agentd.infrastructure.tasks import SqliteTaskStore
-from agentd.infrastructure.tools.goal_tool import GoalTool
+from goal_tool import GoalTool
 
 
 def _goal(**over):

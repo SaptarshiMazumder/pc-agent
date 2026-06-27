@@ -1,0 +1,4 @@
+id = "memory"
+name = "Memory"
+kind = "native"
+entry = "memory_plugin:register"

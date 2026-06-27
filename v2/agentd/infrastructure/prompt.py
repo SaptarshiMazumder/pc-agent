@@ -21,8 +21,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from agentd.infrastructure.cards import load_cards
-
 log = logging.getLogger("agentd")
 
 # SOUL.md is NOT here — it's the editable persona, loaded via `persona_file` (one place,
@@ -105,18 +103,16 @@ def resolve_user_folders() -> dict[str, str]:
                 folders[label] = str(p)
     return folders
 
-def _tooling_section(tools, cards) -> str:
-    """The ## Tooling list. Each line's summary comes from the tool's CARD (tools/<name>.md or
-    a plugin's card), else the tool's own description — NO hardcoded per-tool dict."""
+def _tooling_section(tools) -> str:
+    """The ## Tooling list — one line per tool, the summary being the tool's own ``description``
+    first line (OpenClaw model: the tool self-describes; no separate card files, no hardcoded dict)."""
     lines = [
         "## Tooling",
         "Available tools are policy-filtered. Names are case-sensitive; call exactly as listed.",
     ]
     for t in tools:
-        card = cards.get(getattr(t, "name", ""))
-        summary = (card.summary if (card and card.summary)
-                   else (t.description.splitlines()[0] if t.description else ""))
-        lines.append(f"- {t.name}: {summary}")
+        desc = getattr(t, "description", "") or ""
+        lines.append(f"- {t.name}: {desc.splitlines()[0] if desc else ''}")
     return "\n".join(lines)
 
 
@@ -187,7 +183,7 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
     )
 
 
-def _skills_section(skills) -> str | None:
+def _skills_section(skills, config=None) -> str | None:
     """Build the Skills prompt section.
 
     Two tiers:
@@ -197,7 +193,10 @@ def _skills_section(skills) -> str | None:
     - the rest are advertised one line each (name + when-to-use + path) and read on
       demand with the `read` tool (progressive disclosure — no prompt bloat).
 
-    Logs which skills are always-injected vs advertised so skill usage is visible.
+    BUDGET (OpenClaw parity): the advertised list is capped at ``skills_prompt_max`` entries /
+    ``skills_prompt_chars`` chars; over budget it degrades to a COMPACT format (name + path, no
+    descriptions) and truncates with a "+N more" note — so a 100-skill library can never flood
+    the prompt. Logs always-injected vs advertised so skill usage is visible.
     """
     if not skills:
         log.info("skills: none discovered")
@@ -218,12 +217,36 @@ def _skills_section(skills) -> str | None:
             "clearly matches one, READ its SKILL.md with the read tool FIRST, then follow "
             "it. Do not guess a skill's contents from its name."
         )
-        for s in on_demand:
-            parts.append(f"- {s.name}: {s.description or '(no description)'} [read: {s.path}]")
+        parts.extend(_advertise_skills(
+            on_demand,
+            int(getattr(config, "skills_prompt_max", 150) or 150),
+            int(getattr(config, "skills_prompt_chars", 18000) or 18000),
+        ))
     for s in always:
         # full body inlined — always in context, no read needed
         parts.append(f"### Skill: {s.name} (always applies)\n{s.body}")
     return "\n".join(parts)
+
+
+def _advertise_skills(on_demand, max_count: int, max_chars: int) -> list[str]:
+    """The advertised skill lines, budget-bounded. Full format if it fits; else COMPACT (name +
+    path) truncated to the char budget with a '+N more' note. Keeps a big library from flooding
+    the prompt (OpenClaw parity)."""
+    full = [f"- {s.name}: {s.description or '(no description)'} [read: {s.path}]" for s in on_demand]
+    if len(on_demand) <= max_count and sum(len(line) + 1 for line in full) <= max_chars:
+        return full
+    kept: list[str] = []
+    used = 0
+    for s in on_demand[:max_count]:
+        line = f"- {s.name} [read: {s.path}]"            # compact: drop the description
+        if used + len(line) + 1 > max_chars:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    dropped = len(on_demand) - len(kept)
+    if dropped > 0:
+        kept.append(f"- …(+{dropped} more skills not shown — narrow the task or ask to surface them)")
+    return kept
 
 
 CRON_OUTCOME_NOTE = (
@@ -252,12 +275,12 @@ def build_system_prompt(
     config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
     heartbeat: str = "", cron: bool = False, channel: bool = False,
     workspace_resources: str = "",
-    cards=None, plugin_sections=None,
+    plugin_sections=None,
 ) -> str:
     sections: list[str] = []
-    # Tool cards (summaries + instruction blocks) come from tools/<name>.md + plugin cards.
-    # Injected by the container; default-loaded here so direct callers/tests still work.
-    cards = cards if cards is not None else load_cards(getattr(config, "tools_dir", "") or None)
+    # Tools self-describe via their `description` (OpenClaw model — no separate card files). Any
+    # strong/shared guidance a tool needs is a PLUGIN PROMPT SECTION (e.g. the planning/verify/
+    # google bundles contribute one), gathered below in `plugin_sections`.
     plugin_sections = plugin_sections or []
 
     # Agent identity / workspace / id come from the resolved agent when present, else
@@ -311,7 +334,7 @@ def build_system_prompt(
     )
 
     # 2. Tooling (browser operating loop now lives in the browser-automation skill)
-    sections.append(_tooling_section(tools, cards))
+    sections.append(_tooling_section(tools))
 
     # 2a'. What you are — self-knowledge of the agent's own organs (cron/heartbeat/notify/
     # channels/memory/sub-agents), built dynamically from what's actually available, so the
@@ -333,17 +356,12 @@ def build_system_prompt(
             sections.append(extra)
 
     # 2b. Skills (loadable playbooks; one line each, read on demand)
-    skills_section = _skills_section(skills)
+    skills_section = _skills_section(skills, config)
     if skills_section:
         sections.append(skills_section)
 
-    # 2c. Tool instruction blocks from CARDS — the BODY of tools/<name>.md (or a plugin's card),
-    # shown when that tool is present. Replaces the old hardcoded `if name == "update_plan"/
-    # "verify_answer"` sections: the ## Planning and ## Verify blocks now live in their cards.
-    for t in tools:
-        card = cards.get(getattr(t, "name", ""))
-        if card and card.prompt:
-            sections.append(card.prompt)
+    # (Tool instruction blocks like ## Planning / ## Verify / ## Google are PLUGIN PROMPT SECTIONS
+    # now — contributed by their bundles and gathered in the plugin_sections loop above.)
 
     # 3. Tool Call Style (verbatim, approval lines dropped)
     sections.append(

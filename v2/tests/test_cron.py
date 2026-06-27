@@ -14,7 +14,7 @@ from agentd.application.run_context import RunContext, set_run_context
 from agentd.domain.autonomy import ScheduledTask
 from agentd.infrastructure.autonomy.scheduler import HeartbeatScheduler
 from agentd.infrastructure.tasks import SqliteTaskStore
-from agentd.infrastructure.tools.cron_tool import CronTool
+from cron_tool import CronTool
 from agentd.main.container import build_task_store
 
 

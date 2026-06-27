@@ -7,9 +7,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application.interfaces.search import SearchProvider, SearchResult
-from agentd.infrastructure.tools.search.providers.brave import BraveProvider
-from agentd.infrastructure.tools.search.providers.duckduckgo import DuckDuckGoProvider
-from agentd.infrastructure.tools.search.providers.gemini import GeminiGroundingProvider
+from search.providers.brave import BraveProvider
+from search.providers.duckduckgo import DuckDuckGoProvider
+from search.providers.gemini import GeminiGroundingProvider
 
 
 def test_providers_satisfy_port():
