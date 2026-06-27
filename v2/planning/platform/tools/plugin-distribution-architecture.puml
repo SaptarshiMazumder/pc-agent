@@ -1,0 +1,103 @@
+@startuml plugin-distribution-architecture
+' ============================================================================
+'  agentd - Tool Distribution & Tiers (proposed)
+'  Separate "what CODE is present" from "what THIS INSTALL provides" from "what the
+'  OPERATOR enabled". A tool runs iff it passes FOUR gates in order. Tiers (core /
+'  bundled / addon) differ ONLY by when code arrives + whether the profile lists it
+'  -- never by folder. Money/licensing is OUT OF SCOPE (it would attach at gate 2).
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng plugin-distribution-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Tool Distribution & Tiers (proposed)\nA tool runs iff it passes FOUR gates -- tiers differ by metadata, not folders. Money/licensing out of scope (attaches at gate 2).\ngreen = exists in v2 today   amber = net-new   gray = source/profile
+
+' ===========================================================================
+' SOURCES - where a tool's CODE comes from (the three tiers)
+' ===========================================================================
+package "TIERS  (where the code comes from)" #E1F5FE {
+  rectangle "**core**  (A, B)  [now]\nmandatory built-ins, shipped IN the app package\n(agentd/infrastructure/tools/) -- always installed" as CORE #C8E6C9
+  rectangle "**bundled**  (C, D)  [net-new]\nfetched at SETUP per this install's profile" as BUNDLED #FFE0B2
+  rectangle "**addon**  (E, F)  [net-new]\nNOT shipped; fetched ON DEMAND into plugins/" as ADDON #FFE0B2
+}
+
+package "REGISTRY / hub  (delivery only)  [net-new]" #FFF3E0 {
+  rectangle "vendor-hosted plugin packages, fetched by id/sku\n(OpenClaw analogue: ClawHub). Puts code on disk =\nGate 1. Does NOT decide Gate 2." as REGISTRY #FFE0B2
+}
+
+package "PACKAGE PROFILE  (provisioning source of truth)  [net-new]" #ECEFF1 {
+  rectangle "provisioned = [ids...]   (this install's tier)\nnull / absent => DEV: everything in plugins/ loads.\n(commercial: signed/served -- out of scope, see note)" as PROFILE #CFD8DC
+}
+
+' ===========================================================================
+' THE FOUR GATES  (a tool runs iff ALL pass, in order)
+' ===========================================================================
+package "THE FOUR GATES  (all must pass)" #EDE7F6 {
+  rectangle "1) INSTALLED  [now]\ncode physically on disk?\n(discovery: drop-in dir + entry points)" as G1 #C7B8EA
+  rectangle "2) PROVISIONED  [net-new]\nlisted by this install's profile?\n(core skips this gate)" as G2 #FFE0B2
+  rectangle "3) ENABLED  [now]\noperator turned it on?\n(agentd.config.json tools/plugins toggles)" as G3 #C7B8EA
+  rectangle "4) AGENT-SCOPED  [now]\nmay THIS agent use it?\n(agent.toml allow / deny -> select_tools)" as G4 #C7B8EA
+}
+
+rectangle "TOOL CATALOG -> the agent\n(guarded Tool; behaves identically regardless of tier)" as OUT #BBDEFB
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+CORE --> G1 : in-package (always)
+REGISTRY --> BUNDLED : @ setup
+REGISTRY --> ADDON : on demand
+BUNDLED --> G1 : -> plugins/
+ADDON --> G1 : -> plugins/
+
+PROFILE --> G2 : authoritative list
+G1 --> G2
+G2 --> G3
+G3 --> G4
+G4 --> OUT
+CORE ..> G3 : (skips 1-2; straight to enable)
+
+note bottom of G2
+  SEPARATION knob: "on disk" (Gate 1) is NOT
+  "allowed to run here" (Gate 2). A plugin present
+  but not in the profile does NOT load (its deps
+  never import). Tier = metadata + profile, never
+  the folder.
+end note
+
+note right of PROFILE
+  Money/licensing is OUT OF SCOPE here.
+  For a paid product the profile becomes a
+  SIGNED / server-checked descriptor so it can't
+  be self-edited -- that enforcement attaches
+  AT Gate 2 and moves nothing else.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today |
+  | amber | net-new (distribution/tiers) |
+  | gray  | source / profile |
+  | blue  | the catalog |
+endlegend
+
+@enduml

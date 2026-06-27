@@ -24,6 +24,20 @@ from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
 from agentd.domain.messages import UserMessage
 
 
+def _tool_info(t) -> dict:
+    """A client-renderable summary of one tool (duck-typed; works on a GuardedTool too).
+    `source` is best-effort: MCP tools are namespaced (server__tool); everything else 'tool'."""
+    name = getattr(t, "name", "") or ""
+    desc = (getattr(t, "description", "") or "").strip()
+    return {
+        "name": name,
+        "label": getattr(t, "label", "") or "",
+        "summary": desc.splitlines()[0].strip() if desc else "",
+        "concurrency": getattr(t, "concurrency", "parallel"),
+        "source": "mcp" if "__" in name else "tool",
+    }
+
+
 class AgentService:
     def __init__(
         self,
@@ -60,6 +74,22 @@ class AgentService:
         """Look up a registered tool by name (e.g. a namespaced MCP tool a channel
         invokes outside the agent loop). Returns the Tool or None."""
         return next((t for t in self._tools if getattr(t, "name", None) == name), None)
+
+    def list_tools(self, agent_id: str | None = None) -> list:
+        """Enumerate the live tool catalog (read-only; safe to call any time).
+
+        No ``agent_id`` => the FULL active catalog (every tool currently loaded + enabled).
+        With ``agent_id`` => the subset THAT agent actually sees in an interactive turn — i.e.
+        ``apply_mode(select_tools(...), INTERACTIVE)``, exactly what ``handle_message`` would
+        pass the model. An unknown id falls back to the full catalog."""
+        tools = self._tools
+        if agent_id:
+            try:
+                agent = self._registry.get(agent_id)
+                tools = apply_mode(select_tools(self._tools, agent), RunMode.INTERACTIVE)
+            except KeyError:
+                pass
+        return [_tool_info(t) for t in tools]
 
     async def handle_message(self, session_id: str, text: str,
                              on_event: EventSink, abort,

@@ -1,0 +1,57 @@
+"""PluginManifest — the parsed ``plugin.toml`` (pure value object + a tolerant loader).
+
+The manifest declares WHAT a plugin contributes WITHOUT importing the plugin's code, so a
+disabled plugin's heavy deps never load (the gate is checked against the manifest, before any
+import). One format wraps either a native tool (``entry``) or an MCP server (``[mcp]``)."""
+
+from __future__ import annotations
+
+import logging
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+log = logging.getLogger("agentd")
+
+VALID_KINDS = ("native", "mcp")
+
+
+@dataclass(frozen=True)
+class PluginManifest:
+    id: str
+    name: str
+    kind: str                       # "native" | "mcp"
+    entry: str = ""                 # native: "module:func" (a register(api, ctx) callable)
+    mcp: dict = field(default_factory=dict)   # mcp: {command|url|env|headers}
+    enabled: bool = True            # author default; the config plugin-gate overrides this
+    root: Path | None = None        # the plugin's directory (added to sys.path for native)
+
+
+def load_manifest(path: Path) -> PluginManifest | None:
+    """Parse one ``plugin.toml`` -> PluginManifest, or None (logged) on any problem.
+    Validates the bare minimum: a valid id, a known kind, and the field that kind needs."""
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001 — a bad manifest never breaks discovery
+        log.warning("plugins: bad manifest %s: %s", path, e)
+        return None
+    pid = str(data.get("id") or "").strip()
+    kind = str(data.get("kind") or "").strip().lower()
+    if not pid:
+        log.warning("plugins: manifest %s has no id", path)
+        return None
+    if kind not in VALID_KINDS:
+        log.warning("plugins: manifest %s has invalid kind %r", path, kind)
+        return None
+    if kind == "native" and not str(data.get("entry") or "").strip():
+        log.warning("plugins: native plugin '%s' needs an `entry`", pid)
+        return None
+    return PluginManifest(
+        id=pid,
+        name=str(data.get("name") or pid),
+        kind=kind,
+        entry=str(data.get("entry") or "").strip(),
+        mcp=dict(data.get("mcp") or {}),
+        enabled=bool(data.get("enabled", True)),
+        root=path.parent,
+    )

@@ -157,6 +157,18 @@ class Config:
     # Per-tool overrides, e.g. {"computer": {"timeout_sec": 900}, "exec": {"timeout_sec": null},
     # "web_search": {"timeout_sec": 20, "max_retries": 3, "retryable": true}}. JSON config only.
     tool_overrides: dict = field(default_factory=dict)
+    # --- tool catalog ENABLEMENT (global, uniform, decoupled) --------------------
+    # Three layers (see planning/platform/tools/plugin-catalog-architecture.md):
+    #  1) plugins[id]=true|false   -- per-plugin LOAD gate (off => never imported). JSON config.
+    #  2) tools_enabled / tools_disabled (name or trailing-* glob) -- GLOBAL on/off applied to
+    #     the WHOLE catalog (internal+plugin, native+mcp). disabled wins; enabled=[] => all.
+    #  3) per-agent allow/deny lives in agents/<id>/agent.toml (already implemented).
+    plugins: dict = field(default_factory=dict)        # {plugin_id: bool} load gate (JSON config)
+    tools_enabled: list = field(default_factory=list)  # global allowlist ([] => all); JSON / AGENTD_TOOLS_ENABLED
+    tools_disabled: list = field(default_factory=list) # global denylist; JSON / AGENTD_TOOLS_DISABLED
+    # Where drop-in plugins live (each <plugins_dir>/<id>/plugin.toml). Default <V2_ROOT>/plugins;
+    # AGENTD_PLUGINS_DIR overrides. (pip plugins are found via entry-points, no dir needed.)
+    plugins_dir: str = ""
     # Loop/LLM-level timeouts.
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
@@ -511,6 +523,15 @@ def load_config(path: Path | None = None) -> Config:
         )
     if os.environ.get("AGENTD_EXECUTION_CONTRACT"):
         cfg.execution_contract = os.environ["AGENTD_EXECUTION_CONTRACT"].strip()
+    # tool-catalog enablement (global on/off) + plugins dir
+    if os.environ.get("AGENTD_TOOLS_DISABLED"):
+        cfg.tools_disabled = [s.strip() for s in os.environ["AGENTD_TOOLS_DISABLED"].split(",") if s.strip()]
+    if os.environ.get("AGENTD_TOOLS_ENABLED"):
+        cfg.tools_enabled = [s.strip() for s in os.environ["AGENTD_TOOLS_ENABLED"].split(",") if s.strip()]
+    if os.environ.get("AGENTD_PLUGINS_DIR"):
+        cfg.plugins_dir = os.environ["AGENTD_PLUGINS_DIR"].strip()
+    if not cfg.plugins_dir:                              # default: the repo-level drop-in folder
+        cfg.plugins_dir = str(V2_ROOT / "plugins")
     if os.environ.get("AGENTD_SAFE_TO_SEND"):
         cfg.safe_to_send_check = (
             os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")

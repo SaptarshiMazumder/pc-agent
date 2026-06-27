@@ -92,6 +92,28 @@ def select_tools(tools: list, spec: AgentSpec) -> list:
     return out
 
 
+def apply_enablement(tools: list, enabled=None, disabled=()) -> list:
+    """The GLOBAL (platform-wide) tool on/off filter -- the sibling of ``select_tools``.
+
+    ``select_tools`` is PER-AGENT (an agent's allow/deny). This is applied ONCE to the whole
+    CATALOG at build time, uniformly across every source (internal/plugin, native/mcp): a tool
+    is dropped if it matches ``disabled``; if ``enabled`` is a non-empty list it acts as a
+    strict allowlist (None/empty => everything is allowed). ``disabled`` wins. Matches by exact
+    name or trailing-``*`` glob via the same ``_matches`` -- IO-free, duck-typed on ``.name``.
+    """
+    deny = tuple(disabled or ())
+    allow = tuple(enabled or ()) or None
+    out = []
+    for t in tools:
+        name = getattr(t, "name", "")
+        if any(_matches(name, d) for d in deny):
+            continue
+        if allow is not None and not any(_matches(name, a) for a in allow):
+            continue
+        out.append(t)
+    return out
+
+
 def select_skills(skills: list, spec: AgentSpec) -> list:
     """Filter skills to ``spec.skills_allow`` (None = all). Skills expose ``.name``."""
     allow = spec.skills_allow

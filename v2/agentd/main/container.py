@@ -74,12 +74,21 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # Resource Manager: a described, cached index of workspace resources + a CRUD tool
     # (None unless enabled). Shared as both the manifest source and the `resource` tool.
     resource_manager = build_resource_manager(config)
-    # Wrap EVERY tool in the reliability middleware (timeout + retry + error-norm),
-    # per-tool policy resolved from config. New tools are guarded automatically. The credential
-    # vault + connect-token store are injected (shared with the gateway's /connect web form).
-    tools = [GuardedTool(t, resolve_policy(config, t))
-             for t in build_tools(config, browser_manager, computer_provider, task_store,
-                                   memory_bank, resource_manager, credential_store, connect_token_store)]
+    # THE TOOL CATALOG: internal-native tools + any installed plugins (drop-in dir / pip
+    # entry-points), then the GLOBAL on/off filter (apply_enablement), then wrap EVERY tool in
+    # the reliability middleware (timeout + retry + error-norm). New tools — internal or plugin —
+    # are discovered + guarded uniformly. (Internal-/plugin-MCP tools are added async at gateway
+    # startup and pass through the SAME enablement there.) The credential vault + connect-token
+    # store are injected (shared with the gateway's /connect web form).
+    from agentd.domain.agent import apply_enablement
+    from agentd.infrastructure.plugins import discover_plugin_tools
+
+    raw = build_tools(config, browser_manager, computer_provider, task_store,
+                      memory_bank, resource_manager, credential_store, connect_token_store)
+    raw += discover_plugin_tools(config)            # plugins join the catalog as ordinary Tools
+    raw = apply_enablement(raw, getattr(config, "tools_enabled", None),
+                           getattr(config, "tools_disabled", ()))
+    tools = [GuardedTool(t, resolve_policy(config, t)) for t in raw]
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(

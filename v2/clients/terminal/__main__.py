@@ -404,7 +404,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /tools  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -449,6 +449,29 @@ class TerminalClient:
                             mark = f"[{LIME}]→[/]" if a["id"] == current else " "
                             console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
                         console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
+                        continue
+                    if line == "/tools" or line.startswith("/tools "):
+                        # what tools are available right now — to the CURRENT agent by default,
+                        # a named agent, or the whole catalog (`/tools all`).
+                        parts = line.split(maxsplit=1)
+                        arg = parts[1].strip() if len(parts) > 1 else ""
+                        if arg in ("all", "*"):
+                            params, scope = {}, "full catalog"
+                        else:
+                            aid = arg or self.agent_id or "main"
+                            params, scope = {"agentId": aid}, f"agent {aid}"
+                        try:
+                            payload = await self.request("tools.list", params)
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        tools = payload.get("tools") or []
+                        console.print(f"[dim]{len(tools)} tool(s) — {scope}[/]")
+                        for t in tools:
+                            src = t.get("source", "")
+                            tag = f" [dim]({src})[/]" if src and src != "tool" else ""
+                            console.print(f"  [bold]{t.get('name', '')}[/]{tag}  [dim]{t.get('summary', '')}[/]")
+                        console.print("[dim]/tools <id> for another agent · /tools all for the whole catalog[/]")
                         continue
                     if line.startswith("/agent-rm") or line.startswith("/agent-delete"):
                         parts = line.split(maxsplit=1)

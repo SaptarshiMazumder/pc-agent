@@ -433,9 +433,13 @@ class Gateway:
         if self.mcp_provider is None:
             return
         try:
+            from agentd.domain.agent import apply_enablement
             from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
 
             raw = await self.mcp_provider.discover()
+            # apply the SAME global on/off as the rest of the catalog (uniform layer-2 enablement)
+            raw = apply_enablement(raw, getattr(self.config, "tools_enabled", None),
+                                   getattr(self.config, "tools_disabled", ()))
             self.service.add_tools(
                 [GuardedTool(t, resolve_policy(self.config, t)) for t in raw]
             )
@@ -480,6 +484,8 @@ class Gateway:
                 payload = self._sessions_list(req.params)
             elif req.method == "agents.list":
                 payload = self._agents_list()
+            elif req.method == "tools.list":
+                payload = self._tools_list(req.params)
             elif req.method == "agents.remove":
                 payload = self._agents_remove(req.params)
             elif req.method == "cron.list":
@@ -521,6 +527,14 @@ class Gateway:
                 agent_id = "main"
                 state_dir = self.registry.get("main").state_dir
         return {"sessions": list_sessions(state_dir), "agentId": agent_id}
+
+    def _tools_list(self, params: dict) -> dict:
+        """The live tool catalog — the uniform 'what tools exist' surface any client can render.
+        No agentId => the full active catalog; with agentId => the subset THAT agent sees in an
+        interactive turn (its allow/deny scope), i.e. what the model would be handed."""
+        agent_id = (params.get("agentId") or "").strip() or None
+        tools = self.service.list_tools(agent_id)
+        return {"tools": tools, "count": len(tools), "agentId": agent_id}
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The

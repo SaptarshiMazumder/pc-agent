@@ -21,6 +21,19 @@ tools (each native/provider integration is one isolated adapter behind a port).
   **Gemini's Google-Search grounding** plugs in (free via the Gemini key) alongside the
   other **LLM-native** (OpenAI/Kimi/MiniMax/xAI) and **agnostic** (Brave/Tavily/Exa/
   SearXNG/DuckDuckGo) providers — including the exact Gemini-grounding call flow.
+- **`plugin-catalog-architecture.puml`** + **[`plugin-catalog-architecture.md`](plugin-catalog-architecture.md)**
+  — the **tool catalog & plugin system**: one flat `Tool` catalog assembled from a 2×2 of
+  sources (**internal**/**plugin** × **native**/**MCP**), with **per-tool ON/OFF in config**
+  via three decoupled enablement layers (plugin load gate · global tool on/off · per-agent
+  scope). Nothing coupled in code — adding/removing a tool is a config line. Reuses
+  [`mcp-architecture.md`](mcp-architecture.md) for both internal- and plugin-MCP.
+  **(Phases 1–2 implemented: catalog + enablement + native-plugin discovery.)**
+- **`plugin-distribution-architecture.puml`** + **[`plugin-distribution-architecture.md`](plugin-distribution-architecture.md)**
+  — **distribution tiers** layered on the catalog: **core** (shipped/mandatory) · **bundled**
+  (included per install) · **on-demand** (fetched later). A tool runs iff it passes **four
+  gates** — *Installed → Provisioned → Enabled → Agent-scoped* — where tier is **metadata + a
+  package profile, never the folder**. Money/licensing is **out of scope** (it would attach at
+  the Provisioned gate). Design-only.
 
 Render: `java -jar ../../../plantuml.jar -tpng <name>.puml` (see [../../README.md](../../README.md)).
 
