@@ -1,20 +1,6 @@
 {
-  "mcp_servers": [
-    {
-      "name": "google",
-      "command": [
-        "uvx",
-        "workspace-mcp",
-        "--tools",
-        "gmail",
-        "drive",
-        "calendar"
-      ],
-      "env": {
-        "OAUTHLIB_INSECURE_TRANSPORT": "1"
-      }
-    }
-  ],
+  "_comment_google": "Google moved to plugins/google/ (an MCP plugin) — no longer a hardcoded mcp_servers entry.",
+  "mcp_servers": [],
   "channels": [
     {
       "type": "line",

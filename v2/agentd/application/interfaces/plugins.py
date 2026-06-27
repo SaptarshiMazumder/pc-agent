@@ -21,14 +21,28 @@ class PluginContext:
     """Read-only handles a plugin's ``register`` may need. Kept minimal on purpose; new
     fields are additive (a plugin only reads what it uses)."""
     config: object                 # the app Config — for the plugin's OWN settings/keys
+    plugin_dir: str = ""           # the plugin's OWN folder — resolve bundled scripts/data here
+
+    def resource(self, name: str) -> str:
+        """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,
+        or anything alongside its code). Cleaner + relocation-proof vs ``Path(__file__).parent``."""
+        from pathlib import Path
+        return str(Path(self.plugin_dir) / name) if self.plugin_dir else name
 
 
 @runtime_checkable
 class PluginApi(Protocol):
-    """Handed to a plugin so it can contribute capabilities. Today: tools. Later, additively:
-    register_channel / register_provider / register_gateway_method (OCP — tool plugins never
-    need to change when new kinds are added)."""
+    """Handed to a plugin so it can contribute capabilities. Today: tools + prompt sections.
+    Later, additively: register_channel / register_provider / register_gateway_method (OCP —
+    existing plugins never change when new kinds are added)."""
     def register_tool(self, tool) -> None: ...
+
+    def register_prompt_section(self, section) -> None:
+        """Contribute a system-prompt instruction block. ``section`` is a callable
+        ``(tools, agent, config) -> str`` invoked each turn; it returns the block to inject
+        (or "" to add nothing — e.g. gate on whether this plugin's tools are present). This is
+        how a plugin teaches the model how to use its tools WITHOUT any core prompt code."""
+        ...
 
 
 @runtime_checkable

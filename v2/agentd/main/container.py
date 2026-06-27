@@ -81,14 +81,23 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # startup and pass through the SAME enablement there.) The credential vault + connect-token
     # store are injected (shared with the gateway's /connect web form).
     from agentd.domain.agent import apply_enablement
-    from agentd.infrastructure.plugins import discover_plugin_tools
+    from agentd.infrastructure.cards import load_cards
+    from agentd.infrastructure.plugins import discover_plugin_contributions
 
+    # plugins contribute tools (join the catalog), prompt sections (teach the model how to use
+    # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
+    # build_mcp_provider, called AFTER build_service, picks them up).
+    plugin_tools, plugin_sections, plugin_mcp_servers = discover_plugin_contributions(config)
+    if plugin_mcp_servers:
+        config.mcp_servers = list(config.mcp_servers or []) + plugin_mcp_servers
     raw = build_tools(config, browser_manager, computer_provider, task_store,
                       memory_bank, resource_manager, credential_store, connect_token_store)
-    raw += discover_plugin_tools(config)            # plugins join the catalog as ordinary Tools
+    raw += plugin_tools
     raw = apply_enablement(raw, getattr(config, "tools_enabled", None),
                            getattr(config, "tools_disabled", ()))
     tools = [GuardedTool(t, resolve_policy(config, t)) for t in raw]
+    # Tool cards (summaries + instruction blocks) loaded once; injected into every prompt build.
+    cards = load_cards(getattr(config, "tools_dir", "") or None)
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -160,6 +169,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
                                  if workspace_index else ""),
+            cards=cards, plugin_sections=plugin_sections,   # self-describing tools + plugins
         )
 
     return AgentService(

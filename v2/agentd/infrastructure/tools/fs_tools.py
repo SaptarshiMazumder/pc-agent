@@ -94,15 +94,17 @@ class ReadTool(Tool):
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
 
-        # Observability: surface when the agent reads an on-demand skill playbook
-        # (any agent's agents/<id>/skills/ — main's is the shared library).
-        if path.name == "SKILL.md":
-            try:
-                agents_dir = Path(getattr(self.config, "agents_dir", "")).resolve()
-                if str(agents_dir) and agents_dir in path.resolve().parents:
-                    log.info("skill read: %s (%s)", path.parent.name, path)
-            except Exception:  # noqa: BLE001
-                pass
+        # Observability: a skill is INVOKED by reading its SKILL.md, so surface every such read
+        # — on the server console (INFO) AND to clients/watch (via on_update -> tool_progress),
+        # so "the agent just loaded skill X" is visible wherever you're looking.
+        if path.name.upper() == "SKILL.MD":
+            skill = path.parent.name
+            log.info("skill invoked: %s  (read %s)", skill, path)
+            if on_update is not None:
+                try:
+                    on_update(ToolResult.text(f"\U0001F4D6 skill: {skill}"))
+                except Exception:  # noqa: BLE001 — a progress notice never breaks the read
+                    pass
 
         # Documents: extract text instead of reading raw bytes.
         suffix = path.suffix.lower()

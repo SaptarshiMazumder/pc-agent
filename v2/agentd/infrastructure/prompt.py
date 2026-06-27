@@ -21,6 +21,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from agentd.infrastructure.cards import load_cards
+
 log = logging.getLogger("agentd")
 
 # SOUL.md is NOT here — it's the editable persona, loaded via `persona_file` (one place,
@@ -103,40 +105,19 @@ def resolve_user_folders() -> dict[str, str]:
                 folders[label] = str(p)
     return folders
 
-# Verbatim per-tool summary strings from system-prompt.ts (lines 742-779).
-TOOL_SUMMARIES = {
-    "update_plan": "Track short work plan",
-    "read": "Read file contents",
-    "write": "Create or overwrite files",
-    "edit": "Make precise edits to files",
-    "ls": "List directory contents",
-    "find": "Find files by name/glob anywhere (use to locate a file instead of guessing its path)",
-    "exec": "Run shell commands (pty available for TTY-required CLIs)",
-    "process": "Manage background exec sessions",
-    "web_search": "Search the web using the configured provider",
-    "web_fetch": "Fetch and extract readable content from a URL",
-    "browser": "Control web browser",
-    "verify_answer": "Review your draft answer before sending (catches missing items / unsupported claims)",
-}
-
-
-def _tooling_section(tools) -> str:
+def _tooling_section(tools, cards) -> str:
+    """The ## Tooling list. Each line's summary comes from the tool's CARD (tools/<name>.md or
+    a plugin's card), else the tool's own description — NO hardcoded per-tool dict."""
     lines = [
         "## Tooling",
         "Available tools are policy-filtered. Names are case-sensitive; call exactly as listed.",
     ]
     for t in tools:
-        summary = TOOL_SUMMARIES.get(t.name) or (t.description.splitlines()[0] if t.description else "")
+        card = cards.get(getattr(t, "name", ""))
+        summary = (card.summary if (card and card.summary)
+                   else (t.description.splitlines()[0] if t.description else ""))
         lines.append(f"- {t.name}: {summary}")
     return "\n".join(lines)
-
-
-_GOOGLE_HINTS = ("gmail", "drive", "calendar", "google", "workspace", "sheet", "docs")
-
-
-def _has_google_tools(tools) -> bool:
-    """True if a Google Workspace MCP tool is in the toolset (e.g. google__gmail_send)."""
-    return any(any(h in getattr(t, "name", "").lower() for h in _GOOGLE_HINTS) for t in tools)
 
 
 def _capabilities_section(tools, config, agent=None) -> str | None:
@@ -271,8 +252,13 @@ def build_system_prompt(
     config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
     heartbeat: str = "", cron: bool = False, channel: bool = False,
     workspace_resources: str = "",
+    cards=None, plugin_sections=None,
 ) -> str:
     sections: list[str] = []
+    # Tool cards (summaries + instruction blocks) come from tools/<name>.md + plugin cards.
+    # Injected by the container; default-loaded here so direct callers/tests still work.
+    cards = cards if cards is not None else load_cards(getattr(config, "tools_dir", "") or None)
+    plugin_sections = plugin_sections or []
 
     # Agent identity / workspace / id come from the resolved agent when present, else
     # from config (single-agent back-compat). `agent` is an AgentSpec (duck-typed).
@@ -325,7 +311,7 @@ def build_system_prompt(
     )
 
     # 2. Tooling (browser operating loop now lives in the browser-automation skill)
-    sections.append(_tooling_section(tools))
+    sections.append(_tooling_section(tools, cards))
 
     # 2a'. What you are — self-knowledge of the agent's own organs (cron/heartbeat/notify/
     # channels/memory/sub-agents), built dynamically from what's actually available, so the
@@ -334,71 +320,30 @@ def build_system_prompt(
     if capabilities:
         sections.append(capabilities)
 
-    # 2a''. Google account guidance. The GENERAL rule (identity vs recipient; don't flail on
-    # auth) is shown whenever the Google MCP is present — no config needed. A pinned account
-    # (per-agent agent.toml, else the global default) only ADDS the specific "act as X" line.
-    single = (getattr(agent, "google_account", "") if agent else "") or getattr(config, "google_account", "")
-    accounts = list(getattr(agent, "google_accounts", ()) if agent else ()) or ([single] if single else [])
-    if accounts or _has_google_tools(tools):
-        # Zero-config + fully task-driven: nothing has to be declared. The agent picks the
-        # account per call from what the task implies, for any number of authorized accounts.
-        note = [
-            "## Google accounts",
-            "The workspace MCP can have ONE or MANY Google accounts authorized — you do NOT need any "
-            "pre-configured. Every Google call takes a `user_google_email`: set it to the account the "
-            "task refers to (the OWNER of the data/calendar, or the mailbox the user named). You may use "
-            "DIFFERENT accounts within the same task — read from one, act in another — just pass the right "
-            "email per call. Email RECIPIENTS and people you SHARE a file with are just addresses in the "
-            "request — NOT accounts you log in as. If the account you need is not authorized yet, the tool "
-            "will say so — then ask the user to authorize it (or call `report_outcome` status='blocked'); "
-            "NEVER spawn sub-agents or retry-loop to switch accounts.",
-        ]
-        if len(accounts) == 1:
-            note.append(f"Default to **{accounts[0]}** unless the task names another account.")
-        elif len(accounts) > 1:
-            note.append("This agent's accounts: " + ", ".join(f"**{a}**" for a in accounts)
-                        + " — use the one that owns each resource.")
-        sections.append("\n".join(note))
+    # 2a''. PLUGIN-contributed instruction sections (dynamic). Each plugin's section function is
+    # called with the present toolset + agent + config and decides FOR ITSELF whether/what to add
+    # (e.g. the google plugin emits its ## Google accounts block, reading the agent's account).
+    # Nothing tool-specific is hardcoded here — the core just gathers.
+    for section_fn in plugin_sections:
+        try:
+            extra = section_fn(tools, agent, config)
+        except Exception:  # noqa: BLE001 — a bad plugin section never breaks the prompt
+            extra = ""
+        if extra:
+            sections.append(extra)
 
     # 2b. Skills (loadable playbooks; one line each, read on demand)
     skills_section = _skills_section(skills)
     if skills_section:
         sections.append(skills_section)
 
-    # 2c. Planning — a STRONG nudge (Gemini doesn't self-plan from the tool
-    # description alone the way GPT-5 does, which is all OpenClaw relies on).
-    if any(getattr(t, "name", "") == "update_plan" for t in tools):
-        sections.append(
-            "## Planning\n"
-            "For ANY task that takes more than one step, your FIRST action MUST be to call "
-            "`update_plan` — do NOT start the work before you have a plan. BREAK THE TASK "
-            "DOWN into the smallest concrete steps, and for EACH step name the specific "
-            "tool it uses. Trigger planning whenever the task: needs more than one tool, "
-            "has more than ~2 steps, processes MULTIPLE items (several people / files / "
-            "links), or reads as 'do X, then Y, then Z'. Keep the plan current with "
-            "`update_plan` as you go (mark steps in_progress / completed), and use the BEST "
-            "tool per step — `browser` (it is SIGNED IN via a persistent profile) or "
-            "`web_search` for the web; `computer` ONLY when a task truly needs the real "
-            "desktop GUI. ONLY skip planning for a genuinely simple, single-step request.\n"
-            "Example - \"summarize the 3 latest posts on a blog into a file\":\n"
-            "  1. web_fetch: fetch the blog index; note the 3 latest post URLs\n"
-            "  2. web_fetch: fetch each post; extract the key points\n"
-            "  3. write: save the summaries to a file\n"
-            "Pick each step's tool by what it needs (public page vs signed-in/blocked); "
-            "follow the web-access rules above."
-        )
-
-    # 2d. Verify step (only when the verify_answer tool is available).
-    if any(getattr(t, "name", "") == "verify_answer" for t in tools):
-        sections.append(
-            "## Verify Before You Send (required)\n"
-            "For any substantial answer (lists, research, multi-step results, factual claims, "
-            "or anything you deliver/email), you MUST call `verify_answer` with your full draft "
-            "BEFORE replying. If it returns NEEDS WORK, you MUST fix the issues and re-verify — "
-            "do NOT send an answer that failed verification. Loop until it passes, or stop and "
-            "report the blocker honestly. The review is internal; the user sees only the "
-            "finished answer (never apologize for feedback they didn't give)."
-        )
+    # 2c. Tool instruction blocks from CARDS — the BODY of tools/<name>.md (or a plugin's card),
+    # shown when that tool is present. Replaces the old hardcoded `if name == "update_plan"/
+    # "verify_answer"` sections: the ## Planning and ## Verify blocks now live in their cards.
+    for t in tools:
+        card = cards.get(getattr(t, "name", ""))
+        if card and card.prompt:
+            sections.append(card.prompt)
 
     # 3. Tool Call Style (verbatim, approval lines dropped)
     sections.append(

@@ -14,22 +14,50 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agentd.infrastructure.plugins.loader import load_native_plugin
+from agentd.infrastructure.plugins.loader import load_plugin_entry
 from agentd.infrastructure.plugins.manifest import PluginManifest, load_manifest
 
 log = logging.getLogger("agentd")
 
 
-def discover_plugin_tools(config) -> list:
-    """All tools contributed by enabled, installed plugins (native now; mcp deferred)."""
+def discover_plugin_contributions(config) -> tuple[list, list, list]:
+    """Everything enabled, installed plugins contribute: ``(tools, prompt_sections, mcp_servers)``.
+
+    - native plugins  -> tools (+ optional prompt sections), via their entry.
+    - mcp plugins     -> an McpServerConfig (its tools appear when the gateway connects it),
+      PLUS optional prompt sections if the plugin also declares an ``entry`` (e.g. the google
+      plugin contributes its ## Google accounts block this way).
+    """
     tools: list = []
+    sections: list = []
+    servers: list = []
     for manifest in _discover_manifests(config):
-        if manifest.kind == "native":
-            tools.extend(load_native_plugin(manifest, config))
-        else:  # "mcp"
-            log.info("plugins: mcp plugin '%s' deferred to phase 3 (route via MCP provider)",
-                     manifest.id)
-    return tools
+        if manifest.kind == "mcp":
+            servers.append(_mcp_server_config(manifest))
+        if manifest.entry:                     # native, or mcp-with-entry (prompt sections etc.)
+            t, s = load_plugin_entry(manifest, config)
+            tools.extend(t)
+            sections.extend(s)
+    return tools, sections, servers
+
+
+def discover_plugin_tools(config) -> list:
+    """Back-compat: just the tools (callers that don't need sections/servers)."""
+    return discover_plugin_contributions(config)[0]
+
+
+def _mcp_server_config(manifest: PluginManifest):
+    """An mcp plugin's ``[mcp]`` block -> an McpServerConfig the existing provider connects to."""
+    from agentd.config import McpServerConfig
+    mcp = manifest.mcp or {}
+    return McpServerConfig(
+        name=manifest.id,
+        transport="http" if mcp.get("url") else "stdio",
+        command=mcp.get("command"),
+        env=mcp.get("env"),
+        url=mcp.get("url"),
+        headers=mcp.get("headers"),
+    )
 
 
 def _gate(config, plugin_id: str, author_default: bool) -> bool:

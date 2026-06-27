@@ -24,6 +24,8 @@ class PluginManifest:
     entry: str = ""                 # native: "module:func" (a register(api, ctx) callable)
     mcp: dict = field(default_factory=dict)   # mcp: {command|url|env|headers}
     enabled: bool = True            # author default; the config plugin-gate overrides this
+    scripts: tuple = ()             # declared helper scripts bundled in the plugin folder
+    data: tuple = ()                # declared data files bundled in the plugin folder
     root: Path | None = None        # the plugin's directory (added to sys.path for native)
 
 
@@ -46,6 +48,12 @@ def load_manifest(path: Path) -> PluginManifest | None:
     if kind == "native" and not str(data.get("entry") or "").strip():
         log.warning("plugins: native plugin '%s' needs an `entry`", pid)
         return None
+    root = path.parent
+    scripts = tuple(str(s).strip() for s in (data.get("scripts") or []) if str(s).strip())
+    files = tuple(str(s).strip() for s in (data.get("data") or []) if str(s).strip())
+    for rel in (*scripts, *files):                   # declared-but-missing => warn (never fatal)
+        if not (root / rel).exists():
+            log.warning("plugins: '%s' declares missing asset %r", pid, rel)
     return PluginManifest(
         id=pid,
         name=str(data.get("name") or pid),
@@ -53,5 +61,7 @@ def load_manifest(path: Path) -> PluginManifest | None:
         entry=str(data.get("entry") or "").strip(),
         mcp=dict(data.get("mcp") or {}),
         enabled=bool(data.get("enabled", True)),
-        root=path.parent,
+        scripts=scripts,
+        data=files,
+        root=root,
     )

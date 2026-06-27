@@ -169,6 +169,9 @@ class Config:
     # Where drop-in plugins live (each <plugins_dir>/<id>/plugin.toml). Default <V2_ROOT>/plugins;
     # AGENTD_PLUGINS_DIR overrides. (pip plugins are found via entry-points, no dir needed.)
     plugins_dir: str = ""
+    # Where INTERNAL tools' CARDS live (tools/<name>.md — summary + instruction block, kept OUT
+    # of the code in infrastructure/tools/). Default <V2_ROOT>/tools; AGENTD_TOOLS_DIR overrides.
+    tools_dir: str = ""
     # Loop/LLM-level timeouts.
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
@@ -532,6 +535,10 @@ def load_config(path: Path | None = None) -> Config:
         cfg.plugins_dir = os.environ["AGENTD_PLUGINS_DIR"].strip()
     if not cfg.plugins_dir:                              # default: the repo-level drop-in folder
         cfg.plugins_dir = str(V2_ROOT / "plugins")
+    if os.environ.get("AGENTD_TOOLS_DIR"):
+        cfg.tools_dir = os.environ["AGENTD_TOOLS_DIR"].strip()
+    if not cfg.tools_dir:                                # default: the repo-level tool-cards folder
+        cfg.tools_dir = str(V2_ROOT / "tools")
     if os.environ.get("AGENTD_SAFE_TO_SEND"):
         cfg.safe_to_send_check = (
             os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")
