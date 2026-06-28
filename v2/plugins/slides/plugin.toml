@@ -1,0 +1,4 @@
+id = "slides"
+name = "Slides"
+kind = "native"
+entry = "slides_plugin:register"

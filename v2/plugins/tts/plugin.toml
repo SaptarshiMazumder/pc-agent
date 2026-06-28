@@ -1,0 +1,4 @@
+id = "tts"
+name = "Text-to-Speech"
+kind = "native"
+entry = "tts_plugin:register"

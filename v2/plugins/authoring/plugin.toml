@@ -1,0 +1,4 @@
+id = "authoring"
+name = "Authoring"
+kind = "native"
+entry = "authoring_plugin:register"

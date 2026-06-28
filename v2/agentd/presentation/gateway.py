@@ -82,6 +82,17 @@ def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | No
     return None
 
 
+def _subagent_depth(session_key: str) -> int:
+    """How many sub-agent levels deep a session is. 0 = a top-level run. Child keys encode the
+    level as ``agent:<id>:sub:<depth>:<hex>``; an older flat ``...:sub:<hex>`` counts as 1.
+    cron/channel keys (no ``sub`` segment) are depth 0."""
+    parts = session_key.split(":")
+    if "sub" not in parts:
+        return 0
+    nxt = parts[parts.index("sub") + 1] if parts.index("sub") + 1 < len(parts) else ""
+    return int(nxt) if nxt.isdigit() else 1
+
+
 def _guarded_with_source(tools, config) -> list:
     """Wrap tools in GuardedTool AND stamp their catalog ``source`` (mcp:<server> for the
     namespaced MCP tools that flow through here). Mirrors the container's wrap step."""
@@ -131,6 +142,32 @@ def _persist_mcp_servers(config) -> bool:
         return False
 
 
+def _persist_webhooks(config) -> bool:
+    """Write ``config.webhooks`` back to agentd.config.json (so a created hook survives restart).
+    Preserves every other key. Best-effort: a write failure is logged, not fatal."""
+    import json
+    import os
+    from pathlib import Path
+
+    from agentd.config import V2_ROOT
+    path = None
+    for cand in (os.environ.get("AGENTD_CONFIG"), "agentd.config.json",
+                 str(V2_ROOT / "agentd.config.json")):
+        if cand and Path(cand).is_file():
+            path = Path(cand)
+            break
+    if path is None:
+        path = V2_ROOT / "agentd.config.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        data["webhooks"] = list(config.webhooks or [])
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return True
+    except Exception as e:  # noqa: BLE001 — persistence is best-effort
+        log.warning("could not persist webhooks to %s: %s", path, e)
+        return False
+
+
 @dataclass
 class Gateway:
     """Transport only: accepts WebSocket frames and delegates work to the injected
@@ -152,6 +189,7 @@ class Gateway:
     channels: list = field(default_factory=list)    # active messaging channels (5b), built in serve()
     channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
     subagent_active: int = 0                         # in-flight sub-agent runs (runaway guard, S8)
+    webhook_server: object | None = None             # the WebhookServer (set in serve); hosts task hooks
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -161,11 +199,14 @@ class Gateway:
     async def serve(self) -> None:
         await self._discover_mcp_tools()  # connect external MCP servers, add their tools
         self._build_subagents()           # the spawn_subagent tool (S8), if enabled
+        self._build_agent_messaging()     # message_agent: talk to OTHER persistent agents (A5)
+        self._build_add_mcp()             # add_mcp: connect an MCP server by chatting (B2)
         self._build_channels()            # messaging channels (5b) — email needs MCP tools first
         self._build_notifier()            # outbound notifications (client-push + durable + channels)
         scheduler_task = self._start_scheduler()  # autonomy (heartbeat); None if disabled
         poller_task = self._start_channel_poller()  # inbound poll channels; None if none
-        webhook_task = self._start_webhook_server()  # inbound push channels (LINE); None if none
+        webhook_task = self._start_webhook_server()  # push channels (LINE) + task hooks (/hook/<id>)
+        self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
         async with serve(self._handle_conn, self.config.host, self.config.port):
             log.info("listening on ws://%s:%s", self.config.host, self.config.port)
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
@@ -239,7 +280,68 @@ class Gateway:
 
         tool = SpawnSubagentTool(self._spawn_subagent)
         self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
-        log.info("sub-agents enabled (max %d concurrent)", getattr(self.config, "subagent_max", 4))
+        log.info("sub-agents enabled (max %d concurrent, max depth %d)",
+                 getattr(self.config, "subagent_max", 4),
+                 min(5, max(1, int(getattr(self.config, "subagent_max_depth", 1) or 1))))
+
+    def _build_agent_messaging(self) -> None:
+        """Register message_agent (A5) when enabled — call ANOTHER persistent agent and get its
+        reply (its own ongoing session, so it remembers). Gated by agent_messaging_enabled."""
+        if not getattr(self.config, "agent_messaging_enabled", False):
+            return
+        from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+        from agentd.infrastructure.tools.message_agent_tool import MessageAgentTool
+
+        tool = MessageAgentTool(self._message_agent)
+        self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
+        log.info("agent-to-agent messaging enabled (message_agent)")
+
+    def _build_add_mcp(self) -> None:
+        """Register add_mcp (B2) when enabled — the agent connects an MCP server by chatting
+        (wraps the same _mcp_add machinery the mcp.add RPC uses). Gated by mcp_workshop."""
+        if not getattr(self.config, "mcp_workshop", False):
+            return
+        from agentd.infrastructure.tools.add_mcp_tool import AddMcpTool
+        from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+
+        tool = AddMcpTool(self._mcp_add)
+        self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
+        log.info("add_mcp enabled (agent can connect MCP servers)")
+
+    async def _message_agent(self, target_id: str, message: str) -> str:
+        """Run a turn on ANOTHER agent's PERSISTENT peer session and return its reply (A5).
+
+        Distinct from _spawn_subagent: the target runs on a durable ``agent:<target>:peer:<caller>``
+        session (so it accumulates state with this caller), as ITS own agent (identity/workspace/
+        skills). Honors the caller's ``[subagents] allow`` scope; one-level only (loop guard)."""
+        ctx = current_run_context()
+        caller = (ctx.agent_id if ctx else None) or "main"
+        parent_key = ctx.session_key if ctx else ""
+        if ":peer:" in parent_key:                       # a messaged agent can't chain further
+            return "agent-to-agent messaging cannot chain further (loop guard)."
+        if not target_id:
+            return "message_agent needs a target agent id."
+        if target_id == caller:
+            return "cannot message yourself — just do the work, or use spawn_subagent."
+        if self.registry is not None and target_id not in self.registry.list_ids():
+            return f"unknown agent: {target_id}"
+        if self.registry is not None:                    # honor the caller's delegation allowlist
+            from agentd.domain.agent import _matches
+            try:
+                spec = self.registry.get(caller)
+            except KeyError:
+                spec = None
+            allow = getattr(spec, "subagents_allow", None)
+            if allow is not None and not any(_matches(target_id, p) for p in allow):
+                return (f"'{caller}' may not message '{target_id}' "
+                        f"(allowed: {', '.join(allow) or 'none'}).")
+        session_key = f"agent:{target_id}:peer:{caller}"
+        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
+                           abort=asyncio.Event(), client_id=None,
+                           parent_session_key=parent_key or None)   # relay progress to the caller
+        await asyncio.create_task(
+            self._run(handle, message, mode=RunMode.INTERACTIVE, agent_id=target_id))
+        return self._last_answer(target_id, session_key) or "(the agent produced no reply)"
 
     async def _spawn_subagent(self, agent_id: str | None, task: str) -> str:
         """Run a self-contained CHILD agent turn and return its final answer. Called from
@@ -248,8 +350,13 @@ class Gateway:
         ctx = current_run_context()
         parent_agent = (ctx.agent_id if ctx else None) or "main"
         parent_key = ctx.session_key if ctx else ""
-        if ":sub:" in parent_key:                       # depth-1: a sub-agent can't spawn more
-            return "sub-agents cannot themselves spawn sub-agents (depth limit)."
+        # Depth limit (A3): configurable nesting (1 = no nesting), hard ceiling 5. A run already
+        # at max depth cannot spawn further — mirrors OpenClaw's maxSpawnDepth.
+        max_depth = min(5, max(1, int(getattr(self.config, "subagent_max_depth", 1) or 1)))
+        depth = _subagent_depth(parent_key)
+        if depth >= max_depth:
+            return (f"sub-agents cannot spawn deeper here (already at depth {depth}, "
+                    f"max {max_depth}).")
         cap = int(getattr(self.config, "subagent_max", 4))
         if self.subagent_active >= cap:
             return f"sub-agent limit reached ({cap} concurrent); try again when some finish."
@@ -257,7 +364,19 @@ class Gateway:
         child_agent = (agent_id or parent_agent)
         if self.registry is not None and child_agent not in self.registry.list_ids():
             return f"unknown agent: {child_agent}"
-        session_key = f"agent:{child_agent}:sub:{uuid.uuid4().hex[:8]}"
+        # Allowlist (A4): when delegating to a NAMED other agent, honor the caller's [subagents]
+        # allow scope (ids/globs). None => unrestricted; spawning oneself is always allowed.
+        if agent_id and child_agent != parent_agent and self.registry is not None:
+            from agentd.domain.agent import _matches
+            try:
+                spec = self.registry.get(parent_agent)
+            except KeyError:
+                spec = None
+            allow = getattr(spec, "subagents_allow", None)
+            if allow is not None and not any(_matches(child_agent, p) for p in allow):
+                return (f"'{parent_agent}' may not delegate to '{child_agent}' "
+                        f"(allowed: {', '.join(allow) or 'none'}).")
+        session_key = f"agent:{child_agent}:sub:{depth + 1}:{uuid.uuid4().hex[:8]}"
         handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
                            abort=asyncio.Event(), client_id=None,
                            parent_session_key=parent_key or None)  # relay progress to parent
@@ -282,12 +401,15 @@ class Gateway:
         return asyncio.create_task(poller.run(), name="channel-poller")
 
     def _start_webhook_server(self):
-        """One HTTP server hosting every PUSH channel (those exposing ``webhook_path``) on
-        its own path. Inbound events fire through the SAME ``_fire_channel`` path as polled
-        channels, so the run/reply/notify machinery is reused. None if no push channels."""
+        """One HTTP server hosting: PUSH channels (LINE etc.) on their own paths, the generic
+        TASK-trigger route ``/hook/<id>`` (D), and the /connect form. Channel events fire through
+        ``_fire_channel`` (conversational); task hooks run an agent via ``_run_task`` (no reply).
+        None if nothing needs the server."""
         push = [c for c in self.channels if getattr(c, "webhook_path", None)]
         connect_on = self.credential_store is not None and self.connect_tokens is not None
-        if not push and not connect_on:          # nothing needs the HTTP server
+        task_hooks_on = bool(getattr(self.config, "webhooks", None)) or \
+            bool(getattr(self.config, "webhook_workshop", False))
+        if not push and not connect_on and not task_hooks_on:   # nothing needs the HTTP server
             return None
         from agentd.infrastructure.channels.webhook import WebhookServer
 
@@ -296,8 +418,64 @@ class Gateway:
             host=getattr(self.config, "webhook_host", "0.0.0.0"),
             port=int(getattr(self.config, "webhook_port", 8788)),
             credential_store=self.credential_store if connect_on else None,
-            connect_tokens=self.connect_tokens if connect_on else None)
+            connect_tokens=self.connect_tokens if connect_on else None,
+            run_task=self._run_task if task_hooks_on else None,
+            hooks=list(getattr(self.config, "webhooks", None) or []))
+        self.webhook_server = server             # so create_webhook can add hooks live
         return asyncio.create_task(server.run(), name="webhook-server")
+
+    async def _run_task(self, agent_id: str, task: str) -> None:
+        """Run an agent with a one-off task from an external trigger (a webhook). Fire-and-forget
+        on a dedicated ``agent:<id>:hook:<run>`` session — the agent acts (and can notify/cron if
+        it needs to); no conversational reply is returned to the caller."""
+        agent_id = (agent_id or "main").strip() or "main"
+        if self.registry is not None and agent_id not in self.registry.list_ids():
+            log.warning("webhook task: unknown agent '%s' — ignoring", agent_id)
+            return
+        session_key = f"agent:{agent_id}:hook:{uuid.uuid4().hex[:8]}"
+        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
+                           abort=asyncio.Event(), client_id=None)
+        await self._run(handle, task, mode=RunMode.INTERACTIVE, agent_id=agent_id)
+
+    def _build_create_webhook(self) -> None:
+        """Register create_webhook (D) when enabled — the agent mints a /hook/<id> URL by chatting.
+        Gated by webhook_workshop. Needs the webhook server (started above) to add hooks live."""
+        if not getattr(self.config, "webhook_workshop", False):
+            return
+        from agentd.infrastructure.tools.create_webhook_tool import CreateWebhookTool
+        from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+
+        tool = CreateWebhookTool(self._create_webhook)
+        self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
+        log.info("create_webhook enabled (agent can mint webhook triggers)")
+
+    async def _create_webhook(self, params: dict) -> dict:
+        """Mint a task hook: a random id+secret bound to an agent, registered LIVE on the webhook
+        server and persisted. Returns the URL + secret to paste into the external service."""
+        import re
+        import secrets
+        if self.webhook_server is None:
+            return {"created": False, "error": "webhook server not running"}
+        agent = (params.get("agent") or "main").strip() or "main"
+        if self.registry is not None and agent not in self.registry.list_ids():
+            return {"created": False, "error": f"unknown agent: {agent}"}
+        hid = re.sub(r"[^a-z0-9-]+", "-", (params.get("id") or "").strip().lower()).strip("-") \
+            or f"hook-{secrets.token_hex(3)}"
+        if hid in {h.get("id") for h in (self.config.webhooks or [])}:
+            return {"created": False, "error": f"a hook '{hid}' already exists"}
+        hook = {"id": hid, "secret": secrets.token_urlsafe(24), "agent": agent}
+        task = (params.get("task") or "").strip()
+        if task:
+            hook["task"] = task
+        self.webhook_server.add_hook(hook)
+        self.config.webhooks = list(self.config.webhooks or []) + [hook]
+        persisted = _persist_webhooks(self.config)
+        base = (getattr(self.config, "public_url", "")
+                or f"http://{getattr(self.config, 'webhook_host', '0.0.0.0')}:"
+                   f"{getattr(self.config, 'webhook_port', 8788)}").rstrip("/")
+        log.info("create_webhook '%s' -> agent '%s', persisted=%s", hid, agent, persisted)
+        return {"created": True, "id": hid, "secret": hook["secret"],
+                "url": f"{base}/hook/{hid}", "agent": agent, "persisted": persisted}
 
     async def _invoke_tool(self, name: str, params: dict) -> str:
         """Invoke a registered (namespaced MCP) tool by name OUTSIDE the agent loop —

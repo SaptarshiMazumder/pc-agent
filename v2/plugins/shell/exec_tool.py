@@ -112,7 +112,14 @@ class ExecTool(Tool):
     name = "exec"
     default_timeout_sec = None  # self-limits via exec_timeout_sec; no GuardedTool wrapper
     default_retryable = False
-    description = "Run a shell command and return its output. Set background=true for long-running commands."
+    description = (
+        "Run a shell command and return its merged stdout+stderr with the exit code; long "
+        "output is truncated in the middle. Set background=true to start a long-running "
+        "command and get a session id back immediately, then use the `process` tool to poll "
+        "its output or kill it. Best for commands, scripts, git, builds, and package "
+        "managers — to read or change files, prefer the read/write/edit/ls/find tools, and "
+        "do NOT use sleep/delay loops to schedule reminders or follow-ups."
+    )
     label = "Exec"
     concurrency = "sequential"
     parameters = {
@@ -183,7 +190,13 @@ class ProcessTool(Tool):
     name = "process"
     default_timeout_sec = None
     default_retryable = False
-    description = "Manage background exec sessions: list, poll for new output, or kill."
+    description = (
+        "Manage background `exec` sessions (those started with background=true). action=list "
+        "shows each session's running/exited status; action=poll returns any new output and "
+        "whether it is still running — use it to confirm a background command finished or to "
+        "collect its logs; action=kill terminates it. poll/kill need the session_id returned "
+        "by `exec`."
+    )
     label = "Process"
     parameters = {
         "type": "object",

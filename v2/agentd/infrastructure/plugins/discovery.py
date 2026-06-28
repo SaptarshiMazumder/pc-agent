@@ -21,9 +21,15 @@ log = logging.getLogger("agentd")
 
 
 def discover_plugin_contributions(config, deps: dict | None = None,
-                                  entitlement=None) -> tuple[list, list, list, list]:
+                                  entitlement=None,
+                                  skip_ids: set | None = None) -> tuple[list, list, list, list]:
     """Everything enabled, installed plugins contribute:
     ``(tools, prompt_sections, mcp_servers, skill_dirs)``.
+
+    ``skip_ids`` (a MUTABLE set) enables incremental hot-reload: manifests whose id is already
+    in it are skipped, and every newly-loaded id is ADDED to it. Pass the same set on each call
+    and only plugins added since the last call are loaded (so tools/sections aren't duplicated).
+    ``None`` => load everything, track nothing (the one-shot startup behaviour).
 
     - native plugins  -> tools (+ optional prompt sections), via their entry. A tool self-describes
       via its ``description``; any strong/shared guidance is a PROMPT SECTION the plugin registers
@@ -40,6 +46,10 @@ def discover_plugin_contributions(config, deps: dict | None = None,
     servers: list = []
     skill_dirs: list = []
     for manifest in _discover_manifests(config, entitlement):
+        if skip_ids is not None and manifest.id in skip_ids:
+            continue                            # already loaded in a prior (hot-reload) pass
+        if skip_ids is not None:
+            skip_ids.add(manifest.id)           # mark loaded so the next reload skips it
         if manifest.kind == "mcp":
             servers.append(_mcp_server_config(manifest))
         native_tools, native_sections = ([], [])

@@ -78,6 +78,7 @@ class FileAgentRegistry:
             model=None,
             tools_allow=None, tools_deny=(), skills_allow=None,
             skills_dir=d / "skills",              # main's skills = the global library
+            dir=d,
         )
 
     def _state_dir_for(self, agent_id: str) -> Path:
@@ -110,6 +111,10 @@ class FileAgentRegistry:
         model = data.get("model")
         heartbeat = data.get("heartbeat")
 
+        # [subagents] allow — which specialist agents this one may delegate to (ids/globs).
+        subagents = data.get("subagents") or {}
+        sub_allow = subagents.get("allow")
+
         # [capabilities] gates the "What you are" self-knowledge. Absent key => None =>
         # inherit the global default; an explicit true/false overrides it for this agent.
         caps = data.get("capabilities") or {}
@@ -122,12 +127,15 @@ class FileAgentRegistry:
         return AgentSpec(
             id=agent_id,
             name=str(data.get("name") or agent_id),
+            description=str(data.get("description") or ""),
             workspace=workspace,
             state_dir=self._state_dir_for(agent_id),
             instructions=load_bootstrap(d),
             model=str(model) if model else None,
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
+            subagents_allow=tuple(sub_allow) if sub_allow is not None else None,
+            dir=d,
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
             skills_dir=d / "skills",          # the agent's OWN skills (agents/<id>/skills/)
             google_account=str(data.get("google_account") or ""),
@@ -140,6 +148,27 @@ class FileAgentRegistry:
             heartbeat_instructions=load_heartbeat(d),
             version=str(data.get("version") or "1"),
         )
+
+    @property
+    def agents_dir(self) -> Path:
+        """The root that holds ``<id>/`` definition dirs — so an authoring tool writes a new
+        agent in the SAME place discovery reads from (single source of truth)."""
+        return self._agents_dir
+
+    def add(self, agent_id: str) -> AgentSpec:
+        """(Re)load ONE ``agents/<id>/`` dir into the registry at runtime, so a newly-authored
+        agent is resolvable WITHOUT a restart — the inverse of ``remove()``. ``resolve``/``get``
+        read ``_specs`` live each turn, so the new agent is usable on the next message."""
+        agent_id = (agent_id or "").strip().lower()
+        if not _valid_id(agent_id):
+            raise ValueError(f"invalid agent id: {agent_id!r}")
+        d = self._agents_dir / agent_id
+        if not d.is_dir():
+            raise FileNotFoundError(str(d))
+        spec = self._load_dir(agent_id, d)
+        self._specs[agent_id] = spec
+        log.info("agents: added '%s' at runtime (now: %s)", agent_id, ", ".join(sorted(self._specs)))
+        return spec
 
     # ---- AgentRegistry ------------------------------------------------------
 

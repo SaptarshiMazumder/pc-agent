@@ -148,7 +148,12 @@ class ReadTool(Tool):
 class WriteTool(Tool):
     name = "write"
     default_timeout_sec = 60.0
-    description = "Create or overwrite a file with the given content."
+    description = (
+        "Create a new file or completely overwrite an existing one with `content`; parent "
+        "directories are created automatically. Use this only for new files or full "
+        "rewrites — to change PART of an existing file, use `edit` instead so you don't "
+        "discard the rest."
+    )
     label = "Write"
     concurrency = "sequential"
     parameters = {
@@ -231,7 +236,13 @@ def apply_edits(original: str, edits: list[dict]) -> tuple[str, str]:
 class EditTool(Tool):
     name = "edit"
     default_timeout_sec = 60.0
-    description = "Make precise text replacements in a file. Each oldText must match exactly once."
+    description = (
+        "Make precise, surgical changes to an existing file by exact text replacement. Pass "
+        "one or more {oldText, newText} edits in a SINGLE call; each oldText must match "
+        "EXACTLY ONCE in the current file (add surrounding context to make it unique) and the "
+        "edits must not overlap. Returns a unified diff of what changed. Prefer this over "
+        "`write` for changing part of a file."
+    )
     label = "Edit"
     concurrency = "sequential"
     parameters = {
@@ -275,7 +286,11 @@ class LsTool(Tool):
     default_timeout_sec = 30.0
     default_retryable = True
     default_max_retries = 1
-    description = "List the contents of a directory (cross-platform). Defaults to the workspace."
+    description = (
+        "List a directory's contents — directories first (with a trailing /), then files "
+        "with their byte sizes; cross-platform, defaults to the workspace. To LOCATE a file "
+        "by name when you don't know its directory, use `find` instead."
+    )
     label = "List"
     parameters = {
         "type": "object",

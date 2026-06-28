@@ -24,11 +24,18 @@ class AgentSpec:
     workspace: Path                               # working dir for file/exec tools
     state_dir: Path                               # sessions live under <state_dir>/sessions/
     instructions: str = ""                        # bootstrap text (IDENTITY/AGENTS/... block)
+    description: str = ""                          # one-line "what this agent is for" — shown to
+    #                                               orchestrators by agents_list for delegation
     model: str | None = None                      # per-agent model override (carried; wired later)
     tools_allow: tuple[str, ...] | None = None    # None = all tools
     tools_deny: tuple[str, ...] = ()
+    # Delegation scope: ids/globs of the specialist agents THIS agent may spawn/delegate to
+    # (from [subagents] allow). None = no restriction (may delegate to any existing agent).
+    subagents_allow: tuple[str, ...] | None = None
     skills_allow: tuple[str, ...] | None = None   # None = all (global) skills
     skills_dir: Path | None = None                # the agent's OWN skills dir (agents/<id>/skills/)
+    dir: Path | None = None                        # the agent's DEFINITION dir (agents/<id>/) — lets
+    #                                                a heartbeat tick re-read HEARTBEAT.md fresh
     google_account: str = ""                      # the ONE Google account this agent acts as (workspace MCP)
     google_accounts: tuple[str, ...] = ()         # OR several it may use (multi-account: pass user_google_email)
     audience: str = ""                            # "external" => apply the safe-to-send privacy gate to

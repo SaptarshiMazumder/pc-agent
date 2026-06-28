@@ -86,31 +86,63 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
     # build_mcp_provider, called AFTER build_service, picks them up). A plugin's tools receive the
     # SAME injected singletons the built-ins do (browser, ledgers, stores) via its PluginContext.
+    # the agent registry is built HERE (before plugin discovery) so it can be injected into
+    # plugins too — the create_agent tool uses it to register a newly-authored agent live.
+    from agentd.infrastructure.agents import FileAgentRegistry
+    from agentd.application.services.agent_service import tool_source
+    registry = registry or FileAgentRegistry(config)
+    # ENTITLEMENT seam (4th load gate): default = entitle every compatible plugin. A commercial
+    # build swaps this for a plan/tenant-aware policy here, without touching the core or plugins.
+    entitlement = AllowAllEntitlement()
+
+    # HOT-RELOAD seam (B1): `loaded_plugin_ids` tracks what discovery has loaded; `_late` carries
+    # the AgentService once it exists (it's built below). `register_plugin_live` re-scans, loads
+    # only NEW plugins, and merges their tools+sections into the LIVE catalog (create_tool uses it).
+    loaded_plugin_ids: set = set()
+    _late: dict = {}
+
+    def _wrap(raw_tools: list) -> list:
+        out = []
+        for t in raw_tools:
+            gt = GuardedTool(t, resolve_policy(config, t))
+            gt.source = tool_source(t)         # plugin:<id> / mcp:<server> — tagged for the catalog
+            out.append(gt)
+        return out
+
+    def register_plugin_live() -> dict:
+        service = _late.get("service")
+        if service is None:
+            return {"ok": False, "error": "catalog not ready"}
+        new_tools, new_sections, _srv, _sk = discover_plugin_contributions(
+            config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
+        if new_tools:
+            kept = apply_enablement(list(new_tools), getattr(config, "tools_enabled", None),
+                                    getattr(config, "tools_disabled", ()))
+            service.add_tools(_wrap(kept))
+        if new_sections:
+            plugin_sections.extend(new_sections)   # same list the prompt builder reads -> live
+        return {"ok": True, "tools": [getattr(t, "name", "") for t in new_tools],
+                "sections": len(new_sections)}
+
+    # the agent registry is built HERE (before plugin discovery) so it can be injected into
+    # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     plugin_deps = {
         "browser": browser_manager, "computer": computer_provider,
         "task_store": task_store, "memory_bank": memory_bank,
         "resource_manager": resource_manager, "credential_store": credential_store,
-        "connect_token_store": connect_token_store,
+        "connect_token_store": connect_token_store, "registry": registry,
+        "register_plugin_live": register_plugin_live,
     }
-    # ENTITLEMENT seam (4th load gate): default = entitle every compatible plugin. A commercial
-    # build swaps this for a plan/tenant-aware policy here, without touching the core or plugins.
-    entitlement = AllowAllEntitlement()
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = \
-        discover_plugin_contributions(config, plugin_deps, entitlement)
+        discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
     if plugin_mcp_servers:
         config.mcp_servers = list(config.mcp_servers or []) + plugin_mcp_servers
     # The catalog is assembled ENTIRELY by plugin discovery now — built-in capability bundles
     # (plugins/) + third-party plugins both flow through discover_plugin_contributions. The core
     # contributes no tool implementations (they all live outside agentd/). Global on/off filter,
     # then wrap EVERY tool in the reliability middleware + tag its source.
-    raw = apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
-                           getattr(config, "tools_disabled", ()))
-    from agentd.application.services.agent_service import tool_source
-    tools = []
-    for t in raw:
-        gt = GuardedTool(t, resolve_policy(config, t))
-        gt.source = tool_source(t)             # plugin:<id> / mcp:<server> — tagged for the catalog
-        tools.append(gt)
+    tools = _wrap(apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
+                                   getattr(config, "tools_disabled", ())))
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -142,11 +174,9 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         execution_contract=getattr(config, "execution_contract", ""),
     )
     # the agent registry: which agent owns a session + its persona/scope.
+    # (built above, before plugin discovery, so plugins receive the SAME instance.)
     from agentd.domain.agent import RunMode, merge_skills, select_skills
-    from agentd.infrastructure.agents import FileAgentRegistry
     from agentd.infrastructure.skills.file_skills import load_skills_dir, skill_eligible
-
-    registry = registry or FileAgentRegistry(config)
 
     # Layered skills (read fresh per turn, so a new SKILL.md takes effect next message):
     # MAIN's skills (agents/main/skills/) are the SHARED/global library that EVERY agent
@@ -189,10 +219,18 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         if skill_embed_fn is not None:                  # relevance filter (no-op when fn is None)
             skills = rank_skills_by_relevance(
                 skills, query, skill_embed_fn, getattr(config, "skills_relevance_top_k", 30))
+        # On a heartbeat tick, re-read HEARTBEAT.md FRESH from the agent's dir (so edits — and a
+        # runtime-created agent's checklist — take effect next tick, not only after a restart);
+        # fall back to the cached spec text if the dir isn't known.
+        heartbeat_text = ""
+        if mode == RunMode.HEARTBEAT:
+            from agentd.infrastructure.agents.bootstrap import load_heartbeat
+            heartbeat_text = (load_heartbeat(agent.dir) if getattr(agent, "dir", None)
+                              else agent.heartbeat_instructions)
         return build_system_prompt(
             config, tools, agent.model or config.model, config.reasoning_effort,
             skills=skills, agent=agent,
-            heartbeat=(agent.heartbeat_instructions if mode == RunMode.HEARTBEAT else ""),
+            heartbeat=heartbeat_text,
             cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
@@ -200,7 +238,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             plugin_sections=plugin_sections,   # tools self-describe; plugins add guidance sections
         )
 
-    return AgentService(
+    service = AgentService(
         engine=engine,
         tools=tools,
         registry=registry,
@@ -210,6 +248,8 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         ),
         build_prompt=_build_prompt,
     )
+    _late["service"] = service           # late-bind so register_plugin_live can hot-add tools
+    return service
 
 
 def build_task_store(config: Config):

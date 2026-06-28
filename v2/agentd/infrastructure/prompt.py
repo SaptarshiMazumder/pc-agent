@@ -158,10 +158,18 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
     if {"memory_search", "memory_get", "remember"} & names:
         bullets.append("- **Remember across sessions** — recall with the memory tools, write durable notes.")
     if {"spawn_subagent", "subagents"} & names:
-        bullets.append(
-            "- **Delegate** heavy or parallelizable work with `spawn_subagent` — a long read, "
-            "research, a separate analysis — rather than doing it all in one thread; you can "
-            "spawn several at once and combine their results.")
+        if "agents_list" in names:
+            bullets.append(
+                "- **Delegate** to specialist agents: call `agents_list` to see who you can hand "
+                "work to (and what each is for), then `spawn_subagent(agent=\"<id>\", task=…)` to "
+                "run the right one — spawn SEVERAL at once and they execute in parallel; combine "
+                "their results. Use the same `spawn_subagent` for heavy/parallelizable work (a "
+                "long read, research, a separate analysis) instead of doing it all in one thread.")
+        else:
+            bullets.append(
+                "- **Delegate** heavy or parallelizable work with `spawn_subagent` — a long read, "
+                "research, a separate analysis — rather than doing it all in one thread; you can "
+                "spawn several at once and combine their results.")
     if "simple_login" in names:
         bullets.append(
             "- **Log into sites** you have saved credentials for with `simple_login` (open the "

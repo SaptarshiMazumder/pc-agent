@@ -227,9 +227,24 @@ class Config:
     # `spawn_subagent` and get its result back. OFF by default; AGENTD_SUBAGENTS=1 to enable.
     subagents_enabled: bool = False            # AGENTD_SUBAGENTS
     subagent_max: int = 4                      # max concurrent child runs (runaway guard)
+    # Nesting depth for sub-agent spawning: 1 = no nesting (orchestrator -> leaf children only),
+    # up to 5. AGENTD_SUBAGENT_MAX_DEPTH. (A leaf at max depth cannot spawn further.)
+    subagent_max_depth: int = 1                # AGENTD_SUBAGENT_MAX_DEPTH (1..5)
     # skill_workshop (S10): the agent authors reusable SKILL.md playbooks at runtime.
     # OFF by default; AGENTD_SKILL_WORKSHOP=1 to enable.
     skill_workshop: bool = False               # AGENTD_SKILL_WORKSHOP
+    # agent_workshop: author new agent DEFINITIONS (agents/<id>/ = agent.toml + IDENTITY.md)
+    # by chatting; create_agent registers them LIVE (no restart). OFF by default.
+    agent_workshop: bool = False               # AGENTD_AGENT_WORKSHOP
+    # mcp_workshop: the agent can connect an MCP server by chatting (add_mcp) — config + connect,
+    # loads its tools live. OFF by default; only add servers you trust.
+    mcp_workshop: bool = False                 # AGENTD_MCP_WORKSHOP
+    # tool_workshop: the agent can author + hot-load a NEW native tool by chatting (create_tool).
+    # This writes and RUNS new Python in-process (RCE by design) — OFF by default, opt-in by env.
+    tool_workshop: bool = False                # AGENTD_TOOL_WORKSHOP
+    # agent_messaging: the agent can message OTHER persistent agents and get a reply (message_agent),
+    # honoring each agent's [subagents] allow scope. OFF by default.
+    agent_messaging_enabled: bool = False      # AGENTD_AGENT_MESSAGING
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -297,6 +312,12 @@ class Config:
     # Public base URL the gateway is reachable at (your ngrok/tunnel/domain), used to build
     # tappable links — e.g. the /connect login-setup form. Blank = no auto links. AGENTD_PUBLIC_URL.
     public_url: str = ""                       # e.g. https://6dda-….ngrok-free.app
+    # Webhook TASK triggers (D): external events (git push / CI / any service) POST to
+    # /hook/<id> to RUN an agent — distinct from conversational channels. Each hook:
+    # {id, secret, agent, allow?: [ids], task?: default-task}. Served on the SAME webhook
+    # server. webhook_workshop lets the agent mint hooks by chatting (create_webhook).
+    webhooks: list = field(default_factory=list)
+    webhook_workshop: bool = False             # AGENTD_WEBHOOK_WORKSHOP
 
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
@@ -486,6 +507,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.webhook_port = int(os.environ["AGENTD_WEBHOOK_PORT"])
     if os.environ.get("AGENTD_PUBLIC_URL"):
         cfg.public_url = os.environ["AGENTD_PUBLIC_URL"].strip()
+    if os.environ.get("AGENTD_WEBHOOK_WORKSHOP"):
+        cfg.webhook_workshop = os.environ["AGENTD_WEBHOOK_WORKSHOP"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
         cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
     if os.environ.get("AGENTD_HEARTBEAT_HOURS"):
@@ -576,8 +599,18 @@ def load_config(path: Path | None = None) -> Config:
         cfg.context_max_messages = int(os.environ["AGENTD_CONTEXT_MAX"])
     if os.environ.get("AGENTD_SUBAGENTS"):
         cfg.subagents_enabled = os.environ["AGENTD_SUBAGENTS"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_SUBAGENT_MAX_DEPTH"):
+        cfg.subagent_max_depth = int(os.environ["AGENTD_SUBAGENT_MAX_DEPTH"])
     if os.environ.get("AGENTD_SKILL_WORKSHOP"):
         cfg.skill_workshop = os.environ["AGENTD_SKILL_WORKSHOP"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_AGENT_WORKSHOP"):
+        cfg.agent_workshop = os.environ["AGENTD_AGENT_WORKSHOP"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_MCP_WORKSHOP"):
+        cfg.mcp_workshop = os.environ["AGENTD_MCP_WORKSHOP"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_TOOL_WORKSHOP"):
+        cfg.tool_workshop = os.environ["AGENTD_TOOL_WORKSHOP"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_AGENT_MESSAGING"):
+        cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_MODEL_FALLBACKS"):
         cfg.model_fallbacks = [s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()]
 

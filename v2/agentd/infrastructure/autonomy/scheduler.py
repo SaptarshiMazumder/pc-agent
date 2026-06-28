@@ -81,6 +81,26 @@ class HeartbeatScheduler:
                 self._intervals[agent_id] = iv
                 self._next_due.setdefault(agent_id, now + iv)
 
+    def refresh(self, now: float) -> None:
+        """Pick up agents added or changed since ``load()`` — so a runtime-created agent's
+        heartbeat starts (and an edited interval updates) WITHOUT a restart. Cheap: a registry
+        scan each poll. New/changed intervals are (re)scheduled one interval out; a removed
+        heartbeat is dropped."""
+        seen = set()
+        for agent_id in self._registry.list_ids():
+            seen.add(agent_id)
+            iv = parse_interval(getattr(self._registry.get(agent_id), "heartbeat", None)
+                                or self._default)
+            if iv and self._intervals.get(agent_id) != iv:
+                self._intervals[agent_id] = iv
+                self._next_due[agent_id] = now + iv
+            elif not iv and agent_id in self._intervals:
+                self._intervals.pop(agent_id, None)
+                self._next_due.pop(agent_id, None)
+        for gone in [a for a in self._intervals if a not in seen]:   # agent removed entirely
+            self._intervals.pop(gone, None)
+            self._next_due.pop(gone, None)
+
     def due(self, now: float) -> list[str]:
         """Agents whose next-due time has passed; advances each one. (No IO.)"""
         out = []
@@ -105,6 +125,7 @@ class HeartbeatScheduler:
             log.info("heartbeat scheduler: ON but no agent declares an interval")
         while True:
             try:
+                self.refresh(time.time())   # live pickup of new/changed agents (no restart)
                 # heartbeats respect active-hours (don't pester at night)
                 if self.active_now(datetime.now().astimezone()):
                     for agent_id in self.due(time.time()):

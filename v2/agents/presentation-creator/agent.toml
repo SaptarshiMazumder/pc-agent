@@ -1,0 +1,9 @@
+# presentation-creator — turns ANY subject (a topic explained in chat, a codebase, a document,
+# a dataset) into a finished, narrated presentation: video (mp4) or a slide deck, in any
+# language(s), with one or more speaker voices.
+#
+# Full access on purpose: NO `skills` allowlist and NO `[tools] allow` — so this agent sees
+# EVERY skill and EVERY tool in the system (including any added later, with no edit here).
+# Its main playbooks are `video-from-puml-diagram` + `create-diagram`, but it can reach for anything.
+
+name = "Presentation Creator"

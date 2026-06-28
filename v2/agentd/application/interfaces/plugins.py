@@ -35,6 +35,9 @@ class PluginContext:
     resource_manager: object = None  # workspace resource index + CRUD
     credential_store: object = None  # saved-login vault (no plaintext secrets ever reach the model)
     connect_token_store: object = None  # channel connect tokens
+    registry: object = None        # AgentRegistry — list/author agents at runtime (create_agent)
+    register_plugin_live: object = None  # callable() -> hot-load NEWLY-written plugins into the
+    #                                      live catalog without a restart (used by create_tool)
 
     def resource(self, name: str) -> str:
         """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,

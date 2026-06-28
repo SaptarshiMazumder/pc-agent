@@ -49,7 +49,59 @@ async def test_spawn_cap_and_depth_guards(tmp_path):
     assert "limit reached" in await gw._spawn_subagent(None, "x")           # cap=0
 
     set_run_context(RunContext("main", "agent:main:sub:abc", "interactive"))
-    assert "depth limit" in await gw._spawn_subagent(None, "x")             # a sub can't spawn
+    assert "depth" in await gw._spawn_subagent(None, "x")                   # a sub can't spawn (default depth 1)
+
+
+@pytest.mark.asyncio
+async def test_subagent_depth_configurable(tmp_path):
+    """A3: with subagent_max_depth=2, a depth-1 sub may spawn; a depth-2 one may not."""
+    from agentd.presentation.gateway import Gateway, _subagent_depth
+
+    assert _subagent_depth("agent:main:dev") == 0
+    assert _subagent_depth("agent:main:sub:1:abc") == 1
+    assert _subagent_depth("agent:main:sub:2:abc") == 2
+    assert _subagent_depth("agent:main:sub:abc") == 1          # legacy flat key
+
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path, subagent_max=0, subagent_max_depth=2),
+                 service=None, registry=_reg(tmp_path))
+    set_run_context(RunContext("main", "agent:main:sub:1:abc", "interactive"))   # depth 1 < 2
+    assert "limit reached" in await gw._spawn_subagent(None, "x")          # past depth -> hits cap
+    set_run_context(RunContext("main", "agent:main:sub:2:abc", "interactive"))   # depth 2 == max
+    assert "depth" in await gw._spawn_subagent(None, "x")                  # blocked at max depth
+
+
+@pytest.mark.asyncio
+async def test_subagent_allowlist_blocks_unscoped_target(tmp_path):
+    """A4: a caller with [subagents] allow may only delegate to matching ids/globs."""
+    from agentd.presentation.gateway import Gateway
+
+    reg = SimpleNamespace(
+        get=lambda a: SimpleNamespace(state_dir=tmp_path, subagents_allow=("check-*",)),
+        list_ids=lambda: ["main", "check-vuln", "random-agent"])
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path, subagent_max=4, subagent_max_depth=1),
+                 service=None, registry=reg)
+    set_run_context(RunContext("code-review", "agent:code-review:dev", "interactive"))
+    assert "may not delegate" in await gw._spawn_subagent("random-agent", "x")   # not in allow
+    # "check-vuln" matches "check-*" -> passes the allowlist (proceeds past the guard)
+
+
+@pytest.mark.asyncio
+async def test_message_agent_guards(tmp_path):
+    """A5: message_agent honors self / unknown / allowlist / loop guards (all pre-run)."""
+    from agentd.presentation.gateway import Gateway
+
+    reg = SimpleNamespace(
+        get=lambda a: SimpleNamespace(subagents_allow=("check-*",)),
+        list_ids=lambda: ["main", "check-vuln", "code-review", "random-agent"])
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None, registry=reg)
+
+    set_run_context(RunContext("code-review", "agent:code-review:dev", "interactive"))
+    assert "cannot message yourself" in await gw._message_agent("code-review", "hi")
+    assert "unknown agent" in await gw._message_agent("ghost", "hi")
+    assert "may not message" in await gw._message_agent("random-agent", "hi")    # not in check-*
+
+    set_run_context(RunContext("code-review", "agent:code-review:peer:main", "interactive"))
+    assert "loop guard" in await gw._message_agent("check-vuln", "hi")           # no chaining
 
 
 def test_subagent_relay_compacts_meaningful_beats_only():
