@@ -89,11 +89,14 @@ def _zoom_expr(s, e, N, move_frac):
 class StitchVideoTool(Tool):
     name = "stitch_video"
     description = (
-        "Assemble an mp4 from an ordered list of `segments`. Each segment has a visual plus optional "
-        "narration `audio`: an `image` (optionally with a ken-burns `zoom` from one focus box to "
-        "another — focus = [x,y,w,h] fractions), or a `clip` of footage (optionally `trim` = "
-        "[start,end] seconds, narration time-stretched to fit). A segment lasts its narration "
-        "duration + tail, or an explicit `duration`. Segments are concatenated in order."
+        "Assemble an mp4 from an ordered list of `segments`, each a visual + optional narration "
+        "`audio`. For a DIAGRAM beat give a `focus` box = [x,y,w,h] fractions of the image (where the "
+        "camera sits for this beat); the camera moves CONTINUOUSLY — it starts where the PREVIOUS beat "
+        "on the SAME image ended, so consecutive zooms FLOW into each other (no cut back to the wide "
+        "view between beats). An `image` with no focus is a still. For full manual control use "
+        "`zoom: {from, to}` instead of focus. A `clip` of footage (optional `trim` = [start,end] "
+        "seconds, narration time-stretched to fit) is also supported. A segment lasts its narration "
+        "duration + tail, or an explicit `duration`. Segments concatenate in order."
     )
     label = "Stitch video"
     concurrency = "parallel"
@@ -110,9 +113,11 @@ class StitchVideoTool(Tool):
                     "properties": {
                         "audio": {"type": "string", "description": "Narration audio file (sets the segment length). Optional."},
                         "image": {"type": "string", "description": "Still image (diagram/slide PNG). Provide image OR clip."},
+                        "focus": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4,
+                                  "description": "[x,y,w,h] fractions: where the camera lands for THIS diagram beat. The camera auto-flows from the previous beat's focus on the SAME image (continuous pan). Use the WHOLE image [0,0,1,1] for an overview beat, then tighter boxes for each part."},
                         "zoom": {
                             "type": "object",
-                            "description": "Ken-burns over the image.",
+                            "description": "Manual ken-burns override (explicit from/to focus boxes). Prefer `focus` for auto-chained continuity.",
                             "properties": {
                                 "from": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
                                 "to": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
@@ -164,13 +169,16 @@ class StitchVideoTool(Tool):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
             clips = []
+            prev_img, prev_to = None, None   # last image + where its camera ended (for continuity)
             for i, seg in enumerate(segs):
                 audio = self._resolve(seg["audio"]) if seg.get("audio") else None
                 clip = work / f"seg_{i:03d}.mp4"
                 if seg.get("image"):
                     img = self._resolve(seg["image"])
                     T = (_duration(audio) + tail) if audio else float(seg.get("duration", 5.0))
-                    if seg.get("zoom"):
+                    z = seg.get("zoom") or {}
+                    target = z.get("to") or seg.get("focus")   # where THIS beat's camera lands
+                    if target is not None:
                         canvas = work / f"seg_{i:03d}_canvas.png"
                         _run(["ffmpeg", "-y", "-i", _fwd(img), "-vf",
                               f"scale={CW}:{CH}:force_original_aspect_ratio=decrease,"
@@ -178,17 +186,23 @@ class StitchVideoTool(Tool):
                               "-frames:v", "1", _fwd(canvas)])
                         W0, H0 = _dims(img)
                         content = _content_box(W0, H0, CW, CH)
-                        zf = seg["zoom"].get("from", [0, 0, 1, 1])
-                        zt = seg["zoom"].get("to", [0, 0, 1, 1])
-                        start = _target(zf, content, CW, CH, margin, zoom_scale)
-                        end = _target(zt, content, CW, CH, margin, zoom_scale)
+                        # CONTINUOUS CAMERA: unless an explicit `from` is given, start where the
+                        # previous beat on this SAME image ended — so consecutive zooms FLOW
+                        # instead of cutting back to the wide view between every beat.
+                        src = z.get("from")
+                        if src is None:
+                            src = prev_to if (prev_to is not None and str(img) == prev_img) else target
+                        start = _target(src, content, CW, CH, margin, zoom_scale)
+                        end = _target(target, content, CW, CH, margin, zoom_scale)
                         N = max(2, round(T * fps))
                         Z, X, Y = _zoom_expr(start, end, N, move_frac)
                         vexpr = f"zoompan=z='{Z}':x='{X}':y='{Y}':d=1:s={OW}x{OH}:fps={fps},format=yuv420p,setsar=1"
                         vsrc = canvas
+                        prev_img, prev_to = str(img), target
                     else:
                         vexpr = pad
                         vsrc = img
+                        prev_img, prev_to = str(img), [0.0, 0.0, 1.0, 1.0]
                     inp = ["-loop", "1", "-framerate", str(fps), "-t", f"{T:.3f}", "-i", _fwd(vsrc)]
                     if audio:
                         inp += ["-i", _fwd(audio)]
@@ -200,6 +214,7 @@ class StitchVideoTool(Tool):
                           "-t", f"{T:.3f}", "-r", str(fps), *_ENC, _fwd(clip)])
 
                 elif seg.get("clip"):
+                    prev_img, prev_to = None, None   # footage breaks the diagram-camera chain
                     footage = self._resolve(seg["clip"])
                     fdur = _duration(footage)
                     start, end = seg.get("trim", [0.0, fdur])

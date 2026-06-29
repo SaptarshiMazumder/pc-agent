@@ -48,21 +48,38 @@ can use different voices). If a term might be mispronounced, synth a one-line sa
 fix by respelling it phonetically **in the narration text only** (e.g. Japanese katakana) — never in
 the visuals.
 
-### 4. Frame the zooms
+### 4. Frame the zooms (SEE the crop with `read` — never guess)
 
-For a diagram beat, choose a `focus` box `[x, y, w, h]` as fractions of that PNG. **Verify it** by
-cropping that region and looking (e.g. an ffmpeg crop) before committing — don't guess. Re-check after
-any re-render that changes the PNG's dimensions.
+You CANNOT predict where PlantUML placed each box in the rendered PNG, so you must LOOK. `read` on an
+image returns the picture itself into your context, so you see it with your own eyes. For every
+diagram beat, pick a `focus` box `[x, y, w, h]` (fractions of the PNG) and verify it:
+
+1. Crop exactly that region with ffmpeg (via `exec`):
+   `ffmpeg -y -i diagram.png -vf "crop=iw*<w>:ih*<h>:iw*<x>:ih*<y>" crop.png`
+2. `read crop.png` — LOOK at it: is the box labeled '<X>' fully visible and roughly centered? what
+   boxes are actually in frame?
+3. If it's off (wrong box, cut off, off-center), adjust the numbers, re-crop, `read` again — repeat
+   until it frames the right thing. This is the loop; don't skip it.
+
+Re-verify every focus box after any re-render that changes the PNG's pixel dimensions. Also `read` the
+WHOLE diagram first to catch a clipped box or text that's too small before you build anything.
+
+(This needs a vision-capable model — e.g. Gemini/Claude. A text-only model can't see the crop.)
 
 ### 5. Stitch
 
-Call `stitch_video` with the ordered segments:
+Call `stitch_video` with the ordered segments. For diagram beats give just a `focus` box — the camera
+FLOWS continuously from the previous beat's focus on the same image (it does NOT cut back to the wide
+view between beats):
 
-- diagram beat → `{ image: diagram.png, audio: beat.mp3, zoom: { from:[x,y,w,h], to:[x,y,w,h] } }`
-- slide beat → `{ image: slide.png, audio: beat.mp3 }` (no zoom = still)
+- opening / overview beat → `{ image: diagram.png, audio: beat.mp3, focus: [0,0,1,1] }`
+- each detail beat → `{ image: diagram.png, audio: beat.mp3, focus: [x,y,w,h] }`  (the box you VERIFIED in step 4)
+- slide beat → `{ image: slide.png, audio: beat.mp3 }`  (no focus = still)
 - footage beat → `{ clip: footage.mp4, audio: beat.mp3, trim:[start,end] }`
 
-→ `out.mp4`. Tune `zoom_scale` (lower = looser zoom) and `move_frac` to taste.
+→ `out.mp4`. Use `zoom_scale: 1.0` for a tight, sharp zoom that fills the frame with the box (lower =
+looser, more surrounding context). `move_frac` controls how much of each beat is spent panning.
+Order the detail beats so the camera travels smoothly (e.g. top→bottom), since each one flows from the last.
 
 ### 6. Multiple languages
 

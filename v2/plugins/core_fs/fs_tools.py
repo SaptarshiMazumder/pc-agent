@@ -23,11 +23,14 @@ from agentd.application.run_context import current_workspace
 from agentd.infrastructure.documents import EXTRACTORS as _EXTRACTORS
 
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.domain.messages import ImageContent, TextContent
 
 log = logging.getLogger("agentd")
 
 MAX_READ_CHARS = 100_000
 MAX_LINE_CHARS = 2_000
+# image files are returned as the PICTURE itself (so a vision-capable model SEES it), not text
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 # Recursive search skips these noise/heavy/system dirs for speed (does NOT
 # restrict access — any absolute path is still readable, and you can search any
 # root). These are generic folder NAMES, identical on every machine.
@@ -72,8 +75,9 @@ class ReadTool(Tool):
     default_max_retries = 1
     description = (
         "Read a file's contents (text, code, .docx, .pdf, .xlsx, .pptx — documents are "
-        "text-extracted). Use an absolute path for files outside the workspace. Supports "
-        "offset (1-indexed line) and limit."
+        "text-extracted; .png/.jpg/.gif/.webp images are returned as the IMAGE ITSELF so you "
+        "can SEE it — e.g. to check a render or a cropped region). Use an absolute path for "
+        "files outside the workspace. Supports offset (1-indexed line) and limit."
     )
     label = "Read"
     parameters = {
@@ -119,6 +123,19 @@ class ReadTool(Tool):
             if len(text) > MAX_READ_CHARS:
                 text = text[:MAX_READ_CHARS] + "\n… [output truncated]"
             return ToolResult.text(text or f"(no extractable text in {path.name})")
+
+        # Images: return the PICTURE itself so a vision-capable model SEES it (like Claude's
+        # read — the image enters the conversation in full context). A text-only model just
+        # gets the placeholder line and ignores the image.
+        if suffix in _IMAGE_EXTS:
+            import base64
+            import mimetypes
+            data = await asyncio.to_thread(path.read_bytes)
+            mime = mimetypes.guess_type(str(path))[0] or "image/png"
+            return ToolResult(content=[
+                TextContent(text=f"[image {path.name}]"),
+                ImageContent(data=base64.b64encode(data).decode(), mime_type=mime),
+            ])
 
         try:
             raw = path.read_text(encoding="utf-8")

@@ -37,6 +37,7 @@ from typing import Any, AsyncIterator
 # location now that this module lives in the infrastructure layer.
 from agentd.domain.messages import (
     AssistantMessage,
+    ImageContent,
     Message,
     TextContent,
     ThinkingContent,
@@ -104,6 +105,18 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
             if m.is_error:
                 text = f"ERROR: {text}"  # surface tool failures to the model as text
             out.append({"role": "tool", "tool_call_id": m.tool_call_id, "content": text})
+            # If the tool returned IMAGE(s), forward them so a vision-capable model can SEE
+            # them (just like Claude Code's read). Tool-role messages don't reliably carry
+            # images across providers, so we attach them as a following user message — which
+            # every provider LiteLLM supports accepts. (A text-only model simply ignores them.)
+            images = [b for b in m.content if isinstance(b, ImageContent)]
+            if images:
+                parts: list[dict[str, Any]] = [
+                    {"type": "text", "text": f"(image output from the {m.tool_name} tool above)"}]
+                for img in images:
+                    parts.append({"type": "image_url", "image_url": {
+                        "url": f"data:{img.mime_type};base64,{img.data}"}})
+                out.append({"role": "user", "content": parts})
     return out
 
 
