@@ -1,0 +1,11 @@
+# figure-creator — turns a subject (a concept explained in chat, a paper/PDF, a sketch, a reference
+# image, or a flat figure to re-edit) into a publication-grade scientific figure: a structured
+# diagram, an illustrated scene, or — the flagship — a HYBRID (illustrated artwork + an editable
+# vector layer of labels/arrows). Exports editable SVG / PPTX and vector PDF.
+#
+# Full access on purpose: NO `skills` allowlist and NO `[tools] allow`, so it sees EVERY skill and
+# tool (including ones added later) with no edit here. Its playbooks are `create-scientific-figure`
+# and `vectorize-figure`; its tools are the figures / imagegen / vision / vectorize / figexport
+# plugins, plus read/write/render.
+
+name = "Figure Creator"

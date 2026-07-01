@@ -1,0 +1,7 @@
+id = "vision"
+name = "Vision"
+kind = "native"
+entry = "vision_plugin:register"
+
+# Gemini image-analysis via google-genai (core dep) + existing GEMINI_API_KEY/GOOGLE_API_KEY.
+# No [requires] env gate: key may be under either var; tools error gracefully if neither is set.
