@@ -63,12 +63,14 @@ class AgentService:
         registry: AgentRegistry,                            # which agent handles a session
         make_session: Callable[[str, AgentSpec], SessionStore],  # (id, agent) -> store
         build_prompt: Callable[..., str],  # (tools, agent, mode, query="") -> prompt
+        recall: Callable[[AgentSpec, str], str] | None = None,   # (agent, query) -> memory block, or ""
     ):
         self._engine = engine
         self._tools = tools
         self._registry = registry
         self._make_session = make_session
         self._build_prompt = build_prompt
+        self._recall = recall               # auto-recall: prepends relevant memories on user turns
 
     def _resolve_agent(self, session_id: str, agent_id: str | None):
         """Explicit agent_id wins (a client naming the agent); else resolve from the
@@ -138,6 +140,17 @@ class AgentService:
         messages.append(user_msg)                         # add the new user turn to context
         session.append(user_msg)                          # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
+        # Auto-recall (OpenClaw's before_prompt_build): on a USER turn only, silently retrieve
+        # relevant long-term memories and prepend them — the agent doesn't call a tool. Gated to
+        # INTERACTIVE so heartbeat/cron runs don't burn embeddings; fail-open so a slow/broken
+        # embedder never blocks the turn.
+        if self._recall is not None and mode == RunMode.INTERACTIVE:
+            try:
+                block = self._recall(agent, text)
+            except Exception:  # noqa: BLE001 — recall is an enhancement, never a hard dependency
+                block = ""
+            if block:
+                system_prompt = block + "\n\n" + system_prompt
 
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)

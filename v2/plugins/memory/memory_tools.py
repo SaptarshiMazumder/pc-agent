@@ -32,15 +32,23 @@ class RememberTool(Tool):
         "properties": {"text": {"type": "string", "description": "The fact to remember (one sentence)."}},
     }
 
-    def __init__(self, bank):
+    def __init__(self, bank, embedder=None):
         self._bank = bank
+        self._embedder = embedder      # BackgroundEmbedder: fills the vector off the turn
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         text = (params.get("text") or "").strip()
         if not text:
             return ToolResult.text("nothing to remember (empty text)", is_error=True)
-        mid = self._bank.save(MemoryItem(
-            id="", agent_id=_agent_id(), source="note", text=text, created_at=time.time()))
+        item = MemoryItem(id="", agent_id=_agent_id(), source="note", text=text,
+                          created_at=time.time())
+        # Fast path: write the fact NOW (no network), embed in the background so the agent doesn't
+        # wait. Falls back to a synchronous save when there's no embedder (keyword-only mode).
+        if self._embedder is not None and getattr(self._bank, "embedder_ready", False):
+            mid = self._bank.save_pending(item)
+            self._embedder.schedule(mid, text)
+        else:
+            mid = self._bank.save(item)
         return ToolResult.text(f"remembered [{mid}]: {text}", details={"id": mid})
 
 
@@ -92,16 +100,28 @@ class MemoryConsolidateTool(Tool):
     name = "memory_consolidate"
     label = "Memory"
     description = (
-        "Tidy your long-term memory: collapse exact-duplicate notes (keeps the newest). "
-        "Good to run on a schedule so repeatedly-saved facts don't pile up.")
+        "Consolidate your long-term memory ('dreaming'): collapse duplicate/near-duplicate "
+        "notes, promote facts you keep recalling into durable long-term memory, and forget "
+        "stale never-recalled ones. Run it on a schedule (e.g. a nightly cron) so memory stays "
+        "clean and gets sharper over time.")
     parameters = {"type": "object", "properties": {}}
 
-    def __init__(self, bank):
+    def __init__(self, bank, config=None):
         self._bank = bank
+        self._config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         from agentd.infrastructure.memory.consolidate import consolidate
+        from agentd.infrastructure.memory.dreaming import dream
 
-        removed = consolidate(self._bank, _agent_id())
-        return ToolResult.text(f"consolidated memory: removed {removed} duplicate note(s)",
-                               details={"removed": removed})
+        agent_id = _agent_id()
+        removed = consolidate(self._bank, agent_id)            # exact dups (works without embeddings)
+        d = dream(self._bank, agent_id, self._config or _DefaultDreamCfg())
+        d["removed_exact"] = removed
+        return ToolResult.text(
+            f"dreamed: merged {d['merged']} near-dup(s), promoted {d['promoted']} to long-term, "
+            f"forgot {d['forgotten']} stale, removed {removed} exact dup(s)", details=d)
+
+
+class _DefaultDreamCfg:
+    """Fallback thresholds when the tool is built without config (dream() reads via getattr)."""

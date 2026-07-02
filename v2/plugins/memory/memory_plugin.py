@@ -11,6 +11,7 @@ from __future__ import annotations
 def register(api, ctx):
     if not (getattr(ctx.config, "memory_enabled", False) and ctx.memory_bank is not None):
         return
+    from agentd.infrastructure.memory.background import BackgroundEmbedder
     from memory_tools import (
         MemoryConsolidateTool,
         MemoryGetTool,
@@ -19,7 +20,8 @@ def register(api, ctx):
     )
 
     bank = ctx.memory_bank
-    api.register_tool(RememberTool(bank))
+    embedder = BackgroundEmbedder(bank)   # remember() writes now, embeds off the turn
+    api.register_tool(RememberTool(bank, embedder))
     api.register_tool(MemorySearchTool(bank))
     api.register_tool(MemoryGetTool(bank))
-    api.register_tool(MemoryConsolidateTool(bank))
+    api.register_tool(MemoryConsolidateTool(bank, ctx.config))

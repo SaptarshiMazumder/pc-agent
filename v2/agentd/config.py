@@ -220,6 +220,25 @@ class Config:
     # tools backed by a durable bank (<state_dir>/memory.sqlite) it can recall across
     # sessions. OFF by default (additive; AGENTD_MEMORY=1 to enable).
     memory_enabled: bool = False               # AGENTD_MEMORY
+    # Semantic memory (RAG). When a model is set AND memory is on, notes are embedded on write
+    # and memory_search ranks by cosine instead of keywords. Empty => keyword-only (FTS5), the
+    # prior behavior. Provider-neutral via litellm; default is Gemini (the stack's configured
+    # provider). Point it at a local ollama model for no-key/no-cost embeddings.
+    memory_embedding_model: str = "gemini/text-embedding-004"   # AGENTD_MEMORY_EMBEDDING_MODEL
+    # Auto-recall: silently retrieve relevant memories and prepend them to the prompt on each
+    # INTERACTIVE (user) turn — the agent doesn't call a tool. Needs an embedding model + memory.
+    memory_auto_recall: bool = True            # AGENTD_MEMORY_AUTO_RECALL
+    memory_auto_recall_limit: int = 5          # AGENTD_MEMORY_AUTO_RECALL_LIMIT
+    memory_recall_min_score: float = 0.0       # cosine floor for a hit (0 = keep top-K); AGENTD_MEMORY_RECALL_MIN_SCORE
+    # Dreaming: a periodic consolidation pass (run it on a cron/heartbeat via memory_consolidate).
+    # Merges near-duplicate notes, promotes durable short-term memories to long-term, and forgets
+    # stale never-recalled ones. Thresholds mirror OpenClaw's deep-dreaming defaults.
+    memory_dreaming_min_score: float = 0.8              # AGENTD_MEMORY_DREAMING_MIN_SCORE
+    memory_dreaming_min_recall_count: int = 3          # AGENTD_MEMORY_DREAMING_MIN_RECALL_COUNT
+    memory_dreaming_min_unique_queries: int = 3        # AGENTD_MEMORY_DREAMING_MIN_UNIQUE_QUERIES
+    memory_dreaming_recency_half_life_days: float = 14.0   # AGENTD_MEMORY_DREAMING_HALF_LIFE_DAYS
+    memory_dreaming_max_age_days: int = 30             # forget short-tier notes older than this that never stuck
+    memory_dreaming_merge_threshold: float = 0.92      # cosine >= => near-duplicate, keep the newer
     # Context compaction (Phase 3.5 / S7): cap the message history sent to the model to the
     # most-recent N (boundary-safe truncation). 0 = off (send everything). AGENTD_CONTEXT_MAX.
     context_max_messages: int = 0
@@ -595,6 +614,14 @@ def load_config(path: Path | None = None) -> Config:
         or str(Path(cfg.state_dir).parent / "SOUL.md")   # default: the repo-root SOUL.md (editable)
     if os.environ.get("AGENTD_MEMORY"):
         cfg.memory_enabled = os.environ["AGENTD_MEMORY"].lower() not in ("0", "false", "no", "")
+    if "AGENTD_MEMORY_EMBEDDING_MODEL" in os.environ:
+        cfg.memory_embedding_model = os.environ["AGENTD_MEMORY_EMBEDDING_MODEL"].strip()
+    if os.environ.get("AGENTD_MEMORY_AUTO_RECALL"):
+        cfg.memory_auto_recall = os.environ["AGENTD_MEMORY_AUTO_RECALL"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_MEMORY_AUTO_RECALL_LIMIT"):
+        cfg.memory_auto_recall_limit = int(os.environ["AGENTD_MEMORY_AUTO_RECALL_LIMIT"])
+    if os.environ.get("AGENTD_MEMORY_RECALL_MIN_SCORE"):
+        cfg.memory_recall_min_score = float(os.environ["AGENTD_MEMORY_RECALL_MIN_SCORE"])
     if os.environ.get("AGENTD_CONTEXT_MAX"):
         cfg.context_max_messages = int(os.environ["AGENTD_CONTEXT_MAX"])
     if os.environ.get("AGENTD_SUBAGENTS"):

@@ -53,9 +53,18 @@ def build_memory_bank(config: Config):
         return None
     from pathlib import Path
 
+    from agentd.infrastructure.embeddings import build_embed_fn
     from agentd.infrastructure.memory.bank import SqliteMemoryBank
 
-    return SqliteMemoryBank(Path(config.state_dir) / "memory.sqlite")
+    # A semantic embedder makes memory RAG (embed-on-write, cosine recall); empty model =>
+    # keyword-only, the prior behavior. Cache is per-bank so stable notes aren't re-embedded.
+    embed_fn = build_embed_fn(getattr(config, "memory_embedding_model", ""))
+    bank = SqliteMemoryBank(Path(config.state_dir) / "memory.sqlite", embed_fn=embed_fn)
+    if embed_fn is not None:
+        log.info("memory: enabled (semantic, model=%s)", config.memory_embedding_model)
+    else:
+        log.info("memory: enabled (keyword-only — no embedding model set)")
+    return bank
 
 
 def build_service(config: Config, browser_manager, computer_provider=None,
@@ -238,6 +247,24 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             plugin_sections=plugin_sections,   # tools self-describe; plugins add guidance sections
         )
 
+    def _recall(agent, query):
+        # Auto-recall block for a user turn: the top relevant long-term memories, prepended to
+        # the prompt. None/empty unless memory + auto-recall are on. Vector-ranked when an embedder
+        # is wired, else keyword — either way the bank records the recall to feed dreaming.
+        if not (getattr(config, "memory_auto_recall", False) and memory_bank is not None):
+            return ""
+        hits = memory_bank.search(
+            agent.id, query,
+            limit=getattr(config, "memory_auto_recall_limit", 5),
+            min_score=getattr(config, "memory_recall_min_score", 0.0))
+        if not hits:
+            return ""
+        log.info("memory: auto-recalled %d note(s) for agent '%s'", len(hits), agent.id)
+        lines = "\n".join(f"- {h.text}" for h in hits)
+        return ("## Relevant memories\n"
+                "Recalled automatically from earlier sessions — may bear on this message; verify "
+                "before relying on them:\n" + lines)
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -247,6 +274,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             agent.state_dir, sid, cwd=str(agent.workspace)
         ),
         build_prompt=_build_prompt,
+        recall=_recall,
     )
     _late["service"] = service           # late-bind so register_plugin_live can hot-add tools
     return service
