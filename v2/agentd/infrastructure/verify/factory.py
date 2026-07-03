@@ -13,13 +13,10 @@ log = logging.getLogger("agentd")
 
 
 def build_judge_fn(config) -> JudgeFn | None:
-    """An async judge(prompt)->text backed by a cheap model (verify_model >
-    search_model > model). Returns None if no model is available."""
-    model = (
-        getattr(config, "verify_model", None)
-        or getattr(config, "search_model", None)
-        or getattr(config, "model", None)
-    )
+    """An async judge(prompt)->text backed by a cheap model, resolved from the unified plugins map
+    (plugins.verify.verify -> search chain -> brain). Returns None if no model is available."""
+    from agentd.application.tool_models import verify_model
+    model = verify_model(config)
     if not model:
         return None
 

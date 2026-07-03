@@ -9,3 +9,19 @@
 # plugins, plus read/write/render.
 
 name = "Figure Creator"
+
+# Per-agent model overrides, decoupled from the global config. `model` = the brain (reasoning).
+# [plugins.*] = the model-bearing TOOLS this agent uses, in the same plugins -> tools -> model shape
+# as the global config — so figure-creator can run a CHEAP brain while keeping grounding on a precise
+# Gemini Pro, WITHOUT touching global config. These win over the global plugins map. A plugin-level
+# `model` sets the default for every tool in it; a [plugins.X.tools.Y] block overrides one tool.
+# Each value is a litellm "provider/model" (a bare id => gemini). Uncomment to override:
+# model = "gemini/gemini-3-flash-preview"
+#
+# [plugins.vision]
+# model = "gemini/gemini-2.5-flash"                     # default for verify_figure, etc.
+# [plugins.vision.tools.extract_anchors]
+# model = "gemini/gemini-3.1-pro-preview"               # grounding — Gemini is best at localization
+#
+# [plugins.imagegen.tools.generate_artwork]
+# model = "gemini/gemini-3-pro-image"

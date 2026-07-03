@@ -31,6 +31,17 @@ from agentd.presentation.protocol import Event, ProtocolError, Request, Response
 
 log = logging.getLogger("agentd")
 
+
+def _effective_model(config) -> str:
+    """The reasoning model as the models layer resolves it (CONFIG-ONLY) — for display/status. Shows
+    "(CONFIG MISSING)" instead of crashing when no agentd.config.json was loaded."""
+    from agentd.application.tool_models import ConfigMissingError, brain_model
+    try:
+        return brain_model(config)
+    except ConfigMissingError:
+        return "(CONFIG MISSING)"
+
+
 # The prompt posted on an autonomous heartbeat tick (no user message). The agent's
 # HEARTBEAT.md checklist is assembled into the system prompt for heartbeat runs.
 HEARTBEAT_PROMPT = (
@@ -210,7 +221,7 @@ class Gateway:
         async with serve(self._handle_conn, self.config.host, self.config.port):
             log.info("listening on ws://%s:%s", self.config.host, self.config.port)
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
-            print(f"model: {self.config.model} | workspace: {self.config.workspace}")
+            print(f"model: {_effective_model(self.config)} | workspace: {self.config.workspace}")
             try:
                 await asyncio.Future()  # run forever
             finally:
@@ -1012,7 +1023,7 @@ class Gateway:
         return {
             "agentName": self.config.agent_name,
             "agentId": self.config.agent_id,
-            "model": self.config.model,
+            "model": _effective_model(self.config),
             "reasoning": self.config.reasoning_effort,
             "gatewayUrl": f"ws://{self.config.host}:{self.config.port}",
             "workspace": str(self.config.workspace),

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
+from agentd.application.tool_models import resolve_tool_model, resolve_tool_provider
 from agentd.domain.messages import TextContent, ImageContent
 import base64
 
@@ -71,6 +72,9 @@ _CONDITION = {
 
 class GenerateArtworkTool(Tool):
     name = "generate_artwork"
+    plugin = "imagegen"
+    needs_model = True
+    default_model = gem.DEFAULT_MODEL   # last-resort fallback (config plugins.imagegen.* overrides it)
     description = (
         "Generate a raster scientific illustration from a text prompt. `provider` picks the backend: "
         "'gemini' (default, Gemini 3 Pro Image — best polish, GEMINI_API_KEY), 'fal' or 'replicate' "
@@ -105,7 +109,7 @@ class GenerateArtworkTool(Tool):
                         "description": "Model family. 'flux' (default, quality raster); 'sdxl' (mature ControlNet); 'recraft' = NATIVE VECTOR SVG output (real editable shapes, no tracing; replicate only, flatter look)."},
             "tier": {"type": "string", "description": "FLUX tier: 'schnell' (cheapest) | 'dev' (default) | 'pro' (best)."},
             "lora_url": {"type": "string", "description": "Optional LoRA weights URL (e.g. a Civitai/HF download) to apply — Replicate FLUX only."},
-            "model": {"type": "string", "description": f"Override the model/endpoint string. Gemini default {gem.DEFAULT_MODEL}."},
+            "model": {"type": "string", "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.imagegen.tools.generate_artwork > plugins.imagegen default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint."},
             "api_key": {"type": "string", "description": "Override key (Gemini: GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN)."},
         },
     }
@@ -146,28 +150,38 @@ class GenerateArtworkTool(Tool):
         if provider in ("fal", "replicate"):
             backend = __import__("imagegen_flux" if provider == "fal" else "imagegen_replicate")
             key = backend.resolve_key(params.get("api_key"), self.config)
+            # The plugins.imagegen model IS the fal/replicate endpoint (owner/name) here. But the tool's
+            # built-in default is a Gemini id, meaningless as an endpoint — so resolve with no gemini
+            # fallback and drop any gemini/* (or bare) id, letting the backend pick its family/tier default.
+            endpoint = resolve_tool_model(self.config, self.plugin, self.name,
+                                          per_call=params.get("model"), default=None)
+            if endpoint and (endpoint.startswith("gemini") or "/" not in endpoint):
+                endpoint = None
             kw = dict(family=family, tier=params.get("tier"),
                       reference_images=[str(r) for r in refs], conditioning=conditioning,
                       aspect_ratio=params.get("aspect_ratio"), api_key=key,
-                      endpoint=params.get("model"))
+                      endpoint=endpoint)
             if provider == "replicate" and params.get("lora_url"):
                 kw["lora_url"] = params["lora_url"]
             return backend.generate_image(prompt, out, **kw)
 
         key = gem.resolve_key(params.get("api_key"), self.config)
+        model = resolve_tool_model(self.config, self.plugin, self.name,
+                                   per_call=params.get("model"), default=self.default_model)
         return gem.generate_image(
             prompt, out,
-            model=params.get("model") or gem.DEFAULT_MODEL,
+            model=model,
             api_key=key,
             reference_images=refs,
             aspect_ratio=params.get("aspect_ratio"),
         )
 
     def _route(self, params) -> tuple[str, str]:
-        """Resolve (provider_host, family). Back-compat: provider 'flux'/'sdxl' == fal + that family."""
-        import os
-        provider = (params.get("provider") or os.environ.get("IMAGEGEN_PROVIDER")
-                    or getattr(self.config, "imagegen_provider", None) or "gemini")
+        """Resolve (provider_host, family). The provider (backend SDK) comes from the plugins config
+        (plugins.imagegen.provider), a per-agent agent.toml override, or a per-call `provider` — same
+        one place as the model. Back-compat: provider 'flux'/'sdxl' == fal + that family."""
+        provider = resolve_tool_provider(self.config, self.plugin, self.name,
+                                         per_call=params.get("provider"), default="gemini")
         family = params.get("family")
         if provider in ("flux", "sdxl"):
             family = family or provider

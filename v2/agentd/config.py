@@ -1,7 +1,7 @@
 """Configuration: optional JSON file + environment overrides.
 
 Env vars: AGENTD_MODEL, AGENTD_HOST, AGENTD_PORT, AGENTD_WORKSPACE,
-AGENTD_STATE_DIR, AGENTD_HEADLESS, AGENTD_SEARCH_PROVIDERS, BRAVE_API_KEY.
+AGENTD_STATE_DIR, AGENTD_HEADLESS, BRAVE_API_KEY.
 Provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...) are
 read by LiteLLM directly from the environment.
 """
@@ -9,6 +9,7 @@ read by LiteLLM directly from the environment.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,11 +43,41 @@ class Config:
     # Single source of truth: the server owns it; clients fetch it via the `hello`
     # handshake. Override with AGENTD_AGENT_NAME.
     agent_name: str = "JARVIS"
+    # The agentd.config.json this Config was loaded from ("" => no file found). Set by load_config,
+    # NOT from JSON. The models layer (application/tool_models.py) uses it to fail LOUD ("config
+    # missing") instead of silently defaulting, since models come ONLY from config.
+    config_path: str = ""
     model: str = "gemini/gemini-3.1-pro-preview"
-    # Dedicated model for web_search grounding — kept FAST + cheap, decoupled from the
-    # main model. Grounding on a heavy reasoning model (e.g. 3.1-pro ~33s) blows the
-    # web_search timeout; flash grounds in ~6s. Override with AGENTD_SEARCH_MODEL.
-    search_model: str = "gemini/gemini-2.5-flash"
+    # ALL model-bearing TOOLS and SUBSYSTEMS pick their model from ONE place — this clean
+    # PLUGIN -> TOOL -> model hierarchy — decoupled from the agent BRAIN (`model`). (web_search
+    # grounding, the verify/safe_to_send judges, resource captions/summaries, computer-use, and the
+    # memory/skills embedders all resolve from here; e.g. web_search is plugins.web.tools.web_search,
+    # kept FAST so a heavy reasoning model can't blow the search timeout.)
+    # The ONE control panel for every plugin + tool. A plugin is just a NAMESPACE + a set of tools; all
+    # knobs live on the TOOL (no plugin-level model/provider defaults — pure grouping). Shape:
+    #   "plugins": {
+    #     "<plugin>": {
+    #       "enabled": true,                   # optional; omitted => the plugin's author default
+    #       #                                    (discovery._gate). false => the whole plugin is OFF.
+    #       "description": "...",              # optional, for humans (ignored at runtime)
+    #       "tools": {
+    #         "<tool>": {
+    #           "enabled": true,               # optional; false => just this tool is dropped
+    #           "description": "...",
+    #           "provider": "...",             # backend/SDK/engine, where the tool has one
+    #           "model": "provider/model",     # the AI model, where the tool calls one
+    #           "<knob>": ...                  # any other per-tool knob (read via tool_config)
+    #         }
+    #       }
+    #     }
+    #   }
+    # Every knob resolves (first hit wins): per-call arg > agent.toml plugins[P].tools[T].<knob> >
+    # this map's plugins[P].tools[T].<knob> > the tool's built-in default. So agent.toml wins over
+    # global config; there is NO plugin-level fallback. Model values are litellm "provider/model"
+    # (bare id => gemini). CONFIG-ONLY (a knob, not a secret): there is deliberately no env override.
+    plugins: dict = field(default_factory=dict)
+    # (the image-gen BACKEND — gemini|fal|replicate — is a plugins knob: config plugins.imagegen.provider,
+    #  resolved by resolve_tool_provider; the model/endpoint is plugins.imagegen[.tools.generate_artwork].)
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
@@ -82,11 +113,8 @@ class Config:
     parallel_search_enabled: bool = True
     parallel_search_url: str = "https://search.parallel.ai/mcp"
     parallel_api_key: str | None = None
-    # Explicit web_search provider chain order (e.g. ["parallel","duckduckgo"]).
-    # None = auto: matches OpenClaw's no-keys default — parallel (keyless Search MCP)
-    # -> duckduckgo. Gemini/Brave stay available but, like OpenClaw, are not auto-on.
-    # Override with AGENTD_SEARCH_PROVIDERS (comma-separated).
-    search_providers: list[str] | None = None
+    # (the web_search provider CHAIN is a plugins knob: config plugins.web.provider — a list like
+    #  ["parallel","duckduckgo"], or a single name. Absent => OpenClaw's no-keys auto order.)
     browser_headless: bool = True
     # Persistent browser profile: keep cookies/logins on disk (<state_dir>/browser-profile)
     # so the `browser` tool stays SIGNED IN across runs. Log in once (headed) via
@@ -111,15 +139,12 @@ class Config:
     # navigator.webdriver) so logins on automation-sensitive sites work.
     # AGENTD_BROWSER_STEALTH=0 to disable.
     browser_stealth: bool = True
-    # --- browser ENGINE selection (two independent toggles) --------------------
-    # Default = our built-in Playwright/CDP engine. To use the external Vercel
-    # `agent-browser` engine (via its MCP server) instead, turn ours OFF and
-    # agent-browser ON. Rules: ours wins if BOTH are on; ours is used if BOTH are
-    # off (never lose the browser). agent-browser must be installed separately
-    # (`npm i -g agent-browser && agent-browser install`); configure its behaviour
-    # with its own AGENT_BROWSER_* env vars (e.g. AGENT_BROWSER_PROFILE, _HEADED).
-    browser_engine_playwright: bool = True       # AGENTD_BROWSER_PLAYWRIGHT
-    browser_engine_agent_browser: bool = False   # AGENTD_BROWSER_AGENT_BROWSER
+    # --- browser ENGINE selection -----------------------------------------------
+    # Which engine backs the browser is a plugins knob: config plugins.browser.provider =
+    # "playwright" (our built-in Playwright/CDP engine, the DEFAULT) | "agent_browser" (the external
+    # Vercel agent-browser engine via its MCP server). agent-browser must be installed separately
+    # (`npm i -g agent-browser && agent-browser install`); configure its behaviour with its own
+    # AGENT_BROWSER_* env vars (e.g. AGENT_BROWSER_PROFILE, _HEADED). Resolved by resolve_browser_engine.
     # Command that launches agent-browser's MCP server (stdio). Default: ["agent-browser","mcp"].
     agent_browser_command: list | None = None    # AGENTD_AGENT_BROWSER_COMMAND (space-separated)
     # Surface non-ARIA clickable elements (cursor:pointer / onclick / tabindex /
@@ -180,10 +205,10 @@ class Config:
     skills_prompt_chars: int = 18000
     # Relevance-filtered skills (optional, post-parity): when ON, advertise only the top-K skills
     # most semantically related to the current message (embeddings), instead of the whole budgeted
-    # library. OFF by default => current behavior. Needs an embedding model. AGENTD_SKILLS_RELEVANCE*.
+    # library. OFF by default => current behavior. The embedding model is a plugins knob:
+    # config plugins.skills.tools.relevance (empty => off). AGENTD_SKILLS_RELEVANCE_ENABLED.
     skills_relevance_enabled: bool = False
     skills_relevance_top_k: int = 30
-    skills_relevance_model: str = ""
     # Loop/LLM-level timeouts.
     llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
     llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
@@ -195,7 +220,7 @@ class Config:
     # The agent-invoked `verify_answer` TOOL (the agent reviews its own draft before
     # replying). OFF => the tool is not registered at all — exactly as if it never existed.
     verify_tool: bool = False                  # AGENTD_VERIFY_TOOL
-    verify_model: str | None = None            # judge model for the tool (defaults to search_model -> model); AGENTD_VERIFY_MODEL
+    # (judge model is a plugins knob: config plugins.verify.tools.verify -> search chain -> brain)
     # Include the in-band "## Before You Finish" honesty/completeness self-check. ON by
     # default (S3 — honesty by default): the agent must back claims with real evidence and
     # never fabricate. AGENTD_COMPLETENESS_CHECK=0 to disable.
@@ -211,7 +236,7 @@ class Config:
     # NEVER gated. FAIL-CLOSED: a judge error blocks that one reply. The agent stays fully
     # capable; this only governs what may be DISCLOSED to a channel recipient.
     safe_to_send_check: bool = True            # AGENTD_SAFE_TO_SEND (0 to disable)
-    safe_to_send_model: str | None = None      # judge model (defaults verify->search->model); AGENTD_SAFE_TO_SEND_MODEL
+    # (judge model is a plugins knob: config plugins.safe_to_send.tools.safe_to_send -> verify chain)
     # Default agent PERSONA/disposition. Loaded from the editable SOUL.md (persona_file)
     # with a built-in fallback; an agent's IDENTITY can override its tone. AGENTD_PERSONA=0.
     persona_enabled: bool = True               # AGENTD_PERSONA
@@ -220,11 +245,10 @@ class Config:
     # tools backed by a durable bank (<state_dir>/memory.sqlite) it can recall across
     # sessions. OFF by default (additive; AGENTD_MEMORY=1 to enable).
     memory_enabled: bool = False               # AGENTD_MEMORY
-    # Semantic memory (RAG). When a model is set AND memory is on, notes are embedded on write
-    # and memory_search ranks by cosine instead of keywords. Empty => keyword-only (FTS5), the
-    # prior behavior. Provider-neutral via litellm; default is Gemini (the stack's configured
-    # provider). Point it at a local ollama model for no-key/no-cost embeddings.
-    memory_embedding_model: str = "gemini/text-embedding-004"   # AGENTD_MEMORY_EMBEDDING_MODEL
+    # Semantic memory (RAG). When memory is on, notes are embedded on write and memory_search ranks
+    # by cosine instead of keywords. The embedding model is a plugins knob: config
+    # plugins.memory.tools.embed (defaults ON with a Gemini embed model). Provider-neutral via
+    # litellm; point it at a local ollama model for no-key/no-cost embeddings.
     # Auto-recall: silently retrieve relevant memories and prepend them to the prompt on each
     # INTERACTIVE (user) turn — the agent doesn't call a tool. Needs an embedding model + memory.
     memory_auto_recall: bool = True            # AGENTD_MEMORY_AUTO_RECALL
@@ -311,11 +335,9 @@ class Config:
     # computed in the BACKGROUND. OFF by default: it sends file content to Google + costs API
     # calls. AGENTD_RESOURCE_SUMMARIZE=1. Both tiers reuse the same model/timeout below.
     resource_summarize_enabled: bool = False          # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
-    # Image captions go through google-genai (Gemini only). Text summaries go through litellm,
-    # so they can use ANY provider (gemini/openai/lm_studio/...). Empty summary model falls
-    # back to the verify model, then the main model.
-    resource_vision_model: str = "gemini-2.5-flash"   # AGENTD_RESOURCE_VISION_MODEL (Gemini, vision)
-    resource_summary_model: str = ""                  # AGENTD_RESOURCE_SUMMARY_MODEL (litellm "provider/model")
+    # Both model tiers are plugins knobs: image captions (google-genai, Gemini only) resolve from
+    # config plugins.resources.tools.caption; text summaries (litellm, any provider) from
+    # plugins.resources.tools.summarize -> verify chain -> brain.
     resource_vision_timeout_seconds: float = 60.0
     # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
     # Each: {type: email|memory|line, agent, policy?, allow_from?, webhook_path?,
@@ -349,10 +371,9 @@ class Config:
     # sends a full-screen screenshot to `computer_model` (may contain sensitive
     # on-screen data) — point it at a trusted/Vertex endpoint for sensitive use.
     computer_enabled: bool = False
-    # The vision model that drives the see->click loop (decoupled from `model`;
-    # the main agent can be any LLM). Default = Gemini's dedicated computer-use
-    # model, driven via google-genai. Override with AGENTD_COMPUTER_MODEL.
-    computer_model: str = "gemini-2.5-computer-use-preview-10-2025"
+    # The vision model that drives the see->click loop (decoupled from `model`; the main agent can be
+    # any LLM) is a plugins knob: config plugins.computer.tools.computer (default = Gemini's dedicated
+    # computer-use model, driven via google-genai).
     computer_max_steps: int = 25       # loop step cap; override AGENTD_COMPUTER_MAX_STEPS
     computer_send_max: int = 1440      # longest screenshot side sent to the model (Gemini docs recommend ~1440x900); AGENTD_COMPUTER_SEND_MAX
     computer_capture: str = "primary"  # primary | virtual (multi-monitor, best-effort)
@@ -424,14 +445,23 @@ def load_config(path: Path | None = None) -> Config:
                     if key in ("workspace", "state_dir", "skills_dir", "agents_dir"):
                         value = Path(value)
                     setattr(cfg, key, value)
+            cfg.config_path = str(candidate)
             break
+    if not cfg.config_path:
+        logging.getLogger("agentd").warning(
+            "CONFIG MISSING: no agentd.config.json found (searched: %s). Models/knobs fall back to "
+            "built-in defaults; the models layer will refuse to resolve until a config exists.",
+            ", ".join(str(c) for c in candidates if c))
 
     if os.environ.get("AGENTD_AGENT_NAME"):
         cfg.agent_name = os.environ["AGENTD_AGENT_NAME"]
-    if os.environ.get("AGENTD_MODEL"):
-        cfg.model = os.environ["AGENTD_MODEL"]
-    if os.environ.get("AGENTD_SEARCH_MODEL"):
-        cfg.search_model = os.environ["AGENTD_SEARCH_MODEL"]
+    # NOTE: the brain `model` is CONFIG-ONLY (read via tool_models.brain_model). AGENTD_MODEL is
+    # deliberately NOT consulted — models live in config, not env (env = keys, config = knobs).
+    # NOTE: every model-bearing TOOL/SUBSYSTEM model AND every plugin backend PROVIDER now lives in the
+    # plugins map, which is CONFIG-ONLY (a knob, not a secret) — loaded from agentd.config.json's
+    # "plugins" key with NO env override by design (env holds keys, not knobs). So there are deliberately
+    # no AGENTD_*_MODEL / IMAGEGEN_PROVIDER env vars anymore for search/verify/safe_to_send/resource/
+    # computer/memory-embed/skills-relevance/imagegen.
     if os.environ.get("AGENTD_REASONING"):
         cfg.reasoning_effort = os.environ["AGENTD_REASONING"]
     if os.environ.get("AGENTD_HOST"):
@@ -465,14 +495,6 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_BROWSER_STEALTH"):
         cfg.browser_stealth = (
             os.environ["AGENTD_BROWSER_STEALTH"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_BROWSER_PLAYWRIGHT"):
-        cfg.browser_engine_playwright = (
-            os.environ["AGENTD_BROWSER_PLAYWRIGHT"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_BROWSER_AGENT_BROWSER"):
-        cfg.browser_engine_agent_browser = (
-            os.environ["AGENTD_BROWSER_AGENT_BROWSER"].lower() not in ("0", "false", "no", "")
         )
     if os.environ.get("AGENTD_AGENT_BROWSER_COMMAND"):
         cfg.agent_browser_command = os.environ["AGENTD_AGENT_BROWSER_COMMAND"].split()
@@ -514,10 +536,6 @@ def load_config(path: Path | None = None) -> Config:
         cfg.resource_vision_enabled = os.environ["AGENTD_RESOURCE_VISION"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_RESOURCE_SUMMARIZE"):
         cfg.resource_summarize_enabled = os.environ["AGENTD_RESOURCE_SUMMARIZE"].lower() not in ("0", "false", "no", "")
-    if os.environ.get("AGENTD_RESOURCE_VISION_MODEL"):
-        cfg.resource_vision_model = os.environ["AGENTD_RESOURCE_VISION_MODEL"]
-    if os.environ.get("AGENTD_RESOURCE_SUMMARY_MODEL"):
-        cfg.resource_summary_model = os.environ["AGENTD_RESOURCE_SUMMARY_MODEL"]
     if os.environ.get("AGENTD_CHANNEL_POLL"):
         cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
     if os.environ.get("AGENTD_WEBHOOK_HOST"):
@@ -536,14 +554,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.parallel_search_enabled = os.environ["AGENTD_PARALLEL_SEARCH"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("PARALLEL_API_KEY"):
         cfg.parallel_api_key = os.environ["PARALLEL_API_KEY"]
-    if os.environ.get("AGENTD_SEARCH_PROVIDERS"):
-        cfg.search_providers = [
-            s.strip() for s in os.environ["AGENTD_SEARCH_PROVIDERS"].split(",") if s.strip()
-        ]
     if os.environ.get("AGENTD_COMPUTER_ENABLED"):
         cfg.computer_enabled = os.environ["AGENTD_COMPUTER_ENABLED"].lower() not in ("0", "false", "no", "")
-    if os.environ.get("AGENTD_COMPUTER_MODEL"):
-        cfg.computer_model = os.environ["AGENTD_COMPUTER_MODEL"]
     if os.environ.get("AGENTD_COMPUTER_MAX_STEPS"):
         cfg.computer_max_steps = int(os.environ["AGENTD_COMPUTER_MAX_STEPS"])
     if os.environ.get("AGENTD_COMPUTER_CAPTURE"):
@@ -572,8 +584,6 @@ def load_config(path: Path | None = None) -> Config:
         cfg.liveness = [s.strip() for s in os.environ["AGENTD_LIVENESS"].split(",") if s.strip()]
     if os.environ.get("AGENTD_VERIFY_TOOL"):
         cfg.verify_tool = os.environ["AGENTD_VERIFY_TOOL"].lower() not in ("0", "false", "no", "")
-    if os.environ.get("AGENTD_VERIFY_MODEL"):
-        cfg.verify_model = os.environ["AGENTD_VERIFY_MODEL"]
     if os.environ.get("AGENTD_COMPLETENESS_CHECK"):
         cfg.completeness_check = (
             os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in ("0", "false", "no", "")
@@ -600,22 +610,16 @@ def load_config(path: Path | None = None) -> Config:
             os.environ["AGENTD_SKILLS_RELEVANCE_ENABLED"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("AGENTD_SKILLS_RELEVANCE_TOP_K"):
         cfg.skills_relevance_top_k = int(os.environ["AGENTD_SKILLS_RELEVANCE_TOP_K"])
-    if os.environ.get("AGENTD_SKILLS_RELEVANCE_MODEL"):
-        cfg.skills_relevance_model = os.environ["AGENTD_SKILLS_RELEVANCE_MODEL"].strip()
     if os.environ.get("AGENTD_SAFE_TO_SEND"):
         cfg.safe_to_send_check = (
             os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")
         )
-    if os.environ.get("AGENTD_SAFE_TO_SEND_MODEL"):
-        cfg.safe_to_send_model = os.environ["AGENTD_SAFE_TO_SEND_MODEL"]
     if os.environ.get("AGENTD_PERSONA"):
         cfg.persona_enabled = os.environ["AGENTD_PERSONA"].lower() not in ("0", "false", "no", "")
     cfg.persona_file = os.environ.get("AGENTD_PERSONA_FILE") or cfg.persona_file \
         or str(Path(cfg.state_dir).parent / "SOUL.md")   # default: the repo-root SOUL.md (editable)
     if os.environ.get("AGENTD_MEMORY"):
         cfg.memory_enabled = os.environ["AGENTD_MEMORY"].lower() not in ("0", "false", "no", "")
-    if "AGENTD_MEMORY_EMBEDDING_MODEL" in os.environ:
-        cfg.memory_embedding_model = os.environ["AGENTD_MEMORY_EMBEDDING_MODEL"].strip()
     if os.environ.get("AGENTD_MEMORY_AUTO_RECALL"):
         cfg.memory_auto_recall = os.environ["AGENTD_MEMORY_AUTO_RECALL"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_MEMORY_AUTO_RECALL_LIMIT"):
@@ -655,17 +659,11 @@ def load_config(path: Path | None = None) -> Config:
 
 
 def resolve_browser_engine(config) -> str:
-    """Decide the browser engine from the two toggles.
+    """Decide the browser engine from the plugins config: `plugins.browser.provider`.
 
-    Returns "playwright" (our built-in engine) or "agent_browser" (external, via
-    its MCP server). Ours is the default and wins ties: agent-browser is used ONLY
-    when ours is explicitly OFF and agent-browser is ON. Both off => ours, so the
-    browser is never accidentally lost.
-    """
-    use_pw = getattr(config, "browser_engine_playwright", True)
-    use_ab = getattr(config, "browser_engine_agent_browser", False)
-    if use_pw:
-        return "playwright"
-    if use_ab:
-        return "agent_browser"
-    return "playwright"
+    Returns "playwright" (our built-in engine, the DEFAULT) or "agent_browser" (external, via its MCP
+    server). Anything other than "agent_browser" => "playwright", so the browser is never accidentally
+    lost (and per-agent overridable via agent.toml [plugins.browser])."""
+    from agentd.application.tool_models import resolve_tool_provider
+    prov = resolve_tool_provider(config, "browser", "browser", default="playwright")
+    return "agent_browser" if prov == "agent_browser" else "playwright"

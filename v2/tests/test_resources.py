@@ -277,8 +277,8 @@ def test_build_rich_fn_on_for_summarize_only(monkeypatch):
     from agentd.infrastructure.resources.vision import build_rich_fn
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fn = build_rich_fn(SimpleNamespace(resource_summarize_enabled=True,
-                                       resource_summary_model="lm_studio/qwen",
-                                       resource_vision_model="m", resource_vision_timeout_seconds=5))
+                                       plugins={"resources": {"tools": {"summarize": {"model": "lm_studio/qwen"}}}},
+                                       resource_vision_timeout_seconds=5))
     assert fn is not None                          # summarize alone is enough to build it
 
 
@@ -288,7 +288,7 @@ def test_summary_tier_needs_no_gemini_key(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     fn = build_rich_fn(SimpleNamespace(resource_summarize_enabled=True,
-                                       resource_summary_model="lm_studio/qwen",
+                                       plugins={"resources": {"tools": {"summarize": {"model": "lm_studio/qwen"}}}},
                                        resource_vision_timeout_seconds=5))
     assert fn is not None                          # summary tier works with no Gemini key
 

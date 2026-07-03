@@ -21,6 +21,7 @@ from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
+from agentd.application.tool_models import resolve_tool_model
 from agentd.domain.messages import TextContent
 
 import vectorize_gemini as vg
@@ -37,6 +38,9 @@ visible elements. x,y for a label = the START (left baseline-ish) of its text.""
 
 class ReconstructSvgTool(Tool):
     name = "reconstruct_svg"
+    plugin = "vectorize"
+    needs_model = True
+    default_model = vg.DEFAULT_MODEL   # config plugins.vectorize.* overrides
     description = (
         "Semantically VECTORIZE a flat image: a vision model reads its text labels and detects its "
         "arrows, then rebuilds them as EDITABLE <text>/<path> layered over the original artwork "
@@ -53,7 +57,7 @@ class ReconstructSvgTool(Tool):
         "properties": {
             "image": {"type": "string", "description": "Path to the flat image to vectorize."},
             "out_svg": {"type": "string", "description": "Output layered editable .svg path."},
-            "model": {"type": "string", "description": f"Gemini vision model. Default {vg.DEFAULT_MODEL}."},
+            "model": {"type": "string", "description": f"Override the vision model (resolves per-call > config plugins.vectorize.tools.reconstruct_svg > plugins.vectorize default > {vg.DEFAULT_MODEL})."},
             "api_key": {"type": "string", "description": "Override key (else GEMINI_API_KEY/GOOGLE_API_KEY)."},
         },
     }
@@ -81,8 +85,9 @@ class ReconstructSvgTool(Tool):
         img = self._resolve(params["image"])
         w, h = vg.image_dims(img)
         key = vg.resolve_key(params.get("api_key"), self.config)
-        data = vg.analyze_json(img, _PROMPT.format(w=w, h=h),
-                               model=params.get("model") or vg.DEFAULT_MODEL, api_key=key)
+        model = resolve_tool_model(self.config, self.plugin, self.name,
+                                   per_call=params.get("model"), default=self.default_model)
+        data = vg.analyze_json(img, _PROMPT.format(w=w, h=h), model=model, api_key=key)
         elements = data.get("elements", data if isinstance(data, list) else [])
         overlay = self._overlay_engine()
         defs, body, _, _ = overlay.build_inner({"width": w, "height": h, "elements": elements})

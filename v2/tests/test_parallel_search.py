@@ -125,8 +125,7 @@ def test_available_true_when_mcp_installed():
 
 def _search_cfg(**over):
     base = dict(parallel_search_enabled=True, parallel_search_url=None, parallel_api_key=None,
-                search_providers=None, search_model="gemini/gemini-2.5-flash",
-                model="gemini/x", brave_api_key=None)
+                plugins={}, model="gemini/x", brave_api_key=None)
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -144,5 +143,6 @@ def test_parallel_disabled_leaves_duckduckgo_only(monkeypatch):
 
 
 def test_explicit_provider_list_overrides_default():
-    provs = build_search_providers(_search_cfg(search_providers=["duckduckgo", "parallel"]))
+    provs = build_search_providers(_search_cfg(
+        plugins={"web": {"tools": {"web_search": {"provider": ["duckduckgo", "parallel"]}}}}))
     assert [p.name for p in provs] == ["duckduckgo", "parallel"]

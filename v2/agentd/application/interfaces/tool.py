@@ -61,6 +61,16 @@ class Tool(ABC):
     label: str = ""
     concurrency: str = "parallel"  # "parallel" (default) or "sequential"
 
+    # --- model-bearing metadata (only meaningful when needs_model=True) ---------------
+    # A tool that calls an LLM/VLM/diffusion model declares its home ``plugin`` (the config
+    # grouping), sets ``needs_model = True``, and gives a ``default_model`` — the last-resort
+    # fallback used when nothing is configured (see resolve_tool_model's PLUGIN->TOOL->model
+    # precedence). Pure/deterministic tools (file, shell, browser, ...) leave these defaults:
+    # needs_model=False means the model resolver skips the tool entirely.
+    plugin: str = ""
+    needs_model: bool = False
+    default_model: str = ""  # "" => a text helper may inherit the brain model; VLM tools set a real id
+
     @abstractmethod
     async def execute(
         self,

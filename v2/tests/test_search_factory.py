@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from search.factory import build_search_providers
 
 
-def _cfg(model="gemini/gemini-2.5-pro", brave=None, search_providers=None):
-    return SimpleNamespace(model=model, brave_api_key=brave, search_providers=search_providers)
+def _cfg(model="gemini/gemini-2.5-pro", brave=None, plugins=None):
+    return SimpleNamespace(model=model, brave_api_key=brave, plugins=plugins or {})
 
 
 def _names(cfg):
@@ -37,5 +37,5 @@ def test_parallel_disabled_leaves_duckduckgo(monkeypatch):
 
 def test_explicit_override_respected_and_unknowns_dropped(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    names = _names(_cfg(search_providers=["brave", "tavily", "gemini"]))
+    names = _names(_cfg(plugins={"web": {"tools": {"web_search": {"provider": ["brave", "tavily", "gemini"]}}}}))
     assert names == ["brave", "gemini"]  # tavily unknown -> dropped, order preserved

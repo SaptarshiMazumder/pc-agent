@@ -132,7 +132,8 @@ class AgentService:
         # expose the run context to context-aware tools (e.g. cron tags its task with
         # this agent). Task-local, so concurrent runs never cross.
         set_run_context(RunContext(agent_id=agent.id, session_key=session_id, mode=mode,
-                                   workspace=str(agent.workspace)))
+                                   workspace=str(agent.workspace),
+                                   plugins=getattr(agent, "plugins", None) or None))
         tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
         session = self._make_session(session_id, agent)   # per-agent session store
         messages = session.load()                         # prior history (read)

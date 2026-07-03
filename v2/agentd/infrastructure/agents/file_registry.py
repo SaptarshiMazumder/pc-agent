@@ -109,6 +109,12 @@ class FileAgentRegistry:
         deny = tools.get("deny") or []
         skills_allow = data.get("skills")
         model = data.get("model")
+        # [plugins.*] per-agent model overrides, same plugin->tool->model shape as global
+        # config.plugins. e.g.  [plugins.vision]  model = "..."  /  [plugins.vision.tools.verify_figure]
+        # model = "...". Layered ABOVE global config.plugins by resolve_tool_model. Lowercase the
+        # plugin keys so lookups (which lowercase the plugin) match; leave the nested body intact.
+        plugins = {str(k).lower(): v for k, v in (data.get("plugins") or {}).items()
+                   if isinstance(v, dict)}
         heartbeat = data.get("heartbeat")
 
         # [subagents] allow — which specialist agents this one may delegate to (ids/globs).
@@ -132,6 +138,7 @@ class FileAgentRegistry:
             state_dir=self._state_dir_for(agent_id),
             instructions=load_bootstrap(d),
             model=str(model) if model else None,
+            plugins=plugins,
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
             subagents_allow=tuple(sub_allow) if sub_allow is not None else None,

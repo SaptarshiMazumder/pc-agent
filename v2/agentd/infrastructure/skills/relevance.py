@@ -51,7 +51,8 @@ def rank_skills_by_relevance(skills, query: str, embed_fn, top_k: int):
 def build_skill_embed_fn(config):
     """A cached embedding fn (litellm) when relevance is enabled AND a model is set; else None.
     Skill texts are stable so they're cached across turns; only the per-message query re-embeds."""
-    model = getattr(config, "skills_relevance_model", "") or ""
+    from agentd.application.tool_models import resolve_tool_model
+    model = resolve_tool_model(config, "skills", "relevance", default="") or ""
     if not (getattr(config, "skills_relevance_enabled", False) and model):
         return None
     cache: dict[str, list] = {}

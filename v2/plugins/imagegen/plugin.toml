@@ -9,4 +9,4 @@ entry = "imagegen_plugin:register"
 #   replicate -> `pip install replicate`  + REPLICATE_API_TOKEN (no minimum; takes Civitai/HF LoRAs)
 # family = flux (default) | sdxl. All backends error gracefully at call time if their key/dep is
 # missing, so the plugin always loads for inspection. No [requires] gate. Pick per call (`provider=`,
-# `family=`) or globally via IMAGEGEN_PROVIDER / config.imagegen_provider.
+# `family=`) or in config via plugins.imagegen.provider (+ plugins.imagegen.model for the endpoint).

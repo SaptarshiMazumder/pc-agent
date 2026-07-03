@@ -18,6 +18,9 @@ class RunContext:
     session_key: str
     mode: str
     workspace: str = ""   # the agent's working dir for file/exec tools ("" = use the global default)
+    # Per-agent model overrides from agent.toml [plugins.*]: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}.
+    # Layered ABOVE global config.plugins by resolve_tool_model. None/empty = inherit global.
+    plugins: dict | None = None
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
@@ -43,6 +46,15 @@ def current_workspace(default: str | None = None) -> str | None:
     if ctx is not None and ctx.workspace:
         return ctx.workspace
     return default
+
+
+def current_plugins() -> dict:
+    """Per-agent plugin/tool model overrides for the CURRENT run (from agent.toml [plugins.*]).
+    Shape: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}. Empty dict when unset.
+    resolve_tool_model layers this ABOVE the global config.plugins map so a named agent can
+    retarget a plugin's (or a single tool's) model without touching global config."""
+    ctx = _current.get()
+    return (ctx.plugins if ctx is not None and ctx.plugins else {}) or {}
 
 
 # --- run outcome sink -------------------------------------------------------

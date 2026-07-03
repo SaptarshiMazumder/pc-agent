@@ -63,9 +63,11 @@ def test_build_embed_fn_none_unless_enabled_and_model():
     from types import SimpleNamespace
 
     from agentd.infrastructure.skills.relevance import build_skill_embed_fn
-    assert build_skill_embed_fn(SimpleNamespace(skills_relevance_enabled=False,
-                                                skills_relevance_model="m")) is None
-    assert build_skill_embed_fn(SimpleNamespace(skills_relevance_enabled=True,
-                                                skills_relevance_model="")) is None
-    assert build_skill_embed_fn(SimpleNamespace(skills_relevance_enabled=True,
-                                                skills_relevance_model="text-embed")) is not None
+
+    def _cfg(enabled, model):
+        plugins = {"skills": {"tools": {"relevance": {"model": model}}}} if model else {}
+        return SimpleNamespace(skills_relevance_enabled=enabled, plugins=plugins)
+
+    assert build_skill_embed_fn(_cfg(False, "text-embed")) is None      # disabled
+    assert build_skill_embed_fn(_cfg(True, "")) is None                 # no model => off
+    assert build_skill_embed_fn(_cfg(True, "text-embed")) is not None   # enabled + model

@@ -1,6 +1,9 @@
-"""Thin Gemini image-ANALYSIS helper for the vision plugin (plugin-prefixed to avoid sys.path
-collisions). Mirrors core resources/vision.py: key from GEMINI_API_KEY (fallback GOOGLE_API_KEY),
-genai.Client, models.generate_content with an image Part + a prompt. Optional forced-JSON output.
+"""Thin image-ANALYSIS helper for the vision plugin (plugin-prefixed to avoid sys.path collisions).
+
+`analyze` now routes through the provider-agnostic one-shot (agentd.infrastructure.llm.oneshot →
+LiteLLM), so the vision tools' model is a CONFIG knob (the `plugins.vision.*` map, resolved by
+resolve_tool_model), not a hardcoded SDK call — point it at Gemini / OpenAI / Anthropic / a local VLM.
+The constants below are only the built-in DEFAULTS the resolver falls back to.
 
 This is the agent's "eye" as a TOOL — independent of the reasoning model, so it works even when the
 brain is text-only (e.g. DeepSeek) and can't see tool-returned images itself.
@@ -12,12 +15,14 @@ import json
 import os
 from pathlib import Path
 
-# A capable multimodal model for the VLM judge (verify_figure).
+# DEFAULT model for the VLM judge (verify_figure). Bare id => gemini provider (oneshot normalizes).
+# Override via config plugins.vision.tools.verify_figure (or the plugins.vision default), or per-agent.
 DEFAULT_MODEL = "gemini-2.5-flash"
 
-# The GROUNDING model — used for spatial localization (extract_anchors), the hardest, most
-# accuracy-critical vision task in the pipeline. A Pro model locates structures far more precisely
-# than flash, so label leaders land ON the structure instead of in empty space.
+# DEFAULT grounding model (extract_anchors) — the hardest, most accuracy-critical vision task. A Pro
+# model locates structures far more precisely than flash, so label leaders land ON the structure.
+# Gemini is uniquely strong at spatial grounding; keep this on a Gemini Pro unless you have a reason.
+# Override via config plugins.vision.tools.extract_anchors (or the plugins.vision default).
 GROUNDING_MODEL = "gemini-3.1-pro-preview"
 
 
@@ -33,22 +38,15 @@ def _mime(path: Path) -> str:
     return "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
 
 
-def analyze(image_path: Path, prompt: str, *, model: str, api_key: str, want_json: bool) -> str:
-    """Return the model's text (or JSON string) for an image + prompt."""
-    from google import genai
-    from google.genai import types
+def analyze(image_path: Path, prompt: str, *, model: str, api_key: str | None = None,
+            want_json: bool) -> str:
+    """Return the model's text (or JSON string) for an image + prompt, via the provider-agnostic
+    one-shot (LiteLLM). `model` is a litellm id (bare id => gemini); `api_key` is optional (gemini
+    falls back to GEMINI_API_KEY/GOOGLE_API_KEY, other providers read their own env key)."""
+    from agentd.infrastructure.llm.oneshot import vision_complete
 
-    client = genai.Client(api_key=api_key)
-    cfg = None
-    if want_json:
-        cfg = types.GenerateContentConfig(response_mime_type="application/json")
-    resp = client.models.generate_content(
-        model=model,
-        contents=[types.Part.from_bytes(data=image_path.read_bytes(), mime_type=_mime(image_path)),
-                  prompt],
-        config=cfg,
-    )
-    return resp.text or ""
+    return vision_complete(model=model, prompt=prompt, image_paths=[image_path],
+                           want_json=want_json, api_key=api_key)
 
 
 def parse_json(text: str):

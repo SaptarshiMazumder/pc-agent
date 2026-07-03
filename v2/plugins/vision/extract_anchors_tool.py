@@ -16,6 +16,7 @@ from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
+from agentd.application.tool_models import resolve_tool_model
 
 import vision_gemini as vg
 
@@ -125,6 +126,9 @@ def _snap_to_ink(grid, cols, rows, cell, target, box, W, H):
 
 class ExtractAnchorsTool(Tool):
     name = "extract_anchors"
+    plugin = "vision"
+    needs_model = True
+    default_model = vg.GROUNDING_MODEL   # Pro = precise localization; config plugins.vision.* overrides
     description = (
         "Locate named structures in an image and return label-anchor JSON for the overlay: for each "
         "structure, the pixel `target` [x,y] to point at, its bounding `box` [x,y,w,h], and a `side` "
@@ -145,7 +149,7 @@ class ExtractAnchorsTool(Tool):
             "structures": {"type": "array", "items": {"type": "string"},
                            "description": "Names of the structures to locate and label."},
             "snap": {"type": "boolean", "description": "Snap each target onto the nearest drawn pixel within its structure so dots never float in whitespace. Default true."},
-            "model": {"type": "string", "description": f"Gemini grounding model. Default {vg.GROUNDING_MODEL} (Pro = precise localization)."},
+            "model": {"type": "string", "description": f"Override the grounding model (litellm 'provider/model'; bare id => gemini). Resolves per-call > agent.toml/config plugins.vision.tools.extract_anchors > plugins.vision default > {vg.GROUNDING_MODEL} (Pro = precise localization)."},
             "api_key": {"type": "string", "description": "Override key (else GEMINI_API_KEY/GOOGLE_API_KEY)."},
         },
     }
@@ -164,9 +168,9 @@ class ExtractAnchorsTool(Tool):
         img = self._resolve(params["image"])
         w, h = vg.image_dims(img)
         prompt = _PROMPT.format(structures="\n".join(f"- {s}" for s in params["structures"]))
-        key = vg.resolve_key(params.get("api_key"), self.config)
-        raw = vg.analyze(img, prompt, model=params.get("model") or vg.GROUNDING_MODEL,
-                         api_key=key, want_json=True)
+        model = resolve_tool_model(self.config, self.plugin, self.name,
+                                   per_call=params.get("model"), default=vg.GROUNDING_MODEL)
+        raw = vg.analyze(img, prompt, model=model, api_key=params.get("api_key"), want_json=True)
         parsed = vg.parse_json(raw)
         if not isinstance(parsed, list):
             raise ValueError(f"expected a JSON array, got {type(parsed).__name__}")

@@ -4,6 +4,11 @@ Sends chat.send over WebSocket and renders streamed chat.event frames using
 `rich`: assistant text as live-rendered markdown, tool activity as Claude
 Code-style blocks (⏺ call / ⎿ result), errors in red.
 Commands: /sessions  /abort  /new  /quit
+
+Anything that used to require typing an index or id (/sessions, /agents,
+/agent-rm, /mcp remove, /cron rm|run|on|off, /notifications ack) now opens an
+arrow-key menu (↑↓ + enter, esc cancels — see picker.py) when running in a
+real terminal; the typed flows remain as the non-TTY fallback.
 """
 
 from __future__ import annotations
@@ -46,6 +51,8 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
+
+from . import picker
 
 # ── Color policy ──────────────────────────────────────────────────────────────
 # Per user request: every *colored* element derives from lime green; greys,
@@ -140,6 +147,28 @@ DEFAULT_TOOL_STYLE = ("⏺", LIME)
 # /sessions shows the most-recent N by default; 'all' (or a number) expands it.
 SESSIONS_DEFAULT = 15
 
+# The "/" command palette (press "/" on an empty prompt). Every command here
+# must run sensibly with no arguments — most open an arrow-key menu of their
+# own; esc in the palette prefills "/" so arguments can still be typed.
+COMMANDS = [
+    ("/sessions", "list & resume saved sessions"),
+    ("/agents", "list agents & switch"),
+    ("/agent", "show / switch the current agent"),
+    ("/agent-rm", "delete an agent — permanent"),
+    ("/tools", "tools available to the current agent"),
+    ("/mcp", "MCP servers: list / add / remove"),
+    ("/cron", "scheduled jobs: list / run / on / off / history"),
+    ("/cleanup", "clean an agent workspace (dry-run first)"),
+    ("/notifications", "list & ack notifications"),
+    ("/new", "start a fresh session"),
+    ("/abort", "abort the current run"),
+    ("/quit", "exit"),
+]
+
+
+def command_options() -> list[picker.Option]:
+    return [picker.Option(value=cmd, label=cmd, detail=desc) for cmd, desc in COMMANDS]
+
 
 def tool_style(name: str) -> tuple[str, str]:
     return TOOL_STYLE.get(name.lower(), DEFAULT_TOOL_STYLE)
@@ -186,6 +215,20 @@ def sessions_table(sessions: list[dict], current: str | None = None) -> Table:
     return table
 
 
+def session_options(sessions: list[dict], current: str | None = None) -> list[picker.Option]:
+    """Sessions -> picker options: the same facts as sessions_table, menu-shaped.
+    Pure so it can be unit-tested without a live gateway or terminal."""
+    opts = []
+    for s in sessions:
+        sid = s.get("sessionId", "?")
+        ts = s.get("modified")
+        when = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
+        detail = f"{s.get('messages', 0)} msgs" + (f" · {when}" if when else "")
+        opts.append(picker.Option(value=sid, label=sid, detail=detail,
+                                  current=sid == current))
+    return opts
+
+
 def result_text(result: dict) -> str:
     blocks = (result or {}).get("content") or []
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
@@ -228,6 +271,7 @@ class TerminalClient:
         self._buf = ""
         self._mode: str | None = None  # "text" (final answer) or "think" (reasoning)
         self._live: Live | None = None
+        self.history: list[str] = []   # prompt history for ↑/↓ recall
 
     async def request(self, method: str, params: dict) -> dict:
         req_id = uuid.uuid4().hex[:8]
@@ -235,6 +279,44 @@ class TerminalClient:
         self.pending[req_id] = fut
         await self.ws.send(json.dumps({"type": "req", "id": req_id, "method": method, "params": params}))
         return await fut
+
+    async def _pick(self, title: str, options: list[picker.Option]):
+        """Arrow-key menu, off the event loop thread (it blocks on raw keys)."""
+        return await asyncio.to_thread(picker.pick, console, title, options)
+
+    def _switch_agent(self, target: str) -> None:
+        self.agent_id = None if target in ("main", "default") else target
+        self.session_key = f"term-{uuid.uuid4().hex[:8]}"   # fresh thread per agent
+        console.print(f"[{LIME}]agent:[/] [bold]{self.agent_id or 'main'}[/] "
+                      f"[dim](new session {self.session_key})[/]")
+
+    async def _agents_menu(self) -> None:
+        """/agents and bare /agent: pick an agent with arrow keys and switch to
+        it; falls back to the printed list + `/agent <id>` outside a TTY."""
+        try:
+            payload = await self.request("agents.list", {})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]")
+            return
+        agents = payload.get("agents") or []
+        current = self.agent_id or payload.get("default") or "main"
+        if picker.can_pick(console) and agents:
+            opts = [picker.Option(value=a["id"], label=a["id"],
+                                  detail=a.get("name", ""),
+                                  current=a["id"] == current)
+                    for a in agents]
+            chosen = await self._pick("switch agent", opts)
+            if chosen is None:
+                console.print("[dim]cancelled[/]")
+            elif chosen == current:
+                console.print(f"[dim]already on[/] [bold]{current}[/]")
+            else:
+                self._switch_agent(chosen)
+            return
+        for a in agents:
+            mark = f"[{LIME}]→[/]" if a["id"] == current else " "
+            console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
+        console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
 
     async def _reader(self) -> None:
         try:
@@ -404,7 +486,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  /agents  /agent <id>  /tools  /mcp  /agent-rm <id>  /cron  /notifications  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  press [/][bold {LIME}]/[/][dim] for the command menu  ·  /agents  /tools  /mcp  /cron  /sessions  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -423,14 +505,24 @@ class TerminalClient:
                 while True:
                     # Bracket the user's query in rules, like Claude / OpenClaw.
                     console.print(Rule(style=f"dim {LIME}"))
+                    prompt = f"[bold black on {LIME}] › [/] "
                     try:
-                        line = await asyncio.to_thread(console.input, f"[bold black on {LIME}] › [/] ")
+                        if picker.can_pick(console) and not console.legacy_windows:
+                            # raw-key prompt: "/" opens the command palette,
+                            # ↑/↓ recall history, esc clears the line
+                            line = await asyncio.to_thread(
+                                picker.read_line, console, prompt,
+                                commands=command_options(), history=self.history)
+                        else:
+                            line = await asyncio.to_thread(console.input, prompt)
                     except (EOFError, KeyboardInterrupt):
                         break
                     console.print(Rule(style=f"dim {LIME}"))
                     line = line.strip()
                     if not line:
                         continue
+                    if not self.history or self.history[-1] != line:
+                        self.history.append(line)
                     if line == "/quit":
                         break
                     if line == "/new":
@@ -438,17 +530,7 @@ class TerminalClient:
                         console.print(f"[{LIME}]new session:[/] [bold]{self.session_key}[/]")
                         continue
                     if line == "/agents":
-                        try:
-                            payload = await self.request("agents.list", {})
-                        except RuntimeError as e:
-                            console.print(f"[error]{e}[/]")
-                            continue
-                        agents = payload.get("agents") or []
-                        current = self.agent_id or payload.get("default") or "main"
-                        for a in agents:
-                            mark = f"[{LIME}]→[/]" if a["id"] == current else " "
-                            console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
-                        console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
+                        await self._agents_menu()
                         continue
                     if line == "/tools" or line.startswith("/tools "):
                         # what tools are available right now — to the CURRENT agent by default,
@@ -512,12 +594,28 @@ class TerminalClient:
                                 else:
                                     console.print(f"[error]{payload.get('error', 'failed')}[/]")
                             elif sub in ("remove", "rm"):
-                                if not rest.strip():
+                                name = rest.strip()
+                                if not name and picker.can_pick(console):
+                                    payload = await self.request("mcp.list", {})
+                                    servers = payload.get("servers") or []
+                                    if not servers:
+                                        console.print("[dim]no MCP servers registered[/]")
+                                        continue
+                                    name = await self._pick(
+                                        "remove MCP server",
+                                        [picker.Option(
+                                            value=s["name"], label=s["name"],
+                                            detail=" ".join(s.get("command") or []) or s.get("url") or "")
+                                         for s in servers])
+                                    if name is None:
+                                        console.print("[dim]cancelled[/]")
+                                        continue
+                                if not name:
                                     console.print("[dim]usage: /mcp remove <name>[/]")
                                     continue
-                                payload = await self.request("mcp.remove", {"name": rest.strip()})
+                                payload = await self.request("mcp.remove", {"name": name})
                                 console.print(
-                                    f"[{LIME}]removed[/] [bold]{rest.strip()}[/]" if payload.get("removed")
+                                    f"[{LIME}]removed[/] [bold]{name}[/]" if payload.get("removed")
                                     else f"[error]{payload.get('error', 'failed')}[/]")
                             else:
                                 console.print("[dim]/mcp list | add <name> -- <cmd…> | remove <name>[/]")
@@ -527,6 +625,25 @@ class TerminalClient:
                     if line.startswith("/agent-rm") or line.startswith("/agent-delete"):
                         parts = line.split(maxsplit=1)
                         target = parts[1].strip() if len(parts) > 1 else ""
+                        if not target and picker.can_pick(console):
+                            try:
+                                payload = await self.request("agents.list", {})
+                            except RuntimeError as e:
+                                console.print(f"[error]{e}[/]")
+                                continue
+                            removable = [a for a in (payload.get("agents") or [])
+                                         if a["id"] not in ("main", "default")]
+                            if not removable:
+                                console.print("[dim]no removable agents (cannot delete 'main')[/]")
+                                continue
+                            target = await self._pick(
+                                "delete agent (permanent)",
+                                [picker.Option(value=a["id"], label=a["id"],
+                                               detail=a.get("name", ""))
+                                 for a in removable])
+                            if target is None:
+                                console.print("[dim]cancelled[/]")
+                                continue
                         if not target:
                             console.print("[dim]usage: /agent-rm <id>  — permanently deletes the agent[/]")
                             continue
@@ -563,14 +680,13 @@ class TerminalClient:
                     if line == "/agent" or line.startswith("/agent "):
                         parts = line.split(maxsplit=1)
                         if len(parts) == 1:
-                            console.print(f"[dim]current agent:[/] [bold]{self.agent_id or 'main'}[/]"
-                                          "  [dim](/agents to list, /agent <id> to switch, /agent-rm <id> to delete)[/]")
+                            if picker.can_pick(console):
+                                await self._agents_menu()
+                            else:
+                                console.print(f"[dim]current agent:[/] [bold]{self.agent_id or 'main'}[/]"
+                                              "  [dim](/agents to list, /agent <id> to switch, /agent-rm <id> to delete)[/]")
                             continue
-                        target = parts[1].strip()
-                        self.agent_id = None if target in ("main", "default") else target
-                        self.session_key = f"term-{uuid.uuid4().hex[:8]}"   # fresh thread per agent
-                        console.print(f"[{LIME}]agent:[/] [bold]{self.agent_id or 'main'}[/] "
-                                      f"[dim](new session {self.session_key})[/]")
+                        self._switch_agent(parts[1].strip())
                         continue
                     if line == "/cron" or line.startswith("/cron ") or line == "/jobs":
                         parts = line.split()
@@ -605,8 +721,36 @@ class TerminalClient:
                             console.print(table)
                             console.print(f"[dim]{len(hist)} run(s)[/]")
                             continue
-                        if len(parts) >= 3 and parts[1] in ("rm", "remove", "run", "on", "off"):
-                            sub, tid = parts[1], parts[2]
+                        if len(parts) >= 2 and parts[1] in ("rm", "remove", "run", "on", "off"):
+                            sub = parts[1]
+                            tid = parts[2] if len(parts) >= 3 else None
+                            if tid is None:
+                                if not picker.can_pick(console):
+                                    console.print(f"[dim]usage: /cron {sub} <id>[/]")
+                                    continue
+                                try:
+                                    payload = await self.request("cron.list", {})
+                                except RuntimeError as e:
+                                    console.print(f"[error]{e}[/]")
+                                    continue
+                                if not payload.get("autonomy"):
+                                    console.print("[dim]autonomy is off — set AGENTD_AUTONOMY=1[/]")
+                                    continue
+                                jobs = payload.get("jobs") or []
+                                if not jobs:
+                                    console.print("[dim]no scheduled jobs[/]")
+                                    continue
+                                tid = await self._pick(
+                                    f"cron {sub} — pick a job",
+                                    [picker.Option(
+                                        value=j["id"], label=j["id"],
+                                        detail=f"{j['agentId']} · {j['schedule']} · "
+                                               f"{'on' if j['enabled'] else 'off'} · "
+                                               f"{(j['payload'] or '')[:40]}")
+                                     for j in jobs])
+                                if tid is None:
+                                    console.print("[dim]cancelled[/]")
+                                    continue
                             method = {"rm": "cron.remove", "remove": "cron.remove",
                                       "run": "cron.run", "on": "cron.update", "off": "cron.update"}[sub]
                             p = {"id": tid}
@@ -690,6 +834,27 @@ class TerminalClient:
                         parts = line.split()
                         if len(parts) >= 2 and parts[1] in ("ack", "read"):
                             nid = parts[2] if len(parts) >= 3 else "*"
+                            if len(parts) < 3 and picker.can_pick(console):
+                                try:
+                                    payload = await self.request("notifications.list", {})
+                                except RuntimeError as e:
+                                    console.print(f"[error]{e}[/]")
+                                    continue
+                                unread = [x for x in (payload.get("notifications") or [])
+                                          if not x.get("read")]
+                                if not unread:
+                                    console.print("[dim]nothing unread[/]")
+                                    continue
+                                opts = [picker.Option(value="*", label="(ack all)",
+                                                      detail=f"{len(unread)} unread")]
+                                opts += [picker.Option(
+                                    value=x["id"], label=f"{x['kind']} · {x['agentId']}",
+                                    detail=f"{x['at']} · {x['text'][:60]}")
+                                    for x in unread]
+                                nid = await self._pick("acknowledge notification", opts)
+                                if nid is None:
+                                    console.print("[dim]cancelled[/]")
+                                    continue
                             try:
                                 resp = await self.request("notifications.ack", {"id": nid})
                                 console.print(f"[dim]acked {resp.get('acked', 0)}[/]")
@@ -731,6 +896,22 @@ class TerminalClient:
                         if not sessions:
                             console.print(f"[dim]no saved sessions for agent '{who}' yet[/]")
                             continue
+                        if picker.can_pick(console):
+                            # arrow-key menu over the FULL list — it scrolls and
+                            # filters, so the show-N/'all' dance isn't needed here
+                            chosen = await self._pick(
+                                f"resume a session — agent {who} ({len(sessions)})",
+                                session_options(sessions, self.session_key))
+                            if chosen is None:
+                                console.print("[dim]cancelled[/]")
+                            else:
+                                self.session_key = chosen
+                                console.print(
+                                    f"[{LIME}]resumed:[/] [bold]{self.session_key}[/] "
+                                    "[dim](history continues on your next message)[/]"
+                                )
+                            continue
+                        # non-TTY fallback: numbered table + typed index
                         # how many to show: default 15; 'all'/'*' or a number expands it
                         if arg in ("all", "*", "more"):
                             n = len(sessions)

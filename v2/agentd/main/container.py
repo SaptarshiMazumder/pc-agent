@@ -53,15 +53,18 @@ def build_memory_bank(config: Config):
         return None
     from pathlib import Path
 
+    from agentd.application.tool_models import MEMORY_EMBED_DEFAULT_MODEL, resolve_tool_model
     from agentd.infrastructure.embeddings import build_embed_fn
     from agentd.infrastructure.memory.bank import SqliteMemoryBank
 
-    # A semantic embedder makes memory RAG (embed-on-write, cosine recall); empty model =>
-    # keyword-only, the prior behavior. Cache is per-bank so stable notes aren't re-embedded.
-    embed_fn = build_embed_fn(getattr(config, "memory_embedding_model", ""))
+    # A semantic embedder makes memory RAG (embed-on-write, cosine recall). Resolved from the unified
+    # plugins map (plugins.memory.embed); defaults ON with the built-in embed model. Cache is per-bank
+    # so stable notes aren't re-embedded.
+    embed_model = resolve_tool_model(config, "memory", "embed", default=MEMORY_EMBED_DEFAULT_MODEL)
+    embed_fn = build_embed_fn(embed_model)
     bank = SqliteMemoryBank(Path(config.state_dir) / "memory.sqlite", embed_fn=embed_fn)
     if embed_fn is not None:
-        log.info("memory: enabled (semantic, model=%s)", config.memory_embedding_model)
+        log.info("memory: enabled (semantic, model=%s)", embed_model)
     else:
         log.info("memory: enabled (keyword-only — no embedding model set)")
     return bank
@@ -88,7 +91,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # are discovered + guarded uniformly. (Internal-/plugin-MCP tools are added async at gateway
     # startup and pass through the SAME enablement there.) The credential vault + connect-token
     # store are injected (shared with the gateway's /connect web form).
-    from agentd.domain.agent import apply_enablement
+    from agentd.domain.agent import apply_enablement, apply_plugin_enablement
     from agentd.infrastructure.plugins import AllowAllEntitlement, discover_plugin_contributions
 
     # plugins contribute tools (join the catalog), prompt sections (teach the model how to use
@@ -127,6 +130,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         if new_tools:
             kept = apply_enablement(list(new_tools), getattr(config, "tools_enabled", None),
                                     getattr(config, "tools_disabled", ()))
+            kept = apply_plugin_enablement(kept, getattr(config, "plugins", None))
             service.add_tools(_wrap(kept))
         if new_sections:
             plugin_sections.extend(new_sections)   # same list the prompt builder reads -> live
@@ -150,8 +154,10 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # (plugins/) + third-party plugins both flow through discover_plugin_contributions. The core
     # contributes no tool implementations (they all live outside agentd/). Global on/off filter,
     # then wrap EVERY tool in the reliability middleware + tag its source.
-    tools = _wrap(apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
-                                   getattr(config, "tools_disabled", ())))
+    tools = _wrap(apply_plugin_enablement(
+        apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
+                         getattr(config, "tools_disabled", ())),
+        getattr(config, "plugins", None)))
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -177,8 +183,9 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         from agentd.infrastructure.context import WindowContextPolicy
 
         context_policy = WindowContextPolicy(config.context_max_messages)
+    from agentd.application.tool_models import brain_model
     engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
-        stream_fn, config.model, max_iterations=config.max_turns,
+        stream_fn, brain_model(config), max_iterations=config.max_turns,  # brain model: CONFIG-ONLY
         observers=build_observers(config), context_policy=context_policy,
         execution_contract=getattr(config, "execution_contract", ""),
     )

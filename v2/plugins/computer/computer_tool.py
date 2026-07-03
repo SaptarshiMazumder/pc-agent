@@ -51,10 +51,13 @@ class ComputerTool(Tool):
         self.provider = provider
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        from agentd.application.tool_models import COMPUTER_DEFAULT_MODEL, resolve_tool_model
         from agentd.infrastructure.tools.computer.drivers import GeminiComputerUseDriver
 
         try:
-            driver = GeminiComputerUseDriver(self.provider, self.config.computer_model, self.config)
+            model = resolve_tool_model(self.config, "computer", "computer",
+                                       default=COMPUTER_DEFAULT_MODEL)
+            driver = GeminiComputerUseDriver(self.provider, model, self.config)
             summary = await driver.run(params["task"], abort, on_update)
             return ToolResult.text(summary)
         except Exception as e:  # noqa: BLE001

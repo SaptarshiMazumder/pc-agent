@@ -90,9 +90,22 @@ def _mcp_server_config(manifest: PluginManifest):
 
 
 def _gate(config, plugin_id: str, author_default: bool) -> bool:
-    """config.plugins[id] overrides the manifest's own `enabled`; absent => the author default."""
+    """config.plugins[id] overrides the manifest's own `enabled`; absent => the author default.
+
+    `config.plugins` is the ONE per-plugin config block (see config.py): an entry is normally the
+    plugin's config DICT (its `model`/`tools`/… knobs), whose OPTIONAL `enabled` key decides — and
+    when that key is omitted we fall back to the author default, so configuring a plugin's models
+    NEVER silently flips its enablement. A bare bool entry (legacy/shorthand) still enables/disables
+    directly. Anything else => the author default."""
     plugins = getattr(config, "plugins", None) or {}
-    return bool(plugins.get(plugin_id, author_default))
+    if plugin_id not in plugins:
+        return author_default
+    entry = plugins[plugin_id]
+    if isinstance(entry, bool):
+        return entry
+    if isinstance(entry, dict):
+        return bool(entry.get("enabled", author_default))
+    return author_default
 
 
 def _compatible(manifest) -> bool:

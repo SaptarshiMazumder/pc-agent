@@ -4,7 +4,7 @@ This is the one place that selects + orders search backends. Default order mirro
 OpenClaw's `autoDetectOrder`: gemini (if a Gemini key is present — it reuses the model
 key, so it's auto-enabled and primary) -> parallel (keyless hosted Search MCP) ->
 duckduckgo (keyless fallback). Brave stays in the registry but is not auto-enabled. An
-explicit `config.search_providers` list (env `AGENTD_SEARCH_PROVIDERS`) overrides the
+explicit `plugins.web.provider` (a list, or a single name) in the config overrides the
 order/selection; unknown names are ignored (forward-compatible with exa/tavily/...).
 """
 
@@ -24,8 +24,10 @@ from search.providers import (
 
 def _search_model(config) -> str:
     # Grounding runs on a DEDICATED fast model, not the (possibly heavy) main model —
-    # a reasoning model makes grounding slow enough to blow the web_search timeout.
-    return getattr(config, "search_model", None) or config.model
+    # a reasoning model makes grounding slow enough to blow the web_search timeout. Resolved from
+    # the unified plugins map (plugins.web.web_search -> plugins.web -> the brain).
+    from agentd.application.tool_models import search_model
+    return search_model(config)
 
 
 def _build_parallel(config) -> ParallelSearchProvider:
@@ -71,6 +73,14 @@ def _default_order(config) -> list[str]:
 
 
 def build_search_providers(config) -> list[SearchProvider]:
+    from agentd.application.tool_models import resolve_tool_provider
     registry = _registry(config)
-    order = getattr(config, "search_providers", None) or _default_order(config)
+    # The provider CHAIN is a per-TOOL knob: plugins.web.tools.web_search.provider — a list (explicit
+    # order), a single name, or "auto"/absent => the OpenClaw-style auto-detect order. Per-agent
+    # overridable via agent.toml [plugins.web.tools.web_search].
+    order = resolve_tool_provider(config, "web", "web_search", default="auto")
+    if order == "auto" or not order:
+        order = _default_order(config)
+    elif isinstance(order, str):
+        order = [order]
     return [registry[name]() for name in order if name in registry]

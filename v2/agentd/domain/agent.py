@@ -13,7 +13,7 @@ too (it only reads a `.name`, so it stays IO-free).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -27,6 +27,11 @@ class AgentSpec:
     description: str = ""                          # one-line "what this agent is for" — shown to
     #                                               orchestrators by agents_list for delegation
     model: str | None = None                      # per-agent model override (carried; wired later)
+    # Per-agent TOOL-model overrides (from agent.toml [plugins.*]), same plugin->tool->model shape as
+    # global config.plugins: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}. Layered ABOVE
+    # global config.plugins by resolve_tool_model, so an agent can point a plugin (or one tool) at a
+    # different model without touching global config. Empty = inherit global.
+    plugins: dict = field(default_factory=dict)
     tools_allow: tuple[str, ...] | None = None    # None = all tools
     tools_deny: tuple[str, ...] = ()
     # Delegation scope: ids/globs of the specialist agents THIS agent may spawn/delegate to
@@ -116,6 +121,24 @@ def apply_enablement(tools: list, enabled=None, disabled=()) -> list:
         if any(_matches(name, d) for d in deny):
             continue
         if allow is not None and not any(_matches(name, a) for a in allow):
+            continue
+        out.append(t)
+    return out
+
+
+def apply_plugin_enablement(tools: list, plugins: dict | None) -> list:
+    """Drop tools switched OFF in the plugins config block — plugins[<plugin>].tools[<tool>].enabled
+    is explicitly False. The sibling of the plugin-level gate (discovery._gate, applied at load): that
+    toggles a whole plugin, this toggles ONE tool. A tool's home plugin is its provenance tag
+    (``_plugin_id``, set by discovery for every plugin tool; falls back to ``.plugin``). Absent/omitted
+    ``enabled`` => kept (default on). IO-free, duck-typed on ``.name``."""
+    plugins = plugins or {}
+    out = []
+    for t in tools:
+        pid = getattr(t, "_plugin_id", "") or getattr(t, "plugin", "")
+        pconf = plugins.get(pid)
+        tconf = (pconf.get("tools") or {}).get(getattr(t, "name", "")) if isinstance(pconf, dict) else None
+        if isinstance(tconf, dict) and tconf.get("enabled") is False:
             continue
         out.append(t)
     return out

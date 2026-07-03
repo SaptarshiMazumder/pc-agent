@@ -54,12 +54,16 @@ def build_rich_fn(config):
     want_vision = bool(getattr(config, "resource_vision_enabled", False))
     want_summary = bool(getattr(config, "resource_summarize_enabled", False))
 
+    from agentd.application.tool_models import (
+        RESOURCE_VISION_DEFAULT_MODEL, resolve_tool_model, resource_summary_model,
+    )
     gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    vision_model = getattr(config, "resource_vision_model", "gemini-2.5-flash")
+    # Both tiers resolve from the unified plugins map (plugins.resources.*).
+    vision_model = resolve_tool_model(config, "resources", "caption",
+                                      default=RESOURCE_VISION_DEFAULT_MODEL)
     timeout_s = getattr(config, "resource_vision_timeout_seconds", 60.0)
-    # summaries use their own litellm model, else the verify model, else the main model
-    summary_model = (getattr(config, "resource_summary_model", "")
-                     or getattr(config, "verify_model", None) or getattr(config, "model", None))
+    # summaries use their own model, else the verify chain, else the main model
+    summary_model = resource_summary_model(config)
 
     vision_ok = want_vision and bool(gemini_key)
     summary_ok = want_summary and bool(summary_model)
