@@ -115,57 +115,17 @@ class Config:
     parallel_api_key: str | None = None
     # (the web_search provider CHAIN is a plugins knob: config plugins.web.provider — a list like
     #  ["parallel","duckduckgo"], or a single name. Absent => OpenClaw's no-keys auto order.)
-    browser_headless: bool = True
-    # Persistent browser profile: keep cookies/logins on disk (<state_dir>/browser-profile)
-    # so the `browser` tool stays SIGNED IN across runs. Log in once (headed) via
-    # `python -m agentd.main.browser_login`. AGENTD_BROWSER_PERSISTENT=0 to disable.
-    browser_persistent: bool = True
-    # CDP-attach: when set, the browser tool drives the user's ALREADY-RUNNING
-    # Chromium over the DevTools protocol instead of launching its own (so it uses
-    # the user's live profile/cookies). Start Chrome with
-    # `--remote-debugging-port=9222` and set AGENTD_BROWSER_CDP_URL=http://localhost:9222.
-    # Empty = launch our own Playwright browser (the default). A session can't switch
-    # browsers mid-run (see interfaces/browser.py), so this is chosen once at startup.
-    browser_cdp_url: str | None = None
-    # Capture file downloads triggered in the browser into <state_dir>/downloads.
-    # AGENTD_BROWSER_DOWNLOADS=0 to disable.
-    browser_downloads: bool = True
-    # Use the INSTALLED Google Chrome ("chrome") instead of Playwright's bundled
-    # Chromium. Real Chrome is far less likely to be blocked by sites' automation
-    # detection (e.g. Google's "this browser is not secure" on login). Falls back to
-    # bundled Chromium if Chrome isn't installed. Set "" to force bundled. AGENTD_BROWSER_CHANNEL.
-    browser_channel: str = "chrome"
-    # Strip Playwright's automation fingerprints (--enable-automation,
-    # navigator.webdriver) so logins on automation-sensitive sites work.
-    # AGENTD_BROWSER_STEALTH=0 to disable.
-    browser_stealth: bool = True
-    # --- browser ENGINE selection -----------------------------------------------
-    # Which engine backs the browser is a plugins knob: config plugins.browser.provider =
-    # "playwright" (our built-in Playwright/CDP engine, the DEFAULT) | "agent_browser" (the external
-    # Vercel agent-browser engine via its MCP server). agent-browser must be installed separately
-    # (`npm i -g agent-browser && agent-browser install`); configure its behaviour with its own
-    # AGENT_BROWSER_* env vars (e.g. AGENT_BROWSER_PROFILE, _HEADED). Resolved by resolve_browser_engine.
-    # Command that launches agent-browser's MCP server (stdio). Default: ["agent-browser","mcp"].
-    agent_browser_command: list | None = None    # AGENTD_AGENT_BROWSER_COMMAND (space-separated)
-    # Surface non-ARIA clickable elements (cursor:pointer / onclick / tabindex /
-    # contenteditable) in snapshots with [ref=cN], so the agent can target clickable
-    # <div>s and styled controls the accessibility tree misses (ported from
-    # agent-browser's cursor scan). AGENTD_BROWSER_CURSOR_SCAN=0 to disable.
-    browser_cursor_scan: bool = True
-    # Seed the browser profile from an existing CHROME profile (login reuse): a profile
-    # dir name ("Default", "Profile 1"), its display name, or an absolute path. Copied
-    # ONCE (cookies/logins, caches excluded) into <state_dir>/browser-profile-imported.
-    # Close Chrome first for a clean copy (the live Cookies DB is locked while it runs).
-    # AGENTD_BROWSER_CHROME_PROFILE.
-    browser_chrome_profile: str | None = None
-    # How many recent console messages per tab the `console` action can return.
-    browser_console_buffer: int = 200
-    # Default per-action timeout (ms) for click/fill/select/hover/etc. Playwright's
-    # own default is 30s, which makes a covered/stale element hang the whole flow for
-    # 30s; a shorter cap fails fast so the agent can re-snapshot and recover.
-    # AGENTD_BROWSER_ACTION_TIMEOUT (ms).
-    browser_action_timeout_ms: int = 12000
-    exec_timeout_sec: int = 1800
+    # --- browser + exec tool KNOBS -> the plugins block (config-only, tool-level) ----------------
+    # Every browser behavioral knob lives under plugins.browser.tools.browser.<knob> and the exec
+    # timeout under plugins.shell.tools.exec.<knob> — read via tool_config (see tool_models.py:
+    # browser_knob / computer_knob). Keys (built-in default): headless (True), persistent (True),
+    # cdp_url (None; attach to a running Chrome at e.g. "http://localhost:9222"), downloads (True),
+    # channel ("chrome" | "" for bundled Chromium), stealth (True), cursor_scan (True), chrome_profile
+    # (None; seed a real Chrome profile for login reuse), console_buffer (200), action_timeout_ms
+    # (12000), agent_browser_command (None => ["agent-browser","mcp"]); exec timeout_sec (1800). The
+    # browser ENGINE is plugins.browser.provider ("playwright" | "agent_browser"). CONFIG-ONLY — no
+    # AGENTD_* env for these (env = keys, config = knobs); per-agent-overridable via agent.toml
+    # [plugins.browser.tools.browser] / [plugins.shell.tools.exec].
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
 
@@ -336,9 +296,9 @@ class Config:
     # calls. AGENTD_RESOURCE_SUMMARIZE=1. Both tiers reuse the same model/timeout below.
     resource_summarize_enabled: bool = False          # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
     # Both model tiers are plugins knobs: image captions (google-genai, Gemini only) resolve from
-    # config plugins.resources.tools.caption; text summaries (litellm, any provider) from
-    # plugins.resources.tools.summarize -> verify chain -> brain.
-    resource_vision_timeout_seconds: float = 60.0
+    # config plugins.resources.tools.caption (which also carries the caption timeout knob
+    # `timeout_seconds`, default 60.0, read via tool_config); text summaries (litellm, any provider)
+    # from plugins.resources.tools.summarize -> verify chain -> brain.
     # Messaging channels (Phase 5b): JSON list of channel configs (default none => off).
     # Each: {type: email|memory|line, agent, policy?, allow_from?, webhook_path?,
     # notify_to?, ...}. A poll channel polls for inbound -> runs its agent -> replies on
@@ -371,22 +331,15 @@ class Config:
     # sends a full-screen screenshot to `computer_model` (may contain sensitive
     # on-screen data) — point it at a trusted/Vertex endpoint for sensitive use.
     computer_enabled: bool = False
-    # The vision model that drives the see->click loop (decoupled from `model`; the main agent can be
-    # any LLM) is a plugins knob: config plugins.computer.tools.computer (default = Gemini's dedicated
-    # computer-use model, driven via google-genai).
-    computer_max_steps: int = 25       # loop step cap; override AGENTD_COMPUTER_MAX_STEPS
-    computer_send_max: int = 1440      # longest screenshot side sent to the model (Gemini docs recommend ~1440x900); AGENTD_COMPUTER_SEND_MAX
-    computer_capture: str = "primary"  # primary | virtual (multi-monitor, best-effort)
-    computer_pause: float = 0.15       # pyautogui inter-action settle delay (seconds)
-    computer_call_timeout_seconds: float = 120.0  # per model call in the driver (AGENTD_COMPUTER_CALL_TIMEOUT)
-    # DEV ONLY: persist each step's screenshot to state_dir/screenshots/computer-<ts>/
-    # for inspection. OFF by default (privacy + unbounded disk growth). Turn on while
-    # developing with AGENTD_COMPUTER_SAVE_SCREENSHOTS=1, off again when done.
-    computer_save_screenshots: bool = False
-    # Multi-monitor: when capturing the primary monitor, pull any window that opens
-    # on another monitor back onto the primary (captured) one + maximize, so the
-    # tool can see it. Windows-only, best-effort. AGENTD_COMPUTER_CORRAL=0 to disable.
-    computer_corral_to_primary: bool = True
+    # The computer-use MODEL + all its behavioral KNOBS live in the plugins block, config-only,
+    # tool-level (plugins.computer.tools.computer.<knob>) — read via tool_config (tool_models.py:
+    # computer_knob). model (Gemini's dedicated computer-use model, via google-genai); knobs +
+    # built-in defaults: max_steps (25; loop step cap), send_max (1440; longest screenshot side sent,
+    # Gemini docs ~1440x900), capture ("primary" | "virtual" multi-monitor), pause (0.15; pyautogui
+    # inter-action settle secs), call_timeout_seconds (120.0; per model call), save_screenshots (False;
+    # DEV ONLY — persists each step's screenshot to state_dir/screenshots/, privacy + disk cost),
+    # corral_to_primary (True; Windows-only, pull off-monitor windows onto the captured screen).
+    # CONFIG-ONLY (no AGENTD_COMPUTER_* env for these); per-agent-overridable via agent.toml.
 
 
 def _dotenv_value(raw: str) -> str:
@@ -478,34 +431,9 @@ def load_config(path: Path | None = None) -> Config:
         cfg.skills_dir = Path(os.environ["AGENTD_SKILLS_DIR"])
     if os.environ.get("AGENTD_AGENTS_DIR"):
         cfg.agents_dir = Path(os.environ["AGENTD_AGENTS_DIR"])
-    if os.environ.get("AGENTD_HEADLESS"):
-        cfg.browser_headless = os.environ["AGENTD_HEADLESS"].lower() not in ("0", "false", "no")
-    if os.environ.get("AGENTD_BROWSER_PERSISTENT"):
-        cfg.browser_persistent = (
-            os.environ["AGENTD_BROWSER_PERSISTENT"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_BROWSER_CDP_URL"):
-        cfg.browser_cdp_url = os.environ["AGENTD_BROWSER_CDP_URL"].strip() or None
-    if os.environ.get("AGENTD_BROWSER_DOWNLOADS"):
-        cfg.browser_downloads = (
-            os.environ["AGENTD_BROWSER_DOWNLOADS"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_BROWSER_CHANNEL") is not None:
-        cfg.browser_channel = os.environ["AGENTD_BROWSER_CHANNEL"].strip()
-    if os.environ.get("AGENTD_BROWSER_STEALTH"):
-        cfg.browser_stealth = (
-            os.environ["AGENTD_BROWSER_STEALTH"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_AGENT_BROWSER_COMMAND"):
-        cfg.agent_browser_command = os.environ["AGENTD_AGENT_BROWSER_COMMAND"].split()
-    if os.environ.get("AGENTD_BROWSER_CURSOR_SCAN"):
-        cfg.browser_cursor_scan = (
-            os.environ["AGENTD_BROWSER_CURSOR_SCAN"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_BROWSER_CHROME_PROFILE"):
-        cfg.browser_chrome_profile = os.environ["AGENTD_BROWSER_CHROME_PROFILE"].strip() or None
-    if os.environ.get("AGENTD_BROWSER_ACTION_TIMEOUT"):
-        cfg.browser_action_timeout_ms = int(os.environ["AGENTD_BROWSER_ACTION_TIMEOUT"])
+    # NOTE: browser behavioral knobs (headless/persistent/cdp_url/downloads/channel/stealth/
+    # cursor_scan/chrome_profile/action_timeout_ms/agent_browser_command) are CONFIG-ONLY now —
+    # plugins.browser.tools.browser.<knob>, read via tool_config. No AGENTD_BROWSER_* env for them.
     if os.environ.get("BRAVE_API_KEY"):
         cfg.brave_api_key = os.environ["BRAVE_API_KEY"]
     if os.environ.get("AGENTD_AUTONOMY") is not None:
@@ -556,22 +484,9 @@ def load_config(path: Path | None = None) -> Config:
         cfg.parallel_api_key = os.environ["PARALLEL_API_KEY"]
     if os.environ.get("AGENTD_COMPUTER_ENABLED"):
         cfg.computer_enabled = os.environ["AGENTD_COMPUTER_ENABLED"].lower() not in ("0", "false", "no", "")
-    if os.environ.get("AGENTD_COMPUTER_MAX_STEPS"):
-        cfg.computer_max_steps = int(os.environ["AGENTD_COMPUTER_MAX_STEPS"])
-    if os.environ.get("AGENTD_COMPUTER_CAPTURE"):
-        cfg.computer_capture = os.environ["AGENTD_COMPUTER_CAPTURE"]
-    if os.environ.get("AGENTD_COMPUTER_SEND_MAX"):
-        cfg.computer_send_max = int(os.environ["AGENTD_COMPUTER_SEND_MAX"])
-    if os.environ.get("AGENTD_COMPUTER_SAVE_SCREENSHOTS"):
-        cfg.computer_save_screenshots = (
-            os.environ["AGENTD_COMPUTER_SAVE_SCREENSHOTS"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_COMPUTER_CORRAL"):
-        cfg.computer_corral_to_primary = (
-            os.environ["AGENTD_COMPUTER_CORRAL"].lower() not in ("0", "false", "no", "")
-        )
-    if os.environ.get("AGENTD_COMPUTER_CALL_TIMEOUT"):
-        cfg.computer_call_timeout_seconds = float(os.environ["AGENTD_COMPUTER_CALL_TIMEOUT"])
+    # NOTE: computer behavioral knobs (max_steps/send_max/capture/pause/call_timeout_seconds/
+    # save_screenshots/corral_to_primary) + its model are CONFIG-ONLY — plugins.computer.tools.computer.
+    # <knob>, read via tool_config. Only the enable flag above stays an env toggle (it gates registration).
     if os.environ.get("AGENTD_TOOL_TIMEOUT"):
         cfg.tool_timeout_default = float(os.environ["AGENTD_TOOL_TIMEOUT"])
     if os.environ.get("AGENTD_TOOL_RETRIES"):

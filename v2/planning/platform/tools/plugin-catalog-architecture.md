@@ -1,5 +1,10 @@
 # Tool Catalog & Plugins — Architecture Design
 
+> **SUPERSEDED (historical design).** This was the pre-implementation blueprint. For how plugins &
+> tool config ACTUALLY work now (create/edit/configure/override, the `plugins → tools → model` model,
+> the models layer, enable gates, scaffolding), see the source of truth: **[../../../plugins/README.md](../../../plugins/README.md)**.
+> Kept for design rationale only; where it disagrees with the code or that README, they win.
+
 **Status:** design (no code yet — review before implementing).
 **Goal:** one **tool catalog** that any agent draws from, assembled from four
 interchangeable sources, with **per-tool ON/OFF in config** and **nothing coupled in

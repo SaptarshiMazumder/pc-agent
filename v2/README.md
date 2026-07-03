@@ -24,6 +24,11 @@ Tools: `read` `write` `edit` `exec` `process` `web_search` `web_fetch` `browser`
 Skills: drop-in `SKILL.md` playbooks in [skills/](skills/) — know-how the agent
 reads on demand (not callable tools). Add your own; see [skills/README.md](skills/README.md).
 
+Plugins & tools: every tool is a drop-in plugin under [plugins/](plugins/). To create,
+configure, enable/disable, or override tools per agent — and to understand the whole
+`plugins → tools → model` config model — read **[plugins/README.md](plugins/README.md)**
+(the complete source of truth).
+
 ### Computer use (`computer` tool — opt-in, OFF by default)
 
 Lets the agent operate the PC's GUI like a human — open and control **any** app

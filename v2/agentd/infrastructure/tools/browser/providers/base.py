@@ -15,6 +15,7 @@ import logging
 from collections import deque
 from pathlib import Path
 
+from agentd.application.tool_models import browser_knob
 from agentd.infrastructure.tools.browser.snapshot import (
     DEFAULT_AI_SNAPSHOT_MAX_CHARS,
     _NETWORKIDLE_TIMEOUT_MS,
@@ -111,7 +112,7 @@ class BaseBrowserSession:
         try:
             # cap per-action waits (Playwright defaults to 30s) so a covered/stale
             # element fails fast and the agent can recover instead of hanging.
-            self.context.set_default_timeout(getattr(self.config, "browser_action_timeout_ms", 12000))
+            self.context.set_default_timeout(browser_knob(self.config, "action_timeout_ms", 12000))
         except Exception:
             pass
         try:
@@ -184,7 +185,7 @@ class BaseBrowserSession:
             return
         self._counter += 1
         self._ids[page] = f"t{self._counter}"
-        self._console[page] = deque(maxlen=getattr(self.config, "browser_console_buffer", 200))
+        self._console[page] = deque(maxlen=browser_knob(self.config, "console_buffer", 200))
 
         page.on("console", lambda msg, p=page: self._on_console(p, msg))
         page.on("dialog", self._on_dialog)
@@ -270,7 +271,7 @@ class BaseBrowserSession:
             pass
 
     def _on_download(self, download):
-        if getattr(self.config, "browser_downloads", True):
+        if browser_knob(self.config, "downloads", True):
             self._schedule(self._save_download(download))
 
     async def _save_download(self, download):
@@ -322,7 +323,7 @@ class BaseBrowserSession:
 
     async def _cursor_scan(self, page, labels: bool = False) -> str:
         """List non-ARIA clickable elements with [ref=cN] (see _CURSOR_SCAN_JS)."""
-        if not getattr(self.config, "browser_cursor_scan", True):
+        if not browser_knob(self.config, "cursor_scan", True):
             return ""
         try:
             items = await page.evaluate(_CURSOR_SCAN_JS)

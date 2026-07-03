@@ -17,6 +17,7 @@ import webbrowser
 import pyautogui
 from PIL import Image, ImageGrab
 
+from agentd.application.tool_models import computer_knob
 from agentd.infrastructure.tools.computer.actions import to_pyautogui_key, to_real
 
 
@@ -88,10 +89,10 @@ class PyAutoGuiProvider:
     def __init__(self, config):
         _set_dpi_awareness()
         pyautogui.FAILSAFE = True
-        pyautogui.PAUSE = config.computer_pause
+        pyautogui.PAUSE = computer_knob(config, "pause", 0.15)
         self.config = config
-        self.send_max = config.computer_send_max
-        if config.computer_capture == "virtual":
+        self.send_max = computer_knob(config, "send_max", 1440)
+        if computer_knob(config, "capture", "primary") == "virtual":
             self.region = _virtual_rect()
             self._capture = lambda: ImageGrab.grab(all_screens=True)
             self._corral = False  # capturing all monitors already — nothing to corral
@@ -99,7 +100,7 @@ class PyAutoGuiProvider:
             w, h = pyautogui.size()
             self.region = (0, 0, w, h)
             self._capture = pyautogui.screenshot
-            self._corral = getattr(config, "computer_corral_to_primary", True)
+            self._corral = computer_knob(config, "corral_to_primary", True)
 
     # ---------------------------------------------------------------- eyes
 

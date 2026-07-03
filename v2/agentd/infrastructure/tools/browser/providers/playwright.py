@@ -11,6 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from agentd.application.tool_models import browser_knob
 from agentd.infrastructure.tools.browser.providers.base import BaseBrowserSession
 
 log = logging.getLogger("agentd")
@@ -98,10 +99,10 @@ def stealth_chromium_kwargs(config, *, headless: bool, persistent: bool) -> dict
     kw: dict = {"headless": headless, "chromium_sandbox": True}
     if persistent:
         kw["accept_downloads"] = True
-    channel = (getattr(config, "browser_channel", "chrome") or "").strip()
+    channel = (browser_knob(config, "channel", "chrome") or "").strip()
     if channel:
         kw["channel"] = channel
-    if getattr(config, "browser_stealth", True):
+    if browser_knob(config, "stealth", True):
         kw["args"] = ["--disable-blink-features=AutomationControlled"]
         kw["ignore_default_args"] = ["--enable-automation"]
     return kw
@@ -130,7 +131,7 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
         import playwright  # noqa: F401  (raise ImportError early if missing -> factory omits the tool)
 
         super().__init__(config)
-        self.mode = "persistent" if getattr(config, "browser_persistent", True) else "ephemeral"
+        self.mode = "persistent" if browser_knob(config, "persistent", True) else "ephemeral"
 
     async def _create_context(self):
         from playwright.async_api import async_playwright
@@ -141,7 +142,7 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
             # reused across runs (the browser stays signed in). Log in once headed
             # via `python -m agentd.main.browser_login`, OR seed from an existing
             # Chrome profile via browser_chrome_profile (login reuse, no manual login).
-            chrome_profile = getattr(self.config, "browser_chrome_profile", None)
+            chrome_profile = browser_knob(self.config, "chrome_profile", None)
             if chrome_profile:
                 profile_dir = Path(self.config.state_dir) / "browser-profile-imported"
                 seed_profile_from_chrome(chrome_profile, profile_dir)
@@ -149,14 +150,14 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
                 profile_dir = Path(self.config.state_dir) / "browser-profile"
             profile_dir.mkdir(parents=True, exist_ok=True)
             kw = stealth_chromium_kwargs(
-                self.config, headless=self.config.browser_headless, persistent=True
+                self.config, headless=browser_knob(self.config, "headless", True), persistent=True
             )
             context = await launch_with_fallback(
                 lambda **k: pw.chromium.launch_persistent_context(str(profile_dir), **k), kw
             )
         else:  # ephemeral: a fresh, not-logged-in context each run
             kw = stealth_chromium_kwargs(
-                self.config, headless=self.config.browser_headless, persistent=False
+                self.config, headless=browser_knob(self.config, "headless", True), persistent=False
             )
             self._browser = await launch_with_fallback(pw.chromium.launch, kw)
             context = await self._browser.new_context(accept_downloads=True)
@@ -168,7 +169,7 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
             "active": self.mode,
             "available": ["persistent", "ephemeral"],
             "profileDir": str(profile_dir) if self.mode == "persistent" else None,
-            "headless": self.config.browser_headless,
-            "hint": "Log in once headed via `python -m agentd.main.browser_login`. "
-                    "To drive your LIVE Chrome instead, set AGENTD_BROWSER_CDP_URL.",
+            "headless": browser_knob(self.config, "headless", True),
+            "hint": "Log in once headed via `python -m agentd.main.browser_login`. To drive your "
+                    "LIVE Chrome instead, set plugins.browser.tools.browser.cdp_url in config.",
         }

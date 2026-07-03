@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from agentd.application.run_context import current_workspace
+from agentd.application.tool_models import tool_config
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 
@@ -145,7 +146,8 @@ class ExecTool(Tool):
         command = params["command"]
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
         env = {**os.environ, **(params.get("env") or {})}
-        timeout = params.get("timeout_sec") or self.config.exec_timeout_sec
+        timeout = params.get("timeout_sec") or tool_config(
+            self.config, "shell", "exec", "timeout_sec", default=1800)
 
         if params.get("background"):
             session_id = await _REGISTRY.start(command, cwd, env)

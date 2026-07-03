@@ -1,13 +1,14 @@
 """CdpBrowserProvider — attach to the user's ALREADY-RUNNING Chrome over the
 DevTools protocol (so the agent drives the live profile/cookies, OpenClaw's
 profile="user"). Start Chrome with `--remote-debugging-port=9222` and set
-AGENTD_BROWSER_CDP_URL=http://localhost:9222.
+plugins.browser.tools.browser.cdp_url = "http://localhost:9222" in config.
 
 Only `_create_context()` differs from the launched provider — all session
 behaviour is inherited from BaseBrowserSession."""
 
 from __future__ import annotations
 
+from agentd.application.tool_models import browser_knob
 from agentd.infrastructure.tools.browser.providers.base import BaseBrowserSession
 
 
@@ -18,7 +19,7 @@ class CdpBrowserProvider(BaseBrowserSession):
         import playwright  # noqa: F401  (early ImportError -> factory omits the tool)
 
         super().__init__(config)
-        self.endpoint = config.browser_cdp_url
+        self.endpoint = browser_knob(config, "cdp_url", None)
 
     async def _create_context(self):
         from playwright.async_api import async_playwright

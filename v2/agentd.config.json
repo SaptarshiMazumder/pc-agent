@@ -86,7 +86,7 @@
       "description": "Background workspace-resource describers (never on the agent's reply path).",
       "tools": {
         "caption": {
-          "description": "Gemini vision model that captions image resources (google-genai; Gemini only).",
+          "description": "Gemini vision model that captions image resources (google-genai; Gemini only). Optional knob: timeout_seconds (60.0).",
           "model": "gemini/gemini-2.5-flash"
         },
         "summarize": {
@@ -98,8 +98,10 @@
       "description": "PC GUI automation — the vision model that drives the see->click loop.",
       "tools": {
         "computer": {
-          "description": "Gemini computer-use model (google-genai). Point it at a trusted endpoint for sensitive screens.",
-          "model": "gemini-2.5-computer-use-preview-10-2025"
+          "description": "Gemini computer-use model (google-genai). Point it at a trusted endpoint for sensitive screens. Behavioral knobs (optional; default in parens): max_steps (25), send_max (1440), capture (\"primary\" | \"virtual\"), pause (0.15), call_timeout_seconds (120.0), save_screenshots (false; DEV ONLY), corral_to_primary (true; Windows-only).",
+          "model": "gemini-2.5-computer-use-preview-10-2025",
+          "send_max": 1440,
+          "save_screenshots": true
         }
       }
     },
@@ -116,8 +118,9 @@
       "description": "Web browser automation.",
       "tools": {
         "browser": {
-          "description": "Drive a browser. `provider` is the ENGINE: 'playwright' (our built-in Playwright/CDP engine, default) or 'agent_browser' (external Vercel agent-browser via its MCP server; install separately). No model.",
-          "provider": "playwright"
+          "description": "Drive a browser. `provider` is the ENGINE: 'playwright' (our built-in Playwright/CDP engine, default) or 'agent_browser' (external Vercel agent-browser via its MCP server; install separately). No model. Behavioral knobs (all optional; built-in default in parens): headless (true), persistent (true), cdp_url (none — set e.g. \"http://localhost:9222\" to attach to a running Chrome), downloads (true), channel (\"chrome\" | \"\" for bundled Chromium), stealth (true), cursor_scan (true), chrome_profile (none), console_buffer (200), action_timeout_ms (12000), agent_browser_command (none).",
+          "provider": "playwright",
+          "headless": false
         }
       }
     },
@@ -226,7 +229,7 @@
       "description": "",
       "tools": {
         "exec": {
-          "description": "Run a shell command and return its merged stdout+stderr with the exit code; long output is trunca..."
+          "description": "Run a shell command and return its merged stdout+stderr with the exit code; long output is truncated. Optional knob: timeout_sec (1800; per-call timeout_sec still wins)."
         },
         "process": {
           "description": "Manage background `exec` sessions (those started with background=true). action=list shows each se..."
@@ -245,7 +248,7 @@
       "description": "",
       "tools": {
         "tts": {
-          "description": "Synthesize speech from text into an audio file (edge-tts). Returns the file path and its duration..."
+          "description": "Synthesize speech from text into an audio file (edge-tts). Optional knob: voice (default \"en-US-AndrewMultilingualNeural\"; a per-call `voice` still wins)."
         }
       }
     },
@@ -284,12 +287,8 @@
   "resource_manager_enabled": true,
   "resource_vision_enabled": true,
   "resource_summarize_enabled": true,
-  "_section_browser": "Headed browser. The ENGINE (playwright | agent_browser) is a plugins knob: plugins.browser.provider.",
-  "browser_headless": false,
-  "_section_computer": "PC GUI automation — OFF by default (sends full-screen screenshots).",
+  "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here — it gates whether the computer tool is registered at all.",
   "computer_enabled": false,
-  "computer_send_max": 1440,
-  "computer_save_screenshots": true,
   "_section_channels": "MCP servers + messaging channels + webhook ingress.",
   "mcp_servers": [],
   "channels": [

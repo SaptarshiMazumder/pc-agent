@@ -311,12 +311,13 @@ def _add_agent_browser_mcp_server(config: Config) -> None:
     tools are discovered through the existing MCP client (namespaced agentbrowser__*).
     Idempotent. agent-browser must be installed; if it isn't, MCP discovery skips it
     gracefully (and there will be no browser — the operator opted in)."""
+    from agentd.application.tool_models import browser_knob
     from agentd.config import McpServerConfig
 
     existing = config.mcp_servers or []
     if any(getattr(s, "name", "") == "agentbrowser" for s in existing):
         return
-    cmd = config.agent_browser_command or ["agent-browser", "mcp"]
+    cmd = browser_knob(config, "agent_browser_command", None) or ["agent-browser", "mcp"]
     config.mcp_servers = list(existing) + [
         McpServerConfig(name="agentbrowser", transport="stdio", command=cmd)
     ]

@@ -125,3 +125,23 @@ def safe_to_send_model(config) -> str | None:
 def resource_summary_model(config) -> str | None:
     """Resource text-summary model: plugins.resources.tools.summarize -> verify chain -> brain."""
     return resolve_tool_model(config, "resources", "summarize", default=verify_model(config))
+
+
+# --- convenience resolvers for behavioral (non-model) TOOL knobs ----------------------------
+# The `browser` and `computer` tools each carry MANY tuning knobs (headless, channel, max_steps,
+# ...). These thin wrappers over tool_config keep the (plugin, tool) pair out of every call site;
+# any other tool reads its own knob via tool_config(config, plugin, tool, key, default) directly.
+# Presence-based (tool_config), so an explicit false/0/"" set in config is honored, and the
+# built-in default is the last link — the tool still works with an empty/absent plugins block.
+
+def browser_knob(config, key: str, default=None):
+    """A behavioral knob for the `browser` tool: plugins.browser.tools.browser.<key> (headless,
+    persistent, downloads, channel, stealth, cursor_scan, chrome_profile, console_buffer,
+    action_timeout_ms, cdp_url, agent_browser_command)."""
+    return tool_config(config, "browser", "browser", key, default=default)
+
+
+def computer_knob(config, key: str, default=None):
+    """A behavioral knob for the `computer` tool: plugins.computer.tools.computer.<key> (max_steps,
+    send_max, capture, pause, call_timeout_seconds, save_screenshots, corral_to_primary)."""
+    return tool_config(config, "computer", "computer", key, default=default)

@@ -48,3 +48,6 @@ Thumbs.db
 
 # Reference material (never committed)
 reference/
+
+# Agent scratch workspaces — never committed
+v2/agents/*/workspace/

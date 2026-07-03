@@ -21,6 +21,7 @@ import socket
 import time
 from pathlib import Path
 
+from agentd.application.tool_models import computer_knob
 from agentd.infrastructure.tools.computer.actions import parse_function_call
 
 log = logging.getLogger("agentd")
@@ -64,9 +65,9 @@ class GeminiComputerUseDriver:
         self._provider = provider
         self._model = model
         self._config = config
-        self._max_steps = config.computer_max_steps
-        # DEV ONLY: persist screenshots for inspection (AGENTD_COMPUTER_SAVE_SCREENSHOTS).
-        self._save_shots = getattr(config, "computer_save_screenshots", False)
+        self._max_steps = computer_knob(config, "max_steps", 25)
+        # DEV ONLY: persist screenshots for inspection (plugins.computer.tools.computer.save_screenshots).
+        self._save_shots = computer_knob(config, "save_screenshots", False)
         self._state_dir = getattr(config, "state_dir", None)
         self._generate_fn = generate_fn or self._default_generate_fn()
 
@@ -82,7 +83,7 @@ class GeminiComputerUseDriver:
         # http_options timeout (ms) is the REAL network ceiling that actually aborts
         # a hung request; the run loop's wait_for is only a backstop (it can't kill
         # the worker thread, so the SDK timeout must fire first).
-        timeout_ms = int(getattr(self._config, "computer_call_timeout_seconds", 120.0) * 1000)
+        timeout_ms = int(computer_knob(self._config, "call_timeout_seconds", 120.0) * 1000)
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
         env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", types.Environment.ENVIRONMENT_BROWSER)
         # Custom verb so the model can open the browser DIRECTLY (we launch Chrome in
@@ -160,7 +161,7 @@ class GeminiComputerUseDriver:
             try:
                 resp = await asyncio.wait_for(
                     asyncio.to_thread(self._generate_fn, contents),
-                    timeout=getattr(self._config, "computer_call_timeout_seconds", 120.0) + 5,
+                    timeout=computer_knob(self._config, "call_timeout_seconds", 120.0) + 5,
                 )
             except Exception as e:  # noqa: BLE001  (incl. asyncio.TimeoutError backstop)
                 return f"Computer-use model error after {step - 1} step(s): {type(e).__name__}: {e}"
