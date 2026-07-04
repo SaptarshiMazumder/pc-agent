@@ -1,0 +1,12 @@
+# The CORE flavor — the open "agentd" product: every plugin provisioned (no
+# [provisioning] list), store on, no preinstalled bundles, no publisher pinning.
+# This file is baked into the core installer as <resources>/distribution.toml and
+# passed to the daemon the shell spawns (AGENTD_DISTRIBUTION).
+
+[product]
+id = "agentd"
+name = "agentd"
+
+[store]
+enabled = true
+# registry_url = "https://registry.agentd.example/index.json"   # set at launch time

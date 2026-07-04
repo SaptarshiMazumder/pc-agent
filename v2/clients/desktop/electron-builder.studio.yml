@@ -1,0 +1,25 @@
+# FIGURE CREATOR STUDIO flavor installer (M6). Build: npm run dist:studio
+# Same code, different resources: the Studio distribution.toml (branding +
+# provisioning + default agent) and the preinstalled figure-creator bundle
+# (flavors/figure-creator-studio/bundles/*.agentpkg — produced by
+# `agentd bundle pack agents/figure-creator`).
+appId: dev.agentd.figure-creator-studio
+productName: Figure Creator Studio
+directories:
+  output: dist/studio
+files:
+  - out/**
+extraResources:
+  - from: flavors/figure-creator-studio/distribution.toml
+    to: distribution.toml
+  - from: flavors/figure-creator-studio/bundles
+    to: bundles
+    filter: ['*.agentpkg']
+  - from: runtime/agentd-env
+    to: agentd-env
+    filter: ['**/*']
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

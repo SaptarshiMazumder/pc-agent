@@ -1,0 +1,22 @@
+# CORE flavor installer. Build: npm run dist:core
+# Prereq (packaged daemon): scripts/build-runtime.ps1 assembles runtime/agentd-env
+# (embedded CPython + the agentd wheel in a REAL venv — pip stays alive for
+# marketplace pip-plugins). Without it the installer still works and falls back to
+# an `agentd` on PATH (see supervisor.ts command resolution).
+appId: dev.agentd.desktop
+productName: agentd
+directories:
+  output: dist/core
+files:
+  - out/**
+extraResources:
+  - from: flavors/core/distribution.toml
+    to: distribution.toml
+  - from: runtime/agentd-env
+    to: agentd-env
+    filter: ['**/*']
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

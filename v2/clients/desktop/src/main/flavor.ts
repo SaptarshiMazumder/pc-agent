@@ -1,0 +1,78 @@
+/**
+ * Flavor — what THIS BUILD of the desktop app is (M6 build flavors, not forks).
+ *
+ * The same distribution.toml the daemon reads decides the shell's branding too:
+ * product name, default agent, whether the store tab shows, and which bundles to
+ * preinstall on first run. Resolution:
+ *   packaged  -> <resources>/distribution.toml (placed by electron-builder per flavor)
+ *   dev       -> flavors/<AGENTD_FLAVOR || core>/distribution.toml
+ * No file => the open "agentd" flavor.
+ */
+
+import TOML from '@iarna/toml'
+import { app } from 'electron'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+
+export interface Flavor {
+  productId: string
+  productName: string
+  defaultAgent: string
+  storeEnabled: boolean
+  preinstalledBundles: string[]
+  /** absolute path of the loaded file; '' => open default (nothing to pass on) */
+  sourcePath: string
+  /** absolute paths of .agentpkg files shipped with this build (resources/bundles) */
+  bundledPackages: string[]
+}
+
+const OPEN: Flavor = {
+  productId: 'agentd',
+  productName: 'agentd',
+  defaultAgent: '',
+  storeEnabled: true,
+  preinstalledBundles: [],
+  sourcePath: '',
+  bundledPackages: []
+}
+
+function candidatePaths(): string[] {
+  if (app.isPackaged) return [path.join(process.resourcesPath, 'distribution.toml')]
+  const flavorName = (process.env.AGENTD_FLAVOR || 'core').trim()
+  return [path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml')]
+}
+
+async function bundledPackages(): Promise<string[]> {
+  const dir = app.isPackaged
+    ? path.join(process.resourcesPath, 'bundles')
+    : path.join(app.getAppPath(), 'flavors', (process.env.AGENTD_FLAVOR || 'core').trim(), 'bundles')
+  try {
+    const entries = await fs.readdir(dir)
+    return entries.filter((f) => f.endsWith('.agentpkg')).map((f) => path.join(dir, f))
+  } catch {
+    return []
+  }
+}
+
+export async function loadFlavor(): Promise<Flavor> {
+  const packages = await bundledPackages()
+  for (const candidate of candidatePaths()) {
+    try {
+      const parsed = TOML.parse(await fs.readFile(candidate, 'utf-8')) as Record<string, any>
+      const product = (parsed.product as Record<string, any>) || {}
+      const store = (parsed.store as Record<string, any>) || {}
+      return {
+        productId: String(product.id || 'agentd'),
+        productName: String(product.name || 'agentd'),
+        defaultAgent: String(product.default_agent || ''),
+        storeEnabled: store.enabled !== false,
+        preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
+        sourcePath: candidate,
+        bundledPackages: packages
+      }
+    } catch {
+      /* fall through to the next candidate / open default */
+    }
+  }
+  return { ...OPEN, bundledPackages: packages }
+}

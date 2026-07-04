@@ -1,0 +1,36 @@
+{
+  "name": "agentd-desktop",
+  "productName": "agentd",
+  "version": "0.1.0",
+  "description": "agentd desktop shell — chat, agents, and the marketplace over the local agentd daemon",
+  "main": "./out/main/index.js",
+  "author": "agentd",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:studio": "cross-env AGENTD_FLAVOR=figure-creator-studio electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist:core": "electron-vite build && electron-builder --config electron-builder.yml",
+    "dist:studio": "electron-vite build && electron-builder --config electron-builder.studio.yml"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "cross-env": "^7.0.3",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

@@ -1,6 +1,23 @@
 # agentd Product & Distribution Plan — CLI, Desktop, SKUs, Marketplace
 
-**Status:** design (no code yet — review before implementing).
+**Status:** BUILT (local-first) — all milestones implemented & verified end-to-end on 2026-07-04.
+
+| M | Shipped as | Verified by |
+|---|---|---|
+| M1 | `pyproject.toml` + hatch staging hook (built-ins + starter data IN the wheel), `agentd`/`jarvis` CLI (chat/serve/status/stop/restart/doctor/agents/plugins/install/uninstall/bundles/bundle/license), `~/.agentd` layout + first-run onboarding, `agentd/runtime_paths.py` (repo vs packaged) | fresh-venv wheel install: packaged mode detected, 23 in-wheel built-ins listed |
+| M2 | `agentd/lifecycle.py` (gateway.json rendezvous, detached spawn, single-instance) + WS bearer-token auth + versioned hello; gateway binds FIRST, slow MCP startup deferred | live probe: no/bad token rejected (4401), token from rendezvous works |
+| M3 | Electron shell (`clients/desktop`): daemon supervisor, streaming chat w/ markdown + tool blocks, agents/sessions sidebar | CDP-driven GUI e2e: connect → chat roundtrip ("pong") → screenshots |
+| M4 | `.agentpkg` bundles (domain/application/infrastructure marketplace stack), local-first registry (dir/file://+https, sha256+ed25519 fail-closed), gateway `marketplace.*` RPCs, hot-reload (agents+plugins, no restart), publisher tools (`bundle pack/index/serve/keygen`) | 20 unit tests + live: signed local registry → `agentd install figure-creator` → agent appears in running daemon |
+| M5 | Store UI in the shell (catalog cards, progress stream, install/uninstall/update, installed list) | GUI e2e: Install click → installed badge → agent hot-appears in sidebar |
+| M6 | `distribution.toml` profiles + Provisioned gate at the discovery chokepoint (acquired addons join the set, live + across restarts), flavor-driven shell + `AGENTD_DISTRIBUTION` pass-down, Figure Creator Studio flavor + electron-builder configs + `build-runtime.ps1` (embedded CPython + real venv) | Studio dev-run: branding, flavored daemon (18 plugins gated out, figure tools present), first-run preinstall of the bundled .agentpkg |
+| M7 | ed25519 signing surface, signed registry indexes, offline-verifiable `.lic` files, `LicenseEntitlement` behind the existing seam (`build_entitlement`), license CLI | unit tests: issue/verify/expiry/tamper + SKU gating; signed-index enforcement tested fail-closed |
+
+Deferred by design: payments/accounts (Phase 5 — seams named below), cloud registry
+deployment (the registry is a static folder; upload it when ready), macOS/Linux packaging.
+
+---
+
+**Original design (for rationale + the phase details):**
 **Goal:** ship agentd as a product, in stages: (1) a one-command installable CLI, (2) a
 Claude-Desktop-style desktop client, (3) two sale shapes — a **core** app and **specialized
 standalone** apps (e.g. Figure Creator) — built from the same codebase, and (4) an in-app
