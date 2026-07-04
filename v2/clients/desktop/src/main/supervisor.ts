@@ -20,7 +20,14 @@ import { promises as fs } from 'node:fs'
 import fsSync from 'node:fs'
 import path from 'node:path'
 
-import { agentdHome, findRunning, GatewayInfo, portOpen, readGatewayFile } from './rendezvous'
+import {
+  agentdHome,
+  clearGatewayFile,
+  findRunning,
+  GatewayInfo,
+  portOpen,
+  readGatewayFile
+} from './rendezvous'
 
 export type SupervisorPhase = 'looking' | 'starting' | 'running' | 'failed'
 
@@ -72,8 +79,22 @@ export class Supervisor {
     for (const listener of this.listeners) listener(this.status)
   }
 
-  /** Find or start the daemon. Resolves with the live GatewayInfo, or throws. */
-  async ensure(): Promise<GatewayInfo> {
+  /** Find or start the daemon. Resolves with the live GatewayInfo, or throws.
+   *  Serialized: app-ready and the renderer both call this at startup, and a second
+   *  concurrent spawn would fight the daemon's single-instance guard — so they share
+   *  one in-flight attempt. */
+  ensure(): Promise<GatewayInfo> {
+    if (!this.ensurePromise) {
+      this.ensurePromise = this.doEnsure().finally(() => {
+        this.ensurePromise = null
+      })
+    }
+    return this.ensurePromise
+  }
+
+  private ensurePromise: Promise<GatewayInfo> | null = null
+
+  private async doEnsure(): Promise<GatewayInfo> {
     this.set('looking', 'looking for a running agentd…')
     const existing = await findRunning()
     if (existing) {
@@ -88,6 +109,10 @@ export class Supervisor {
     await fs.mkdir(logDir, { recursive: true })
     const logPath = path.join(logDir, 'daemon.log')
     const logFile = fsSync.openSync(logPath, 'a')
+    // clear any stale rendezvous first, so the file that (re)appears is unambiguously
+    // OUR new daemon's — the console-script wrapper (`agentd`) forks a child python
+    // with a different pid, so we can't match on the spawned pid.
+    await clearGatewayFile()
 
     const env = { ...process.env }
     // A flavored build carries its distribution.toml; the daemon it spawns must be
@@ -106,10 +131,18 @@ export class Supervisor {
           env
         })
         child.unref()
-        const spawnFailed = new Promise<never>((_, reject) =>
+        // The daemon is detached and runs forever on success, so an 'exit' before the
+        // rendezvous appears means it FAILED (e.g. couldn't bind) — surface it fast
+        // with the log tail instead of waiting out the full timeout.
+        const spawnFailed = new Promise<never>((_, reject) => {
           child.once('error', (e) => reject(new Error(`${command[0]}: ${e.message}`)))
-        )
-        const info = await Promise.race([this.waitForDaemon(child.pid ?? 0), spawnFailed])
+          child.once('exit', (code) => {
+            if (code !== null && code !== 0) {
+              reject(new Error(`${command[0]} exited (code ${code}) — see ${logPath}`))
+            }
+          })
+        })
+        const info = await Promise.race([this.waitForDaemon(), spawnFailed])
         this.set('running', `agentd ${info.version} (pid ${info.pid})`, info)
         return info
       } catch (error) {
@@ -120,11 +153,14 @@ export class Supervisor {
     throw new Error(lastError || 'could not start agentd')
   }
 
-  private async waitForDaemon(childPid: number): Promise<GatewayInfo> {
+  /** Wait for the rendezvous file to (re)appear with an open port. We cleared it
+   *  before spawning, so its reappearance is our daemon — no pid match needed
+   *  (the console-script wrapper's pid differs from the python server's). */
+  private async waitForDaemon(): Promise<GatewayInfo> {
     const deadline = Date.now() + SPAWN_WAIT_MS
     while (Date.now() < deadline) {
       const info = await readGatewayFile()
-      if (info && (childPid === 0 || info.pid === childPid) && (await portOpen(info.host, info.port))) {
+      if (info && (await portOpen(info.host, info.port))) {
         return info
       }
       await new Promise((resolve) => setTimeout(resolve, 400))

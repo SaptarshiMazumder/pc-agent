@@ -34,6 +34,18 @@ export function connectUrl(info: GatewayInfo): string {
   return info.token ? `${base}/?token=${info.token}` : base
 }
 
+/** Remove the rendezvous file (best-effort). Mirrors lifecycle.clear_gateway_file:
+ *  the supervisor clears a stale file before spawning so the daemon that (re)writes
+ *  it is unambiguously the one we just started — no pid guessing across the
+ *  console-script wrapper (which forks a child python with a different pid). */
+export async function clearGatewayFile(): Promise<void> {
+  try {
+    await fs.rm(gatewayFilePath(), { force: true })
+  } catch {
+    /* nothing to clear */
+  }
+}
+
 export async function readGatewayFile(): Promise<GatewayInfo | null> {
   try {
     const raw = await fs.readFile(gatewayFilePath(), 'utf-8')
