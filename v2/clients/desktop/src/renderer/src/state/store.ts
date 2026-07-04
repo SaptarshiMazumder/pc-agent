@@ -61,6 +61,58 @@ function newSessionKey(): string {
   return `desk-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** Rebuild a saved transcript (sessions.history message dicts) into the same
+ *  ChatItem[] the live event path produces, so a resumed session renders identically:
+ *  user text, assistant text/thinking, and tool calls merged with their results. */
+function historyToItems(messages: any[]): ChatItem[] {
+  const items: ChatItem[] = []
+  const toolIndexByCallId = new Map<string, number>()
+  for (const message of messages) {
+    if (message.role === 'user') {
+      items.push({ kind: 'user', text: String(message.content ?? '') })
+    } else if (message.role === 'assistant') {
+      for (const block of message.content || []) {
+        if (block.type === 'text' && block.text) {
+          items.push({ kind: 'assistant', text: block.text, streaming: false })
+        } else if (block.type === 'thinking' && block.thinking) {
+          items.push({ kind: 'thinking', text: block.thinking, streaming: false })
+        } else if (block.type === 'toolCall') {
+          toolIndexByCallId.set(String(block.id), items.length)
+          items.push({
+            kind: 'tool',
+            name: block.name || '?',
+            args: block.arguments || {},
+            result: '',
+            isError: false,
+            done: false
+          })
+        }
+      }
+      if (message.errorMessage) {
+        items.push({ kind: 'system', tone: 'error', text: String(message.errorMessage) })
+      }
+    } else if (message.role === 'toolResult') {
+      const text = (message.content || []).map((block: any) => block?.text || '').join('')
+      const index = toolIndexByCallId.get(String(message.toolCallId))
+      if (index !== undefined && items[index]?.kind === 'tool') {
+        const tool = items[index] as Extract<ChatItem, { kind: 'tool' }>
+        items[index] = { ...tool, result: text, isError: !!message.isError, done: true }
+      } else {
+        // orphan result (no matching call in this transcript) — show it anyway
+        items.push({
+          kind: 'tool',
+          name: message.toolName || '?',
+          args: {},
+          result: text,
+          isError: !!message.isError,
+          done: true
+        })
+      }
+    }
+  }
+  return items
+}
+
 interface AppState {
   flavor: FlavorInfo | null
   supervisor: SupervisorStatus
@@ -85,7 +137,7 @@ interface AppState {
   setView(view: View): void
   selectAgent(agentId: string): Promise<void>
   newSession(): void
-  resumeSession(sessionId: string): void
+  resumeSession(sessionId: string): Promise<void>
   sendMessage(text: string): Promise<void>
   abortRun(): Promise<void>
   refreshCatalog(): Promise<void>
@@ -317,10 +369,32 @@ export const useApp = create<AppState>((set, get) => {
       set({ currentSessionKey: newSessionKey() })
     },
 
-    resumeSession(sessionId) {
-      // resuming shows the NEW turns live; the transcript history stays on disk
-      // (a history.load RPC is a natural follow-up — protocol has the data)
-      set({ currentSessionKey: sessionId })
+    async resumeSession(sessionId) {
+      set({ currentSessionKey: sessionId, view: 'chat' })
+      // already have this session in memory with content (it's live, or we loaded it
+      // before) — don't clobber it by reloading.
+      const existing = get().sessions[sessionId]
+      if (existing && existing.items.length > 0) return
+      try {
+        const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined
+        })
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [sessionId]: { items: historyToItems(payload.messages || []), running: false }
+          }
+        }))
+      } catch {
+        // couldn't load history (daemon busy / gone) — leave the session empty
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [sessionId]: state.sessions[sessionId] || { items: [], running: false }
+          }
+        }))
+      }
     },
 
     async sendMessage(text) {

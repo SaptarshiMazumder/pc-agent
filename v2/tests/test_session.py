@@ -95,6 +95,60 @@ def test_list_sessions(tmp_path):
     assert sessions[0]["messages"] == 1
 
 
+def test_read_session_messages(tmp_path):
+    from agentd.infrastructure.memory.local_store import read_session_messages
+    from agentd.domain.messages import ToolCallContent, ToolResultMessage
+
+    # non-existent session: [] and NO file created (read-only)
+    assert read_session_messages(tmp_path, "ghost") == []
+    assert not (tmp_path / "sessions" / "ghost.jsonl").exists()
+
+    store = SessionStore(tmp_path, "sessH")
+    store.load()
+    store.append(UserMessage(content="hi"))
+    store.append(AssistantMessage(content=[
+        TextContent(text="on it"),
+        ToolCallContent(id="c1", name="read", arguments={"path": "cv.docx"}),
+    ], stop_reason="toolUse"))
+    store.append(ToolResultMessage(tool_call_id="c1", tool_name="read",
+                                   content=[TextContent(text="file body")]))
+
+    msgs = read_session_messages(tmp_path, "sessH")
+    assert [m["role"] for m in msgs] == ["user", "assistant", "toolResult"]
+    assert msgs[1]["content"][1]["type"] == "toolCall"
+    assert msgs[1]["content"][1]["id"] == "c1"
+    assert msgs[2]["toolCallId"] == "c1" and msgs[2]["content"][0]["text"] == "file body"
+
+
+def test_gateway_sessions_history_is_agent_scoped(tmp_path):
+    from types import SimpleNamespace
+
+    from agentd.presentation.gateway import Gateway
+
+    main_dir = tmp_path
+    sp_dir = tmp_path / "agents" / "spending-agent"
+    SessionStore(sp_dir, "term-sp1").load()
+    SessionStore(sp_dir, "term-sp1").append(UserMessage(content="what did I spend"))
+
+    class _Reg:
+        _dirs = {"main": main_dir, "spending-agent": sp_dir}
+
+        def get(self, aid):
+            if aid not in self._dirs:
+                raise KeyError(aid)
+            return SimpleNamespace(state_dir=self._dirs[aid])
+
+    gw = Gateway(config=SimpleNamespace(state_dir=main_dir), service=None, registry=_Reg())
+
+    hist = gw._sessions_history({"sessionKey": "term-sp1", "agentId": "spending-agent"})
+    assert [m["role"] for m in hist["messages"]] == ["user"]
+    assert hist["messages"][0]["content"] == "what did I spend"
+
+    # missing key / wrong agent -> empty, never crashes
+    assert gw._sessions_history({})["messages"] == []
+    assert gw._sessions_history({"sessionKey": "term-sp1", "agentId": "main"})["messages"] == []
+
+
 def test_gateway_sessions_list_is_agent_scoped(tmp_path):
     # Each agent partitions its own transcripts; sessions.list must return the
     # CALLING agent's threads (so you can resume the right one), not the default's.

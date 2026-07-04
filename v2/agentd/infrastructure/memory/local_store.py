@@ -98,6 +98,20 @@ class SessionStore:
         return entry_id
 
 
+def read_session_messages(state_dir: Path, session_id: str) -> list[dict]:
+    """Read a stored session's transcript as message dicts (the camelCase wire form),
+    WITHOUT creating the file — for a client loading a past conversation to display.
+
+    Returns [] if the session doesn't exist (never a side effect, unlike ``load`` which
+    creates the header for a brand-new session). The id may be the real logical key or
+    the sanitized filename stem (``list_sessions`` returns the stem) — both resolve to
+    the same path via the store's own sanitization."""
+    store = SessionStore(state_dir, session_id)
+    if not store.path.exists():
+        return []
+    return [message_to_dict(m) for m in store.load()]
+
+
 def list_sessions(state_dir: Path) -> list[dict]:
     """List all stored sessions (newest first) with a cheap message count.
 

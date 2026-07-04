@@ -807,6 +807,8 @@ class Gateway:
                 payload = self._hello()
             elif req.method == "sessions.list":
                 payload = self._sessions_list(req.params)
+            elif req.method == "sessions.history":
+                payload = self._sessions_history(req.params)
             elif req.method == "agents.list":
                 payload = self._agents_list()
             elif req.method == "tools.list":
@@ -870,6 +872,26 @@ class Gateway:
                 agent_id = "main"
                 state_dir = self.registry.get("main").state_dir
         return {"sessions": list_sessions(state_dir), "agentId": agent_id}
+
+    def _sessions_history(self, params: dict) -> dict:
+        """One saved session's full transcript (messages in wire form) so a client can
+        RENDER a resumed conversation — the read side of `sessions.list`. Agent-scoped
+        the same way (each agent partitions its own transcripts); read-only (never
+        creates a session). The client transforms the messages into its own view."""
+        agent_id = (params.get("agentId") or "").strip() or "main"
+        session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
+        if not session_key:
+            return {"messages": [], "sessionKey": "", "agentId": agent_id}
+        state_dir = self.config.state_dir
+        if self.registry is not None:
+            try:
+                state_dir = self.registry.get(agent_id).state_dir
+            except KeyError:                       # unknown id -> fall back to default
+                agent_id = "main"
+                state_dir = self.registry.get("main").state_dir
+        from agentd.infrastructure.memory.local_store import read_session_messages
+        return {"messages": read_session_messages(state_dir, session_key),
+                "sessionKey": session_key, "agentId": agent_id}
 
     async def _mcp_add(self, params: dict) -> dict:
         """Hot-add an MCP server: build the config, connect it LIVE, merge its tools into the
