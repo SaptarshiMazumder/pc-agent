@@ -14,9 +14,14 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# v2 project root (this file is v2/agentd/config.py). Everything agentd reads or
-# writes is anchored here so v2 is fully self-contained — it never reaches outside.
-V2_ROOT = Path(__file__).resolve().parents[1]
+from agentd import runtime_paths
+from agentd.distribution import DistributionProfile, load_profile
+
+# v2 project root (this file is v2/agentd/config.py). In a checkout everything agentd
+# reads or writes anchors here so v2 is fully self-contained. When INSTALLED as a wheel
+# this is site-packages — which is why every default below resolves through
+# runtime_paths (repo mode: unchanged; packaged mode: ~/.agentd + in-package built-ins).
+V2_ROOT = runtime_paths.REPO_ROOT
 
 
 @dataclass
@@ -85,17 +90,17 @@ class Config:
     # reach personal files ("read my CV"); override with AGENTD_WORKSPACE for a
     # project-scoped (coding) workspace.
     workspace: Path = field(default_factory=Path.home)
-    state_dir: Path = field(default_factory=lambda: V2_ROOT / ".agentd")
+    state_dir: Path = field(default_factory=runtime_paths.default_state_dir)
     # The SHARED/global skills library = MAIN's skills (agents/main/skills/). Every agent
     # inherits these; a named agent adds its own private agents/<id>/skills/ on top. Drop a
     # shared SKILL.md into agents/main/skills/; override the pointer with AGENTD_SKILLS_DIR.
-    skills_dir: Path = field(default_factory=lambda: V2_ROOT / "agents" / "main" / "skills")
+    skills_dir: Path = field(default_factory=runtime_paths.default_skills_dir)
     # Folder of agent DEFINITIONS — each `agents/<id>/` holds an optional agent.toml
     # (model, tool allow/deny, skill allowlist, workspace, heartbeat) + bootstrap
     # markdown (IDENTITY/AGENTS/USER/MEMORY) + skills/. The single-agent app is just
     # the `main` agent synthesized from this config; drop a new `agents/<id>/` dir to
     # add an independent agent. Override with AGENTD_AGENTS_DIR.
-    agents_dir: Path = field(default_factory=lambda: V2_ROOT / "agents")
+    agents_dir: Path = field(default_factory=runtime_paths.default_agents_dir)
     # Scratch hygiene: <workspace>/tmp/ is a sanctioned throwaway dir (never indexed/enriched);
     # files in it older than this many hours are auto-swept at turn start. 0 disables the sweep.
     scratch_ttl_hours: float = 24.0           # AGENTD_SCRATCH_TTL_HOURS
@@ -128,6 +133,24 @@ class Config:
     # [plugins.browser.tools.browser] / [plugins.shell.tools.exec].
     max_turns: int = 100  # agent-loop iteration cap (LLM turns per run); override AGENTD_MAX_TURNS
     agent_id: str = "main"
+
+    # --- gateway auth (M2: local clients present a bearer token) -----------------
+    # The WS gateway is loopback-only but loopback is reachable by ANY local process and
+    # by any webpage's JS — so serve() mints a per-start token, writes it to the
+    # rendezvous file (~/.agentd/gateway.json, 0600), and _handle_conn rejects
+    # connections without it. AGENTD_GATEWAY_AUTH=0 disables (tests, trusted dev box);
+    # AGENTD_TOKEN pins a fixed token instead of a per-start mint.
+    gateway_auth: bool = True
+    gateway_token: str = ""
+
+    # --- distribution (what THIS INSTALL is) + marketplace ------------------------
+    # The parsed distribution.toml (product name/flavor, provisioned plugin set, store
+    # wiring) — the OPEN profile when no file exists. Loaded by load_config; NOT settable
+    # from JSON (an install's identity comes from the installer, not the user config).
+    distribution: DistributionProfile = field(default_factory=lambda: DistributionProfile())
+    # The bundle registry (marketplace index.json): file:// path, https URL, or a bare
+    # local directory. Resolution: AGENTD_REGISTRY > JSON config > distribution profile.
+    registry_url: str = ""
 
     # --- reliability / guardrails (applied to EVERY tool via GuardedTool) -------
     # Per-tool effective values resolve: tool_overrides[name] > the tool's own
@@ -375,40 +398,40 @@ def _dotenv_value(raw: str) -> str:
 
 
 def _load_dotenv() -> None:
-    """Load KEY=VALUE lines from v2's own .env into os.environ (no override).
+    """Load KEY=VALUE lines from agentd's own .env files into os.environ (no override).
 
-    Anchored to V2_ROOT (not the cwd or any parent) so agentd uses only v2/.env
-    and never depends on a .env outside the v2 folder.
+    Repo mode: v2/.env (anchored — never a .env outside the v2 folder), then the
+    user's ~/.agentd/.env. Packaged mode: only the user file. First definition wins.
     """
-    env_path = V2_ROOT / ".env"
-    if not env_path.is_file():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for env_path in runtime_paths.env_files():
+        if not env_path.is_file():
             continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), _dotenv_value(value)
-        if key and value and key not in os.environ:
-            os.environ[key] = value
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), _dotenv_value(value)
+            if key and value and key not in os.environ:
+                os.environ[key] = value
 
 
 def load_config(path: Path | None = None) -> Config:
     _load_dotenv()
     cfg = Config()
 
-    candidates = [path] if path else [
-        Path(os.environ.get("AGENTD_CONFIG", "")) if os.environ.get("AGENTD_CONFIG") else None,
-        Path("agentd.config.json"),
-        V2_ROOT / "agentd.config.json",
-    ]
+    candidates = [path] if path else runtime_paths.config_candidates()
     for candidate in candidates:
         if candidate and candidate.is_file():
             data = json.loads(candidate.read_text(encoding="utf-8"))
             for key, value in data.items():
+                # An install's identity + secrets never come from the user JSON:
+                # `distribution` is the installer's file, `gateway_token` is env-only.
+                if key in ("distribution", "gateway_token", "config_path"):
+                    continue
                 if hasattr(cfg, key):
                     if key in ("workspace", "state_dir", "skills_dir", "agents_dir"):
-                        value = Path(value)
+                        value = Path(value).expanduser()
                     setattr(cfg, key, value)
             cfg.config_path = str(candidate)
             break
@@ -524,10 +547,11 @@ def load_config(path: Path | None = None) -> Config:
         cfg.tools_enabled = [s.strip() for s in os.environ["AGENTD_TOOLS_ENABLED"].split(",") if s.strip()]
     if os.environ.get("AGENTD_PLUGINS_DIR"):
         cfg.plugins_dir = os.environ["AGENTD_PLUGINS_DIR"].strip()
-    if not cfg.plugins_dir:                              # default: the repo-level drop-in folder
-        cfg.plugins_dir = str(V2_ROOT / "plugins")
-    # the shipped built-ins always load from <V2_ROOT>/plugins, even if plugins_dir is overridden.
-    cfg.builtin_plugins_dir = str(V2_ROOT / "plugins")
+    if not cfg.plugins_dir:      # default drop-in folder: repo plugins/ | ~/.agentd/plugins
+        cfg.plugins_dir = str(runtime_paths.default_user_plugins_dir())
+    # the SHIPPED built-ins always load from their own root (repo plugins/ in a checkout,
+    # agentd/_builtin_plugins in a wheel), even if plugins_dir is overridden.
+    cfg.builtin_plugins_dir = str(runtime_paths.builtin_plugins_dir())
     if os.environ.get("AGENTD_SKILLS_PROMPT_MAX"):
         cfg.skills_prompt_max = int(os.environ["AGENTD_SKILLS_PROMPT_MAX"])
     if os.environ.get("AGENTD_SKILLS_PROMPT_CHARS"):
@@ -571,6 +595,21 @@ def load_config(path: Path | None = None) -> Config:
         cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_MODEL_FALLBACKS"):
         cfg.model_fallbacks = [s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()]
+
+    # --- distribution profile + marketplace + gateway auth (M2/M4/M6) -------------
+    # The profile decides what THIS INSTALL is; it never comes from the user JSON.
+    cfg.distribution = load_profile()
+    if cfg.distribution.default_agent and cfg.agent_id == "main":
+        cfg.agent_id = cfg.distribution.default_agent
+    # registry resolution: env > JSON config (already applied above) > profile.
+    if os.environ.get("AGENTD_REGISTRY"):
+        cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
+    elif not cfg.registry_url:
+        cfg.registry_url = cfg.distribution.registry_url
+    if os.environ.get("AGENTD_GATEWAY_AUTH"):
+        cfg.gateway_auth = os.environ["AGENTD_GATEWAY_AUTH"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_TOKEN"):
+        cfg.gateway_token = os.environ["AGENTD_TOKEN"].strip()
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [

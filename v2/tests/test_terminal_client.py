@@ -3,8 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import clients.terminal.__main__ as term
-from clients.terminal.__main__ import (
+import agentd.clients.terminal.__main__ as term
+from agentd.clients.terminal.__main__ import (
     TerminalClient,
     render_plan,
     resolve_session_choice,

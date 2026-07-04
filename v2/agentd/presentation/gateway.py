@@ -10,14 +10,19 @@ Mirrors the reference gateway's chat.send semantics:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from urllib.parse import parse_qs, urlsplit
 
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
+
+from agentd import __version__, lifecycle
 
 from agentd.application.run_context import current_run_context, take_run_outcome
 from agentd.application.services.agent_service import AgentService
@@ -212,6 +217,10 @@ class Gateway:
     channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
     subagent_active: int = 0                         # in-flight sub-agent runs (runaway guard, S8)
     webhook_server: object | None = None             # the WebhookServer (set in serve); hosts task hooks
+    # M2 auth: the bearer token clients must present ("" => open, the test/dev default).
+    # Set by serve() from config (gateway_auth/gateway_token) — never at construction, so
+    # unit tests that drive _handle_conn directly are unaffected.
+    auth_token: str = ""
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -219,6 +228,17 @@ class Gateway:
     # ------------------------------------------------------------------ serve
 
     async def serve(self) -> None:
+        # M2: ONE daemon per user — a live rendezvous file means another gateway owns
+        # this machine's agentd; refuse loudly instead of fighting over ports/state.
+        existing = lifecycle.find_running()
+        if existing is not None and existing.pid != os.getpid():
+            raise SystemExit(
+                f"agentd is already running (pid {existing.pid}, {existing.ws_url}) — "
+                f"attach with `agentd chat` or stop it with `agentd stop`.")
+        # M2 auth: mint (or adopt) the bearer token clients must present. The token
+        # travels ONLY via the 0600 rendezvous file — never argv, never logs.
+        if getattr(self.config, "gateway_auth", False):
+            self.auth_token = getattr(self.config, "gateway_token", "") or lifecycle.mint_token()
         await self._discover_mcp_tools()  # connect external MCP servers, add their tools
         self._build_subagents()           # the spawn_subagent tool (S8), if enabled
         self._build_agent_messaging()     # message_agent: talk to OTHER persistent agents (A5)
@@ -230,12 +250,18 @@ class Gateway:
         webhook_task = self._start_webhook_server()  # push channels (LINE) + task hooks (/hook/<id>)
         self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
         async with serve(self._handle_conn, self.config.host, self.config.port):
-            log.info("listening on ws://%s:%s", self.config.host, self.config.port)
+            lifecycle.write_gateway_file(lifecycle.GatewayInfo(
+                host=self.config.host, port=self.config.port, pid=os.getpid(),
+                token=self.auth_token, version=__version__,
+                started_at=datetime.now().isoformat(timespec="seconds")))
+            log.info("listening on ws://%s:%s (auth %s)", self.config.host, self.config.port,
+                     "on" if self.auth_token else "off")
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
             print(f"model: {_effective_model(self.config)} | workspace: {self.config.workspace}")
             try:
                 await asyncio.Future()  # run forever
             finally:
+                lifecycle.clear_gateway_file(only_pid=os.getpid())
                 if scheduler_task is not None:
                     scheduler_task.cancel()
                 if poller_task is not None:
@@ -694,7 +720,26 @@ class Gateway:
         except Exception as e:  # noqa: BLE001 — MCP must never block serving
             log.warning("MCP discovery failed: %s", e)
 
+    def _authorized(self, ws: ServerConnection) -> bool:
+        """M2 auth: the client's token — `?token=` on the URL (the only slot browser
+        WebSockets have) or an `Authorization: Bearer` header — must match ours."""
+        if not self.auth_token:
+            return True
+        request = getattr(ws, "request", None)
+        presented = ""
+        if request is not None:
+            query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+            presented = (query.get("token") or [""])[0]
+            if not presented:
+                auth_header = (request.headers.get("Authorization") or "")
+                if auth_header.startswith("Bearer "):
+                    presented = auth_header[len("Bearer "):].strip()
+        return hmac.compare_digest(presented, self.auth_token)
+
     async def _handle_conn(self, ws: ServerConnection) -> None:
+        if not self._authorized(ws):
+            await ws.close(code=4401, reason="unauthorized")
+            return
         # Each connection — terminal, desktop, mobile, a channel adapter, anything —
         # gets a stable client id. Runs it starts are tagged with it, so when this
         # connection drops we can stop exactly that client's in-flight work.
@@ -1031,6 +1076,7 @@ class Gateway:
         single source of truth — so every front-end shows the same thing without
         hardcoding any of it.
         """
+        distribution = getattr(self.config, "distribution", None)
         return {
             "agentName": self.config.agent_name,
             "agentId": self.config.agent_id,
@@ -1039,6 +1085,14 @@ class Gateway:
             "gatewayUrl": f"ws://{self.config.host}:{self.config.port}",
             "workspace": str(self.config.workspace),
             "sessions": len(list_sessions(self.config.state_dir)),
+            # M2 versioning: clients adapt to the daemon, never the reverse.
+            "version": __version__,
+            "protocol": 1,
+            # M6 flavor: what THIS INSTALL is (branding + whether the store shows).
+            "product": getattr(distribution, "product_name", "agentd"),
+            "productId": getattr(distribution, "product_id", "agentd"),
+            "storeEnabled": bool(getattr(distribution, "store_enabled", True)),
+            "registryConfigured": bool(getattr(self.config, "registry_url", "")),
             "agents": self._agents_list()["agents"],   # so any client can show/pick agents
         }
 

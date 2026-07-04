@@ -14,7 +14,9 @@ def test_guardrail_defaults():
     assert c.tool_overrides == {}
     assert c.llm_idle_timeout_seconds == 120.0
     assert c.llm_request_timeout_seconds == 600.0
-    assert c.computer_call_timeout_seconds == 120.0
+    # NOTE: the computer-use call timeout moved to the plugins block
+    # (plugins.computer.tools.computer.call_timeout_seconds, read via tool_config) —
+    # deliberately no longer a Config field / env var.
 
 
 def test_env_scalar_overrides(monkeypatch):
@@ -22,11 +24,9 @@ def test_env_scalar_overrides(monkeypatch):
     monkeypatch.setenv("AGENTD_TOOL_RETRIES", "3")
     monkeypatch.setenv("AGENTD_LLM_IDLE_TIMEOUT", "30")
     monkeypatch.setenv("AGENTD_LLM_REQUEST_TIMEOUT", "90")
-    monkeypatch.setenv("AGENTD_COMPUTER_CALL_TIMEOUT", "15")
     c = load_config()
     assert c.tool_timeout_default == 42.0 and c.tool_retries_default == 3
     assert c.llm_idle_timeout_seconds == 30.0 and c.llm_request_timeout_seconds == 90.0
-    assert c.computer_call_timeout_seconds == 15.0
 
 
 def test_tool_overrides_from_json(tmp_path, monkeypatch):

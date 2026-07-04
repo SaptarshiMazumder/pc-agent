@@ -3,9 +3,11 @@ root_package = agentd
 include_external_packages = True
 
 [importlinter:contract:clean-layers]
-name = Clean architecture layers (domain <- application <- infrastructure/presentation <- main)
+name = Clean architecture layers (domain <- application <- infrastructure/presentation <- main <- clients <- cli)
 type = layers
 layers =
+    agentd.cli
+    agentd.clients
     agentd.main
     agentd.presentation
     agentd.infrastructure
