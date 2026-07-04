@@ -3,6 +3,6 @@ name = "Vectorize"
 kind = "native"
 entry = "vectorize_plugin:register"
 
-# reconstruct_svg uses Gemini (GEMINI_API_KEY/GOOGLE_API_KEY) + the sibling figures overlay engine.
 # trace_image needs an optional vtracer backend (pip install vtracer, or the vtracer CLI); it errors
 # with guidance if absent, so the plugin still loads without it. No [requires] gate.
+# (Editable text/arrows for an existing figure = read_labels_from_image in the vision plugin, not this one.)

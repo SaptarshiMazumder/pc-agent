@@ -2,7 +2,7 @@
 
 The non-semantic vectorizer: it converts shapes/regions to Bezier paths. Good for turning a logo or
 a clean line drawing into scalable vectors; it does NOT make text or arrows editable (a label becomes
-letter-shaped outlines, not a <text> element — for that use reconstruct_svg).
+letter-shaped outlines, not a <text> element — for that use read_labels_from_image).
 
 Tracing needs a backend that isn't bundled (keeps the plugin dependency-free by default). It uses, in
 order: the `vtracer` Python package, then a `vtracer` CLI on PATH. If neither is present it returns a
@@ -27,8 +27,8 @@ class TraceImageTool(Tool):
         "in an .svg. Use ONLY when the user EXPLICITLY asks for the artwork itself to become editable "
         "vector shapes (e.g. 'vectorize the whole image', 'make the shapes editable in Illustrator') — "
         "it is LOSSY (many anonymous color-blob paths, large files, slightly degraded look), so it is "
-        "NOT a default step. The normal editable deliverable is the layered SVG from compose_layers; "
-        "for editable text/arrows use reconstruct_svg. Input: `image`, `out_svg`, optional `mode` "
+        "NOT a default step. The normal editable deliverable is the layered SVG from compose_figure_layers; "
+        "for editable text/arrows use read_labels_from_image. Input: `image`, `out_svg`, optional `mode` "
         "(color|binary) and `precision` (1-8 color detail; default 6 = high fidelity, near-identical "
         "to the raster; lower = fewer paths / cleaner posterized look). Requires a vtracer backend "
         "(Python pkg `vtracer` or the vtracer CLI); returns an actionable error if missing."
@@ -105,7 +105,7 @@ class TraceImageTool(Tool):
                 raise RuntimeError(f"vtracer failed to trace the image: {py_err}")
             raise RuntimeError(
                 "no tracing backend found. Install one: `pip install vtracer` (Python) or the vtracer "
-                "CLI (cargo install vtracer). For EDITABLE text/arrows use reconstruct_svg instead.")
+                "CLI (cargo install vtracer). For EDITABLE text/arrows use read_labels_from_image instead.")
         finally:
             src.unlink(missing_ok=True)                 # clean up the temp input
 

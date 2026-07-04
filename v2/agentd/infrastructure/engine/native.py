@@ -116,6 +116,7 @@ async def run_agent_loop(
     verify_answer: VerifyFn | None = None,
     observers: list[RunObserver] | None = None,
     context_policy=None,
+    model_router=None,
 ) -> list[Message]:
     """Run the loop until the model produces a genuine final answer (or limits
     are hit). Mutates `messages` in place; returns only messages produced here."""
@@ -178,8 +179,13 @@ async def run_agent_loop(
             # compact the model's VIEW of history if a policy is set (never mutates the
             # real transcript; default None => send everything, unchanged).
             send_messages = context_policy.prepare(messages) if context_policy else messages
+            # Cost-efficiency routing (default off => active_model is just `model`): pick the brain
+            # per iteration by NEED — a cheap text model normally, a vision model only when the
+            # OUTGOING context actually carries an image the brain must see (see infrastructure/llm/
+            # model_router.py). The chosen model is what litellm records on the turn.
+            active_model = model_router(model, send_messages) if model_router else model
             async for ev in stream_fn(
-                model=model,
+                model=active_model,
                 system_prompt=system_prompt,
                 messages=send_messages,
                 tools=tools,
@@ -251,7 +257,7 @@ async def run_agent_loop(
             # 1. Typed incomplete-turn retries (planning/reasoning/empty). planning_only is
             #    gated (OpenClaw): only an agentic task-runner on an actionable prompt gets it.
             kind = classify_incomplete_turn(assistant, PlanningContext(
-                user_prompt=user_prompt, model=model, execution_contract=execution_contract))
+                user_prompt=user_prompt, model=active_model, execution_contract=execution_contract))
             if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
                 retry_counts[kind] += 1
                 await on_event(
@@ -411,13 +417,15 @@ class NativeEngine:
     """
 
     def __init__(self, stream_fn, model: str, max_iterations: int | None = None,
-                 observers=None, context_policy=None, execution_contract: str = ""):
+                 observers=None, context_policy=None, execution_contract: str = "",
+                 model_router=None):
         self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
         self._model = model                  # which model id to pass each call
         self._max_iterations = max_iterations
         self._observers = observers or []    # decoupled liveness seam (default off)
         self._context_policy = context_policy  # compaction policy (S7); None = send all
         self._execution_contract = execution_contract  # gates the planning-only nudge (OpenClaw)
+        self._model_router = model_router    # cost-efficiency brain routing (default off => None)
 
     async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
                   model=None):
@@ -434,4 +442,5 @@ class NativeEngine:
             observers=self._observers,
             context_policy=self._context_policy,
             execution_contract=self._execution_contract,
+            model_router=self._model_router,
         )

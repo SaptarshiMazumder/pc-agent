@@ -28,6 +28,30 @@ def resolve_key(param_key: str | None, config) -> str:
     raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
 
 
+def _normalize_model(model: str) -> str:
+    """The google-genai SDK wants a BARE id (e.g. 'gemini-3-pro-image'), but the model knob is shared
+    with the litellm-based vision tools and often carries a 'gemini/' (or 'google/'/'models/') prefix.
+    Passing that straight through makes the SDK request 'models/gemini/…' -> 404. Strip it here so the
+    same config value works for both worlds."""
+    m = str(model or "").strip()
+    for pref in ("gemini/", "google/", "models/"):
+        if m.startswith(pref):
+            m = m[len(pref):]
+    return m or DEFAULT_MODEL
+
+
+def _is_not_found(err: Exception) -> bool:
+    s = str(err)
+    return "404" in s or "not found" in s.lower() or "NOT_FOUND" in s.upper()
+
+
+def _alt_model(model: str) -> str | None:
+    """A model whose preview/GA id drifted: try the -preview variant (or drop it). None if no alt."""
+    if model.endswith("-preview"):
+        return model[: -len("-preview")]
+    return model + "-preview"
+
+
 def _ref_parts(reference_images):
     from google.genai import types
     parts = []
@@ -39,23 +63,43 @@ def _ref_parts(reference_images):
 
 
 def generate_image(prompt: str, out_path: Path, *, model: str, api_key: str,
-                   reference_images=None, aspect_ratio: str | None = None) -> dict:
+                   reference_images=None, aspect_ratio: str | None = None,
+                   image_size: str | None = None) -> dict:
     """Generate one image -> out_path. `reference_images` (paths) are passed as conditioning input
-    (Gemini's restyle/img2img path; it has no ControlNet). Returns {path, mime, model}."""
+    (Gemini's restyle/img2img path; it has no ControlNet). `aspect_ratio` (e.g. '4:3') and
+    `image_size` ('1K'|'2K'|'4K', Gemini 3 Pro Image only) go through image_config, each applied
+    best-effort so an older SDK/model that lacks a field degrades gracefully. Returns {path, mime, model}."""
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=api_key)
     contents = _ref_parts(reference_images) + [prompt]
+    model = _normalize_model(model)                 # 'gemini/…'/'models/…' -> bare id the SDK wants
     cfg = None
-    if aspect_ratio:
-        # supported on the image models via image_config; ignored gracefully if not
-        try:
-            cfg = types.GenerateContentConfig(
-                image_config=types.ImageConfig(aspect_ratio=aspect_ratio))
-        except Exception:
-            cfg = None
-    resp = client.models.generate_content(model=model, contents=contents, config=cfg)
+    if aspect_ratio or image_size:
+        # supported on the image models via image_config; each field applied best-effort so an
+        # unsupported one never fails the call (drop it and retry with what remains).
+        img_kw = {}
+        if aspect_ratio:
+            img_kw["aspect_ratio"] = aspect_ratio
+        if image_size:
+            img_kw["image_size"] = image_size
+        for attempt in (img_kw, {"aspect_ratio": aspect_ratio} if aspect_ratio else {}, {}):
+            try:
+                cfg = (types.GenerateContentConfig(image_config=types.ImageConfig(**attempt))
+                       if attempt else None)
+                break
+            except Exception:
+                cfg = None
+    # Call, tolerating a preview/GA id drift: a NotFound retries once on the -preview (or GA) variant.
+    try:
+        resp = client.models.generate_content(model=model, contents=contents, config=cfg)
+    except Exception as e:
+        alt = _alt_model(model)
+        if not (_is_not_found(e) and alt):
+            raise
+        resp = client.models.generate_content(model=alt, contents=contents, config=cfg)
+        model = alt
 
     for cand in (resp.candidates or []):
         for part in (getattr(cand.content, "parts", None) or []):

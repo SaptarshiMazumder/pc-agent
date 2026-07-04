@@ -38,7 +38,7 @@ class ExportPdfTool(Tool):
     description = (
         "Render an SVG to a VECTOR PDF (selectable text, scalable paths) via headless Chromium — for "
         "publication output. Source is `svg` (raw) or `svg_path` (e.g. the layered figure SVG from "
-        "compose_layers). One page sized to the SVG, no margins. Input also `out_path` (.pdf)."
+        "compose_figure_layers). One page sized to the SVG, no margins. Input also `out_path` (.pdf)."
     )
     label = "Export PDF"
     concurrency = "parallel"

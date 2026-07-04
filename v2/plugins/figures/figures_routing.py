@@ -13,7 +13,7 @@ Two jobs, both feeding the overlay engine's `arrow` elements:
         curved       -> [src_border, tgt_border] (the overlay bows it)
      Endpoints are clipped to the node BORDER (not the center) so arrowheads kiss the box edge.
 
-Output is JSON-friendly and directly consumable by render_overlay:
+Output is JSON-friendly and directly consumable by render_editable_overlay:
     {"nodes": [{"id","x","y","w","h","cx","cy"}],
      "edges": [{"from","to","points":[[x,y],...],"route"}]}
 """

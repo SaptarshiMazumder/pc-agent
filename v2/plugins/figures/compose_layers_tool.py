@@ -1,4 +1,4 @@
-"""compose_layers: lay an editable vector overlay over artwork — raster OR fully-vector.
+"""compose_figure_layers: lay an editable vector overlay over artwork — raster OR fully-vector.
 
 Two artwork modes:
   • RASTER artwork (`artwork` = PNG/JPG): the layered SVG embeds it as one <image>; the painted
@@ -12,7 +12,7 @@ Either way the overlay (labels/leaders/arrows) is live <text>/<path>. Outputs (e
   • out_svg — the editable deliverable (layered raster+overlay, or fully-vector).
 
 The overlay and the (traced) artwork must share the artwork's pixel coordinate space — which
-render_overlay / route_graph / trace_image all already do — so they line up 1:1.
+render_editable_overlay / layout_flowchart / trace_image all already do — so they line up 1:1.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _inner_svg(svg: str) -> str:
 
 
 class ComposeLayersTool(Tool):
-    name = "compose_layers"
+    name = "compose_figure_layers"
     description = (
         "Composite artwork with a vector overlay into the final figure. Artwork is ONE of: `artwork` "
         "(raster PNG/JPG — embedded as <image>, the default hybrid) OR `artwork_svg`/`artwork_svg_path` "
@@ -166,7 +166,7 @@ class ComposeLayersTool(Tool):
         try:
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
-            return ToolResult.text(f"compose_layers failed: {e}", is_error=True)
+            return ToolResult.text(f"compose_figure_layers failed: {e}", is_error=True)
         bits = []
         if r["out_png"]:
             bits.append(f"composite PNG -> {r['out_png']}")

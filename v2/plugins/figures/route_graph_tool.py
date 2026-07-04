@@ -1,4 +1,4 @@
-"""route_graph: compute node positions (when absent) and routed connector paths between elements.
+"""layout_flowchart: compute node positions (when absent) and routed connector paths between elements.
 
 The deterministic geometry behind flows/arrows. Give it nodes + edges; get back each node's box
 and each edge's waypoint list. Two modes:
@@ -6,7 +6,7 @@ and each edge's waypoint list. Two modes:
   - nodes WITH x/y     -> it only routes (e.g. you already know where structures sit on artwork
                           because a vision model located them) — endpoints clip to the box border.
 
-The output `edges[].points` + `route` drop straight into render_overlay's `arrow` elements, so the
+The output `edges[].points` + `route` drop straight into render_editable_overlay's `arrow` elements, so the
 agent never hand-computes elbow coordinates.
 """
 
@@ -19,13 +19,13 @@ import figures_routing as routing
 
 
 class RouteGraphTool(Tool):
-    name = "route_graph"
+    name = "layout_flowchart"
     description = (
         "Compute layout and/or connector routing for a node-edge graph. Input: `nodes` "
         "[{id, x?, y?, w?, h?}] and `edges` [{from, to, route?}]. If nodes lack x/y, they are placed "
         "in layers along `direction` (RIGHT|LEFT|DOWN|UP). Each edge is routed straight | orthogonal "
         "(elbow) | curved, with endpoints clipped to the node borders. Returns {nodes, edges with "
-        "`points`, width, height} — feed edges[].points/route directly into render_overlay arrows."
+        "`points`, width, height} — feed edges[].points/route directly into render_editable_overlay arrows."
     )
     label = "Route Graph"
     concurrency = "parallel"
@@ -82,8 +82,8 @@ class RouteGraphTool(Tool):
                 layer_gap=float(params.get("layer_gap", 120)),
             )
         except Exception as e:
-            return ToolResult.text(f"route_graph failed: {e}", is_error=True)
+            return ToolResult.text(f"layout_flowchart failed: {e}", is_error=True)
         return ToolResult.text(
             f"Routed {len(r['nodes'])} node(s), {len(r['edges'])} edge(s); "
-            f"canvas {r['width']}x{r['height']}. Feed edges[].points into render_overlay arrows.",
+            f"canvas {r['width']}x{r['height']}. Feed edges[].points into render_editable_overlay arrows.",
             details=r)

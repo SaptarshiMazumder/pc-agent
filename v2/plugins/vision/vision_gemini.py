@@ -19,10 +19,10 @@ from pathlib import Path
 # Override via config plugins.vision.tools.verify_figure (or the plugins.vision default), or per-agent.
 DEFAULT_MODEL = "gemini-2.5-flash"
 
-# DEFAULT grounding model (extract_anchors) — the hardest, most accuracy-critical vision task. A Pro
+# DEFAULT grounding model (read_labels_from_image) — the hardest, most accuracy-critical vision task. A Pro
 # model locates structures far more precisely than flash, so label leaders land ON the structure.
 # Gemini is uniquely strong at spatial grounding; keep this on a Gemini Pro unless you have a reason.
-# Override via config plugins.vision.tools.extract_anchors (or the plugins.vision default).
+# Override via config plugins.vision.tools.read_labels_from_image (or the plugins.vision default).
 GROUNDING_MODEL = "gemini-3.1-pro-preview"
 
 

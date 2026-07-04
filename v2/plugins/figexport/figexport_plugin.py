@@ -3,8 +3,8 @@
   • export_pptx — artwork + REAL text boxes + connector arrows -> editable PowerPoint (python-pptx).
   • export_pdf  — SVG -> VECTOR PDF via headless Chromium (selectable text, scalable).
 
-(Layered editable SVG export already lives in figures.compose_layers; PNG in figures.render_svg /
-compose_layers — so figexport only adds the two formats those don't cover.) No new dependency:
+(Layered editable SVG export already lives in figures.compose_figure_layers; PNG in figures.render_svg /
+compose_figure_layers — so figexport only adds the two formats those don't cover.) No new dependency:
 python-pptx is already installed and the PDF path reuses the existing browser.
 """
 

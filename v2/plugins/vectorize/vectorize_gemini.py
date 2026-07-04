@@ -18,13 +18,28 @@ def resolve_key(param_key, config) -> str:
     raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
 
 
+def _normalize_model(model: str) -> str:
+    """The google-genai SDK wants a BARE id (e.g. 'gemini-2.5-flash'), but the model knob is shared with the
+    litellm-based vision tools and often carries a 'gemini/' (or 'google/'/'models/') prefix. Passing that
+    straight through makes the SDK request 'models/gemini/…' -> 404. Strip it so one config value works for
+    both worlds. (Same fix as imagegen_gemini._normalize_model.)"""
+    m = str(model or "").strip()
+    changed = True
+    while changed:                              # strip repeatedly so 'models/gemini/…' fully unwraps
+        changed = False
+        for pref in ("gemini/", "google/", "models/"):
+            if m.startswith(pref):
+                m, changed = m[len(pref):], True
+    return m or DEFAULT_MODEL
+
+
 def analyze_json(image_path: Path, prompt: str, *, model: str, api_key: str):
     from google import genai
     from google.genai import types
     client = genai.Client(api_key=api_key)
     mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
     resp = client.models.generate_content(
-        model=model,
+        model=_normalize_model(model),          # 'gemini/…' / 'models/…' -> bare id the SDK wants (fixes 404)
         contents=[types.Part.from_bytes(data=image_path.read_bytes(), mime_type=mime), prompt],
         config=types.GenerateContentConfig(response_mime_type="application/json"))
     t = (resp.text or "").strip()

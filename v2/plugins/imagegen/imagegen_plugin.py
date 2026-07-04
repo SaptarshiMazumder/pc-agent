@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from generate_artwork_tool import GenerateArtworkTool
 from find_reference_image_tool import FindReferenceImageTool
+from list_templates_tool import ListTemplatesTool
 
 
 def register(api, ctx):
     api.register_tool(GenerateArtworkTool(ctx.config))
     api.register_tool(FindReferenceImageTool(ctx.config))
+    api.register_tool(ListTemplatesTool(ctx.config))

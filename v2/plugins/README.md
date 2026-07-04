@@ -397,7 +397,7 @@ name = "Figure Creator"
 model = "gemini/gemini-3-flash-preview"
 
 # a tool's model
-[plugins.vision.tools.extract_anchors]
+[plugins.vision.tools.read_labels_from_image]
 model = "gemini/gemini-3.1-pro-preview"
 
 # a tool's provider + model (e.g. this agent renders on Replicate; others stay on Gemini)

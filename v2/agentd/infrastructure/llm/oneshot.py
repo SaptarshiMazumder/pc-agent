@@ -1,6 +1,6 @@
 """One-shot multimodal completion — a single image+prompt call to ANY provider via LiteLLM.
 
-The reusable backend for model-bearing VISION tools (extract_anchors grounding, verify_figure judge,
+The reusable backend for model-bearing VISION tools (read_labels_from_image grounding, verify_figure judge,
 image captioning). It's the provider-agnostic replacement for calling google-genai directly: pass a
 litellm "provider/model" id and it routes to Gemini / OpenAI / Anthropic / a local model alike, so a
 tool's model becomes a config knob (see application/tool_models.py) instead of a hardcoded SDK call.
@@ -8,7 +8,7 @@ tool's model becomes a config knob (see application/tool_models.py) instead of a
 Deliberately NARROW: one prompt, N images, optional forced-JSON, returns the model's text. It does NOT
 stream and has no tools — the agent loop's `litellm_stream` stays the place for conversational calls.
 
-Coordinate-accuracy note: Gemini is uniquely good at spatial grounding (the extract_anchors prompt is
+Coordinate-accuracy note: Gemini is uniquely good at spatial grounding (the read_labels_from_image prompt is
 written in its native 0-1000 convention). Routing a "gemini/..." model here hits Gemini, so accuracy is
 unchanged; pointing grounding at a non-Gemini model is possible but the localization quality is on the
 caller — the plumbing is provider-agnostic, the training is not.

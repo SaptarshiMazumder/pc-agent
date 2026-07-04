@@ -251,6 +251,18 @@ class Config:
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
+    # Cost-efficiency brain ROUTING (decoupled seam; default OFF => unchanged: one brain does
+    # everything). When enabled, the loop picks the brain model per iteration by NEED — a cheap
+    # `text_model` for ordinary turns, escalating to `vision_model` ONLY on iterations whose context
+    # actually carries an image the brain must SEE (an ImageContent block). Generating an image needs
+    # NO escalation — that's a tool call the text brain makes with text args; only READING image
+    # pixels does. An unset side falls back to the agent's normal brain. CONFIG-ONLY (models live in
+    # config, not env), resolved by infrastructure/llm/model_router.build_model_router. Shape:
+    #   "cost_efficiency": {"enabled": true,
+    #                       "text_model":   "deepseek/deepseek-v4-pro",        # cheap default brain
+    #                       "vision_model": "gemini/gemini-3.1-pro-preview"}   # omit => keep normal brain
+    # OFF (or both models unset) => no router => the agent's normal brain runs every turn, unchanged.
+    cost_efficiency: dict = field(default_factory=dict)
     # Execution sandbox (S17, seam): "" / "local" = run on host (default, unchanged);
     # "docker"/"ssh" select an isolating adapter (not yet implemented). AGENTD_SANDBOX.
     sandbox: str = ""

@@ -33,10 +33,15 @@ Element kinds (each a dict with "kind"):
 
 from __future__ import annotations
 
+import base64
 import math
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 DEFAULT_FONT = "Inter, 'Helvetica Neue', Arial, 'Segoe UI', sans-serif"
+
+_IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".svg": "image/svg+xml"}
 
 
 # ===========================================================================
@@ -357,7 +362,7 @@ def _head_marker(pos, head, color, size, defs):
     return f' marker-{pos}="url(#{mid})"'
 
 
-def _arrow(el, defs):
+def _arrow(el, defs, s=1.0):
     pts = _points_of(el)
     preset = _ARROW_STYLES.get(el.get("style", DEFAULT_ARROW_STYLE), _ARROW_STYLES[DEFAULT_ARROW_STYLE])
 
@@ -367,10 +372,10 @@ def _arrow(el, defs):
     route = el.get("route", "straight")
     color = el.get("color", "#374151")
     head = g("head", "standard")             # standard | soft | none
-    head_size = float(g("head_size", 12))
+    head_size = float(g("head_size", 12)) * s
     opacity = el.get("opacity", 1.0)
     filt = el.get("filter")                   # None | glow | shadow
-    cr = float(el.get("corner_radius", 10))
+    cr = float(el.get("corner_radius", 10)) * s
     grad = el.get("gradient")                 # {"from": c0, "to": c1}
     stroke_ref = color
     if grad:
@@ -387,15 +392,15 @@ def _arrow(el, defs):
 
     if g("body", "stroked") == "tapered":
         d = tapered_arrow_d(pts, route,
-                            w_tail=float(g("w_tail", 13)),
-                            w_head=float(g("w_head", 3.5)),
-                            head_len=float(el.get("head_len", head_size * 1.4)),
-                            head_w=float(el.get("head_w", head_size * 1.7)))
+                            w_tail=float(g("w_tail", 13)) * s,
+                            w_head=float(g("w_head", 3.5)) * s,
+                            head_len=float(el["head_len"]) * s if "head_len" in el else head_size * 1.4,
+                            head_w=float(el["head_w"]) * s if "head_w" in el else head_size * 1.7)
         return f'<path d="{d}" fill="{stroke_ref}"{extra}/>'
 
     # stroked body (optionally with marker heads at the end and/or the start)
     d = _centerline_d(pts, route, cr)
-    sw = float(g("width", 3))
+    sw = float(g("width", 3)) * s
     dash_v = g("dash", None)
     dash = f' stroke-dasharray="{dash_v}"' if dash_v else ""
     marker = _head_marker("end", g("head", "standard"), color, head_size, defs)
@@ -404,27 +409,27 @@ def _arrow(el, defs):
             f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}{extra}/>')
 
 
-def _leader(el, defs):
+def _leader(el, defs, s=1.0):
     pts = _points_of(el)
     color = el.get("color", "#6b7280")
-    sw = float(el.get("width", 1.2))
+    sw = float(el.get("width", 1.2)) * s
     dash = f' stroke-dasharray="{el.get("dash", "")}"' if el.get("dash") else ""
     head = el.get("head", "none")             # none | standard | soft | bar | circle — head at target end
-    marker = _head_marker("end", head, color, float(el.get("head_size", 9)), defs)
-    d = _centerline_d(pts, el.get("route", "elbow"), float(el.get("corner_radius", 6)))
+    marker = _head_marker("end", head, color, float(el.get("head_size", 9)) * s, defs)
+    d = _centerline_d(pts, el.get("route", "elbow"), float(el.get("corner_radius", 6)) * s)
     out = (f'<path d="{d}" fill="none" stroke="{escape(color)}" stroke-width="{_f(sw)}" '
            f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}/>')
     # a target dot OR an arrowhead, not both (the head already marks the endpoint)
     if el.get("dot", head == "none"):
-        r = float(el.get("dot_r", 2.6))
+        r = float(el.get("dot_r", 2.6)) * s
         out += f'<circle cx="{_f(pts[-1][0])}" cy="{_f(pts[-1][1])}" r="{_f(r)}" fill="{escape(el.get("dot_color", color))}"/>'
     return out
 
 
-def _label(el, defs, font_family):
+def _label(el, defs, font_family, s=1.0):
     text = str(el.get("text", ""))
     x, y = float(el["x"]), float(el["y"])
-    fs = float(el.get("font_size", 14))
+    fs = float(el.get("font_size", 14)) * s
     anchor = el.get("anchor", "start")        # start | middle | end
     color = el.get("color", "#1f2937")
     weight = str(el.get("weight", "600"))
@@ -433,8 +438,8 @@ def _label(el, defs, font_family):
     out = []
     tx = x
     if box:
-        pad_x = float(box.get("pad_x", 9))
-        pad_y = float(box.get("pad_y", 5))
+        pad_x = float(box.get("pad_x", 9)) * s
+        pad_y = float(box.get("pad_y", 5)) * s
         tw = _approx_text_w(text, fs, weight)
         bw = tw + 2 * pad_x
         bh = fs + 2 * pad_y
@@ -445,10 +450,10 @@ def _label(el, defs, font_family):
         else:
             bx = x
         by = y - bh / 2
-        rad = float(box.get("radius", 6))
+        rad = float(box.get("radius", 6)) * s
         fill = box.get("fill", "#ffffff")
         stroke = box.get("stroke", "#d1d5db")
-        sw = float(box.get("stroke_width", 1))
+        sw = float(box.get("stroke_width", 1)) * s
         filt = f' filter="url(#{defs.shadow()})"' if box.get("shadow") else ""
         out.append(f'<rect x="{_f(bx)}" y="{_f(by)}" width="{_f(bw)}" height="{_f(bh)}" '
                    f'rx="{_f(rad)}" ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" '
@@ -465,44 +470,44 @@ def _label(el, defs, font_family):
     return "".join(out)
 
 
-def _annotation(el, defs, font_family):
+def _annotation(el, defs, font_family, s=1.0):
     """Boxed label + leader + target dot — the standard scientific callout (membrane diagram).
     `target` is the point on the artwork; `at` is where the label sits; `side` decides which box
-    edge the leader leaves from."""
+    edge the leader leaves from. Child renderers get RAW sizes + the real `s` (they scale once)."""
     target = tuple(el["target"])
     at = tuple(el["at"])
     side = el.get("side", "left" if at[0] < target[0] else "right")
-    fs = float(el.get("font_size", 14))
+    fs = float(el.get("font_size", 14)) * s          # scaled — for THIS function's geometry only
     text = str(el.get("text", ""))
     weight = str(el.get("weight", "600"))
-    pad_x = 9.0
+    pad_x = 9.0 * s
     bw = _approx_text_w(text, fs, weight) + 2 * pad_x
-    bh = fs + 10
     # leader starts at the inner edge of the box, midline
     edge_x = at[0] + (bw / 2 if side == "left" else -bw / 2)
     start = (edge_x, at[1])
     body = []
     body.append(_label({"text": text, "x": at[0], "y": at[1], "anchor": "middle",
-                        "font_size": fs, "weight": weight, "color": el.get("color", "#1f2937"),
+                        "font_size": el.get("font_size", 14), "weight": weight,
+                        "color": el.get("color", "#1f2937"),
                         "box": el.get("box", {"fill": "#ffffff", "stroke": "#d1d5db",
                                               "radius": 6, "shadow": el.get("shadow", False)})},
-                       defs, font_family))
+                       defs, font_family, s))
     body.insert(0, _leader({"from": list(start), "to": list(target),
                             "route": el.get("route", "elbow"),
                             "color": el.get("leader_color", "#9ca3af"),
                             "width": el.get("leader_width", 1.2),
                             "dash": el.get("leader_dash", ""),
                             "dot": el.get("dot", True),
-                            "dot_color": el.get("dot_color", "#4b5563")}, defs))
+                            "dot_color": el.get("dot_color", "#4b5563")}, defs, s))
     return "".join(body)
 
 
-def _panel(el, defs):
+def _panel(el, defs, s=1.0):
     x, y, w, h = float(el["x"]), float(el["y"]), float(el["w"]), float(el["h"])
-    rad = float(el.get("radius", 12))
+    rad = float(el.get("radius", 12)) * s
     fill = el.get("fill", "none")
     stroke = el.get("stroke", "#9ca3af")
-    sw = float(el.get("stroke_width", 1.4))
+    sw = float(el.get("stroke_width", 1.4)) * s
     dash = f' stroke-dasharray="{el.get("dash", "")}"' if el.get("dash") else ""
     out = (f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" '
            f'ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{dash}/>')
@@ -511,23 +516,111 @@ def _panel(el, defs):
                        "font_size": el.get("title_size", 13), "weight": "700",
                        "color": el.get("title_color", "#374151"),
                        "box": {"fill": el.get("title_bg", "#ffffff"), "stroke": "none",
-                               "pad_x": 8, "pad_y": 2, "radius": 4}}, defs, DEFAULT_FONT)
+                               "pad_x": 8, "pad_y": 2, "radius": 4}}, defs, DEFAULT_FONT, s)
     return out
 
 
-def _dot(el, defs):
-    return (f'<circle cx="{_f(el["x"])}" cy="{_f(el["y"])}" r="{_f(el.get("r", 3))}" '
+def _dot(el, defs, s=1.0):
+    return (f'<circle cx="{_f(el["x"])}" cy="{_f(el["y"])}" r="{_f(float(el.get("r", 3)) * s)}" '
             f'fill="{escape(el.get("fill", "#374151"))}"/>')
 
 
+# ===========================================================================
+# flowchart node: rounded box + optional embedded icon + wrapped text — the
+# "icons, not just boxes" look, born as editable vector (rect + <image> + <text>).
+# ===========================================================================
+def _wrap_lines(text: str, max_w: float, fs: float, weight: str) -> list:
+    """Greedy word-wrap to fit max_w px (cheap estimate — see _approx_text_w)."""
+    words = str(text).split()
+    if not words:
+        return []
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        trial = f"{cur} {w}"
+        if _approx_text_w(trial, fs, weight) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+def _multiline_text(lines, cx, cy, fs, weight, color, ff, line_h) -> str:
+    """Centered multi-line <text>, vertically centred on cy."""
+    total = (len(lines) - 1) * line_h
+    y0 = cy - total / 2
+    out = []
+    for i, ln in enumerate(lines):
+        y = y0 + i * line_h + fs * 0.35
+        out.append(f'<text x="{_f(cx)}" y="{_f(y)}" font-family="{ff}" font-size="{_f(fs)}" '
+                   f'font-weight="{weight}" fill="{escape(color)}" text-anchor="middle">{escape(ln)}</text>')
+    return "".join(out)
+
+
+def _icon_image(path, x, y, w, h) -> str:
+    """Embed an icon file as a base64 <image> (self-contained SVG). Missing file -> nothing (never fatal)."""
+    try:
+        data = Path(path).read_bytes()
+    except Exception:
+        return ""
+    mime = _IMG_MIME.get(Path(path).suffix.lower(), "image/png")
+    b64 = base64.b64encode(data).decode()
+    return (f'<image x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" '
+            f'preserveAspectRatio="xMidYMid meet" xlink:href="data:{mime};base64,{b64}"/>')
+
+
+def _node(el, defs, font_family, s=1.0) -> str:
+    """A flowchart node = rounded box + optional icon (top) + wrapped label, plus an optional step
+    badge. Everything is editable vector; the icon is an embedded <image>. Coords/size (x,y,w,h) are in
+    pixel space; style sizes (stroke, radius, pad, font) scale with `s`."""
+    x, y, w, h = float(el["x"]), float(el["y"]), float(el["w"]), float(el["h"])
+    rad = float(el.get("radius", 12)) * s
+    fill = el.get("fill", "#ffffff")
+    stroke = el.get("stroke", "#94a3b8")
+    sw = float(el.get("stroke_width", 1.6)) * s
+    ff = el.get("font_family", font_family)
+    filt = f' filter="url(#{defs.shadow()})"' if el.get("shadow", True) else ""
+    out = [f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" ry="{_f(rad)}" '
+           f'fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{filt}/>']
+    pad = float(el.get("pad", 10)) * s
+    fs = float(el.get("font_size", 13)) * s
+    weight = str(el.get("weight", "600"))
+    tcolor = el.get("text_color", "#1f2937")
+    line_h = fs * 1.25
+    lines = _wrap_lines(el.get("text", ""), w - 2 * pad, fs, weight)
+    icon = el.get("icon")
+    if icon and lines:
+        icon_h = (h - 2 * pad) * 0.58
+        iw = min(w - 2 * pad, icon_h)
+        out.append(_icon_image(icon, x + (w - iw) / 2, y + pad, iw, icon_h))
+        tcy = y + pad + icon_h + (h - 2 * pad - icon_h) / 2
+        out.append(_multiline_text(lines, x + w / 2, tcy, fs, weight, tcolor, ff, line_h))
+    elif icon:
+        icon_h = h - 2 * pad
+        iw = min(w - 2 * pad, icon_h)
+        out.append(_icon_image(icon, x + (w - iw) / 2, y + pad, iw, icon_h))
+    elif lines:
+        out.append(_multiline_text(lines, x + w / 2, y + h / 2, fs, weight, tcolor, ff, line_h))
+    if el.get("step") is not None:
+        r = fs * 0.9
+        cx, cy = x + r + 3 * s, y + r + 3 * s
+        out.append(f'<circle cx="{_f(cx)}" cy="{_f(cy)}" r="{_f(r)}" fill="{escape(el.get("step_bg", stroke))}"/>')
+        out.append(f'<text x="{_f(cx)}" y="{_f(cy + r * 0.35)}" font-family="{ff}" font-size="{_f(r * 1.05)}" '
+                   f'font-weight="700" fill="{escape(el.get("step_color", "#ffffff"))}" '
+                   f'text-anchor="middle">{escape(str(el["step"]))}</text>')
+    return "".join(out)
+
+
 _RENDERERS = {
-    "arrow": lambda el, defs, ff: _arrow(el, defs),
-    "leader": lambda el, defs, ff: _leader(el, defs),
-    "label": lambda el, defs, ff: _label(el, defs, ff),
-    "annotation": lambda el, defs, ff: _annotation(el, defs, ff),
-    "panel": lambda el, defs, ff: _panel(el, defs),
-    "dot": lambda el, defs, ff: _dot(el, defs),
-    "raw": lambda el, defs, ff: str(el.get("svg", "")),
+    "arrow": lambda el, defs, ff, s: _arrow(el, defs, s),
+    "leader": lambda el, defs, ff, s: _leader(el, defs, s),
+    "label": lambda el, defs, ff, s: _label(el, defs, ff, s),
+    "annotation": lambda el, defs, ff, s: _annotation(el, defs, ff, s),
+    "panel": lambda el, defs, ff, s: _panel(el, defs, s),
+    "node": lambda el, defs, ff, s: _node(el, defs, ff, s),
+    "dot": lambda el, defs, ff, s: _dot(el, defs, s),
+    "raw": lambda el, defs, ff, s: str(el.get("svg", "")),
 }
 
 
@@ -536,10 +629,15 @@ _RENDERERS = {
 # ===========================================================================
 def build_inner(spec) -> tuple[str, str, int, int]:
     """Return (defs, body, width, height) — used when embedding the overlay inside another SVG
-    (the layered-export case in compose_layers)."""
+    (the layered-export case in compose_figure_layers)."""
     w = int(spec.get("width", 1920))
     h = int(spec.get("height", 1080))
     ff = spec.get("font_family", DEFAULT_FONT)
+    # Resolution-aware sizing: elements are authored in ~1024px REFERENCE units, so all style sizes
+    # (fonts, strokes, dots, pads) scale up on a larger canvas — otherwise a 14px label is invisible on
+    # a 2K/4K artwork. Coordinates (x,y,w,h,points) stay in the artwork's real pixel space. A caller can
+    # pin it with spec["scale"]; otherwise it's derived from the longer canvas side.
+    s = float(spec["scale"]) if spec.get("scale") else max(1.0, max(w, h) / 1024.0)
     defs = _Defs()
     body = []
     for el in spec.get("elements", []):
@@ -547,7 +645,7 @@ def build_inner(spec) -> tuple[str, str, int, int]:
         fn = _RENDERERS.get(kind)
         if fn is None:
             raise ValueError(f"unknown overlay element kind: {kind!r}")
-        body.append(fn(el, defs, ff))
+        body.append(fn(el, defs, ff, s))
     return defs.render(), "".join(body), w, h
 
 
@@ -556,5 +654,5 @@ def build_svg(spec) -> str:
     defs, body, w, h = build_inner(spec)
     bg = spec.get("background")
     rect = (f'<rect width="{w}" height="{h}" fill="{escape(bg)}"/>' if bg else "")
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
-            f'viewBox="0 0 {w} {h}">{defs}{rect}{body}</svg>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+            f'width="{w}" height="{h}" viewBox="0 0 {w} {h}">{defs}{rect}{body}</svg>')

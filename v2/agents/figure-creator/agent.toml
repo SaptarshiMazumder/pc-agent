@@ -1,27 +1,44 @@
 # figure-creator — turns a subject (a concept explained in chat, a paper/PDF, a sketch, a reference
-# image, or a flat figure to re-edit) into a publication-grade scientific figure: a structured
-# diagram, an illustrated scene, or — the flagship — a HYBRID (illustrated artwork + an editable
-# vector layer of labels/arrows). Exports editable SVG / PPTX and vector PDF.
+# image, or a flat figure to re-edit) into a publication-grade scientific figure. It picks an ART
+# TEMPLATE from its style gallery (templates/*.toml — biorender-shaded, ghosted-anatomy,
+# isometric-3d-stem, watercolor-atlas, flat-vector, …), renders TEXTLESS artwork with Nano Banana Pro
+# (Gemini 3 Pro Image), then adds labels, leaders, arrows, and an illustrated flowchart (icon nodes,
+# not plain boxes) as an EDITABLE vector layer. Exports fully-editable SVG / PPTX and vector PDF.
 #
 # Full access on purpose: NO `skills` allowlist and NO `[tools] allow`, so it sees EVERY skill and
 # tool (including ones added later) with no edit here. Its playbooks are `create-scientific-figure`
 # and `vectorize-figure`; its tools are the figures / imagegen / vision / vectorize / figexport
-# plugins, plus read/write/render.
+# plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
 
-# Per-agent model overrides, decoupled from the global config. `model` = the brain (reasoning).
-# [plugins.*] = the model-bearing TOOLS this agent uses, in the same plugins -> tools -> model shape
-# as the global config — so figure-creator can run a CHEAP brain while keeping grounding on a precise
-# Gemini Pro, WITHOUT touching global config. These win over the global plugins map. A plugin-level
-# `model` sets the default for every tool in it; a [plugins.X.tools.Y] block overrides one tool.
-# Each value is a litellm "provider/model" (a bare id => gemini). Uncomment to override:
-# model = "gemini/gemini-3-flash-preview"
-#
-# [plugins.vision]
-# model = "gemini/gemini-2.5-flash"                     # default for verify_figure, etc.
-# [plugins.vision.tools.extract_anchors]
-# model = "gemini/gemini-3.1-pro-preview"               # grounding — Gemini is best at localization
-#
-# [plugins.imagegen.tools.generate_artwork]
-# model = "gemini/gemini-3-pro-image"
+# Per-agent model overrides, decoupled from the global config (agent.toml ALWAYS wins over
+# agentd.config.json — see application/tool_models.py). Every knob below lives on a TOOL, in the
+# plugins -> tools -> <knob> shape. This is where figure-creator's whole "engine" is wired WITHOUT
+# touching global config or agentd core.
+
+# --- The image engine: Nano Banana Pro (Gemini 3 Pro Image) --------------------------------------
+# THE decisive quality lever. Global config points generate_artwork at FLUX 1.1 Pro (a photoreal
+# model that invents anatomy and can't render diagram-grade structure); figure-creator overrides
+# that to Gemini 3 Pro Image — class-leading on legible text, factual/structured figures, 4K, and
+# reference conditioning. `provider` picks the backend SDK, `model` the endpoint. Per-call args and
+# the chosen art TEMPLATE (templates/*.toml -> provider/model) still win over these defaults.
+[plugins.imagegen.tools.generate_artwork]
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+# The house DEFAULT art style: when the agent calls generate_artwork with a `subject` but names NO
+# template (and writes no full custom prompt), fall back to this template — the clean shaded BioRender /
+# Cell-journal look. So "when in doubt" ALWAYS lands on the right style, even if the routing skill never
+# ran. An explicit `template=` or a full `prompt` still wins. (Agent-local on purpose: templates/ is
+# discoverable only from this agent's workspace, so this default must NOT live in global config.)
+default_template = "biorender-shaded"
+# FOR NOW: cap every generation to ~1024px for cheap, fast iteration. This overrides each template's
+# own resolution (2K). Delete this one line to restore full-res per-template output. (1K | 2K | 4K)
+resolution = "1K"
+# templates_dir = "templates"   # optional override; default discovery finds <agent>/templates
+
+# --- Reading + verification (Gemini; restated here so the agent is self-describing) --------------
+[plugins.vision.tools.read_labels_from_image]
+model = "gemini/gemini-3.1-pro-preview"                 # reading drawn labels — Gemini is strongest here
+[plugins.vision.tools.verify_figure]
+model = "gemini/gemini-2.5-flash"                       # a cheap judge is enough for the gate

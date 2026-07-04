@@ -184,10 +184,12 @@ def build_service(config: Config, browser_manager, computer_provider=None,
 
         context_policy = WindowContextPolicy(config.context_max_messages)
     from agentd.application.tool_models import brain_model
+    from agentd.infrastructure.llm.model_router import build_model_router
     engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
         stream_fn, brain_model(config), max_iterations=config.max_turns,  # brain model: CONFIG-ONLY
         observers=build_observers(config), context_policy=context_policy,
         execution_contract=getattr(config, "execution_contract", ""),
+        model_router=build_model_router(config),           # cost-efficiency brain routing (default off)
     )
     # the agent registry: which agent owns a session + its persona/scope.
     # (built above, before plugin discovery, so plugins receive the SAME instance.)

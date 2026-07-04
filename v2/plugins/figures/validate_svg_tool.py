@@ -1,6 +1,6 @@
 """validate_svg: parse an SVG and report whether it's well-formed + an element inventory.
 
-The structural-correctness signal for the figure loop. After the agent (or render_overlay) emits
+The structural-correctness signal for the figure loop. After the agent (or render_editable_overlay) emits
 SVG, this confirms it actually parses and tells the agent WHAT is in it — how many editable <text>
 labels, how many arrows/paths, whether the artwork <image> is embedded, which gradients/markers/
 filters are defined — so the agent can catch "I asked for 8 labels but only 6 rendered" before

@@ -34,12 +34,23 @@ log = logging.getLogger("agentd")
 
 def _effective_model(config) -> str:
     """The reasoning model as the models layer resolves it (CONFIG-ONLY) — for display/status. Shows
-    "(CONFIG MISSING)" instead of crashing when no agentd.config.json was loaded."""
+    "(CONFIG MISSING)" instead of crashing when no agentd.config.json was loaded. When cost-efficiency
+    routing is ON, the static brain id alone is MISLEADING (text turns actually run the cheap text_model,
+    only image turns use the vision_model), so reflect the routing here — this is the banner the user
+    reads to know which model is really doing the work."""
     from agentd.application.tool_models import ConfigMissingError, brain_model
     try:
-        return brain_model(config)
+        base = brain_model(config)
     except ConfigMissingError:
         return "(CONFIG MISSING)"
+    ce = getattr(config, "cost_efficiency", None) or {}
+    if isinstance(ce, dict) and ce.get("enabled") and (ce.get("text_model") or ce.get("vision_model")):
+        text = ce.get("text_model") or base
+        vision = ce.get("vision_model") or base
+        if text != vision:
+            return f"{text} -> {vision} on images (cost-efficiency)"
+        return f"{text} (cost-efficiency)"
+    return base
 
 
 # The prompt posted on an autonomous heartbeat tick (no user message). The agent's
