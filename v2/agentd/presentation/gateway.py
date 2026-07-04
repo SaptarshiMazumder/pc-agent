@@ -58,6 +58,63 @@ def _effective_model(config) -> str:
     return base
 
 
+# sessions.history DISPLAY caps: a full transcript re-sends every tool dump + inline
+# base64 image, which can be MEGABYTES (blows the WS message limit, and the client
+# renders none of the image bytes anyway). We trim to a display-shaped transcript —
+# generous text, bounded tool output, image DATA dropped (kept as a marker). The live
+# view already shows a first-line preview + expandable; history matches that intent.
+_HISTORY_TOOL_RESULT_CAP = 4000
+_HISTORY_THINKING_CAP = 8000
+_HISTORY_TEXT_CAP = 40000
+_HISTORY_ARG_CAP = 2000
+
+
+def _cap(text: str, limit: int) -> str:
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + f"\n…[+{len(text) - limit} chars]"
+
+
+def _trim_history_block(block: dict) -> dict:
+    """Trim ONE content block for display. Image bytes are dropped (marker kept); text/
+    thinking are capped; tool-call args with huge string values are capped."""
+    kind = block.get("type")
+    if kind == "text":
+        return {"type": "text", "text": _cap(block.get("text", ""), _HISTORY_TEXT_CAP)}
+    if kind == "thinking":
+        return {"type": "thinking", "thinking": _cap(block.get("thinking", ""), _HISTORY_THINKING_CAP)}
+    if kind == "image":
+        return {"type": "image", "data": "", "mimeType": block.get("mimeType", ""), "elided": True}
+    if kind == "toolCall":
+        args = block.get("arguments") or {}
+        trimmed = {k: (_cap(v, _HISTORY_ARG_CAP) if isinstance(v, str) else v) for k, v in args.items()}
+        return {"type": "toolCall", "id": block.get("id", ""), "name": block.get("name", ""),
+                "arguments": trimmed}
+    return block
+
+
+def _trim_history_message(message: dict) -> dict:
+    """Trim one wire-form message for the sessions.history payload (keeps it KB, not MB)."""
+    role = message.get("role")
+    if role == "user":
+        return {"role": "user", "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
+                "timestamp": message.get("timestamp", 0)}
+    if role == "assistant":
+        return {"role": "assistant",
+                "content": [_trim_history_block(b) for b in message.get("content") or []],
+                "stopReason": message.get("stopReason", "stop"),
+                "errorMessage": message.get("errorMessage"),
+                "timestamp": message.get("timestamp", 0)}
+    if role == "toolResult":
+        return {"role": "toolResult", "toolCallId": message.get("toolCallId", ""),
+                "toolName": message.get("toolName", ""),
+                "content": [{"type": "text",
+                             "text": _cap("".join(b.get("text", "") for b in message.get("content") or []
+                                                  if b.get("type") == "text"), _HISTORY_TOOL_RESULT_CAP)}],
+                "isError": message.get("isError", False),
+                "timestamp": message.get("timestamp", 0)}
+    return message
+
+
 # The prompt posted on an autonomous heartbeat tick (no user message). The agent's
 # HEARTBEAT.md checklist is assembled into the system prompt for heartbeat runs.
 HEARTBEAT_PROMPT = (
@@ -890,8 +947,8 @@ class Gateway:
                 agent_id = "main"
                 state_dir = self.registry.get("main").state_dir
         from agentd.infrastructure.memory.local_store import read_session_messages
-        return {"messages": read_session_messages(state_dir, session_key),
-                "sessionKey": session_key, "agentId": agent_id}
+        messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
+        return {"messages": messages, "sessionKey": session_key, "agentId": agent_id}
 
     async def _mcp_add(self, params: dict) -> dict:
         """Hot-add an MCP server: build the config, connect it LIVE, merge its tools into the

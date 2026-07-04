@@ -149,6 +149,38 @@ def test_gateway_sessions_history_is_agent_scoped(tmp_path):
     assert gw._sessions_history({"sessionKey": "term-sp1", "agentId": "main"})["messages"] == []
 
 
+def test_sessions_history_trims_images_and_big_results(tmp_path):
+    from types import SimpleNamespace
+
+    from agentd.domain.messages import ImageContent, ToolCallContent, ToolResultMessage
+    from agentd.presentation.gateway import Gateway
+
+    store = SessionStore(tmp_path, "big")
+    store.load()
+    store.append(UserMessage(content="make a figure"))
+    store.append(AssistantMessage(content=[
+        TextContent(text="here"),
+        ImageContent(data="A" * 500_000, mime_type="image/png"),   # a fat inline image
+        ToolCallContent(id="c1", name="write", arguments={"content": "Z" * 50_000}),
+    ], stop_reason="toolUse"))
+    store.append(ToolResultMessage(tool_call_id="c1", tool_name="write",
+                                   content=[TextContent(text="Q" * 200_000)]))
+
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None,
+                 registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)))
+    out = gw._sessions_history({"sessionKey": "big", "agentId": "main"})
+    import json
+    wire = json.dumps(out)
+    assert len(wire) < 100_000, f"trimmed history must be small, got {len(wire)} bytes"
+    asst = out["messages"][1]
+    img = next(b for b in asst["content"] if b["type"] == "image")
+    assert img["data"] == "" and img["elided"] is True          # image bytes dropped
+    call = next(b for b in asst["content"] if b["type"] == "toolCall")
+    assert len(call["arguments"]["content"]) < 3000             # big arg capped
+    result = out["messages"][2]["content"][0]["text"]
+    assert len(result) < 5000 and "chars]" in result            # tool result capped w/ marker
+
+
 def test_gateway_sessions_list_is_agent_scoped(tmp_path):
     # Each agent partitions its own transcripts; sessions.list must return the
     # CALLING agent's threads (so you can resume the right one), not the default's.

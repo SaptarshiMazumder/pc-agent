@@ -350,9 +350,14 @@ export const useApp = create<AppState>((set, get) => {
       window.agentd.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
       set({ supervisor: (await window.agentd.supervisorStatus()) as SupervisorStatus })
       wireEvents()
-      const { url } = await window.agentd.ensureDaemon()
       set({ connection: 'connecting' })
-      gateway.connect(url)
+      // Re-resolve host/port/token on every (re)connect: ensureDaemon finds the live
+      // daemon (or starts one) and returns its CURRENT url+token — so a daemon restart
+      // (which rotates the token) reconnects cleanly instead of looping on a stale one.
+      gateway.connect(async () => {
+        const { url } = await window.agentd.ensureDaemon()
+        return url
+      })
     },
 
     setView(view) {

@@ -14,9 +14,14 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/** Resolves the current connect URL (host+port+token). Called on EVERY (re)connect,
+ *  so a daemon restart — which rotates the auth token and can change the port — is
+ *  handled transparently instead of the client looping on a stale, now-rejected URL. */
+type UrlProvider = () => Promise<string>
+
 export class GatewayClient {
   private ws: WebSocket | null = null
-  private url = ''
+  private urlProvider: UrlProvider | null = null
   private nextId = 1
   private pending = new Map<string, Pending>()
   private eventHandlers = new Map<string, Set<EventHandler>>()
@@ -24,15 +29,29 @@ export class GatewayClient {
   private reconnectDelay = 1000
   private closedByUs = false
 
-  connect(url: string): void {
-    this.url = url
+  connect(urlProvider: UrlProvider): void {
+    this.urlProvider = urlProvider
     this.closedByUs = false
-    this.open()
+    void this.open()
   }
 
-  private open(): void {
+  private scheduleReconnect(): void {
+    if (this.closedByUs) return
+    setTimeout(() => void this.open(), this.reconnectDelay)
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 15_000)
+  }
+
+  private async open(): Promise<void> {
+    if (!this.urlProvider) return
     for (const handler of this.statusHandlers) handler('connecting')
-    const ws = new WebSocket(this.url)
+    let url: string
+    try {
+      url = await this.urlProvider() // re-resolves host/port/token every time (daemon may have restarted)
+    } catch {
+      this.scheduleReconnect() // daemon momentarily unreachable — back off and retry
+      return
+    }
+    const ws = new WebSocket(url)
     this.ws = ws
     ws.onopen = () => {
       this.reconnectDelay = 1000
@@ -43,10 +62,7 @@ export class GatewayClient {
       for (const [, pending] of this.pending) pending.reject(new Error('connection closed'))
       this.pending.clear()
       for (const handler of this.statusHandlers) handler('closed')
-      if (!this.closedByUs) {
-        setTimeout(() => this.open(), this.reconnectDelay)
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, 15_000)
-      }
+      this.scheduleReconnect()
     }
   }
 
