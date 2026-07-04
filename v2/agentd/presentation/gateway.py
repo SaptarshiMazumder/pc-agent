@@ -221,6 +221,9 @@ class Gateway:
     # Set by serve() from config (gateway_auth/gateway_token) — never at construction, so
     # unit tests that drive _handle_conn directly are unaffected.
     auth_token: str = ""
+    # M4: the marketplace service — built lazily on the first marketplace.* call
+    # (mirrors _ensure_mcp_provider), wired to broadcast progress + hot-reload.
+    marketplace: object | None = None
     clients: set[ServerConnection] = field(default_factory=set)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
@@ -239,16 +242,21 @@ class Gateway:
         # travels ONLY via the 0600 rendezvous file — never argv, never logs.
         if getattr(self.config, "gateway_auth", False):
             self.auth_token = getattr(self.config, "gateway_token", "") or lifecycle.mint_token()
-        await self._discover_mcp_tools()  # connect external MCP servers, add their tools
+        # Fast, in-process registrations happen BEFORE bind (cheap, chat depends on them)…
         self._build_subagents()           # the spawn_subagent tool (S8), if enabled
         self._build_agent_messaging()     # message_agent: talk to OTHER persistent agents (A5)
         self._build_add_mcp()             # add_mcp: connect an MCP server by chatting (B2)
-        self._build_channels()            # messaging channels (5b) — email needs MCP tools first
-        self._build_notifier()            # outbound notifications (client-push + durable + channels)
-        scheduler_task = self._start_scheduler()  # autonomy (heartbeat); None if disabled
-        poller_task = self._start_channel_poller()  # inbound poll channels; None if none
-        webhook_task = self._start_webhook_server()  # push channels (LINE) + task hooks (/hook/<id>)
-        self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
+        # …but everything SLOW or external is deferred until AFTER the port is open (see
+        # _deferred_startup): a cold external MCP server (uvx download, OAuth dance) used to
+        # hold the bind for minutes, which stalls every client and the desktop supervisor.
+        # Clients can chat with native tools immediately; MCP tools join the catalog live.
+        scheduler_task = poller_task = webhook_task = None
+        startup_task: asyncio.Task | None = None
+
+        def _adopt_background(tasks: tuple) -> None:
+            nonlocal scheduler_task, poller_task, webhook_task
+            scheduler_task, poller_task, webhook_task = tasks
+
         async with serve(self._handle_conn, self.config.host, self.config.port):
             lifecycle.write_gateway_file(lifecycle.GatewayInfo(
                 host=self.config.host, port=self.config.port, pid=os.getpid(),
@@ -258,10 +266,14 @@ class Gateway:
                      "on" if self.auth_token else "off")
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
             print(f"model: {_effective_model(self.config)} | workspace: {self.config.workspace}")
+            startup_task = asyncio.create_task(
+                self._deferred_startup(_adopt_background), name="deferred-startup")
             try:
                 await asyncio.Future()  # run forever
             finally:
                 lifecycle.clear_gateway_file(only_pid=os.getpid())
+                if startup_task is not None:
+                    startup_task.cancel()
                 if scheduler_task is not None:
                     scheduler_task.cancel()
                 if poller_task is not None:
@@ -276,6 +288,28 @@ class Gateway:
                     await self.browser_manager.close()
                 if self.mcp_provider is not None:
                     await self.mcp_provider.aclose()
+
+    async def _deferred_startup(self, adopt_background) -> None:
+        """Everything that used to run before bind but doesn't have to: connect external
+        MCP servers (slow, cold-start-prone), then the pieces that depend on their tools
+        (channels, notifier), then the background services. Order preserved exactly;
+        only the bind moved earlier. ``adopt_background`` hands the started tasks back
+        to serve() so shutdown still cancels them."""
+        try:
+            await self._discover_mcp_tools()  # connect external MCP servers, add their tools
+            self._build_channels()            # messaging channels (5b) — email needs MCP tools first
+            self._build_notifier()            # outbound notifications (client-push + durable + channels)
+            adopt_background((
+                self._start_scheduler(),      # autonomy (heartbeat); None if disabled
+                self._start_channel_poller(),  # inbound poll channels; None if none
+                self._start_webhook_server(),  # push channels (LINE) + task hooks (/hook/<id>)
+            ))
+            self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
+            log.info("deferred startup complete (MCP + channels + background services)")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — startup extras must never kill the gateway
+            log.exception("deferred startup failed — core chat keeps serving")
 
     def _start_scheduler(self):
         """Start the shared heartbeat scheduler — only when autonomy is enabled and a
@@ -803,6 +837,18 @@ class Gateway:
                 payload = self._notifications_ack(req.params)
             elif req.method == "workspace.cleanup":
                 payload = self._workspace_cleanup(req.params)
+            elif req.method == "marketplace.catalog":
+                payload = await self._marketplace().catalog()
+            elif req.method == "marketplace.installed":
+                payload = self._marketplace().installed()
+            elif req.method == "marketplace.install":
+                payload = await self._marketplace().install(
+                    bundle_id=(req.params.get("id") or "").strip(),
+                    file=(req.params.get("file") or "").strip())
+            elif req.method == "marketplace.uninstall":
+                payload = await self._marketplace().uninstall(
+                    (req.params.get("id") or "").strip(),
+                    purge_state=bool(req.params.get("purge")))
             else:
                 return Response(id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"})
             return Response(id=req.id, ok=True, payload=payload)
@@ -872,6 +918,55 @@ class Gateway:
             return self.mcp_provider
         except Exception:  # noqa: BLE001
             return None
+
+    # ------------------------------------------------------------- marketplace (M4)
+
+    def _marketplace(self):
+        """Lazy marketplace service: progress broadcasts to every client (the store UI
+        renders them) and after_change hot-reloads agents + plugins — install to usable
+        with NO restart."""
+        if self.marketplace is None:
+            from agentd.infrastructure.marketplace import build_marketplace_service
+
+            self.marketplace = build_marketplace_service(
+                self.config, on_event=self._marketplace_progress,
+                after_change=self._marketplace_after_change)
+        return self.marketplace
+
+    def _marketplace_progress(self, payload: dict) -> None:
+        """Sync -> async bridge for install progress (the service is transport-blind)."""
+        try:
+            asyncio.get_running_loop().create_task(
+                self._send_all(dump_frame(Event(event="marketplace.progress", payload=payload))))
+        except RuntimeError:   # no loop (CLI offline path) — progress goes nowhere, fine
+            pass
+
+    def _marketplace_after_change(self, changed: dict | None = None) -> dict:
+        """Post-install/uninstall: re-scan agents, hot-load any NEW plugins' tools, and
+        tell every client the agent list changed (switchers refresh live)."""
+        # An acquired addon JOINS the provisioning set (tiers doc §3) — extend the
+        # in-memory profile BEFORE re-discovery, or a Studio flavor would gate out the
+        # plugins it just installed. (load_config unions the ledger on every start.)
+        new_plugins = tuple((changed or {}).get("plugins") or ())
+        profile = getattr(self.config, "distribution", None)
+        if new_plugins and profile is not None and profile.provisioned_plugins is not None:
+            import dataclasses
+
+            merged = tuple(dict.fromkeys(profile.provisioned_plugins + new_plugins))
+            self.config.distribution = dataclasses.replace(profile, provisioned_plugins=merged)
+        agents: list = []
+        if self.registry is not None and hasattr(self.registry, "refresh"):
+            agents = self.registry.refresh()
+        tools: list = []
+        reloader = getattr(self.service, "plugin_reloader", None)
+        if callable(reloader):
+            tools = (reloader() or {}).get("tools", [])
+        try:
+            asyncio.get_running_loop().create_task(self._send_all(dump_frame(Event(
+                event="agents.changed", payload=self._agents_list()))))
+        except RuntimeError:
+            pass
+        return {"agents": agents, "tools": tools}
 
     def _mcp_list(self) -> dict:
         """Every MCP server — config-registered AND plugin-MCP — with whether its tools are live.

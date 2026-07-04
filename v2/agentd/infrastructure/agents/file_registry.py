@@ -37,6 +37,13 @@ class FileAgentRegistry:
                                 or Path(config.state_dir).parent / "agents")
         self._specs = self._discover()
 
+    def refresh(self) -> list[str]:
+        """Re-scan agents/ and swap the cache — how a marketplace install (or any
+        out-of-band drop of an agents/<id>/ dir) becomes visible WITHOUT a restart.
+        Atomic swap: readers see the old dict or the new one, never a partial."""
+        self._specs = self._discover()
+        return sorted(self._specs)
+
     # ---- discovery ----------------------------------------------------------
 
     def _discover(self) -> dict[str, AgentSpec]:

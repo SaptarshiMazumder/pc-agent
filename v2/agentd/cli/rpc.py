@@ -23,8 +23,13 @@ class RpcError(RuntimeError):
 
 
 def call(method: str, params: dict | None = None, timeout: float = 300.0,
-         info: lifecycle.GatewayInfo | None = None) -> dict:
-    """One RPC against the running daemon. Raises DaemonNotRunning / RpcError."""
+         info: lifecycle.GatewayInfo | None = None,
+         on_event=None) -> dict:
+    """One RPC against the running daemon. Raises DaemonNotRunning / RpcError.
+
+    ``on_event(event_name, payload)`` — optional: broadcast frames that arrive while
+    waiting (e.g. marketplace.progress) are handed over instead of dropped, so the
+    CLI can render live progress for long RPCs."""
     from websockets.sync.client import connect
 
     info = info or lifecycle.find_running()
@@ -41,4 +46,6 @@ def call(method: str, params: dict | None = None, timeout: float = 300.0,
                 if not frame.get("ok"):
                     raise RpcError(str(payload.get("error") or "gateway error"))
                 return payload
-            # event frames (broadcasts to all clients) interleave freely; skip them.
+            # event frames (broadcasts to all clients) interleave freely
+            if frame.get("type") == "event" and on_event is not None:
+                on_event(frame.get("event", ""), frame.get("payload") or {})

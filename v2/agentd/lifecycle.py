@@ -157,7 +157,7 @@ def daemon_command() -> list[str]:
     return [sys.executable, "-m", "agentd"]
 
 
-def spawn_daemon(wait_sec: float = 180.0) -> GatewayInfo:
+def spawn_daemon(wait_sec: float = 300.0) -> GatewayInfo:
     """Start the daemon DETACHED and wait until it is accepting connections.
 
     Raises RuntimeError with the log tail when it fails to come up in time."""
@@ -191,7 +191,7 @@ def spawn_daemon(wait_sec: float = 180.0) -> GatewayInfo:
     raise RuntimeError(f"daemon did not come up within {wait_sec:.0f}s — log tail:\n{_log_tail(log_path)}")
 
 
-def ensure_running(wait_sec: float = 180.0) -> tuple[GatewayInfo, bool]:
+def ensure_running(wait_sec: float = 300.0) -> tuple[GatewayInfo, bool]:
     """The live daemon, spawning one if needed. Returns (info, spawned_now)."""
     info = find_running()
     if info is not None:

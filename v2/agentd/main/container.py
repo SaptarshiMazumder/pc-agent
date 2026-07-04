@@ -92,7 +92,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # startup and pass through the SAME enablement there.) The credential vault + connect-token
     # store are injected (shared with the gateway's /connect web form).
     from agentd.domain.agent import apply_enablement, apply_plugin_enablement
-    from agentd.infrastructure.plugins import AllowAllEntitlement, discover_plugin_contributions
+    from agentd.infrastructure.plugins import build_entitlement, discover_plugin_contributions
 
     # plugins contribute tools (join the catalog), prompt sections (teach the model how to use
     # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
@@ -103,9 +103,10 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     from agentd.infrastructure.agents import FileAgentRegistry
     from agentd.application.services.agent_service import tool_source
     registry = registry or FileAgentRegistry(config)
-    # ENTITLEMENT seam (4th load gate): default = entitle every compatible plugin. A commercial
-    # build swaps this for a plan/tenant-aware policy here, without touching the core or plugins.
-    entitlement = AllowAllEntitlement()
+    # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
+    # entitle every compatible plugin; a distribution profile with a pinned publisher key
+    # (a commercial build) switches on license-file enforcement (M7) — no core changes.
+    entitlement = build_entitlement(config)
 
     # HOT-RELOAD seam (B1): `loaded_plugin_ids` tracks what discovery has loaded; `_late` carries
     # the AgentService once it exists (it's built below). `register_plugin_live` re-scans, loads
@@ -284,6 +285,8 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         ),
         build_prompt=_build_prompt,
         recall=_recall,
+        # hot-reload seam, now also driven by marketplace installs (gateway after_change)
+        plugin_reloader=register_plugin_live,
     )
     _late["service"] = service           # late-bind so register_plugin_live can hot-add tools
     return service

@@ -64,6 +64,9 @@ class AgentService:
         make_session: Callable[[str, AgentSpec], SessionStore],  # (id, agent) -> store
         build_prompt: Callable[..., str],  # (tools, agent, mode, query="") -> prompt
         recall: Callable[[AgentSpec, str], str] | None = None,   # (agent, query) -> memory block, or ""
+        plugin_reloader: Callable[[], dict] | None = None,  # hot-load NEW plugins into the live
+        # catalog (marketplace installs / create_tool). Filled by the composition root — the
+        # service only knows "something can extend my toolset live", never how discovery works.
     ):
         self._engine = engine
         self._tools = tools
@@ -71,6 +74,7 @@ class AgentService:
         self._make_session = make_session
         self._build_prompt = build_prompt
         self._recall = recall               # auto-recall: prepends relevant memories on user turns
+        self.plugin_reloader = plugin_reloader
 
     def _resolve_agent(self, session_id: str, agent_id: str | None):
         """Explicit agent_id wins (a client naming the agent); else resolve from the

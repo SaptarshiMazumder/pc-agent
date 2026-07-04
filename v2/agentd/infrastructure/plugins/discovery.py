@@ -152,10 +152,27 @@ def _entitled(entitlement, manifest) -> bool:
         return True
 
 
+def _provisioned(config, manifest) -> bool:
+    """PROVISIONED gate (M6, planning/…/plugin-distribution-architecture.md §2): is this
+    plugin part of THIS INSTALL's tier? Decided by the distribution profile
+    (distribution.toml -> config.distribution); no profile / no plugin list => everything
+    is provisioned (the open default — a checkout or plain pip install never loses tools)."""
+    profile = getattr(config, "distribution", None)
+    if profile is None:
+        return True
+    try:
+        return bool(profile.is_provisioned(manifest.id))
+    except Exception:  # noqa: BLE001 — a broken profile fails OPEN, like entitlement
+        return True
+
+
 def _passes_gates(config, manifest, entitlement) -> bool:
-    """The plugin LOAD decision — the 4-gate model (installed is implicit: we have a manifest):
-    ENABLED (config/manifest) + COMPATIBLE (os/bins/env) + ENTITLED (injected policy). Logs WHY a
-    plugin is skipped so a missing tool is debuggable."""
+    """The plugin LOAD decision — the gate model (installed is implicit: we have a manifest):
+    PROVISIONED (distribution profile) + ENABLED (config/manifest) + COMPATIBLE (os/bins/env)
+    + ENTITLED (injected policy). Logs WHY a plugin is skipped so a missing tool is debuggable."""
+    if not _provisioned(config, manifest):
+        log.info("plugins: '%s' skipped — not provisioned in this distribution", manifest.id)
+        return False
     if not _gate(config, manifest.id, manifest.enabled):
         log.info("plugins: '%s' disabled by config", manifest.id)
         return False

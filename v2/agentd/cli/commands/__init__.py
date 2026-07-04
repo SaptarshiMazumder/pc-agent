@@ -1,6 +1,16 @@
 """Command registry: every module here exposes register(subparsers). Adding a
 command = adding a module + one entry in ALL (order = help order)."""
 
-from agentd.cli.commands import agents, chat, daemon, doctor, plugins, serve
+from agentd.cli.commands import (
+    agents,
+    bundle,
+    chat,
+    daemon,
+    doctor,
+    license_,
+    marketplace,
+    plugins,
+    serve,
+)
 
-ALL = [chat, serve, daemon, doctor, agents, plugins]
+ALL = [chat, serve, daemon, doctor, agents, plugins, marketplace, bundle, license_]

@@ -31,6 +31,12 @@ class PluginManifest:
     # binaries / env are present. Keys: "os" (platform allowlist, e.g. ["windows","linux"]),
     # "bins" (all on PATH), "env" (all set). Empty => always compatible. From [requires] in the toml.
     requires: dict = field(default_factory=dict)
+    # DISTRIBUTION metadata (tiers doc §4) — pure description, no loader behavior:
+    # tier: "core" | "bundled" | "addon" ("" = unspecified); entitlement: the license SKU
+    # that unlocks this plugin ("" = free — every entitlement policy allows it). From
+    # [distribution] in the toml.
+    tier: str = ""
+    entitlement: str = ""
 
 
 def load_manifest(path: Path) -> PluginManifest | None:
@@ -63,6 +69,7 @@ def load_manifest(path: Path) -> PluginManifest | None:
                     for x in (raw_req.get(k) or []) if str(x).strip()]
                 for k in ("os", "bins", "env")}
     requires = {k: v for k, v in requires.items() if v}     # keep only declared keys
+    distribution = dict(data.get("distribution") or {})
     return PluginManifest(
         id=pid,
         name=str(data.get("name") or pid),
@@ -74,4 +81,6 @@ def load_manifest(path: Path) -> PluginManifest | None:
         data=files,
         root=root,
         requires=requires,
+        tier=str(distribution.get("tier") or "").strip().lower(),
+        entitlement=str(distribution.get("entitlement") or "").strip(),
     )

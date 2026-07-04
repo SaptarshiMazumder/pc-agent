@@ -601,6 +601,22 @@ def load_config(path: Path | None = None) -> Config:
     cfg.distribution = load_profile()
     if cfg.distribution.default_agent and cfg.agent_id == "main":
         cfg.agent_id = cfg.distribution.default_agent
+    # Acquired addons JOIN the provisioning set (tiers doc §3): when the profile gates
+    # plugins, union in every plugin an installed bundle placed — a store install on a
+    # Studio flavor stays provisioned across restarts. (The ledger is state, not config,
+    # so it is read fresh on every load.)
+    if cfg.distribution.provisioned_plugins is not None:
+        try:
+            ledger = json.loads(
+                (Path(cfg.state_dir) / "installed_bundles.json").read_text(encoding="utf-8"))
+            bundle_plugins = tuple(str(p) for b in ledger.get("bundles", [])
+                                   for p in (b.get("plugin_ids") or []))
+            if bundle_plugins:
+                from dataclasses import replace
+                cfg.distribution = replace(cfg.distribution, provisioned_plugins=tuple(
+                    dict.fromkeys(cfg.distribution.provisioned_plugins + bundle_plugins)))
+        except (OSError, ValueError):
+            pass    # no ledger / unreadable => nothing installed yet
     # registry resolution: env > JSON config (already applied above) > profile.
     if os.environ.get("AGENTD_REGISTRY"):
         cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
