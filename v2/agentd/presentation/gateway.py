@@ -14,6 +14,7 @@ import hmac
 import logging
 import os
 import time
+from pathlib import Path
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -95,15 +96,16 @@ def _trim_history_block(block: dict) -> dict:
 def _trim_history_message(message: dict) -> dict:
     """Trim one wire-form message for the sessions.history payload (keeps it KB, not MB)."""
     role = message.get("role")
+    ts = message.get("ts", "")          # the line's stored send time (ISO) — kept for display
     if role == "user":
         return {"role": "user", "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
-                "timestamp": message.get("timestamp", 0)}
+                "ts": ts, "timestamp": message.get("timestamp", 0)}
     if role == "assistant":
         return {"role": "assistant",
                 "content": [_trim_history_block(b) for b in message.get("content") or []],
                 "stopReason": message.get("stopReason", "stop"),
                 "errorMessage": message.get("errorMessage"),
-                "timestamp": message.get("timestamp", 0)}
+                "ts": ts, "timestamp": message.get("timestamp", 0)}
     if role == "toolResult":
         return {"role": "toolResult", "toolCallId": message.get("toolCallId", ""),
                 "toolName": message.get("toolName", ""),
@@ -111,7 +113,7 @@ def _trim_history_message(message: dict) -> dict:
                              "text": _cap("".join(b.get("text", "") for b in message.get("content") or []
                                                   if b.get("type") == "text"), _HISTORY_TOOL_RESULT_CAP)}],
                 "isError": message.get("isError", False),
-                "timestamp": message.get("timestamp", 0)}
+                "ts": ts, "timestamp": message.get("timestamp", 0)}
     return message
 
 
@@ -868,6 +870,16 @@ class Gateway:
                 payload = self._sessions_history(req.params)
             elif req.method == "sessions.rename":
                 payload = await self._sessions_rename(req.params)
+            elif req.method == "sessions.delete":
+                payload = await self._sessions_delete(req.params)
+            elif req.method == "projects.list":
+                payload = self._projects_list()
+            elif req.method == "projects.create":
+                payload = await self._projects_create(req.params)
+            elif req.method == "projects.rename":
+                payload = await self._projects_rename(req.params)
+            elif req.method == "projects.delete":
+                payload = await self._projects_delete(req.params)
             elif req.method == "agents.list":
                 payload = self._agents_list()
             elif req.method == "tools.list":
@@ -962,6 +974,87 @@ class Gateway:
         await self._send_all(dump_frame(Event(
             event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key})))
         return {"ok": True, "sessionKey": session_key, "title": title, "agentId": agent_id}
+
+    async def _sessions_delete(self, params: dict) -> dict:
+        """Delete a saved conversation (transcript + meta) — any client, same backend.
+        Refuses while the session has an in-flight run (abort it first); broadcasts
+        sessions.changed so every connected client's list updates live."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
+        session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
+        if not session_key:
+            return {"ok": False, "error": "sessionKey required"}
+        handle = self.runs.get(session_key)
+        if handle is not None and handle.task is not None and not handle.task.done():
+            return {"ok": False, "error": "session has an active run — /abort it first"}
+        from agentd.infrastructure.memory.local_store import delete_session
+        deleted = delete_session(state_dir, session_key)
+        self.runs.pop(session_key, None)               # forget any finished handle
+        await self._send_all(dump_frame(Event(
+            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key,
+                                               "deleted": True})))
+        return {"ok": True, "deleted": deleted, "sessionKey": session_key, "agentId": agent_id}
+
+    # ------------------------------------------------------------------ projects
+    # Projects are SERVER data (one global list in the daemon's root state dir) so
+    # every client shows the same folders; a session joins one via its meta sidecar.
+
+    def _all_state_dirs(self) -> list:
+        """Every place session transcripts live: the default state dir + each agent's
+        partition — for project-wide session operations."""
+        dirs = {str(self.config.state_dir): self.config.state_dir}
+        if self.registry is not None:
+            for aid in self.registry.list_ids():
+                try:
+                    sd = self.registry.get(aid).state_dir
+                    dirs[str(sd)] = sd
+                except KeyError:
+                    continue
+        return list(dirs.values())
+
+    def _projects_list(self) -> dict:
+        from agentd.infrastructure.memory import projects_store
+        return {"projects": projects_store.list_projects(self.config.state_dir)}
+
+    async def _projects_create(self, params: dict) -> dict:
+        from agentd.infrastructure.memory import projects_store
+        project = projects_store.create_project(self.config.state_dir,
+                                                str(params.get("name") or ""))
+        await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
+        return {"ok": True, "project": project}
+
+    async def _projects_rename(self, params: dict) -> dict:
+        from agentd.infrastructure.memory import projects_store
+        ok = projects_store.rename_project(self.config.state_dir,
+                                           (params.get("id") or "").strip(),
+                                           str(params.get("name") or ""))
+        if ok:
+            await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
+        return {"ok": ok}
+
+    async def _projects_delete(self, params: dict) -> dict:
+        """Delete a project. Its chats become standalone by default; pass
+        deleteSessions=true to remove them too (across every agent's partition)."""
+        from agentd.infrastructure.memory import projects_store
+        from agentd.infrastructure.memory.local_store import (
+            delete_session,
+            sessions_in_project,
+            write_session_meta,
+        )
+        project_id = (params.get("id") or "").strip()
+        if not project_id:
+            return {"ok": False, "error": "id required"}
+        removed = projects_store.delete_project(self.config.state_dir, project_id)
+        sessions_deleted = 0
+        for state_dir in self._all_state_dirs():
+            for sid in sessions_in_project(state_dir, project_id):
+                if params.get("deleteSessions"):
+                    delete_session(state_dir, sid)
+                    sessions_deleted += 1
+                else:                                   # untag -> standalone chat
+                    write_session_meta(state_dir, sid, projectId="")
+        await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
+        await self._send_all(dump_frame(Event(event="sessions.changed", payload={})))
+        return {"ok": removed, "sessionsDeleted": sessions_deleted}
 
     async def _maybe_generate_title(self, session_key: str, agent_id: str | None) -> None:
         """After a session's first interactive exchange, generate a short title (once) and
@@ -1327,6 +1420,10 @@ class Gateway:
             "productId": getattr(distribution, "product_id", "agentd"),
             "storeEnabled": bool(getattr(distribution, "store_enabled", True)),
             "registryConfigured": bool(getattr(self.config, "registry_url", "")),
+            "registryUrl": str(getattr(self.config, "registry_url", "") or ""),
+            # where a LOCAL registry is auto-detected — clients can show real setup
+            # instructions instead of a bare error (local-first store).
+            "localRegistryDir": str(Path(self.config.state_dir) / "registry"),
             "agents": self._agents_list()["agents"],   # so any client can show/pick agents
         }
 
@@ -1341,6 +1438,19 @@ class Gateway:
         agent_id = params.get("agentId") or None
         if agent_id and self.registry is not None and agent_id not in self.registry.list_ids():
             raise ValueError(f"unknown agent: {agent_id}")
+
+        # project membership: a chat started "inside a project" carries projectId; the
+        # link lives on the session's meta sidecar (server data — every client sees it).
+        # Cheap guard: only write when it actually changes.
+        project_id = (params.get("projectId") or "").strip()
+        if project_id:
+            from agentd.infrastructure.memory.local_store import (
+                read_session_meta,
+                write_session_meta,
+            )
+            _, state_dir = self._resolve_state_dir(agent_id)
+            if read_session_meta(state_dir, session_key).get("projectId") != project_id:
+                write_session_meta(state_dir, session_key, projectId=project_id)
 
         idem = params.get("idempotencyKey")
         if idem and idem in self.idempotency:
@@ -1473,9 +1583,12 @@ class Gateway:
                     pass
 
     async def _broadcast(self, session_key: str, run_id: str, event: AgentEvent) -> None:
+        # `ts` (epoch seconds) stamps every live event server-side, so all clients
+        # show the same send time — and it matches the transcript's stored timestamps.
         await self._send_all(dump_frame(Event(
             event="chat.event",
-            payload={"sessionKey": session_key, "runId": run_id, "event": event.to_dict()},
+            payload={"sessionKey": session_key, "runId": run_id, "ts": time.time(),
+                     "event": event.to_dict()},
         )))
 
     async def _send_all(self, frame: str) -> None:

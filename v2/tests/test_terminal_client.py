@@ -89,7 +89,7 @@ def test_table_builds_and_renders():
 
     table = sessions_table(SESSIONS, current="term-bbb")
     assert table.row_count == 2
-    assert [c.header for c in table.columns] == ["#", "session", "msgs", "modified"]
+    assert [c.header for c in table.columns] == ["#", "title", "session", "msgs", "when"]
     # rendering must not raise and should surface the ids + the current marker
     console = Console(width=100, record=True)
     console.print(table)

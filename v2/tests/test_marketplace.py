@@ -56,6 +56,18 @@ def _pack(tmp: Path, agent_id: str = "demo-agent", version: str = "1.0.0",
     return bundle_io.pack_bundle(agent_dir, tmp / "dist", manifest, plugins)
 
 
+def test_default_local_registry(tmp_path):
+    """Local-first store: <state_dir>/registry counts as configured ONLY once an
+    index.json is built there (empty dir = still 'not set up')."""
+    from agentd.config import default_local_registry
+
+    assert default_local_registry(tmp_path) == ""
+    (tmp_path / "registry").mkdir()
+    assert default_local_registry(tmp_path) == ""            # dir alone isn't enough
+    (tmp_path / "registry" / "index.json").write_text("{}", encoding="utf-8")
+    assert default_local_registry(tmp_path) == str(tmp_path / "registry")
+
+
 def _config(tmp: Path, registry_url: str = "") -> SimpleNamespace:
     return SimpleNamespace(
         state_dir=tmp / "state", agents_dir=tmp / "agents", plugins_dir=tmp / "plugins",

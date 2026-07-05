@@ -10,7 +10,10 @@ from agentd.cli.commands import (
     license_,
     marketplace,
     plugins,
+    projects,
     serve,
+    sessions,
 )
 
-ALL = [chat, serve, daemon, doctor, agents, plugins, marketplace, bundle, license_]
+ALL = [chat, serve, daemon, doctor, agents, sessions, projects, plugins,
+       marketplace, bundle, license_]

@@ -8,6 +8,11 @@ export default function StoreView() {
   const installBundle = useApp((state) => state.installBundle)
   const uninstallBundle = useApp((state) => state.uninstallBundle)
   const refreshCatalog = useApp((state) => state.refreshCatalog)
+  const hello = useApp((state) => state.hello)
+
+  // "no registry configured" is a SETUP state, not a failure — show how to fix it
+  // (all facts come from the daemon: the auto-detected local dir, env, config).
+  const needsSetup = catalogError.includes('no registry configured')
 
   return (
     <div className="store">
@@ -19,7 +24,30 @@ export default function StoreView() {
         <button className="button" onClick={() => void refreshCatalog()}>↻ Refresh</button>
       </header>
 
-      {catalogError && <div className="banner banner-error">{catalogError}</div>}
+      {needsSetup && (
+        <div className="setup-card">
+          <div className="card-name">Connect a registry</div>
+          <p className="card-desc">
+            The store lists agent bundles from a registry. None is connected yet — pick either:
+          </p>
+          <ul className="setup-list">
+            <li>
+              <b>Local (no cloud):</b> drop <code>.agentpkg</code> files into{' '}
+              <code>{hello?.localRegistryDir || '<state dir>/registry'}</code> and run{' '}
+              <code>agentd bundle index {hello?.localRegistryDir || '<that dir>'}</code>, then
+              restart the daemon. Bundles are built with <code>agentd bundle pack</code>.
+            </li>
+            <li>
+              <b>Remote:</b> set <code>registry_url</code> in the config (or{' '}
+              <code>AGENTD_REGISTRY</code>) to a registry URL.
+            </li>
+          </ul>
+          <p className="card-desc">
+            You can still install a bundle file directly: <code>agentd install ./file.agentpkg</code>.
+          </p>
+        </div>
+      )}
+      {catalogError && !needsSetup && <div className="banner banner-error">{catalogError}</div>}
 
       <div className="cards">
         {catalog.map((bundle) => {
@@ -60,7 +88,7 @@ export default function StoreView() {
           )
         })}
         {catalog.length === 0 && !catalogError && (
-          <div className="empty-sub pad">No bundles in the registry (or no registry configured yet).</div>
+          <div className="empty-sub pad">The registry is connected but has no bundles yet.</div>
         )}
       </div>
 

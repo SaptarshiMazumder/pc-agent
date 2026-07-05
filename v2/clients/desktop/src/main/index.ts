@@ -22,6 +22,15 @@ let flavor: Flavor = {
 const supervisor = new Supervisor(() => flavor.sourcePath)
 let mainWindow: BrowserWindow | null = null
 
+// The nakama-link app icon (green, transparent). In dev __dirname is out/main, so
+// ../../resources reaches the project's resources/; packaged builds get it from
+// electron-builder's win.icon + the exe, but the explicit path keeps dev identical.
+const appIcon = path.join(
+  __dirname,
+  '../../resources',
+  process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+)
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -29,6 +38,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: flavor.productName,
+    icon: appIcon,
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
     webPreferences: {

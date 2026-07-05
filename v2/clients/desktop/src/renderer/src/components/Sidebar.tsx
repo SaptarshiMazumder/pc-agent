@@ -1,6 +1,110 @@
 import { useEffect, useRef, useState } from 'react'
 
+import logo from '../assets/nakama.svg'
+import type { SessionRow } from '../gateway/protocol'
+import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
+
+/** One saved-conversation row: title (server data), WhatsApp-style 'when', and
+ *  hover actions — rename (✎ / double-click) and delete (✕, two-step confirm). */
+function SessionItem({
+  session,
+  active,
+  onOpen
+}: {
+  session: SessionRow
+  active: boolean
+  onOpen: () => void
+}) {
+  const renameSession = useApp((state) => state.renameSession)
+  const deleteSession = useApp((state) => state.deleteSession)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [armed, setArmed] = useState(false) // first ✕ click arms; second deletes
+  const editRef = useRef<HTMLInputElement>(null)
+  const label = session.title || session.sessionId
+
+  useEffect(() => {
+    if (editing) editRef.current?.select()
+  }, [editing])
+
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 3000)
+    return () => clearTimeout(timer)
+  }, [armed])
+
+  function commit() {
+    void renameSession(session.sessionId, draft.trim())
+    setEditing(false)
+  }
+
+  return (
+    <div
+      className={`row session-row ${active ? 'row-active' : ''}`}
+      onClick={() => {
+        if (!editing) onOpen()
+      }}
+      onDoubleClick={() => {
+        setDraft(label)
+        setEditing(true)
+      }}
+      title="double-click to rename"
+    >
+      {editing ? (
+        <input
+          ref={editRef}
+          className="rename-input"
+          value={draft}
+          autoFocus
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              setEditing(false)
+            }
+          }}
+        />
+      ) : (
+        <>
+          <div className="session-row-main">
+            <span className="row-title">{label}</span>
+            <span
+              className="hover-btn"
+              title="rename"
+              onClick={(e) => {
+                e.stopPropagation()
+                setDraft(label)
+                setEditing(true)
+              }}
+            >
+              ✎
+            </span>
+            <span
+              className={`hover-btn ${armed ? 'hover-btn-danger' : ''}`}
+              title={armed ? 'click again to delete — permanent' : 'delete chat'}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (armed) void deleteSession(session.sessionId)
+                else setArmed(true)
+              }}
+            >
+              {armed ? 'sure?' : '✕'}
+            </span>
+          </div>
+          <span className="row-sub">
+            {session.messages} messages · {whenLabel(session.modified * 1000)}
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
 
 export default function Sidebar() {
   const flavor = useApp((state) => state.flavor)
@@ -11,40 +115,54 @@ export default function Sidebar() {
   const sessionRows = useApp((state) => state.sessionRows)
   const currentSessionKey = useApp((state) => state.currentSessionKey)
   const resumeSession = useApp((state) => state.resumeSession)
-  const renameSession = useApp((state) => state.renameSession)
   const newSession = useApp((state) => state.newSession)
+  const projects = useApp((state) => state.projects)
+  const createProject = useApp((state) => state.createProject)
+  const renameProject = useApp((state) => state.renameProject)
+  const deleteProject = useApp((state) => state.deleteProject)
   const view = useApp((state) => state.view)
   const setView = useApp((state) => state.setView)
   const connection = useApp((state) => state.connection)
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState('')
-  const editRef = useRef<HTMLInputElement>(null)
+  const [addingProject, setAddingProject] = useState(false)
+  const [projectDraft, setProjectDraft] = useState('')
+  const [renamingProject, setRenamingProject] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [armedProject, setArmedProject] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    if (editingId) editRef.current?.select()
-  }, [editingId])
-
-  function beginEdit(sessionId: string, current: string) {
-    setEditingId(sessionId)
-    setDraftTitle(current)
-  }
-
-  function commitEdit() {
-    if (editingId) void renameSession(editingId, draftTitle.trim())
-    setEditingId(null)
-  }
+    if (!armedProject) return
+    const timer = setTimeout(() => setArmedProject(null), 3000)
+    return () => clearTimeout(timer)
+  }, [armedProject])
 
   const storeEnabled = (hello?.storeEnabled ?? true) && (flavor?.storeEnabled ?? true)
+  const projectIds = new Set(projects.map((p) => p.id))
+  const standalone = sessionRows.filter((s) => !s.projectId || !projectIds.has(s.projectId))
+  const byProject = new Map<string, SessionRow[]>()
+  for (const s of sessionRows) {
+    if (s.projectId && projectIds.has(s.projectId)) {
+      byProject.set(s.projectId, [...(byProject.get(s.projectId) || []), s])
+    }
+  }
+
+  function submitNewProject() {
+    const name = projectDraft.trim()
+    setAddingProject(false)
+    setProjectDraft('')
+    if (name) void createProject(name)
+  }
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className={`dot ${connection === 'open' ? 'dot-ok' : 'dot-off'}`} />
+        <img className="brand-logo" src={logo} alt="" />
         <span className="brand-name">{flavor?.productName || 'agentd'}</span>
+        <span className={`dot ${connection === 'open' ? 'dot-ok' : 'dot-off'}`} />
       </div>
 
-      <button className="button primary new-chat" onClick={() => { setView('chat'); newSession() }}>
+      <button className="button primary new-chat" onClick={() => newSession()}>
         + New chat
       </button>
 
@@ -54,7 +172,8 @@ export default function Sidebar() {
           <button
             key={agent.id}
             className={`row ${agent.id === currentAgentId ? 'row-active' : ''}`}
-            onClick={() => { setView('chat'); void selectAgent(agent.id) }}
+            onClick={() => void selectAgent(agent.id)}
+            title="opens this agent's most recent conversation"
           >
             <span className="row-title">{agent.name || agent.id}</span>
             <span className="row-sub">{agent.id}</span>
@@ -62,52 +181,146 @@ export default function Sidebar() {
         ))}
       </div>
 
-      <div className="section-label">Recent sessions</div>
-      <div className="session-list">
-        {sessionRows.slice(0, 20).map((session) => {
-          const isEditing = editingId === session.sessionId
-          const label = session.title || session.sessionId
+      <div className="section-label section-label-row">
+        <span>Projects</span>
+        <span
+          className="section-action"
+          title="new project"
+          onClick={() => {
+            setAddingProject(true)
+            setProjectDraft('')
+          }}
+        >
+          ＋
+        </span>
+      </div>
+      <div className="project-list">
+        {addingProject && (
+          <input
+            className="rename-input"
+            placeholder="project name…"
+            value={projectDraft}
+            autoFocus
+            onChange={(e) => setProjectDraft(e.target.value)}
+            onBlur={submitNewProject}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                submitNewProject()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setAddingProject(false)
+              }
+            }}
+          />
+        )}
+        {projects.map((project) => {
+          const chats = byProject.get(project.id) || []
+          const isCollapsed = collapsed[project.id] ?? false
+          const isRenaming = renamingProject === project.id
+          const isArmed = armedProject === project.id
           return (
-            <div
-              key={session.sessionId}
-              className={`row session-row ${session.sessionId === currentSessionKey ? 'row-active' : ''}`}
-              onClick={() => { if (!isEditing) { setView('chat'); void resumeSession(session.sessionId) } }}
-              onDoubleClick={() => beginEdit(session.sessionId, label)}
-              title="double-click to rename"
-            >
-              {isEditing ? (
+            <div key={project.id} className="project">
+              {isRenaming ? (
                 <input
-                  ref={editRef}
                   className="rename-input"
-                  value={draftTitle}
+                  value={renameDraft}
                   autoFocus
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setDraftTitle(e.target.value)}
-                  onBlur={commitEdit}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={() => {
+                    if (renameDraft.trim()) void renameProject(project.id, renameDraft.trim())
+                    setRenamingProject(null)
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
-                    else if (e.key === 'Escape') { e.preventDefault(); setEditingId(null) }
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      if (renameDraft.trim()) void renameProject(project.id, renameDraft.trim())
+                      setRenamingProject(null)
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setRenamingProject(null)
+                    }
                   }}
                 />
               ) : (
-                <>
+                <div
+                  className="row project-row"
+                  onClick={() => setCollapsed((c) => ({ ...c, [project.id]: !isCollapsed }))}
+                >
                   <div className="session-row-main">
-                    <span className="row-title">{label}</span>
+                    <span className="project-caret">{isCollapsed ? '▸' : '▾'}</span>
+                    <span className="row-title">{project.name}</span>
                     <span
-                      className="rename-btn"
-                      title="rename"
-                      onClick={(e) => { e.stopPropagation(); beginEdit(session.sessionId, label) }}
+                      className="hover-btn"
+                      title="new chat in this project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        newSession(project.id)
+                      }}
+                    >
+                      ＋
+                    </span>
+                    <span
+                      className="hover-btn"
+                      title="rename project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setRenameDraft(project.name)
+                        setRenamingProject(project.id)
+                      }}
                     >
                       ✎
                     </span>
+                    <span
+                      className={`hover-btn ${isArmed ? 'hover-btn-danger' : ''}`}
+                      title={
+                        isArmed
+                          ? 'click again to delete the project (its chats stay, as standalone)'
+                          : 'delete project'
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (isArmed) void deleteProject(project.id)
+                        else setArmedProject(project.id)
+                      }}
+                    >
+                      {isArmed ? 'sure?' : '✕'}
+                    </span>
                   </div>
-                  <span className="row-sub">{session.messages} messages</span>
-                </>
+                </div>
+              )}
+              {!isCollapsed && (
+                <div className="project-sessions">
+                  {chats.map((session) => (
+                    <SessionItem
+                      key={session.sessionId}
+                      session={session}
+                      active={session.sessionId === currentSessionKey}
+                      onOpen={() => void resumeSession(session.sessionId)}
+                    />
+                  ))}
+                  {chats.length === 0 && <div className="row-sub pad">no chats yet — use ＋</div>}
+                </div>
               )}
             </div>
           )
         })}
-        {sessionRows.length === 0 && <div className="row-sub pad">no saved sessions yet</div>}
+        {projects.length === 0 && !addingProject && (
+          <div className="row-sub pad">group chats into projects with ＋</div>
+        )}
+      </div>
+
+      <div className="section-label">Chats</div>
+      <div className="session-list">
+        {standalone.slice(0, 30).map((session) => (
+          <SessionItem
+            key={session.sessionId}
+            session={session}
+            active={session.sessionId === currentSessionKey}
+            onOpen={() => void resumeSession(session.sessionId)}
+          />
+        ))}
+        {standalone.length === 0 && <div className="row-sub pad">no saved chats yet</div>}
       </div>
 
       <div className="sidebar-footer">

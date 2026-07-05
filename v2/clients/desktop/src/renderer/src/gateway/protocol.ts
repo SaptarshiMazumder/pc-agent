@@ -42,6 +42,8 @@ export interface Hello {
   productId: string
   storeEnabled: boolean
   registryConfigured: boolean
+  registryUrl: string
+  localRegistryDir: string
   workspace: string
   agents: AgentInfo[]
 }
@@ -50,8 +52,15 @@ export interface SessionRow {
   sessionId: string
   title: string
   titleManual: boolean
+  projectId: string
   messages: number
   modified: number
+}
+
+export interface ProjectRow {
+  id: string
+  name: string
+  createdAt: number
 }
 
 /** chat.event payload: {sessionKey, runId, event: {type, ...}} */

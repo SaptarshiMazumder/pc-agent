@@ -15,7 +15,8 @@ export default function SettingsView() {
     ['Model', hello?.model || '—'],
     ['Default agent', hello?.agentId || '—'],
     ['Workspace', hello?.workspace || '—'],
-    ['Store', hello?.storeEnabled ? (hello?.registryConfigured ? 'enabled' : 'enabled (no registry configured)') : 'disabled']
+    ['Store', hello?.storeEnabled ? (hello?.registryConfigured ? 'enabled' : 'enabled (no registry configured)') : 'disabled'],
+    ['Registry', hello?.registryUrl || `none — local dir: ${hello?.localRegistryDir || '?'}`]
   ]
 
   return (

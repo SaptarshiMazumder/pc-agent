@@ -1,9 +1,11 @@
 /**
  * App state (zustand) — the renderer's single source of truth.
  *
- * bootstrap(): flavor -> ensure daemon -> connect WS -> hello -> sessions ->
+ * bootstrap(): flavor -> ensure daemon -> connect WS -> hello -> sessions/projects ->
  * (Studio flavors) preinstall bundled .agentpkg files. Every broadcast event the
  * daemon emits lands here and mutates exactly one slice; components just render.
+ * All conversation data (titles, projects, timestamps, deletion) is SERVER data —
+ * this store only mirrors it and renders optimistically where that helps.
  */
 
 import { create } from 'zustand'
@@ -15,16 +17,18 @@ import type {
   CatalogBundle,
   Hello,
   InstalledBundle,
+  ProjectRow,
   SessionRow
 } from '../gateway/protocol'
 import { resultText } from '../gateway/protocol'
 
-export type ChatItem =
+export type ChatItem = (
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string; streaming: boolean }
   | { kind: 'thinking'; text: string; streaming: boolean }
   | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean }
   | { kind: 'system'; text: string; tone: 'info' | 'error' }
+) & { ts?: number } // epoch ms — when the message was sent (stored server-side)
 
 export interface SessionState {
   items: ChatItem[]
@@ -61,21 +65,30 @@ function newSessionKey(): string {
   return `desk-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** ISO timestamp (as stored in the transcript) -> epoch ms, or undefined. */
+function toMs(iso: unknown): number | undefined {
+  if (typeof iso !== 'string' || !iso) return undefined
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? undefined : ms
+}
+
 /** Rebuild a saved transcript (sessions.history message dicts) into the same
  *  ChatItem[] the live event path produces, so a resumed session renders identically:
- *  user text, assistant text/thinking, and tool calls merged with their results. */
+ *  user text, assistant text/thinking, and tool calls merged with their results.
+ *  Each stored line carries `ts` — kept so history shows real send times. */
 function historyToItems(messages: any[]): ChatItem[] {
   const items: ChatItem[] = []
   const toolIndexByCallId = new Map<string, number>()
   for (const message of messages) {
+    const ts = toMs(message.ts)
     if (message.role === 'user') {
-      items.push({ kind: 'user', text: String(message.content ?? '') })
+      items.push({ kind: 'user', text: String(message.content ?? ''), ts })
     } else if (message.role === 'assistant') {
       for (const block of message.content || []) {
         if (block.type === 'text' && block.text) {
-          items.push({ kind: 'assistant', text: block.text, streaming: false })
+          items.push({ kind: 'assistant', text: block.text, streaming: false, ts })
         } else if (block.type === 'thinking' && block.thinking) {
-          items.push({ kind: 'thinking', text: block.thinking, streaming: false })
+          items.push({ kind: 'thinking', text: block.thinking, streaming: false, ts })
         } else if (block.type === 'toolCall') {
           toolIndexByCallId.set(String(block.id), items.length)
           items.push({
@@ -84,12 +97,13 @@ function historyToItems(messages: any[]): ChatItem[] {
             args: block.arguments || {},
             result: '',
             isError: false,
-            done: false
+            done: false,
+            ts
           })
         }
       }
       if (message.errorMessage) {
-        items.push({ kind: 'system', tone: 'error', text: String(message.errorMessage) })
+        items.push({ kind: 'system', tone: 'error', text: String(message.errorMessage), ts })
       }
     } else if (message.role === 'toolResult') {
       const text = (message.content || []).map((block: any) => block?.text || '').join('')
@@ -105,7 +119,8 @@ function historyToItems(messages: any[]): ChatItem[] {
           args: {},
           result: text,
           isError: !!message.isError,
-          done: true
+          done: true,
+          ts
         })
       }
     }
@@ -124,6 +139,9 @@ interface AppState {
   currentAgentId: string
   sessionRows: SessionRow[]
   currentSessionKey: string
+  /** project the CURRENT chat belongs to ('' = standalone) — sent with chat.send */
+  currentProjectId: string
+  projects: ProjectRow[]
   sessions: Record<string, SessionState>
 
   catalog: CatalogBundle[]
@@ -136,9 +154,13 @@ interface AppState {
   bootstrap(): Promise<void>
   setView(view: View): void
   selectAgent(agentId: string): Promise<void>
-  newSession(): void
+  newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
   renameSession(sessionId: string, title: string): Promise<void>
+  deleteSession(sessionId: string): Promise<void>
+  createProject(name: string): Promise<void>
+  renameProject(projectId: string, name: string): Promise<void>
+  deleteProject(projectId: string): Promise<void>
   sendMessage(text: string): Promise<void>
   abortRun(): Promise<void>
   refreshCatalog(): Promise<void>
@@ -158,24 +180,24 @@ export const useApp = create<AppState>((set, get) => {
     }))
   }
 
-  function appendStreaming(sessionKey: string, kind: 'assistant' | 'thinking', delta: string): void {
+  function appendStreaming(sessionKey: string, kind: 'assistant' | 'thinking', delta: string, ts: number): void {
     patchSession(sessionKey, (session) => {
       const items = [...session.items]
       const last = items[items.length - 1]
       if (last && last.kind === kind && last.streaming) {
         items[items.length - 1] = { ...last, text: last.text + delta }
       } else {
-        items.push({ kind, text: delta, streaming: true } as ChatItem)
+        items.push({ kind, text: delta, streaming: true, ts } as ChatItem)
       }
       return { ...session, items }
     })
   }
 
-  function handleAgentEvent(sessionKey: string, event: AgentEvent): void {
+  function handleAgentEvent(sessionKey: string, event: AgentEvent, ts: number): void {
     switch (event.type) {
       case 'message_update':
-        if (event.kind === 'text_delta') appendStreaming(sessionKey, 'assistant', event.delta || '')
-        else if (event.kind === 'thinking_delta') appendStreaming(sessionKey, 'thinking', event.delta || '')
+        if (event.kind === 'text_delta') appendStreaming(sessionKey, 'assistant', event.delta || '', ts)
+        else if (event.kind === 'thinking_delta') appendStreaming(sessionKey, 'thinking', event.delta || '', ts)
         break
       case 'message_end':
         patchSession(sessionKey, (session) => ({
@@ -190,7 +212,7 @@ export const useApp = create<AppState>((set, get) => {
           ...session,
           items: [
             ...session.items,
-            { kind: 'tool', name: event.toolName || '?', args: event.args || {}, result: '', isError: false, done: false }
+            { kind: 'tool', name: event.toolName || '?', args: event.args || {}, result: '', isError: false, done: false, ts }
           ]
         }))
         break
@@ -219,7 +241,8 @@ export const useApp = create<AppState>((set, get) => {
                 event.kind === 'start' ? `subagent ${event.childAgent} started`
                 : event.kind === 'tool' ? `subagent ${event.childAgent} · ${event.tool}`
                 : event.kind === 'error' ? `subagent ${event.childAgent}: ${event.detail || 'error'}`
-                : `subagent ${event.childAgent} done`
+                : `subagent ${event.childAgent} done`,
+              ts
             }
           ]
         }))
@@ -228,7 +251,7 @@ export const useApp = create<AppState>((set, get) => {
         const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
         patchSession(sessionKey, (session) => ({
           items: error
-            ? [...session.items, { kind: 'system', tone: 'error', text: error }]
+            ? [...session.items, { kind: 'system', tone: 'error', text: error, ts }]
             : session.items.map((item) =>
                 'streaming' in item && item.streaming ? { ...item, streaming: false } : item
               ),
@@ -251,7 +274,7 @@ export const useApp = create<AppState>((set, get) => {
       agents: hello.agents,
       currentAgentId: agentIds.has(preferred) ? preferred : hello.agentId
     })
-    await refreshSessions()
+    await Promise.all([refreshSessions(), refreshProjects()])
     await preinstallBundles()
   }
 
@@ -264,6 +287,15 @@ export const useApp = create<AppState>((set, get) => {
       set({ sessionRows: payload.sessions || [] })
     } catch {
       set({ sessionRows: [] })
+    }
+  }
+
+  async function refreshProjects(): Promise<void> {
+    try {
+      const payload = await gateway.request<{ projects: ProjectRow[] }>('projects.list')
+      set({ projects: payload.projects || [] })
+    } catch {
+      set({ projects: [] })
     }
   }
 
@@ -300,14 +332,19 @@ export const useApp = create<AppState>((set, get) => {
     if (wired) return
     wired = true
     gateway.on('chat.event', (payload) => {
-      handleAgentEvent(String(payload.sessionKey || ''), (payload.event || {}) as AgentEvent)
+      // the server stamps every live event (epoch seconds) so all clients agree on time
+      const ts = typeof payload.ts === 'number' ? payload.ts * 1000 : Date.now()
+      handleAgentEvent(String(payload.sessionKey || ''), (payload.event || {}) as AgentEvent, ts)
     })
     gateway.on('agents.changed', (payload) => {
       set({ agents: (payload.agents as AgentInfo[]) || [] })
     })
     gateway.on('sessions.changed', () => {
-      // a session was renamed or auto-titled (possibly by another client) — refresh the list
+      // renamed / auto-titled / deleted (possibly by another client) — refresh the list
       void refreshSessions()
+    })
+    gateway.on('projects.changed', () => {
+      void refreshProjects()
     })
     gateway.on('marketplace.progress', (payload) => {
       const id = String(payload.id || '')
@@ -340,6 +377,8 @@ export const useApp = create<AppState>((set, get) => {
     currentAgentId: '',
     sessionRows: [],
     currentSessionKey: newSessionKey(),
+    currentProjectId: '',
+    projects: [],
     sessions: {},
 
     catalog: [],
@@ -371,12 +410,21 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async selectAgent(agentId) {
-      set({ currentAgentId: agentId, currentSessionKey: newSessionKey() })
+      // LM-Studio behaviour: clicking an agent OPENS where you left off — its most
+      // recent conversation — not an empty screen. No history -> a fresh chat.
+      set({ currentAgentId: agentId, view: 'chat' })
       await refreshSessions()
+      const latest = get().sessionRows[0]
+      if (latest) {
+        await get().resumeSession(latest.sessionId)
+      } else {
+        set({ currentSessionKey: newSessionKey(), currentProjectId: '' })
+      }
     },
 
-    newSession() {
-      set({ currentSessionKey: newSessionKey() })
+    newSession(projectId?: string) {
+      // fresh chat — inside a project when one is given, standalone otherwise
+      set({ currentSessionKey: newSessionKey(), currentProjectId: projectId || '', view: 'chat' })
     },
 
     async renameSession(sessionId, title) {
@@ -397,8 +445,75 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
+    async deleteSession(sessionId) {
+      // optimistic removal; the server broadcasts sessions.changed as confirmation
+      set((state) => {
+        const sessions = { ...state.sessions }
+        delete sessions[sessionId]
+        return {
+          sessionRows: state.sessionRows.filter((row) => row.sessionId !== sessionId),
+          sessions
+        }
+      })
+      if (get().currentSessionKey === sessionId) {
+        set({ currentSessionKey: newSessionKey(), currentProjectId: '' })
+      }
+      try {
+        await gateway.request('sessions.delete', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined
+        })
+      } catch {
+        void refreshSessions() // failed (e.g. active run) — reload the truth
+      }
+    },
+
+    async createProject(name) {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      try {
+        const { project } = await gateway.request<{ project: ProjectRow }>('projects.create', {
+          name: trimmed
+        })
+        await refreshProjects()
+        // start working in it right away — a fresh chat inside the new project
+        if (project?.id) get().newSession(project.id)
+      } catch {
+        await refreshProjects()
+      }
+    },
+
+    async renameProject(projectId, name) {
+      set((state) => ({
+        projects: state.projects.map((p) => (p.id === projectId ? { ...p, name } : p))
+      }))
+      try {
+        await gateway.request('projects.rename', { id: projectId, name })
+      } catch {
+        void refreshProjects()
+      }
+    },
+
+    async deleteProject(projectId) {
+      // deletes the FOLDER; its chats become standalone (server behaviour)
+      set((state) => ({
+        projects: state.projects.filter((p) => p.id !== projectId),
+        currentProjectId: state.currentProjectId === projectId ? '' : state.currentProjectId
+      }))
+      try {
+        await gateway.request('projects.delete', { id: projectId })
+      } catch {
+        void refreshProjects()
+      }
+    },
+
     async resumeSession(sessionId) {
-      set({ currentSessionKey: sessionId, view: 'chat' })
+      const row = get().sessionRows.find((r) => r.sessionId === sessionId)
+      set({
+        currentSessionKey: sessionId,
+        currentProjectId: row?.projectId || '',
+        view: 'chat'
+      })
       // already have this session in memory with content (it's live, or we loaded it
       // before) — don't clobber it by reloading.
       const existing = get().sessions[sessionId]
@@ -426,9 +541,9 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async sendMessage(text) {
-      const { currentSessionKey, currentAgentId } = get()
+      const { currentSessionKey, currentAgentId, currentProjectId } = get()
       patchSession(currentSessionKey, (session) => ({
-        items: [...session.items, { kind: 'user', text }],
+        items: [...session.items, { kind: 'user', text, ts: Date.now() }],
         running: true
       }))
       try {
@@ -436,13 +551,14 @@ export const useApp = create<AppState>((set, get) => {
           sessionKey: currentSessionKey,
           message: text,
           agentId: currentAgentId || undefined,
+          projectId: currentProjectId || undefined,
           idempotencyKey: `${currentSessionKey}-${Date.now()}`
         })
       } catch (error) {
         patchSession(currentSessionKey, (session) => ({
           items: [
             ...session.items,
-            { kind: 'system', tone: 'error', text: error instanceof Error ? error.message : String(error) }
+            { kind: 'system', tone: 'error', text: error instanceof Error ? error.message : String(error), ts: Date.now() }
           ],
           running: false
         }))

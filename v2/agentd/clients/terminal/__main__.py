@@ -52,6 +52,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from agentd.clients.timefmt import whatsapp_when
+
 from . import picker
 
 # ── Color policy ──────────────────────────────────────────────────────────────
@@ -152,6 +154,8 @@ SESSIONS_DEFAULT = 15
 # own; esc in the palette prefills "/" so arguments can still be typed.
 COMMANDS = [
     ("/sessions", "list & resume saved sessions"),
+    ("/delete", "delete a saved session — permanent"),
+    ("/projects", "projects: group chats / pick the active one"),
     ("/agents", "list agents & switch"),
     ("/agent", "show / switch the current agent"),
     ("/agent-rm", "delete an agent — permanent"),
@@ -200,18 +204,21 @@ def resolve_session_choice(sessions: list[dict], pick: str) -> str | None:
 
 
 def sessions_table(sessions: list[dict], current: str | None = None) -> Table:
-    """Numbered table of saved sessions (newest first, as the gateway returns)."""
+    """Numbered table of saved sessions (newest first, as the gateway returns).
+    Shows the server-side TITLE first (auto/LLM/user), the raw key dim, and a
+    WhatsApp-style 'when' (14:32 / Yesterday / Tuesday / 5 June / 3 Apr 1996)."""
     table = Table(box=None, pad_edge=False, show_edge=False)
     table.add_column("#", justify="right", style=f"bold {LIME}")
-    table.add_column("session", style="bold")
+    table.add_column("title", style="bold")
+    table.add_column("session", style="dim")
     table.add_column("msgs", justify="right", style="dim")
-    table.add_column("modified", style="dim")
+    table.add_column("when", style="dim")
     for i, s in enumerate(sessions, 1):
         sid = s.get("sessionId", "?")
-        label = sid + ("  ← current" if sid == current else "")
-        ts = s.get("modified")
-        when = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
-        table.add_row(str(i), label, str(s.get("messages", 0)), when)
+        title = s.get("title") or sid
+        label = title + ("  ← current" if sid == current else "")
+        table.add_row(str(i), label, sid, str(s.get("messages", 0)),
+                      whatsapp_when(s.get("modified") or 0))
     return table
 
 
@@ -221,10 +228,9 @@ def session_options(sessions: list[dict], current: str | None = None) -> list[pi
     opts = []
     for s in sessions:
         sid = s.get("sessionId", "?")
-        ts = s.get("modified")
-        when = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
-        detail = f"{s.get('messages', 0)} msgs" + (f" · {when}" if when else "")
-        opts.append(picker.Option(value=sid, label=sid, detail=detail,
+        when = whatsapp_when(s.get("modified") or 0)
+        detail = f"{sid} · {s.get('messages', 0)} msgs" + (f" · {when}" if when else "")
+        opts.append(picker.Option(value=sid, label=s.get("title") or sid, detail=detail,
                                   current=sid == current))
     return opts
 
@@ -260,10 +266,12 @@ def render_plan(plan: list) -> Text:
 
 
 class TerminalClient:
-    def __init__(self, url: str, session_key: str, agent_id: str | None = None):
+    def __init__(self, url: str, session_key: str, agent_id: str | None = None,
+                 project_id: str | None = None):
         self.url = url
         self.session_key = session_key
         self.agent_id = agent_id        # explicit agent selection (None = the default agent)
+        self.project_id = project_id    # active project — new chats land in it (None = standalone)
         self.ws = None
         self.pending: dict[str, asyncio.Future] = {}
         self.run_done = asyncio.Event()
@@ -461,6 +469,9 @@ class TerminalClient:
                     console.print(Text(str(err), style="error"))
             elif reason and reason != "stop":
                 console.print(Text(f"[run ended: {reason}]", style="dim"))
+            # WhatsApp-style stamp: when the reply landed (dim, tucked right)
+            console.print(Text(datetime.now().strftime("%H:%M"), style="grey50"),
+                          justify="right")
             self.run_done.set()
 
     def _print_welcome(self, info: dict) -> None:
@@ -486,7 +497,7 @@ class TerminalClient:
             Text.from_markup(
                 f"Resume a past chat with [bold {LIME}]/sessions[/], or just start typing for a new one."
             ),
-            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  press [/][bold {LIME}]/[/][dim] for the command menu  ·  /agents  /tools  /mcp  /cron  /sessions  /new  /quit[/]"),
+            Text.from_markup(f"[dim]agent[/] [bold]{self.agent_id or 'main'}[/]  [dim]session[/] [bold]{self.session_key}[/]   [dim]·  press [/][bold {LIME}]/[/][dim] for the command menu  ·  /agents  /sessions  /projects  /delete  /new  /quit[/]"),
         ]
         console.print(
             Panel.fit(Group(*lines), border_style=LIME, title=f"agentd · {name}", title_align="left")
@@ -517,7 +528,9 @@ class TerminalClient:
                             line = await asyncio.to_thread(console.input, prompt)
                     except (EOFError, KeyboardInterrupt):
                         break
-                    console.print(Rule(style=f"dim {LIME}"))
+                    # closing rule carries the send time (WhatsApp-style, dim, right)
+                    console.print(Rule(Text(datetime.now().strftime("%H:%M"), style="grey50"),
+                                       style=f"dim {LIME}", align="right"))
                     line = line.strip()
                     if not line:
                         continue
@@ -527,7 +540,8 @@ class TerminalClient:
                         break
                     if line == "/new":
                         self.session_key = f"term-{uuid.uuid4().hex[:8]}"
-                        console.print(f"[{LIME}]new session:[/] [bold]{self.session_key}[/]")
+                        where = f" [dim](in project {self.project_id})[/]" if self.project_id else ""
+                        console.print(f"[{LIME}]new session:[/] [bold]{self.session_key}[/]{where}")
                         continue
                     if line == "/agents":
                         await self._agents_menu()
@@ -942,6 +956,123 @@ class TerminalClient:
                                 "[dim](history continues on your next message)[/]"
                             )
                         continue
+                    if line == "/delete" or line.startswith("/delete "):
+                        # pick (or name) a saved session and delete it — server-side, so
+                        # every connected client's list updates via sessions.changed.
+                        parts = line.split(maxsplit=1)
+                        target = parts[1].strip() if len(parts) > 1 else ""
+                        if not target:
+                            params = {"agentId": self.agent_id} if self.agent_id else {}
+                            try:
+                                payload = await self.request("sessions.list", params)
+                            except RuntimeError as e:
+                                console.print(f"[error]{e}[/]")
+                                continue
+                            sessions = payload.get("sessions") or []
+                            if not sessions:
+                                console.print("[dim]no saved sessions to delete[/]")
+                                continue
+                            if picker.can_pick(console):
+                                target = await self._pick(
+                                    "delete a session — PERMANENT",
+                                    session_options(sessions, self.session_key))
+                            else:
+                                console.print(sessions_table(sessions, self.session_key))
+                                pick = await asyncio.to_thread(
+                                    console.input, "[dim]delete # (blank to cancel):[/] ")
+                                target = resolve_session_choice(sessions, pick)
+                            if not target:
+                                console.print("[dim]cancelled[/]")
+                                continue
+                        confirm = await asyncio.to_thread(
+                            console.input,
+                            f"[error]delete[/] [bold]{target}[/] [dim]permanently? (y/N):[/] ")
+                        if (confirm or "").strip().lower() not in ("y", "yes"):
+                            console.print("[dim]cancelled[/]")
+                            continue
+                        params = {"sessionKey": target}
+                        if self.agent_id:
+                            params["agentId"] = self.agent_id
+                        try:
+                            resp = await self.request("sessions.delete", params)
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        if not resp.get("ok"):
+                            console.print(f"[error]{resp.get('error', 'delete failed')}[/]")
+                            continue
+                        console.print(f"[{LIME}]deleted[/] [bold]{target}[/]")
+                        if target == self.session_key:      # you deleted the chat you're in
+                            self.session_key = f"term-{uuid.uuid4().hex[:8]}"
+                            console.print(f"[dim]new session: {self.session_key}[/]")
+                        continue
+                    if line == "/projects" or line.startswith("/projects "):
+                        # /projects            list + pick the ACTIVE project (new chats join it)
+                        # /projects new <name> create · /projects rm <id> delete · /projects off
+                        parts = line.split(maxsplit=2)
+                        sub = parts[1] if len(parts) > 1 else ""
+                        rest = parts[2] if len(parts) > 2 else ""
+                        try:
+                            if sub == "new":
+                                if not rest.strip():
+                                    console.print("[dim]usage: /projects new <name>[/]")
+                                    continue
+                                resp = await self.request("projects.create", {"name": rest})
+                                project = resp.get("project") or {}
+                                self.project_id = project.get("id")
+                                self.session_key = f"term-{uuid.uuid4().hex[:8]}"
+                                console.print(
+                                    f"[{LIME}]created[/] [bold]{project.get('name')}[/] "
+                                    f"[dim]({self.project_id}) — active; new session "
+                                    f"{self.session_key}[/]")
+                                continue
+                            if sub in ("rm", "delete"):
+                                if not rest.strip():
+                                    console.print("[dim]usage: /projects rm <id>[/]")
+                                    continue
+                                resp = await self.request(
+                                    "projects.delete", {"id": rest.strip()})
+                                if resp.get("ok"):
+                                    console.print(f"[{LIME}]deleted[/] {rest.strip()} "
+                                                  "[dim](its chats are standalone now)[/]")
+                                    if self.project_id == rest.strip():
+                                        self.project_id = None
+                                else:
+                                    console.print(f"[error]no such project: {rest.strip()}[/]")
+                                continue
+                            if sub in ("off", "none"):
+                                self.project_id = None
+                                console.print("[dim]project cleared — new chats are standalone[/]")
+                                continue
+                            payload = await self.request("projects.list", {})
+                        except RuntimeError as e:
+                            console.print(f"[error]{e}[/]")
+                            continue
+                        rows = payload.get("projects") or []
+                        if not rows:
+                            console.print("[dim]no projects — /projects new <name>[/]")
+                            continue
+                        if picker.can_pick(console):
+                            opts = [picker.Option(
+                                value=p["id"], label=p["name"],
+                                detail=f"{p['id']} · {whatsapp_when(p.get('createdAt') or 0)}",
+                                current=p["id"] == self.project_id) for p in rows]
+                            chosen = await self._pick("active project (new chats join it)", opts)
+                            if chosen is None:
+                                console.print("[dim]cancelled[/]")
+                                continue
+                            self.project_id = chosen
+                            self.session_key = f"term-{uuid.uuid4().hex[:8]}"
+                            console.print(f"[{LIME}]project:[/] [bold]{chosen}[/] "
+                                          f"[dim](new session {self.session_key})[/]")
+                        else:
+                            for p in rows:
+                                mark = f"[{LIME}]→[/]" if p["id"] == self.project_id else " "
+                                console.print(f"  {mark} [bold]{p['id']}[/]  {p['name']}  "
+                                              f"[dim]{whatsapp_when(p.get('createdAt') or 0)}[/]")
+                            console.print("[dim]/projects new <name> · rm <id> · off — or restart "
+                                          "with `agentd --project <id>`[/]")
+                        continue
                     if line == "/abort":
                         try:
                             payload = await self.request("chat.abort", {"sessionKey": self.session_key})
@@ -959,6 +1090,8 @@ class TerminalClient:
                         }
                         if self.agent_id:
                             params["agentId"] = self.agent_id   # backend resolves the agent
+                        if self.project_id:
+                            params["projectId"] = self.project_id   # chat lives in this project
                         await self.request("chat.send", params)
                         await self.run_done.wait()
                     except RuntimeError as e:
@@ -986,9 +1119,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--session", default=None, help="session key to resume")
     parser.add_argument("--agent", default=None,
                         help="agent id to talk to (default: the gateway's default agent)")
+    parser.add_argument("--project", default=None,
+                        help="project id — new chats in this REPL land in that project")
     args = parser.parse_args(argv)
     session_key = args.session or f"term-{uuid.uuid4().hex[:8]}"
-    client = TerminalClient(args.url or _default_url(), session_key, agent_id=args.agent)
+    client = TerminalClient(args.url or _default_url(), session_key, agent_id=args.agent,
+                            project_id=args.project)
     try:
         asyncio.run(client.run())
     except KeyboardInterrupt:

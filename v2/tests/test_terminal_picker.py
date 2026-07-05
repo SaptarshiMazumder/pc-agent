@@ -232,6 +232,6 @@ def test_session_options_maps_sessions_to_menu_rows():
     ]
     opts = session_options(sessions, current="term-bbb")
     assert [o.value for o in opts] == ["term-aaa", "term-bbb"]
-    assert opts[0].detail.startswith("16 msgs · ")
-    assert opts[1].detail == "4 msgs"          # no timestamp -> no trailing dot
+    assert opts[0].detail.startswith("term-aaa · 16 msgs · ")   # id · msgs · when
+    assert opts[1].detail == "term-bbb · 4 msgs"   # no timestamp -> no trailing when
     assert opts[1].current and not opts[0].current

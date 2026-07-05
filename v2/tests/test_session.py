@@ -118,6 +118,53 @@ def test_read_session_messages(tmp_path):
     assert msgs[1]["content"][1]["type"] == "toolCall"
     assert msgs[1]["content"][1]["id"] == "c1"
     assert msgs[2]["toolCallId"] == "c1" and msgs[2]["content"][0]["text"] == "file body"
+    # every message carries its stored send time (ISO) so clients can show WHEN
+    assert all(m.get("ts", "").count("-") >= 2 for m in msgs)
+
+
+def test_delete_session(tmp_path):
+    from agentd.infrastructure.memory.local_store import (
+        delete_session,
+        read_session_meta,
+        write_session_meta,
+    )
+
+    store = SessionStore(tmp_path, "gone")
+    store.load()
+    write_session_meta(tmp_path, "gone", title="Bye")
+    assert delete_session(tmp_path, "gone") is True
+    assert not store.path.exists()
+    assert read_session_meta(tmp_path, "gone") == {}       # sidecar removed too
+    assert delete_session(tmp_path, "gone") is False       # already gone
+
+
+def test_gateway_sessions_delete(tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    from agentd.presentation.gateway import Gateway
+
+    SessionStore(tmp_path, "d1").load()
+    events = []
+
+    class _WS:
+        async def send(self, frame):
+            events.append(frame)
+
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None,
+                 registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)))
+    gw.clients = {_WS()}
+
+    out = asyncio.run(gw._sessions_delete({"sessionKey": "d1", "agentId": "main"}))
+    assert out["ok"] and out["deleted"]
+    assert not (tmp_path / "sessions" / "d1.jsonl").exists()
+    assert any("sessions.changed" in f for f in events), "delete must broadcast"
+
+    # deleting a non-existent session is ok=True/deleted=False (idempotent)
+    out = asyncio.run(gw._sessions_delete({"sessionKey": "d1", "agentId": "main"}))
+    assert out["ok"] and not out["deleted"]
+    # missing key -> clear error
+    assert not asyncio.run(gw._sessions_delete({}))["ok"]
 
 
 def test_session_meta_and_titled_list(tmp_path):

@@ -416,6 +416,14 @@ def _load_dotenv() -> None:
                 os.environ[key] = value
 
 
+def default_local_registry(state_dir) -> str:
+    """The zero-config marketplace source: ``<state_dir>/registry`` — but only when a
+    built ``index.json`` actually sits there (an empty/missing dir means 'not set up',
+    not 'a broken registry'). Lowest-priority fallback in the resolution chain."""
+    registry_dir = Path(state_dir) / "registry"
+    return str(registry_dir) if (registry_dir / "index.json").is_file() else ""
+
+
 def load_config(path: Path | None = None) -> Config:
     _load_dotenv()
     cfg = Config()
@@ -617,11 +625,14 @@ def load_config(path: Path | None = None) -> Config:
                     dict.fromkeys(cfg.distribution.provisioned_plugins + bundle_plugins)))
         except (OSError, ValueError):
             pass    # no ledger / unreadable => nothing installed yet
-    # registry resolution: env > JSON config (already applied above) > profile.
+    # registry resolution: env > JSON config (already applied above) > profile >
+    # a LOCAL registry at <state_dir>/registry (local-first: drop .agentpkg files
+    # there + `agentd bundle index` and the store just works, no cloud needed).
     if os.environ.get("AGENTD_REGISTRY"):
         cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
     elif not cfg.registry_url:
-        cfg.registry_url = cfg.distribution.registry_url
+        cfg.registry_url = cfg.distribution.registry_url \
+            or default_local_registry(cfg.state_dir)
     if os.environ.get("AGENTD_GATEWAY_AUTH"):
         cfg.gateway_auth = os.environ["AGENTD_GATEWAY_AUTH"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TOKEN"):

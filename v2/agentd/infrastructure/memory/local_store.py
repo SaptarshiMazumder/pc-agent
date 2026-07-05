@@ -141,14 +141,54 @@ def read_session_messages(state_dir: Path, session_id: str) -> list[dict]:
     """Read a stored session's transcript as message dicts (the camelCase wire form),
     WITHOUT creating the file — for a client loading a past conversation to display.
 
-    Returns [] if the session doesn't exist (never a side effect, unlike ``load`` which
-    creates the header for a brand-new session). The id may be the real logical key or
-    the sanitized filename stem (``list_sessions`` returns the stem) — both resolve to
-    the same path via the store's own sanitization."""
+    Each dict additionally carries ``ts`` — the line's stored ISO timestamp — so any
+    client can show WHEN a message was sent (the transcript always recorded it; this
+    just stops dropping it on the way out). Returns [] if the session doesn't exist
+    (never a side effect, unlike ``load`` which creates the header for a brand-new
+    session). The id may be the real logical key or the sanitized filename stem
+    (``list_sessions`` returns the stem) — both resolve to the same path via the
+    store's own sanitization."""
     store = SessionStore(state_dir, session_id)
     if not store.path.exists():
         return []
-    return [message_to_dict(m) for m in store.load()]
+    out: list[dict] = []
+    with store.path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("type") != "message":
+                continue
+            message = dict(entry.get("message") or {})
+            message["ts"] = entry.get("timestamp") or ""
+            out.append(message)
+    return out
+
+
+def delete_session(state_dir: Path, session_id: str) -> bool:
+    """Delete a session — its transcript AND its meta sidecar. True if a transcript
+    was actually removed. Never raises (a vanished file is already 'deleted')."""
+    store = SessionStore(state_dir, session_id)
+    existed = store.path.exists()
+    for path in (store.path, _meta_path(state_dir, session_id)):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            return False
+    return existed
+
+
+def sessions_in_project(state_dir: Path, project_id: str) -> list[str]:
+    """Session ids (filename stems) under ONE state dir tagged with this project."""
+    sessions_dir = Path(state_dir) / "sessions"
+    if not project_id or not sessions_dir.exists():
+        return []
+    return [p.stem for p in sessions_dir.glob("*.jsonl")
+            if read_session_meta(state_dir, p.stem).get("projectId") == project_id]
 
 
 def list_sessions(state_dir: Path) -> list[dict]:
@@ -187,6 +227,7 @@ def list_sessions(state_dir: Path) -> list[dict]:
                 "sessionId": p.stem,
                 "title": title,
                 "titleManual": bool(meta.get("manual")),
+                "projectId": meta.get("projectId") or "",   # "" => standalone chat
                 "messages": max(0, line_count - 1),  # subtract the header line
                 "modified": p.stat().st_mtime,
             }
