@@ -866,6 +866,8 @@ class Gateway:
                 payload = self._sessions_list(req.params)
             elif req.method == "sessions.history":
                 payload = self._sessions_history(req.params)
+            elif req.method == "sessions.rename":
+                payload = await self._sessions_rename(req.params)
             elif req.method == "agents.list":
                 payload = self._agents_list()
             elif req.method == "tools.list":
@@ -915,40 +917,98 @@ class Gateway:
             log.exception("dispatch error for %s", req.method)
             return Response(id=req.id, ok=False, payload={"error": f"{type(e).__name__}: {e}"})
 
+    def _resolve_state_dir(self, agent_id: str) -> tuple[str, object]:
+        """(effective agent id, its state_dir). Each agent partitions its own transcripts;
+        an unknown id falls back to the default agent. The one place session RPCs map an
+        agent to where its threads live."""
+        agent_id = (agent_id or "").strip() or "main"
+        if self.registry is None:
+            return agent_id, self.config.state_dir
+        try:
+            return agent_id, self.registry.get(agent_id).state_dir
+        except KeyError:                           # unknown id -> the default agent
+            return "main", self.registry.get("main").state_dir
+
     def _sessions_list(self, params: dict) -> dict:
-        """Saved sessions for ONE agent. Each agent partitions its own transcripts
-        (main = legacy flat path; others under agents/<id>/), so resuming is
-        agent-scoped: a client passes the agent it's on and gets THAT agent's
-        threads. Defaults to the default agent when no agentId is given."""
-        agent_id = (params.get("agentId") or "").strip() or "main"
-        state_dir = self.config.state_dir
-        if self.registry is not None:
-            try:
-                state_dir = self.registry.get(agent_id).state_dir
-            except KeyError:                       # unknown id -> fall back to default
-                agent_id = "main"
-                state_dir = self.registry.get("main").state_dir
+        """Saved sessions for ONE agent (with display titles). Each agent partitions its
+        own transcripts, so resuming is agent-scoped: a client passes the agent it's on
+        and gets THAT agent's threads. Defaults to the default agent when none is given."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         return {"sessions": list_sessions(state_dir), "agentId": agent_id}
 
     def _sessions_history(self, params: dict) -> dict:
         """One saved session's full transcript (messages in wire form) so a client can
-        RENDER a resumed conversation — the read side of `sessions.list`. Agent-scoped
-        the same way (each agent partitions its own transcripts); read-only (never
-        creates a session). The client transforms the messages into its own view."""
-        agent_id = (params.get("agentId") or "").strip() or "main"
+        RENDER a resumed conversation — the read side of `sessions.list`. Agent-scoped;
+        read-only (never creates a session). The client transforms it into its own view."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
         if not session_key:
             return {"messages": [], "sessionKey": "", "agentId": agent_id}
-        state_dir = self.config.state_dir
-        if self.registry is not None:
-            try:
-                state_dir = self.registry.get(agent_id).state_dir
-            except KeyError:                       # unknown id -> fall back to default
-                agent_id = "main"
-                state_dir = self.registry.get("main").state_dir
         from agentd.infrastructure.memory.local_store import read_session_messages
         messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
         return {"messages": messages, "sessionKey": session_key, "agentId": agent_id}
+
+    async def _sessions_rename(self, params: dict) -> dict:
+        """Set a session's display title (a user rename — `manual`, so auto-titling never
+        overwrites it). Agent-scoped; broadcasts sessions.changed so every client's list
+        updates live. An empty title clears the manual name -> falls back to auto/snippet."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
+        session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
+        if not session_key:
+            return {"ok": False, "error": "sessionKey required"}
+        from agentd.infrastructure.memory.local_store import write_session_meta
+        title = (params.get("title") or "").strip()[:80]
+        write_session_meta(state_dir, session_key, title=title, manual=bool(title))
+        await self._send_all(dump_frame(Event(
+            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key})))
+        return {"ok": True, "sessionKey": session_key, "title": title, "agentId": agent_id}
+
+    async def _maybe_generate_title(self, session_key: str, agent_id: str | None) -> None:
+        """After a session's first interactive exchange, generate a short title (once) and
+        store it — LM-Studio style. Skips if a title already exists (auto or user). Runs as
+        a background task off the run's finally; best-effort, never affects the run."""
+        try:
+            from agentd.application.tool_models import brain_model, resolve_tool_model
+            from agentd.infrastructure.memory.local_store import (
+                read_session_messages,
+                read_session_meta,
+                write_session_meta,
+            )
+            from agentd.infrastructure.session_titles import generate_title
+
+            aid = (agent_id or "").strip()
+            if not aid and self.registry is not None:
+                try:
+                    aid = self.registry.resolve(session_key).id
+                except Exception:  # noqa: BLE001
+                    aid = "main"
+            aid, state_dir = self._resolve_state_dir(aid)
+            if read_session_meta(state_dir, session_key).get("title"):
+                return                                 # already titled — do it once
+            messages = read_session_messages(state_dir, session_key)
+            first_user = next((m["content"] for m in messages if m.get("role") == "user"), "")
+            if not first_user:
+                return
+            first_assistant = ""
+            for m in messages:
+                if m.get("role") == "assistant":
+                    first_assistant = "".join(b.get("text", "") for b in m.get("content", [])
+                                              if b.get("type") == "text")
+                    if first_assistant:
+                        break
+            # title model: a config override (plugins.titles.tools.generate.model), else the
+            # cheap cost-efficiency text model if set, else the agent's brain. Small call.
+            ce = getattr(self.config, "cost_efficiency", None) or {}
+            default_model = ce.get("text_model") or brain_model(self.config)
+            model = resolve_tool_model(self.config, "titles", "generate", default=default_model)
+            title = await asyncio.to_thread(generate_title, first_user, first_assistant, model)
+            if title:
+                write_session_meta(state_dir, session_key, title=title, auto=True)
+                await self._send_all(dump_frame(Event(
+                    event="sessions.changed", payload={"agentId": aid, "sessionKey": session_key})))
+                log.info("session '%s' titled: %r", session_key, title)
+        except Exception:  # noqa: BLE001 — titling must never break anything
+            log.debug("auto-title failed for %s", session_key, exc_info=True)
 
     async def _mcp_add(self, params: dict) -> dict:
         """Hot-add an MCP server: build the config, connect it LIVE, merge its tools into the
@@ -1368,6 +1428,12 @@ class Gateway:
             if self.event_log is not None:
                 self.event_log.emit(handle.session_key, handle.run_id, crash)
         finally:
+            # Auto-title an interactive chat after its first exchange (LM-Studio style):
+            # fire-and-forget so it never delays the run; skips cron/heartbeat/aborted and
+            # sessions that already have a title. Titles are conversation data (server-side),
+            # so every client shows the same name.
+            if mode == RunMode.INTERACTIVE and handle.cron_run_id is None and status != "aborted":
+                asyncio.create_task(self._maybe_generate_title(handle.session_key, agent_id))
             # RUN seam: fold the agent's declared outcome into the headline status via the
             # pure policy. With enforce_outcome on, a cron run that finished `ok` but
             # declared nothing becomes `incomplete` (no silent success) — a decoupled

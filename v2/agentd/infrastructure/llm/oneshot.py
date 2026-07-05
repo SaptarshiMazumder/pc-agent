@@ -35,6 +35,30 @@ def _image_part(path: Path) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
 
 
+def text_complete(*, model: str, prompt: str, max_tokens: int | None = None,
+                  api_key: str | None = None, timeout: float | None = None) -> str:
+    """One text-only prompt -> the model's text. The non-streaming, no-tools sibling of
+    vision_complete, for small server-side utility calls (e.g. auto-titling a chat).
+    Synchronous — call it from a worker thread (asyncio.to_thread)."""
+    import litellm
+
+    litellm.suppress_debug_info = True
+    model = normalize_model(model)
+    if not api_key and model.startswith("gemini/"):
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+    kwargs: dict = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    if api_key:
+        kwargs["api_key"] = api_key
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    if timeout:
+        kwargs["request_timeout"] = timeout
+
+    resp = litellm.completion(**kwargs)
+    return (resp.choices[0].message.content or "") if resp.choices else ""
+
+
 def vision_complete(*, model: str, prompt: str, image_paths, want_json: bool = False,
                     api_key: str | None = None, timeout: float | None = None) -> str:
     """One image+prompt call -> the model's text (or JSON string in JSON mode).

@@ -33,6 +33,46 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_name(session_id: str) -> str:
+    """The on-disk stem for a session key (':' etc. are illegal in Windows filenames)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", session_id)
+
+
+# --- session metadata (title, ...) — a small SIDECAR next to the transcript ---------
+# Kept SEPARATE from the .jsonl on purpose: the transcript stays strictly append-only
+# (no header rewrites, no races with an in-flight run), while a rename / auto-title is
+# a tiny independent write. One JSON dict per session, extensible (title, manual, ...).
+
+
+def _meta_path(state_dir: Path, session_id: str) -> Path:
+    return Path(state_dir) / "sessions" / f"{_safe_name(session_id)}.meta.json"
+
+
+def read_session_meta(state_dir: Path, session_id: str) -> dict:
+    """The session's sidecar metadata ({} if none). Never raises."""
+    try:
+        return json.loads(_meta_path(state_dir, session_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def write_session_meta(state_dir: Path, session_id: str, **fields) -> dict:
+    """Merge fields into the session's sidecar (atomic write). Returns the new metadata."""
+    path = _meta_path(state_dir, session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = read_session_meta(state_dir, session_id)
+    meta.update(fields)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return meta
+
+
+def _first_user_snippet(first_user: str, limit: int = 48) -> str:
+    collapsed = " ".join((first_user or "").split())
+    return (collapsed[:limit].rstrip() + "…") if len(collapsed) > limit else collapsed
+
+
 class SessionStore:
     """Reads/writes one session's transcript file (``<state_dir>/sessions/<id>.jsonl``)."""
 
@@ -41,8 +81,7 @@ class SessionStore:
         self.cwd = cwd  # working dir recorded in the header (informational)
         # Agent session keys contain ':' (e.g. agent:<id>:<peer>) which is illegal in a
         # Windows filename — sanitize for the PATH only (keep the real key in the header).
-        safe = re.sub(r"[^A-Za-z0-9._-]", "_", session_id)
-        self.path = Path(state_dir) / "sessions" / f"{safe}.jsonl"
+        self.path = Path(state_dir) / "sessions" / f"{_safe_name(session_id)}.jsonl"
         self._last_id: str | None = None  # id of the last appended line (for parentId chaining)
 
     def load(self) -> list[Message]:
@@ -113,24 +152,41 @@ def read_session_messages(state_dir: Path, session_id: str) -> list[dict]:
 
 
 def list_sessions(state_dir: Path) -> list[dict]:
-    """List all stored sessions (newest first) with a cheap message count.
+    """List all stored sessions (newest first) with a message count and a display TITLE.
 
-    Used by the admin/sessions view. Counts lines minus the header; doesn't parse
-    the messages, so it stays fast even with many/large transcripts.
+    The title is the stored sidecar title (a user rename or an auto-generated one), else
+    a snippet of the first user message (so a brand-new chat still shows something
+    readable, never the raw key), else "". One pass over each file counts lines AND grabs
+    the first user message; the JSON parse stops once that snippet is found.
     """
     sessions_dir = Path(state_dir) / "sessions"
     if not sessions_dir.exists():
         return []
     out = []
     for p in sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        line_count = 0
+        first_user = ""
         try:
             with p.open("r", encoding="utf-8") as f:
-                line_count = sum(1 for _ in f)
+                for line in f:
+                    line_count += 1
+                    if not first_user:                 # cheap: only parse until found
+                        try:
+                            entry = json.loads(line)
+                            msg = entry.get("message") if entry.get("type") == "message" else None
+                            if msg and msg.get("role") == "user":
+                                first_user = str(msg.get("content") or "")
+                        except (ValueError, AttributeError):
+                            pass
         except OSError:
-            line_count = 0
+            pass
+        meta = read_session_meta(state_dir, p.stem)
+        title = meta.get("title") or _first_user_snippet(first_user)
         out.append(
             {
                 "sessionId": p.stem,
+                "title": title,
+                "titleManual": bool(meta.get("manual")),
                 "messages": max(0, line_count - 1),  # subtract the header line
                 "modified": p.stat().st_mtime,
             }

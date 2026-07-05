@@ -6,6 +6,9 @@ import MessageItem from './MessageItem'
 export default function ChatView() {
   const currentSessionKey = useApp((state) => state.currentSessionKey)
   const session = useApp((state) => state.sessions[state.currentSessionKey])
+  const sessionTitle = useApp(
+    (state) => state.sessionRows.find((row) => row.sessionId === state.currentSessionKey)?.title
+  )
   const currentAgentId = useApp((state) => state.currentAgentId)
   const hello = useApp((state) => state.hello)
   const connection = useApp((state) => state.connection)
@@ -33,9 +36,9 @@ export default function ChatView() {
     <div className="chat">
       <header className="chat-head">
         <div>
-          <div className="chat-agent">{currentAgentId || hello?.agentId || 'agent'}</div>
+          <div className="chat-agent">{sessionTitle || currentAgentId || hello?.agentId || 'agent'}</div>
           <div className="chat-sub mono">
-            {currentSessionKey}
+            {currentAgentId || hello?.agentId} · {currentSessionKey}
             {hello ? ` · ${hello.model}` : ''}
           </div>
         </div>

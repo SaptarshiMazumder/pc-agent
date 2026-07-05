@@ -120,6 +120,58 @@ def test_read_session_messages(tmp_path):
     assert msgs[2]["toolCallId"] == "c1" and msgs[2]["content"][0]["text"] == "file body"
 
 
+def test_session_meta_and_titled_list(tmp_path):
+    from agentd.infrastructure.memory.local_store import (
+        list_sessions,
+        read_session_meta,
+        write_session_meta,
+    )
+
+    store = SessionStore(tmp_path, "chatX")
+    store.load()
+    store.append(UserMessage(content="How do I center a div in CSS, step by step?"))
+    store.append(AssistantMessage(content=[TextContent(text="Use flexbox…")], stop_reason="stop"))
+
+    # no stored title yet -> falls back to a snippet of the first user message
+    rows = {s["sessionId"]: s for s in list_sessions(tmp_path)}
+    assert rows["chatX"]["title"].startswith("How do I center a div")
+    assert rows["chatX"]["titleManual"] is False
+
+    # a stored title wins; manual flag round-trips
+    write_session_meta(tmp_path, "chatX", title="Centering a div", manual=True)
+    assert read_session_meta(tmp_path, "chatX") == {"title": "Centering a div", "manual": True}
+    rows = {s["sessionId"]: s for s in list_sessions(tmp_path)}
+    assert rows["chatX"]["title"] == "Centering a div" and rows["chatX"]["titleManual"] is True
+
+
+def test_gateway_sessions_rename(tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    from agentd.presentation.gateway import Gateway
+
+    SessionStore(tmp_path, "s1").load()
+    events = []
+
+    class _WS:
+        async def send(self, frame):
+            events.append(frame)
+
+    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None,
+                 registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)))
+    gw.clients = {_WS()}
+
+    out = asyncio.run(gw._sessions_rename({"sessionKey": "s1", "agentId": "main", "title": "  My Chat  "}))
+    assert out["ok"] and out["title"] == "My Chat"
+    from agentd.infrastructure.memory.local_store import read_session_meta
+    assert read_session_meta(tmp_path, "s1") == {"title": "My Chat", "manual": True}
+    assert any("sessions.changed" in f for f in events), "rename must broadcast sessions.changed"
+
+    # empty title clears the manual name (auto-titling can take over again)
+    asyncio.run(gw._sessions_rename({"sessionKey": "s1", "agentId": "main", "title": ""}))
+    assert read_session_meta(tmp_path, "s1") == {"title": "", "manual": False}
+
+
 def test_gateway_sessions_history_is_agent_scoped(tmp_path):
     from types import SimpleNamespace
 

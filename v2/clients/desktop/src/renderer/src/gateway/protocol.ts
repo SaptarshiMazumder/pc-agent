@@ -48,6 +48,8 @@ export interface Hello {
 
 export interface SessionRow {
   sessionId: string
+  title: string
+  titleManual: boolean
   messages: number
   modified: number
 }

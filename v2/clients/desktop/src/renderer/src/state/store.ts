@@ -138,6 +138,7 @@ interface AppState {
   selectAgent(agentId: string): Promise<void>
   newSession(): void
   resumeSession(sessionId: string): Promise<void>
+  renameSession(sessionId: string, title: string): Promise<void>
   sendMessage(text: string): Promise<void>
   abortRun(): Promise<void>
   refreshCatalog(): Promise<void>
@@ -304,6 +305,10 @@ export const useApp = create<AppState>((set, get) => {
     gateway.on('agents.changed', (payload) => {
       set({ agents: (payload.agents as AgentInfo[]) || [] })
     })
+    gateway.on('sessions.changed', () => {
+      // a session was renamed or auto-titled (possibly by another client) — refresh the list
+      void refreshSessions()
+    })
     gateway.on('marketplace.progress', (payload) => {
       const id = String(payload.id || '')
       if (!id) return
@@ -372,6 +377,24 @@ export const useApp = create<AppState>((set, get) => {
 
     newSession() {
       set({ currentSessionKey: newSessionKey() })
+    },
+
+    async renameSession(sessionId, title) {
+      // optimistic: update the row now; the server confirms via sessions.changed
+      set((state) => ({
+        sessionRows: state.sessionRows.map((row) =>
+          row.sessionId === sessionId ? { ...row, title, titleManual: !!title.trim() } : row
+        )
+      }))
+      try {
+        await gateway.request('sessions.rename', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined,
+          title
+        })
+      } catch {
+        void refreshSessions() // failed — reload the truth
+      }
     },
 
     async resumeSession(sessionId) {
