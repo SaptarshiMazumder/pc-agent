@@ -287,10 +287,6 @@ export default function Sidebar() {
             </div>
           )
         })}
-        {projects.length === 0 && !addingProject && (
-          <div className="row-sub" style={{ padding: '4px 9px' }}>group chats into projects with +</div>
-        )}
-
         <div className="section-label"><History size={14} />Chats</div>
         {standalone.slice(0, 40).map((s) => (
           <SessionItem key={s.sessionId} session={s} active={s.sessionId === currentSessionKey} onOpen={() => void resumeSession(s.sessionId)} />
