@@ -15,10 +15,12 @@ You do not design in a vacuum. You always anchor your work in:
 
 ## Project brand context (pc-agent / agentd)
 
-- Accent: **VIVID lime green** (`#84cc16` fills / `#a6e22e` dark-theme / `#a3e635` glows / `#65a30d` links). The user explicitly rejected dark-olive shades (`#4d7c0f`-as-fill = "dirty green"): filled buttons/CTAs use vivid lime with dark-green INK (`#1a2e05`) — never a dark fill with white text.
+- Design language (the "Claude design" port, canonical since 2026-07-05): **warm paper/charcoal dual theme** (light `#f4f2ea` default, dark `#131210`), vivid lime primary (`--prim-bg: #a3e635` + dark ink `--prim-ink`), aurora glow behind the chat. The user explicitly rejected dark-olive shades as fills ("dirty green"): vivid lime fill + dark-green ink, never a dark fill with white text.
+- Tokens live in `clients/desktop/src/renderer/src/styles.css` (`:root` = light, `[data-theme='dark']` = dark): surfaces `--bg/--bg2/--bg3/--bg4`, text `--text/--dim/--faint`, accent `--accent/--accent-text/--accent-soft/--prim-bg/--prim-ink`. Never hardcode colors in components.
+- Typography: `--display` Bricolage Grotesque · `--sans` Hanken Grotesk · `--mono` JetBrains Mono — vendored via fontsource imports in `main.tsx` (the renderer CSP forbids remote fonts).
+- Icons: **lucide-react** components, stroke style, sized 13–21px.
 - Logo: the nakama link (two woven green rings) — `clients/desktop/src/renderer/src/assets/nakama.svg`.
-- Desktop theme: **light by default, dark toggleable**; all colors flow through CSS custom-property tokens in `clients/desktop/src/renderer/src/styles.css` (`:root` = light, `:root[data-theme='dark']` = dark). Never hardcode colors in components.
-- Icons: inline SVG components in `clients/desktop/src/renderer/src/components/icons.tsx` (stroke, currentColor) — reuse/extend these, no icon-font or CDN deps (strict CSP).
+- Shell patterns: Chrome-style chat tabs (`TabBar`, `openTabs` in the store), collapsible 64px icon rail, sidebar chat search, per-agent avatar colors/taglines in `lib/agentPresentation.ts`.
 
 ---
 
