@@ -17,12 +17,16 @@
   --text: #1f2937;
   --text-dim: #6b7466;
 
-  /* the lime identity */
-  --accent: #84cc16;           /* decorative: logo, dots, glows */
-  --accent-strong: #4d7c0f;    /* interactive: links, filled buttons (AA on white) */
-  --accent-soft: #e9f7d0;      /* active-pill / selection tint */
-  --on-accent: #ffffff;        /* text on --accent-strong fills */
-  --on-accent-soft: #365314;   /* text on --accent-soft tints */
+  /* the lime identity — VIVID lime fills with dark-green ink (not dark fills
+     with white text): that's what keeps the theme "lime", not olive, while the
+     ink-on-lime pairing stays well above AA contrast. */
+  --accent: #84cc16;           /* the brand lime: icons, dots, glows */
+  --accent-bright: #a3e635;    /* gradient/glow end */
+  --accent-strong: #65a30d;    /* lime for text links + outlines on white */
+  --accent-fill: #84cc16;      /* filled buttons / CTAs */
+  --accent-soft: #d9f99d;      /* active pills, selection, user bubbles */
+  --on-accent: #1a2e05;        /* ink on vivid lime fills */
+  --on-accent-soft: #2b4a05;   /* ink on soft lime tints */
 
   /* semantic */
   --error: #b3261e;
@@ -51,10 +55,12 @@
   --text-dim: #939ca9;
 
   --accent: #a6e22e;
+  --accent-bright: #d7ff6e;
   --accent-strong: #a6e22e;
-  --accent-soft: #2a3a14;
+  --accent-fill: #a6e22e;
+  --accent-soft: #364b12;
   --on-accent: #131807;
-  --on-accent-soft: #cdf386;
+  --on-accent-soft: #d9f77e;
 
   --error: #f2b8b5;
   --error-soft: #4a1f1d;
@@ -100,16 +106,15 @@ body {
 .dot-ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .dot-off { background: var(--text-dim); }
 
-/* "New chat" — Gemini-style tinted pill with icon */
+/* "New chat" — the primary CTA: full lime pill */
 .new-chat {
   display: flex; align-items: center; gap: 9px;
   margin: 0 0 10px; padding: 10px 16px;
   border: 0; border-radius: var(--radius-pill); cursor: pointer;
-  background: var(--accent-soft); color: var(--on-accent-soft);
+  background: var(--accent-fill); color: var(--on-accent);
   font: inherit; font-size: 13.5px; font-weight: 600;
 }
-.new-chat:hover { filter: brightness(0.97); }
-:root[data-theme='dark'] .new-chat:hover { filter: brightness(1.15); }
+.new-chat:hover { filter: brightness(1.06); }
 
 .section-label {
   display: flex; align-items: center; gap: 7px;
@@ -209,7 +214,7 @@ body {
 .empty { text-align: center; margin-top: 16vh; }
 .empty-title {
   font-size: 30px; font-weight: 650;
-  background: linear-gradient(90deg, var(--accent-strong), var(--accent));
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent-bright));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .empty-sub { color: var(--text-dim); margin-top: 10px; }
@@ -310,10 +315,10 @@ body {
 .button:hover { background: var(--bg-hover); }
 .button:disabled { opacity: 0.45; cursor: default; }
 .button.primary {
-  background: var(--accent-strong); border-color: var(--accent-strong);
+  background: var(--accent-fill); border-color: var(--accent-fill);
   color: var(--on-accent); font-weight: 600;
 }
-.button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.button.primary:hover:not(:disabled) { filter: brightness(1.06); }
 .button.danger { border-color: var(--error); color: var(--error); background: transparent; }
 .button.danger:hover { background: var(--error-soft); }
 

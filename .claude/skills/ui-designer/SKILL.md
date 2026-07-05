@@ -15,7 +15,7 @@ You do not design in a vacuum. You always anchor your work in:
 
 ## Project brand context (pc-agent / agentd)
 
-- Accent: **lime green** family (`#a6e22e`, `#84cc16`, `#65a30d`, `#4d7c0f`) — the product's identity across terminal + desktop.
+- Accent: **VIVID lime green** (`#84cc16` fills / `#a6e22e` dark-theme / `#a3e635` glows / `#65a30d` links). The user explicitly rejected dark-olive shades (`#4d7c0f`-as-fill = "dirty green"): filled buttons/CTAs use vivid lime with dark-green INK (`#1a2e05`) — never a dark fill with white text.
 - Logo: the nakama link (two woven green rings) — `clients/desktop/src/renderer/src/assets/nakama.svg`.
 - Desktop theme: **light by default, dark toggleable**; all colors flow through CSS custom-property tokens in `clients/desktop/src/renderer/src/styles.css` (`:root` = light, `:root[data-theme='dark']` = dark). Never hardcode colors in components.
 - Icons: inline SVG components in `clients/desktop/src/renderer/src/components/icons.tsx` (stroke, currentColor) — reuse/extend these, no icon-font or CDN deps (strict CSP).
