@@ -15,7 +15,11 @@
     "dist:studio": "electron-vite build && electron-builder --config electron-builder.studio.yml"
   },
   "dependencies": {
+    "@fontsource/bricolage-grotesque": "^5.2.10",
+    "@fontsource/hanken-grotesk": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@iarna/toml": "^2.2.5",
+    "lucide-react": "^1.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",

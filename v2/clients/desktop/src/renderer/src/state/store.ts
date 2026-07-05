@@ -166,6 +166,9 @@ interface AppState {
   currentProjectId: string
   projects: ProjectRow[]
   sessions: Record<string, SessionState>
+  /** Chrome-style tabs: session keys opened this app-session, in tab order */
+  openTabs: string[]
+  sidebarCollapsed: boolean
 
   catalog: CatalogBundle[]
   catalogError: string
@@ -177,6 +180,9 @@ interface AppState {
   bootstrap(): Promise<void>
   setView(view: View): void
   toggleTheme(): void
+  toggleSidebar(): void
+  closeTab(sessionId: string): void
+  reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
@@ -405,6 +411,8 @@ export const useApp = create<AppState>((set, get) => {
     currentProjectId: '',
     projects: [],
     sessions: {},
+    openTabs: [],
+    sidebarCollapsed: false,
 
     catalog: [],
     catalogError: '',
@@ -414,6 +422,7 @@ export const useApp = create<AppState>((set, get) => {
     notifications: [],
 
     async bootstrap() {
+      applyTheme(get().theme)   // a persisted 'dark' shows from the first paint
       const flavor = (await window.agentd.flavor()) as FlavorInfo
       set({ flavor })
       window.agentd.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
@@ -440,6 +449,34 @@ export const useApp = create<AppState>((set, get) => {
       set({ theme: next })
     },
 
+    toggleSidebar() {
+      set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
+    },
+
+    closeTab(sessionId) {
+      const { openTabs, currentSessionKey } = get()
+      const tabs = openTabs.filter((t) => t !== sessionId)
+      set({ openTabs: tabs })
+      if (currentSessionKey === sessionId) {
+        const idx = openTabs.indexOf(sessionId)
+        const next = tabs[idx] || tabs[idx - 1] || tabs[tabs.length - 1]
+        if (next) void get().resumeSession(next)
+        else get().newSession()
+      }
+    },
+
+    reorderTabs(from, to) {
+      set((s) => {
+        const a = [...s.openTabs]
+        const fi = a.indexOf(from)
+        const ti = a.indexOf(to)
+        if (fi < 0 || ti < 0) return {}
+        a.splice(fi, 1)
+        a.splice(ti, 0, from)
+        return { openTabs: a }
+      })
+    },
+
     async selectAgent(agentId) {
       // LM-Studio behaviour: clicking an agent OPENS where you left off — its most
       // recent conversation — not an empty screen. No history -> a fresh chat.
@@ -455,7 +492,13 @@ export const useApp = create<AppState>((set, get) => {
 
     newSession(projectId?: string) {
       // fresh chat — inside a project when one is given, standalone otherwise
-      set({ currentSessionKey: newSessionKey(), currentProjectId: projectId || '', view: 'chat' })
+      const key = newSessionKey()
+      set((s) => ({
+        currentSessionKey: key,
+        currentProjectId: projectId || '',
+        view: 'chat',
+        openTabs: s.openTabs.includes(key) ? s.openTabs : [...s.openTabs, key]
+      }))
     },
 
     async renameSession(sessionId, title) {
@@ -483,7 +526,8 @@ export const useApp = create<AppState>((set, get) => {
         delete sessions[sessionId]
         return {
           sessionRows: state.sessionRows.filter((row) => row.sessionId !== sessionId),
-          sessions
+          sessions,
+          openTabs: state.openTabs.filter((t) => t !== sessionId)
         }
       })
       if (get().currentSessionKey === sessionId) {
@@ -540,11 +584,14 @@ export const useApp = create<AppState>((set, get) => {
 
     async resumeSession(sessionId) {
       const row = get().sessionRows.find((r) => r.sessionId === sessionId)
-      set({
+      set((state) => ({
         currentSessionKey: sessionId,
         currentProjectId: row?.projectId || '',
-        view: 'chat'
-      })
+        view: 'chat',
+        openTabs: state.openTabs.includes(sessionId)
+          ? state.openTabs
+          : [...state.openTabs, sessionId]
+      }))
       // already have this session in memory with content (it's live, or we loaded it
       // before) — don't clobber it by reloading.
       const existing = get().sessions[sessionId]

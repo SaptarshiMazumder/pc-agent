@@ -39,7 +39,7 @@ function createWindow(): void {
     minHeight: 600,
     title: flavor.productName,
     icon: appIcon,
-    backgroundColor: '#f3f6ef',   // matches the LIGHT theme rail (the default theme)
+    backgroundColor: '#f4f2ea',   // matches the LIGHT theme surface (the default theme)
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

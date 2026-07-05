@@ -1,115 +1,122 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
+import { Paperclip, ArrowUp, Square, Loader2, Terminal, Check, MessageSquare } from 'lucide-react'
 
+import logo from '../assets/nakama.svg'
+import { agentInitials, agentTag } from '../lib/agentPresentation'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp } from '../state/store'
-import { IconSend, IconStop } from './icons'
 import MessageItem from './MessageItem'
+import TabBar from './TabBar'
+
+const SUGGESTIONS = [
+  { icon: <Terminal size={15} />, text: 'Summarize today’s changes', fill: 'Summarize today’s changes in the repo.' },
+  { icon: <Check size={15} />, text: 'Run the test suite', fill: 'Run the full test suite and report failures.' },
+  { icon: <MessageSquare size={15} />, text: 'Draft a release note', fill: 'Draft a short release note for the latest changes.' }
+]
 
 export default function ChatView() {
-  const currentSessionKey = useApp((state) => state.currentSessionKey)
-  const session = useApp((state) => state.sessions[state.currentSessionKey])
-  const sessionTitle = useApp(
-    (state) => state.sessionRows.find((row) => row.sessionId === state.currentSessionKey)?.title
-  )
-  const currentAgentId = useApp((state) => state.currentAgentId)
-  const projectName = useApp(
-    (state) => state.projects.find((p) => p.id === state.currentProjectId)?.name
-  )
-  const hello = useApp((state) => state.hello)
-  const connection = useApp((state) => state.connection)
-  const sendMessage = useApp((state) => state.sendMessage)
-  const abortRun = useApp((state) => state.abortRun)
+  const currentSessionKey = useApp((s) => s.currentSessionKey)
+  const session = useApp((s) => s.sessions[s.currentSessionKey])
+  const sessionTitle = useApp((s) => s.sessionRows.find((r) => r.sessionId === s.currentSessionKey)?.title)
+  const currentAgentId = useApp((s) => s.currentAgentId)
+  const agents = useApp((s) => s.agents)
+  const projectName = useApp((s) => s.projects.find((p) => p.id === s.currentProjectId)?.name)
+  const hello = useApp((s) => s.hello)
+  const connection = useApp((s) => s.connection)
+  const sendMessage = useApp((s) => s.sendMessage)
+  const abortRun = useApp((s) => s.abortRun)
 
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const items = session?.items || []
   const running = session?.running || false
+  const empty = items.length === 0
+
+  const agentName = agents.find((a) => a.id === currentAgentId)?.name || hello?.agentName || currentAgentId || 'agent'
+  const model = hello?.model || ''
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [items])
 
-  function submit(event?: FormEvent) {
-    event?.preventDefault()
+  function submit(e?: FormEvent) {
+    e?.preventDefault()
     const text = draft.trim()
     if (!text || running || connection !== 'open') return
     setDraft('')
     void sendMessage(text)
   }
 
-  // WhatsApp-style date separators: a chip whenever the calendar day changes
-  // between consecutive timestamped messages.
+  // date separators between calendar days
   const rendered: JSX.Element[] = []
   let lastTs: number | undefined
-  items.forEach((item, index) => {
+  items.forEach((item, i) => {
     if (item.ts && (!lastTs || !sameDay(item.ts, lastTs))) {
-      rendered.push(
-        <div className="day-sep" key={`day-${index}`}>
-          <span className="day-chip">{dayLabel(item.ts)}</span>
-        </div>
-      )
+      rendered.push(<div key={`day-${i}`} className="msg-system">{dayLabel(item.ts)}</div>)
     }
     if (item.ts) lastTs = item.ts
-    rendered.push(<MessageItem key={index} item={item} />)
+    rendered.push(<MessageItem key={i} item={item} />)
   })
 
   return (
-    <div className="chat">
+    <div className={`chat ${empty ? 'empty' : ''}`}>
+      <TabBar />
+
       <header className="chat-head">
-        <div>
-          <div className="chat-agent">
-            {sessionTitle || currentAgentId || hello?.agentId || 'agent'}
-            {projectName && <span className="chat-project"> · {projectName}</span>}
+        <span className="avatar" style={{ width: 32, height: 32, fontSize: 12, background: 'var(--accent)' }}>
+          {agentInitials(agentName, currentAgentId)}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="chat-title">
+            {sessionTitle || agentName}
+            {projectName && <span style={{ color: 'var(--accent-text)', fontWeight: 500 }}> · {projectName}</span>}
           </div>
-          <div className="chat-sub mono">
-            {currentAgentId || hello?.agentId} · {currentSessionKey}
-            {hello ? ` · ${hello.model}` : ''}
-          </div>
+          <div className="chat-meta">{currentAgentId || hello?.agentId}{model ? ` · ${model}` : ''}</div>
         </div>
-        {running && (
-          <button className="button danger" onClick={() => void abortRun()}>
-            <IconStop size={14} /> Stop
-          </button>
-        )}
+        {running && <span className="working"><Loader2 size={16} />working…</span>}
+        {running && <button className="stop-btn" onClick={() => void abortRun()}><Square size={14} />Stop</button>}
       </header>
 
       <div className="chat-scroll" ref={scrollRef}>
-        {items.length === 0 && (
-          <div className="empty">
-            <div className="empty-title">{hello?.agentName || 'agentd'}</div>
-            <div className="empty-sub">
-              {projectName
-                ? `New chat in ${projectName} — ask anything.`
-                : 'Ask anything — tools, files, browsing, and your installed agents are all here.'}
+        <div className="chat-col">
+          {empty && (
+            <div className="empty-state">
+              <img className="empty-logo" src={logo} alt="" />
+              <div className="empty-title">{agentName}</div>
+              <div className="empty-sub">
+                {projectName
+                  ? `New chat in ${projectName} — ask anything.`
+                  : currentAgentId === 'main' || !currentAgentId
+                    ? 'Ask anything — tools, files, browsing and your installed agents are all here.'
+                    : `You’re talking to ${agentName}. ${agentTag(currentAgentId)}.`}
+              </div>
+              <div className="suggestions">
+                {SUGGESTIONS.map((g) => (
+                  <button key={g.text} className="suggestion" onClick={() => setDraft(g.fill)}>{g.icon}{g.text}</button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        {rendered}
+          )}
+          {rendered}
+        </div>
       </div>
 
       <form className="composer" onSubmit={submit}>
-        <textarea
-          value={draft}
-          placeholder={connection === 'open' ? 'Message… (Enter to send, Shift+Enter for newline)' : 'connecting…'}
-          disabled={connection !== 'open'}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              submit()
-            }
-          }}
-          rows={Math.min(8, Math.max(1, draft.split('\n').length))}
-        />
-        <button
-          className="button primary send-btn"
-          type="submit"
-          title="send (Enter)"
-          aria-label="send message"
-          disabled={!draft.trim() || running || connection !== 'open'}
-        >
-          {running ? '…' : <IconSend size={18} />}
-        </button>
+        <div className="composer-box">
+          <button type="button" className="composer-attach" title="attach"><Paperclip size={18} /></button>
+          <textarea
+            value={draft}
+            placeholder={connection === 'open' ? 'Message the agent…  (Enter to send, Shift+Enter for newline)' : 'connecting…'}
+            disabled={connection !== 'open'}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+            rows={Math.min(8, Math.max(1, draft.split('\n').length))}
+          />
+          <button type="submit" className={`composer-send ${draft.trim() && !running ? 'ready' : ''}`} disabled={!draft.trim() || running || connection !== 'open'} title="send">
+            <ArrowUp size={18} />
+          </button>
+        </div>
+        <div className="composer-hint">{running ? 'agent is running — press Stop to interrupt' : `agentd runs locally${model ? ' · ' + model : ''}`}</div>
       </form>
     </div>
   )
