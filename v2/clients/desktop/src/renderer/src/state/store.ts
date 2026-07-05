@@ -21,6 +21,8 @@ import type {
   SessionRow
 } from '../gateway/protocol'
 import { resultText } from '../gateway/protocol'
+import type { Artifact } from '../lib/artifacts'
+import { setGatewayUrl } from '../lib/artifacts'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -28,7 +30,7 @@ export type ChatItem = (
   | { kind: 'thinking'; text: string; streaming: boolean }
   | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean }
   | { kind: 'system'; text: string; tone: 'info' | 'error' }
-) & { ts?: number } // epoch ms — when the message was sent (stored server-side)
+) & { ts?: number; artifacts?: Artifact[] } // ts: epoch ms (server-side); artifacts: media the item produced
 
 export interface SessionState {
   items: ChatItem[]
@@ -115,8 +117,10 @@ function historyToItems(messages: any[]): ChatItem[] {
     if (message.role === 'user') {
       items.push({ kind: 'user', text: String(message.content ?? ''), ts })
     } else if (message.role === 'assistant') {
+      let lastTextIdx = -1
       for (const block of message.content || []) {
         if (block.type === 'text' && block.text) {
+          lastTextIdx = items.length
           items.push({ kind: 'assistant', text: block.text, streaming: false, ts })
         } else if (block.type === 'thinking' && block.thinking) {
           items.push({ kind: 'thinking', text: block.thinking, streaming: false, ts })
@@ -133,6 +137,10 @@ function historyToItems(messages: any[]): ChatItem[] {
           })
         }
       }
+      // artifacts the assistant's text referenced attach to its final text bubble
+      if (message.artifacts?.length && lastTextIdx >= 0) {
+        items[lastTextIdx] = { ...items[lastTextIdx], artifacts: message.artifacts }
+      }
       if (message.errorMessage) {
         items.push({ kind: 'system', tone: 'error', text: String(message.errorMessage), ts })
       }
@@ -141,7 +149,7 @@ function historyToItems(messages: any[]): ChatItem[] {
       const index = toolIndexByCallId.get(String(message.toolCallId))
       if (index !== undefined && items[index]?.kind === 'tool') {
         const tool = items[index] as Extract<ChatItem, { kind: 'tool' }>
-        items[index] = { ...tool, result: text, isError: !!message.isError, done: true }
+        items[index] = { ...tool, result: text, isError: !!message.isError, done: true, artifacts: message.artifacts }
       } else {
         // orphan result (no matching call in this transcript) — show it anyway
         items.push({
@@ -151,12 +159,36 @@ function historyToItems(messages: any[]): ChatItem[] {
           result: text,
           isError: !!message.isError,
           done: true,
-          ts
+          ts,
+          artifacts: message.artifacts
         })
       }
     }
   }
+  return dedupeArtifacts(items)
+}
+
+/** Keep only the FIRST render of each artifact path across a transcript — the tool that
+ *  produced a file usually shows it, and the assistant's summary re-mentions it. */
+function dedupeArtifacts(items: ChatItem[]): ChatItem[] {
+  const seen = new Set<string>()
+  for (const it of items) {
+    if (!it.artifacts?.length) continue
+    const fresh = it.artifacts.filter((a) => !seen.has(a.path))
+    fresh.forEach((a) => seen.add(a.path))
+    it.artifacts = fresh.length ? fresh : undefined
+  }
   return items
+}
+
+/** Incoming artifacts not already rendered anywhere in this live session (so a file
+ *  shown by its producing tool isn't repeated when the assistant summarises). */
+function newArtifacts(session: SessionState, incoming?: Artifact[]): Artifact[] | undefined {
+  if (!incoming?.length) return undefined
+  const seen = new Set<string>()
+  for (const it of session.items) it.artifacts?.forEach((a) => seen.add(a.path))
+  const fresh = incoming.filter((a) => !seen.has(a.path))
+  return fresh.length ? fresh : undefined
 }
 
 interface AppState {
@@ -243,12 +275,26 @@ export const useApp = create<AppState>((set, get) => {
         else if (event.kind === 'thinking_delta') appendStreaming(sessionKey, 'thinking', event.delta || '', ts)
         break
       case 'message_end':
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          items: session.items.map((item) =>
-            'streaming' in item && item.streaming ? { ...item, streaming: false } : item
-          )
-        }))
+        patchSession(sessionKey, (session) => {
+          const fresh = newArtifacts(session, event.artifacts)
+          let attached = !fresh // nothing to attach -> treat as done
+          const items = session.items.map((item) => {
+            const stopped = 'streaming' in item && item.streaming ? { ...item, streaming: false } : item
+            return stopped
+          })
+          // attach the turn's artifacts to its LAST assistant bubble (walk from the end)
+          if (fresh) {
+            for (let i = items.length - 1; i >= 0; i--) {
+              if (items[i].kind === 'assistant') {
+                items[i] = { ...items[i], artifacts: [...(items[i].artifacts || []), ...fresh] }
+                attached = true
+                break
+              }
+            }
+            if (!attached) items.push({ kind: 'assistant', text: '', streaming: false, ts, artifacts: fresh })
+          }
+          return { ...session, items }
+        })
         break
       case 'tool_execution_start':
         patchSession(sessionKey, (session) => ({
@@ -262,10 +308,11 @@ export const useApp = create<AppState>((set, get) => {
       case 'tool_execution_end':
         patchSession(sessionKey, (session) => {
           const items = [...session.items]
+          const fresh = newArtifacts(session, event.artifacts)
           for (let i = items.length - 1; i >= 0; i--) {
             const item = items[i]
             if (item.kind === 'tool' && !item.done && item.name === (event.toolName || '?')) {
-              items[i] = { ...item, result: resultText(event.result), isError: !!event.isError, done: true }
+              items[i] = { ...item, result: resultText(event.result), isError: !!event.isError, done: true, artifacts: fresh }
               break
             }
           }
@@ -464,6 +511,7 @@ export const useApp = create<AppState>((set, get) => {
       // (which rotates the token) reconnects cleanly instead of looping on a stale one.
       gateway.connect(async () => {
         const { url } = await window.agentd.ensureDaemon()
+        setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
         return url
       })
     },

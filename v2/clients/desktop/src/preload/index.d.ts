@@ -14,11 +14,20 @@ export interface SupervisorStatus {
   info: { host: string; port: number; pid: number; version: string } | null
 }
 
+export interface PickedFile {
+  name: string
+  size: number
+  dataBase64: string
+}
+
 export interface DesktopApi {
   flavor(): Promise<FlavorInfo>
   supervisorStatus(): Promise<SupervisorStatus>
   ensureDaemon(): Promise<{ url: string; version: string; pid: number }>
   onSupervisorStatus(callback: (status: SupervisorStatus) => void): () => void
+  openPath(path: string): Promise<string>
+  revealPath(path: string): Promise<void>
+  pickFiles(): Promise<PickedFile[]>
 }
 
 declare global {

@@ -19,10 +19,12 @@ from pathlib import Path
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import websockets
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.datastructures import Headers
+from websockets.http11 import Response as HttpResponse
 
 from agentd import __version__, lifecycle
 
@@ -33,10 +35,17 @@ from agentd.domain.agent import RunMode, agent_id_from_session_key, cron_session
 from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.notify import Notification
+from agentd.infrastructure.files import extract_artifacts, guess_mime, is_under_roots
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
 log = logging.getLogger("agentd")
+
+# Uploads (attachments) ride the authenticated WS channel as a single base64 frame, so
+# the server's inbound frame cap must clear a base64-inflated file. 48 MiB of frame ≈ a
+# 34 MiB raw attachment (see UPLOAD_MAX_BYTES); larger files should chunk (future work).
+MAX_WS_FRAME = 48 * 1024 * 1024
+UPLOAD_MAX_BYTES = 32 * 1024 * 1024
 
 
 def _effective_model(config) -> str:
@@ -317,7 +326,9 @@ class Gateway:
             nonlocal scheduler_task, poller_task, webhook_task
             scheduler_task, poller_task, webhook_task = tasks
 
-        async with serve(self._handle_conn, self.config.host, self.config.port):
+        async with serve(self._handle_conn, self.config.host, self.config.port,
+                          process_request=self._http_request,
+                          max_size=MAX_WS_FRAME):
             lifecycle.write_gateway_file(lifecycle.GatewayInfo(
                 host=self.config.host, port=self.config.port, pid=os.getpid(),
                 token=self.auth_token, version=__version__,
@@ -817,6 +828,163 @@ class Gateway:
         except Exception as e:  # noqa: BLE001 — MCP must never block serving
             log.warning("MCP discovery failed: %s", e)
 
+    # ------------------------------------------------------------- HTTP file serving
+
+    def _allowed_file_roots(self) -> list[Path]:
+        """The only directories the /file endpoint (and artifact detection) may read
+        from: the shared workspace/state, the agents dir, and every registered agent's
+        own workspace/state/definition dir. Anything outside is off-limits — the guard
+        can't be walked out of with `..`/symlinks (paths are resolved before compare)."""
+        roots: list[Path] = []
+        for attr in ("workspace", "state_dir", "agents_dir"):
+            v = getattr(self.config, attr, None)
+            if v:
+                roots.append(Path(v))
+        if self.registry is not None:
+            try:
+                for aid in self.registry.list_ids():
+                    spec = self.registry.get(aid)
+                    for p in (getattr(spec, "workspace", None),
+                              getattr(spec, "state_dir", None),
+                              getattr(spec, "dir", None)):
+                        if p:
+                            roots.append(Path(p))
+            except Exception:  # noqa: BLE001 — a bad spec never blocks file serving
+                pass
+        out: list[Path] = []
+        seen: set[str] = set()
+        for r in roots:
+            try:
+                rr = r.resolve()
+            except (OSError, ValueError):
+                continue
+            k = str(rr).lower()
+            if k not in seen:
+                seen.add(k)
+                out.append(rr)
+        return out
+
+    def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
+        """websockets handshake hook: serve local artifact files over plain HTTP on the
+        SAME port as the gateway, so a client renders <img>/<video> straight from the
+        daemon. Returns a Response to short-circuit `GET /file`; None lets every other
+        request (including the WebSocket upgrade) proceed to the handshake."""
+        try:
+            split = urlsplit(getattr(request, "path", "") or "")
+            if split.path != "/file":
+                return None  # not ours — fall through to the WS handshake
+            return self._serve_file(split, getattr(request, "headers", {}))
+        except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
+            log.exception("http /file failed")
+            return HttpResponse(500, "Internal Server Error",
+                                Headers({"Content-Length": "0"}), b"")
+
+    def _serve_file(self, split, headers) -> HttpResponse:
+        """Serve one guarded file with single-range support (so <video> can seek)."""
+        def deny(code: int, reason: str) -> HttpResponse:
+            return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
+
+        q = parse_qs(split.query)
+        if self.auth_token:  # same bearer token as the WebSocket
+            tok = (q.get("token") or [""])[0]
+            if not tok:
+                auth = ""
+                try:
+                    auth = headers.get("Authorization") or ""
+                except Exception:  # noqa: BLE001
+                    auth = ""
+                if auth.startswith("Bearer "):
+                    tok = auth[len("Bearer "):].strip()
+            if not hmac.compare_digest(tok, self.auth_token):
+                return deny(401, "Unauthorized")
+
+        raw = unquote((q.get("path") or [""])[0])
+        if not raw:
+            return deny(400, "Bad Request")
+        p = Path(raw)
+        if not is_under_roots(p, self._allowed_file_roots()) or not p.is_file():
+            return deny(404, "Not Found")
+
+        try:
+            size = p.stat().st_size
+        except OSError:
+            return deny(404, "Not Found")
+
+        # optional single byte-range (video seeking / resumable fetch)
+        start, end, status, reason = 0, size - 1, 200, "OK"
+        rng = ""
+        try:
+            rng = headers.get("Range") or ""
+        except Exception:  # noqa: BLE001
+            rng = ""
+        if rng.startswith("bytes=") and size > 0:
+            spec = rng[len("bytes="):].split(",")[0].strip()
+            lo, _, hi = spec.partition("-")
+            try:
+                if lo == "":
+                    start, end = max(0, size - int(hi)), size - 1
+                else:
+                    start = int(lo)
+                    end = int(hi) if hi else size - 1
+                start = max(0, min(start, size - 1))
+                end = max(start, min(end, size - 1))
+                status, reason = 206, "Partial Content"
+            except ValueError:
+                start, end, status, reason = 0, size - 1, 200, "OK"
+
+        with open(p, "rb") as f:
+            f.seek(start)
+            body = f.read(end - start + 1)
+
+        hdrs = Headers()
+        hdrs["Content-Type"] = guess_mime(p)
+        hdrs["Content-Length"] = str(len(body))
+        hdrs["Accept-Ranges"] = "bytes"
+        hdrs["Cache-Control"] = "no-cache"
+        # inline for media; an ASCII-safe filename helps "save as" for documents
+        disp = "inline"
+        if p.name.isascii() and '"' not in p.name:
+            disp = f'inline; filename="{p.name}"'
+        hdrs["Content-Disposition"] = disp
+        if status == 206:
+            hdrs["Content-Range"] = f"bytes {start}-{end}/{size}"
+        return HttpResponse(status, reason, hdrs, body)
+
+    # --------------------------------------------------------- artifact detection
+
+    def _artifacts_in_message(self, msg: dict, roots: list[Path] | None = None) -> list[dict]:
+        """Files (that exist, under an allowed root) referenced in a message dict's text
+        blocks — how a tool result or an assistant turn advertises the media it produced.
+        Pass ``roots`` to reuse a precomputed root list across many messages (history).
+        Best-effort: detection failures never affect the run."""
+        if not isinstance(msg, dict):
+            return []
+        text = "\n".join(
+            b.get("text") or ""
+            for b in (msg.get("content") or [])
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+        if not text:
+            return []
+        try:
+            return extract_artifacts(text, self._allowed_file_roots() if roots is None else roots)
+        except Exception:  # noqa: BLE001 — never let detection break a run
+            return []
+
+    def _enrich_artifacts(self, event: AgentEvent) -> None:
+        """Attach any detected artifacts to a tool-result / assistant event IN PLACE, so
+        the same set reaches live clients (broadcast) and the durable event log. Clients
+        that don't understand `artifacts` simply ignore the extra key."""
+        if event.type == "tool_execution_end":
+            src = event.payload.get("result")
+        elif event.type == "message_end":
+            src = event.payload.get("message")
+        else:
+            return
+        arts = self._artifacts_in_message(src or {})
+        if arts:
+            event.payload["artifacts"] = arts
+
     def _authorized(self, ws: ServerConnection) -> bool:
         """M2 auth: the client's token — `?token=` on the URL (the only slot browser
         WebSockets have) or an `Authorization: Bearer` header — must match ours."""
@@ -972,6 +1140,13 @@ class Gateway:
             return {"messages": [], "sessionKey": "", "agentId": agent_id}
         from agentd.infrastructure.memory.local_store import read_session_messages
         messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
+        # RENDER seam (history): re-derive each message's artifacts so a resumed chat shows
+        # the same inline media a live run did. Roots computed once for the whole transcript.
+        roots = self._allowed_file_roots()
+        for m in messages:
+            arts = self._artifacts_in_message(m, roots)
+            if arts:
+                m["artifacts"] = arts
         return {"messages": messages, "sessionKey": session_key, "agentId": agent_id}
 
     async def _sessions_rename(self, params: dict) -> dict:
@@ -1628,6 +1803,9 @@ class Gateway:
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
         # `agent_id` is an explicit client agent selection (else resolved from the key).
         async def on_event(event: AgentEvent) -> None:
+            # RENDER seam: tag tool-result / assistant events with the media files they
+            # produced (server-side detection = single source of truth for every client).
+            self._enrich_artifacts(event)
             await self._broadcast(handle.session_key, handle.run_id, event)
             # OBSERVABILITY: durably record EVERY event so a run is viewable even with no client
             # attached (cron/channel/heartbeat/sub-agent). Best-effort; never breaks the run.

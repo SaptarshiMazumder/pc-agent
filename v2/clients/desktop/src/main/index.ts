@@ -8,7 +8,8 @@
  * All agent intelligence stays in the daemon — this process never talks to an LLM.
  */
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import fs from 'node:fs'
 import path from 'node:path'
 
 import { Flavor, loadFlavor } from './flavor'
@@ -93,6 +94,39 @@ function registerIpc(): void {
       win.webContents.send('supervisor:status-changed', status)
     }
   })
+
+  // --- local files: open in the OS default app / reveal in the file manager, and the
+  //     attachment picker (reads the chosen files so the renderer can upload their bytes)
+  ipcMain.handle('file:open', (_e, p: string) => shell.openPath(String(p || '')))
+  ipcMain.handle('file:reveal', (_e, p: string) => {
+    shell.showItemInFolder(String(p || ''))
+  })
+  ipcMain.handle('file:pick', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
+      : await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] })
+    if (res.canceled) return []
+    return readPicked(res.filePaths)
+  })
+}
+
+const UPLOAD_MAX = 32 * 1024 * 1024 // mirror the daemon's UPLOAD_MAX_BYTES
+
+/** Read chosen file paths into upload payloads (name + base64 bytes). Oversized or
+ *  unreadable files are skipped so one bad pick never breaks the batch. */
+function readPicked(paths: string[]): Array<{ name: string; size: number; dataBase64: string }> {
+  const out: Array<{ name: string; size: number; dataBase64: string }> = []
+  for (const p of paths) {
+    try {
+      const stat = fs.statSync(p)
+      if (!stat.isFile() || stat.size > UPLOAD_MAX) continue
+      out.push({ name: path.basename(p), size: stat.size, dataBase64: fs.readFileSync(p).toString('base64') })
+    } catch {
+      /* skip unreadable file */
+    }
+  }
+  return out
 }
 
 app.whenReady().then(async () => {

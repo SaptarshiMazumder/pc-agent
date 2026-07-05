@@ -5,6 +5,7 @@ import { Check, Loader2, ChevronRight, ChevronDown, Sparkles } from 'lucide-reac
 
 import { timeLabel } from '../lib/timefmt'
 import type { ChatItem } from '../state/store'
+import ArtifactView from './ArtifactView'
 
 function summarizeArgs(args: Record<string, unknown>): string {
   return Object.entries(args)
@@ -56,6 +57,7 @@ export default function MessageItem({ item }: { item: ChatItem }) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
             {item.streaming && <span className="caret" />}
           </div>
+          <ArtifactView artifacts={item.artifacts} />
         </div>
       )
     case 'thinking':
@@ -68,7 +70,12 @@ export default function MessageItem({ item }: { item: ChatItem }) {
         </div>
       )
     case 'tool':
-      return <div className="msg-item"><ToolBlock item={item} /></div>
+      return (
+        <div className="msg-item">
+          <ToolBlock item={item} />
+          <ArtifactView artifacts={item.artifacts} />
+        </div>
+      )
     case 'system':
       return <div className={`msg-system ${item.tone === 'error' ? 'error' : ''}`}>{item.text}</div>
     default:
