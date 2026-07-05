@@ -220,7 +220,7 @@ export default function Sidebar() {
 
       {/* PROJECTS + CHATS — the scrolling remainder */}
       <div className="sidebar-scroll">
-        <div className="section-label">
+        <div className="section-label section-projects">
           <Folder size={14} />
           <span style={{ flex: 1 }}>Projects</span>
           <button className="section-add" title="new project" onClick={() => { setAddingProject(true); setProjectDraft('') }}>
@@ -287,7 +287,7 @@ export default function Sidebar() {
             </div>
           )
         })}
-        <div className="section-label"><History size={14} />Chats</div>
+        <div className="section-label section-chats"><History size={14} />Chats</div>
         {standalone.slice(0, 40).map((s) => (
           <SessionItem key={s.sessionId} session={s} active={s.sessionId === currentSessionKey} onOpen={() => void resumeSession(s.sessionId)} />
         ))}
