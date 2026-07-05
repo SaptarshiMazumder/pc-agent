@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react'
 
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp } from '../state/store'
+import { IconSend, IconStop } from './icons'
 import MessageItem from './MessageItem'
 
 export default function ChatView() {
@@ -67,7 +68,7 @@ export default function ChatView() {
         </div>
         {running && (
           <button className="button danger" onClick={() => void abortRun()}>
-            ■ Stop
+            <IconStop size={14} /> Stop
           </button>
         )}
       </header>
@@ -100,8 +101,14 @@ export default function ChatView() {
           }}
           rows={Math.min(8, Math.max(1, draft.split('\n').length))}
         />
-        <button className="button primary" type="submit" disabled={!draft.trim() || running || connection !== 'open'}>
-          {running ? '…' : 'Send'}
+        <button
+          className="button primary send-btn"
+          type="submit"
+          title="send (Enter)"
+          aria-label="send message"
+          disabled={!draft.trim() || running || connection !== 'open'}
+        >
+          {running ? '…' : <IconSend size={18} />}
         </button>
       </form>
     </div>

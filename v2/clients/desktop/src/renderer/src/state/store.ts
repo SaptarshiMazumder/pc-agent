@@ -37,6 +37,28 @@ export interface SessionState {
 
 export type View = 'chat' | 'store' | 'settings'
 
+export type Theme = 'light' | 'dark'
+
+const THEME_KEY = 'agentd-theme'
+
+/** Read the persisted theme (light is the product default). */
+export function initialTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
+
+function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    /* storage unavailable — theme just won't persist */
+  }
+}
+
 interface FlavorInfo {
   productId: string
   productName: string
@@ -134,6 +156,7 @@ interface AppState {
   connection: 'idle' | 'connecting' | 'open' | 'closed'
   hello: Hello | null
   view: View
+  theme: Theme
 
   agents: AgentInfo[]
   currentAgentId: string
@@ -153,6 +176,7 @@ interface AppState {
 
   bootstrap(): Promise<void>
   setView(view: View): void
+  toggleTheme(): void
   selectAgent(agentId: string): Promise<void>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
@@ -372,6 +396,7 @@ export const useApp = create<AppState>((set, get) => {
     connection: 'idle',
     hello: null,
     view: 'chat',
+    theme: initialTheme(),
 
     agents: [],
     currentAgentId: '',
@@ -407,6 +432,12 @@ export const useApp = create<AppState>((set, get) => {
     setView(view) {
       set({ view })
       if (view === 'store') void get().refreshCatalog()
+    },
+
+    toggleTheme() {
+      const next: Theme = get().theme === 'light' ? 'dark' : 'light'
+      applyTheme(next)
+      set({ theme: next })
     },
 
     async selectAgent(agentId) {

@@ -1,9 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import logo from '../assets/nakama.svg'
 import type { SessionRow } from '../gateway/protocol'
 import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
+import {
+  IconChat,
+  IconChevronDown,
+  IconChevronRight,
+  IconDownload,
+  IconFolder,
+  IconMoon,
+  IconPencil,
+  IconPlus,
+  IconSliders,
+  IconSparkle,
+  IconSun,
+  IconX
+} from './icons'
 
 /** One saved-conversation row: title (server data), WhatsApp-style 'when', and
  *  hover actions — rename (✎ / double-click) and delete (✕, two-step confirm). */
@@ -20,7 +34,7 @@ function SessionItem({
   const deleteSession = useApp((state) => state.deleteSession)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const [armed, setArmed] = useState(false) // first ✕ click arms; second deletes
+  const [armed, setArmed] = useState(false) // first delete click arms; second deletes
   const editRef = useRef<HTMLInputElement>(null)
   const label = session.title || session.sessionId
 
@@ -39,9 +53,19 @@ function SessionItem({
     setEditing(false)
   }
 
+  function rowKey(e: KeyboardEvent) {
+    if (!editing && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault()
+      onOpen()
+    }
+  }
+
   return (
     <div
       className={`row session-row ${active ? 'row-active' : ''}`}
+      role="button"
+      tabIndex={0}
+      onKeyDown={rowKey}
       onClick={() => {
         if (!editing) onOpen()
       }}
@@ -74,28 +98,32 @@ function SessionItem({
         <>
           <div className="session-row-main">
             <span className="row-title">{label}</span>
-            <span
+            <button
+              type="button"
               className="hover-btn"
               title="rename"
+              aria-label={`rename ${label}`}
               onClick={(e) => {
                 e.stopPropagation()
                 setDraft(label)
                 setEditing(true)
               }}
             >
-              ✎
-            </span>
-            <span
+              <IconPencil size={13} />
+            </button>
+            <button
+              type="button"
               className={`hover-btn ${armed ? 'hover-btn-danger' : ''}`}
               title={armed ? 'click again to delete — permanent' : 'delete chat'}
+              aria-label={armed ? `confirm delete ${label}` : `delete ${label}`}
               onClick={(e) => {
                 e.stopPropagation()
                 if (armed) void deleteSession(session.sessionId)
                 else setArmed(true)
               }}
             >
-              {armed ? 'sure?' : '✕'}
-            </span>
+              {armed ? 'sure?' : <IconX size={13} />}
+            </button>
           </div>
           <span className="row-sub">
             {session.messages} messages · {whenLabel(session.modified * 1000)}
@@ -123,6 +151,8 @@ export default function Sidebar() {
   const view = useApp((state) => state.view)
   const setView = useApp((state) => state.setView)
   const connection = useApp((state) => state.connection)
+  const theme = useApp((state) => state.theme)
+  const toggleTheme = useApp((state) => state.toggleTheme)
 
   const [addingProject, setAddingProject] = useState(false)
   const [projectDraft, setProjectDraft] = useState('')
@@ -159,14 +189,19 @@ export default function Sidebar() {
       <div className="brand">
         <img className="brand-logo" src={logo} alt="" />
         <span className="brand-name">{flavor?.productName || 'agentd'}</span>
-        <span className={`dot ${connection === 'open' ? 'dot-ok' : 'dot-off'}`} />
+        <span
+          className={`dot ${connection === 'open' ? 'dot-ok' : 'dot-off'}`}
+          title={connection === 'open' ? 'connected' : 'not connected'}
+        />
       </div>
 
-      <button className="button primary new-chat" onClick={() => newSession()}>
-        + New chat
+      <button className="new-chat" onClick={() => newSession()}>
+        <IconPlus size={16} /> New chat
       </button>
 
-      <div className="section-label">Agents</div>
+      <div className="section-label">
+        <IconSparkle size={13} /> Agents
+      </div>
       <div className="agent-list">
         {agents.map((agent) => (
           <button
@@ -182,17 +217,20 @@ export default function Sidebar() {
       </div>
 
       <div className="section-label section-label-row">
-        <span>Projects</span>
-        <span
+        <IconFolder size={13} /> Projects
+        <span className="section-spacer" />
+        <button
+          type="button"
           className="section-action"
           title="new project"
+          aria-label="new project"
           onClick={() => {
             setAddingProject(true)
             setProjectDraft('')
           }}
         >
-          ＋
-        </span>
+          <IconPlus size={14} />
+        </button>
       </div>
       <div className="project-list">
         {addingProject && (
@@ -245,47 +283,64 @@ export default function Sidebar() {
               ) : (
                 <div
                   className="row project-row"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={!isCollapsed}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setCollapsed((c) => ({ ...c, [project.id]: !isCollapsed }))
+                    }
+                  }}
                   onClick={() => setCollapsed((c) => ({ ...c, [project.id]: !isCollapsed }))}
                 >
                   <div className="session-row-main">
-                    <span className="project-caret">{isCollapsed ? '▸' : '▾'}</span>
+                    <span className="project-caret">
+                      {isCollapsed ? <IconChevronRight size={13} /> : <IconChevronDown size={13} />}
+                    </span>
                     <span className="row-title">{project.name}</span>
-                    <span
+                    <button
+                      type="button"
                       className="hover-btn"
                       title="new chat in this project"
+                      aria-label={`new chat in ${project.name}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         newSession(project.id)
                       }}
                     >
-                      ＋
-                    </span>
-                    <span
+                      <IconPlus size={13} />
+                    </button>
+                    <button
+                      type="button"
                       className="hover-btn"
                       title="rename project"
+                      aria-label={`rename ${project.name}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         setRenameDraft(project.name)
                         setRenamingProject(project.id)
                       }}
                     >
-                      ✎
-                    </span>
-                    <span
+                      <IconPencil size={13} />
+                    </button>
+                    <button
+                      type="button"
                       className={`hover-btn ${isArmed ? 'hover-btn-danger' : ''}`}
                       title={
                         isArmed
                           ? 'click again to delete the project (its chats stay, as standalone)'
                           : 'delete project'
                       }
+                      aria-label={isArmed ? `confirm delete ${project.name}` : `delete ${project.name}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         if (isArmed) void deleteProject(project.id)
                         else setArmedProject(project.id)
                       }}
                     >
-                      {isArmed ? 'sure?' : '✕'}
-                    </span>
+                      {isArmed ? 'sure?' : <IconX size={13} />}
+                    </button>
                   </div>
                 </div>
               )}
@@ -299,18 +354,20 @@ export default function Sidebar() {
                       onOpen={() => void resumeSession(session.sessionId)}
                     />
                   ))}
-                  {chats.length === 0 && <div className="row-sub pad">no chats yet — use ＋</div>}
+                  {chats.length === 0 && <div className="row-sub pad">no chats yet — use +</div>}
                 </div>
               )}
             </div>
           )
         })}
         {projects.length === 0 && !addingProject && (
-          <div className="row-sub pad">group chats into projects with ＋</div>
+          <div className="row-sub pad">group chats into projects with +</div>
         )}
       </div>
 
-      <div className="section-label">Chats</div>
+      <div className="section-label">
+        <IconChat size={13} /> Chats
+      </div>
       <div className="session-list">
         {standalone.slice(0, 30).map((session) => (
           <SessionItem
@@ -326,11 +383,19 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         {storeEnabled && (
           <button className={`nav ${view === 'store' ? 'nav-active' : ''}`} onClick={() => setView('store')}>
-            ⬇ Store
+            <IconDownload size={15} /> Store
           </button>
         )}
         <button className={`nav ${view === 'settings' ? 'nav-active' : ''}`} onClick={() => setView('settings')}>
-          ⚙ Settings
+          <IconSliders size={15} /> Settings
+        </button>
+        <button
+          className="nav nav-icon"
+          title={theme === 'light' ? 'switch to dark theme' : 'switch to light theme'}
+          aria-label={theme === 'light' ? 'switch to dark theme' : 'switch to light theme'}
+          onClick={toggleTheme}
+        >
+          {theme === 'light' ? <IconMoon size={15} /> : <IconSun size={15} />}
         </button>
       </div>
     </aside>

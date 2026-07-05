@@ -1,4 +1,5 @@
 import { useApp } from '../state/store'
+import { IconRefresh } from './icons'
 
 export default function StoreView() {
   const catalog = useApp((state) => state.catalog)
@@ -21,7 +22,9 @@ export default function StoreView() {
           <h1>Store</h1>
           <div className="chat-sub">Install agents into this app — live, no restart.</div>
         </div>
-        <button className="button" onClick={() => void refreshCatalog()}>↻ Refresh</button>
+        <button className="button" onClick={() => void refreshCatalog()}>
+          <IconRefresh size={14} /> Refresh
+        </button>
       </header>
 
       {needsSetup && (
