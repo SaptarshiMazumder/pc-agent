@@ -9,15 +9,14 @@ import { useApp } from '../state/store'
  *  - horizontal scroll (scrollbar hidden via .tabbar-scroll::-webkit-scrollbar)
  *  - "+" opens a new chat, the chevron opens an overflow list of all open chats
  *  - tabs are draggable to reorder
- * Reads: openTabs, currentSessionKey, currentAgentId, sessionRows.
- * Actions: resumeSession, closeTab, reorderTabs, newSession.
+ * Each tab carries its own agentId (dot colour + routing) and titles come from
+ * the cross-agent tabTitles cache — so switching agents never blanks tab names.
  */
 export default function TabBar() {
   const openTabs = useApp((s) => s.openTabs)
   const current = useApp((s) => s.currentSessionKey)
-  const agentId = useApp((s) => s.currentAgentId)
-  const sessionRows = useApp((s) => s.sessionRows)
-  const resumeSession = useApp((s) => s.resumeSession)
+  const tabTitles = useApp((s) => s.tabTitles)
+  const activateTab = useApp((s) => s.activateTab)
   const newSession = useApp((s) => s.newSession)
   const closeTab = useApp((s) => s.closeTab)
   const reorderTabs = useApp((s) => s.reorderTabs)
@@ -27,38 +26,36 @@ export default function TabBar() {
 
   if (openTabs.length === 0) return null
 
-  const titleOf = (id: string): string =>
-    sessionRows.find((r) => r.sessionId === id)?.title || 'New chat'
-  const dot = agentColor(agentId)
+  const titleOf = (id: string): string => tabTitles[id] || 'New chat'
 
   return (
     <div className="tabbar">
       <div className="tabbar-clip">
         <div className="tabbar-scroll">
-          {openTabs.map((id) => (
+          {openTabs.map((tab) => (
             <div
-              key={id}
-              className={`tab ${id === current ? 'active' : ''}`}
-              onClick={() => void resumeSession(id)}
+              key={tab.id}
+              className={`tab ${tab.id === current ? 'active' : ''}`}
+              onClick={() => void activateTab(tab)}
               draggable
               onDragStart={() => {
-                dragged.id = id
+                dragged.id = tab.id
               }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault()
-                if (dragged.id) reorderTabs(dragged.id, id)
+                if (dragged.id) reorderTabs(dragged.id, tab.id)
                 dragged.id = null
               }}
             >
-              <span className="tab-dot" style={{ background: dot }} />
-              <span className="tab-title">{titleOf(id)}</span>
+              <span className="tab-dot" style={{ background: agentColor(tab.agentId) }} />
+              <span className="tab-title">{titleOf(tab.id)}</span>
               <button
                 className="tab-close"
                 title="close tab"
                 onClick={(e) => {
                   e.stopPropagation()
-                  closeTab(id)
+                  closeTab(tab.id)
                 }}
               >
                 <X size={14} />
@@ -79,17 +76,17 @@ export default function TabBar() {
         {menuOpen && (
           <div className="tab-menu">
             <div className="tab-menu-label">Open chats</div>
-            {openTabs.map((id) => (
+            {openTabs.map((tab) => (
               <button
-                key={id}
+                key={tab.id}
                 className="tab-menu-item"
                 onClick={() => {
-                  void resumeSession(id)
+                  void activateTab(tab)
                   setMenuOpen(false)
                 }}
               >
-                <span className="tab-dot" style={{ background: dot }} />
-                <span className="tab-title">{titleOf(id)}</span>
+                <span className="tab-dot" style={{ background: agentColor(tab.agentId) }} />
+                <span className="tab-title">{titleOf(tab.id)}</span>
               </button>
             ))}
           </div>

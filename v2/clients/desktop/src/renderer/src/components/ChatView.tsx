@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { Paperclip, ArrowUp, Square, Loader2, Terminal, Check, MessageSquare } from 'lucide-react'
+import { Paperclip, ArrowUp, Square, Terminal, Check, MessageSquare } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
-import { agentInitials, agentTag } from '../lib/agentPresentation'
+import { agentTag } from '../lib/agentPresentation'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp } from '../state/store'
 import MessageItem from './MessageItem'
@@ -17,7 +17,6 @@ const SUGGESTIONS = [
 export default function ChatView() {
   const currentSessionKey = useApp((s) => s.currentSessionKey)
   const session = useApp((s) => s.sessions[s.currentSessionKey])
-  const sessionTitle = useApp((s) => s.sessionRows.find((r) => r.sessionId === s.currentSessionKey)?.title)
   const currentAgentId = useApp((s) => s.currentAgentId)
   const agents = useApp((s) => s.agents)
   const projectName = useApp((s) => s.projects.find((p) => p.id === s.currentProjectId)?.name)
@@ -62,21 +61,6 @@ export default function ChatView() {
     <div className={`chat ${empty ? 'empty' : ''}`}>
       <TabBar />
 
-      <header className="chat-head">
-        <span className="avatar" style={{ width: 32, height: 32, fontSize: 12, background: 'var(--accent)' }}>
-          {agentInitials(agentName, currentAgentId)}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="chat-title">
-            {sessionTitle || agentName}
-            {projectName && <span style={{ color: 'var(--accent-text)', fontWeight: 500 }}> · {projectName}</span>}
-          </div>
-          <div className="chat-meta">{currentAgentId || hello?.agentId}{model ? ` · ${model}` : ''}</div>
-        </div>
-        {running && <span className="working"><Loader2 size={16} />working…</span>}
-        {running && <button className="stop-btn" onClick={() => void abortRun()}><Square size={14} />Stop</button>}
-      </header>
-
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-col">
           {empty && (
@@ -112,9 +96,15 @@ export default function ChatView() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
             rows={Math.min(8, Math.max(1, draft.split('\n').length))}
           />
-          <button type="submit" className={`composer-send ${draft.trim() && !running ? 'ready' : ''}`} disabled={!draft.trim() || running || connection !== 'open'} title="send">
-            <ArrowUp size={18} />
-          </button>
+          {running ? (
+            <button type="button" className="composer-send stop" onClick={() => void abortRun()} title="stop the run">
+              <Square size={15} />
+            </button>
+          ) : (
+            <button type="submit" className={`composer-send ${draft.trim() ? 'ready' : ''}`} disabled={!draft.trim() || connection !== 'open'} title="send">
+              <ArrowUp size={18} />
+            </button>
+          )}
         </div>
         <div className="composer-hint">{running ? 'agent is running — press Stop to interrupt' : `agentd runs locally${model ? ' · ' + model : ''}`}</div>
       </form>

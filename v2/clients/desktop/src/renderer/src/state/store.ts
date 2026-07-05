@@ -37,6 +37,15 @@ export interface SessionState {
 
 export type View = 'chat' | 'store' | 'settings'
 
+/** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
+ *  the CURRENT agent's list, so a tab from another agent must remember where it
+ *  lives — for its title, its dot colour, and (critically) for routing messages
+ *  to the right agent when it's re-activated. */
+export interface OpenTab {
+  id: string
+  agentId: string
+}
+
 export type Theme = 'light' | 'dark'
 
 const THEME_KEY = 'agentd-theme'
@@ -166,8 +175,10 @@ interface AppState {
   currentProjectId: string
   projects: ProjectRow[]
   sessions: Record<string, SessionState>
-  /** Chrome-style tabs: session keys opened this app-session, in tab order */
-  openTabs: string[]
+  /** Chrome-style tabs: chats opened this app-session, in tab order */
+  openTabs: OpenTab[]
+  /** session key -> last known title; survives agent switches (sessionRows doesn't) */
+  tabTitles: Record<string, string>
   sidebarCollapsed: boolean
 
   catalog: CatalogBundle[]
@@ -181,6 +192,7 @@ interface AppState {
   setView(view: View): void
   toggleTheme(): void
   toggleSidebar(): void
+  activateTab(tab: OpenTab): Promise<void>
   closeTab(sessionId: string): void
   reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
@@ -314,7 +326,16 @@ export const useApp = create<AppState>((set, get) => {
       const payload = await gateway.request<{ sessions: SessionRow[] }>('sessions.list', {
         agentId: currentAgentId
       })
-      set({ sessionRows: payload.sessions || [] })
+      const rows = payload.sessions || []
+      // fold titles into the cross-agent cache so tabs keep their names after
+      // switching agents (rows are per-agent; the cache is not)
+      set((state) => ({
+        sessionRows: rows,
+        tabTitles: {
+          ...state.tabTitles,
+          ...Object.fromEntries(rows.filter((r) => r.title).map((r) => [r.sessionId, r.title]))
+        }
+      }))
     } catch {
       set({ sessionRows: [] })
     }
@@ -412,6 +433,7 @@ export const useApp = create<AppState>((set, get) => {
     projects: [],
     sessions: {},
     openTabs: [],
+    tabTitles: {},
     sidebarCollapsed: false,
 
     catalog: [],
@@ -453,14 +475,24 @@ export const useApp = create<AppState>((set, get) => {
       set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
     },
 
+    async activateTab(tab) {
+      // a tab may belong to ANOTHER agent — switch context first so history
+      // loads from (and messages route to) the right one
+      if (get().currentAgentId !== tab.agentId) {
+        set({ currentAgentId: tab.agentId })
+        await refreshSessions()
+      }
+      await get().resumeSession(tab.id)
+    },
+
     closeTab(sessionId) {
       const { openTabs, currentSessionKey } = get()
-      const tabs = openTabs.filter((t) => t !== sessionId)
+      const idx = openTabs.findIndex((t) => t.id === sessionId)
+      const tabs = openTabs.filter((t) => t.id !== sessionId)
       set({ openTabs: tabs })
       if (currentSessionKey === sessionId) {
-        const idx = openTabs.indexOf(sessionId)
         const next = tabs[idx] || tabs[idx - 1] || tabs[tabs.length - 1]
-        if (next) void get().resumeSession(next)
+        if (next) void get().activateTab(next)
         else get().newSession()
       }
     },
@@ -468,11 +500,11 @@ export const useApp = create<AppState>((set, get) => {
     reorderTabs(from, to) {
       set((s) => {
         const a = [...s.openTabs]
-        const fi = a.indexOf(from)
-        const ti = a.indexOf(to)
+        const fi = a.findIndex((t) => t.id === from)
+        const ti = a.findIndex((t) => t.id === to)
         if (fi < 0 || ti < 0) return {}
-        a.splice(fi, 1)
-        a.splice(ti, 0, from)
+        const [moved] = a.splice(fi, 1)
+        a.splice(ti, 0, moved)
         return { openTabs: a }
       })
     },
@@ -486,7 +518,7 @@ export const useApp = create<AppState>((set, get) => {
       if (latest) {
         await get().resumeSession(latest.sessionId)
       } else {
-        set({ currentSessionKey: newSessionKey(), currentProjectId: '' })
+        get().newSession()   // registers the tab too — the active chat always has one
       }
     },
 
@@ -497,16 +529,22 @@ export const useApp = create<AppState>((set, get) => {
         currentSessionKey: key,
         currentProjectId: projectId || '',
         view: 'chat',
-        openTabs: s.openTabs.includes(key) ? s.openTabs : [...s.openTabs, key]
+        openTabs: s.openTabs.some((t) => t.id === key)
+          ? s.openTabs
+          : [...s.openTabs, { id: key, agentId: s.currentAgentId }]
       }))
     },
 
     async renameSession(sessionId, title) {
-      // optimistic: update the row now; the server confirms via sessions.changed
+      // optimistic: update the row (and the tab-title cache) now; the server
+      // confirms via sessions.changed
       set((state) => ({
         sessionRows: state.sessionRows.map((row) =>
           row.sessionId === sessionId ? { ...row, title, titleManual: !!title.trim() } : row
-        )
+        ),
+        tabTitles: title.trim()
+          ? { ...state.tabTitles, [sessionId]: title }
+          : state.tabTitles
       }))
       try {
         await gateway.request('sessions.rename', {
@@ -527,7 +565,7 @@ export const useApp = create<AppState>((set, get) => {
         return {
           sessionRows: state.sessionRows.filter((row) => row.sessionId !== sessionId),
           sessions,
-          openTabs: state.openTabs.filter((t) => t !== sessionId)
+          openTabs: state.openTabs.filter((t) => t.id !== sessionId)
         }
       })
       if (get().currentSessionKey === sessionId) {
@@ -588,9 +626,9 @@ export const useApp = create<AppState>((set, get) => {
         currentSessionKey: sessionId,
         currentProjectId: row?.projectId || '',
         view: 'chat',
-        openTabs: state.openTabs.includes(sessionId)
+        openTabs: state.openTabs.some((t) => t.id === sessionId)
           ? state.openTabs
-          : [...state.openTabs, sessionId]
+          : [...state.openTabs, { id: sessionId, agentId: state.currentAgentId }]
       }))
       // already have this session in memory with content (it's live, or we loaded it
       // before) — don't clobber it by reloading.
