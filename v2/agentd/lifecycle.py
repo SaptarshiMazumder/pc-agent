@@ -181,12 +181,23 @@ def spawn_daemon(wait_sec: float = 300.0) -> GatewayInfo:
 
     deadline = time.monotonic() + wait_sec
     while time.monotonic() < deadline:
+        # A HEALTHY rendezvous means a daemon is serving — ours, OR a concurrent
+        # starter (a second terminal, the desktop supervisor) that won the port. We
+        # cleared the file before spawning, so any file that appears is fresh; we do
+        # NOT insist on our own child's pid (the loser of a single-instance race would
+        # otherwise wait out the full timeout for a pid that never binds).
+        info = read_gateway_file()
+        if info is not None and port_open(info.host, info.port):
+            return info
         if proc.poll() is not None:
+            # our child exited without a live rendezvous — either it lost the race to a
+            # winner still coming up, or it genuinely failed. Adopt a winner if present;
+            # else surface the failure with the log tail.
+            winner = find_running()
+            if winner is not None:
+                return winner
             raise RuntimeError(
                 f"daemon exited immediately (code {proc.returncode}) — log tail:\n{_log_tail(log_path)}")
-        info = read_gateway_file()
-        if info is not None and info.pid == proc.pid and port_open(info.host, info.port):
-            return info
         time.sleep(0.25)
     raise RuntimeError(f"daemon did not come up within {wait_sec:.0f}s — log tail:\n{_log_tail(log_path)}")
 
