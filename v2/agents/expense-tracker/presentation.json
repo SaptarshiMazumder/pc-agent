@@ -1,0 +1,10 @@
+{
+  "tagline": "gmail expense tracker",
+  "suggestions": [
+    "Summarize this month's expenses",
+    "Find transactions over ¥5000 this month",
+    "Show my Amazon spending last month"
+  ],
+  "color": "#51d6d4",
+  "hue": 179.0
+}
