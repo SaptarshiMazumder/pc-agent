@@ -13,6 +13,7 @@ import asyncio
 import hmac
 import logging
 import os
+import re
 import time
 from pathlib import Path
 import uuid
@@ -893,6 +894,8 @@ class Gateway:
                 payload = self._mcp_list()
             elif req.method == "mcp.remove":
                 payload = self._mcp_remove(req.params)
+            elif req.method == "agents.create":
+                payload = await self._agents_create(req.params)
             elif req.method == "agents.remove":
                 payload = self._agents_remove(req.params)
             elif req.method == "cron.list":
@@ -1349,6 +1352,33 @@ class Gateway:
                 "definition": removed.get("definition", False),
                 "sessions": removed.get("sessions", False),
                 "cron": cron, "memory": memory}
+
+    async def _agents_create(self, params: dict) -> dict:
+        """Create a new agent from a client (the 'Create agent' button) — the uniform
+        authoring surface. Scaffolds agents/<id>/ (agent.toml + optional IDENTITY.md),
+        loads it live (no restart), then kicks the presentation pass to give it a unique
+        colour + tagline. Broadcasts agents.changed so every client shows it immediately."""
+        if self.registry is None or not hasattr(self.registry, "create"):
+            return {"created": False, "error": "no agent registry"}
+        agent_id = (params.get("agentId") or params.get("id") or "").strip().lower()
+        name = str(params.get("name") or "").strip()
+        if not agent_id:
+            # derive a slug from the name when the client didn't supply an id
+            agent_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        if not agent_id:
+            return {"created": False, "error": "name or id required"}
+        try:
+            spec = self.registry.create(
+                agent_id, name=name,
+                description=str(params.get("description") or "").strip(),
+                identity=str(params.get("identity") or params.get("instructions") or "").strip())
+        except ValueError as e:
+            return {"created": False, "error": str(e)}
+        # show it right away, then fill colour/tagline in the background
+        await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
+        asyncio.create_task(self._maybe_generate_presentations())
+        log.info("agents.create %s (%s)", spec.id, name or spec.id)
+        return {"created": True, "agentId": spec.id, "name": spec.name}
 
     def _workspace_cleanup(self, params: dict) -> dict:
         """Tidy an agent's workspace: delete scratch (all of <workspace>/tmp/) + any file

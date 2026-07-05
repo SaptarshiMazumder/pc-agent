@@ -41,10 +41,13 @@ export function hashColor(seed: string): string {
   return hslToHex(hueFromSeed(seed))
 }
 
+// main wears the brand lime (matches presentation.MAIN_COLOR); reserved for it.
+const MAIN_COLOR = '#a3e635'
+
 /** An agent's avatar/dot colour: the server-assigned one, else the deterministic
- *  fallback so an avatar is never blank. */
+ *  fallback so an avatar is never blank (main falls back to the brand lime). */
 export function agentColor(serverColor: string | undefined, id: string): string {
-  return serverColor || hashColor(id)
+  return serverColor || (id === 'main' ? MAIN_COLOR : hashColor(id))
 }
 
 /** Fallback tagline only — the real one is server-owned (`AgentInfo.tagline`). */

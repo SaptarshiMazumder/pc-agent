@@ -155,6 +155,12 @@ button, input, textarea { font-family: inherit; }
   color: var(--faint); font-weight: 600; padding: 22px 8px 11px;
 }
 .section-label:first-child { padding-top: 12px; }
+.section-add {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.section-add:hover { background: var(--bg3); color: var(--accent-text); }
 
 .row {
   display: flex; align-items: center; gap: 9px; width: 100%;
@@ -372,3 +378,38 @@ button, input, textarea { font-family: inherit; }
 .kv-val { font: 12.5px var(--mono); color: var(--text); word-break: break-all; }
 .settings-note { color: var(--dim); font-size: 12.5px; line-height: 1.6; }
 .settings-note code { font: 12px var(--mono); color: var(--accent-text); }
+
+/* =========================================================================
+   MODAL (create agent)
+========================================================================= */
+.modal-scrim {
+  position: fixed; inset: 0; z-index: 50; display: flex;
+  align-items: center; justify-content: center; padding: 24px;
+  background: rgba(20, 16, 8, 0.44); animation: ag-up .12s ease;
+}
+.modal {
+  width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
+  padding: 20px; box-shadow: var(--shadow);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-title {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: -.01em;
+}
+.modal-title svg { color: var(--accent); }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: 12px; font-weight: 600; color: var(--dim); }
+.field-opt { font-weight: 400; color: var(--faint); text-transform: none; }
+.field-input {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 12px; font: inherit; font-size: 13.5px; outline: none; resize: vertical;
+}
+.field-input:focus { border-color: var(--accent); }
+.field-input::placeholder { color: var(--faint); }
+.field-error {
+  font-size: 12.5px; color: var(--danger);
+  background: var(--danger-soft); border-radius: 8px; padding: 8px 11px;
+}
+.modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 2px; }

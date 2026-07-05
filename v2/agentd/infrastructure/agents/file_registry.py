@@ -14,13 +14,14 @@ never breaks the rest.
 
 from __future__ import annotations
 
+import json
 import logging
 import tomllib
 from pathlib import Path
 
 from agentd.domain.agent import AgentSpec, agent_id_from_session_key
 from agentd.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
-from agentd.infrastructure.agents.presentation import read_sidecar
+from agentd.infrastructure.agents.presentation import MAIN_COLOR, read_sidecar
 
 log = logging.getLogger("agentd")
 
@@ -81,6 +82,7 @@ class FileAgentRegistry:
             id="main",
             name=getattr(c, "agent_name", "") or "the assistant",
             tagline="general · all tools",       # honest default for the generalist
+            color=MAIN_COLOR,                    # the brand lime — reserved for main
             workspace=workspace,
             state_dir=self._state_dir_for("main"),
             instructions="",
@@ -148,7 +150,12 @@ class FileAgentRegistry:
         suggestions = tuple(
             str(s).strip() for s in (data.get("suggestions") or sidecar.get("suggestions") or [])
             if str(s).strip())[:3]
-        color = str(data.get("color") or sidecar.get("color") or "")   # authored > assigned > ""
+        # colour: authored agent.toml wins; main is pinned to brand lime (never the
+        # assigned sidecar); other agents use their assigned sidecar colour, else "".
+        if agent_id == "main":
+            color = str(data.get("color") or MAIN_COLOR)
+        else:
+            color = str(data.get("color") or sidecar.get("color") or "")
 
         return AgentSpec(
             id=agent_id,
@@ -198,6 +205,36 @@ class FileAgentRegistry:
         spec = self._load_dir(agent_id, d)
         self._specs[agent_id] = spec
         log.info("agents: added '%s' at runtime (now: %s)", agent_id, ", ".join(sorted(self._specs)))
+        return spec
+
+    def create(self, agent_id: str, name: str = "", description: str = "",
+               identity: str = "") -> AgentSpec:
+        """Scaffold a NEW agent definition and load it live (no restart) — the inverse
+        of remove(). Writes agents/<id>/agent.toml (name + description) and, if given,
+        IDENTITY.md (who the agent is, read into its bootstrap). Refuses an invalid id
+        or one that already exists. Colour + tagline are filled in afterwards by the
+        daemon's presentation pass. Returns the loaded spec."""
+        agent_id = (agent_id or "").strip().lower()
+        if not _valid_id(agent_id):
+            raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
+        d = self._agents_dir / agent_id
+        if agent_id in self._specs or d.exists():
+            raise ValueError(f"agent '{agent_id}' already exists")
+
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "workspace").mkdir(exist_ok=True)
+        # agent.toml — JSON string literals are valid TOML basic strings, so this
+        # safely escapes quotes/backslashes in the name/description.
+        lines = [f"name = {json.dumps(name or agent_id)}"]
+        if description.strip():
+            lines.append(f"description = {json.dumps(description.strip())}")
+        (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if identity.strip():
+            (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
+
+        spec = self._load_dir(agent_id, d)
+        self._specs[agent_id] = spec
+        log.info("agents: created '%s' (%s)", agent_id, name or agent_id)
         return spec
 
     # ---- AgentRegistry ------------------------------------------------------

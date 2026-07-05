@@ -196,6 +196,7 @@ interface AppState {
   closeTab(sessionId: string): void
   reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
+  createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
   renameSession(sessionId: string, title: string): Promise<void>
@@ -520,6 +521,18 @@ export const useApp = create<AppState>((set, get) => {
       } else {
         get().newSession()   // registers the tab too — the active chat always has one
       }
+    },
+
+    async createAgent(fields) {
+      // server scaffolds the definition + assigns colour/tagline; agents.changed
+      // refreshes the list. Throws on a server error so the modal can show it.
+      const res = await gateway.request<{ created: boolean; agentId?: string; error?: string }>(
+        'agents.create',
+        { name: fields.name, description: fields.description || '', identity: fields.identity || '' }
+      )
+      if (!res.created) throw new Error(res.error || 'could not create the agent')
+      if (res.agentId) await get().selectAgent(res.agentId)
+      return res.agentId || ''
     },
 
     newSession(projectId?: string) {

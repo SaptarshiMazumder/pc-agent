@@ -38,6 +38,10 @@ COLOR_LIGHT = 0.58
 _MIN_HUE_SEP = 24.0        # degrees two agents' hues must stay apart to read as distinct
 _GOLDEN = 137.508          # golden-angle walk spreads collisions evenly around the wheel
 
+# main is the brand generalist — it always wears the product lime, and no other agent
+# is allowed to (that hue is reserved so lime == "the default agent" stays a signal).
+MAIN_COLOR = "#a3e635"
+
 _PROMPT = """You write launcher-UI copy for an AI agent. Based on the agent's identity below, return STRICT JSON, nothing else:
 
 {{"tagline": "...", "suggestions": ["...", "...", "..."]}}

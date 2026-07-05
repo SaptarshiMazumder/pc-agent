@@ -14,7 +14,8 @@ import {
   Pencil,
   X,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  UserPlus
 } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
@@ -22,6 +23,7 @@ import type { SessionRow } from '../gateway/protocol'
 import { agentColor, agentInitials, agentTag, hashColor } from '../lib/agentPresentation'
 import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
+import NewAgentModal from './NewAgentModal'
 
 /** One saved-chat row with hover rename (✎ / dbl-click) + delete (two-step). */
 function SessionItem({ session, active, onOpen }: { session: SessionRow; active: boolean; onOpen: () => void }) {
@@ -111,6 +113,7 @@ export default function Sidebar() {
 
   const [query, setQuery] = useState('')
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({})
+  const [newAgent, setNewAgent] = useState(false)
 
   const projectIds = new Set(projects.map((p) => p.id))
   const q = query.trim().toLowerCase()
@@ -132,6 +135,7 @@ export default function Sidebar() {
         <button className="rail-primary" title="new chat" onClick={() => newSession()}><Plus size={17} /></button>
         <button className="rail-btn" title="search chats" onClick={toggleSidebar}><Search size={17} /></button>
         <div className="rail-sep" />
+        <button className="rail-btn" title="create agent" onClick={() => setNewAgent(true)}><UserPlus size={17} /></button>
         {agents.map((a) => (
           <button
             key={a.id}
@@ -146,6 +150,7 @@ export default function Sidebar() {
         <button className="rail-btn" title="Store" onClick={() => setView('store')}><ShoppingBag size={18} /></button>
         <button className="rail-btn" title="Settings" onClick={() => setView('settings')}><SlidersHorizontal size={18} /></button>
         <button className="rail-btn" title="toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
+        {newAgent && <NewAgentModal onClose={() => setNewAgent(false)} />}
       </aside>
     )
   }
@@ -169,7 +174,13 @@ export default function Sidebar() {
       </div>
 
       <div className="sidebar-scroll">
-        <div className="section-label"><Users size={14} />Agents</div>
+        <div className="section-label">
+          <Users size={14} />
+          <span style={{ flex: 1 }}>Agents</span>
+          <button className="section-add" title="create agent" onClick={() => setNewAgent(true)}>
+            <Plus size={14} />
+          </button>
+        </div>
         {agents.map((a) => (
           <button
             key={a.id}
@@ -221,6 +232,8 @@ export default function Sidebar() {
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
       </div>
+
+      {newAgent && <NewAgentModal onClose={() => setNewAgent(false)} />}
     </aside>
   )
 }
