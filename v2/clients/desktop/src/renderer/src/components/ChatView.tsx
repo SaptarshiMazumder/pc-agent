@@ -8,11 +8,13 @@ import { useApp } from '../state/store'
 import MessageItem from './MessageItem'
 import TabBar from './TabBar'
 
-const SUGGESTIONS = [
-  { icon: <Terminal size={15} />, text: 'Summarize today’s changes', fill: 'Summarize today’s changes in the repo.' },
-  { icon: <Check size={15} />, text: 'Run the test suite', fill: 'Run the full test suite and report failures.' },
-  { icon: <MessageSquare size={15} />, text: 'Draft a release note', fill: 'Draft a short release note for the latest changes.' }
+// Fallback starters when the agent has no server-side suggestions (yet)
+const DEFAULT_SUGGESTIONS = [
+  'Summarize today’s changes in the repo.',
+  'Run the full test suite and report failures.',
+  'Draft a short release note for the latest changes.'
 ]
+const SUGGESTION_ICONS = [<Terminal size={15} key="t" />, <Check size={15} key="c" />, <MessageSquare size={15} key="m" />]
 
 export default function ChatView() {
   const currentSessionKey = useApp((s) => s.currentSessionKey)
@@ -31,8 +33,11 @@ export default function ChatView() {
   const running = session?.running || false
   const empty = items.length === 0
 
-  const agentName = agents.find((a) => a.id === currentAgentId)?.name || hello?.agentName || currentAgentId || 'agent'
+  const currentAgent = agents.find((a) => a.id === currentAgentId)
+  const agentName = currentAgent?.name || hello?.agentName || currentAgentId || 'agent'
   const model = hello?.model || ''
+  // starter prompts: the agent's OWN (server-authored or auto-generated), else generic
+  const suggestions = currentAgent?.suggestions?.length ? currentAgent.suggestions : DEFAULT_SUGGESTIONS
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -72,11 +77,14 @@ export default function ChatView() {
                   ? `New chat in ${projectName} — ask anything.`
                   : currentAgentId === 'main' || !currentAgentId
                     ? 'Ask anything — tools, files, browsing and your installed agents are all here.'
-                    : `You’re talking to ${agentName}. ${agentTag(currentAgentId)}.`}
+                    : `You’re talking to ${agentName}. ${currentAgent?.tagline || agentTag(currentAgentId)}.`}
               </div>
               <div className="suggestions">
-                {SUGGESTIONS.map((g) => (
-                  <button key={g.text} className="suggestion" onClick={() => setDraft(g.fill)}>{g.icon}{g.text}</button>
+                {suggestions.slice(0, 3).map((text, i) => (
+                  <button key={text} className="suggestion" onClick={() => setDraft(text)}>
+                    {SUGGESTION_ICONS[i % SUGGESTION_ICONS.length]}
+                    {text}
+                  </button>
                 ))}
               </div>
             </div>

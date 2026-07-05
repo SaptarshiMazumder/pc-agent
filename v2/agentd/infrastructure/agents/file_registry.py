@@ -20,6 +20,7 @@ from pathlib import Path
 
 from agentd.domain.agent import AgentSpec, agent_id_from_session_key
 from agentd.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
+from agentd.infrastructure.agents.presentation import read_sidecar
 
 log = logging.getLogger("agentd")
 
@@ -79,6 +80,7 @@ class FileAgentRegistry:
         return AgentSpec(
             id="main",
             name=getattr(c, "agent_name", "") or "the assistant",
+            tagline="general · all tools",       # honest default for the generalist
             workspace=workspace,
             state_dir=self._state_dir_for("main"),
             instructions="",
@@ -137,10 +139,22 @@ class FileAgentRegistry:
         sts = data.get("safe_to_send") or {}
         audience = str(sts.get("audience") or "").strip().lower()
 
+        # Display presentation: authored agent.toml fields win; else the sidecar the
+        # daemon generated once from the identity (presentation.json). main is the
+        # generalist BY DEFINITION — it gets the standard line rather than a guess.
+        sidecar = read_sidecar(d)
+        tagline = str(data.get("tagline") or sidecar.get("tagline")
+                      or ("general · all tools" if agent_id == "main" else ""))
+        suggestions = tuple(
+            str(s).strip() for s in (data.get("suggestions") or sidecar.get("suggestions") or [])
+            if str(s).strip())[:3]
+
         return AgentSpec(
             id=agent_id,
             name=str(data.get("name") or agent_id),
             description=str(data.get("description") or ""),
+            tagline=tagline,
+            suggestions=suggestions,
             workspace=workspace,
             state_dir=self._state_dir_for(agent_id),
             instructions=load_bootstrap(d),

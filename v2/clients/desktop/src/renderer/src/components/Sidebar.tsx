@@ -179,7 +179,7 @@ export default function Sidebar() {
             <span className="avatar" style={{ background: agentColor(a.id) }}>{agentInitials(a.name, a.id)}</span>
             <span className="row-main">
               <span className="row-title">{a.name || a.id}</span>
-              <span className="row-sub">{agentTag(a.id)}</span>
+              <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
             </span>
           </button>
         ))}

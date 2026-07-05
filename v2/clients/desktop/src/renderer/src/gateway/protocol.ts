@@ -30,6 +30,10 @@ export interface AgentInfo {
   id: string
   name: string
   version?: string
+  /** server-owned display line, authored in agent.toml or auto-generated once */
+  tagline?: string
+  /** up to 3 starter prompts for this agent's empty chat (server-owned) */
+  suggestions?: string[]
 }
 
 export interface Hello {

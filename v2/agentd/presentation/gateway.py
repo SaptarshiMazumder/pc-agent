@@ -364,6 +364,9 @@ class Gateway:
                 self._start_webhook_server(),  # push channels (LINE) + task hooks (/hook/<id>)
             ))
             self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
+            # fill in any missing agent taglines/suggestions (one-time, per agent)
+            asyncio.create_task(self._maybe_generate_presentations(),
+                                name="agent-presentation")
             log.info("deferred startup complete (MCP + channels + background services)")
         except asyncio.CancelledError:
             raise
@@ -1194,8 +1197,11 @@ class Gateway:
         if callable(reloader):
             tools = (reloader() or {}).get("tools", [])
         try:
-            asyncio.get_running_loop().create_task(self._send_all(dump_frame(Event(
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._send_all(dump_frame(Event(
                 event="agents.changed", payload=self._agents_list()))))
+            # a freshly installed agent gets its tagline/suggestions generated too
+            loop.create_task(self._maybe_generate_presentations())
         except RuntimeError:
             pass
         return {"agents": agents, "tools": tools}
@@ -1235,14 +1241,61 @@ class Gateway:
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
-        registry is the single source of truth; the session-key format stays internal."""
+        registry is the single source of truth; the session-key format stays internal.
+        Includes each agent's display presentation (tagline + starter suggestions) so
+        no client ever hardcodes what an agent 'is'."""
         default = getattr(self.config, "agent_id", "main")
         if self.registry is None:
             return {"agents": [{"id": default, "name": self.config.agent_name}], "default": default}
-        agents = [{"id": aid, "name": self.registry.get(aid).name,
-                   "version": getattr(self.registry.get(aid), "version", "1")}
-                  for aid in self.registry.list_ids()]
+        agents = []
+        for aid in self.registry.list_ids():
+            spec = self.registry.get(aid)
+            agents.append({
+                "id": aid, "name": spec.name,
+                "version": getattr(spec, "version", "1"),
+                "tagline": getattr(spec, "tagline", ""),
+                "suggestions": list(getattr(spec, "suggestions", ()) or ()),
+            })
         return {"agents": agents, "default": default if default in {a["id"] for a in agents} else "main"}
+
+    async def _maybe_generate_presentations(self) -> None:
+        """Fill in missing agent display presentation (tagline + starter suggestions),
+        generated ONCE per agent from its own identity — same pattern as session
+        auto-titles. Stored as a sidecar next to the definition (authored agent.toml
+        fields always win), then agents.changed tells every client. Best-effort
+        background work: never blocks startup, a run, or an install."""
+        if self.registry is None:
+            return
+        try:
+            from agentd.application.tool_models import brain_model, resolve_tool_model
+            from agentd.infrastructure.agents import presentation as pres
+
+            changed = False
+            for aid in self.registry.list_ids():
+                try:
+                    spec = self.registry.get(aid)
+                except KeyError:
+                    continue
+                if getattr(spec, "tagline", "") or getattr(spec, "dir", None) is None:
+                    continue                     # already presented / nowhere to persist
+                ce = getattr(self.config, "cost_efficiency", None) or {}
+                default_model = ce.get("text_model") or brain_model(self.config)
+                model = resolve_tool_model(self.config, "agents", "presentation",
+                                           default=default_model)
+                data = await asyncio.to_thread(
+                    pres.generate_presentation, spec.name,
+                    getattr(spec, "description", ""), spec.instructions, model)
+                if not data:
+                    continue
+                pres.write_sidecar(spec.dir, data)
+                changed = True
+                log.info("agent '%s' presented: %r", aid, data.get("tagline"))
+            if changed:
+                self.registry.refresh()          # sidecars -> live specs
+                await self._send_all(dump_frame(Event(
+                    event="agents.changed", payload=self._agents_list())))
+        except Exception:  # noqa: BLE001 — presentation is décor, never breaks serving
+            log.debug("agent presentation generation failed", exc_info=True)
 
     def _agents_remove(self, params: dict) -> dict:
         """Permanently delete an agent EVERYWHERE — the one destructive surface any client

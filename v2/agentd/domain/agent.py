@@ -26,6 +26,11 @@ class AgentSpec:
     instructions: str = ""                        # bootstrap text (IDENTITY/AGENTS/... block)
     description: str = ""                          # one-line "what this agent is for" — shown to
     #                                               orchestrators by agents_list for delegation
+    # Display presentation — what a launcher UI shows for this agent. Authored in
+    # agent.toml (tagline/suggestions) or auto-generated ONCE from the identity and
+    # stored in a sidecar (see infrastructure/agents/presentation.py).
+    tagline: str = ""                             # short picker line, e.g. "finance · gmail"
+    suggestions: tuple[str, ...] = ()             # up to 3 starter prompts for an empty chat
     model: str | None = None                      # per-agent model override (carried; wired later)
     # Per-agent TOOL-model overrides (from agent.toml [plugins.*]), same plugin->tool->model shape as
     # global config.plugins: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}. Layered ABOVE

@@ -310,7 +310,8 @@ class TerminalClient:
         current = self.agent_id or payload.get("default") or "main"
         if picker.can_pick(console) and agents:
             opts = [picker.Option(value=a["id"], label=a["id"],
-                                  detail=a.get("name", ""),
+                                  detail=" · ".join(x for x in (a.get("name", ""),
+                                                                a.get("tagline", "")) if x),
                                   current=a["id"] == current)
                     for a in agents]
             chosen = await self._pick("switch agent", opts)
@@ -323,7 +324,8 @@ class TerminalClient:
             return
         for a in agents:
             mark = f"[{LIME}]→[/]" if a["id"] == current else " "
-            console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]")
+            tag = f"  [dim]{a['tagline']}[/]" if a.get("tagline") else ""
+            console.print(f"  {mark} [bold]{a['id']}[/]  [dim]{a.get('name', '')}[/]{tag}")
         console.print("[dim]switch with /agent <id> (use 'main' for the default)[/]")
 
     async def _reader(self) -> None:
