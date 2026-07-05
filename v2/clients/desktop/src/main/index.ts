@@ -49,10 +49,22 @@ function createWindow(): void {
     }
   })
   mainWindow.on('closed', () => (mainWindow = null))
-  // external links open in the system browser, never inside the shell
+  // External links open in the SYSTEM browser, never inside the shell — via BOTH
+  // escape routes: window.open/target=_blank hits setWindowOpenHandler, while a
+  // plain <a href> (e.g. a markdown link in chat) navigates the window itself and
+  // only fires will-navigate. Only http(s) is handed to the OS (no shell-opening
+  // of arbitrary protocols), and everything foreign is blocked either way.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (/^https?:/i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+  const appOrigin = process.env.ELECTRON_RENDERER_URL
+    ? new URL(process.env.ELECTRON_RENDERER_URL).origin
+    : 'file:'
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith(appOrigin)) return              // our own app (dev reloads)
+    event.preventDefault()
+    if (/^https?:/i.test(url)) void shell.openExternal(url)
   })
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
