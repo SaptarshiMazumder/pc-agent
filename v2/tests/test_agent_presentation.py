@@ -80,7 +80,7 @@ def test_agents_list_carries_presentation(tmp_path):
     from agentd.presentation.gateway import Gateway
 
     spec = SimpleNamespace(name="Helper", version="1", tagline="finance · gmail",
-                           suggestions=("Check spend",))
+                           suggestions=("Check spend",), color="#84cc16")
     gw = Gateway(config=SimpleNamespace(state_dir=tmp_path, agent_id="main",
                                         agent_name="jarvis"),
                  service=None,
@@ -89,3 +89,46 @@ def test_agents_list_carries_presentation(tmp_path):
     agents = gw._agents_list()["agents"]
     assert agents[0]["tagline"] == "finance · gmail"
     assert agents[0]["suggestions"] == ["Check spend"]
+    assert agents[0]["color"] == "#84cc16"
+
+
+def test_hsl_hex_roundtrips_and_is_valid():
+    for hue in (0, 45, 137.5, 200, 359):
+        hex_color = presentation.hsl_to_hex(hue)
+        assert len(hex_color) == 7 and hex_color[0] == "#"
+        back = presentation.hex_to_hue(hex_color)
+        assert back is not None and presentation._hue_distance(back, hue) < 2  # ~roundtrip
+    assert presentation.hex_to_hue("not-a-color") is None
+
+
+def test_assign_hue_keeps_agents_apart():
+    # base hue comes from the id hash; a clash is pushed at least _MIN_HUE_SEP away
+    taken: list[float] = []
+    hues = []
+    for aid in ["main", "expense-tracker", "figure-creator", "sakana-sushi", "cost-calc", "x1", "x2"]:
+        h = presentation.assign_hue(aid, taken)
+        taken.append(h)
+        hues.append(h)
+    for i in range(len(hues)):
+        for j in range(i + 1, len(hues)):
+            assert presentation._hue_distance(hues[i], hues[j]) >= presentation._MIN_HUE_SEP
+
+    # deterministic + matches the client fallback for a non-colliding id
+    assert presentation.assign_hue("solo", []) == presentation._hue_from_id("solo")
+
+
+def test_update_sidecar_merges(tmp_path):
+    presentation.update_sidecar(tmp_path, color="#84cc16", hue=95.0)
+    presentation.update_sidecar(tmp_path, tagline="finance · gmail")
+    data = presentation.read_sidecar(tmp_path)
+    assert data == {"color": "#84cc16", "hue": 95.0, "tagline": "finance · gmail"}
+
+
+def test_registry_reads_color_toml_wins(tmp_path):
+    d = tmp_path / "agents" / "helper"
+    d.mkdir(parents=True)
+    (d / "agent.toml").write_text('name = "Helper"\n', encoding="utf-8")
+    (d / "presentation.json").write_text(json.dumps({"color": "#112233"}), encoding="utf-8")
+    assert _registry(tmp_path).get("helper").color == "#112233"        # sidecar fills
+    (d / "agent.toml").write_text('name = "Helper"\ncolor = "#aabbcc"\n', encoding="utf-8")
+    assert _registry(tmp_path).get("helper").color == "#aabbcc"        # authored wins

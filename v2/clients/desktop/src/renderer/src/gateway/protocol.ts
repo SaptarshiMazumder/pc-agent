@@ -34,6 +34,8 @@ export interface AgentInfo {
   tagline?: string
   /** up to 3 starter prompts for this agent's empty chat (server-owned) */
   suggestions?: string[]
+  /** avatar/dot colour (hex) — server-assigned, unique across agents */
+  color?: string
 }
 
 export interface Hello {

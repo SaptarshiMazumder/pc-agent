@@ -19,7 +19,7 @@ import {
 
 import logo from '../assets/nakama.svg'
 import type { SessionRow } from '../gateway/protocol'
-import { agentColor, agentInitials, agentTag } from '../lib/agentPresentation'
+import { agentColor, agentInitials, agentTag, hashColor } from '../lib/agentPresentation'
 import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
 
@@ -139,7 +139,7 @@ export default function Sidebar() {
             title={a.name || a.id}
             onClick={() => void selectAgent(a.id)}
           >
-            <span className="avatar" style={{ background: agentColor(a.id) }}>{agentInitials(a.name, a.id)}</span>
+            <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
           </button>
         ))}
         <div className="rail-spacer" />
@@ -176,7 +176,7 @@ export default function Sidebar() {
             className={`row ${a.id === currentAgentId && view === 'chat' ? 'active' : ''}`}
             onClick={() => void selectAgent(a.id)}
           >
-            <span className="avatar" style={{ background: agentColor(a.id) }}>{agentInitials(a.name, a.id)}</span>
+            <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
             <span className="row-main">
               <span className="row-title">{a.name || a.id}</span>
               <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
@@ -192,7 +192,7 @@ export default function Sidebar() {
             <div key={p.id}>
               <button className="row project-row" onClick={() => setOpenProjects((c) => ({ ...c, [p.id]: !open }))}>
                 <span className="caret">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-                <span style={{ display: 'flex', color: agentColor(p.id) }}><Folder size={15} /></span>
+                <span style={{ display: 'flex', color: hashColor(p.id) }}><Folder size={15} /></span>
                 <span className="row-title" style={{ flex: 1 }}>{p.name}</span>
                 <span className="row-sub" style={{ fontFamily: 'var(--mono)' }}>{chats.length}</span>
               </button>

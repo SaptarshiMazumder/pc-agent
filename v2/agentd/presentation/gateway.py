@@ -1255,29 +1255,57 @@ class Gateway:
                 "version": getattr(spec, "version", "1"),
                 "tagline": getattr(spec, "tagline", ""),
                 "suggestions": list(getattr(spec, "suggestions", ()) or ()),
+                "color": getattr(spec, "color", ""),
             })
         return {"agents": agents, "default": default if default in {a["id"] for a in agents} else "main"}
 
     async def _maybe_generate_presentations(self) -> None:
-        """Fill in missing agent display presentation (tagline + starter suggestions),
-        generated ONCE per agent from its own identity — same pattern as session
-        auto-titles. Stored as a sidecar next to the definition (authored agent.toml
-        fields always win), then agents.changed tells every client. Best-effort
-        background work: never blocks startup, a run, or an install."""
+        """Fill in missing agent display presentation, persisted per agent in a sidecar
+        (authored agent.toml fields always win), then agents.changed tells every client.
+        Two independent concerns, both best-effort and never blocking:
+          1. COLOUR — pure/cheap, assigned to EVERY agent (unique across the set, so it
+             needs the whole registry; that's why it's server-side, not per-client).
+          2. TAGLINE + suggestions — one LLM call over the agent's identity, only for
+             agents that actually have an identity to describe."""
         if self.registry is None:
             return
         try:
-            from agentd.application.tool_models import brain_model, resolve_tool_model
             from agentd.infrastructure.agents import presentation as pres
 
             changed = False
+            # --- 1. colours: unique, unconditional (even identity-less agents) ---------
+            taken: list[float] = []
+            missing: list = []
+            for aid in self.registry.list_ids():
+                try:
+                    spec = self.registry.get(aid)
+                except KeyError:
+                    continue
+                if getattr(spec, "dir", None) is None:
+                    continue                     # nowhere to persist (synthesized main)
+                if getattr(spec, "color", ""):
+                    hue = pres.hex_to_hue(spec.color)
+                    if hue is not None:
+                        taken.append(hue)        # an assigned/authored colour is 'taken'
+                else:
+                    missing.append(spec)
+            for spec in missing:
+                hue = pres.assign_hue(spec.id, taken)
+                taken.append(hue)
+                pres.update_sidecar(spec.dir, color=pres.hsl_to_hex(hue), hue=round(hue, 1))
+                changed = True
+                log.info("agent '%s' coloured: %s", spec.id, pres.hsl_to_hex(hue))
+
+            # --- 2. taglines + suggestions: LLM, identity-bearing agents only ----------
+            from agentd.application.tool_models import brain_model, resolve_tool_model
+
             for aid in self.registry.list_ids():
                 try:
                     spec = self.registry.get(aid)
                 except KeyError:
                     continue
                 if getattr(spec, "tagline", "") or getattr(spec, "dir", None) is None:
-                    continue                     # already presented / nowhere to persist
+                    continue
                 ce = getattr(self.config, "cost_efficiency", None) or {}
                 default_model = ce.get("text_model") or brain_model(self.config)
                 model = resolve_tool_model(self.config, "agents", "presentation",
@@ -1287,9 +1315,10 @@ class Gateway:
                     getattr(spec, "description", ""), spec.instructions, model)
                 if not data:
                     continue
-                pres.write_sidecar(spec.dir, data)
+                pres.update_sidecar(spec.dir, **data)
                 changed = True
                 log.info("agent '%s' presented: %r", aid, data.get("tagline"))
+
             if changed:
                 self.registry.refresh()          # sidecars -> live specs
                 await self._send_all(dump_frame(Event(

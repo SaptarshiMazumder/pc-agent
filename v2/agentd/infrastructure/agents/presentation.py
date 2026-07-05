@@ -14,6 +14,7 @@ agent.toml. Everything here is best-effort and never raises into a caller.
 
 from __future__ import annotations
 
+import colorsys
 import json
 import logging
 import re
@@ -27,6 +28,15 @@ SIDECAR = "presentation.json"
 MAX_TAGLINE_CHARS = 48
 MAX_SUGGESTIONS = 3
 MAX_SUGGESTION_CHARS = 64
+
+# Avatar-colour policy: mid-bright so the fixed DARK avatar text stays legible on
+# every hue. Saturation/lightness are shared with the client fallback (see
+# renderer/src/lib/agentPresentation.ts) so a server colour and a client-computed
+# fallback are visually identical for the same hue.
+COLOR_SAT = 0.62
+COLOR_LIGHT = 0.58
+_MIN_HUE_SEP = 24.0        # degrees two agents' hues must stay apart to read as distinct
+_GOLDEN = 137.508          # golden-angle walk spreads collisions evenly around the wheel
 
 _PROMPT = """You write launcher-UI copy for an AI agent. Based on the agent's identity below, return STRICT JSON, nothing else:
 
@@ -56,11 +66,66 @@ def read_sidecar(agent_dir: Path | None) -> dict:
 
 
 def write_sidecar(agent_dir: Path, data: dict) -> None:
-    """Persist the generated presentation next to the definition (atomic)."""
+    """Persist the generated presentation next to the definition (atomic, replaces)."""
     path = Path(agent_dir) / SIDECAR
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def update_sidecar(agent_dir: Path, **fields) -> dict:
+    """Merge fields into the sidecar (colour and tagline are written independently)."""
+    data = read_sidecar(agent_dir)
+    data.update(fields)
+    write_sidecar(agent_dir, data)
+    return data
+
+
+# --- avatar colour: unique, stable, deterministic-ish -------------------------------
+# Assigned ONCE per agent and persisted, so an agent keeps its colour forever even as
+# others are added/removed. The base hue is a hash of the id (so it MATCHES the
+# client's fallback for non-colliding agents — no colour flip when the server value
+# arrives); a golden-angle walk resolves any clash with an already-taken hue, which is
+# the whole reason this lives server-side: only the daemon sees every agent at once.
+
+
+def _hue_from_id(agent_id: str) -> float:
+    h = 0
+    for ch in agent_id:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    return float(h % 360)
+
+
+def _hue_distance(a: float, b: float) -> float:
+    d = abs(a - b) % 360
+    return min(d, 360 - d)
+
+
+def hsl_to_hex(hue: float, sat: float = COLOR_SAT, light: float = COLOR_LIGHT) -> str:
+    r, g, b = colorsys.hls_to_rgb((hue % 360) / 360.0, light, sat)
+    return "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
+
+
+def hex_to_hue(hex_color: str) -> float | None:
+    """Hue (0-360) of a #rrggbb colour, so an AUTHORED colour joins the 'taken' set."""
+    try:
+        s = hex_color.lstrip("#")
+        r, g, b = (int(s[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except (ValueError, IndexError):
+        return None
+    h, _, _ = colorsys.rgb_to_hls(r, g, b)
+    return h * 360
+
+
+def assign_hue(agent_id: str, taken: list[float]) -> float:
+    """A hue for this agent at least _MIN_HUE_SEP from every taken hue. Starts at the
+    id's hash (stable + matches the client fallback), walks the golden angle on clash."""
+    hue = _hue_from_id(agent_id)
+    for _ in range(64):                          # bounded; 64 golden steps cover the wheel
+        if all(_hue_distance(hue, t) >= _MIN_HUE_SEP for t in taken):
+            break
+        hue = (hue + _GOLDEN) % 360
+    return hue
 
 
 def clean_presentation(raw: dict) -> dict:

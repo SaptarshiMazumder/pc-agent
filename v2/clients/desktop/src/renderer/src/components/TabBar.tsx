@@ -16,6 +16,7 @@ export default function TabBar() {
   const openTabs = useApp((s) => s.openTabs)
   const current = useApp((s) => s.currentSessionKey)
   const tabTitles = useApp((s) => s.tabTitles)
+  const agents = useApp((s) => s.agents)
   const activateTab = useApp((s) => s.activateTab)
   const newSession = useApp((s) => s.newSession)
   const closeTab = useApp((s) => s.closeTab)
@@ -27,6 +28,9 @@ export default function TabBar() {
   if (openTabs.length === 0) return null
 
   const titleOf = (id: string): string => tabTitles[id] || 'New chat'
+  // dot colour = the tab's own agent colour (server-assigned, falls back to a hash)
+  const dotOf = (agentId: string): string =>
+    agentColor(agents.find((a) => a.id === agentId)?.color, agentId)
 
   return (
     <div className="tabbar">
@@ -48,7 +52,7 @@ export default function TabBar() {
                 dragged.id = null
               }}
             >
-              <span className="tab-dot" style={{ background: agentColor(tab.agentId) }} />
+              <span className="tab-dot" style={{ background: dotOf(tab.agentId) }} />
               <span className="tab-title">{titleOf(tab.id)}</span>
               <button
                 className="tab-close"
@@ -85,7 +89,7 @@ export default function TabBar() {
                   setMenuOpen(false)
                 }}
               >
-                <span className="tab-dot" style={{ background: agentColor(tab.agentId) }} />
+                <span className="tab-dot" style={{ background: dotOf(tab.agentId) }} />
                 <span className="tab-title">{titleOf(tab.id)}</span>
               </button>
             ))}

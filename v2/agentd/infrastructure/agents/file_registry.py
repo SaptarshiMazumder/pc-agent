@@ -148,6 +148,7 @@ class FileAgentRegistry:
         suggestions = tuple(
             str(s).strip() for s in (data.get("suggestions") or sidecar.get("suggestions") or [])
             if str(s).strip())[:3]
+        color = str(data.get("color") or sidecar.get("color") or "")   # authored > assigned > ""
 
         return AgentSpec(
             id=agent_id,
@@ -155,6 +156,7 @@ class FileAgentRegistry:
             description=str(data.get("description") or ""),
             tagline=tagline,
             suggestions=suggestions,
+            color=color,
             workspace=workspace,
             state_dir=self._state_dir_for(agent_id),
             instructions=load_bootstrap(d),

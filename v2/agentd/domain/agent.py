@@ -31,6 +31,8 @@ class AgentSpec:
     # stored in a sidecar (see infrastructure/agents/presentation.py).
     tagline: str = ""                             # short picker line, e.g. "finance · gmail"
     suggestions: tuple[str, ...] = ()             # up to 3 starter prompts for an empty chat
+    color: str = ""                               # avatar/dot colour (hex). Authored in agent.toml
+    #                                               or assigned once (unique across agents) by the daemon
     model: str | None = None                      # per-agent model override (carried; wired later)
     # Per-agent TOOL-model overrides (from agent.toml [plugins.*]), same plugin->tool->model shape as
     # global config.plugins: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}. Layered ABOVE

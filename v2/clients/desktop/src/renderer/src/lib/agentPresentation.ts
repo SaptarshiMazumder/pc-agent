@@ -1,35 +1,58 @@
 /**
- * Presentation metadata for agents — colour, tagline, initials.
- * These are NOT server fields; they're a UI nicety. Known agents get curated
- * values; unknown agents get a stable colour hashed from their id.
+ * Agent presentation helpers — colour + initials, derived on the client.
+ *
+ * Nothing agent-specific is hardcoded here. The avatar/dot COLOUR is owned by the
+ * server (unique across agents, persisted) and arrives on `AgentInfo.color`; this
+ * module only provides a deterministic FALLBACK for the brief moment before that
+ * lands (or for non-agent seeds like a project id). The fallback shares the server's
+ * hue-from-id hash + HSL params, so it renders the SAME colour the server will pick
+ * for any agent whose hue doesn't collide — no flip when the real value arrives.
+ * Initials are a pure function of the name/id.
  */
 
-export interface AgentPresentation {
-  color: string
-  tag: string
-}
+const COLOR_SAT = 0.62 // matches presentation.py COLOR_SAT
+const COLOR_LIGHT = 0.58 // matches presentation.py COLOR_LIGHT
 
-const KNOWN: Record<string, AgentPresentation> = {
-  main: { color: '#a3e635', tag: 'general · all tools' },
-  'expense-tracker': { color: '#f5b13d', tag: 'finance · gmail' },
-  'presentation-creator': { color: '#5aa9f0', tag: 'decks · video' },
-  'figure-creator': { color: '#a78bfa', tag: 'scientific figures' },
-  'sakana-sushi': { color: '#f2849e', tag: 'front desk' }
-}
-
-const PALETTE = ['#a3e635', '#f5b13d', '#5aa9f0', '#a78bfa', '#f2849e', '#5eead4']
-
-export function agentColor(id: string): string {
-  if (KNOWN[id]) return KNOWN[id].color
+function hueFromSeed(seed: string): number {
   let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return PALETTE[h % PALETTE.length]
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return h % 360
 }
 
-export function agentTag(id: string): string {
-  return KNOWN[id]?.tag || 'agent'
+/** HSL → #rrggbb, identical algorithm to Python's colorsys.hls_to_rgb. */
+function hslToHex(hue: number, sat = COLOR_SAT, light = COLOR_LIGHT): string {
+  const h = ((hue % 360) + 360) % 360 / 360
+  const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat
+  const p = 2 * light - q
+  const channel = (t: number): number => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const to2 = (x: number): string => Math.round(x * 255).toString(16).padStart(2, '0')
+  return `#${to2(channel(h + 1 / 3))}${to2(channel(h))}${to2(channel(h - 1 / 3))}`
 }
 
+/** A stable colour hashed from any seed string — the fallback / non-agent colour. */
+export function hashColor(seed: string): string {
+  return hslToHex(hueFromSeed(seed))
+}
+
+/** An agent's avatar/dot colour: the server-assigned one, else the deterministic
+ *  fallback so an avatar is never blank. */
+export function agentColor(serverColor: string | undefined, id: string): string {
+  return serverColor || hashColor(id)
+}
+
+/** Fallback tagline only — the real one is server-owned (`AgentInfo.tagline`). */
+export function agentTag(_id: string): string {
+  return 'agent'
+}
+
+/** Initials from the name (or id) — dynamic, no lookup table. */
 export function agentInitials(name: string | undefined, id: string): string {
   const s = (name || id).trim()
   const parts = s.split(/[\s-]+/).filter(Boolean)
