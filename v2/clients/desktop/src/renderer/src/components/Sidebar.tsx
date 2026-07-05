@@ -5,7 +5,6 @@ import {
   Users,
   Folder,
   History,
-  MessageSquare,
   PanelLeft,
   ShoppingBag,
   SlidersHorizontal,
@@ -74,20 +73,21 @@ function SessionItem({ session, active, onOpen }: { session: SessionRow; active:
       onDoubleClick={() => { setDraft(label); setEditing(true) }}
       title="double-click to rename"
     >
-      <span className="row-lead"><MessageSquare size={15} /></span>
       <span className="row-main">
         <span className="row-title">{label}</span>
         <span className="row-sub">{session.messages} msgs · {whenLabel(session.modified * 1000)}</span>
       </span>
-      <span className="hover-btn" title="rename" onClick={(e) => { e.stopPropagation(); setDraft(label); setEditing(true) }}>
-        <Pencil size={13} />
-      </span>
-      <span
-        className={`hover-btn ${armed ? 'danger' : ''}`}
-        title={armed ? 'click again to delete' : 'delete chat'}
-        onClick={(e) => { e.stopPropagation(); armed ? void deleteSession(session.sessionId) : setArmed(true) }}
-      >
-        <X size={13} />
+      <span className="row-actions">
+        <span className="hover-btn" title="rename" onClick={(e) => { e.stopPropagation(); setDraft(label); setEditing(true) }}>
+          <Pencil size={13} />
+        </span>
+        <span
+          className={`hover-btn ${armed ? 'danger' : ''}`}
+          title={armed ? 'click again to delete' : 'delete chat'}
+          onClick={(e) => { e.stopPropagation(); armed ? void deleteSession(session.sessionId) : setArmed(true) }}
+        >
+          <X size={13} />
+        </span>
       </span>
     </button>
   )

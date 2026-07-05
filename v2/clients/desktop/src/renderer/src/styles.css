@@ -154,7 +154,7 @@ button, input, textarea { font-family: inherit; }
   flex: none; max-height: 34vh; overflow-y: auto; overflow-x: hidden;
   padding: 0 12px 2px;
 }
-.sidebar-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 12px 4px; }
+.sidebar-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px 4px; }
 /* the section headers that now sit OUTSIDE .sidebar-scroll still want the side padding */
 .sidebar > .section-label { padding-left: 20px; padding-right: 20px; }
 .section-label {
@@ -163,6 +163,12 @@ button, input, textarea { font-family: inherit; }
   color: var(--faint); font-weight: 600; padding: 22px 8px 11px;
 }
 .section-label:first-child { padding-top: 12px; }
+/* PROJECTS / CHATS headers stay pinned while their lists scroll underneath */
+.sidebar-scroll > .section-label {
+  position: sticky; top: 0; z-index: 5;
+  margin: 0 -12px; padding-left: 20px; padding-right: 20px;
+  background: var(--bg2);
+}
 .section-add {
   display: flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; border: 0; border-radius: 6px;
@@ -181,7 +187,18 @@ button, input, textarea { font-family: inherit; }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .row-title { font-weight: 550; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-sub { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-lead { display: flex; color: var(--faint); flex: none; }
+
+/* chat rows: title uses the FULL width — the rename/delete actions overlay the
+   right edge only on hover (a scrim masks the text under them) so they no longer
+   reserve dead space in the flex flow */
+.session-row { position: relative; }
+.session-row .row-actions {
+  position: absolute; right: 4px; top: 0; bottom: 0;
+  display: flex; align-items: center; gap: 1px; padding-left: 24px;
+  opacity: 0; pointer-events: none; border-radius: 0 9px 9px 0;
+  background: linear-gradient(90deg, transparent, var(--bg3) 42%);
+}
+.session-row:hover .row-actions { opacity: 1; pointer-events: auto; }
 
 .project-row { gap: 8px; }
 .caret { display: flex; color: var(--faint); }
