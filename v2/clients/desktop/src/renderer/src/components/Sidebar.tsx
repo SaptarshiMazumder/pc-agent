@@ -103,6 +103,9 @@ export default function Sidebar() {
   const resumeSession = useApp((s) => s.resumeSession)
   const newSession = useApp((s) => s.newSession)
   const projects = useApp((s) => s.projects)
+  const createProject = useApp((s) => s.createProject)
+  const renameProject = useApp((s) => s.renameProject)
+  const deleteProject = useApp((s) => s.deleteProject)
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const connection = useApp((s) => s.connection)
@@ -114,6 +117,24 @@ export default function Sidebar() {
   const [query, setQuery] = useState('')
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({})
   const [newAgent, setNewAgent] = useState(false)
+  const [addingProject, setAddingProject] = useState(false)
+  const [projectDraft, setProjectDraft] = useState('')
+  const [renamingProject, setRenamingProject] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [armedProject, setArmedProject] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!armedProject) return
+    const t = setTimeout(() => setArmedProject(null), 3000)
+    return () => clearTimeout(t)
+  }, [armedProject])
+
+  function submitNewProject() {
+    const name = projectDraft.trim()
+    setAddingProject(false)
+    setProjectDraft('')
+    if (name) void createProject(name)
+  }
 
   const projectIds = new Set(projects.map((p) => p.id))
   const q = query.trim().toLowerCase()
@@ -173,14 +194,15 @@ export default function Sidebar() {
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" />
       </div>
 
-      <div className="sidebar-scroll">
-        <div className="section-label">
-          <Users size={14} />
-          <span style={{ flex: 1 }}>Agents</span>
-          <button className="section-add" title="create agent" onClick={() => setNewAgent(true)}>
-            <Plus size={14} />
-          </button>
-        </div>
+      {/* AGENTS — own fixed-height region, scrolls independently of chats */}
+      <div className="section-label">
+        <Users size={14} />
+        <span style={{ flex: 1 }}>Agents</span>
+        <button className="section-add" title="create agent" onClick={() => setNewAgent(true)}>
+          <Plus size={14} />
+        </button>
+      </div>
+      <div className="agents-list">
         {agents.map((a) => (
           <button
             key={a.id}
@@ -194,29 +216,80 @@ export default function Sidebar() {
             </span>
           </button>
         ))}
+      </div>
 
-        {projects.length > 0 && <div className="section-label"><Folder size={15} />Projects</div>}
+      {/* PROJECTS + CHATS — the scrolling remainder */}
+      <div className="sidebar-scroll">
+        <div className="section-label">
+          <Folder size={14} />
+          <span style={{ flex: 1 }}>Projects</span>
+          <button className="section-add" title="new project" onClick={() => { setAddingProject(true); setProjectDraft('') }}>
+            <Plus size={14} />
+          </button>
+        </div>
+        {addingProject && (
+          <input
+            className="rename-input"
+            placeholder="project name…"
+            value={projectDraft}
+            autoFocus
+            onChange={(e) => setProjectDraft(e.target.value)}
+            onBlur={submitNewProject}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); submitNewProject() }
+              else if (e.key === 'Escape') { e.preventDefault(); setAddingProject(false) }
+            }}
+          />
+        )}
         {projects.map((p) => {
           const chats = byProject.get(p.id) || []
           const open = openProjects[p.id] ?? true
+          const isRenaming = renamingProject === p.id
+          const isArmed = armedProject === p.id
           return (
             <div key={p.id}>
-              <button className="row project-row" onClick={() => setOpenProjects((c) => ({ ...c, [p.id]: !open }))}>
-                <span className="caret">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-                <span style={{ display: 'flex', color: hashColor(p.id) }}><Folder size={15} /></span>
-                <span className="row-title" style={{ flex: 1 }}>{p.name}</span>
-                <span className="row-sub" style={{ fontFamily: 'var(--mono)' }}>{chats.length}</span>
-              </button>
-              {open && (
+              {isRenaming ? (
+                <input
+                  className="rename-input"
+                  value={renameDraft}
+                  autoFocus
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={() => { if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenamingProject(null) }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenamingProject(null) }
+                    else if (e.key === 'Escape') { e.preventDefault(); setRenamingProject(null) }
+                  }}
+                />
+              ) : (
+                <div className="row project-row" onClick={() => setOpenProjects((c) => ({ ...c, [p.id]: !open }))}>
+                  <span className="caret">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                  <span style={{ display: 'flex', color: hashColor(p.id) }}><Folder size={15} /></span>
+                  <span className="row-title" style={{ flex: 1 }}>{p.name}</span>
+                  <button className="hover-btn" title="new chat in this project"
+                    onClick={(e) => { e.stopPropagation(); newSession(p.id) }}><Plus size={13} /></button>
+                  <button className="hover-btn" title="rename project"
+                    onClick={(e) => { e.stopPropagation(); setRenameDraft(p.name); setRenamingProject(p.id) }}><Pencil size={13} /></button>
+                  <button className={`hover-btn ${isArmed ? 'danger' : ''}`}
+                    title={isArmed ? 'click again to delete (chats become standalone)' : 'delete project'}
+                    onClick={(e) => { e.stopPropagation(); isArmed ? void deleteProject(p.id) : setArmedProject(p.id) }}>
+                    {isArmed ? <span style={{ fontSize: 11, fontWeight: 600 }}>sure?</span> : <X size={13} />}
+                  </button>
+                </div>
+              )}
+              {open && !isRenaming && (
                 <div className="project-sessions">
                   {chats.map((s) => (
                     <SessionItem key={s.sessionId} session={s} active={s.sessionId === currentSessionKey} onOpen={() => void resumeSession(s.sessionId)} />
                   ))}
+                  {chats.length === 0 && <div className="row-sub" style={{ padding: '3px 9px' }}>no chats yet — use +</div>}
                 </div>
               )}
             </div>
           )
         })}
+        {projects.length === 0 && !addingProject && (
+          <div className="row-sub" style={{ padding: '4px 9px' }}>group chats into projects with +</div>
+        )}
 
         <div className="section-label"><History size={14} />Chats</div>
         {standalone.slice(0, 40).map((s) => (

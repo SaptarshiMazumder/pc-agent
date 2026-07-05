@@ -311,5 +311,8 @@ def test_gateway_sessions_list_is_agent_scoped(tmp_path):
     assert {s["sessionId"] for s in scoped["sessions"]} == {"term-sp1", "term-sp2"}
     assert scoped["agentId"] == "spending-agent"
 
-    unknown = gw._sessions_list({"agentId": "nope"})     # unknown -> falls back to default
-    assert unknown["agentId"] == "main"
+    # an explicit UNKNOWN agent (e.g. a stale client on a deleted agent) must NOT
+    # leak the default agent's chats — it resolves to its own (absent) partition.
+    unknown = gw._sessions_list({"agentId": "nope"})
+    assert unknown["agentId"] == "nope"
+    assert unknown["sessions"] == []

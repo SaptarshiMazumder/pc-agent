@@ -389,7 +389,14 @@ export const useApp = create<AppState>((set, get) => {
       handleAgentEvent(String(payload.sessionKey || ''), (payload.event || {}) as AgentEvent, ts)
     })
     gateway.on('agents.changed', (payload) => {
-      set({ agents: (payload.agents as AgentInfo[]) || [] })
+      const agents = (payload.agents as AgentInfo[]) || []
+      set({ agents })
+      // if the agent we're on vanished (deleted here or elsewhere), fall back to
+      // main so we never keep requesting a now-unknown agent's sessions
+      const cur = get().currentAgentId
+      if (cur && agents.length && !agents.some((a) => a.id === cur)) {
+        void get().selectAgent('main')
+      }
     })
     gateway.on('sessions.changed', () => {
       // renamed / auto-titled / deleted (possibly by another client) — refresh the list

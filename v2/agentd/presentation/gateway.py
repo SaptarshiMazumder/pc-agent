@@ -937,15 +937,23 @@ class Gateway:
 
     def _resolve_state_dir(self, agent_id: str) -> tuple[str, object]:
         """(effective agent id, its state_dir). Each agent partitions its own transcripts;
-        an unknown id falls back to the default agent. The one place session RPCs map an
-        agent to where its threads live."""
+        this is the one place session RPCs map an agent to where its threads live.
+
+        NO agent id => the default agent (main). An EXPLICIT but UNKNOWN id (a stale
+        client still pointing at a deleted agent) must NOT leak the default agent's
+        chats — it resolves to that id's OWN partition, which doesn't exist, so
+        list/history come back EMPTY. (Bug: it used to fall back to main and show
+        main's whole history under the wrong agent.)"""
         agent_id = (agent_id or "").strip() or "main"
         if self.registry is None:
             return agent_id, self.config.state_dir
         try:
             return agent_id, self.registry.get(agent_id).state_dir
-        except KeyError:                           # unknown id -> the default agent
-            return "main", self.registry.get("main").state_dir
+        except KeyError:
+            if agent_id == "main":                 # main should always resolve
+                return "main", self.config.state_dir
+            # where this agent's partition WOULD be — absent => empty, never main's
+            return agent_id, Path(self.config.state_dir) / "agents" / agent_id
 
     def _sessions_list(self, params: dict) -> dict:
         """Saved sessions for ONE agent (with display titles). Each agent partitions its

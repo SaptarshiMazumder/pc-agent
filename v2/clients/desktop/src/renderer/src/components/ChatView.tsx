@@ -98,7 +98,7 @@ export default function ChatView() {
           <button type="button" className="composer-attach" title="attach"><Paperclip size={18} /></button>
           <textarea
             value={draft}
-            placeholder={connection === 'open' ? 'Message the agent…  (Enter to send, Shift+Enter for newline)' : 'connecting…'}
+            placeholder={connection === 'open' ? `Message ${agentName}…` : 'connecting…'}
             disabled={connection !== 'open'}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}

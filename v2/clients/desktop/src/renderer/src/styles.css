@@ -148,7 +148,15 @@ button, input, textarea { font-family: inherit; }
 .search { display: flex; align-items: center; gap: 9px; margin: 6px 12px 2px; padding: 8px 11px; border-radius: 10px; background: var(--bg3); color: var(--faint); }
 .search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; color: var(--text); font-size: 13px; }
 
+/* the AGENTS list is its own fixed-height, independently scrolling region so a
+   long agent roster never pushes the chats off-screen */
+.agents-list {
+  flex: none; max-height: 34vh; overflow-y: auto; overflow-x: hidden;
+  padding: 0 12px 2px;
+}
 .sidebar-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 12px 4px; }
+/* the section headers that now sit OUTSIDE .sidebar-scroll still want the side padding */
+.sidebar > .section-label { padding-left: 20px; padding-right: 20px; }
 .section-label {
   display: flex; align-items: center; gap: 7px;
   font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase;
