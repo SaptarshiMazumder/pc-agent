@@ -70,12 +70,9 @@ export default function MessageItem({ item }: { item: ChatItem }) {
         </div>
       )
     case 'tool':
-      return (
-        <div className="msg-item">
-          <ToolBlock item={item} />
-          <ArtifactView artifacts={item.artifacts} />
-        </div>
-      )
+      // tool blocks stay a pure text log (terminal-style) — deliverables produced by a
+      // tool are rendered under the assistant's answer, not here
+      return <div className="msg-item"><ToolBlock item={item} /></div>
     case 'system':
       return <div className={`msg-system ${item.tone === 'error' ? 'error' : ''}`}>{item.text}</div>
     default:

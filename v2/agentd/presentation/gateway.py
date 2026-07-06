@@ -35,7 +35,7 @@ from agentd.domain.agent import RunMode, agent_id_from_session_key, cron_session
 from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.notify import Notification
-from agentd.infrastructure.files import extract_artifacts, guess_mime, is_under_roots
+from agentd.infrastructure.files import extract_artifacts, guess_mime, is_scratch, is_under_roots
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
@@ -967,7 +967,10 @@ class Gateway:
         if not text:
             return []
         try:
-            return extract_artifacts(text, self._allowed_file_roots() if roots is None else roots)
+            arts = extract_artifacts(text, self._allowed_file_roots() if roots is None else roots)
+            # only DELIVERABLES get an inline preview; scratch/intermediate files (refs,
+            # oracle/overlay stages, tmp) still appear in the tool text, just not rendered
+            return [a for a in arts if not is_scratch(a["path"])]
         except Exception:  # noqa: BLE001 — never let detection break a run
             return []
 

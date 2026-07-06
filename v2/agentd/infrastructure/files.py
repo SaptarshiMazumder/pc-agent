@@ -54,6 +54,34 @@ _KINDS: tuple[tuple[dict[str, str], str], ...] = (
 _KNOWN_EXT = {ext for table, _ in _KINDS for ext in table}
 
 
+# --- deliverable vs scratch --------------------------------------------------------
+# Agents emit MANY files while working — downloaded references, intermediate pipeline
+# stages, tmp scratch — and only a few are the actual output. We give a file an INLINE
+# preview only if it looks like a deliverable; scratch still prints its path in the tool
+# result (nothing is hidden), it just doesn't splash a full-size image into the chat.
+_SCRATCH_DIRS = {
+    "tmp", "temp", ".tmp", "cache", ".cache", "scratch", "refs", "ref",
+    "references", "reference", "thumbnails", "thumbs", ".thumbnails", "intermediate",
+}
+# filename stems ending in one of these = a working/intermediate stage, not the output
+_SCRATCH_SUFFIXES = (
+    "_oracle", "_overlay", "_base", "_mask", "_draft", "_wip", "_raw", "_scratch",
+    "_proof", "_temp", "_tmp", "_labels", "_lbl", "_textless", "_lineart", "_sketch",
+)
+_VERSION_RE = re.compile(r"_v\d+$", re.IGNORECASE)
+
+
+def is_scratch(path: str | Path) -> bool:
+    """True if ``path`` is a working/intermediate file (a scratch dir, or a stem ending
+    in a known intermediate-stage suffix) rather than a finished deliverable. A trailing
+    ``_v2``/``_v10`` version marker is stripped before the suffix check."""
+    p = Path(path)
+    if any(part.lower() in _SCRATCH_DIRS for part in p.parts[:-1]):
+        return True
+    stem = _VERSION_RE.sub("", p.stem.lower())
+    return any(stem.endswith(s) for s in _SCRATCH_SUFFIXES)
+
+
 def classify(path: str | Path) -> tuple[str, str] | None:
     """(kind, mime) for a path with a known media/document extension, else None.
     kind is one of 'image' | 'video' | 'audio' | 'file'."""

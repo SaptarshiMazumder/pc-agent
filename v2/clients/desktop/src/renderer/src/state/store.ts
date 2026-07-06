@@ -35,6 +35,9 @@ export type ChatItem = (
 export interface SessionState {
   items: ChatItem[]
   running: boolean
+  // deliverables a tool produced, held until the next assistant answer renders them
+  // (so the tool log stays pure text and media collects under the answer)
+  pendingArtifacts?: Artifact[]
 }
 
 export type View = 'chat' | 'store' | 'settings'
@@ -112,6 +115,7 @@ function toMs(iso: unknown): number | undefined {
 function historyToItems(messages: any[]): ChatItem[] {
   const items: ChatItem[] = []
   const toolIndexByCallId = new Map<string, number>()
+  let pending: Artifact[] = [] // tool deliverables awaiting the next assistant answer
   for (const message of messages) {
     const ts = toMs(message.ts)
     if (message.role === 'user') {
@@ -137,8 +141,12 @@ function historyToItems(messages: any[]): ChatItem[] {
           })
         }
       }
-      // artifacts the assistant's text referenced attach to its final text bubble
-      if (message.artifacts?.length && lastTextIdx >= 0) {
+      // buffered tool deliverables + this answer's own artifacts render under its text bubble
+      const toAttach = [...pending, ...(message.artifacts || [])]
+      if (toAttach.length && lastTextIdx >= 0) {
+        items[lastTextIdx] = { ...items[lastTextIdx], artifacts: toAttach }
+        pending = []
+      } else if (message.artifacts?.length && lastTextIdx >= 0) {
         items[lastTextIdx] = { ...items[lastTextIdx], artifacts: message.artifacts }
       }
       if (message.errorMessage) {
@@ -146,25 +154,19 @@ function historyToItems(messages: any[]): ChatItem[] {
       }
     } else if (message.role === 'toolResult') {
       const text = (message.content || []).map((block: any) => block?.text || '').join('')
+      // tool block is text-only; buffer its deliverables for the next assistant answer
+      if (message.artifacts?.length) pending.push(...message.artifacts)
       const index = toolIndexByCallId.get(String(message.toolCallId))
       if (index !== undefined && items[index]?.kind === 'tool') {
         const tool = items[index] as Extract<ChatItem, { kind: 'tool' }>
-        items[index] = { ...tool, result: text, isError: !!message.isError, done: true, artifacts: message.artifacts }
+        items[index] = { ...tool, result: text, isError: !!message.isError, done: true }
       } else {
         // orphan result (no matching call in this transcript) — show it anyway
-        items.push({
-          kind: 'tool',
-          name: message.toolName || '?',
-          args: {},
-          result: text,
-          isError: !!message.isError,
-          done: true,
-          ts,
-          artifacts: message.artifacts
-        })
+        items.push({ kind: 'tool', name: message.toolName || '?', args: {}, result: text, isError: !!message.isError, done: true, ts })
       }
     }
   }
+  if (pending.length) attachToLastAssistant(items, pending, items[items.length - 1]?.ts ?? 0)
   return dedupeArtifacts(items)
 }
 
@@ -181,14 +183,30 @@ function dedupeArtifacts(items: ChatItem[]): ChatItem[] {
   return items
 }
 
-/** Incoming artifacts not already rendered anywhere in this live session (so a file
- *  shown by its producing tool isn't repeated when the assistant summarises). */
+/** Incoming artifacts not already rendered on an item OR waiting in the pending buffer
+ *  (so a deliverable is attached to the answer exactly once). */
 function newArtifacts(session: SessionState, incoming?: Artifact[]): Artifact[] | undefined {
   if (!incoming?.length) return undefined
   const seen = new Set<string>()
   for (const it of session.items) it.artifacts?.forEach((a) => seen.add(a.path))
+  session.pendingArtifacts?.forEach((a) => seen.add(a.path))
   const fresh = incoming.filter((a) => !seen.has(a.path))
   return fresh.length ? fresh : undefined
+}
+
+/** Attach deliverables to the last assistant bubble (walking from the end); if there is
+ *  no assistant item yet, push a bare one to carry them. Dedupes against what's there. */
+function attachToLastAssistant(items: ChatItem[], artifacts: Artifact[], ts: number): void {
+  if (!artifacts.length) return
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === 'assistant') {
+      const have = new Set((items[i].artifacts || []).map((a) => a.path))
+      const add = artifacts.filter((a) => !have.has(a.path))
+      if (add.length) items[i] = { ...items[i], artifacts: [...(items[i].artifacts || []), ...add] }
+      return
+    }
+  }
+  items.push({ kind: 'assistant', text: '', streaming: false, ts, artifacts })
 }
 
 interface AppState {
@@ -276,24 +294,13 @@ export const useApp = create<AppState>((set, get) => {
         break
       case 'message_end':
         patchSession(sessionKey, (session) => {
-          const fresh = newArtifacts(session, event.artifacts)
-          let attached = !fresh // nothing to attach -> treat as done
-          const items = session.items.map((item) => {
-            const stopped = 'streaming' in item && item.streaming ? { ...item, streaming: false } : item
-            return stopped
-          })
-          // attach the turn's artifacts to its LAST assistant bubble (walk from the end)
-          if (fresh) {
-            for (let i = items.length - 1; i >= 0; i--) {
-              if (items[i].kind === 'assistant') {
-                items[i] = { ...items[i], artifacts: [...(items[i].artifacts || []), ...fresh] }
-                attached = true
-                break
-              }
-            }
-            if (!attached) items.push({ kind: 'assistant', text: '', streaming: false, ts, artifacts: fresh })
-          }
-          return { ...session, items }
+          const items = session.items.map((item) =>
+            'streaming' in item && item.streaming ? { ...item, streaming: false } : item
+          )
+          // deliverables this turn produced: buffered tool outputs + the answer's own
+          const toAttach = [...(session.pendingArtifacts || []), ...(newArtifacts(session, event.artifacts) || [])]
+          if (toAttach.length) attachToLastAssistant(items, toAttach, ts)
+          return { ...session, items, pendingArtifacts: [] }
         })
         break
       case 'tool_execution_start':
@@ -308,15 +315,17 @@ export const useApp = create<AppState>((set, get) => {
       case 'tool_execution_end':
         patchSession(sessionKey, (session) => {
           const items = [...session.items]
-          const fresh = newArtifacts(session, event.artifacts)
           for (let i = items.length - 1; i >= 0; i--) {
             const item = items[i]
             if (item.kind === 'tool' && !item.done && item.name === (event.toolName || '?')) {
-              items[i] = { ...item, result: resultText(event.result), isError: !!event.isError, done: true, artifacts: fresh }
+              // tool block is text-only; its deliverables buffer for the coming answer
+              items[i] = { ...item, result: resultText(event.result), isError: !!event.isError, done: true }
               break
             }
           }
-          return { ...session, items }
+          const fresh = newArtifacts(session, event.artifacts)
+          const pendingArtifacts = fresh ? [...(session.pendingArtifacts || []), ...fresh] : session.pendingArtifacts
+          return { ...session, items, pendingArtifacts }
         })
         break
       case 'subagent_event':
@@ -339,14 +348,16 @@ export const useApp = create<AppState>((set, get) => {
         break
       case 'agent_end': {
         const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
-        patchSession(sessionKey, (session) => ({
-          items: error
-            ? [...session.items, { kind: 'system', tone: 'error', text: error, ts }]
+        patchSession(sessionKey, (session) => {
+          const items = error
+            ? [...session.items, { kind: 'system' as const, tone: 'error' as const, text: error, ts }]
             : session.items.map((item) =>
                 'streaming' in item && item.streaming ? { ...item, streaming: false } : item
-              ),
-          running: false
-        }))
+              )
+          // deliverables from a final tool batch with no trailing answer still get shown
+          if (session.pendingArtifacts?.length) attachToLastAssistant(items, session.pendingArtifacts, ts)
+          return { items, running: false, pendingArtifacts: [] }
+        })
         break
       }
       default:
