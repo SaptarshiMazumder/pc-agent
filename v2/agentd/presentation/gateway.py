@@ -46,6 +46,9 @@ log = logging.getLogger("agentd")
 # 34 MiB raw attachment (see UPLOAD_MAX_BYTES); larger files should chunk (future work).
 MAX_WS_FRAME = 48 * 1024 * 1024
 UPLOAD_MAX_BYTES = 32 * 1024 * 1024
+# a single message referencing more renderable files than this is a LISTING (a find/ls
+# dump), not produced output — render none of them
+MAX_RENDER_PER_MESSAGE = 6
 
 
 def _effective_model(config) -> str:
@@ -864,6 +867,36 @@ class Gateway:
                 out.append(rr)
         return out
 
+    def _render_roots(self) -> list[Path]:
+        """Where agents PRODUCE deliverables — the ONLY places a file earns an inline
+        preview. Deliberately NARROWER than _allowed_file_roots (which also covers the
+        broad workspace the agent can read/browse): a file the agent merely FOUND, LISTED
+        or READ elsewhere on the machine (e.g. a `find` over the Desktop that happens to
+        match a random ``*CV*`` video) must NEVER render — only files it wrote into its
+        own agent workspace/state. This is the fix for 'random PC files rendering'."""
+        roots: list[Path] = []
+        if self.registry is not None:
+            try:
+                for aid in self.registry.list_ids():
+                    spec = self.registry.get(aid)
+                    for p in (getattr(spec, "workspace", None), getattr(spec, "state_dir", None)):
+                        if p:
+                            roots.append(Path(p))
+            except Exception:  # noqa: BLE001
+                pass
+        out: list[Path] = []
+        seen: set[str] = set()
+        for r in roots:
+            try:
+                rr = r.resolve()
+            except (OSError, ValueError):
+                continue
+            k = str(rr).lower()
+            if k not in seen:
+                seen.add(k)
+                out.append(rr)
+        return out
+
     def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
         """websockets handshake hook: serve local artifact files over plain HTTP on the
         SAME port as the gateway, so a client renders <img>/<video> straight from the
@@ -967,7 +1000,12 @@ class Gateway:
         if not text:
             return []
         try:
-            arts = extract_artifacts(text, self._allowed_file_roots() if roots is None else roots)
+            # RENDER SCOPE: only files under an agent's own workspace/state — never a file
+            # the agent merely found/listed/read elsewhere on the PC (that's the CV-video bug)
+            arts = extract_artifacts(text, self._render_roots() if roots is None else roots)
+            # a listing (find/ls dumping many paths) is not produced output — render none
+            if len(arts) > MAX_RENDER_PER_MESSAGE:
+                return []
             # only DELIVERABLES get an inline preview; scratch/intermediate files (refs,
             # oracle/overlay stages, tmp) still appear in the tool text, just not rendered
             return [a for a in arts if not is_scratch(a["path"])]
@@ -1145,7 +1183,7 @@ class Gateway:
         messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
         # RENDER seam (history): re-derive each message's artifacts so a resumed chat shows
         # the same inline media a live run did. Roots computed once for the whole transcript.
-        roots = self._allowed_file_roots()
+        roots = self._render_roots()
         for m in messages:
             arts = self._artifacts_in_message(m, roots)
             if arts:
