@@ -109,6 +109,28 @@ function registerIpc(): void {
     if (res.canceled) return []
     return readPicked(res.filePaths)
   })
+  // save a COPY of a produced deliverable wherever the user chooses (defaults to their
+  // Downloads folder + the original filename) — the local-first equivalent of a download
+  ipcMain.handle('file:download', async (_e, p: string) => {
+    const src = String(p || '')
+    try {
+      if (!fs.statSync(src).isFile()) return { ok: false, error: 'not a file' }
+    } catch {
+      return { ok: false, error: 'not found' }
+    }
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const defaultPath = path.join(app.getPath('downloads'), path.basename(src))
+    const res = win
+      ? await dialog.showSaveDialog(win, { defaultPath })
+      : await dialog.showSaveDialog({ defaultPath })
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    try {
+      await fs.promises.copyFile(src, res.filePath)
+      return { ok: true, path: res.filePath }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) }
+    }
+  })
 }
 
 const UPLOAD_MAX = 32 * 1024 * 1024 // mirror the daemon's UPLOAD_MAX_BYTES

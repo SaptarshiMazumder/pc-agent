@@ -27,6 +27,7 @@ export interface DesktopApi {
   onSupervisorStatus(callback: (status: SupervisorStatus) => void): () => void
   openPath(path: string): Promise<string>
   revealPath(path: string): Promise<void>
+  downloadPath(path: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   pickFiles(): Promise<PickedFile[]>
 }
 

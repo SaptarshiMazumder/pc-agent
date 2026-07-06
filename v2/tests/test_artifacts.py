@@ -82,3 +82,21 @@ def test_show_files_declares_existing_only(tmp_path):
 
     empty = asyncio.run(tool.execute("c", {"files": ["nope.png"]}, asyncio.Event()))
     assert empty.is_error and empty.artifacts == []
+
+
+def test_zip_files_bundles_and_declares(tmp_path):
+    import zipfile
+
+    from zip_tool import ZipFilesTool
+
+    _png(tmp_path / "a.png")
+    (tmp_path / "b.svg").write_text("<svg/>")
+    tool = ZipFilesTool(SimpleNamespace(workspace=str(tmp_path)))
+    res = asyncio.run(tool.execute("c", {"files": ["a.png", "b.svg"], "out_path": "figs.zip"}, asyncio.Event()))
+    assert not res.is_error
+    zpath = res.artifacts[0]
+    assert zpath.endswith("figs.zip")
+    with zipfile.ZipFile(zpath) as z:
+        assert sorted(z.namelist()) == ["a.png", "b.svg"]  # both bundled by basename
+    # the loop would classify this declared path as a downloadable 'file' artifact
+    assert describe_artifact(zpath)["kind"] == "file"

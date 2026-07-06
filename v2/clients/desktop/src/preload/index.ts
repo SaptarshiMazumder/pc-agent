@@ -21,6 +21,8 @@ const api = {
   // manager, and pick attachments (returns each file's name + base64 bytes to upload)
   openPath: (p: string): Promise<string> => ipcRenderer.invoke('file:open', p),
   revealPath: (p: string): Promise<void> => ipcRenderer.invoke('file:reveal', p),
+  downloadPath: (p: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('file:download', p),
   pickFiles: (): Promise<Array<{ name: string; size: number; dataBase64: string }>> =>
     ipcRenderer.invoke('file:pick')
 }
