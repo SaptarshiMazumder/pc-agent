@@ -1,18 +1,16 @@
 """File helpers shared by the gateway: MIME/kind classification, a path guard so the
-daemon only ever serves files under sanctioned roots, and artifact extraction from a
-run's text.
+daemon only ever serves files under sanctioned roots, and resolving a tool-declared
+output path into a typed artifact.
 
-Detection is SERVER-SIDE and deterministic: an "artifact" is simply a real file, under
-an allowed root, with a known extension, whose absolute path appears in a tool result or
-the assistant's text. There is nothing to persist — the same set is derived on the fly
-for a live run and for history replay, so every client (desktop, terminal, future web)
-renders identical media without any client-side heuristics.
+There is NO inference from text: a file becomes a renderable deliverable only when a
+producing tool explicitly declares it (see ToolResult.artifacts). These helpers just turn
+that declared path into ``{path, name, mime, kind, size}`` and gate what the /file
+endpoint may serve.
 """
 
 from __future__ import annotations
 
 import mimetypes
-import re
 from pathlib import Path
 
 # --- extension -> mime, grouped by how a client should present each kind ------------
@@ -49,37 +47,6 @@ _DOC = {
 _KINDS: tuple[tuple[dict[str, str], str], ...] = (
     (_IMAGE, "image"), (_VIDEO, "video"), (_AUDIO, "audio"), (_DOC, "file"),
 )
-# union of every extension we auto-detect as an artifact (rendering only — the /file
-# endpoint itself will serve ANY file under an allowed root)
-_KNOWN_EXT = {ext for table, _ in _KINDS for ext in table}
-
-
-# --- deliverable vs scratch --------------------------------------------------------
-# Agents emit MANY files while working — downloaded references, intermediate pipeline
-# stages, tmp scratch — and only a few are the actual output. We give a file an INLINE
-# preview only if it looks like a deliverable; scratch still prints its path in the tool
-# result (nothing is hidden), it just doesn't splash a full-size image into the chat.
-_SCRATCH_DIRS = {
-    "tmp", "temp", ".tmp", "cache", ".cache", "scratch", "refs", "ref",
-    "references", "reference", "thumbnails", "thumbs", ".thumbnails", "intermediate",
-}
-# filename stems ending in one of these = a working/intermediate stage, not the output
-_SCRATCH_SUFFIXES = (
-    "_oracle", "_overlay", "_base", "_mask", "_draft", "_wip", "_raw", "_scratch",
-    "_proof", "_temp", "_tmp", "_labels", "_lbl", "_textless", "_lineart", "_sketch",
-)
-_VERSION_RE = re.compile(r"_v\d+$", re.IGNORECASE)
-
-
-def is_scratch(path: str | Path) -> bool:
-    """True if ``path`` is a working/intermediate file (a scratch dir, or a stem ending
-    in a known intermediate-stage suffix) rather than a finished deliverable. A trailing
-    ``_v2``/``_v10`` version marker is stripped before the suffix check."""
-    p = Path(path)
-    if any(part.lower() in _SCRATCH_DIRS for part in p.parts[:-1]):
-        return True
-    stem = _VERSION_RE.sub("", p.stem.lower())
-    return any(stem.endswith(s) for s in _SCRATCH_SUFFIXES)
 
 
 def classify(path: str | Path) -> tuple[str, str] | None:
@@ -90,6 +57,42 @@ def classify(path: str | Path) -> tuple[str, str] | None:
         if ext in table:
             return kind, table[ext]
     return None
+
+
+def describe_artifact(path: str | Path) -> dict | None:
+    """Resolve a tool-declared output PATH into a typed artifact dict
+    ``{path, name, mime, kind, size}`` — or None if it isn't a real file. kind comes from
+    the extension (image/video/audio) and falls back to 'file' for anything else, so ANY
+    deliverable a producing tool declares can be presented (rendered inline, or as an
+    openable chip)."""
+    p = Path(path)
+    try:
+        if not p.is_file():
+            return None
+        size = p.stat().st_size
+    except OSError:
+        return None
+    cls = classify(p)
+    kind, mime = cls if cls is not None else ("file", guess_mime(p))
+    return {"path": str(p), "name": p.name, "mime": mime, "kind": kind, "size": size}
+
+
+def resolve_artifacts(paths) -> list[dict]:
+    """Resolve a tool's DECLARED output paths into ordered, de-duplicated artifact dicts,
+    dropping any that don't exist on disk. This is the one place declared paths become
+    presentable deliverables — used by the loop when building a tool result."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for p in paths or []:
+        info = describe_artifact(p)
+        if info is None:
+            continue
+        key = info["path"].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(info)
+    return out
 
 
 def guess_mime(path: str | Path) -> str:
@@ -116,46 +119,3 @@ def is_under_roots(path: str | Path, roots: list[Path]) -> bool:
         except (ValueError, OSError):
             continue
     return False
-
-
-# absolute path ending in a known extension: a Windows drive path (``C:\...``) or a
-# POSIX/UNC path (``/...`` or ``\\...``). Lazy so it stops at the FIRST matching
-# extension; the lookahead lets a path contain spaces yet end cleanly at whitespace,
-# quotes or common punctuation.
-_EXT_ALT = "|".join(re.escape(e[1:]) for e in sorted(_KNOWN_EXT, key=len, reverse=True))
-_PATH_RE = re.compile(
-    r"""(?P<path>(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n"'`<>|?*]*?\.(?:%s))(?=$|["'`\s<>)\]},;])"""
-    % _EXT_ALT,
-    re.IGNORECASE,
-)
-
-
-def extract_artifacts(text: str, roots: list[Path]) -> list[dict]:
-    """Ordered, de-duplicated artifacts referenced in ``text`` that actually exist on
-    disk under an allowed root. Each: {path, name, mime, kind, size}."""
-    if not text:
-        return []
-    out: list[dict] = []
-    seen: set[str] = set()
-    for m in _PATH_RE.finditer(text):
-        raw = m.group("path").strip().strip("\"'`")
-        cls = classify(raw)
-        if cls is None:
-            continue
-        p = Path(raw)
-        try:
-            if not p.is_file() or not is_under_roots(p, roots):
-                continue
-            key = str(p.resolve()).lower()
-        except (OSError, ValueError):
-            continue
-        if key in seen:
-            continue
-        seen.add(key)
-        kind, mime = cls
-        try:
-            size = p.stat().st_size
-        except OSError:
-            size = 0
-        out.append({"path": str(p), "name": p.name, "mime": mime, "kind": kind, "size": size})
-    return out

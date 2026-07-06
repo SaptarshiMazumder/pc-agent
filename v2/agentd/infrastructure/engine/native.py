@@ -35,6 +35,7 @@ from .incomplete_turn import (
 )
 from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.domain.messages import (
+    Artifact,
     AssistantMessage,
     Message,
     TextContent,
@@ -43,6 +44,7 @@ from agentd.domain.messages import (
     UserMessage,
     message_to_dict,
 )
+from agentd.infrastructure.files import resolve_artifacts
 from agentd.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
 
 
@@ -366,11 +368,15 @@ async def _execute_tool_calls(
                     f"Tool '{call.name}' failed:\n{traceback.format_exc(limit=4)}",
                     is_error=True,
                 )
+        # DELIVERABLES: a producing tool declares the file(s) it made via result.artifacts;
+        # resolve each to a typed artifact (skips non-existent/dupes). Nothing is inferred from text.
+        declared = [Artifact(**info) for info in resolve_artifacts(getattr(result, "artifacts", None))]
         msg = ToolResultMessage(
             tool_call_id=call.id,
             tool_name=call.name,
             content=result.content,
             is_error=result.is_error,
+            artifacts=declared,
         )
         results[index] = msg
         rtext = "".join(getattr(b, "text", "") for b in result.content)

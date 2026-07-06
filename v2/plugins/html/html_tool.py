@@ -94,4 +94,5 @@ class RenderHtmlTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"render_html failed: {e}", is_error=True)
-        return ToolResult.text(f"Rendered HTML -> {r['path']} ({r['format']}).", details=r)
+        return ToolResult.text(f"Rendered HTML -> {r['path']} ({r['format']}).",
+                               details=r, artifacts=[r["path"]])  # deliverable: the rendered output

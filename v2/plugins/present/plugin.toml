@@ -1,0 +1,4 @@
+id = "present"
+name = "Present Deliverables"
+kind = "native"
+entry = "present_plugin:register"

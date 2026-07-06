@@ -88,4 +88,4 @@ class ExportPdfTool(Tool):
         except Exception as e:
             return ToolResult.text(f"export_pdf failed: {e}", is_error=True)
         return ToolResult.text(f"Vector PDF -> {r['out_path']} ({r['width']}x{r['height']}px, 1 page).",
-                               details=r)
+                               details=r, artifacts=[r["out_path"]])  # deliverable: the PDF

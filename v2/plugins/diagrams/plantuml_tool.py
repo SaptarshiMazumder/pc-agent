@@ -127,4 +127,5 @@ class PlantumlTool(Tool):
         except Exception as e:
             return ToolResult.text(f"plantuml failed: {e}", is_error=True)
         dims = f"{r['width']}x{r['height']}" if r.get("width") else r["format"]
-        return ToolResult.text(f"Rendered PlantUML -> {r['path']} ({dims}).", details=r)
+        return ToolResult.text(f"Rendered PlantUML -> {r['path']} ({dims}).",
+                               details=r, artifacts=[r["path"]])  # deliverable: the diagram

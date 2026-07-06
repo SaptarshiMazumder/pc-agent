@@ -104,7 +104,10 @@ class RenderOverlayTool(Tool):
         except Exception as e:
             return ToolResult.text(f"render_editable_overlay failed: {e}", is_error=True)
         msg = f"Overlay -> {r['svg_path']} ({r['elements']} element(s), {r['width']}x{r['height']})."
+        # deliverable: the labelled figure (SVG always; PNG too when rendered)
+        deliverables = [r["svg_path"]] + ([r["png_path"]] if r["png_path"] else [])
         if r["png_path"]:
             return ToolResult(content=[TextContent(text=msg + f" PNG -> {r['png_path']}."),
-                                       png_block(Path(r["png_path"]))], details=r)
-        return ToolResult.text(msg, details=r)
+                                       png_block(Path(r["png_path"]))], details=r,
+                              artifacts=deliverables)
+        return ToolResult.text(msg, details=r, artifacts=deliverables)

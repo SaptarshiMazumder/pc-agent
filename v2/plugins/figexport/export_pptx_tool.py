@@ -316,4 +316,4 @@ class ExportPptxTool(Tool):
         return ToolResult.text(
             f"PPTX -> {r['out_path']} (slide {r['width']}x{r['height']}px; {r['textboxes']} text box(es), "
             f"{r['shapes']} shape(s), {r['connectors']} connector(s), {r['pictures']} picture(s) — all editable).",
-            details=r)
+            details=r, artifacts=[r["out_path"]])  # deliverable: the editable deck

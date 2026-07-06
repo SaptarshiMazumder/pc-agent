@@ -29,16 +29,26 @@ class ToolResult:
 
     ``details`` is optional structured data (kept out of the model's view, e.g. raw
     search results); ``is_error`` tells the loop/model the tool failed.
+
+    ``artifacts`` is the DELIVERABLE channel: absolute paths of files THIS tool produced
+    and wants presented to the user (a figure, a deck, a video, …). This is the ONLY way a
+    file gets rendered inline — it is never inferred from the tool's text. A tool that just
+    reads/searches/lists files (find/ls/read) leaves this empty, so it can never surface a
+    random file. The loop resolves each path to a typed artifact (mime/kind) for the client.
     """
 
     content: list[ContentBlock] = field(default_factory=list)
     details: Any = None
     is_error: bool = False
+    artifacts: list[str] = field(default_factory=list)
 
     @staticmethod
-    def text(text: str, details: Any = None, is_error: bool = False) -> "ToolResult":
-        """Convenience constructor for the common case: a single text result."""
-        return ToolResult(content=[TextContent(text=text)], details=details, is_error=is_error)
+    def text(text: str, details: Any = None, is_error: bool = False,
+             artifacts: list[str] | None = None) -> "ToolResult":
+        """Convenience constructor for the common case: a single text result (optionally
+        declaring the deliverable file(s) the tool produced)."""
+        return ToolResult(content=[TextContent(text=text)], details=details,
+                          is_error=is_error, artifacts=list(artifacts or []))
 
 
 # A tool may call this to report incremental progress.

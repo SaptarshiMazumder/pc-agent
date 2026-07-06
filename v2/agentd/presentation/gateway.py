@@ -35,7 +35,7 @@ from agentd.domain.agent import RunMode, agent_id_from_session_key, cron_session
 from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.notify import Notification
-from agentd.infrastructure.files import extract_artifacts, guess_mime, is_scratch, is_under_roots
+from agentd.infrastructure.files import guess_mime, is_under_roots
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
@@ -46,9 +46,6 @@ log = logging.getLogger("agentd")
 # 34 MiB raw attachment (see UPLOAD_MAX_BYTES); larger files should chunk (future work).
 MAX_WS_FRAME = 48 * 1024 * 1024
 UPLOAD_MAX_BYTES = 32 * 1024 * 1024
-# a single message referencing more renderable files than this is a LISTING (a find/ls
-# dump), not produced output — render none of them
-MAX_RENDER_PER_MESSAGE = 6
 
 
 def _effective_model(config) -> str:
@@ -120,13 +117,16 @@ def _trim_history_message(message: dict) -> dict:
                 "errorMessage": message.get("errorMessage"),
                 "ts": ts, "timestamp": message.get("timestamp", 0)}
     if role == "toolResult":
-        return {"role": "toolResult", "toolCallId": message.get("toolCallId", ""),
-                "toolName": message.get("toolName", ""),
-                "content": [{"type": "text",
-                             "text": _cap("".join(b.get("text", "") for b in message.get("content") or []
-                                                  if b.get("type") == "text"), _HISTORY_TOOL_RESULT_CAP)}],
-                "isError": message.get("isError", False),
-                "ts": ts, "timestamp": message.get("timestamp", 0)}
+        trimmed = {"role": "toolResult", "toolCallId": message.get("toolCallId", ""),
+                   "toolName": message.get("toolName", ""),
+                   "content": [{"type": "text",
+                                "text": _cap("".join(b.get("text", "") for b in message.get("content") or []
+                                                     if b.get("type") == "text"), _HISTORY_TOOL_RESULT_CAP)}],
+                   "isError": message.get("isError", False),
+                   "ts": ts, "timestamp": message.get("timestamp", 0)}
+        if message.get("artifacts"):   # keep declared deliverables so a resumed chat renders them
+            trimmed["artifacts"] = message["artifacts"]
+        return trimmed
     return message
 
 
@@ -867,36 +867,6 @@ class Gateway:
                 out.append(rr)
         return out
 
-    def _render_roots(self) -> list[Path]:
-        """Where agents PRODUCE deliverables — the ONLY places a file earns an inline
-        preview. Deliberately NARROWER than _allowed_file_roots (which also covers the
-        broad workspace the agent can read/browse): a file the agent merely FOUND, LISTED
-        or READ elsewhere on the machine (e.g. a `find` over the Desktop that happens to
-        match a random ``*CV*`` video) must NEVER render — only files it wrote into its
-        own agent workspace/state. This is the fix for 'random PC files rendering'."""
-        roots: list[Path] = []
-        if self.registry is not None:
-            try:
-                for aid in self.registry.list_ids():
-                    spec = self.registry.get(aid)
-                    for p in (getattr(spec, "workspace", None), getattr(spec, "state_dir", None)):
-                        if p:
-                            roots.append(Path(p))
-            except Exception:  # noqa: BLE001
-                pass
-        out: list[Path] = []
-        seen: set[str] = set()
-        for r in roots:
-            try:
-                rr = r.resolve()
-            except (OSError, ValueError):
-                continue
-            k = str(rr).lower()
-            if k not in seen:
-                seen.add(k)
-                out.append(rr)
-        return out
-
     def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
         """websockets handshake hook: serve local artifact files over plain HTTP on the
         SAME port as the gateway, so a client renders <img>/<video> straight from the
@@ -985,44 +955,15 @@ class Gateway:
 
     # --------------------------------------------------------- artifact detection
 
-    def _artifacts_in_message(self, msg: dict, roots: list[Path] | None = None) -> list[dict]:
-        """Files (that exist, under an allowed root) referenced in a message dict's text
-        blocks — how a tool result or an assistant turn advertises the media it produced.
-        Pass ``roots`` to reuse a precomputed root list across many messages (history).
-        Best-effort: detection failures never affect the run."""
-        if not isinstance(msg, dict):
-            return []
-        text = "\n".join(
-            b.get("text") or ""
-            for b in (msg.get("content") or [])
-            if isinstance(b, dict) and b.get("type") == "text"
-        )
-        if not text:
-            return []
-        try:
-            # RENDER SCOPE: only files under an agent's own workspace/state — never a file
-            # the agent merely found/listed/read elsewhere on the PC (that's the CV-video bug)
-            arts = extract_artifacts(text, self._render_roots() if roots is None else roots)
-            # a listing (find/ls dumping many paths) is not produced output — render none
-            if len(arts) > MAX_RENDER_PER_MESSAGE:
-                return []
-            # only DELIVERABLES get an inline preview; scratch/intermediate files (refs,
-            # oracle/overlay stages, tmp) still appear in the tool text, just not rendered
-            return [a for a in arts if not is_scratch(a["path"])]
-        except Exception:  # noqa: BLE001 — never let detection break a run
-            return []
-
     def _enrich_artifacts(self, event: AgentEvent) -> None:
-        """Attach any detected artifacts to a tool-result / assistant event IN PLACE, so
-        the same set reaches live clients (broadcast) and the durable event log. Clients
-        that don't understand `artifacts` simply ignore the extra key."""
-        if event.type == "tool_execution_end":
-            src = event.payload.get("result")
-        elif event.type == "message_end":
-            src = event.payload.get("message")
-        else:
+        """Lift a tool result's DECLARED artifacts to the top of the event so clients can
+        render them, IN PLACE. Nothing is inferred: the artifacts are exactly what the
+        producing tool handed back (ToolResultMessage.artifacts). A tool that read/searched
+        /listed files declares none, so no random file can ever surface here."""
+        if event.type != "tool_execution_end":
             return
-        arts = self._artifacts_in_message(src or {})
+        result = event.payload.get("result") or {}
+        arts = result.get("artifacts") if isinstance(result, dict) else None
         if arts:
             event.payload["artifacts"] = arts
 
@@ -1180,14 +1121,9 @@ class Gateway:
         if not session_key:
             return {"messages": [], "sessionKey": "", "agentId": agent_id}
         from agentd.infrastructure.memory.local_store import read_session_messages
+        # A tool result's DECLARED artifacts are persisted in the transcript, so a resumed
+        # chat replays the same deliverables a live run showed — no re-derivation needed.
         messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
-        # RENDER seam (history): re-derive each message's artifacts so a resumed chat shows
-        # the same inline media a live run did. Roots computed once for the whole transcript.
-        roots = self._render_roots()
-        for m in messages:
-            arts = self._artifacts_in_message(m, roots)
-            if arts:
-                m["artifacts"] = arts
         return {"messages": messages, "sessionKey": session_key, "agentId": agent_id}
 
     async def _sessions_rename(self, params: dict) -> dict:

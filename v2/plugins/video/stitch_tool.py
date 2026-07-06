@@ -260,4 +260,5 @@ class StitchVideoTool(Tool):
         except Exception as e:
             return ToolResult.text(f"stitch_video failed: {e}", is_error=True)
         return ToolResult.text(
-            f"Stitched {r['segments']} segment(s) -> {r['path']} ({r['duration_sec']}s).", details=r)
+            f"Stitched {r['segments']} segment(s) -> {r['path']} ({r['duration_sec']}s).",
+            details=r, artifacts=[r["path"]])  # deliverable: the video

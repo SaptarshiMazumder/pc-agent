@@ -82,6 +82,32 @@ class ToolCallContent:
 ContentBlock = Union[TextContent, ThinkingContent, ImageContent, ToolCallContent]
 
 
+@dataclass
+class Artifact:
+    """A file a tool DECLARED it produced — a deliverable to present to the user (an
+    image, video, deck, …). This is a PRESENTATION channel, kept separate from the
+    model-facing ``content``: it is never inferred from text, only what a producing tool
+    explicitly hands back (see ToolResult.artifacts). Carried by reference (path); the
+    client streams the bytes from the daemon's /file endpoint, so large media never
+    bloats the transcript."""
+    path: str
+    name: str = ""
+    mime: str = ""
+    kind: str = "file"  # image | video | audio | file (how a client renders it)
+    size: int = 0
+
+
+def artifact_to_dict(a: "Artifact") -> dict[str, Any]:
+    return {"path": a.path, "name": a.name, "mime": a.mime, "kind": a.kind, "size": a.size}
+
+
+def artifact_from_dict(d: dict[str, Any]) -> "Artifact":
+    return Artifact(
+        path=d.get("path", ""), name=d.get("name", ""), mime=d.get("mime", ""),
+        kind=d.get("kind", "file"), size=int(d.get("size") or 0),
+    )
+
+
 # ===========================================================================
 # Messages — the three "roles" that make up a conversation.
 # ===========================================================================
@@ -125,6 +151,7 @@ class ToolResultMessage:
     tool_name: str  # which tool produced it
     content: list[ContentBlock] = field(default_factory=list)  # usually a single TextContent
     is_error: bool = False  # True if the tool failed (the model sees it as an error)
+    artifacts: list[Artifact] = field(default_factory=list)  # files the tool DECLARED it produced
     timestamp: int = field(default_factory=now_ms)
     role: str = "toolResult"
 
@@ -199,7 +226,7 @@ def message_to_dict(m: Message) -> dict[str, Any]:
             "timestamp": m.timestamp,
         }
     if isinstance(m, ToolResultMessage):
-        return {
+        d = {
             "role": "toolResult",
             "toolCallId": m.tool_call_id,
             "toolName": m.tool_name,
@@ -207,6 +234,9 @@ def message_to_dict(m: Message) -> dict[str, Any]:
             "isError": m.is_error,
             "timestamp": m.timestamp,
         }
+        if m.artifacts:  # only when the tool declared something (keeps old records identical)
+            d["artifacts"] = [artifact_to_dict(a) for a in m.artifacts]
+        return d
     raise TypeError(f"unknown message: {m!r}")
 
 
@@ -231,6 +261,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             tool_name=d.get("toolName", ""),
             content=[content_from_dict(b) for b in d.get("content") or []],
             is_error=d.get("isError", False),
+            artifacts=[artifact_from_dict(a) for a in d.get("artifacts") or []],
             timestamp=d.get("timestamp", 0),
         )
     raise ValueError(f"unknown message role: {role!r}")

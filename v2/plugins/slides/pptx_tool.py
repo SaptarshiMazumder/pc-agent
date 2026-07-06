@@ -122,4 +122,5 @@ class MakePptxTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"make_pptx failed: {e}", is_error=True)
-        return ToolResult.text(f"Wrote {r['slides']}-slide deck -> {r['path']}.", details=r)
+        return ToolResult.text(f"Wrote {r['slides']}-slide deck -> {r['path']}.",
+                               details=r, artifacts=[r["path"]])  # deliverable: the deck

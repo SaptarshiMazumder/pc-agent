@@ -173,6 +173,9 @@ class ComposeLayersTool(Tool):
         if r["out_svg"]:
             bits.append(f"{'all-vector' if r['vector'] else 'layered'} SVG -> {r['out_svg']}")
         msg = f"Composed {r['width']}x{r['height']}: " + "; ".join(bits) + "."
+        # deliverable: the composed figure (SVG and/or PNG)
+        deliverables = [p for p in (r.get("out_svg"), r.get("out_png")) if p]
         if r["out_png"]:
-            return ToolResult(content=[TextContent(text=msg), png_block(Path(r["out_png"]))], details=r)
-        return ToolResult.text(msg, details=r)
+            return ToolResult(content=[TextContent(text=msg), png_block(Path(r["out_png"]))],
+                              details=r, artifacts=deliverables)
+        return ToolResult.text(msg, details=r, artifacts=deliverables)

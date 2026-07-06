@@ -96,4 +96,5 @@ class TtsTool(Tool):
         except Exception as e:
             return ToolResult.text(f"tts failed: {e}", is_error=True)
         dur = f"{r['duration_sec']:.2f}s" if r["duration_sec"] is not None else "unknown duration"
-        return ToolResult.text(f"Wrote speech to {r['path']} ({dur}, voice {r['voice']}).", details=r)
+        return ToolResult.text(f"Wrote speech to {r['path']} ({dur}, voice {r['voice']}).",
+                               details=r, artifacts=[r["path"]])  # deliverable: the audio
