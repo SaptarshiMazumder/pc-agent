@@ -71,10 +71,10 @@ def test_no_declaration_means_no_artifacts_key():
 
 # ---- present_files: the universal agent-declared deliverable tool ----------------
 
-def test_present_files_declares_existing_only(tmp_path):
-    from present_tool import PresentFilesTool
+def test_show_files_declares_existing_only(tmp_path):
+    from show_tool import ShowFilesTool
 
-    tool = PresentFilesTool(SimpleNamespace(workspace=str(tmp_path)))
+    tool = ShowFilesTool(SimpleNamespace(workspace=str(tmp_path)))
     _png(tmp_path / "chart.png")
     res = asyncio.run(tool.execute("c", {"files": ["chart.png", "nope.png"]}, asyncio.Event()))
     assert not res.is_error
