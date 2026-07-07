@@ -43,10 +43,11 @@ export default function MessageItem({ item }: { item: ChatItem }) {
       return (
         <div className="msg-item">
           <div className="msg-user">
-            <div className="bubble">
-              {item.text}
-              {stamp && <div className="msg-time">{stamp}</div>}
-            </div>
+            {item.text && <div className="bubble">{item.text}</div>}
+            {/* files the user attached (e.g. an edited image sent from the canvas) */}
+            {item.artifacts?.length ? <ArtifactView artifacts={item.artifacts} /> : null}
+            {/* timestamp now sits OUTSIDE the bubble, right-aligned under it */}
+            {stamp && <div className="msg-time">{stamp}</div>}
           </div>
         </div>
       )
@@ -58,6 +59,8 @@ export default function MessageItem({ item }: { item: ChatItem }) {
             {item.streaming && <span className="caret" />}
           </div>
           <ArtifactView artifacts={item.artifacts} />
+          {/* agent response time — LEFT-aligned under the answer, once it's done */}
+          {stamp && !item.streaming && <div className="msg-time msg-time--left">{stamp}</div>}
         </div>
       )
     case 'thinking':

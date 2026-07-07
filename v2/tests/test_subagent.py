@@ -25,7 +25,8 @@ async def test_spawn_runs_child_and_returns_its_answer(tmp_path):
     from agentd.presentation.gateway import Gateway
 
     class _FakeService:
-        async def handle_message(self, session_id, text, on_event, abort, mode=None, agent_id=None):
+        async def handle_message(self, session_id, text, on_event, abort, mode=None, agent_id=None,
+                                 attachments=None):
             assert ":sub:" in session_id and agent_id == "main"
             s = SessionStore(tmp_path, session_id)
             s.load()

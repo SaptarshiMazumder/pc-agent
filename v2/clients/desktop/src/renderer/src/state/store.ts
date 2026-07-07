@@ -23,6 +23,7 @@ import type {
 import { resultText } from '../gateway/protocol'
 import type { Artifact } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
+import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -40,7 +41,16 @@ export interface SessionState {
   pendingArtifacts?: Artifact[]
 }
 
-export type View = 'chat' | 'store' | 'settings'
+/** A file the user is sending TO the agent (e.g. an edited image from the canvas). Bytes
+ *  ride the WS send as base64; the daemon saves them to the workspace and hands back real
+ *  paths, which then render like any artifact. */
+export interface OutgoingAttachment {
+  name: string
+  mimeType: string
+  dataBase64: string
+}
+
+export type View = 'chat' | 'store' | 'settings' | 'account' | 'subscription' | 'datasources'
 
 /** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
  *  the CURRENT agent's list, so a tab from another agent must remember where it
@@ -101,6 +111,28 @@ function newSessionKey(): string {
   return `desk-${Math.random().toString(36).slice(2, 10)}`
 }
 
+const NOTIFY_PREF_KEY = 'agentd-notifications'
+
+/** Fire an OS notification when a watched run finishes while the window is in the background.
+ *  Honors the client "Desktop notifications" pref (localStorage, default on) and never fires
+ *  while the app is focused. Best-effort — silently no-ops if notifications are unavailable. */
+function desktopNotify(title: string, body: string): void {
+  try {
+    if (localStorage.getItem(NOTIFY_PREF_KEY) === '0') return // pref off
+    if (typeof document !== 'undefined' && document.hasFocus()) return // only when tabbed away
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body })
+    } else if (Notification.permission !== 'denied') {
+      void Notification.requestPermission().then((p) => {
+        if (p === 'granted') new Notification(title, { body })
+      })
+    }
+  } catch {
+    /* notifications unavailable */
+  }
+}
+
 /** ISO timestamp (as stored in the transcript) -> epoch ms, or undefined. */
 function toMs(iso: unknown): number | undefined {
   if (typeof iso !== 'string' || !iso) return undefined
@@ -144,7 +176,8 @@ function historyToItems(messages: any[]): ChatItem[] {
     const ts = toMs(message.ts)
     if (message.role === 'user') {
       flushRun() // the previous run ended
-      items.push({ kind: 'user', text: String(message.content ?? ''), ts })
+      const atts = (message.attachments || []) as Artifact[]  // files the user attached (by ref)
+      items.push({ kind: 'user', text: String(message.content ?? ''), ts, ...(atts.length ? { artifacts: atts } : {}) })
     } else if (message.role === 'assistant') {
       for (const block of message.content || []) {
         if (block.type === 'text' && block.text) {
@@ -227,6 +260,8 @@ interface AppState {
   /** session key -> last known title; survives agent switches (sessionRows doesn't) */
   tabTitles: Record<string, string>
   sidebarCollapsed: boolean
+  /** the right-side Canvas: a file open for rich view/edit (null = closed) + its width */
+  canvas: { artifact: Artifact | null; width: number }
 
   catalog: CatalogBundle[]
   catalogError: string
@@ -239,8 +274,15 @@ interface AppState {
   setView(view: View): void
   toggleTheme(): void
   toggleSidebar(): void
+  openCanvas(artifact: Artifact): void
+  closeCanvas(): void
+  setCanvasWidth(width: number): void
   activateTab(tab: OpenTab): Promise<void>
   closeTab(sessionId: string): void
+  closeOtherTabs(sessionId: string): void
+  closeTabsToRight(sessionId: string): void
+  closeTabsToLeft(sessionId: string): void
+  closeAllTabs(): void
   reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
   createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
@@ -248,10 +290,13 @@ interface AppState {
   resumeSession(sessionId: string): Promise<void>
   renameSession(sessionId: string, title: string): Promise<void>
   deleteSession(sessionId: string): Promise<void>
+  moveSession(sessionId: string, projectId: string): Promise<void>
+  duplicateSession(sessionId: string): Promise<void>
+  exportSessionMd(sessionId: string): Promise<void>
   createProject(name: string): Promise<void>
   renameProject(projectId: string, name: string): Promise<void>
   deleteProject(projectId: string): Promise<void>
-  sendMessage(text: string): Promise<void>
+  sendMessage(text: string, attachments?: OutgoingAttachment[]): Promise<void>
   abortRun(): Promise<void>
   refreshCatalog(): Promise<void>
   installBundle(id: string): Promise<void>
@@ -260,6 +305,23 @@ interface AppState {
 
 export const useApp = create<AppState>((set, get) => {
   // ---- event plumbing (registered once at bootstrap) --------------------------
+
+  /** Close a set of tabs; if the ACTIVE chat was among them, re-activate the nearest
+   *  surviving tab (prefer to the right of `anchorIdx`, then left), or open a fresh chat
+   *  when none remain. Shared by every close variant (single / others / left / right / all). */
+  function closeTabs(closeIds: Set<string>, anchorIdx: number): void {
+    const { openTabs, currentSessionKey } = get()
+    const survivors = openTabs.filter((t) => !closeIds.has(t.id))
+    set({ openTabs: survivors })
+    if (!closeIds.has(currentSessionKey)) return // the active chat stayed open — nothing to do
+    if (survivors.length === 0) {
+      get().newSession()
+      return
+    }
+    const right = openTabs.slice(anchorIdx).find((t) => !closeIds.has(t.id))
+    const left = [...openTabs.slice(0, anchorIdx)].reverse().find((t) => !closeIds.has(t.id))
+    void get().activateTab(right || left || survivors[survivors.length - 1])
+  }
 
   function patchSession(sessionKey: string, patch: (session: SessionState) => SessionState): void {
     set((state) => ({
@@ -355,6 +417,14 @@ export const useApp = create<AppState>((set, get) => {
           if (session.pendingArtifacts?.length) attachToLastAssistant(items, session.pendingArtifacts, ts)
           return { items, running: false, pendingArtifacts: [] }
         })
+        // desktop notification for a watched chat (an open tab / the current chat) finishing —
+        // NOT for background sub-agent / cron / heartbeat runs, and only when tabbed away
+        if (!error) {
+          const st = get()
+          if (st.currentSessionKey === sessionKey || st.openTabs.some((t) => t.id === sessionKey)) {
+            desktopNotify(st.flavor?.productName || 'agentd', 'Your agent finished responding.')
+          }
+        }
         break
       }
       default:
@@ -498,6 +568,7 @@ export const useApp = create<AppState>((set, get) => {
     openTabs: [],
     tabTitles: {},
     sidebarCollapsed: false,
+    canvas: { artifact: null, width: 560 },
 
     catalog: [],
     catalogError: '',
@@ -539,6 +610,16 @@ export const useApp = create<AppState>((set, get) => {
       set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
     },
 
+    openCanvas(artifact) {
+      set((s) => ({ canvas: { ...s.canvas, artifact } }))
+    },
+    closeCanvas() {
+      set((s) => ({ canvas: { ...s.canvas, artifact: null } }))
+    },
+    setCanvasWidth(width) {
+      set((s) => ({ canvas: { ...s.canvas, width: Math.max(360, Math.min(1100, Math.round(width))) } }))
+    },
+
     async activateTab(tab) {
       // a tab may belong to ANOTHER agent — switch context first so history
       // loads from (and messages route to) the right one
@@ -550,15 +631,33 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     closeTab(sessionId) {
-      const { openTabs, currentSessionKey } = get()
+      const { openTabs } = get()
       const idx = openTabs.findIndex((t) => t.id === sessionId)
-      const tabs = openTabs.filter((t) => t.id !== sessionId)
-      set({ openTabs: tabs })
-      if (currentSessionKey === sessionId) {
-        const next = tabs[idx] || tabs[idx - 1] || tabs[tabs.length - 1]
-        if (next) void get().activateTab(next)
-        else get().newSession()
-      }
+      closeTabs(new Set([sessionId]), idx)
+    },
+
+    // Chrome-style bulk closes — all funnel through closeTabs(), which keeps the survivors,
+    // and (only if the active chat was among those closed) re-activates the nearest survivor
+    // or opens a fresh chat when none remain.
+    closeOtherTabs(sessionId) {
+      const { openTabs } = get()
+      const ids = new Set(openTabs.filter((t) => t.id !== sessionId).map((t) => t.id))
+      closeTabs(ids, openTabs.findIndex((t) => t.id === sessionId))
+    },
+    closeTabsToRight(sessionId) {
+      const { openTabs } = get()
+      const idx = openTabs.findIndex((t) => t.id === sessionId)
+      if (idx < 0) return
+      closeTabs(new Set(openTabs.slice(idx + 1).map((t) => t.id)), idx)
+    },
+    closeTabsToLeft(sessionId) {
+      const { openTabs } = get()
+      const idx = openTabs.findIndex((t) => t.id === sessionId)
+      if (idx < 0) return
+      closeTabs(new Set(openTabs.slice(0, idx).map((t) => t.id)), idx)
+    },
+    closeAllTabs() {
+      closeTabs(new Set(get().openTabs.map((t) => t.id)), 0)
     },
 
     reorderTabs(from, to) {
@@ -657,6 +756,50 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
+    async moveSession(sessionId, projectId) {
+      // optimistic re-group; server confirms + rebroadcasts via sessions.changed
+      set((state) => ({
+        sessionRows: state.sessionRows.map((row) =>
+          row.sessionId === sessionId ? { ...row, projectId } : row
+        )
+      }))
+      try {
+        await gateway.request('sessions.move', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined,
+          projectId
+        })
+      } catch {
+        void refreshSessions()
+      }
+    },
+
+    async duplicateSession(sessionId) {
+      // the copy lands via the server's sessions.changed broadcast (refreshSessions)
+      try {
+        await gateway.request('sessions.duplicate', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined
+        })
+      } catch {
+        void refreshSessions()
+      }
+    },
+
+    async exportSessionMd(sessionId) {
+      const row = get().sessionRows.find((r) => r.sessionId === sessionId)
+      const title = row?.title || sessionId
+      try {
+        const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
+          sessionKey: sessionId,
+          agentId: get().currentAgentId || undefined
+        })
+        downloadTextFile(`${safeFileName(title)}.md`, sessionToMarkdown(title, payload.messages || []))
+      } catch {
+        // history unavailable (daemon busy / gone) — nothing to export
+      }
+    },
+
     async createProject(name) {
       const trimmed = name.trim()
       if (!trimmed) return
@@ -732,20 +875,35 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
-    async sendMessage(text) {
+    async sendMessage(text, attachments) {
       const { currentSessionKey, currentAgentId, currentProjectId } = get()
       patchSession(currentSessionKey, (session) => ({
         items: [...session.items, { kind: 'user', text, ts: Date.now() }],
         running: true
       }))
       try {
-        await gateway.request('chat.send', {
+        const res = await gateway.request<{ runId: string; attachments?: Artifact[] }>('chat.send', {
           sessionKey: currentSessionKey,
           message: text,
           agentId: currentAgentId || undefined,
           projectId: currentProjectId || undefined,
+          attachments: attachments?.length ? attachments : undefined,
           idempotencyKey: `${currentSessionKey}-${Date.now()}`
         })
+        // the daemon saved the uploads and returned their real workspace paths — attach
+        // them to the user bubble we just pushed so they render via /file (like history)
+        if (res?.attachments?.length) {
+          patchSession(currentSessionKey, (session) => {
+            const items = [...session.items]
+            for (let i = items.length - 1; i >= 0; i--) {
+              if (items[i].kind === 'user' && !items[i].artifacts) {
+                items[i] = { ...items[i], artifacts: res.attachments }
+                break
+              }
+            }
+            return { ...session, items }
+          })
+        }
       } catch (error) {
         patchSession(currentSessionKey, (session) => ({
           items: [

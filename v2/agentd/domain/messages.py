@@ -115,8 +115,13 @@ def artifact_from_dict(d: dict[str, Any]) -> "Artifact":
 
 @dataclass
 class UserMessage:
-    """Something the user said. Its content is just a plain string."""
+    """Something the user said. Its visible text is a plain string; it may also carry
+    ``attachments`` — files the user handed in (an edited image from the canvas, a picked
+    document). Attachments are carried BY REFERENCE (Artifact path), exactly like a tool's
+    declared deliverables: the transcript stays lean, the client streams the bytes from
+    /file, and the LLM adapter inlines any IMAGE attachment so a vision model can SEE it."""
     content: str
+    attachments: list[Artifact] = field(default_factory=list)  # user-supplied files (by ref)
     timestamp: int = field(default_factory=now_ms)  # when it was created (ms)
     role: str = "user"  # discriminator tag
 
@@ -214,7 +219,10 @@ def message_to_dict(m: Message) -> dict[str, Any]:
     """Turn a whole message into a JSON-safe dict (for the transcript / the wire).
     Content blocks are serialized via ``content_to_dict``; keys are camelCase."""
     if isinstance(m, UserMessage):
-        return {"role": "user", "content": m.content, "timestamp": m.timestamp}
+        d = {"role": "user", "content": m.content, "timestamp": m.timestamp}
+        if m.attachments:  # only when the user attached something (old records unchanged)
+            d["attachments"] = [artifact_to_dict(a) for a in m.attachments]
+        return d
     if isinstance(m, AssistantMessage):
         return {
             "role": "assistant",
@@ -245,7 +253,11 @@ def message_from_dict(d: dict[str, Any]) -> Message:
     This is how a session is replayed from the JSONL transcript on startup."""
     role = d.get("role")
     if role == "user":
-        return UserMessage(content=d.get("content", ""), timestamp=d.get("timestamp", 0))
+        return UserMessage(
+            content=d.get("content", ""),
+            attachments=[artifact_from_dict(a) for a in d.get("attachments") or []],
+            timestamp=d.get("timestamp", 0),
+        )
     if role == "assistant":
         return AssistantMessage(
             content=[content_from_dict(b) for b in d.get("content") or []],

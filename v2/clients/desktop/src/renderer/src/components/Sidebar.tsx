@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Plus,
   Search,
@@ -7,13 +7,14 @@ import {
   History,
   PanelLeft,
   ShoppingBag,
-  SlidersHorizontal,
+  Monitor,
   Sun,
   Moon,
   Pencil,
   X,
   ChevronDown,
   ChevronRight,
+  MoreHorizontal,
   UserPlus
 } from 'lucide-react'
 
@@ -22,26 +23,31 @@ import type { SessionRow } from '../gateway/protocol'
 import { agentColor, agentInitials, agentTag, hashColor } from '../lib/agentPresentation'
 import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
+import ChatMenu from './ChatMenu'
+import { useHoverTip } from './HoverTip'
 import NewAgentModal from './NewAgentModal'
+import SettingsMenu from './SettingsMenu'
 
-/** One saved-chat row with hover rename (✎ / dbl-click) + delete (two-step). */
+/** One saved-chat row: hover tooltip (full name + meta), double-click to rename, and a ⋯
+ *  menu (rename · move to project · export md · duplicate · delete) revealed on hover. */
 function SessionItem({ session, active, onOpen }: { session: SessionRow; active: boolean; onOpen: () => void }) {
   const renameSession = useApp((s) => s.renameSession)
   const deleteSession = useApp((s) => s.deleteSession)
+  const moveSession = useApp((s) => s.moveSession)
+  const duplicateSession = useApp((s) => s.duplicateSession)
+  const exportSessionMd = useApp((s) => s.exportSessionMd)
+  const projects = useApp((s) => s.projects)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const [armed, setArmed] = useState(false)
+  const [menu, setMenu] = useState<DOMRect | null>(null) // ⋯ menu anchor (open when set)
+  const tip = useHoverTip()
   const ref = useRef<HTMLInputElement>(null)
   const label = session.title || session.sessionId
+  const meta = `${session.messages} msgs · ${whenLabel(session.modified * 1000)}`
 
   useEffect(() => {
     if (editing) ref.current?.select()
   }, [editing])
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(false), 3000)
-    return () => clearTimeout(t)
-  }, [armed])
 
   function commit() {
     void renameSession(session.sessionId, draft.trim())
@@ -68,28 +74,85 @@ function SessionItem({ session, active, onOpen }: { session: SessionRow; active:
 
   return (
     <button
-      className={`row session-row ${active ? 'active' : ''}`}
+      className={`row session-row ${active ? 'active' : ''} ${menu ? 'menu-open' : ''}`}
       onClick={onOpen}
       onDoubleClick={() => { setDraft(label); setEditing(true) }}
-      title="double-click to rename"
+      {...(menu ? {} : tip.bind(label, meta))}
     >
       <span className="row-main">
         <span className="row-title">{label}</span>
-        <span className="row-sub">{session.messages} msgs · {whenLabel(session.modified * 1000)}</span>
       </span>
       <span className="row-actions">
-        <span className="hover-btn" title="rename" onClick={(e) => { e.stopPropagation(); setDraft(label); setEditing(true) }}>
-          <Pencil size={13} />
-        </span>
         <span
-          className={`hover-btn ${armed ? 'danger' : ''}`}
-          title={armed ? 'click again to delete' : 'delete chat'}
-          onClick={(e) => { e.stopPropagation(); armed ? void deleteSession(session.sessionId) : setArmed(true) }}
+          className="hover-btn"
+          title="more"
+          onClick={(e) => { e.stopPropagation(); tip.hide(); setMenu(e.currentTarget.getBoundingClientRect()) }}
         >
-          <X size={13} />
+          <MoreHorizontal size={15} />
         </span>
       </span>
+      {tip.node}
+      {menu && (
+        <ChatMenu
+          anchor={menu}
+          projects={projects}
+          currentProjectId={session.projectId}
+          onClose={() => setMenu(null)}
+          onRename={() => { setDraft(label); setEditing(true) }}
+          onDelete={() => void deleteSession(session.sessionId)}
+          onDuplicate={() => void duplicateSession(session.sessionId)}
+          onExport={() => void exportSessionMd(session.sessionId)}
+          onMove={(pid) => void moveSession(session.sessionId, pid)}
+        />
+      )}
     </button>
+  )
+}
+
+/**
+ * A collapsible section header (Agents / Projects / Chats). Clicking anywhere on the label
+ * toggles the section open/closed (ChatGPT-style); the caret + the optional "+" action only
+ * appear on hover. The caret is a plain span so its clicks bubble up to the header toggle.
+ */
+function SectionHead({
+  icon,
+  label,
+  open,
+  onToggle,
+  onAdd,
+  addTitle,
+  extraClass
+}: {
+  icon: ReactNode
+  label: string
+  open: boolean
+  onToggle: () => void
+  onAdd?: () => void
+  addTitle?: string
+  extraClass?: string
+}) {
+  return (
+    <div
+      className={`section-label section-head ${extraClass ?? ''}`}
+      onClick={onToggle}
+      title={`${open ? 'collapse' : 'expand'} ${label.toLowerCase()}`}
+    >
+      {icon}
+      <span className="section-title">{label}</span>
+      {onAdd && (
+        <button
+          className="section-add"
+          title={addTitle}
+          onClick={(e) => {
+            e.stopPropagation()
+            onAdd()
+          }}
+        >
+          <Plus size={14} />
+        </button>
+      )}
+      <span className="section-caret">{open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
+    </div>
   )
 }
 
@@ -115,6 +178,10 @@ export default function Sidebar() {
   const toggleSidebar = useApp((s) => s.toggleSidebar)
 
   const [query, setQuery] = useState('')
+  // which top-level sections (Agents / Projects / Chats) are expanded — collapse toggles
+  const [sectionOpen, setSectionOpen] = useState({ agents: true, projects: true, chats: true })
+  const toggleSection = (k: 'agents' | 'projects' | 'chats'): void =>
+    setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({})
   const [newAgent, setNewAgent] = useState(false)
   const [addingProject, setAddingProject] = useState(false)
@@ -151,7 +218,7 @@ export default function Sidebar() {
   if (collapsed) {
     return (
       <aside className="sidebar sidebar--rail">
-        <img className="brand-logo" src={logo} alt="" style={{ width: 27, height: 27, marginBottom: 2 }} />
+        <img className="brand-logo" src={logo} alt="" style={{ width: 34, height: 34, marginBottom: 4 }} />
         <button className="rail-btn" title="expand sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
         <button className="rail-primary" title="new chat" onClick={() => newSession()}><Plus size={17} /></button>
         <button className="rail-btn" title="search chats" onClick={toggleSidebar}><Search size={17} /></button>
@@ -168,8 +235,9 @@ export default function Sidebar() {
           </button>
         ))}
         <div className="rail-spacer" />
+        <button className="rail-btn" title="local profile"><Monitor size={18} /></button>
         <button className="rail-btn" title="Store" onClick={() => setView('store')}><ShoppingBag size={18} /></button>
-        <button className="rail-btn" title="Settings" onClick={() => setView('settings')}><SlidersHorizontal size={18} /></button>
+        <SettingsMenu variant="rail" />
         <button className="rail-btn" title="toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
         {newAgent && <NewAgentModal onClose={() => setNewAgent(false)} />}
       </aside>
@@ -195,38 +263,44 @@ export default function Sidebar() {
       </div>
 
       {/* AGENTS — own fixed-height region, scrolls independently of chats */}
-      <div className="section-label">
-        <Users size={14} />
-        <span style={{ flex: 1 }}>Agents</span>
-        <button className="section-add" title="create agent" onClick={() => setNewAgent(true)}>
-          <Plus size={14} />
-        </button>
-      </div>
-      <div className="agents-list">
-        {agents.map((a) => (
-          <button
-            key={a.id}
-            className={`row ${a.id === currentAgentId && view === 'chat' ? 'active' : ''}`}
-            onClick={() => void selectAgent(a.id)}
-          >
-            <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
-            <span className="row-main">
-              <span className="row-title">{a.name || a.id}</span>
-              <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
-            </span>
-          </button>
-        ))}
-      </div>
+      <SectionHead
+        icon={<Users size={14} />}
+        label="Agents"
+        open={sectionOpen.agents}
+        onToggle={() => toggleSection('agents')}
+        onAdd={() => setNewAgent(true)}
+        addTitle="create agent"
+      />
+      {sectionOpen.agents && (
+        <div className="agents-list">
+          {agents.map((a) => (
+            <button
+              key={a.id}
+              className={`row ${a.id === currentAgentId && view === 'chat' ? 'active' : ''}`}
+              onClick={() => void selectAgent(a.id)}
+            >
+              <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
+              <span className="row-main">
+                <span className="row-title">{a.name || a.id}</span>
+                <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* PROJECTS + CHATS — the scrolling remainder */}
       <div className="sidebar-scroll">
-        <div className="section-label section-projects">
-          <Folder size={14} />
-          <span style={{ flex: 1 }}>Projects</span>
-          <button className="section-add" title="new project" onClick={() => { setAddingProject(true); setProjectDraft('') }}>
-            <Plus size={14} />
-          </button>
-        </div>
+        <SectionHead
+          icon={<Folder size={14} />}
+          label="Projects"
+          open={sectionOpen.projects}
+          onToggle={() => toggleSection('projects')}
+          onAdd={() => { setSectionOpen((s) => ({ ...s, projects: true })); setAddingProject(true); setProjectDraft('') }}
+          addTitle="new project"
+          extraClass="section-projects"
+        />
+        {sectionOpen.projects && (<>
         {addingProject && (
           <input
             className="rename-input"
@@ -262,7 +336,7 @@ export default function Sidebar() {
                 />
               ) : (
                 <div className="row project-row" onClick={() => setOpenProjects((c) => ({ ...c, [p.id]: !open }))}>
-                  <span className="caret">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                  <span className="proj-caret">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
                   <span style={{ display: 'flex', color: hashColor(p.id) }}><Folder size={15} /></span>
                   <span className="row-title" style={{ flex: 1 }}>{p.name}</span>
                   <button className="hover-btn" title="new chat in this project"
@@ -287,17 +361,29 @@ export default function Sidebar() {
             </div>
           )
         })}
-        <div className="section-label section-chats"><History size={14} />Chats</div>
+        </>)}
+        <SectionHead
+          icon={<History size={14} />}
+          label="Chats"
+          open={sectionOpen.chats}
+          onToggle={() => toggleSection('chats')}
+          extraClass="section-chats"
+        />
+        {sectionOpen.chats && (<>
         {standalone.slice(0, 40).map((s) => (
           <SessionItem key={s.sessionId} session={s} active={s.sessionId === currentSessionKey} onOpen={() => void resumeSession(s.sessionId)} />
         ))}
         {standalone.length === 0 && <div className="row-sub" style={{ padding: '4px 9px' }}>no saved chats yet</div>}
+        </>)}
       </div>
 
       <div className="footer-nav">
-        <button className={`nav ${view === 'store' ? 'active' : ''}`} onClick={() => setView('store')}><ShoppingBag size={16} />Store</button>
-        <button className={`nav ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}><SlidersHorizontal size={16} />Settings</button>
-        <button className="icon-btn" style={{ width: 38, height: 36, border: '1px solid var(--border)' }} title="toggle theme" onClick={toggleTheme}>
+        <button className="icon-btn footer-icon" title="local profile"><Monitor size={17} /></button>
+        <button className={`icon-btn footer-icon ${view === 'store' ? 'active' : ''}`} style={{ marginLeft: 'auto' }} title="Store" onClick={() => setView('store')}>
+          <ShoppingBag size={17} />
+        </button>
+        <SettingsMenu variant="footer" />
+        <button className="icon-btn footer-icon" title="toggle theme" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
       </div>

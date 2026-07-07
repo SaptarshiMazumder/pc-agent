@@ -79,7 +79,8 @@ async def test_gateway_feeds_the_event_log(tmp_path):
             pass
 
     class FakeService:
-        async def handle_message(self, sk, message, on_event, abort, mode=None, agent_id=None):
+        async def handle_message(self, sk, message, on_event, abort, mode=None, agent_id=None,
+                                 attachments=None):
             await on_event(AgentEvent("agent_start", {}))
             await on_event(AgentEvent("agent_end", {"stopReason": "stop"}))
 

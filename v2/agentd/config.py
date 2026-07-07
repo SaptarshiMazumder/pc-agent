@@ -53,6 +53,11 @@ class Config:
     # missing") instead of silently defaulting, since models come ONLY from config.
     config_path: str = ""
     model: str = "gemini/gemini-3.1-pro-preview"
+    # Curated model OPTIONS the settings UI offers as a dropdown (so users pick a model
+    # by display name instead of typing a litellm id). Extend/replace it in the JSON config;
+    # empty => the built-in default catalog (gateway.DEFAULT_MODEL_CATALOG). Each entry is
+    # {"value": "provider/model", "label": "Human name", "group": "Provider"}.
+    model_catalog: list = field(default_factory=list)
     # ALL model-bearing TOOLS and SUBSYSTEMS pick their model from ONE place — this clean
     # PLUGIN -> TOOL -> model hierarchy — decoupled from the agent BRAIN (`model`). (web_search
     # grounding, the verify/safe_to_send judges, resource captions/summaries, computer-use, and the

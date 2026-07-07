@@ -94,6 +94,30 @@ export class Supervisor {
 
   private ensurePromise: Promise<GatewayInfo> | null = null
 
+  /** Restart the daemon so restart-gated config changes take effect: stop the running one
+   *  (kill by the pid in the rendezvous file), clear the file, then spawn a fresh daemon —
+   *  which reloads agentd.config.json from scratch. The renderer's gateway auto-reconnects. */
+  async restart(): Promise<GatewayInfo> {
+    this.set('starting', 'restarting agentd to apply changes…')
+    try {
+      const info = await readGatewayFile()
+      if (info?.pid) {
+        try {
+          process.kill(info.pid)
+        } catch {
+          /* already gone */
+        }
+      }
+    } catch {
+      /* no rendezvous file — nothing to stop */
+    }
+    await clearGatewayFile()
+    // let the OS release the port before we (or the renderer) re-ensure
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    this.ensurePromise = null // force a fresh find-or-spawn, not a cached ensure
+    return this.ensure()
+  }
+
   private async doEnsure(): Promise<GatewayInfo> {
     this.set('looking', 'looking for a running agentd…')
     const existing = await findRunning()

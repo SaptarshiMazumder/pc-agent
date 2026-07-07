@@ -86,7 +86,7 @@ async def test_disconnect_over_real_websocket_aborts_run():
 
     class FakeService:
         async def handle_message(self, session_id, text, on_event, abort,
-                                 mode="interactive", agent_id=None):
+                                 mode="interactive", agent_id=None, attachments=None):
             started.set()
             try:
                 while not abort.is_set():  # cooperative abort path

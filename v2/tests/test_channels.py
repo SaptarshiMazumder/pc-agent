@@ -162,7 +162,8 @@ async def test_gateway_channel_inbound_runs_and_replies(tmp_path):
     from agentd.presentation.gateway import Gateway
 
     class _FakeService:                                    # the "agent": writes a reply msg
-        async def handle_message(self, session_id, text, on_event, abort, mode=None, agent_id=None):
+        async def handle_message(self, session_id, text, on_event, abort, mode=None, agent_id=None,
+                                 attachments=None):
             assert mode == RunMode.CHANNEL and agent_id == "support"
             store = SessionStore(tmp_path, session_id)
             store.load()

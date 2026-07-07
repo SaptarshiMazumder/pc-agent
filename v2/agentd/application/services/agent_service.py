@@ -21,7 +21,7 @@ from agentd.application.interfaces.events import EventSink
 from agentd.application.interfaces.memory import SessionStore
 from agentd.application.run_context import RunContext, current_run_outcome, set_run_context
 from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
-from agentd.domain.messages import UserMessage
+from agentd.domain.messages import Artifact, UserMessage
 
 
 def tool_source(t) -> str:
@@ -123,7 +123,8 @@ class AgentService:
     async def handle_message(self, session_id: str, text: str,
                              on_event: EventSink, abort,
                              mode: str = RunMode.INTERACTIVE,
-                             agent_id: str | None = None) -> None:
+                             agent_id: str | None = None,
+                             attachments: "list[Artifact] | None" = None) -> None:
         """Run one turn end to end for the resolved agent.
 
         ``mode`` is the run mode (interactive | heartbeat | cron). ``agent_id`` is an
@@ -141,7 +142,10 @@ class AgentService:
         tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
         session = self._make_session(session_id, agent)   # per-agent session store
         messages = session.load()                         # prior history (read)
-        user_msg = UserMessage(content=text)
+        # attachments (already saved to the workspace by the transport layer, carried by
+        # reference) ride along on the user turn: the client renders them, and the LLM
+        # adapter inlines any image so a vision model can see it.
+        user_msg = UserMessage(content=text, attachments=list(attachments or []))
         messages.append(user_msg)                         # add the new user turn to context
         session.append(user_msg)                          # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools

@@ -24,19 +24,26 @@ CONFIG-ONLY (models come from config, never env), matching the rest of the model
 
 from __future__ import annotations
 
-from agentd.domain.messages import ImageContent
+from agentd.domain.messages import ImageContent, UserMessage
 
 
 def _has_image(messages) -> bool:
-    """True if any message carries an ImageContent block — i.e. the brain must SEE something this
-    turn. UserMessage.content is a plain str (no blocks); images ride on Assistant / ToolResult
-    messages, whose ``content`` is a list of blocks. Defensive: tolerate either shape."""
+    """True if the OUTGOING context carries an image the brain must SEE this turn — the trigger to
+    spend the vision model. Two shapes count, and ONLY these two, because they are exactly what the
+    LLM adapter inlines for the model:
+      * an ImageContent block on an Assistant / ToolResult message's ``content`` list, and
+      * an IMAGE ``attachment`` on a UserMessage (a file the user handed in — the adapter reads it
+        and inlines it as an image part).
+    A ToolResult's DECLARED artifacts are a presentation channel (never sent to the model), so they
+    are deliberately NOT counted here."""
     for m in messages or []:
         content = getattr(m, "content", None)
-        if isinstance(content, list):
-            for b in content:
-                if isinstance(b, ImageContent):
-                    return True
+        if isinstance(content, list) and any(isinstance(b, ImageContent) for b in content):
+            return True
+        if isinstance(m, UserMessage) and any(
+            getattr(a, "kind", None) == "image" for a in m.attachments
+        ):
+            return True
     return False
 
 

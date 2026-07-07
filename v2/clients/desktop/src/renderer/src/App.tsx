@@ -1,9 +1,14 @@
 import { useEffect } from 'react'
 
+import AccountView from './components/AccountView'
+import Canvas from './components/Canvas'
 import ChatView from './components/ChatView'
+import DataSourcesView from './components/DataSourcesView'
 import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
 import StoreView from './components/StoreView'
+import SubscriptionView from './components/SubscriptionView'
+import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
 
 export default function App() {
@@ -15,6 +20,9 @@ export default function App() {
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  // app-wide soft scroll edges: auto-applies the fade to every scroll container (any page)
+  useEffect(() => installSoftScroll(), [])
 
   return (
     <div className="app">
@@ -34,7 +42,11 @@ export default function App() {
         {view === 'chat' && <ChatView />}
         {view === 'store' && <StoreView />}
         {view === 'settings' && <SettingsView />}
+        {view === 'datasources' && <DataSourcesView />}
+        {view === 'account' && <AccountView />}
+        {view === 'subscription' && <SubscriptionView />}
       </main>
+      <Canvas />
     </div>
   )
 }

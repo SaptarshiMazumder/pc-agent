@@ -12,6 +12,8 @@ const api = {
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),
   /** find-or-start the daemon; resolves {url, version, pid} when it's accepting */
   ensureDaemon: () => ipcRenderer.invoke('supervisor:ensure'),
+  /** stop + respawn the daemon so restart-gated config changes take effect */
+  restartDaemon: () => ipcRenderer.invoke('supervisor:restart'),
   onSupervisorStatus: (callback: (status: unknown) => void) => {
     const listener = (_event: unknown, status: unknown) => callback(status)
     ipcRenderer.on('supervisor:status-changed', listener)
@@ -23,6 +25,14 @@ const api = {
   revealPath: (p: string): Promise<void> => ipcRenderer.invoke('file:reveal', p),
   downloadPath: (p: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> =>
     ipcRenderer.invoke('file:download', p),
+  readText: (p: string): Promise<{ ok: boolean; text?: string; error?: string }> =>
+    ipcRenderer.invoke('file:read', p),
+  readBytes: (p: string): Promise<{ ok: boolean; base64?: string; error?: string }> =>
+    ipcRenderer.invoke('file:readBytes', p),
+  savePath: (p: string, content: string, base64?: boolean): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('file:save', p, content, base64),
+  saveAs: (defaultName: string, content: string, base64?: boolean): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('file:saveAs', defaultName, content, base64),
   pickFiles: (): Promise<Array<{ name: string; size: number; dataBase64: string }>> =>
     ipcRenderer.invoke('file:pick')
 }

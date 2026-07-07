@@ -43,6 +43,10 @@ export class GatewayClient {
 
   private async open(): Promise<void> {
     if (!this.urlProvider) return
+    // Tear down any existing socket FIRST so a re-connect never leaves two live sockets
+    // both fanning out events. Without this, React StrictMode's double-mount (dev) calls
+    // connect() twice and every chat event would be handled — and rendered — twice.
+    this.teardownSocket()
     for (const handler of this.statusHandlers) handler('connecting')
     let url: string
     try {
@@ -52,6 +56,7 @@ export class GatewayClient {
       return
     }
     const ws = new WebSocket(url)
+    this.teardownSocket() // close any socket a concurrent open() (StrictMode) just assigned
     this.ws = ws
     ws.onopen = () => {
       this.reconnectDelay = 1000
@@ -66,9 +71,26 @@ export class GatewayClient {
     }
   }
 
+  /** Detach + close the current socket without triggering its reconnect. Used before
+   *  opening a new one (idempotent connect) and on explicit close. */
+  private teardownSocket(): void {
+    const old = this.ws
+    if (!old) return
+    this.ws = null
+    old.onopen = null
+    old.onmessage = null
+    old.onclose = null // so its close doesn't schedule a reconnect
+    old.onerror = null
+    try {
+      old.close()
+    } catch {
+      /* already closing/closed */
+    }
+  }
+
   close(): void {
     this.closedByUs = true
-    this.ws?.close()
+    this.teardownSocket()
   }
 
   request<T = Record<string, any>>(method: string, params: Record<string, unknown> = {}): Promise<T> {

@@ -10,8 +10,13 @@ endpoint may serve.
 
 from __future__ import annotations
 
-import mimetypes
+import base64
+import binascii
+import re
+import uuid
 from pathlib import Path
+
+import mimetypes
 
 # --- extension -> mime, grouped by how a client should present each kind ------------
 _IMAGE = {
@@ -103,6 +108,54 @@ def guess_mime(path: str | Path) -> str:
         if ext in table:
             return table[ext]
     return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+
+
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_name(name: str) -> str:
+    """A filesystem-safe basename for an uploaded file: strip any directory parts and
+    replace anything unusual with '-'. Never empty, never traversal."""
+    base = Path(name or "").name or "file"
+    cleaned = _SAFE_NAME.sub("-", base).strip("-.") or "file"
+    return cleaned[:120]
+
+
+def save_upload(dest_dir: str | Path, name: str, data_b64: str) -> dict:
+    """Persist ONE user-uploaded attachment (base64 from a client) under ``dest_dir`` and
+    return its typed artifact dict ``{path, name, mime, kind, size}`` — the same shape as a
+    tool-declared deliverable, so the client renders it identically and /file streams it.
+
+    The stored file gets a short uuid prefix so two uploads of ``chart.png`` never collide,
+    while the artifact keeps the ORIGINAL display name. Raises ValueError on bad base64.
+    """
+    try:
+        raw = base64.b64decode(data_b64, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise ValueError(f"invalid base64 for upload {name!r}: {e}") from e
+    safe = _safe_name(name)
+    d = Path(dest_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    stored = d / f"{uuid.uuid4().hex[:8]}-{safe}"
+    stored.write_bytes(raw)
+    cls = classify(stored)
+    kind, mime = cls if cls is not None else ("file", guess_mime(stored))
+    return {"path": str(stored), "name": safe, "mime": mime, "kind": kind, "size": len(raw)}
+
+
+def image_data_url(path: str | Path) -> str | None:
+    """Read an IMAGE file and return it as a ``data:<mime>;base64,…`` URL for inlining into
+    an LLM request (so a vision model can SEE a user-attached image). None if the file is
+    missing or isn't a recognised raster/vector image."""
+    p = Path(path)
+    cls = classify(p)
+    if cls is None or cls[0] != "image":
+        return None
+    try:
+        raw = p.read_bytes()
+    except OSError:
+        return None
+    return f"data:{cls[1]};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
 def is_under_roots(path: str | Path, roots: list[Path]) -> bool:

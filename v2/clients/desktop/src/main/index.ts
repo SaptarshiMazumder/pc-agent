@@ -89,6 +89,12 @@ function registerIpc(): void {
     const info = await supervisor.ensure()
     return { url: connectUrl(info), version: info.version, pid: info.pid }
   })
+  // restart the daemon so restart-gated config changes actually take effect (the renderer
+  // triggers this after saving such settings; the gateway then auto-reconnects to the new one)
+  ipcMain.handle('supervisor:restart', async () => {
+    const info = await supervisor.restart()
+    return { url: connectUrl(info), version: info.version, pid: info.pid }
+  })
   supervisor.onStatus((status) => {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('supervisor:status-changed', status)
@@ -126,6 +132,54 @@ function registerIpc(): void {
     if (res.canceled || !res.filePath) return { ok: false, canceled: true }
     try {
       await fs.promises.copyFile(src, res.filePath)
+      return { ok: true, path: res.filePath }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) }
+    }
+  })
+  // read a local file's TEXT for the Canvas viewer/editor (IPC, not HTTP — avoids the
+  // cross-origin fetch restriction the /file endpoint would hit)
+  ipcMain.handle('file:read', async (_e, p: string) => {
+    try {
+      return { ok: true, text: await fs.promises.readFile(String(p || ''), 'utf8') }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) }
+    }
+  })
+  // read a local file's BYTES as base64 — the raster editor loads it as a data: URL so
+  // the fabric canvas stays same-origin (untainted) and can export a PNG back
+  ipcMain.handle('file:readBytes', async (_e, p: string) => {
+    try {
+      const buf = await fs.promises.readFile(String(p || ''))
+      return { ok: true, base64: buf.toString('base64') }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) }
+    }
+  })
+  // save edited content back to an EXISTING file (Canvas editor). Text by default; pass
+  // base64=true to write binary (edited PNG). Refuses to create new files.
+  ipcMain.handle('file:save', async (_e, p: string, content: string, base64?: boolean) => {
+    const target = String(p || '')
+    try {
+      if (!fs.statSync(target).isFile()) return { ok: false, error: 'not a file' }
+      const data = base64 ? Buffer.from(String(content || ''), 'base64') : String(content ?? '')
+      await fs.promises.writeFile(target, data)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message || e) }
+    }
+  })
+  // save EDITED content to a file the user picks (export a copy) — text or base64 binary.
+  ipcMain.handle('file:saveAs', async (_e, defaultName: string, content: string, base64?: boolean) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const defaultPath = path.join(app.getPath('downloads'), String(defaultName || 'export'))
+    const res = win
+      ? await dialog.showSaveDialog(win, { defaultPath })
+      : await dialog.showSaveDialog({ defaultPath })
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    try {
+      const data = base64 ? Buffer.from(String(content || ''), 'base64') : String(content ?? '')
+      await fs.promises.writeFile(res.filePath, data)
       return { ok: true, path: res.filePath }
     } catch (e) {
       return { ok: false, error: String((e as Error)?.message || e) }

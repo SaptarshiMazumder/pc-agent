@@ -34,8 +34,9 @@ from agentd.config import Config
 from agentd.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
+from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
-from agentd.infrastructure.files import guess_mime, is_under_roots
+from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
 
@@ -108,8 +109,11 @@ def _trim_history_message(message: dict) -> dict:
     role = message.get("role")
     ts = message.get("ts", "")          # the line's stored send time (ISO) — kept for display
     if role == "user":
-        return {"role": "user", "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
-                "ts": ts, "timestamp": message.get("timestamp", 0)}
+        out = {"role": "user", "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
+               "ts": ts, "timestamp": message.get("timestamp", 0)}
+        if message.get("attachments"):  # user-supplied files (by ref) — so a resumed chat shows them
+            out["attachments"] = message["attachments"]
+        return out
     if role == "assistant":
         return {"role": "assistant",
                 "content": [_trim_history_block(b) for b in message.get("content") or []],
@@ -265,6 +269,223 @@ def _persist_webhooks(config) -> bool:
     except Exception as e:  # noqa: BLE001 — persistence is best-effort
         log.warning("could not persist webhooks to %s: %s", path, e)
         return False
+
+
+# --- editable-config surface (config.get / config.set) ------------------------------
+# Provider API keys the settings UI can inspect (presence only) and set. These are
+# SECRETS: they live in the .env file (read by LiteLLM/tools straight from os.environ),
+# never in agentd.config.json. config.get returns booleans (is-it-set), NEVER the value.
+PROVIDER_ENV_KEYS = (
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+    "XAI_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY", "FAL_KEY",
+    "REPLICATE_API_TOKEN", "BRAVE_API_KEY", "PARALLEL_API_KEY",
+)
+# The config knobs the settings UI may READ and WRITE (a curated allowlist — never the
+# install identity `distribution`, the `gateway_token` secret, or `config_path`). Anything
+# not here is ignored on write, so a client can't set an arbitrary attribute.
+EXPOSED_CONFIG_KEYS = (
+    "agent_name", "model", "reasoning_effort", "max_turns",
+    "model_fallbacks", "cost_efficiency", "model_catalog",
+    "llm_idle_timeout_seconds", "llm_request_timeout_seconds",
+    "host", "port", "workspace", "state_dir",
+    "tool_timeout_default", "tool_retries_default",
+    "tool_loop_max_repeats_default", "tool_loop_warn_after_errors_default",
+    "tools_enabled", "tools_disabled",
+    "verify_tool", "completeness_check", "computer_enabled", "execution_contract",
+    "subagents_enabled", "subagent_max", "subagent_max_depth",
+    "memory_enabled", "memory_auto_recall", "memory_auto_recall_limit",
+    "skill_workshop", "agent_workshop", "mcp_workshop", "tool_workshop",
+    "agent_messaging_enabled",
+    "autonomy_enabled", "heartbeat_default_interval", "heartbeat_active_hours",
+    "notify_enabled", "safe_to_send_check",
+    "workspace_index_enabled", "resource_manager_enabled",
+    "resource_vision_enabled", "resource_summarize_enabled",
+    "scratch_ttl_hours", "context_max_messages", "event_log_enabled",
+    "parallel_search_enabled", "google_account", "public_url",
+    "webhook_host", "webhook_port", "skills_relevance_enabled",
+    "plugins",
+)
+WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
+PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})
+
+# Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
+# so a user picks a model by name instead of typing an id. The config's own `model_catalog`
+# extends this, and whatever models are actually in use are always merged in (below), so a
+# custom/uncommon model never disappears from the picker.
+DEFAULT_MODEL_CATALOG = (
+    {"value": "gemini/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro"},
+    {"value": "gemini/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+    {"value": "gemini/gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
+    {"value": "gemini/gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
+    {"value": "anthropic/claude-opus-4-8", "label": "Claude Opus 4.8"},
+    {"value": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5"},
+    {"value": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5"},
+    {"value": "anthropic/claude-3-5-sonnet-latest", "label": "Claude 3.5 Sonnet"},
+    {"value": "openai/gpt-5", "label": "GPT-5"},
+    {"value": "openai/gpt-5-mini", "label": "GPT-5 mini"},
+    {"value": "openai/gpt-4.1", "label": "GPT-4.1"},
+    {"value": "openai/gpt-4o", "label": "GPT-4o"},
+    {"value": "openai/o3", "label": "o3"},
+    {"value": "deepseek/deepseek-chat", "label": "DeepSeek V3"},
+    {"value": "deepseek/deepseek-reasoner", "label": "DeepSeek R1"},
+    {"value": "xai/grok-4", "label": "Grok 4"},
+    {"value": "xai/grok-3", "label": "Grok 3"},
+    {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
+    {"value": "mistral/mistral-large-latest", "label": "Mistral Large"},
+)
+_PROVIDER_LABEL = {
+    "gemini": "Google", "google": "Google", "vertex_ai": "Google", "anthropic": "Anthropic",
+    "openai": "OpenAI", "azure": "OpenAI", "deepseek": "DeepSeek", "xai": "xAI",
+    "groq": "Groq", "mistral": "Mistral", "openrouter": "OpenRouter", "together": "Together",
+    "fireworks": "Fireworks", "ollama": "Ollama",
+}
+# Which env key(s) a provider needs before its models can actually run. () => local/no key
+# (always available); a prefix absent here is treated as "unknown provider" => not filtered
+# out (could be a custom endpoint). Used to hide models a user has no key for.
+_PROVIDER_KEY_ENV = {
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "google": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "azure": ("AZURE_API_KEY", "OPENAI_API_KEY"),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+    "groq": ("GROQ_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "together": ("TOGETHER_API_KEY",),
+    "fireworks": ("FIREWORKS_API_KEY",),
+    "ollama": (),
+}
+
+
+def _provider_prefix(model_id: str) -> str:
+    return model_id.split("/", 1)[0].lower() if "/" in model_id else ""
+
+
+def _provider_group(model_id: str) -> str:
+    return _PROVIDER_LABEL.get(_provider_prefix(model_id), "Other")
+
+
+def _provider_has_key(model_id: str) -> bool:
+    """True if the provider behind this model is usable right now (a required key is present,
+    or it needs none / is an unknown custom provider we won't second-guess)."""
+    envs = _PROVIDER_KEY_ENV.get(_provider_prefix(model_id))
+    if not envs:                       # unknown provider or keyless (ollama) => don't hide
+        return True
+    return any(os.environ.get(e) for e in envs)
+
+
+def _build_model_catalog(cfg) -> list:
+    """The dropdown options for model fields. The MENU is the config's ``model_catalog`` — the
+    single source of truth; ``DEFAULT_MODEL_CATALOG`` is only a fallback when the config lists
+    none (so a fresh install still has suggestions). Menu entries are filtered to providers whose
+    API key is present (never offer a model that can't run); every model actually IN USE is always
+    included even without a detected key. Deduped by value, tagged with a provider group."""
+    seen: dict = {}
+
+    def add(value, label=None, group=None, force=False):
+        v = (str(value) if value else "").strip()
+        if not v or v in seen:
+            return
+        if not force and not _provider_has_key(v):     # hide a menu model with no key
+            return
+        seen[v] = {"value": v, "label": (label or v), "group": (group or _provider_group(v))}
+
+    # the menu: config.model_catalog (source of truth), or the built-in seed if it's empty
+    menu = getattr(cfg, "model_catalog", None) or DEFAULT_MODEL_CATALOG
+    for entry in menu:
+        if isinstance(entry, dict):
+            add(entry.get("value") or entry.get("id"), entry.get("label"), entry.get("group"))
+        elif isinstance(entry, str):
+            add(entry)
+    # whatever is actually configured, so it can never vanish from the picker (force past the key gate)
+    add(getattr(cfg, "model", None), force=True)
+    for m in (getattr(cfg, "model_fallbacks", None) or []):
+        add(m, force=True)
+    ce = getattr(cfg, "cost_efficiency", None) or {}
+    if isinstance(ce, dict):
+        add(ce.get("text_model"), force=True)
+        add(ce.get("vision_model"), force=True)
+    return list(seen.values())
+
+
+def _config_file_path():
+    """The agentd.config.json this daemon reads (first existing candidate), or the
+    default write location when none exists yet. Same resolver load_config uses."""
+    from agentd import runtime_paths
+    for cand in runtime_paths.config_candidates():
+        if cand and Path(cand).is_file():
+            return Path(cand)
+    return runtime_paths.default_config_write_path()
+
+
+def _json_safe(value):
+    """Coerce a live Config value to something JSON-serializable (Path -> str, recurse)."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _persist_config_patch(patch: dict) -> tuple[bool, str]:
+    """Merge ``patch`` into agentd.config.json, PRESERVING every other key. Best-effort."""
+    import json
+    path = _config_file_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        data = {}
+    data.update(patch)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return True, str(path)
+    except OSError as e:  # noqa: BLE001 — persistence is best-effort
+        log.warning("could not persist config to %s: %s", path, e)
+        return False, str(path)
+
+
+def _update_env_file(env_path: Path, keys: dict) -> bool:
+    """Set/clear provider keys in a .env file, preserving all other lines, and apply them
+    LIVE to os.environ (LiteLLM reads keys from the environment at call time, so a set key
+    works without a restart). An empty value removes the key."""
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
+    except OSError:
+        lines = []
+    remaining = dict(keys)
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            name = stripped.split("=", 1)[0].strip()
+            if name in remaining:
+                val = remaining.pop(name)
+                if val == "":
+                    continue                       # delete this line
+                out.append(f"{name}={val}")
+                continue
+        out.append(line)
+    for name, val in remaining.items():
+        if val != "":
+            out.append(f"{name}={val}")
+    try:
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
+    except OSError as e:  # noqa: BLE001
+        log.warning("could not write env file %s: %s", env_path, e)
+        return False
+    for name, val in keys.items():
+        if val == "":
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = val
+    return True
 
 
 @dataclass
@@ -1018,6 +1239,10 @@ class Gateway:
                 payload = await self._chat_abort(req.params)
             elif req.method == "hello":
                 payload = self._hello()
+            elif req.method == "config.get":
+                payload = self._config_get()
+            elif req.method == "config.set":
+                payload = self._config_set(req.params)
             elif req.method == "sessions.list":
                 payload = self._sessions_list(req.params)
             elif req.method == "sessions.history":
@@ -1026,6 +1251,10 @@ class Gateway:
                 payload = await self._sessions_rename(req.params)
             elif req.method == "sessions.delete":
                 payload = await self._sessions_delete(req.params)
+            elif req.method == "sessions.move":
+                payload = await self._sessions_move(req.params)
+            elif req.method == "sessions.duplicate":
+                payload = await self._sessions_duplicate(req.params)
             elif req.method == "projects.list":
                 payload = self._projects_list()
             elif req.method == "projects.create":
@@ -1038,6 +1267,8 @@ class Gateway:
                 payload = self._agents_list()
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
+            elif req.method == "plugins.catalog":
+                payload = self._plugins_catalog()
             elif req.method == "mcp.add":
                 payload = await self._mcp_add(req.params)
             elif req.method == "mcp.list":
@@ -1159,6 +1390,38 @@ class Gateway:
             event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key,
                                                "deleted": True})))
         return {"ok": True, "deleted": deleted, "sessionKey": session_key, "agentId": agent_id}
+
+    async def _sessions_move(self, params: dict) -> dict:
+        """Assign a saved session to a project (empty projectId => back to standalone). Writes
+        the session's sidecar `projectId` and broadcasts sessions.changed so every client
+        re-groups it live. Agent-scoped, like the other session RPCs."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
+        session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
+        if not session_key:
+            return {"ok": False, "error": "sessionKey required"}
+        from agentd.infrastructure.memory.local_store import write_session_meta
+        project_id = (params.get("projectId") or "").strip()
+        write_session_meta(state_dir, session_key, projectId=project_id)
+        await self._send_all(dump_frame(Event(
+            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key})))
+        return {"ok": True, "sessionKey": session_key, "projectId": project_id, "agentId": agent_id}
+
+    async def _sessions_duplicate(self, params: dict) -> dict:
+        """Copy a saved conversation (transcript + meta) into a new session with a "… (copy)"
+        title, same project. Broadcasts sessions.changed so the copy appears in every client's
+        list. Returns the new session key so the caller can open it."""
+        agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
+        session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
+        if not session_key:
+            return {"ok": False, "error": "sessionKey required"}
+        from agentd.infrastructure.memory.local_store import duplicate_session
+        new_key = duplicate_session(state_dir, session_key)
+        if not new_key:
+            return {"ok": False, "error": "session not found"}
+        await self._send_all(dump_frame(Event(
+            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": new_key,
+                                               "created": True})))
+        return {"ok": True, "sessionKey": new_key, "agentId": agent_id}
 
     # ------------------------------------------------------------------ projects
     # Projects are SERVER data (one global list in the daemon's root state dir) so
@@ -1401,6 +1664,54 @@ class Gateway:
         agent_id = (params.get("agentId") or "").strip() or None
         tools = self.service.list_tools(agent_id)
         return {"tools": tools, "count": len(tools), "agentId": agent_id}
+
+    def _plugins_catalog(self) -> dict:
+        """The plugin -> tool catalog for the settings UI: every plugin, its tools, each tool's
+        on/off state, whether it takes a model (and the model it resolves to today), and its
+        provider if one is configured. Reuses the same discovery + model resolver the CLI's
+        list_plugins uses, then overlays enable state from config (plugin gate + tools_disabled)."""
+        from agentd.application.tool_models import resolve_tool_provider
+        from agentd.main.list_plugins import build_catalog
+
+        cfg = self.config
+        cfg_plugins = getattr(cfg, "plugins", None) or {}
+        disabled = set(getattr(cfg, "tools_disabled", None) or [])
+
+        def plugin_enabled(pid: str) -> bool:
+            v = cfg_plugins.get(pid)
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, dict):
+                return v.get("enabled", True) is not False
+            return True
+
+        try:
+            cat = build_catalog(cfg)
+        except Exception as e:  # noqa: BLE001 — never let discovery crash the settings page
+            log.warning("plugins.catalog: build failed: %s", e)
+            return {"plugins": [], "error": str(e)}
+
+        out = []
+        for pid in sorted(cat):
+            p = cat[pid]
+            tools = []
+            for t in sorted(p["tools"], key=lambda x: x["name"]):
+                name = t["name"]
+                tools.append({
+                    "name": name,
+                    "description": t.get("description", ""),
+                    "needsModel": bool(t.get("needs_model")),
+                    "model": t.get("model"),
+                    "provider": resolve_tool_provider(cfg, pid, name),
+                    "enabled": name not in disabled,
+                })
+            out.append({
+                "id": pid,
+                "description": p.get("description", ""),
+                "enabled": plugin_enabled(pid),
+                "tools": tools,
+            })
+        return {"plugins": out}
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
@@ -1699,17 +2010,119 @@ class Gateway:
             "agents": self._agents_list()["agents"],   # so any client can show/pick agents
         }
 
+    def _config_get(self) -> dict:
+        """The editable-config surface the settings UI renders: the current effective value
+        of every EXPOSED knob, plus provider-key presence (booleans only — never the secret),
+        the config file path, and the raw file text (for the Advanced/raw editor)."""
+        import json
+        cfg = self.config
+        values: dict = {}
+        for key in EXPOSED_CONFIG_KEYS:
+            if hasattr(cfg, key):
+                values[key] = _json_safe(getattr(cfg, key))
+        # MCP servers are managed via mcp.* but shown here read-only for context
+        values["mcp_servers"] = [_server_dict(s) for s in (cfg.mcp_servers or [])]
+        path = _config_file_path()
+        try:
+            raw = path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError:
+            raw = ""
+        # pretty-print the raw file so the Advanced editor is readable even if hand-minified
+        if raw.strip():
+            try:
+                raw = json.dumps(json.loads(raw), indent=2) + "\n"
+            except ValueError:
+                pass
+        return {
+            "path": str(path),
+            "exists": path.is_file(),
+            "envPath": str(path.parent / ".env"),
+            "values": values,
+            "env": {name: bool(os.environ.get(name)) for name in PROVIDER_ENV_KEYS},
+            "providerKeys": list(PROVIDER_ENV_KEYS),
+            # option-sets a client renders as dropdowns (value + display label + group). Any
+            # field can reference one of these by key — scalable: add a catalog, reference it.
+            "catalogs": {"models": _build_model_catalog(cfg)},
+            "raw": raw,
+            "effectiveModel": _effective_model(cfg),
+            "version": __version__,
+        }
+
+    def _config_set(self, params: dict) -> dict:
+        """Persist config edits. Three independent, composable inputs:
+          * ``patch``  {key: value} for EXPOSED_CONFIG_KEYS -> merged into the JSON file
+            (all other keys preserved) AND hot-applied to the in-memory Config.
+          * ``keys``   {ENV_NAME: value} provider secrets -> written to the .env sibling of
+            the config file and applied live (empty value removes the key).
+          * ``raw``    a full JSON document -> overwrites the whole config file (Advanced editor).
+        A daemon restart guarantees full effect (some knobs only bind at startup)."""
+        import json
+        patch = params.get("patch") or {}
+        keys = params.get("keys") or {}
+        raw = params.get("raw")
+
+        # (a) raw full-file overwrite — validate it's a JSON object first.
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except ValueError as e:
+                return {"saved": False, "error": f"invalid JSON: {e}"}
+            if not isinstance(parsed, dict):
+                return {"saved": False, "error": "config must be a JSON object"}
+            path = _config_file_path()
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(parsed, indent=2) + "\n", encoding="utf-8")
+            except OSError as e:
+                return {"saved": False, "error": str(e)}
+            return {"saved": True, "path": str(path), "restartRecommended": True}
+
+        result: dict = {"saved": False, "restartRecommended": False}
+
+        # (b) whitelisted key/value patch.
+        clean = {k: v for k, v in patch.items() if k in WRITABLE_CONFIG_KEYS}
+        if clean:
+            ok, path = _persist_config_patch(clean)
+            if not ok:
+                return {"saved": False, "error": f"could not write {path}"}
+            for k, v in clean.items():                 # hot-apply (full effect on restart)
+                try:
+                    if k in PATH_CONFIG_KEYS and isinstance(v, str):
+                        setattr(self.config, k, Path(v).expanduser())
+                    else:
+                        setattr(self.config, k, v)
+                except Exception:  # noqa: BLE001 — a bad value never crashes the save
+                    pass
+            result.update(saved=True, path=path, restartRecommended=True)
+
+        # (c) provider keys -> the .env next to the config file.
+        if keys:
+            env_path = _config_file_path().parent / ".env"
+            wrote = _update_env_file(env_path, {k: str(v) for k, v in keys.items()})
+            result["envPath"] = str(env_path)
+            result["keysApplied"] = wrote
+            result["saved"] = result["saved"] or wrote
+
+        if not clean and not keys:
+            result["saved"] = True                     # nothing to change is not a failure
+        return result
+
     async def _chat_send(self, params: dict, client_id: str | None = None) -> dict:
         session_key = params.get("sessionKey") or "default"
         message = params.get("message") or ""
-        if not message.strip():
-            raise ValueError("message must not be empty")
 
         # explicit agent selection (any client names the agent; the registry resolves
         # it — no client knows the session-key format). Unknown id -> clear error.
         agent_id = params.get("agentId") or None
         if agent_id and self.registry is not None and agent_id not in self.registry.list_ids():
             raise ValueError(f"unknown agent: {agent_id}")
+
+        # user attachments (e.g. an edited image sent from the canvas): save each into the
+        # target agent's workspace/uploads and carry them BY REFERENCE (Artifact). A message
+        # may be attachments-only (no text), so the empty-check comes AFTER resolving them.
+        attachments = self._save_uploads(agent_id, params.get("attachments") or [])
+        if not message.strip() and not attachments:
+            raise ValueError("message must not be empty")
 
         # project membership: a chat started "inside a project" carries projectId; the
         # link lives on the session's meta sidecar (server data — every client sees it).
@@ -1738,9 +2151,49 @@ class Gateway:
         handle = RunHandle(
             run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
         )
-        handle.task = asyncio.create_task(self._run(handle, message, agent_id=agent_id))
+        handle.task = asyncio.create_task(
+            self._run(handle, message, agent_id=agent_id, attachments=attachments))
         self.runs[session_key] = handle
-        return {"runId": run_id}
+        return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
+
+    def _save_uploads(self, agent_id: str | None, raw: list) -> list[Artifact]:
+        """Persist client-supplied attachments into the target agent's ``workspace/uploads``
+        and return them as domain Artifacts (by reference). Each item is
+        ``{name, mimeType?, dataBase64}``. Oversized or malformed items are skipped rather
+        than failing the whole send. IO lives HERE (presentation) so the application service
+        stays free of infrastructure."""
+        if not raw:
+            return []
+        workspace = self._resolve_workspace(agent_id)
+        dest = Path(workspace) / "uploads"
+        out: list[Artifact] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            b64 = item.get("dataBase64") or item.get("data") or ""
+            name = item.get("name") or "attachment"
+            # cheap size guard on the base64 string (decoded size ~= 3/4 of it)
+            if not b64 or (len(b64) * 3) // 4 > UPLOAD_MAX_BYTES:
+                log.warning("skipping upload %r: empty or over %d bytes", name, UPLOAD_MAX_BYTES)
+                continue
+            try:
+                info = save_upload(dest, name, b64)
+            except ValueError as e:
+                log.warning("skipping upload %r: %s", name, e)
+                continue
+            out.append(Artifact(**info))
+        return out
+
+    def _resolve_workspace(self, agent_id: str | None) -> str:
+        """The workspace dir uploads land in — the named agent's own, else the default.
+        Mirrors _resolve_state_dir's resolution so files sit where that agent's tools look."""
+        aid = (agent_id or "").strip()
+        if aid and self.registry is not None:
+            try:
+                return str(self.registry.get(aid).workspace)
+            except KeyError:
+                pass
+        return str(self.config.workspace)
 
     def _abort_handle(self, handle: RunHandle) -> bool:
         """Signal a run to stop: set its abort flag (cooperative — the loop/tools
@@ -1774,7 +2227,8 @@ class Gateway:
     # -------------------------------------------------------------------- run
 
     async def _run(self, handle: RunHandle, message: str,
-                   mode: str = RunMode.INTERACTIVE, agent_id: str | None = None) -> None:
+                   mode: str = RunMode.INTERACTIVE, agent_id: str | None = None,
+                   attachments: list[Artifact] | None = None) -> None:
         # The gateway (presentation) now only adapts transport: it provides the event
         # sink (broadcast) and delegates the actual work to the AgentService use-case.
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
@@ -1800,7 +2254,7 @@ class Gateway:
         try:
             await self.service.handle_message(
                 handle.session_key, message, on_event, handle.abort,
-                mode=mode, agent_id=agent_id,
+                mode=mode, agent_id=agent_id, attachments=attachments,
             )
         except asyncio.CancelledError:
             status = "aborted"  # abort already broadcast agent_end(aborted) from the loop

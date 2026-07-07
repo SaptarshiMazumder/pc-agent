@@ -46,6 +46,7 @@ from agentd.domain.messages import (
     UserMessage,
 )
 from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
+from agentd.infrastructure.files import image_data_url
 
 # Map a provider's "why did you stop" reason -> our internal stop_reason vocabulary.
 FINISH_REASON_MAP = {
@@ -69,7 +70,28 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
     emitted_call_ids: set[str] = set()        # tool-call ids actually sent, for pairing
     for m in messages:
         if isinstance(m, UserMessage):
-            out.append({"role": "user", "content": m.content})
+            # A plain text turn stays a plain string. When the user ATTACHED files, build a
+            # multimodal parts array: the text, each IMAGE inlined as a data URL so a vision
+            # model can SEE it (read from disk at send time — the transcript only holds the
+            # path), and a one-line mention for non-image files (which the agent can open with
+            # its own tools, since they live in the workspace).
+            if getattr(m, "attachments", None):
+                parts: list[dict[str, Any]] = []
+                if m.content:
+                    parts.append({"type": "text", "text": m.content})
+                extra_notes: list[str] = []
+                for att in m.attachments:
+                    url = image_data_url(att.path)
+                    if url is not None:
+                        parts.append({"type": "image_url", "image_url": {"url": url}})
+                    else:
+                        extra_notes.append(f"- {att.name} ({att.path})")
+                if extra_notes:
+                    parts.append({"type": "text",
+                                  "text": "(attached files:\n" + "\n".join(extra_notes) + ")"})
+                out.append({"role": "user", "content": parts or m.content})
+            else:
+                out.append({"role": "user", "content": m.content})
         elif isinstance(m, AssistantMessage):
             text = m.text  # visible text only; thinking blocks are dropped outbound
             tool_calls = [

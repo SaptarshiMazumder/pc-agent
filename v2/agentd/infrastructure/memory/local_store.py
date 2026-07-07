@@ -182,6 +182,47 @@ def delete_session(state_dir: Path, session_id: str) -> bool:
     return existed
 
 
+def duplicate_session(state_dir: Path, session_id: str) -> str | None:
+    """Copy a session's transcript + meta into a NEW session and return its id (== the
+    filename stem, which is what a client resumes by), or None if the source is missing.
+
+    The transcript is copied VERBATIM except the header line's logical ``id`` (and its
+    timestamp), so the copy is an independent, self-consistent thread. The new id is
+    generated filename-safe so its on-disk stem equals the id ``list_sessions`` reports.
+    The copy keeps the source's project and gets a "… (copy)" manual title."""
+    src = SessionStore(state_dir, session_id)
+    if not src.path.exists():
+        return None
+    new_id = f"copy-{uuid.uuid4().hex}"  # already filename-safe => stem == id
+    dst_path = Path(state_dir) / "sessions" / f"{new_id}.jsonl"
+
+    lines = src.path.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") == "session":  # rewrite the header's logical id
+            entry["id"] = new_id
+            entry["timestamp"] = _iso_now()
+            lines[i] = json.dumps(entry)
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    dst_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    meta = read_session_meta(state_dir, session_id)
+    base = (meta.get("title") or "").strip()
+    write_session_meta(
+        state_dir,
+        new_id,
+        title=(f"{base} (copy)"[:80] if base else ""),
+        manual=bool(base),
+        projectId=meta.get("projectId") or "",
+    )
+    return new_id
+
+
 def sessions_in_project(state_dir: Path, project_id: str) -> list[str]:
     """Session ids (filename stems) under ONE state dir tagged with this project."""
     sessions_dir = Path(state_dir) / "sessions"
