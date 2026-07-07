@@ -67,6 +67,10 @@ class AgentService:
         plugin_reloader: Callable[[], dict] | None = None,  # hot-load NEW plugins into the live
         # catalog (marketplace installs / create_tool). Filled by the composition root — the
         # service only knows "something can extend my toolset live", never how discovery works.
+        resolve_workspace: Callable[[AgentSpec, str], str] | None = None,  # (agent, session_id) ->
+        # the EFFECTIVE working dir for this run's file/exec tools. Injected by the composition
+        # root so a PROJECT chat binds to the project's shared workspace (plan §11: file ownership
+        # follows context, not identity). None => the agent's own workspace, exactly as before.
     ):
         self._engine = engine
         self._tools = tools
@@ -75,6 +79,7 @@ class AgentService:
         self._build_prompt = build_prompt
         self._recall = recall               # auto-recall: prepends relevant memories on user turns
         self.plugin_reloader = plugin_reloader
+        self._resolve_workspace = resolve_workspace
 
     def _resolve_agent(self, session_id: str, agent_id: str | None):
         """Explicit agent_id wins (a client naming the agent); else resolve from the
@@ -85,6 +90,44 @@ class AgentService:
             except KeyError:
                 pass
         return self._registry.resolve(session_id)
+
+    def _mention_directive(self, text: str, agent: AgentSpec, tools: list) -> str:
+        """A system-prompt directive when the user @-mentions OTHER agents (Layer B routing).
+
+        Matches ``@id`` or ``@Display Name`` (case-insensitive) against the registry, excluding
+        the serving agent itself. Emitted ONLY when the ``message_agent`` tool is actually in this
+        turn's toolset — otherwise a mention stays plain text (no false capability). Pure string
+        work + registry interface, so it lives in the application layer."""
+        if "@" not in (text or ""):
+            return ""
+        if not any(getattr(t, "name", "") == "message_agent" for t in tools):
+            return ""
+        list_ids = getattr(self._registry, "list_ids", None)
+        if list_ids is None:
+            return ""
+        low = text.lower()
+        mentioned: list[tuple[str, str]] = []
+        for aid in list_ids():
+            if aid == agent.id:
+                continue                                   # mentioning yourself isn't delegation
+            try:
+                spec = self._registry.get(aid)
+            except KeyError:
+                continue
+            name = (getattr(spec, "name", "") or aid).strip()
+            if f"@{aid.lower()}" in low or (name and f"@{name.lower()}" in low):
+                mentioned.append((aid, name))
+        if not mentioned:
+            return ""
+        listing = ", ".join(f"'{name}' (id: {aid})" for aid, name in mentioned)
+        return (
+            "## Delegation directive\n"
+            f"The user @-mentioned other agent(s) in their message: {listing}. Delegate the "
+            "relevant part of the request to each mentioned agent NOW with the `message_agent` "
+            "tool (message_agent(agent=<id>, message=<clear, self-contained task>)), wait for "
+            "the replies, and weave them into your answer, crediting each agent. Do NOT answer "
+            "on a mentioned agent's behalf or pretend to be them."
+        )
 
     def add_tools(self, tools: list) -> None:
         """Register more tools after construction (e.g. MCP tools discovered async
@@ -134,10 +177,21 @@ class AgentService:
         path unchanged.
         """
         agent = self._resolve_agent(session_id, agent_id)  # explicit override or session key
+        # The EFFECTIVE workspace for this run (plan §11): a chat inside a project binds to the
+        # project's SHARED folder (every agent in the project reads/writes the same files); a
+        # standalone chat stays on the agent's own workspace — byte-for-byte today's behavior.
+        # The agent never chooses: the daemon 'cd's it here, before the first tool runs.
+        workspace = str(agent.workspace)
+        if self._resolve_workspace is not None:
+            try:
+                workspace = self._resolve_workspace(agent, session_id) or workspace
+            except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a turn
+                pass
         # expose the run context to context-aware tools (e.g. cron tags its task with
-        # this agent). Task-local, so concurrent runs never cross.
+        # this agent). Task-local, so concurrent runs never cross. Set BEFORE the prompt is
+        # built, so the workspace manifest indexes the same folder the tools will use.
         set_run_context(RunContext(agent_id=agent.id, session_key=session_id, mode=mode,
-                                   workspace=str(agent.workspace),
+                                   workspace=workspace,
                                    plugins=getattr(agent, "plugins", None) or None))
         tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
         session = self._make_session(session_id, agent)   # per-agent session store
@@ -149,6 +203,13 @@ class AgentService:
         messages.append(user_msg)                         # add the new user turn to context
         session.append(user_msg)                          # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
+        # @mention delegation (Layer B): the user @-mentioned OTHER agents in their message —
+        # nudge the serving agent to actually delegate via message_agent and weave the replies
+        # into its answer. Only fires when the tool is really available (config-gated), so a
+        # mention degrades to plain text instead of a false promise.
+        directive = self._mention_directive(text, agent, tools)
+        if directive:
+            system_prompt = system_prompt + "\n\n" + directive
         # Auto-recall (OpenClaw's before_prompt_build): on a USER turn only, silently retrieve
         # relevant long-term memories and prepend them — the agent doesn't call a tool. Gated to
         # INTERACTIVE so heartbeat/cron runs don't burn embeddings; fail-open so a slow/broken

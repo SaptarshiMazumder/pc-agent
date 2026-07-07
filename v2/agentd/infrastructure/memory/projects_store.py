@@ -28,7 +28,17 @@ def _path(state_dir: Path) -> Path:
 def _read(state_dir: Path) -> list[dict]:
     try:
         data = json.loads(_path(state_dir).read_text(encoding="utf-8"))
-        return [p for p in data.get("projects", []) if isinstance(p, dict) and p.get("id")]
+        out = []
+        for p in data.get("projects", []):
+            if not (isinstance(p, dict) and p.get("id")):
+                continue
+            # Layer B fields, normalized so every record (incl. pre-existing ones) carries them:
+            # defaultAgentId = the project's LEAD agent (answers "message the project"); members =
+            # the curated agent roster shown in the project UI. Absent => ""/[].
+            p.setdefault("defaultAgentId", "")
+            p["members"] = [str(m) for m in (p.get("members") or []) if str(m)]
+            out.append(p)
+        return out
     except (OSError, ValueError):
         return []
 
@@ -60,9 +70,48 @@ def create_project(state_dir: Path, name: str) -> dict:
     name = clean_project_name(name)
     if not name:
         raise ValueError("project name required")
-    project = {"id": f"proj-{uuid.uuid4().hex[:8]}", "name": name, "createdAt": time.time()}
+    project = {"id": f"proj-{uuid.uuid4().hex[:8]}", "name": name, "createdAt": time.time(),
+               "defaultAgentId": "", "members": []}
     _write(state_dir, _read(state_dir) + [project])
     return project
+
+
+def set_lead(state_dir: Path, project_id: str, agent_id: str) -> bool:
+    """Set the project's LEAD agent (`defaultAgentId`) — who answers when you message the
+    project. Empty agent_id clears the lead (falls back to 'main' at send time). False if
+    the project doesn't exist."""
+    projects = _read(state_dir)
+    for p in projects:
+        if p["id"] == project_id:
+            p["defaultAgentId"] = (agent_id or "").strip()
+            _write(state_dir, projects)
+            return True
+    return False
+
+
+def set_members(state_dir: Path, project_id: str, members: list) -> bool:
+    """Replace the project's curated agent roster (deduped, order kept). False if the
+    project doesn't exist."""
+    projects = _read(state_dir)
+    for p in projects:
+        if p["id"] == project_id:
+            p["members"] = list(dict.fromkeys(str(m).strip() for m in (members or [])
+                                              if str(m).strip()))
+            _write(state_dir, projects)
+            return True
+    return False
+
+
+def project_workspace_dir(state_dir: Path, project_id: str) -> Path:
+    """The project's SHARED workspace — where every agent working inside this project reads
+    and writes files (see the redesign plan §11: file ownership follows context, not identity).
+    Created on demand: ``<state_dir>/projects/<id>/workspace/``."""
+    d = Path(state_dir) / "projects" / project_id / "workspace"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return d
 
 
 def rename_project(state_dir: Path, project_id: str, name: str) -> bool:

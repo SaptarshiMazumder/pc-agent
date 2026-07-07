@@ -61,11 +61,19 @@ export interface SessionRow {
   projectId: string
   messages: number
   modified: number
+  /** Which agent's partition holds this transcript. Populated by sessions.list (single-agent =
+   *  the requested agent; cross-agent Recents/Project view = each row's owning agent). Cross-agent
+   *  lists mix agents, so resuming a row must switch currentAgentId to this value. */
+  agentId: string
 }
 
 export interface ProjectRow {
   id: string
   name: string
+  /** the project's LEAD agent — answers when you "message the project" ('' => main) */
+  defaultAgentId?: string
+  /** curated agent roster shown in the project UI (lead may still call any agent) */
+  members?: string[]
   createdAt: number
 }
 

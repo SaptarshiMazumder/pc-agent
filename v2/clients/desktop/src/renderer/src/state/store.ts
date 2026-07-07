@@ -50,7 +50,16 @@ export interface OutgoingAttachment {
   dataBase64: string
 }
 
-export type View = 'chat' | 'store' | 'settings' | 'account' | 'subscription' | 'datasources'
+export type View =
+  | 'chat'
+  | 'store'
+  | 'settings'
+  | 'account'
+  | 'subscription'
+  | 'datasources'
+  | 'projects' // the Projects list page
+  | 'project' // one project's detail page (uses currentProjectId)
+  | 'agent' // one agent's detail page (uses viewedAgentId)
 
 /** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
  *  the CURRENT agent's list, so a tab from another agent must remember where it
@@ -249,10 +258,16 @@ interface AppState {
 
   agents: AgentInfo[]
   currentAgentId: string
+  /** the CURRENT agent's chats (per-agent list; used by agent-scoped views) */
   sessionRows: SessionRow[]
+  /** ALL chats across every agent, newest first (cross-agent Recents). Each row carries its
+   *  agentId so resuming switches currentAgentId to the row's owner. Populated by refreshRecents. */
+  recents: SessionRow[]
   currentSessionKey: string
   /** project the CURRENT chat belongs to ('' = standalone) — sent with chat.send */
   currentProjectId: string
+  /** which agent the agent-detail page (view:'agent') is showing — set by clicking a sidebar agent */
+  viewedAgentId: string
   projects: ProjectRow[]
   sessions: Record<string, SessionState>
   /** Chrome-style tabs: chats opened this app-session, in tab order */
@@ -285,6 +300,13 @@ interface AppState {
   closeAllTabs(): void
   reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
+  /** open an agent's DETAIL page (view:'agent') — browse its chats/workspace/skills, does NOT
+   *  start or switch a chat (that's selectAgent / "New chat with agent" on the page) */
+  viewAgent(agentId: string): void
+  /** open a project's DETAIL page (view:'project') */
+  openProject(projectId: string): void
+  /** start a FRESH chat as the given agent (from the agent detail page's "New chat with …") */
+  newChatWithAgent(agentId: string): void
   createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
@@ -296,6 +318,10 @@ interface AppState {
   createProject(name: string): Promise<void>
   renameProject(projectId: string, name: string): Promise<void>
   deleteProject(projectId: string): Promise<void>
+  /** Layer B: set the project's lead agent ('' clears — falls back to main) */
+  setProjectLead(projectId: string, agentId: string): Promise<void>
+  addProjectMember(projectId: string, agentId: string): Promise<void>
+  removeProjectMember(projectId: string, agentId: string): Promise<void>
   sendMessage(text: string, attachments?: OutgoingAttachment[]): Promise<void>
   abortRun(): Promise<void>
   refreshCatalog(): Promise<void>
@@ -442,7 +468,7 @@ export const useApp = create<AppState>((set, get) => {
       agents: hello.agents,
       currentAgentId: agentIds.has(preferred) ? preferred : hello.agentId
     })
-    await Promise.all([refreshSessions(), refreshProjects()])
+    await Promise.all([refreshSessions(), refreshRecents(), refreshProjects()])
     await preinstallBundles()
   }
 
@@ -452,7 +478,8 @@ export const useApp = create<AppState>((set, get) => {
       const payload = await gateway.request<{ sessions: SessionRow[] }>('sessions.list', {
         agentId: currentAgentId
       })
-      const rows = payload.sessions || []
+      // normalize agentId (an older daemon may omit it) so downstream never sees undefined
+      const rows = (payload.sessions || []).map((r) => ({ ...r, agentId: r.agentId || currentAgentId }))
       // fold titles into the cross-agent cache so tabs keep their names after
       // switching agents (rows are per-agent; the cache is not)
       set((state) => ({
@@ -467,6 +494,28 @@ export const useApp = create<AppState>((set, get) => {
     }
   }
 
+  /** Cross-agent Recents: EVERY agent's chats, newest first (internal agent-to-agent / cron
+   *  sessions are excluded server-side). Rows carry agentId so resuming opens the right agent. */
+  async function refreshRecents(): Promise<void> {
+    try {
+      const payload = await gateway.request<{ sessions: SessionRow[] }>('sessions.list', {
+        all: true
+      })
+      // normalize agentId (older daemon may omit it) so the agent dot / resume never break
+      const rows = (payload.sessions || []).map((r) => ({ ...r, agentId: r.agentId || '' }))
+      set((state) => ({
+        recents: rows,
+        // keep tab titles fresh across the whole set (tabs can span agents)
+        tabTitles: {
+          ...state.tabTitles,
+          ...Object.fromEntries(rows.filter((r) => r.title).map((r) => [r.sessionId, r.title]))
+        }
+      }))
+    } catch {
+      set({ recents: [] })
+    }
+  }
+
   async function refreshProjects(): Promise<void> {
     try {
       const payload = await gateway.request<{ projects: ProjectRow[] }>('projects.list')
@@ -474,6 +523,17 @@ export const useApp = create<AppState>((set, get) => {
     } catch {
       set({ projects: [] })
     }
+  }
+
+  /** The agent that OWNS a chat (its transcript partition). Recents are cross-agent, so a ⋯-menu
+   *  action on a Recents row can target a DIFFERENT agent than the one we're on — every session
+   *  RPC must send the row's own agentId, not currentAgentId. Falls back to the current agent. */
+  function agentOf(sessionId: string): string {
+    const st = get()
+    const row =
+      st.recents.find((r) => r.sessionId === sessionId) ||
+      st.sessionRows.find((r) => r.sessionId === sessionId)
+    return row?.agentId || st.currentAgentId
   }
 
   /** Studio flavors ship .agentpkg files in resources/bundles — install any that are
@@ -524,8 +584,10 @@ export const useApp = create<AppState>((set, get) => {
       }
     })
     gateway.on('sessions.changed', () => {
-      // renamed / auto-titled / deleted (possibly by another client) — refresh the list
+      // renamed / auto-titled / deleted (possibly by another client) — refresh both the
+      // per-agent list and the cross-agent Recents
       void refreshSessions()
+      void refreshRecents()
     })
     gateway.on('projects.changed', () => {
       void refreshProjects()
@@ -561,8 +623,10 @@ export const useApp = create<AppState>((set, get) => {
     agents: [],
     currentAgentId: '',
     sessionRows: [],
+    recents: [],
     currentSessionKey: newSessionKey(),
     currentProjectId: '',
+    viewedAgentId: '',
     projects: [],
     sessions: {},
     openTabs: [],
@@ -685,6 +749,22 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
+    viewAgent(agentId) {
+      // open the agent's detail PAGE — browse only; does NOT switch the chat agent
+      set({ view: 'agent', viewedAgentId: agentId })
+    },
+
+    openProject(projectId) {
+      set({ view: 'project', currentProjectId: projectId })
+    },
+
+    newChatWithAgent(agentId) {
+      const changed = get().currentAgentId !== agentId
+      set({ currentAgentId: agentId })
+      if (changed) void refreshSessions()
+      get().newSession() // fresh chat as this agent (sets view:'chat', registers the tab)
+    },
+
     async createAgent(fields) {
       // server scaffolds the definition + assigns colour/tagline; agents.changed
       // refreshes the list. Throws on a server error so the modal can show it.
@@ -698,25 +778,38 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     newSession(projectId?: string) {
-      // fresh chat — inside a project when one is given, standalone otherwise
+      // fresh chat — inside a project when one is given, standalone otherwise.
+      // Layer B: messaging a PROJECT talks to its LEAD agent (defaultAgentId, fallback main);
+      // a standalone new chat keeps the current agent.
       const key = newSessionKey()
+      let agentId = get().currentAgentId
+      if (projectId) {
+        const project = get().projects.find((p) => p.id === projectId)
+        const lead = project?.defaultAgentId || 'main'
+        if (get().agents.some((a) => a.id === lead)) agentId = lead
+      }
+      const switched = agentId !== get().currentAgentId
       set((s) => ({
+        currentAgentId: agentId,
         currentSessionKey: key,
         currentProjectId: projectId || '',
         view: 'chat',
         openTabs: s.openTabs.some((t) => t.id === key)
           ? s.openTabs
-          : [...s.openTabs, { id: key, agentId: s.currentAgentId }]
+          : [...s.openTabs, { id: key, agentId }]
       }))
+      if (switched) void refreshSessions()
     },
 
     async renameSession(sessionId, title) {
-      // optimistic: update the row (and the tab-title cache) now; the server
+      // optimistic: update the row (in BOTH lists) + the tab-title cache now; the server
       // confirms via sessions.changed
+      const agentId = agentOf(sessionId)
+      const patch = (row: SessionRow): SessionRow =>
+        row.sessionId === sessionId ? { ...row, title, titleManual: !!title.trim() } : row
       set((state) => ({
-        sessionRows: state.sessionRows.map((row) =>
-          row.sessionId === sessionId ? { ...row, title, titleManual: !!title.trim() } : row
-        ),
+        sessionRows: state.sessionRows.map(patch),
+        recents: state.recents.map(patch),
         tabTitles: title.trim()
           ? { ...state.tabTitles, [sessionId]: title }
           : state.tabTitles
@@ -724,7 +817,7 @@ export const useApp = create<AppState>((set, get) => {
       try {
         await gateway.request('sessions.rename', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined,
+          agentId: agentId || undefined,
           title
         })
       } catch {
@@ -733,12 +826,15 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async deleteSession(sessionId) {
-      // optimistic removal; the server broadcasts sessions.changed as confirmation
+      // capture the owning agent BEFORE we drop the row from the lists
+      const agentId = agentOf(sessionId)
+      // optimistic removal (both lists); the server broadcasts sessions.changed as confirmation
       set((state) => {
         const sessions = { ...state.sessions }
         delete sessions[sessionId]
         return {
           sessionRows: state.sessionRows.filter((row) => row.sessionId !== sessionId),
+          recents: state.recents.filter((row) => row.sessionId !== sessionId),
           sessions,
           openTabs: state.openTabs.filter((t) => t.id !== sessionId)
         }
@@ -749,7 +845,7 @@ export const useApp = create<AppState>((set, get) => {
       try {
         await gateway.request('sessions.delete', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined
+          agentId: agentId || undefined
         })
       } catch {
         void refreshSessions() // failed (e.g. active run) — reload the truth
@@ -757,16 +853,18 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async moveSession(sessionId, projectId) {
-      // optimistic re-group; server confirms + rebroadcasts via sessions.changed
+      const agentId = agentOf(sessionId)
+      // optimistic re-group (both lists); server confirms + rebroadcasts via sessions.changed
+      const patch = (row: SessionRow): SessionRow =>
+        row.sessionId === sessionId ? { ...row, projectId } : row
       set((state) => ({
-        sessionRows: state.sessionRows.map((row) =>
-          row.sessionId === sessionId ? { ...row, projectId } : row
-        )
+        sessionRows: state.sessionRows.map(patch),
+        recents: state.recents.map(patch)
       }))
       try {
         await gateway.request('sessions.move', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined,
+          agentId: agentId || undefined,
           projectId
         })
       } catch {
@@ -775,11 +873,11 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async duplicateSession(sessionId) {
-      // the copy lands via the server's sessions.changed broadcast (refreshSessions)
+      // the copy lands via the server's sessions.changed broadcast (refreshRecents/Sessions)
       try {
         await gateway.request('sessions.duplicate', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined
+          agentId: agentOf(sessionId) || undefined
         })
       } catch {
         void refreshSessions()
@@ -787,12 +885,15 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async exportSessionMd(sessionId) {
-      const row = get().sessionRows.find((r) => r.sessionId === sessionId)
+      const st = get()
+      const row =
+        st.recents.find((r) => r.sessionId === sessionId) ||
+        st.sessionRows.find((r) => r.sessionId === sessionId)
       const title = row?.title || sessionId
       try {
         const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined
+          agentId: (row?.agentId || st.currentAgentId) || undefined
         })
         downloadTextFile(`${safeFileName(title)}.md`, sessionToMarkdown(title, payload.messages || []))
       } catch {
@@ -839,16 +940,64 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
-    async resumeSession(sessionId) {
-      const row = get().sessionRows.find((r) => r.sessionId === sessionId)
+    async setProjectLead(projectId, agentId) {
+      // optimistic; the server confirms via projects.changed → refreshProjects
       set((state) => ({
+        projects: state.projects.map((p) => (p.id === projectId ? { ...p, defaultAgentId: agentId } : p))
+      }))
+      try {
+        await gateway.request('projects.setLead', { id: projectId, agentId })
+      } catch {
+        void refreshProjects()
+      }
+    },
+
+    async addProjectMember(projectId, agentId) {
+      set((state) => ({
+        projects: state.projects.map((p) =>
+          p.id === projectId ? { ...p, members: [...new Set([...(p.members || []), agentId])] } : p
+        )
+      }))
+      try {
+        await gateway.request('projects.addMember', { id: projectId, agentId })
+      } catch {
+        void refreshProjects()
+      }
+    },
+
+    async removeProjectMember(projectId, agentId) {
+      set((state) => ({
+        projects: state.projects.map((p) =>
+          p.id === projectId ? { ...p, members: (p.members || []).filter((m) => m !== agentId) } : p
+        )
+      }))
+      try {
+        await gateway.request('projects.removeMember', { id: projectId, agentId })
+      } catch {
+        void refreshProjects()
+      }
+    },
+
+    async resumeSession(sessionId) {
+      // Recents are cross-agent, so this row may belong to a DIFFERENT agent than the one
+      // we're on. Resolve the row from either list and switch currentAgentId to its owner
+      // BEFORE loading history (the history RPC is agent-scoped) — else the chat loads empty.
+      const prevAgent = get().currentAgentId
+      const row =
+        get().recents.find((r) => r.sessionId === sessionId) ||
+        get().sessionRows.find((r) => r.sessionId === sessionId)
+      const agentId = row?.agentId || prevAgent
+      set((state) => ({
+        currentAgentId: agentId,
         currentSessionKey: sessionId,
         currentProjectId: row?.projectId || '',
         view: 'chat',
         openTabs: state.openTabs.some((t) => t.id === sessionId)
           ? state.openTabs
-          : [...state.openTabs, { id: sessionId, agentId: state.currentAgentId }]
+          : [...state.openTabs, { id: sessionId, agentId }]
       }))
+      // switched agents → refresh the per-agent list so agent-scoped views stay coherent
+      if (agentId !== prevAgent) void refreshSessions()
       // already have this session in memory with content (it's live, or we loaded it
       // before) — don't clobber it by reloading.
       const existing = get().sessions[sessionId]
@@ -856,7 +1005,7 @@ export const useApp = create<AppState>((set, get) => {
       try {
         const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
           sessionKey: sessionId,
-          agentId: get().currentAgentId || undefined
+          agentId: agentId || undefined
         })
         set((state) => ({
           sessions: {

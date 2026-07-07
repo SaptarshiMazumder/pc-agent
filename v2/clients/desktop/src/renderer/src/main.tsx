@@ -15,6 +15,7 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/600.css'
 
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 import { initialTheme } from './state/store'
 import './styles.css'
 
@@ -23,6 +24,8 @@ document.documentElement.dataset.theme = initialTheme()
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 )

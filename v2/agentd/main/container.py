@@ -233,7 +233,13 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         # model; on a heartbeat tick also inject HEARTBEAT.md. FIRST: scratch hygiene —
         # auto-sweep <workspace>/tmp/ by age once per run (ungated, cheap, bounded to the
         # scratch dir) so throwaway files never pile up or get enriched.
-        sweep_scratch(agent.workspace, getattr(config, "scratch_ttl_hours", 0.0))
+        # The EFFECTIVE workspace: handle_message sets the run context (project workspace for a
+        # project chat, plan §11) BEFORE building the prompt — so the manifest indexes, and the
+        # sweep cleans, the same folder this run's tools actually use.
+        from agentd.application.run_context import current_workspace
+        from pathlib import Path as _Path
+        ws = _Path(current_workspace(str(agent.workspace)) or str(agent.workspace))
+        sweep_scratch(ws, getattr(config, "scratch_ttl_hours", 0.0))
         skills = resolve_skills(agent)
         if skill_embed_fn is not None:                  # relevance filter (no-op when fn is None)
             skills = rank_skills_by_relevance(
@@ -252,7 +258,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
             heartbeat=heartbeat_text,
             cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
-            workspace_resources=(workspace_index.manifest(agent.workspace, agent.id)
+            workspace_resources=(workspace_index.manifest(ws, agent.id)
                                  if workspace_index else ""),
             plugin_sections=plugin_sections,   # tools self-describe; plugins add guidance sections
         )
@@ -275,6 +281,19 @@ def build_service(config: Config, browser_manager, computer_provider=None,
                 "Recalled automatically from earlier sessions — may bear on this message; verify "
                 "before relying on them:\n" + lines)
 
+    def _effective_workspace(agent, session_id: str) -> str:
+        """Plan §11 — file ownership follows CONTEXT, not identity: a chat tagged into a project
+        binds this run's file/exec tools to the project's SHARED workspace
+        (<state_dir>/projects/<id>/workspace); a standalone chat stays on the agent's own folder
+        (unchanged behavior). A stale tag (project deleted) falls back to the agent's own."""
+        from agentd.infrastructure.memory import projects_store
+        from agentd.infrastructure.memory.local_store import read_session_meta
+
+        pid = (read_session_meta(agent.state_dir, session_id).get("projectId") or "").strip()
+        if not pid or projects_store.get_project(config.state_dir, pid) is None:
+            return str(agent.workspace)
+        return str(projects_store.project_workspace_dir(config.state_dir, pid))
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -287,6 +306,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         recall=_recall,
         # hot-reload seam, now also driven by marketplace installs (gateway after_change)
         plugin_reloader=register_plugin_live,
+        resolve_workspace=_effective_workspace,   # project chats bind the project workspace (§11)
     )
     _late["service"] = service           # late-bind so register_plugin_live can hot-add tools
     return service

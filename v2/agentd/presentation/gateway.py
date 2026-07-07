@@ -716,6 +716,9 @@ class Gateway:
                 return (f"'{caller}' may not message '{target_id}' "
                         f"(allowed: {', '.join(allow) or 'none'}).")
         session_key = f"agent:{target_id}:peer:{caller}"
+        # Layer B: a delegation FROM a project chat stays in the project (child meta inherits
+        # projectId), so the target agent works in the project's shared workspace.
+        self._inherit_project(caller, parent_key, target_id, session_key)
         handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
                            abort=asyncio.Event(), client_id=None,
                            parent_session_key=parent_key or None)   # relay progress to the caller
@@ -757,6 +760,8 @@ class Gateway:
                 return (f"'{parent_agent}' may not delegate to '{child_agent}' "
                         f"(allowed: {', '.join(allow) or 'none'}).")
         session_key = f"agent:{child_agent}:sub:{depth + 1}:{uuid.uuid4().hex[:8]}"
+        # Layer B: sub-work spawned from a project chat inherits the project (shared workspace).
+        self._inherit_project(parent_agent, parent_key, child_agent, session_key)
         handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
                            abort=asyncio.Event(), client_id=None,
                            parent_session_key=parent_key or None)  # relay progress to parent
@@ -1064,6 +1069,9 @@ class Gateway:
             v = getattr(self.config, attr, None)
             if v:
                 roots.append(Path(v))
+        # project SHARED workspaces (<state_dir>/projects/<id>/workspace) — one root covers all
+        if getattr(self.config, "state_dir", None):
+            roots.append(Path(self.config.state_dir) / "projects")
         if self.registry is not None:
             try:
                 for aid in self.registry.list_ids():
@@ -1263,8 +1271,16 @@ class Gateway:
                 payload = await self._projects_rename(req.params)
             elif req.method == "projects.delete":
                 payload = await self._projects_delete(req.params)
+            elif req.method == "projects.setLead":
+                payload = await self._projects_set_lead(req.params)
+            elif req.method == "projects.addMember":
+                payload = await self._projects_member(req.params, add=True)
+            elif req.method == "projects.removeMember":
+                payload = await self._projects_member(req.params, add=False)
             elif req.method == "agents.list":
                 payload = self._agents_list()
+            elif req.method == "agents.detail":
+                payload = self._agents_detail(req.params)
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "plugins.catalog":
@@ -1337,11 +1353,32 @@ class Gateway:
             return agent_id, Path(self.config.state_dir) / "agents" / agent_id
 
     def _sessions_list(self, params: dict) -> dict:
-        """Saved sessions for ONE agent (with display titles). Each agent partitions its
-        own transcripts, so resuming is agent-scoped: a client passes the agent it's on
-        and gets THAT agent's threads. Defaults to the default agent when none is given."""
+        """Saved sessions with display titles. Every row carries its `agentId` (which agent's
+        partition holds the transcript) so a cross-agent client can resume the right agent.
+
+        Three modes:
+          * default (single agent) — a client passes the agent it's on and gets THAT agent's
+            threads; resuming stays agent-scoped. Defaults to the default agent when none given.
+          * `all: true` — merge EVERY agent's threads, newest first (powers cross-agent Recents).
+          * `projectId: X` — only chats tagged with that project, across all agents (Project view).
+        The cross-agent modes EXCLUDE internal agent-to-agent / cron sessions (their on-disk stem
+        comes from an `agent:` key -> `agent_…`), so only human chats appear."""
+        want_all = bool(params.get("all"))
+        project_id = (params.get("projectId") or "").strip()
+        if want_all or project_id:
+            rows: list = []
+            for aid, state_dir in self._agent_state_dirs():
+                for s in list_sessions(state_dir):
+                    if str(s.get("sessionId", "")).startswith("agent_"):
+                        continue                       # internal (sub-agent/cron/agent-msg): hide
+                    if project_id and (s.get("projectId") or "") != project_id:
+                        continue
+                    rows.append({**s, "agentId": aid})
+            rows.sort(key=lambda r: r.get("modified") or 0, reverse=True)
+            return {"sessions": rows, "agentId": "", "all": want_all, "projectId": project_id}
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
-        return {"sessions": list_sessions(state_dir), "agentId": agent_id}
+        rows = [{**s, "agentId": agent_id} for s in list_sessions(state_dir)]
+        return {"sessions": rows, "agentId": agent_id}
 
     def _sessions_history(self, params: dict) -> dict:
         """One saved session's full transcript (messages in wire form) so a client can
@@ -1440,6 +1477,27 @@ class Gateway:
                     continue
         return list(dirs.values())
 
+    def _agent_state_dirs(self) -> list:
+        """`(agentId, state_dir)` for every partition holding transcripts — the agentId-aware
+        sibling of `_all_state_dirs()`, for cross-agent session LISTING (Recents / Project view).
+        Deduped by path; the daemon-root state_dir (legacy/global sessions) is tagged `main`."""
+        pairs: list = []
+        seen: set = set()
+        if self.registry is not None:
+            for aid in self.registry.list_ids():
+                try:
+                    sd = self.registry.get(aid).state_dir
+                except KeyError:
+                    continue
+                key = str(sd)
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append((aid, sd))
+        root = str(self.config.state_dir)
+        if root not in seen:                            # legacy/global sessions => main
+            pairs.append(("main", self.config.state_dir))
+        return pairs
+
     def _projects_list(self) -> dict:
         from agentd.infrastructure.memory import projects_store
         return {"projects": projects_store.list_projects(self.config.state_dir)}
@@ -1484,6 +1542,65 @@ class Gateway:
         await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         await self._send_all(dump_frame(Event(event="sessions.changed", payload={})))
         return {"ok": removed, "sessionsDeleted": sessions_deleted}
+
+    async def _projects_set_lead(self, params: dict) -> dict:
+        """Set a project's LEAD agent (Layer B): who answers when you 'message the project'.
+        Empty agentId clears it. Validates the agent exists; broadcasts projects.changed."""
+        from agentd.infrastructure.memory import projects_store
+        project_id = (params.get("id") or "").strip()
+        agent_id = (params.get("agentId") or "").strip()
+        if not project_id:
+            return {"ok": False, "error": "id required"}
+        if agent_id and self.registry is not None and agent_id not in self.registry.list_ids():
+            return {"ok": False, "error": f"unknown agent: {agent_id}"}
+        ok = projects_store.set_lead(self.config.state_dir, project_id, agent_id)
+        if ok:
+            await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
+        return {"ok": ok, "id": project_id, "defaultAgentId": agent_id}
+
+    async def _projects_member(self, params: dict, add: bool) -> dict:
+        """Add/remove one agent on a project's curated roster (Layer B). The roster is what
+        the project UI surfaces — the lead may still call ANY agent (open orchestration)."""
+        from agentd.infrastructure.memory import projects_store
+        project_id = (params.get("id") or "").strip()
+        agent_id = (params.get("agentId") or "").strip()
+        if not project_id or not agent_id:
+            return {"ok": False, "error": "id and agentId required"}
+        if add and self.registry is not None and agent_id not in self.registry.list_ids():
+            return {"ok": False, "error": f"unknown agent: {agent_id}"}
+        project = projects_store.get_project(self.config.state_dir, project_id)
+        if project is None:
+            return {"ok": False, "error": "unknown project"}
+        members = list(project.get("members") or [])
+        members = (members + [agent_id]) if add else [m for m in members if m != agent_id]
+        ok = projects_store.set_members(self.config.state_dir, project_id, members)
+        if ok:
+            await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
+        return {"ok": ok, "id": project_id, "members": members}
+
+    def _session_project_id(self, agent_id: str, session_key: str) -> str:
+        """The project a session belongs to ('' = standalone) — read from its meta sidecar in
+        that agent's partition. Used to INHERIT the project onto delegated child runs."""
+        if not session_key:
+            return ""
+        from agentd.infrastructure.memory.local_store import read_session_meta
+        _, state_dir = self._resolve_state_dir(agent_id)
+        return (read_session_meta(state_dir, session_key).get("projectId") or "").strip()
+
+    def _inherit_project(self, parent_agent: str, parent_key: str,
+                         child_agent: str, child_key: str) -> None:
+        """Layer B: a child run spawned from a PROJECT chat belongs to the same project — write
+        the child session's meta (projectId + internal) BEFORE it runs, so its workspace binds
+        to the project folder and its deliverables stay with the project. Best-effort."""
+        try:
+            pid = self._session_project_id(parent_agent, parent_key)
+            if not pid:
+                return
+            from agentd.infrastructure.memory.local_store import write_session_meta
+            _, child_state_dir = self._resolve_state_dir(child_agent)
+            write_session_meta(child_state_dir, child_key, projectId=pid, internal=True)
+        except Exception:  # noqa: BLE001 — inheritance must never block the delegation itself
+            log.debug("project inheritance failed for %s", child_key, exc_info=True)
 
     async def _maybe_generate_title(self, session_key: str, agent_id: str | None) -> None:
         """After a session's first interactive exchange, generate a short title (once) and
@@ -1732,6 +1849,67 @@ class Gateway:
                 "color": getattr(spec, "color", ""),
             })
         return {"agents": agents, "default": default if default in {a["id"] for a in agents} else "main"}
+
+    def _agents_detail(self, params: dict) -> dict:
+        """Everything the Agent DETAIL page shows for ONE agent: identity + a listing of its
+        workspace files + its skills (shared library + the agent's own). The agent's CHATS are
+        fetched separately via `sessions.list {agentId}`. Read-only; best-effort (a missing dir
+        just yields an empty list)."""
+        agent_id = (params.get("agentId") or "").strip() or "main"
+        if self.registry is None:
+            return {"id": agent_id, "name": agent_id, "workspaceFiles": [], "skills": []}
+        try:
+            spec = self.registry.get(agent_id)
+        except KeyError:
+            return {"id": agent_id, "name": agent_id, "workspaceFiles": [], "skills": [],
+                    "error": "unknown agent"}
+
+        # --- workspace files (top level, non-recursive, newest first) ---
+        from agentd.infrastructure.files import classify
+        files: list = []
+        ws = Path(getattr(spec, "workspace", "") or "")
+        try:
+            entries = sorted(ws.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if ws.is_dir() else []
+        except OSError:
+            entries = []
+        for p in entries[:200]:
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            if p.is_dir():
+                files.append({"name": p.name, "kind": "folder", "size": 0, "modified": st.st_mtime})
+            else:
+                cls = classify(p)
+                files.append({"name": p.name, "kind": cls[0] if cls else "file",
+                              "size": st.st_size, "modified": st.st_mtime})
+
+        # --- skills: shared library (main) + the agent's own, deduped by name (own wins) ---
+        from agentd.infrastructure.skills.file_skills import load_skills_dir
+        skills_by_name: dict = {}
+        try:
+            main_skills_dir = self.registry.get("main").skills_dir
+        except KeyError:
+            main_skills_dir = None
+        for sd in (main_skills_dir, getattr(spec, "skills_dir", None)):
+            if not sd:
+                continue
+            for sk in load_skills_dir(sd):
+                skills_by_name[sk.name] = {"name": sk.name, "description": sk.description}
+
+        return {
+            "id": spec.id,
+            "name": spec.name,
+            "description": getattr(spec, "description", ""),
+            "tagline": getattr(spec, "tagline", ""),
+            "version": getattr(spec, "version", "1"),
+            "model": getattr(spec, "model", None) or "",
+            "color": getattr(spec, "color", ""),
+            "workspace": str(ws),
+            "workspaceFiles": files,
+            "skills": list(skills_by_name.values()),
+        }
 
     async def _maybe_generate_presentations(self) -> None:
         """Fill in missing agent display presentation, persisted per agent in a sidecar

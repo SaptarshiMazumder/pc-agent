@@ -1,9 +1,12 @@
 import { useEffect } from 'react'
 
 import AccountView from './components/AccountView'
+import AgentView from './components/AgentView'
 import Canvas from './components/Canvas'
 import ChatView from './components/ChatView'
 import DataSourcesView from './components/DataSourcesView'
+import ProjectsView from './components/ProjectsView'
+import ProjectView from './components/ProjectView'
 import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
 import StoreView from './components/StoreView'
@@ -45,6 +48,9 @@ export default function App() {
         {view === 'datasources' && <DataSourcesView />}
         {view === 'account' && <AccountView />}
         {view === 'subscription' && <SubscriptionView />}
+        {view === 'projects' && <ProjectsView />}
+        {view === 'project' && <ProjectView />}
+        {view === 'agent' && <AgentView />}
       </main>
       <Canvas />
     </div>

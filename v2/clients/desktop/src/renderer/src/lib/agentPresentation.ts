@@ -14,8 +14,9 @@ const COLOR_SAT = 0.62 // matches presentation.py COLOR_SAT
 const COLOR_LIGHT = 0.58 // matches presentation.py COLOR_LIGHT
 
 function hueFromSeed(seed: string): number {
+  const s = seed || '' // never throw on an undefined/empty seed (e.g. a row missing agentId)
   let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
   return h % 360
 }
 
@@ -45,9 +46,10 @@ export function hashColor(seed: string): string {
 const MAIN_COLOR = '#a3e635'
 
 /** An agent's avatar/dot colour: the server-assigned one, else the deterministic
- *  fallback so an avatar is never blank (main falls back to the brand lime). */
-export function agentColor(serverColor: string | undefined, id: string): string {
-  return serverColor || (id === 'main' ? MAIN_COLOR : hashColor(id))
+ *  fallback so an avatar is never blank (main falls back to the brand lime). Tolerates an
+ *  undefined/empty id (a session row from an older daemon may not carry agentId yet). */
+export function agentColor(serverColor: string | undefined, id: string | undefined): string {
+  return serverColor || ((id || '') === 'main' ? MAIN_COLOR : hashColor(id || ''))
 }
 
 /** Fallback tagline only — the real one is server-owned (`AgentInfo.tagline`). */
@@ -56,8 +58,8 @@ export function agentTag(_id: string): string {
 }
 
 /** Initials from the name (or id) — dynamic, no lookup table. */
-export function agentInitials(name: string | undefined, id: string): string {
-  const s = (name || id).trim()
+export function agentInitials(name: string | undefined, id: string | undefined): string {
+  const s = (name || id || '?').trim()
   const parts = s.split(/[\s-]+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
   return s.slice(0, 2).toUpperCase()
