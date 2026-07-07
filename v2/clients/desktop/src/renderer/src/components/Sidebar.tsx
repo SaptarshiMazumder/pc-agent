@@ -109,6 +109,9 @@ export default function Sidebar() {
 
   const q = query.trim().toLowerCase()
   const chats = recents.filter((s) => !q || (s.title || s.sessionId).toLowerCase().includes(q))
+  // 'main' is the DEFAULT agent (what a plain New chat talks to) — hide it from the roster so
+  // the list shows only the named agents you created. It's still the default everywhere else.
+  const namedAgents = agents.filter((a) => a.id !== 'main')
 
   const projectsActive = view === 'projects' || view === 'project'
 
@@ -116,14 +119,14 @@ export default function Sidebar() {
   if (collapsed) {
     return (
       <aside className="sidebar sidebar--rail">
-        <img className="brand-logo" src={logo} alt="" style={{ width: 34, height: 34, marginBottom: 4 }} />
+        <img className="brand-logo brand-logo--rail" src={logo} alt="" />
         <button className="rail-btn" title="expand sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
         <button className="rail-primary" title="new chat" onClick={() => newSession()}><SquarePen size={17} /></button>
         <button className="rail-btn" title="search chats" onClick={toggleSidebar}><Search size={17} /></button>
         <button className={`rail-btn ${projectsActive ? 'active' : ''}`} title="Projects" onClick={() => setView('projects')}><Folder size={17} /></button>
         <div className="rail-sep" />
         <button className="rail-btn" title="create agent" onClick={() => setNewAgent(true)}><UserPlus size={17} /></button>
-        {agents.map((a) => (
+        {namedAgents.map((a) => (
           <button
             key={a.id}
             className={`rail-agent ${a.id === viewedAgentId && view === 'agent' ? 'active' : ''}`}
@@ -150,7 +153,7 @@ export default function Sidebar() {
         <img className="brand-logo" src={logo} alt="" />
         <span className="brand-name">{flavor?.productName || 'agentd'}</span>
         <span className="live"><span className="live-dot" style={{ opacity: connection === 'open' ? 1 : 0.3 }} />live</span>
-        <button className="icon-btn" style={{ width: 30, height: 30 }} title="collapse sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
+        <button className="icon-btn icon-btn--sm" title="collapse sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
       </div>
 
       {/* compact nav rows */}
@@ -185,7 +188,10 @@ export default function Sidebar() {
       />
       {sectionOpen.agents && (
         <div className="agents-list">
-          {agents.map((a) => (
+          {namedAgents.length === 0 && (
+            <div className="row-sub list-empty">no agents yet — use +</div>
+          )}
+          {namedAgents.map((a) => (
             <button
               key={a.id}
               className={`row ${a.id === viewedAgentId && view === 'agent' ? 'active' : ''}`}
@@ -223,7 +229,7 @@ export default function Sidebar() {
             />
           ))}
           {chats.length === 0 && (
-            <div className="row-sub" style={{ padding: '4px 9px' }}>
+            <div className="row-sub list-empty">
               {q ? 'no chats match' : 'no saved chats yet'}
             </div>
           )}
@@ -232,7 +238,7 @@ export default function Sidebar() {
 
       <div className="footer-nav">
         <button className="icon-btn footer-icon" title="local profile"><Monitor size={17} /></button>
-        <button className={`icon-btn footer-icon ${view === 'store' ? 'active' : ''}`} style={{ marginLeft: 'auto' }} title="Store" onClick={() => setView('store')}>
+        <button className={`icon-btn footer-icon push-end ${view === 'store' ? 'active' : ''}`} title="Store" onClick={() => setView('store')}>
           <ShoppingBag size={17} />
         </button>
         <SettingsMenu variant="footer" />

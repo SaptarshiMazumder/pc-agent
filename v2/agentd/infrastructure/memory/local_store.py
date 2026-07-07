@@ -68,7 +68,9 @@ def write_session_meta(state_dir: Path, session_id: str, **fields) -> dict:
     return meta
 
 
-def _first_user_snippet(first_user: str, limit: int = 48) -> str:
+def _first_user_snippet(first_user: str, limit: int = 110) -> str:
+    # generous: WIDE views (agent/project chat tables) show the full line; narrow lists
+    # (sidebar) truncate visually with CSS ellipsis — display cropping is the client's job.
     collapsed = " ".join((first_user or "").split())
     return (collapsed[:limit].rstrip() + "…") if len(collapsed) > limit else collapsed
 
@@ -262,12 +264,19 @@ def list_sessions(state_dir: Path) -> list[dict]:
         except OSError:
             pass
         meta = read_session_meta(state_dir, p.stem)
-        title = meta.get("title") or _first_user_snippet(first_user)
+        meta_title = meta.get("title")
+        title = meta_title or _first_user_snippet(first_user)
+        # a preview of the first user message for the WIDE chat tables (ChatGPT-style 2nd line).
+        # Only when the chat has a REAL title (auto/manual): for an untitled chat the title already
+        # IS the first message, so a snippet would just duplicate it — send "" and the client shows
+        # one line.
+        snippet = _first_user_snippet(first_user, 140) if meta_title else ""
         out.append(
             {
                 "sessionId": p.stem,
                 "title": title,
                 "titleManual": bool(meta.get("manual")),
+                "snippet": snippet,
                 "projectId": meta.get("projectId") or "",   # "" => standalone chat
                 "messages": max(0, line_count - 1),  # subtract the header line
                 "modified": p.stat().st_mtime,

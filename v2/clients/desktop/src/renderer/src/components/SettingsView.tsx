@@ -224,7 +224,7 @@ export default function SettingsView() {
               {data ? (
                 <>Configuring <code>{data.path}</code></>
               ) : loadError ? (
-                <span style={{ color: 'var(--danger)' }}>Couldn’t load config: {loadError}</span>
+                <span className="danger-text">Couldn’t load config: {loadError}</span>
               ) : (
                 'Loading configuration…'
               )}
@@ -660,7 +660,7 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
         <Search size={15} />
         <input value={q} placeholder="Search tools & plugins…" onChange={(e) => setQ(e.target.value)} />
       </div>
-      {err && <div className="settings-empty" style={{ color: 'var(--danger)' }}>Couldn’t load: {err}</div>}
+      {err && <div className="settings-empty danger-text">Couldn’t load: {err}</div>}
       {!cat && !err && <div className="settings-empty">Loading…</div>}
       {cat && plugins.length === 0 && <div className="settings-empty">No matches for “{q}”.</div>}
 
@@ -801,8 +801,8 @@ function RuntimeTab({
           spellCheck={false}
           onChange={(e) => setRaw(e.target.value)}
         />
-        {rawErr && <div className="field-error" style={{ marginTop: 8 }}>{rawErr}</div>}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+        {rawErr && <div className="field-error mt-8">{rawErr}</div>}
+        <div className="row-end">
           <button className="btn primary" onClick={() => void saveRaw()} disabled={rawSaving || raw === data?.raw}>
             {rawSaving ? <Loader2 size={14} className="spin" /> : <Save size={14} />}
             {rawSaving ? 'Saving…' : 'Save raw config'}

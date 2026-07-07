@@ -33,7 +33,7 @@ export default function StoreView() {
     <div className="store">
       <div className="store-inner">
         <div className="page-head">
-          <div style={{ flex: 1 }}>
+          <div className="grow">
             <div className="page-title">Store</div>
             <div className="page-sub">Install agents into this app — live, no restart.</div>
           </div>
@@ -54,7 +54,7 @@ export default function StoreView() {
               <div className="card" key={b.id}>
                 <div className="card-top">
                   <span className="card-icon">{bundleIcon(b.id)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="grow">
                     <div className="card-name">{b.name}</div>
                     <div className="card-by">{b.entitlement ? 'licensed' : 'agentd'}</div>
                   </div>

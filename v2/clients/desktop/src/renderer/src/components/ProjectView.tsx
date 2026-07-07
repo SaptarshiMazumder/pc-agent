@@ -1,13 +1,14 @@
-import { useMemo } from 'react'
-import { ArrowLeft, Folder, SquarePen } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, Folder, SquarePen, FolderOpen, MessageSquare, Search } from 'lucide-react'
 
 import { hashColor } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
 import SessionItem from './SessionItem'
+import WorkspaceTree from './WorkspaceTree'
 
-/** One project's detail page (view:'project', uses currentProjectId). Shows the project's chats
- *  ACROSS every agent (from the cross-agent Recents, filtered by projectId) + a "New chat in
- *  [project]" action. Lead-agent + members UI arrives in Layer B. */
+/** One project's detail page (view:'project', uses currentProjectId). Fixed header + tabs; only
+ *  the body scrolls. TABS: Chats (searchable, cross-agent, w/ preview) / Workspace (the project's
+ *  SHARED file tree every agent in the project reads and writes — plan §11). */
 export default function ProjectView() {
   const projects = useApp((s) => s.projects)
   const currentProjectId = useApp((s) => s.currentProjectId)
@@ -19,12 +20,23 @@ export default function ProjectView() {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const setProjectLead = useApp((s) => s.setProjectLead)
+  const [tab, setTab] = useState<'chats' | 'workspace'>('chats')
+  const [query, setQuery] = useState('')
 
   const project = projects.find((p) => p.id === currentProjectId)
   const chats = useMemo(
     () => recents.filter((r) => r.projectId === currentProjectId),
     [recents, currentProjectId]
   )
+  const q = query.trim().toLowerCase()
+  const shownChats = q
+    ? chats.filter((c) => `${c.title} ${c.snippet || ''}`.toLowerCase().includes(q))
+    : chats
+
+  useEffect(() => {
+    setTab('chats')
+    setQuery('')
+  }, [currentProjectId])
 
   if (!project) {
     return (
@@ -37,67 +49,86 @@ export default function ProjectView() {
     )
   }
 
+  const leadName = agents.find((a) => a.id === (project.defaultAgentId || 'main'))?.name || 'main'
+
   return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <button className="btn ghost btn-back" onClick={() => setView('projects')} title="Back to Projects">
-              <ArrowLeft size={14} />Projects
-            </button>
-            <div className="page-title project-title">
-              <span style={{ display: 'inline-flex', color: hashColor(project.id) }}><Folder size={20} /></span>
-              {project.name}
+    <div className="entity-page">
+      <div className="entity-head">
+        <div className="settings-inner settings-wide">
+          <button className="btn ghost btn-back" onClick={() => setView('projects')} title="Back to Projects">
+            <ArrowLeft size={14} />Projects
+          </button>
+          <div className="settings-head">
+            <div className="settings-head-titles">
+              <div className="page-title project-title">
+                <span className="ico-tint" style={{ color: hashColor(project.id) }}><Folder size={20} /></span>
+                {project.name}
+              </div>
+              <div className="page-sub">
+                {chats.length} chat{chats.length === 1 ? '' : 's'} · answers as{' '}
+                <select
+                  className="settings-select proj-answers-inline"
+                  value={project.defaultAgentId || 'main'}
+                  onChange={(e) => void setProjectLead(project.id, e.target.value === 'main' ? '' : e.target.value)}
+                  title="which agent answers new chats in this project (it can still bring in other agents)"
+                >
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.id === 'main' ? `${a.name || 'main'} (default)` : (a.name || a.id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="page-sub">{chats.length} chat{chats.length === 1 ? '' : 's'} in this project.</div>
+            <div className="settings-head-actions">
+              <button className="btn primary" title={`this project answers as ${leadName}`} onClick={() => newSession(project.id)}>
+                <SquarePen size={14} />New chat in project
+              </button>
+            </div>
           </div>
-          <div className="settings-head-actions">
-            <button
-              className="btn primary"
-              title={`this project answers as ${(agents.find((a) => a.id === (project.defaultAgentId || 'main'))?.name) || 'main'}`}
-              onClick={() => newSession(project.id)}
-            >
-              <SquarePen size={14} />New chat in project
-            </button>
+
+          <div className="entity-tabbar">
+            <div className="seg entity-tabs">
+              <button className={tab === 'chats' ? 'on' : ''} onClick={() => setTab('chats')}>
+                <MessageSquare size={13} />Chats
+              </button>
+              <button className={tab === 'workspace' ? 'on' : ''} onClick={() => setTab('workspace')}>
+                <FolderOpen size={13} />Workspace
+              </button>
+            </div>
+            {tab === 'chats' && chats.length > 0 && (
+              <div className="search-box entity-search">
+                <Search size={15} />
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" spellCheck={false} />
+              </div>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* One quiet control, no jargon: which agent picks up when you chat in this project.
-            Default main — it pulls in specialists automatically, so most users never touch this. */}
-        <div className="proj-answers">
-          <span className="proj-answers-label">Answers as</span>
-          <select
-            className="settings-select"
-            value={project.defaultAgentId || 'main'}
-            onChange={(e) => void setProjectLead(project.id, e.target.value === 'main' ? '' : e.target.value)}
-            title="which agent answers new chats in this project (it can still bring in other agents)"
-          >
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.id === 'main' ? `${a.name || 'main'} (default)` : (a.name || a.id)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="settings-group">
-          <div className="settings-section">Chats</div>
-          {chats.length === 0 && (
-            <div className="settings-card">
-              <div className="settings-empty">No chats yet — start one with “New chat in project”.</div>
-            </div>
+      <div className="entity-body">
+        <div className="settings-inner settings-wide">
+          {tab === 'chats' && (
+            shownChats.length === 0 ? (
+              <div className="settings-empty">{q ? 'No chats match.' : 'No chats yet — start one with “New chat in project”.'}</div>
+            ) : (
+              <div className="chat-table">
+                <div className="chat-table-head"><span>Name</span><span>Modified</span></div>
+                {shownChats.map((s) => (
+                  <SessionItem
+                    key={s.sessionId}
+                    session={s}
+                    table
+                    active={view === 'chat' && s.sessionId === currentSessionKey}
+                    onOpen={() => void resumeSession(s.sessionId)}
+                    withAgentDot
+                  />
+                ))}
+              </div>
+            )
           )}
-          <div className="project-chats">
-            {chats.map((s) => (
-              <SessionItem
-                key={s.sessionId}
-                session={s}
-                active={view === 'chat' && s.sessionId === currentSessionKey}
-                onOpen={() => void resumeSession(s.sessionId)}
-                withAgentDot
-              />
-            ))}
-          </div>
+
+          {tab === 'workspace' && <WorkspaceTree projectId={project.id} />}
         </div>
       </div>
     </div>

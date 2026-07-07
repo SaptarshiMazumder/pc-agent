@@ -103,6 +103,49 @@ function MediaViewer({ a }: { a: Artifact }): JSX.Element {
   )
 }
 
+/** Split simple `--- key: value --- ` YAML frontmatter (as SKILL.md and many docs use) off the
+ *  top of a markdown string. ReactMarkdown renders frontmatter as raw paragraph text, so the
+ *  preview parses it out and shows it as a clean header instead. */
+function parseFrontmatter(text: string): { meta: Record<string, string>; body: string } {
+  const m = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?/.exec(text)
+  if (!m) return { meta: {}, body: text }
+  const meta: Record<string, string> = {}
+  for (const line of m[1].split(/\r?\n/)) {
+    const i = line.indexOf(':')
+    if (i > 0) {
+      const key = line.slice(0, i).trim()
+      let val = line.slice(i + 1).trim()
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1)
+      }
+      if (key) meta[key] = val
+    }
+  }
+  return { meta, body: text.slice(m[0].length) }
+}
+
+/** Markdown preview: frontmatter renders as a clean, UNIFORM key/value block (no key is
+ *  special-cased) above the body, instead of ReactMarkdown's run-on paragraph. */
+function MarkdownPreview({ text }: { text: string }): JSX.Element {
+  const { meta, body } = parseFrontmatter(text)
+  const entries = Object.entries(meta)
+  return (
+    <div className="markdown cv-md">
+      {entries.length > 0 && (
+        <div className="cv-frontmatter">
+          {entries.map(([k, v]) => (
+            <div className="cv-fm-row" key={k}>
+              <span className="cv-fm-key">{k}</span>
+              <span className="cv-fm-val">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------- text / code / md / html / csv
 function TextViewer({ a }: { a: Artifact }): JSX.Element {
   const kind = viewerKind(a)
@@ -161,9 +204,7 @@ function TextViewer({ a }: { a: Artifact }): JSX.Element {
         )}
       </div>
       <div className="cv-text-body">
-        {mode === 'preview' && kind === 'markdown' && (
-          <div className="markdown cv-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown></div>
-        )}
+        {mode === 'preview' && kind === 'markdown' && <MarkdownPreview text={text} />}
         {mode === 'preview' && kind === 'html' && (
           <iframe className="cv-frame" sandbox="allow-same-origin" srcDoc={text} title={a.name} />
         )}

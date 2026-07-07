@@ -36,7 +36,7 @@ export default function NewAgentModal({ onClose }: { onClose: () => void }) {
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="modal-head">
           <span className="modal-title"><Sparkles size={17} /> New agent</span>
-          <button type="button" className="icon-btn" style={{ width: 30, height: 30 }} title="close" onClick={onClose}>
+          <button type="button" className="icon-btn icon-btn--sm" title="close" onClick={onClose}>
             <X size={17} />
           </button>
         </div>

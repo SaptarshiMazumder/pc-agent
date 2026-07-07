@@ -103,7 +103,7 @@ export default function DataSourcesView() {
             </div>
             <div className="field">
               <span className="field-label">Type</span>
-              <div className="seg" style={{ alignSelf: 'flex-start' }}>
+              <div className="seg seg--start">
                 <button className={form.kind === 'stdio' ? 'on' : ''} onClick={() => setForm((f) => ({ ...f, kind: 'stdio' }))}>
                   Command (stdio)
                 </button>
@@ -147,7 +147,7 @@ export default function DataSourcesView() {
 
         <div className="settings-group">
           <div className="settings-section">Connected sources</div>
-          {err && <div className="settings-empty" style={{ color: 'var(--danger)' }}>Couldn’t load: {err}</div>}
+          {err && <div className="settings-empty danger-text">Couldn’t load: {err}</div>}
           {!servers && !err && <div className="settings-empty">Loading…</div>}
           {servers && servers.length === 0 && (
             <div className="settings-card">

@@ -2,7 +2,10 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 /** App-wide error boundary: a render throw used to unmount the whole tree → a blank white
  *  window with no clue why. This catches it and shows the error + stack on screen (and logs
- *  to the console) so a crash is diagnosable instead of silent. */
+ *  to the console) so a crash is diagnosable instead of silent.
+ *
+ *  NOTE: styles here are INLINE BY DESIGN (the one sanctioned exception to the class-only
+ *  rule) — this screen must render even when styles.css itself failed to load/parse. */
 export default class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
 

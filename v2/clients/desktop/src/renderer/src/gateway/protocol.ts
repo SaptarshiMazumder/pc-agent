@@ -58,6 +58,9 @@ export interface SessionRow {
   sessionId: string
   title: string
   titleManual: boolean
+  /** preview of the first user message (2nd line in wide chat tables); '' for untitled chats
+   *  where the title already IS the first message */
+  snippet?: string
   projectId: string
   messages: number
   modified: number

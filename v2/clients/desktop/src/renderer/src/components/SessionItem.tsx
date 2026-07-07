@@ -3,7 +3,7 @@ import { MoreHorizontal } from 'lucide-react'
 
 import type { SessionRow } from '../gateway/protocol'
 import { agentColor } from '../lib/agentPresentation'
-import { whenLabel } from '../lib/timefmt'
+import { whenLabel, whenTimeLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
 import ChatMenu from './ChatMenu'
 import { useHoverTip } from './HoverTip'
@@ -11,19 +11,23 @@ import { useHoverTip } from './HoverTip'
 /** One saved-chat row: hover tooltip (agent · full name · meta), double-click to rename, and a ⋯
  *  menu (rename · move to project · export md · duplicate · delete) on hover. In cross-agent lists
  *  it shows a leading agent dot; in mixed-project lists it shows a trailing project badge. Shared by
- *  the sidebar Recents, the Project detail page, and the Agent detail page. */
+ *  the sidebar Recents, the Project detail page, and the Agent detail page.
+ *  `table` = the WIDE variant for entity pages (inside a `.chat-table` with a Name/Modified
+ *  header): divider lines between rows + a right-aligned date·time column. */
 export default function SessionItem({
   session,
   active,
   onOpen,
   withAgentDot = false,
-  withProjectBadge = false
+  withProjectBadge = false,
+  table = false
 }: {
   session: SessionRow
   active: boolean
   onOpen: () => void
   withAgentDot?: boolean
   withProjectBadge?: boolean
+  table?: boolean
 }) {
   const renameSession = useApp((s) => s.renameSession)
   const deleteSession = useApp((s) => s.deleteSession)
@@ -85,10 +89,12 @@ export default function SessionItem({
       )}
       <span className="row-main">
         <span className="row-title">{label}</span>
+        {table && session.snippet && <span className="row-snippet">{session.snippet}</span>}
       </span>
       {withProjectBadge && project && (
         <span className="proj-badge" title={`project: ${project.name}`}>{project.name}</span>
       )}
+      {table && <span className="row-when">{whenTimeLabel(session.modified * 1000)}</span>}
       <span className="row-actions">
         <span
           className="hover-btn"

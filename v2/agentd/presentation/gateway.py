@@ -1281,6 +1281,14 @@ class Gateway:
                 payload = self._agents_list()
             elif req.method == "agents.detail":
                 payload = self._agents_detail(req.params)
+            elif req.method == "workspace.list":
+                payload = self._workspace_list(req.params)
+            elif req.method == "workspace.mkdir":
+                payload = self._workspace_mkdir(req.params)
+            elif req.method == "workspace.upload":
+                payload = self._workspace_upload(req.params)
+            elif req.method == "workspace.delete":
+                payload = self._workspace_delete(req.params)
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "plugins.catalog":
@@ -1885,18 +1893,24 @@ class Gateway:
                 files.append({"name": p.name, "kind": cls[0] if cls else "file",
                               "size": st.st_size, "modified": st.st_mtime})
 
-        # --- skills: shared library (main) + the agent's own, deduped by name (own wins) ---
+        # --- skills: shared library (main) + the agent's own, deduped by name (own wins).
+        # Each is tagged `source`: "shared" = inherited from the default library, "own" = defined
+        # for THIS agent (agents/<id>/skills/). The own pass runs last, so an override lands as
+        # "own". (For main itself, own dir == the shared library, so all resolve to "own".) ---
         from agentd.infrastructure.skills.file_skills import load_skills_dir
         skills_by_name: dict = {}
         try:
             main_skills_dir = self.registry.get("main").skills_dir
         except KeyError:
             main_skills_dir = None
-        for sd in (main_skills_dir, getattr(spec, "skills_dir", None)):
+        for sd, source in ((main_skills_dir, "shared"),
+                           (getattr(spec, "skills_dir", None), "own")):
             if not sd:
                 continue
             for sk in load_skills_dir(sd):
-                skills_by_name[sk.name] = {"name": sk.name, "description": sk.description}
+                # path included so a client can OPEN the SKILL.md (canvas view/edit)
+                skills_by_name[sk.name] = {"name": sk.name, "description": sk.description,
+                                           "path": sk.path, "source": source}
 
         return {
             "id": spec.id,
@@ -1910,6 +1924,143 @@ class Gateway:
             "workspaceFiles": files,
             "skills": list(skills_by_name.values()),
         }
+
+    # ------------------------------------------------------------- workspace browsing
+    # The Workspace tab on an entity page (agent OR project): lazy per-directory listing
+    # + user file ops. Everything resolves under ONE root (the agent's workspace or the
+    # project's shared workspace) and every path is containment-checked against it, so
+    # the RPCs can't be walked outside with `..`.
+
+    def _workspace_root(self, params: dict):
+        """(root Path, error) — the workspace root these ops act on: projectId wins, else
+        agentId (default main). None root + a message when the entity doesn't exist."""
+        project_id = (params.get("projectId") or "").strip()
+        if project_id:
+            from agentd.infrastructure.memory import projects_store
+            if projects_store.get_project(self.config.state_dir, project_id) is None:
+                return None, "unknown project"
+            return projects_store.project_workspace_dir(self.config.state_dir, project_id), ""
+        agent_id = (params.get("agentId") or "").strip() or "main"
+        if self.registry is not None:
+            try:
+                return Path(self.registry.get(agent_id).workspace), ""
+            except KeyError:
+                return None, f"unknown agent: {agent_id}"
+        return Path(self.config.workspace), ""
+
+    @staticmethod
+    def _ws_resolve(root: Path, rel: str):
+        """Resolve a RELATIVE path inside root (None if it escapes — traversal guard)."""
+        p = (Path(root) / (rel or "")).resolve()
+        try:
+            p.relative_to(Path(root).resolve())
+        except (ValueError, OSError):
+            return None
+        return p
+
+    def _workspace_list(self, params: dict) -> dict:
+        """One directory's entries (lazy tree node): dirs first, then files, name-sorted.
+        Each entry: {name, kind(folder|image|video|audio|file), size, modified, rel, path}.
+        `path` is absolute (for /file + canvas), `rel` drives further ops/expansion."""
+        from agentd.infrastructure.files import classify
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"entries": [], "error": err}
+        rel = (params.get("path") or "").strip()
+        d = self._ws_resolve(root, rel)
+        if d is None or not d.is_dir():
+            return {"entries": [], "error": "not a directory"}
+        dirs: list = []
+        files: list = []
+        try:
+            children = sorted(d.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            children = []
+        for p in children[:500]:
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            crel = f"{rel}/{p.name}" if rel else p.name
+            if p.is_dir():
+                dirs.append({"name": p.name, "kind": "folder", "size": 0,
+                             "modified": st.st_mtime, "rel": crel, "path": str(p)})
+            else:
+                cls = classify(p)
+                files.append({"name": p.name, "kind": cls[0] if cls else "file",
+                              "size": st.st_size, "modified": st.st_mtime,
+                              "rel": crel, "path": str(p)})
+        return {"entries": dirs + files, "path": rel, "root": str(root)}
+
+    def _workspace_mkdir(self, params: dict) -> dict:
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"ok": False, "error": err}
+        rel = (params.get("path") or "").strip().strip("/")
+        if not rel:
+            return {"ok": False, "error": "path required"}
+        p = self._ws_resolve(root, rel)
+        if p is None:
+            return {"ok": False, "error": "invalid path"}
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "rel": rel}
+
+    def _workspace_upload(self, params: dict) -> dict:
+        """Save ONE user-chosen file into the workspace dir `path` (default the root),
+        keeping its real name (deduped with ' (n)' on collision — never silently overwrite)."""
+        import base64
+        import binascii
+        from agentd.infrastructure.files import _safe_name
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"ok": False, "error": err}
+        b64 = params.get("dataBase64") or ""
+        name = _safe_name(params.get("name") or "file")
+        if not b64 or (len(b64) * 3) // 4 > UPLOAD_MAX_BYTES:
+            return {"ok": False, "error": f"empty or over {UPLOAD_MAX_BYTES // (1024 * 1024)} MB"}
+        d = self._ws_resolve(root, (params.get("path") or "").strip())
+        if d is None:
+            return {"ok": False, "error": "invalid path"}
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            raw = base64.b64decode(b64, validate=True)
+            target = d / name
+            stem, suffix = target.stem, target.suffix
+            n = 2
+            while target.exists():                     # dedupe: report.png -> report (2).png
+                target = d / f"{stem} ({n}){suffix}"
+                n += 1
+            target.write_bytes(raw)
+        except (OSError, binascii.Error, ValueError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "name": target.name, "path": str(target)}
+
+    def _workspace_delete(self, params: dict) -> dict:
+        """Delete ONE file or folder (recursive) inside the workspace. The root itself is
+        refused, so 'delete' can never empty an agent's/project's whole workspace by accident."""
+        import shutil
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"ok": False, "error": err}
+        rel = (params.get("path") or "").strip().strip("/")
+        if not rel:
+            return {"ok": False, "error": "path required"}
+        p = self._ws_resolve(root, rel)
+        if p is None or p == Path(root).resolve():
+            return {"ok": False, "error": "invalid path"}
+        try:
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.exists():
+                p.unlink()
+            else:
+                return {"ok": False, "error": "not found"}
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "rel": rel}
 
     async def _maybe_generate_presentations(self) -> None:
         """Fill in missing agent display presentation, persisted per agent in a sidecar

@@ -123,7 +123,7 @@ export default function ChatView() {
                 <div className="cmenu-label"><Users size={13} />Message an agent</div>
                 {agents.map((a) => (
                   <button type="button" className="cmenu-item cmenu-agent" key={a.id} onClick={() => mentionAgent(a.name || a.id)}>
-                    <span className="avatar" style={{ width: 22, height: 22, fontSize: 10, background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
+                    <span className="avatar avatar--sm" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
                     <span className="cmenu-main"><span className="cmenu-title">{a.name || a.id}</span><span className="cmenu-sub">{a.tagline || agentTag(a.id)}</span></span>
                   </button>
                 ))}

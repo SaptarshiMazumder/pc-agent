@@ -1,6 +1,7 @@
 ---
 name: reservation
 description: Use when a customer wants to make, view, change, or cancel a reservation, or asks about available dates/times/slots.
+use: External
 ---
 
 # Reservation handling

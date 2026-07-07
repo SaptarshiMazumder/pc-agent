@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Folder, Plus, Pencil, Trash2, MessageSquare } from 'lucide-react'
+import { Folder, Plus, Pencil, Trash2 } from 'lucide-react'
 
 import { hashColor } from '../lib/agentPresentation'
 import { whenLabel } from '../lib/timefmt'
@@ -56,8 +56,7 @@ export default function ProjectsView() {
           </div>
           <div className="settings-head-actions">
             <input
-              className="field-input"
-              style={{ width: 180 }}
+              className="field-input head-search"
               placeholder="Search projects"
               value={query}
               spellCheck={false}
@@ -90,67 +89,65 @@ export default function ProjectsView() {
           </div>
         )}
 
-        <div className="settings-group">
-          {shown.length === 0 && (
-            <div className="settings-card">
-              <div className="settings-empty">
-                {q ? 'No projects match.' : 'No projects yet — New to create one.'}
-              </div>
-            </div>
-          )}
-          {shown.map((p) => {
-            const st = stats.get(p.id)
-            const isRenaming = renaming === p.id
-            const isArmed = armed === p.id
-            if (isRenaming) {
+        {shown.length === 0 ? (
+          <div className="settings-empty">
+            {q ? 'No projects match.' : 'No projects yet — New to create one.'}
+          </div>
+        ) : (
+          <div className="entity-list">
+            {shown.map((p) => {
+              const st = stats.get(p.id)
+              const isRenaming = renaming === p.id
+              const isArmed = armed === p.id
+              if (isRenaming) {
+                return (
+                  <input
+                    key={p.id}
+                    className="rename-input"
+                    value={renameDraft}
+                    autoFocus
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={() => { if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenaming(null) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenaming(null) }
+                      else if (e.key === 'Escape') { e.preventDefault(); setRenaming(null) }
+                    }}
+                  />
+                )
+              }
               return (
-                <input
-                  key={p.id}
-                  className="rename-input"
-                  value={renameDraft}
-                  autoFocus
-                  onChange={(e) => setRenameDraft(e.target.value)}
-                  onBlur={() => { if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenaming(null) }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); if (renameDraft.trim()) void renameProject(p.id, renameDraft.trim()); setRenaming(null) }
-                    else if (e.key === 'Escape') { e.preventDefault(); setRenaming(null) }
-                  }}
-                />
-              )
-            }
-            return (
-              <div className="ds-row proj-list-row" key={p.id} onClick={() => openProject(p.id)}>
-                <div className="ds-icon" style={{ color: hashColor(p.id) }}><Folder size={18} /></div>
-                <div className="ds-main">
-                  <div className="ds-name">{p.name}</div>
-                  <div className="ds-sub">
-                    <MessageSquare size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-                    {st?.count || 0} chat{(st?.count || 0) === 1 ? '' : 's'}
-                    {st?.modified ? ` · ${whenLabel(st.modified * 1000)}` : ''}
-                  </div>
+                <div className="entity-row" key={p.id} onClick={() => openProject(p.id)}>
+                  <span className="entity-ico ico-tint" style={{ color: hashColor(p.id) }}><Folder size={17} /></span>
+                  <span className="entity-main">
+                    <span className="entity-name">{p.name}</span>
+                    <span className="entity-sub">
+                      {st?.count || 0} chat{(st?.count || 0) === 1 ? '' : 's'}
+                      {st?.modified ? ` · ${whenLabel(st.modified * 1000)}` : ''}
+                    </span>
+                  </span>
+                  <button
+                    className="hover-btn"
+                    title="rename project"
+                    onClick={(e) => { e.stopPropagation(); setRenameDraft(p.name); setRenaming(p.id) }}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    className={`hover-btn ${isArmed ? 'danger' : ''}`}
+                    title={isArmed ? 'click again to delete (chats become standalone)' : 'delete project'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (isArmed) { void deleteProject(p.id); setArmed(null) }
+                      else { setArmed(p.id); setTimeout(() => setArmed((a) => (a === p.id ? null : a)), 3000) }
+                    }}
+                  >
+                    {isArmed ? <span className="confirm-text">sure?</span> : <Trash2 size={15} />}
+                  </button>
                 </div>
-                <button
-                  className="hover-btn"
-                  title="rename project"
-                  onClick={(e) => { e.stopPropagation(); setRenameDraft(p.name); setRenaming(p.id) }}
-                >
-                  <Pencil size={15} />
-                </button>
-                <button
-                  className={`hover-btn ${isArmed ? 'danger' : ''}`}
-                  title={isArmed ? 'click again to delete (chats become standalone)' : 'delete project'}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (isArmed) { void deleteProject(p.id); setArmed(null) }
-                    else { setArmed(p.id); setTimeout(() => setArmed((a) => (a === p.id ? null : a)), 3000) }
-                  }}
-                >
-                  {isArmed ? <span style={{ fontSize: 11, fontWeight: 600 }}>sure?</span> : <Trash2 size={15} />}
-                </button>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

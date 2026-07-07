@@ -40,6 +40,14 @@ export function whenLabel(ms: number, nowMs = Date.now()): string {
   return days <= 0 ? timeLabel(ms) : dayOrDate(ms, nowMs, days)
 }
 
+/** Label for a TABLE row (agent/project chat lists): date + clock — "5 June · 14:32"
+ *  (just "14:32" today, "Yesterday · 09:10" etc. otherwise). */
+export function whenTimeLabel(ms: number, nowMs = Date.now()): string {
+  if (!ms) return ''
+  const days = dayDelta(ms, nowMs)
+  return days <= 0 ? timeLabel(ms) : `${dayOrDate(ms, nowMs, days)} · ${timeLabel(ms)}`
+}
+
 /** Label for a DATE SEPARATOR between messages: 'Today' instead of a clock. */
 export function dayLabel(ms: number, nowMs = Date.now()): string {
   if (!ms) return ''

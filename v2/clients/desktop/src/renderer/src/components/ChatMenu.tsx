@@ -86,7 +86,7 @@ export default function ChatMenu({
       </button>
       <button className="chat-menu-item" onClick={() => setMovePane((v) => !v)}>
         <span className="cm-ico"><FolderInput size={15} /></span>Move to project
-        <span className="cm-chev" style={{ transform: movePane ? 'rotate(90deg)' : 'none' }}><ChevronRight size={14} /></span>
+        <span className={`cm-chev ${movePane ? 'open' : ''}`}><ChevronRight size={14} /></span>
       </button>
       {movePane && (
         <div className="chat-menu-sub">
@@ -96,11 +96,11 @@ export default function ChatMenu({
           </button>
           {projects.map((p) => (
             <button key={p.id} className="chat-menu-item" onClick={() => run(() => onMove(p.id))}>
-              <span className="row-title" style={{ flex: 1 }}>{p.name}</span>
+              <span className="row-title grow">{p.name}</span>
               {currentProjectId === p.id && <span className="chat-menu-check"><Check size={14} /></span>}
             </button>
           ))}
-          {projects.length === 0 && <div className="row-sub" style={{ padding: '5px 9px' }}>no projects yet</div>}
+          {projects.length === 0 && <div className="row-sub list-empty">no projects yet</div>}
         </div>
       )}
       <button className="chat-menu-item" onClick={() => run(onExport)}>
