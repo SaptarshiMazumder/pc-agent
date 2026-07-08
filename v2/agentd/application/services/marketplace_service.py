@@ -156,4 +156,5 @@ class MarketplaceService:
 def _entry_dict(entry: RegistryEntry) -> dict:
     return {"id": entry.id, "name": entry.name, "version": entry.version,
             "description": entry.description, "agentdCompat": entry.agentd_compat,
-            "price": entry.price, "entitlement": entry.entitlement, "size": entry.size}
+            "price": entry.price, "entitlement": entry.entitlement, "size": entry.size,
+            "icon": entry.icon}

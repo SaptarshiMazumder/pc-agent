@@ -53,6 +53,9 @@ def build_catalog(config) -> dict:
             "needs_model": needs_model,
             "model": model,
             "description": (tconf or {}).get("description") or _first_line(getattr(tool, "description", "")),
+            # the FULL canonical description from the tool's code (the config `description` is a
+            # truncated human note); UIs show this, CLIs keep using the short `description`.
+            "full_description": (getattr(tool, "description", "") or "").strip(),
         })
     return catalog
 

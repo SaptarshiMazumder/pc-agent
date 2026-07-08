@@ -12,6 +12,11 @@ export interface Artifact {
   mime: string
   kind: ArtifactKind
   size?: number
+  /** In-memory content for a SYNTHETIC doc that has no file on disk — e.g. a tool/plugin
+   *  description opened in the Canvas. When set, viewers render this text directly instead of
+   *  reading `path`, and the doc is read-only (no Edit/Save, no open-in-app/download). `path`
+   *  is then just a stable unique key for the viewer, not a real filesystem path. */
+  text?: string
 }
 
 // The daemon's HTTP origin + auth token, refreshed on every (re)connect from the same

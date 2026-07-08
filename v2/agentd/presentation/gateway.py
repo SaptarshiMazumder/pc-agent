@@ -1385,7 +1385,10 @@ class Gateway:
             rows.sort(key=lambda r: r.get("modified") or 0, reverse=True)
             return {"sessions": rows, "agentId": "", "all": want_all, "projectId": project_id}
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
-        rows = [{**s, "agentId": agent_id} for s in list_sessions(state_dir)]
+        # Internal agent-to-agent / cron threads (on-disk `agent_…` stems) are never human
+        # chats — hide them here too, so a per-agent session picker matches the cross-agent lists.
+        rows = [{**s, "agentId": agent_id} for s in list_sessions(state_dir)
+                if not str(s.get("sessionId", "")).startswith("agent_")]
         return {"sessions": rows, "agentId": agent_id}
 
     def _sessions_history(self, params: dict) -> dict:
@@ -1823,8 +1826,9 @@ class Gateway:
             for t in sorted(p["tools"], key=lambda x: x["name"]):
                 name = t["name"]
                 tools.append({
+                    # UIs show the FULL canonical description; fall back to the short one
+                    "description": t.get("full_description") or t.get("description", ""),
                     "name": name,
-                    "description": t.get("description", ""),
                     "needsModel": bool(t.get("needs_model")),
                     "model": t.get("model"),
                     "provider": resolve_tool_provider(cfg, pid, name),

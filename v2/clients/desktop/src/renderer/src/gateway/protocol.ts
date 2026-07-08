@@ -98,6 +98,8 @@ export interface CatalogBundle {
   installedVersion: string
   updateAvailable: boolean
   entitlement: string
+  /** glyph name declared in the bundle manifest ('' => client default glyph) */
+  icon?: string
 }
 
 export interface InstalledBundle {

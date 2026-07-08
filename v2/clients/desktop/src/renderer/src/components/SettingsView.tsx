@@ -583,10 +583,25 @@ interface CatTool {
 }
 interface CatPlugin { id: string; description: string; enabled: boolean; tools: CatTool[] }
 
+/** A description as ONE truncated line; clicking opens the full text in the Canvas. Shared by
+ *  plugins and tools so both read the same way (no per-element styling). */
+function DescLine({ text, title, onOpen }: { text: string; title: string; onOpen: () => void }) {
+  return (
+    <button className="desc-line" title={`Open ${title} — full description`} onClick={onOpen}>
+      {text.replace(/\s+/g, ' ').trim()}
+    </button>
+  )
+}
+
 function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
+  const openCanvas = useApp((s) => s.openCanvas)
   const [cat, setCat] = useState<CatPlugin[] | null>(null)
   const [err, setErr] = useState('')
   const [q, setQ] = useState('')
+
+  // open a description (in-memory markdown) in the Canvas — the same surface skills use
+  const openDesc = (kind: 'plugin' | 'tool', id: string, description: string): void =>
+    openCanvas({ path: `doc:${kind}:${id}`, name: `${id} · ${kind}`, mime: 'text/markdown', kind: 'file', text: description })
 
   useEffect(() => {
     let alive = true
@@ -671,7 +686,9 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
             <div className="plugin-head">
               <div className="plugin-headmain">
                 <span className="plugin-name">{p.id}</span>
-                {p.description && <span className="plugin-desc">{p.description}</span>}
+                {p.description && (
+                  <DescLine text={p.description} title={p.id} onOpen={() => openDesc('plugin', p.id, p.description)} />
+                )}
               </div>
               <button className={`switch ${on ? 'on' : ''}`} title="enable / disable plugin" onClick={() => setPluginOn(p.id, !on)} />
             </div>
@@ -684,7 +701,9 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
                 <div className="pt-row" key={t.name}>
                   <div className="pt-info">
                     <div className="pt-name">{t.name}</div>
-                    {t.description && <div className="pt-desc">{t.description}</div>}
+                    {t.description && (
+                      <DescLine text={t.description} title={t.name} onOpen={() => openDesc('tool', t.name, t.description)} />
+                    )}
                     {(t.needsModel || hasProvider) && (
                       <div className="pt-knobs">
                         {t.needsModel && (

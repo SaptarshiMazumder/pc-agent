@@ -46,12 +46,17 @@ export default function Canvas(): JSX.Element | null {
           <span className="canvas-kind">{kindLabel(artifact)}</span>
         </div>
         <div className="canvas-head-actions">
-          <button className="cv-btn" title="open in default app" onClick={() => void window.agentd.openPath(artifact.path)}>
-            <ExternalLink size={15} />
-          </button>
-          <button className="cv-btn" title="download a copy" onClick={() => void window.agentd.downloadPath(artifact.path)}>
-            <Download size={15} />
-          </button>
+          {/* open-in-app / download act on a real file — hide for synthetic in-memory docs */}
+          {artifact.text == null && (
+            <>
+              <button className="cv-btn" title="open in default app" onClick={() => void window.agentd.openPath(artifact.path)}>
+                <ExternalLink size={15} />
+              </button>
+              <button className="cv-btn" title="download a copy" onClick={() => void window.agentd.downloadPath(artifact.path)}>
+                <Download size={15} />
+              </button>
+            </>
+          )}
           <button className="cv-btn" title="close (Esc)" onClick={close}><X size={16} /></button>
         </div>
       </div>

@@ -307,6 +307,10 @@ interface AppState {
   openProject(projectId: string): void
   /** start a FRESH chat as the given agent (from the agent detail page's "New chat with …") */
   newChatWithAgent(agentId: string): void
+  /** the sidebar "New chat" — a general chat with the default generalist ('main'), regardless of
+   *  which agent you were last on (the flavor's default_agent can be a specialist like
+   *  figure-creator; a plain New chat should still be the generalist) */
+  newChat(): void
   createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
@@ -763,6 +767,12 @@ export const useApp = create<AppState>((set, get) => {
       set({ currentAgentId: agentId })
       if (changed) void refreshSessions()
       get().newSession() // fresh chat as this agent (sets view:'chat', registers the tab)
+    },
+
+    newChat() {
+      // 'main' is the canonical generalist (config.agent_id default + always-synthesized agent).
+      // A plain "New chat" goes here even when the install's default_agent is a specialist.
+      get().newChatWithAgent('main')
     },
 
     async createAgent(fields) {

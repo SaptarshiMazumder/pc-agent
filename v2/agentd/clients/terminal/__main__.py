@@ -3,7 +3,8 @@
 Sends chat.send over WebSocket and renders streamed chat.event frames using
 `rich`: assistant text as live-rendered markdown, tool activity as Claude
 Code-style blocks (⏺ call / ⎿ result), errors in red.
-Commands: /sessions  /abort  /new  /quit
+Press `/` for the full command palette (agents, sessions, projects, tools,
+cron, mcp, notifications, cleanup, delete, new, quit).
 
 Anything that used to require typing an index or id (/sessions, /agents,
 /agent-rm, /mcp remove, /cron rm|run|on|off, /notifications ack) now opens an
@@ -19,6 +20,7 @@ import json
 import sys
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -153,13 +155,19 @@ SESSIONS_DEFAULT = 15
 # must run sensibly with no arguments — most open an arrow-key menu of their
 # own; esc in the palette prefills "/" so arguments can still be typed.
 COMMANDS = [
-    ("/sessions", "list & resume saved sessions"),
+    ("/sessions", "list & resume this agent's saved sessions"),
+    ("/recents", "recent chats across ALL agents"),
+    ("/session", "current chat: rename / move / duplicate / delete"),
     ("/delete", "delete a saved session — permanent"),
-    ("/projects", "projects: group chats / pick the active one"),
+    ("/projects", "projects: list / pick / new / rename / lead / members / chats"),
     ("/agents", "list agents & switch"),
     ("/agent", "show / switch the current agent"),
+    ("/agent-info", "agent detail: identity, skills, workspace files"),
     ("/agent-rm", "delete an agent — permanent"),
+    ("/workspace", "browse & manage the workspace (agent or project)"),
     ("/tools", "tools available to the current agent"),
+    ("/store", "install / remove agents (marketplace)"),
+    ("/config", "view or set configuration"),
     ("/mcp", "MCP servers: list / add / remove"),
     ("/cron", "scheduled jobs: list / run / on / off / history"),
     ("/cleanup", "clean an agent workspace (dry-run first)"),
@@ -240,6 +248,22 @@ def result_text(result: dict) -> str:
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 
 
+def coerce_scalar(raw: str):
+    """A typed config value from a CLI string: bool / int / float, else the string.
+    Pure so `/config set` writes the right JSON type (true, 5, 0.3, "text")."""
+    low = raw.strip().lower()
+    if low in ("true", "yes", "on"):
+        return True
+    if low in ("false", "no", "off"):
+        return False
+    for cast in (int, float):
+        try:
+            return cast(raw)
+        except ValueError:
+            pass
+    return raw
+
+
 # Render the structured `update_plan` plan as a Claude-Code-style checklist. The
 # backend emits ONLY structured data (the plan array of {step, status}); each client
 # is free to render it however it likes — this is the terminal client's take. Other
@@ -270,7 +294,8 @@ class TerminalClient:
                  project_id: str | None = None):
         self.url = url
         self.session_key = session_key
-        self.agent_id = agent_id        # explicit agent selection (None = the default agent)
+        self.agent_id = agent_id        # explicit agent selection; resolved from hello on connect
+        self._server_default = "main"   # the gateway's default agent (from hello.agentId)
         self.project_id = project_id    # active project — new chats land in it (None = standalone)
         self.ws = None
         self.pending: dict[str, asyncio.Future] = {}
@@ -293,10 +318,433 @@ class TerminalClient:
         return await asyncio.to_thread(picker.pick, console, title, options)
 
     def _switch_agent(self, target: str) -> None:
-        self.agent_id = None if target in ("main", "default") else target
+        # 'default' is a client alias for whatever agent the gateway defaults to (which may be
+        # a flavored install's specialist, not 'main'); every other target is a real agent id.
+        self.agent_id = self._server_default if target == "default" else target
         self.session_key = f"term-{uuid.uuid4().hex[:8]}"   # fresh thread per agent
-        console.print(f"[{LIME}]agent:[/] [bold]{self.agent_id or 'main'}[/] "
+        console.print(f"[{LIME}]agent:[/] [bold]{self.agent_id}[/] "
                       f"[dim](new session {self.session_key})[/]")
+
+    def _resume_session(self, session_key: str, rows: list) -> None:
+        """Resume a saved chat AND adopt its project. The send path re-stamps the active
+        project onto the session on every turn, so without syncing project_id here, resuming a
+        standalone (or other-project) chat while a project is active would silently move it."""
+        self.session_key = session_key
+        row = next((s for s in rows if s.get("sessionId") == session_key), None)
+        self.project_id = (row.get("projectId") or None) if row else None
+        where = f" [dim](project {self.project_id})[/]" if self.project_id else ""
+        console.print(f"[{LIME}]resumed:[/] [bold]{session_key}[/]{where} "
+                      "[dim](history continues on your next message)[/]")
+
+    # ---- desktop-parity commands ---------------------------------------------
+    # Everything the desktop can do, furnished for the REPL: cross-agent recents, current-chat
+    # ops (rename/move/duplicate/delete), full project management, workspace browsing, agent
+    # detail, the store, and config. Dispatched from _extra_command so the main loop stays lean.
+
+    async def _extra_command(self, line: str) -> bool:
+        """Handle a parity command; return True iff it consumed `line`."""
+        parts = line.split()
+        cmd, args = parts[0], parts[1:]
+        if cmd == "/recents":
+            await self._cmd_recents()
+        elif cmd == "/session":
+            await self._cmd_session(args)
+        elif cmd in ("/workspace", "/ws"):
+            await self._cmd_workspace(args)
+        elif cmd == "/agent-info":
+            await self._cmd_agent_info(args)
+        elif cmd == "/store":
+            await self._cmd_store(args)
+        elif cmd == "/config":
+            await self._cmd_config(args)
+        elif cmd == "/projects" and args and args[0] in ("rename", "lead", "member", "members", "chats"):
+            await self._cmd_projects_extra(args[0], args[1:])
+        else:
+            return False
+        return True
+
+    async def _pick_agent(self, title: str):
+        """Arrow-menu pick of an agent id (or None); prints the list + returns None off-TTY."""
+        try:
+            payload = await self.request("agents.list", {})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return None
+        agents = payload.get("agents") or []
+        if not agents:
+            console.print("[dim]no agents[/]"); return None
+        if not picker.can_pick(console):
+            console.print("[dim]agents: " + ", ".join(a["id"] for a in agents) + "[/]"); return None
+        return await self._pick(title, [
+            picker.Option(value=a["id"], label=a["id"],
+                          detail=" · ".join(x for x in (a.get("name", ""), a.get("tagline", "")) if x),
+                          current=a["id"] == self.agent_id)
+            for a in agents])
+
+    async def _project_options(self, *, standalone: bool = False) -> list:
+        payload = await self.request("projects.list", {})
+        rows = payload.get("projects") or []
+        opts = []
+        if standalone:
+            opts.append(picker.Option(value="", label="(standalone — no project)"))
+        opts += [picker.Option(value=p["id"], label=p["name"], detail=p["id"],
+                               current=p["id"] == self.project_id) for p in rows]
+        return opts
+
+    async def _pick_project(self, title: str):
+        """Arrow-menu pick of a project id (or None)."""
+        try:
+            opts = await self._project_options()
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return None
+        if not opts:
+            console.print("[dim]no projects — /projects new <name>[/]"); return None
+        if not picker.can_pick(console):
+            console.print("[dim]projects: " + ", ".join(str(o.value) for o in opts) + "[/]"); return None
+        return await self._pick(title, opts)
+
+    def _ws_params(self, extra: dict | None = None) -> dict:
+        """Workspace RPC scope: the ACTIVE project's shared workspace wins, else this agent's."""
+        p = dict(extra or {})
+        if self.project_id:
+            p["projectId"] = self.project_id
+        else:
+            p["agentId"] = self.agent_id
+        return p
+
+    async def _cmd_recents(self) -> None:
+        """Recent chats across EVERY agent (desktop's cross-agent Recents). Resuming a row
+        switches to that row's agent + project, so history and workspace binding stay correct."""
+        try:
+            payload = await self.request("sessions.list", {"all": True})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        rows = payload.get("sessions") or []
+        if not rows:
+            console.print("[dim]no chats yet[/]"); return
+        if not picker.can_pick(console):
+            for i, s in enumerate(rows[:SESSIONS_DEFAULT], 1):
+                console.print(f"  [{LIME}]{i}[/] [bold]{s.get('title') or s['sessionId']}[/] "
+                              f"[dim]{s.get('agentId', '?')} · {whatsapp_when(s.get('modified') or 0)}[/]")
+            return
+        opts = [picker.Option(
+            value=s["sessionId"], label=s.get("title") or s["sessionId"],
+            detail=f"{s.get('agentId', '?')}"
+                   + (f" · {s['projectId']}" if s.get("projectId") else "")
+                   + f" · {whatsapp_when(s.get('modified') or 0)}",
+            current=s["sessionId"] == self.session_key) for s in rows]
+        chosen = await self._pick(f"recents — all agents ({len(rows)})", opts)
+        if chosen is None:
+            console.print("[dim]cancelled[/]"); return
+        row = next((s for s in rows if s["sessionId"] == chosen), {})
+        self.agent_id = row.get("agentId") or self.agent_id
+        self.project_id = row.get("projectId") or None
+        self.session_key = chosen
+        where = f" · project {self.project_id}" if self.project_id else ""
+        console.print(f"[{LIME}]resumed:[/] [bold]{chosen}[/] [dim](agent {self.agent_id}{where})[/]")
+
+    async def _cmd_session(self, args: list) -> None:
+        """Ops on the CURRENT chat: rename / move to a project / duplicate / delete."""
+        sub = args[0] if args else ""
+        rest = " ".join(args[1:]).strip()
+        key, aid = self.session_key, self.agent_id
+        if sub == "rename":
+            title = rest or (await asyncio.to_thread(
+                console.input, "[dim]new title (blank clears the manual name):[/] ")).strip()
+            resp = await self.request("sessions.rename",
+                                      {"sessionKey": key, "agentId": aid, "title": title})
+            console.print(f"[{LIME}]renamed[/] [dim]{resp.get('title') or '(auto title)'}[/]"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub in ("move", "project"):
+            pid = rest
+            if not pid and picker.can_pick(console):
+                pid = await self._pick("move chat to a project", await self._project_options(standalone=True))
+                if pid is None:
+                    console.print("[dim]cancelled[/]"); return
+            resp = await self.request("sessions.move",
+                                      {"sessionKey": key, "agentId": aid, "projectId": pid})
+            if resp.get("ok"):
+                self.project_id = pid or None
+                console.print(f"[{LIME}]moved[/] [dim]{('→ ' + pid) if pid else 'standalone'}[/]")
+            else:
+                console.print(f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub in ("duplicate", "dup", "copy"):
+            resp = await self.request("sessions.duplicate", {"sessionKey": key, "agentId": aid})
+            if resp.get("ok"):
+                self.session_key = resp["sessionKey"]
+                console.print(f"[{LIME}]duplicated[/] [bold]{self.session_key}[/] [dim](now active)[/]")
+            else:
+                console.print(f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub in ("delete", "rm"):
+            confirm = (await asyncio.to_thread(
+                console.input, f"[error]delete[/] this chat [dim]({key})? (y/N):[/] ")).strip().lower()
+            if confirm not in ("y", "yes"):
+                console.print("[dim]cancelled[/]"); return
+            resp = await self.request("sessions.delete", {"sessionKey": key, "agentId": aid})
+            if resp.get("ok"):
+                self.session_key = f"term-{uuid.uuid4().hex[:8]}"
+                console.print(f"[{LIME}]deleted[/] [dim]new session {self.session_key}[/]")
+            else:
+                console.print(f"[error]{resp.get('error', 'failed')}[/]")
+        else:
+            console.print("[dim]/session rename [title] · move [project] · duplicate · delete[/] "
+                          f"[dim](current: {key})[/]")
+
+    async def _cmd_projects_extra(self, sub: str, args: list) -> None:
+        """The project-management subcommands the desktop Project page has: rename, set the
+        lead ('answers as'), add/remove members, and list/resume a project's chats."""
+        if sub == "rename":
+            pid = args[0] if args else await self._pick_project("rename which project")
+            if not pid:
+                console.print("[dim]cancelled[/]"); return
+            name = " ".join(args[1:]).strip() or (await asyncio.to_thread(
+                console.input, "[dim]new name:[/] ")).strip()
+            if not name:
+                console.print("[dim]cancelled[/]"); return
+            resp = await self.request("projects.rename", {"id": pid, "name": name})
+            console.print(f"[{LIME}]renamed[/] {pid} → {name!r}"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub == "lead":
+            pid = args[0] if args else (self.project_id or await self._pick_project("set lead for which project"))
+            if not pid:
+                console.print("[dim]cancelled[/]"); return
+            aid = await self._pick_agent("answers as (project lead)")
+            if aid is None:
+                console.print("[dim]cancelled[/]"); return
+            resp = await self.request("projects.setLead", {"id": pid, "agentId": aid})
+            console.print(f"[{LIME}]lead[/] {pid} → [bold]{aid}[/]"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub in ("member", "members"):
+            action = args[0] if args else ""
+            if action not in ("add", "rm", "remove"):
+                console.print("[dim]usage: /projects member add|rm [agent][/]"); return
+            pid = self.project_id or await self._pick_project("manage members of which project")
+            if not pid:
+                console.print("[dim]cancelled[/]"); return
+            aid = args[1] if len(args) > 1 else await self._pick_agent("member agent")
+            if not aid:
+                console.print("[dim]cancelled[/]"); return
+            method = "projects.addMember" if action == "add" else "projects.removeMember"
+            resp = await self.request(method, {"id": pid, "agentId": aid})
+            mark = "→" if action == "add" else "⨯"
+            console.print(f"[{LIME}]{action}[/] {aid} {mark} {pid}"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub == "chats":
+            pid = args[0] if args else self.project_id
+            if not pid:
+                pid = await self._pick_project("show chats of which project")
+            if not pid:
+                console.print("[dim]cancelled[/]"); return
+            await self._resume_from_project(pid)
+
+    async def _resume_from_project(self, pid: str) -> None:
+        try:
+            payload = await self.request("sessions.list", {"projectId": pid})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        rows = payload.get("sessions") or []
+        if not rows:
+            console.print(f"[dim]no chats in {pid} yet[/]"); return
+        if not picker.can_pick(console):
+            for i, s in enumerate(rows, 1):
+                console.print(f"  [{LIME}]{i}[/] [bold]{s.get('title') or s['sessionId']}[/] "
+                              f"[dim]{s.get('agentId', '?')}[/]")
+            return
+        opts = [picker.Option(
+            value=s["sessionId"], label=s.get("title") or s["sessionId"],
+            detail=f"{s.get('agentId', '?')} · {whatsapp_when(s.get('modified') or 0)}",
+            current=s["sessionId"] == self.session_key) for s in rows]
+        chosen = await self._pick(f"chats in {pid} ({len(rows)})", opts)
+        if chosen is None:
+            console.print("[dim]cancelled[/]"); return
+        row = next((s for s in rows if s["sessionId"] == chosen), {})
+        self.agent_id = row.get("agentId") or self.agent_id
+        self.project_id = pid
+        self.session_key = chosen
+        console.print(f"[{LIME}]resumed:[/] [bold]{chosen}[/] [dim](agent {self.agent_id} · project {pid})[/]")
+
+    async def _cmd_agent_info(self, args: list) -> None:
+        """Agent detail (desktop's Agent page): identity, model, workspace, and skills split
+        into the agent's OWN vs the inherited default library."""
+        aid = args[0] if args else (await self._pick_agent("agent detail") or self.agent_id)
+        try:
+            d = await self.request("agents.detail", {"agentId": aid})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        if d.get("error"):
+            console.print(f"[error]{d['error']}[/]"); return
+        lines = [Text.from_markup(f"[bold {LIME}]{d.get('name') or aid}[/]  [dim]{d.get('id')}[/]")]
+        if d.get("tagline"):
+            lines.append(Text(d["tagline"], style="dim"))
+        if d.get("description"):
+            lines.append(Text(d["description"]))
+        lines.append(Text.from_markup(
+            f"[dim]model[/] {d.get('model') or '(default)'}   [dim]workspace[/] {d.get('workspace') or '—'}"))
+        skills = d.get("skills") or []
+        own = [s for s in skills if s.get("source") == "own"]
+        shared = [s for s in skills if s.get("source") == "shared"]
+        lines.append(Text(""))
+        lines.append(Text.from_markup(f"[bold]skills[/] [dim]({len(own)} own · {len(shared)} inherited)[/]"))
+        for s in own[:20]:
+            lines.append(Text.from_markup(
+                f"  • [bold]{s['name']}[/] [dim]{(s.get('description') or '')[:64]}[/]"))
+        files = d.get("workspaceFiles") or []
+        if files:
+            lines.append(Text(""))
+            lines.append(Text.from_markup(f"[bold]workspace[/] [dim]({len(files)} item(s))[/]"))
+            for f in files[:12]:
+                mark = "📁" if f.get("kind") == "folder" else " "
+                lines.append(Text.from_markup(f"  {mark} {f['name']}"))
+        console.print(Panel.fit(Group(*lines), border_style=LIME,
+                                title=f"agent · {aid}", title_align="left"))
+
+    async def _cmd_workspace(self, args: list) -> None:
+        """Browse/manage the workspace of the ACTIVE project (if any) else the current agent —
+        the same root the desktop Workspace tab shows. Subcommands: mkdir / rm / upload."""
+        sub = args[0] if args else ""
+        if sub == "mkdir":
+            rel = " ".join(args[1:]).strip()
+            if not rel:
+                console.print("[dim]usage: /workspace mkdir <path>[/]"); return
+            resp = await self.request("workspace.mkdir", self._ws_params({"path": rel}))
+            console.print(f"[{LIME}]created[/] {rel}"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub in ("rm", "delete"):
+            rel = " ".join(args[1:]).strip()
+            if not rel:
+                console.print("[dim]usage: /workspace rm <path>[/]"); return
+            resp = await self.request("workspace.delete", self._ws_params({"path": rel}))
+            console.print(f"[{LIME}]deleted[/] {rel}"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        elif sub == "upload":
+            local = args[1] if len(args) > 1 else ""
+            dest = args[2] if len(args) > 2 else ""
+            if not local:
+                console.print("[dim]usage: /workspace upload <localfile> [destdir][/]"); return
+            path = Path(local).expanduser()
+            if not path.is_file():
+                console.print(f"[error]no such file: {path}[/]"); return
+            import base64
+            data = base64.b64encode(path.read_bytes()).decode("ascii")
+            resp = await self.request("workspace.upload",
+                                      self._ws_params({"path": dest, "name": path.name, "dataBase64": data}))
+            console.print(f"[{LIME}]uploaded[/] {resp.get('name')} [dim]{resp.get('path', '')}[/]"
+                          if resp.get("ok") else f"[error]{resp.get('error', 'failed')}[/]")
+        else:
+            await self._browse_workspace("")
+
+    async def _browse_workspace(self, rel: str) -> None:
+        scope = f"project {self.project_id}" if self.project_id else f"agent {self.agent_id}"
+        while True:
+            try:
+                resp = await self.request("workspace.list", self._ws_params({"path": rel}))
+            except RuntimeError as e:
+                console.print(f"[error]{e}[/]"); return
+            if resp.get("error"):
+                console.print(f"[error]{resp['error']}[/]"); return
+            entries = resp.get("entries") or []
+            here = rel or "/"
+            if not picker.can_pick(console):
+                console.print(f"[dim]{scope} · {here}[/]")
+                for e in entries:
+                    console.print(f"  {'📁' if e['kind'] == 'folder' else ' ·'} {e['name']}")
+                console.print("[dim]manage: /workspace mkdir|rm <path> · upload <localfile> [dir][/]")
+                return
+            opts = []
+            if rel:
+                opts.append(picker.Option(value="..", label="..", detail="up a level"))
+            for e in entries:
+                mark = "📁 " if e["kind"] == "folder" else ""
+                opts.append(picker.Option(value=e["rel"], label=f"{mark}{e['name']}", detail=e["kind"]))
+            chosen = await self._pick(f"workspace · {scope} · {here} ({len(entries)})", opts)
+            if chosen is None:
+                return
+            if chosen == "..":
+                rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+                continue
+            ent = next((e for e in entries if e["rel"] == chosen), None)
+            if ent and ent["kind"] == "folder":
+                rel = chosen
+                continue
+            if ent:
+                console.print(f"[{LIME}]file:[/] [bold]{ent['name']}[/] [dim]{ent['path']}[/]")
+            return
+
+    async def _cmd_store(self, args: list) -> None:
+        """The marketplace (desktop's Store): list bundles, install, uninstall — live, no restart."""
+        sub = args[0] if args else ""
+        if sub in ("install", "add", "get"):
+            bid = args[1] if len(args) > 1 else ""
+            if not bid:
+                console.print("[dim]usage: /store install <id>[/]"); return
+            console.print(f"[dim]installing {bid}…[/]")
+            try:
+                resp = await self.request("marketplace.install", {"id": bid})
+            except RuntimeError as e:
+                console.print(f"[error]{e}[/]"); return
+            console.print(f"[{LIME}]installed[/] {resp.get('id')} {resp.get('version', '')}"
+                          if resp.get("installed") else f"[error]{resp}[/]")
+        elif sub in ("uninstall", "rm", "remove"):
+            bid = args[1] if len(args) > 1 else ""
+            if not bid:
+                console.print("[dim]usage: /store uninstall <id>[/]"); return
+            try:
+                resp = await self.request("marketplace.uninstall", {"id": bid})
+            except RuntimeError as e:
+                console.print(f"[error]{e}[/]"); return
+            console.print(f"[{LIME}]uninstalled[/] {bid}"
+                          if resp.get("uninstalled") else f"[error]{resp}[/]")
+        else:
+            try:
+                resp = await self.request("marketplace.catalog", {})
+            except RuntimeError as e:
+                console.print(f"[error]{e}[/]"); return
+            if resp.get("error"):
+                console.print(f"[dim]{resp['error']}[/]"); return
+            bundles = resp.get("bundles") or []
+            if not bundles:
+                console.print("[dim]no bundles in the registry[/]"); return
+            table = Table(show_header=True, header_style=f"bold {LIME}", box=None, pad_edge=False)
+            for col in ("id", "version", "price", "status"):
+                table.add_column(col)
+            for b in bundles:
+                if not b.get("compatible"):
+                    status = "[error]needs newer agentd[/]"
+                elif b.get("installed"):
+                    status = "[ok]installed[/]" + (" · update" if b.get("updateAvailable") else "")
+                else:
+                    status = ""
+                table.add_row(b["id"], b.get("version", ""), b.get("price", "free"), status)
+            console.print(table)
+            console.print("[dim]/store install <id> · /store uninstall <id>[/]")
+
+    async def _cmd_config(self, args: list) -> None:
+        """View config (paths, effective model, provider keys) or set one scalar key. The full
+        form editor is the desktop Settings tab; this is the REPL's read + quick-set."""
+        try:
+            data = await self.request("config.get", {})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        if args and args[0] == "set":
+            if len(args) < 3:
+                console.print("[dim]usage: /config set <key> <value>[/]"); return
+            key, value = args[1], coerce_scalar(" ".join(args[2:]))
+            try:
+                resp = await self.request("config.set", {"patch": {key: value}})
+            except RuntimeError as e:
+                console.print(f"[error]{e}[/]"); return
+            console.print(f"[{LIME}]set[/] {key} = {value!r} [dim](restart the daemon to apply)[/]"
+                          if resp.get("saved") else f"[error]{resp.get('error', 'failed')}[/]")
+            return
+        lines = [
+            Text.from_markup(f"[dim]config file[/]  {data.get('path', '?')}"),
+            Text.from_markup(f"[dim]secrets file[/] {data.get('envPath', '?')}"),
+            Text.from_markup(f"[dim]effective model[/] [bold]{data.get('effectiveModel', '?')}[/]"),
+        ]
+        provider_keys = data.get("providerKeys") or []
+        if provider_keys:
+            lines.append(Text.from_markup(f"[dim]provider keys set[/] {', '.join(provider_keys)}"))
+        console.print(Panel.fit(Group(*lines), border_style=LIME, title="config", title_align="left"))
+        console.print("[dim]scalar edit: /config set <key> <value>  ·  full editor: the desktop Settings[/]")
 
     async def _agents_menu(self) -> None:
         """/agents and bare /agent: pick an agent with arrow keys and switch to
@@ -307,7 +755,7 @@ class TerminalClient:
             console.print(f"[error]{e}[/]")
             return
         agents = payload.get("agents") or []
-        current = self.agent_id or payload.get("default") or "main"
+        current = self.agent_id or self._server_default
         if picker.can_pick(console) and agents:
             opts = [picker.Option(value=a["id"], label=a["id"],
                                   detail=" · ".join(x for x in (a.get("name", ""),
@@ -513,6 +961,12 @@ class TerminalClient:
                 info = await self.request("hello", {})
             except RuntimeError:
                 info = {}
+            # Honor the gateway's default agent (a flavored install may default to a specialist,
+            # not 'main') so the terminal talks to the SAME agent the desktop would — unless the
+            # user pinned one with --agent. From here on agent_id is always a concrete id.
+            self._server_default = info.get("agentId") or "main"
+            if not self.agent_id:
+                self.agent_id = self._server_default
             self._print_welcome(info)
             try:
                 while True:
@@ -538,6 +992,10 @@ class TerminalClient:
                         continue
                     if not self.history or self.history[-1] != line:
                         self.history.append(line)
+                    # desktop-parity commands (recents / session ops / projects mgmt / workspace /
+                    # agent detail / store / config) live in their own handlers to keep this chain lean
+                    if line.startswith("/") and await self._extra_command(line):
+                        continue
                     if line == "/quit":
                         break
                     if line == "/new":
@@ -684,14 +1142,15 @@ class TerminalClient:
                             continue
                         cron = resp.get("cron") or {}
                         cron_n = sum(cron.values()) if isinstance(cron, dict) else 0
+                        chats = "cleared" if resp.get("sessions") else "—"
                         console.print(
                             f"[{LIME}]deleted[/] [bold]{target}[/]  "
-                            f"[dim]sessions={resp.get('sessions')} · memory={resp.get('memory', 0)} rows"
+                            f"[dim]chats={chats} · memory={resp.get('memory', 0)} rows"
                             f" · cron/ledger={cron_n} rows[/]")
-                        if self.agent_id == target:        # we were on it -> hop back to main
-                            self.agent_id = None
+                        if self.agent_id == target:        # we were on it -> hop back to the default
+                            self.agent_id = self._server_default
                             self.session_key = f"term-{uuid.uuid4().hex[:8]}"
-                            console.print(f"[dim]switched to main (new session {self.session_key})[/]")
+                            console.print(f"[dim]switched to {self.agent_id} (new session {self.session_key})[/]")
                         continue
                     if line == "/agent" or line.startswith("/agent "):
                         parts = line.split(maxsplit=1)
@@ -921,11 +1380,7 @@ class TerminalClient:
                             if chosen is None:
                                 console.print("[dim]cancelled[/]")
                             else:
-                                self.session_key = chosen
-                                console.print(
-                                    f"[{LIME}]resumed:[/] [bold]{self.session_key}[/] "
-                                    "[dim](history continues on your next message)[/]"
-                                )
+                                self._resume_session(chosen, sessions)
                             continue
                         # non-TTY fallback: numbered table + typed index
                         # how many to show: default 15; 'all'/'*' or a number expands it
@@ -952,11 +1407,7 @@ class TerminalClient:
                         if chosen is None:
                             console.print("[dim]cancelled[/]")
                         else:
-                            self.session_key = chosen
-                            console.print(
-                                f"[{LIME}]resumed:[/] [bold]{self.session_key}[/] "
-                                "[dim](history continues on your next message)[/]"
-                            )
+                            self._resume_session(chosen, sessions)
                         continue
                     if line == "/delete" or line.startswith("/delete "):
                         # pick (or name) a saved session and delete it — server-side, so
@@ -1064,16 +1515,20 @@ class TerminalClient:
                                 console.print("[dim]cancelled[/]")
                                 continue
                             self.project_id = chosen
+                            # answer as the project's LEAD agent (its "answers as"), like the
+                            # desktop — so a project chat behaves the same from either client.
+                            proj = next((p for p in rows if p["id"] == chosen), {})
+                            self.agent_id = proj.get("defaultAgentId") or self._server_default
                             self.session_key = f"term-{uuid.uuid4().hex[:8]}"
                             console.print(f"[{LIME}]project:[/] [bold]{chosen}[/] "
-                                          f"[dim](new session {self.session_key})[/]")
+                                          f"[dim](answers as {self.agent_id} · new session {self.session_key})[/]")
                         else:
                             for p in rows:
                                 mark = f"[{LIME}]→[/]" if p["id"] == self.project_id else " "
                                 console.print(f"  {mark} [bold]{p['id']}[/]  {p['name']}  "
                                               f"[dim]{whatsapp_when(p.get('createdAt') or 0)}[/]")
                             console.print("[dim]/projects new <name> · rm <id> · off — or restart "
-                                          "with `agentd --project <id>`[/]")
+                                          "with `agentd chat --project <id>`[/]")
                         continue
                     if line == "/abort":
                         try:

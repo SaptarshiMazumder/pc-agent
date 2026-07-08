@@ -20,6 +20,7 @@ bundle.toml shape:
     agentd_compat = ">=0.1,<1"      # optional; "" => any
     entitlement = ""                 # optional license SKU ("" => free)
     publisher = "agentd"
+    icon = "sparkles"                # optional store-card glyph name ("" => client default)
 
     [[bundle.plugins]]               # plugin dependencies, any mix of sources
     id = "figures"
@@ -66,6 +67,7 @@ class BundleManifest:
     agentd_compat: str = ""        # "" => compatible with any agentd
     entitlement: str = ""          # "" => free; else the license SKU that unlocks it
     publisher: str = ""
+    icon: str = ""                 # store-card glyph name ("" => client default)
     plugins: tuple[PluginDep, ...] = ()
 
 
@@ -84,6 +86,7 @@ class RegistryEntry:
     size: int = 0
     price: str = "free"            # informational until payments (M7+)
     entitlement: str = ""
+    icon: str = ""                 # store-card glyph name ("" => client default)
     sig: str = ""                  # base64 ed25519 over the sha256 digest (M7)
 
 
@@ -145,6 +148,7 @@ def parse_bundle_manifest(data: dict) -> BundleManifest:
         agentd_compat=str(bundle.get("agentd_compat") or ""),
         entitlement=str(bundle.get("entitlement") or ""),
         publisher=str(bundle.get("publisher") or ""),
+        icon=str(bundle.get("icon") or ""),
         plugins=tuple(deps),
     )
 
@@ -163,7 +167,8 @@ def parse_registry_index(data: dict) -> RegistryIndex:
             agentd_compat=str(raw.get("agentd_compat") or ""),
             url=str(raw.get("url") or ""), sha256=str(raw.get("sha256") or ""),
             size=int(raw.get("size") or 0), price=str(raw.get("price") or "free"),
-            entitlement=str(raw.get("entitlement") or ""), sig=str(raw.get("sig") or ""),
+            entitlement=str(raw.get("entitlement") or ""), icon=str(raw.get("icon") or ""),
+            sig=str(raw.get("sig") or ""),
         ))
     return RegistryIndex(
         name=str(data.get("name") or ""), publisher=str(data.get("publisher") or ""),

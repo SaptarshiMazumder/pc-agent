@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Download } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
 import { fileUrl } from '../lib/artifacts'
 import { EDITABLE, ext, viewerKind } from '../lib/canvasFile'
 import FabricEditor, { rasterMode, svgMode } from './FabricEditor'
+import Markdown from './Markdown'
 
 // ---------------------------------------------------------------- image (zoom / pan)
 function ImageViewer({ a }: { a: Artifact }): JSX.Element {
@@ -130,7 +129,7 @@ function MarkdownPreview({ text }: { text: string }): JSX.Element {
   const { meta, body } = parseFrontmatter(text)
   const entries = Object.entries(meta)
   return (
-    <div className="markdown cv-md">
+    <div className="cv-md">
       {entries.length > 0 && (
         <div className="cv-frontmatter">
           {entries.map(([k, v]) => (
@@ -141,7 +140,7 @@ function MarkdownPreview({ text }: { text: string }): JSX.Element {
           ))}
         </div>
       )}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+      <Markdown text={body} />
     </div>
   )
 }
@@ -149,15 +148,17 @@ function MarkdownPreview({ text }: { text: string }): JSX.Element {
 // ---------------------------------------------------------------- text / code / md / html / csv
 function TextViewer({ a }: { a: Artifact }): JSX.Element {
   const kind = viewerKind(a)
-  const editable = EDITABLE.has(kind)
+  const inline = a.text != null          // synthetic in-memory doc (no file) — read-only
+  const editable = !inline && EDITABLE.has(kind)
   const canPreview = kind === 'markdown' || kind === 'html' || kind === 'csv'
-  const [text, setText] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(inline ? a.text! : null)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'preview' | 'source' | 'edit'>(canPreview ? 'preview' : 'source')
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (inline) { setText(a.text!); setError(''); setDirty(false); return }
     let alive = true
     setText(null); setError(''); setDirty(false)
     // read via IPC (main's fs) — the file is local, and a cross-origin fetch would be blocked
@@ -167,7 +168,7 @@ function TextViewer({ a }: { a: Artifact }): JSX.Element {
       else setError(res.error || 'read failed')
     })
     return () => { alive = false }
-  }, [a.path])
+  }, [a.path, inline, a.text])
 
   async function save(): Promise<void> {
     if (text == null) return

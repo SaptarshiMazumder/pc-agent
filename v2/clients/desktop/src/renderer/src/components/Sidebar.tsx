@@ -88,10 +88,10 @@ export default function Sidebar() {
   const currentAgentId = useApp((s) => s.currentAgentId)
   const viewedAgentId = useApp((s) => s.viewedAgentId)
   const viewAgent = useApp((s) => s.viewAgent)
+  const newChat = useApp((s) => s.newChat)
   const recents = useApp((s) => s.recents)
   const currentSessionKey = useApp((s) => s.currentSessionKey)
   const resumeSession = useApp((s) => s.resumeSession)
-  const newSession = useApp((s) => s.newSession)
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const connection = useApp((s) => s.connection)
@@ -121,7 +121,7 @@ export default function Sidebar() {
       <aside className="sidebar sidebar--rail">
         <img className="brand-logo brand-logo--rail" src={logo} alt="" />
         <button className="rail-btn" title="expand sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
-        <button className="rail-primary" title="new chat" onClick={() => newSession()}><SquarePen size={17} /></button>
+        <button className="rail-primary" title="new chat" onClick={() => newChat()}><SquarePen size={17} /></button>
         <button className="rail-btn" title="search chats" onClick={toggleSidebar}><Search size={17} /></button>
         <button className={`rail-btn ${projectsActive ? 'active' : ''}`} title="Projects" onClick={() => setView('projects')}><Folder size={17} /></button>
         <div className="rail-sep" />
@@ -158,7 +158,7 @@ export default function Sidebar() {
 
       {/* compact nav rows */}
       <div className="nav-rows">
-        <NavRow icon={<SquarePen size={17} />} label="New chat" onClick={() => newSession()} title="New chat" />
+        <NavRow icon={<SquarePen size={17} />} label="New chat" onClick={() => newChat()} title="New chat" />
         {searchOpen ? (
           <div className="search nav-search">
             <Search size={16} />

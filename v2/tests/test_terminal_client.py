@@ -96,3 +96,87 @@ def test_table_builds_and_renders():
     out = console.export_text()
     assert "term-aaa" in out and "term-bbb" in out
     assert "← current" in out
+
+
+# ---- desktop-parity commands (RPC plumbing) ----------------------------------------
+# These exercise the NON-interactive paths (no TTY in CI, so pickers are skipped): they
+# verify the right RPC is called with the right params and that client state updates.
+
+def _client_with_stub(monkeypatch, responses):
+    """A TerminalClient whose .request records calls and returns canned payloads."""
+    from rich.console import Console
+
+    monkeypatch.setattr(term, "console", Console(width=100, record=True))
+    client = TerminalClient("ws://x", "term-1", agent_id="main")
+    calls: list = []
+
+    async def fake(method, params=None):
+        calls.append((method, params or {}))
+        r = responses.get(method, {})
+        return r(params) if callable(r) else r
+
+    client.request = fake  # shadow the bound method with the stub
+    return client, calls
+
+
+def test_extra_command_routes_parity_and_ignores_normal(monkeypatch):
+    import asyncio
+
+    client, calls = _client_with_stub(monkeypatch, {"config.get": {}})
+    # a normal message is never consumed by the parity dispatcher
+    assert asyncio.run(client._extra_command("just chatting")) is False
+    # a parity command is consumed and hits its RPC
+    assert asyncio.run(client._extra_command("/config")) is True
+    assert any(m == "config.get" for m, _ in calls)
+
+
+def test_ws_params_scope_is_project_then_agent():
+    client = TerminalClient("ws://x", "s", agent_id="main")
+    assert client._ws_params({"path": "a"}) == {"path": "a", "agentId": "main"}
+    client.project_id = "proj-x"
+    assert client._ws_params({"path": "a"}) == {"path": "a", "projectId": "proj-x"}
+
+
+def test_session_move_calls_rpc_and_adopts_project(monkeypatch):
+    import asyncio
+
+    client, calls = _client_with_stub(
+        monkeypatch, {"sessions.move": lambda p: {"ok": True, "projectId": p.get("projectId")}})
+    asyncio.run(client._cmd_session(["move", "proj-x"]))
+    assert ("sessions.move", {"sessionKey": "term-1", "agentId": "main", "projectId": "proj-x"}) in calls
+    assert client.project_id == "proj-x"
+
+
+def test_session_duplicate_switches_to_the_copy(monkeypatch):
+    import asyncio
+
+    client, _ = _client_with_stub(
+        monkeypatch, {"sessions.duplicate": {"ok": True, "sessionKey": "term-copy"}})
+    asyncio.run(client._cmd_session(["duplicate"]))
+    assert client.session_key == "term-copy"
+
+
+def test_projects_rename_uses_id_and_name(monkeypatch):
+    import asyncio
+
+    client, calls = _client_with_stub(monkeypatch, {"projects.rename": {"ok": True}})
+    asyncio.run(client._cmd_projects_extra("rename", ["proj-x", "New", "Name"]))
+    assert ("projects.rename", {"id": "proj-x", "name": "New Name"}) in calls
+
+
+def test_config_set_coerces_scalar_and_patches(monkeypatch):
+    import asyncio
+
+    client, calls = _client_with_stub(
+        monkeypatch, {"config.get": {}, "config.set": {"saved": True}})
+    asyncio.run(client._cmd_config(["set", "completeness_check", "true"]))
+    assert ("config.set", {"patch": {"completeness_check": True}}) in calls
+
+
+def test_store_install_calls_marketplace(monkeypatch):
+    import asyncio
+
+    client, calls = _client_with_stub(
+        monkeypatch, {"marketplace.install": {"installed": True, "id": "figure-creator", "version": "1.0.0"}})
+    asyncio.run(client._cmd_store(["install", "figure-creator"]))
+    assert ("marketplace.install", {"id": "figure-creator"}) in calls

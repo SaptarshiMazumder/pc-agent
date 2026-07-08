@@ -13,6 +13,7 @@ description = "Publication-grade scientific figures: templated artwork (Nano Ban
 agentd_compat = ">=0.1,<1"
 entitlement = ""            # free while we build; set a SKU (e.g. "figure-creator-pro") to license-gate
 publisher = "agentd"
+icon = "sparkles"           # store-card glyph (see the client's glyph registry)
 
 [[bundle.plugins]]
 id = "figures"

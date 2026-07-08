@@ -28,6 +28,7 @@ def build_index(directory: Path, name: str = "", publisher: str = "",
             "id": manifest.id, "name": manifest.name, "version": manifest.version,
             "description": manifest.description, "agentd_compat": manifest.agentd_compat,
             "entitlement": manifest.entitlement, "price": "free" if not manifest.entitlement else "paid",
+            "icon": manifest.icon,
             "url": package_path.name,          # relative: works from disk AND a CDN
             "sha256": digest, "size": package_path.stat().st_size,
         }

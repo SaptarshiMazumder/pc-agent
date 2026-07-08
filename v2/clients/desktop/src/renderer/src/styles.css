@@ -1100,13 +1100,21 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* unified Tools & plugins view */
 /* (.tp-search base lives in the DESIGN SYSTEM search-box group at the top) */
 .plugin-headmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.plugin-desc { font-size: 12px; color: var(--dim); line-height: 1.4; }
 .plugin-off .pt-row { opacity: .5; }
 .pt-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--row-line); }
 .pt-row:last-child { border-bottom: 0; }
 .pt-info { flex: 1; min-width: 0; }
 .pt-name { font: 600 12.5px var(--mono); color: var(--accent-text); }
-.pt-desc { font-size: 12px; color: var(--dim); margin-top: 2px; line-height: 1.45; }
+/* a description as ONE truncated line (plugins + tools) — click to reveal the full text in the
+   Canvas. Truncation relies on the min-width:0 flex parents (.plugin-headmain / .pt-info). */
+.desc-line {
+  display: block; width: 100%; margin: 2px 0 0; padding: 0;
+  background: none; border: 0; text-align: left; cursor: pointer;
+  font-size: 12px; color: var(--dim); line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .12s ease;
+}
+.desc-line:hover { color: var(--accent-text); }
 .pt-knobs { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .pt-knob { display: flex; flex-direction: column; gap: 5px; }
 .pt-knob > span { font: 10.5px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }

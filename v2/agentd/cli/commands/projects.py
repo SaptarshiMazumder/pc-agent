@@ -1,7 +1,7 @@
 """`agentd projects` — ChatGPT-style projects (folders of conversations).
 
 Projects are SERVER data: one global list every client shares. Chat inside one with
-`agentd --project <id>` (or the desktop's per-project “+ chat”); a standalone chat
+`agentd chat --project <id>` (or the desktop's per-project “+ chat”); a standalone chat
 stays exactly what it is today. Daemon running -> RPC; no daemon -> the same
 on-disk store directly."""
 
@@ -56,7 +56,7 @@ def run_list(_args: argparse.Namespace) -> int:
     for p in rows:
         when = whatsapp_when(p.get("createdAt") or 0)
         print(f"  {p['id']:<16} {when:>10}  {p['name']}")
-    print("\nchat inside one: agentd --project <id>   ·   delete: agentd projects delete <id>")
+    print("\nchat inside one: agentd chat --project <id>   ·   delete: agentd projects delete <id>")
     return 0
 
 
@@ -77,7 +77,7 @@ def run_create(args: argparse.Namespace) -> int:
         print(f"create failed: {e}")
         return 1
     print(f"created {project.get('id')}  {project.get('name')}")
-    print(f"chat inside it: agentd --project {project.get('id')}")
+    print(f"chat inside it: agentd chat --project {project.get('id')}")
     return 0
 
 

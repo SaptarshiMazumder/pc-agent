@@ -45,6 +45,10 @@ export function viewerKind(a: Artifact): ViewerKind {
   if (AUDIO.has(e)) return 'audio'
   if (OFFICE.has(e)) return 'office'
   if (CODE.has(e)) return 'code'
+  // no telling extension (e.g. a synthetic in-memory doc named for display) — consult the mime
+  if (a.mime === 'text/markdown') return 'markdown'
+  if (a.mime === 'text/html') return 'html'
+  if (a.mime === 'text/csv') return 'csv'
   // fall back to the artifact's coarse kind for anything unlisted
   if (a.kind === 'image') return 'image'
   if (a.kind === 'video') return 'video'

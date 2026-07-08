@@ -96,7 +96,8 @@ def run_pack(args: argparse.Namespace) -> int:
         description=str(declared.get("description") or ""),
         agentd_compat=str(declared.get("agentd_compat") or ""),
         entitlement=str(declared.get("entitlement") or ""),
-        publisher=str(declared.get("publisher") or ""), plugins=tuple(deps),
+        publisher=str(declared.get("publisher") or ""),
+        icon=str(declared.get("icon") or ""), plugins=tuple(deps),
     )
     package_path = bundle_io.pack_bundle(agent_dir, Path(args.out), manifest, vendored_dirs)
     print(f"packed: {package_path}  ({package_path.stat().st_size:,} bytes)")

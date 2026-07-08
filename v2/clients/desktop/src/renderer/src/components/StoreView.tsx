@@ -1,21 +1,8 @@
-import { RefreshCw, Search, Check, Sparkles, Play, Receipt, MessageSquare, Cpu, Globe, Eye, Package } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { RefreshCw, Search, Check } from 'lucide-react'
+import { useState } from 'react'
 
+import { glyph } from '../lib/glyphs'
 import { useApp } from '../state/store'
-
-/** A per-bundle icon (falls back to a package glyph). */
-function bundleIcon(id: string): ReactNode {
-  const map: Record<string, ReactNode> = {
-    'figure-creator': <Sparkles size={21} />,
-    'presentation-creator': <Play size={20} />,
-    'expense-tracker': <Receipt size={21} />,
-    'sakana-sushi': <MessageSquare size={20} />,
-    'cost-calc': <Cpu size={20} />,
-    'browser-copilot': <Globe size={20} />,
-    'vision-suite': <Eye size={20} />
-  }
-  return map[id] || <Package size={20} />
-}
 
 export default function StoreView() {
   const catalog = useApp((s) => s.catalog)
@@ -53,7 +40,7 @@ export default function StoreView() {
             return (
               <div className="card" key={b.id}>
                 <div className="card-top">
-                  <span className="card-icon">{bundleIcon(b.id)}</span>
+                  <span className="card-icon">{glyph(b.icon, 20)}</span>
                   <div className="grow">
                     <div className="card-name">{b.name}</div>
                     <div className="card-by">{b.entitlement ? 'licensed' : 'agentd'}</div>
