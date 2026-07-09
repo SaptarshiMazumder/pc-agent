@@ -166,6 +166,8 @@ COMMANDS = [
     ("/agent-rm", "delete an agent — permanent"),
     ("/workspace", "browse & manage the workspace (agent or project)"),
     ("/tools", "tools available to the current agent"),
+    ("/capabilities", "everything the runtime exposes: tools / plugins / skills / agents"),
+    ("/models", "every model in use: brain + tools, and what each resolves to"),
     ("/store", "install / remove agents (marketplace)"),
     ("/config", "view or set configuration"),
     ("/mcp", "MCP servers: list / add / remove"),
@@ -355,6 +357,10 @@ class TerminalClient:
             await self._cmd_agent_info(args)
         elif cmd == "/store":
             await self._cmd_store(args)
+        elif cmd in ("/capabilities", "/caps"):
+            await self._cmd_capabilities(args)
+        elif cmd == "/models":
+            await self._cmd_models(args)
         elif cmd == "/config":
             await self._cmd_config(args)
         elif cmd == "/projects" and args and args[0] in ("rename", "lead", "member", "members", "chats"):
@@ -668,6 +674,54 @@ class TerminalClient:
             if ent:
                 console.print(f"[{LIME}]file:[/] [bold]{ent['name']}[/] [dim]{ent['path']}[/]")
             return
+
+    async def _cmd_capabilities(self, args: list) -> None:
+        """Everything the runtime exposes — tools, plugins, skills, agents — in ONE uniform list
+        (capabilities.list), the same shape the desktop reads. Optional filter: /capabilities <kind>."""
+        kind = args[0].rstrip("s").lower() if args else ""     # 'agents'->'agent', 'tools'->'tool', …
+        try:
+            payload = await self.request("capabilities.list", {"kind": kind} if kind else {})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        rows = payload.get("capabilities") or []
+        if not rows:
+            console.print(f"[dim]nothing to show{f' for {kind}' if kind else ''}[/]"); return
+        groups: dict = {}
+        for r in rows:
+            groups.setdefault(r.get("kind", "?"), []).append(r)
+        for k in ("agent", "plugin", "tool", "skill"):
+            items = groups.get(k) or []
+            if not items:
+                continue
+            console.print(f"[bold {LIME}]{k}s[/] [dim]({len(items)})[/]")
+            for r in sorted(items, key=lambda x: x.get("id", "")):
+                desc = " ".join((r.get("description") or "").split())[:84]
+                src = r.get("source") or ""
+                tail = f"  [dim]· {src}[/]" if k == "tool" and src else ""
+                console.print(f"  [bold]{r.get('id')}[/]" + (f"  [dim]{desc}[/]" if desc else "") + tail)
+
+    async def _cmd_models(self, args: list) -> None:
+        """Every model the runtime uses in ONE view (models.list): the brain(s) + each model-bearing
+        tool, what it resolves to, its kind, and where it's set — the same map the desktop Models tab
+        shows. Read-only here; edit in the desktop (kind-correct pickers) or agentd.config.json."""
+        try:
+            payload = await self.request("models.list", {})
+        except RuntimeError as e:
+            console.print(f"[error]{e}[/]"); return
+        rows = payload.get("models") or []
+        if not rows:
+            console.print("[dim]no models[/]"); return
+        table = Table(show_header=True, header_style=f"bold {LIME}", box=None, pad_edge=False)
+        for col in ("what", "kind", "resolves to", "set in"):
+            table.add_column(col)
+        for m in rows:
+            table.add_row(m.get("label", ""), m.get("kind", ""),
+                          str(m.get("resolved") or "—"), m.get("configKey", ""))
+        console.print(table)
+        if payload.get("costEfficiency"):
+            console.print("[dim]cost-efficiency ON — the brain splits into the text/image rows above[/]")
+        console.print("[dim]edit in the desktop Settings → Models (kind-correct pickers), "
+                      "or agentd.config.json[/]")
 
     async def _cmd_store(self, args: list) -> None:
         """The marketplace (desktop's Store): list bundles, install, uninstall — live, no restart."""

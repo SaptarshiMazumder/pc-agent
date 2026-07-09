@@ -129,6 +129,7 @@ class ReadLabelsTool(Tool):
     name = "read_labels_from_image"
     plugin = "vision"
     needs_model = True
+    model_kind = "vision"                # READS an image — needs a multimodal (vision) model
     default_model = vg.GROUNDING_MODEL   # Pro = precise reading; config plugins.vision.* overrides
     description = (
         "Turn a LABELLED image (labels + leaders drawn on it) into ready-to-draw overlay `annotation` "
@@ -172,11 +173,11 @@ class ReadLabelsTool(Tool):
         labelled image -> a clean textless base. This is how read_labels_from_image works standalone on ANY labelled
         image (never overlays onto baked text; no whitening/erase)."""
         import sys as _sys
-        igdir = str(Path(__file__).resolve().parent.parent / "imagegen")   # imagegen is a sibling plugin
+        igdir = str(Path(__file__).resolve().parent.parent / "figure-art")   # figure-art is a sibling plugin
         if igdir not in _sys.path:
             _sys.path.insert(0, igdir)
-        import imagegen_gemini as ig
-        model = resolve_tool_model(self.config, "imagegen", "generate_artwork", default=ig.DEFAULT_MODEL)
+        import figure_art_gemini as ig
+        model = resolve_tool_model(self.config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
         key = ig.resolve_key(api_key, self.config)
         out = labelled.with_name(labelled.stem + "_textless.png")
         ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])

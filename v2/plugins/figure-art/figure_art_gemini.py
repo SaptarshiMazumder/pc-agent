@@ -1,4 +1,4 @@
-"""Thin Gemini image-generation helper for the imagegen plugin (kept separate + plugin-prefixed so
+"""Thin Gemini image-generation helper for the figure-art plugin (kept separate + plugin-prefixed so
 it can't collide with another plugin's top-level module on sys.path).
 
 Mirrors the SDK pattern the core already uses in resources/vision.py: read the key from

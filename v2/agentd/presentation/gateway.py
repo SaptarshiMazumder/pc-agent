@@ -334,6 +334,21 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
     {"value": "mistral/mistral-large-latest", "label": "Mistral Large"},
 )
+# IMAGE-GENERATION models (for tools whose model_kind is "image", e.g. generate_artwork). These
+# OUTPUT pixels — a text/vision model here fails. Kept a separate list so an image tool's dropdown
+# never offers a text model (and vice-versa). `provider` is the backend SDK the tool should use.
+IMAGE_MODEL_CATALOG = (
+    {"value": "gemini/gemini-3-pro-image", "label": "Nano Banana Pro (Gemini 3 Pro Image)", "group": "Google", "provider": "gemini"},
+    {"value": "gemini/gemini-2.5-flash-image", "label": "Nano Banana (Gemini 2.5 Flash Image)", "group": "Google", "provider": "gemini"},
+    {"value": "black-forest-labs/flux-1.1-pro", "label": "FLUX 1.1 Pro", "group": "FLUX", "provider": "replicate"},
+    {"value": "black-forest-labs/flux-schnell", "label": "FLUX schnell (fast)", "group": "FLUX", "provider": "replicate"},
+)
+# EMBEDDING models (for tools whose model_kind is "embedding", e.g. memory search).
+EMBEDDING_MODEL_CATALOG = (
+    {"value": "gemini/text-embedding-004", "label": "Gemini text-embedding-004", "group": "Google"},
+    {"value": "openai/text-embedding-3-small", "label": "OpenAI 3-small", "group": "OpenAI"},
+    {"value": "openai/text-embedding-3-large", "label": "OpenAI 3-large", "group": "OpenAI"},
+)
 _PROVIDER_LABEL = {
     "gemini": "Google", "google": "Google", "vertex_ai": "Google", "anthropic": "Anthropic",
     "openai": "OpenAI", "azure": "OpenAI", "deepseek": "DeepSeek", "xai": "xAI",
@@ -377,38 +392,81 @@ def _provider_has_key(model_id: str) -> bool:
     return any(os.environ.get(e) for e in envs)
 
 
-def _build_model_catalog(cfg) -> list:
-    """The dropdown options for model fields. The MENU is the config's ``model_catalog`` — the
-    single source of truth; ``DEFAULT_MODEL_CATALOG`` is only a fallback when the config lists
-    none (so a fresh install still has suggestions). Menu entries are filtered to providers whose
-    API key is present (never offer a model that can't run); every model actually IN USE is always
-    included even without a detected key. Deduped by value, tagged with a provider group."""
+# Built-in per-KIND option SEEDS. These are ONLY a fresh-install fallback — `config.model_catalog`
+# is the source of truth. To add/remove a model in ANY picker, edit config (tag an entry with `kind`),
+# NEVER this code. Kinds: text | vision | image | embedding.
+_SEED_CATALOGS = {
+    "text": DEFAULT_MODEL_CATALOG,
+    "vision": DEFAULT_MODEL_CATALOG,      # multimodal text models double as vision
+    "image": IMAGE_MODEL_CATALOG,
+    "embedding": EMBEDDING_MODEL_CATALOG,
+}
+
+
+def _has_kind(cfg, kind: str) -> bool:
+    return any(isinstance(e, dict) and str(e.get("kind") or "text").lower() == kind
+               for e in (getattr(cfg, "model_catalog", None) or []))
+
+
+def _catalog_for(cfg, kind: str, forced=()) -> list:
+    """The dropdown options for one model KIND — CONFIG-FIRST. The menu is ``config.model_catalog``
+    (the single source of truth): entries whose ``kind`` matches (a bare string, or a dict with no
+    ``kind``, counts as ``text``). If the config declares none for this kind, the built-in seed is
+    used (fresh-install fallback only). Menu models are filtered to providers whose key is present;
+    ``forced`` values (models actually in use) are always kept; result is deduped + provider-grouped.
+    Adding a model to any picker is therefore a CONFIG edit, never a code edit."""
     seen: dict = {}
 
-    def add(value, label=None, group=None, force=False):
+    def add(value, label=None, group=None, provider=None, force=False):
         v = (str(value) if value else "").strip()
         if not v or v in seen:
             return
         if not force and not _provider_has_key(v):     # hide a menu model with no key
             return
-        seen[v] = {"value": v, "label": (label or v), "group": (group or _provider_group(v))}
+        seen[v] = {"value": v, "label": (label or v), "group": (group or _provider_group(v)),
+                   **({"provider": provider} if provider else {})}
 
-    # the menu: config.model_catalog (source of truth), or the built-in seed if it's empty
-    menu = getattr(cfg, "model_catalog", None) or DEFAULT_MODEL_CATALOG
-    for entry in menu:
-        if isinstance(entry, dict):
-            add(entry.get("value") or entry.get("id"), entry.get("label"), entry.get("group"))
-        elif isinstance(entry, str):
-            add(entry)
-    # whatever is actually configured, so it can never vanish from the picker (force past the key gate)
-    add(getattr(cfg, "model", None), force=True)
-    for m in (getattr(cfg, "model_fallbacks", None) or []):
-        add(m, force=True)
-    ce = getattr(cfg, "cost_efficiency", None) or {}
-    if isinstance(ce, dict):
-        add(ce.get("text_model"), force=True)
-        add(ce.get("vision_model"), force=True)
+    menu = getattr(cfg, "model_catalog", None) or []
+    tagged = []
+    for e in menu:
+        if isinstance(e, dict) and str(e.get("kind") or "text").lower() == kind:
+            tagged.append(e)
+        elif isinstance(e, str) and kind == "text":
+            tagged.append({"value": e})
+    for e in (tagged or _SEED_CATALOGS.get(kind, ())):
+        add(e.get("value") or e.get("id"), e.get("label"), e.get("group"), e.get("provider"))
+    for v in forced:
+        add(v, force=True)
     return list(seen.values())
+
+
+def _build_model_catalog(cfg) -> list:
+    """The TEXT model picker (back-compat name): the text-kind catalog with the brain, failover, and
+    cost-efficiency models force-included so a configured model never vanishes from the picker."""
+    ce = getattr(cfg, "cost_efficiency", None) or {}
+    forced = [getattr(cfg, "model", None), *(getattr(cfg, "model_fallbacks", None) or [])]
+    if isinstance(ce, dict):
+        forced += [ce.get("text_model"), ce.get("vision_model")]
+    return _catalog_for(cfg, "text", forced)
+
+
+def _kind_catalogs(cfg) -> dict:
+    """Per-KIND option lists (all config-first) so each tool's dropdown offers only the right kind of
+    model. In-use tool models are forced in so nothing a tool actually uses disappears; vision reuses
+    the text picker unless the config explicitly declares vision-kind models."""
+    plugins = getattr(cfg, "plugins", None) or {}
+    def in_use(pid, tool):
+        t = ((plugins.get(pid) or {}).get("tools") or {}).get(tool) or {}
+        return [t["model"]] if t.get("model") else []
+    text = _build_model_catalog(cfg)
+    vision_forced = in_use("vision", "read_labels_from_image") + in_use("vision", "verify_figure")
+    return {
+        "models": text,            # back-compat key (text)
+        "text": text,
+        "vision": _catalog_for(cfg, "vision", vision_forced) if _has_kind(cfg, "vision") else text,
+        "image": _catalog_for(cfg, "image", in_use("figure-art", "generate_artwork")),
+        "embedding": _catalog_for(cfg, "embedding"),
+    }
 
 
 def _config_file_path():
@@ -1293,6 +1351,10 @@ class Gateway:
                 payload = self._tools_list(req.params)
             elif req.method == "plugins.catalog":
                 payload = self._plugins_catalog()
+            elif req.method == "capabilities.list":
+                payload = self._capabilities_list(req.params)
+            elif req.method == "models.list":
+                payload = self._models_list()
             elif req.method == "mcp.add":
                 payload = await self._mcp_add(req.params)
             elif req.method == "mcp.list":
@@ -1793,6 +1855,100 @@ class Gateway:
         tools = self.service.list_tools(agent_id)
         return {"tools": tools, "count": len(tools), "agentId": agent_id}
 
+    def _resolved_skills(self, agent_id: str | None):
+        """Skills for a capabilities query: the shared library (no agent), else that agent's set
+        (shared library + its own, deduped, own wins) — the same resolution agents.detail uses."""
+        from agentd.infrastructure.skills.file_skills import load_skills_dir
+        if self.registry is None:
+            return []
+        try:
+            main_dir = self.registry.get("main").skills_dir
+        except KeyError:
+            return []
+        aid = (agent_id or "").strip()
+        if not aid:
+            return load_skills_dir(main_dir)
+        try:
+            own_dir = getattr(self.registry.get(aid), "skills_dir", None)
+        except KeyError:
+            own_dir = None
+        by_name: dict = {}
+        for sd in (main_dir, own_dir):
+            if sd:
+                for sk in load_skills_dir(sd):
+                    by_name[sk.name] = sk
+        return list(by_name.values())
+
+    def _capabilities_list(self, params: dict) -> dict:
+        """The UNIFORM capability catalog — tools, plugins, skills, agents in ONE shape
+        (CapabilityDescriptor). Core resolves every description once and exposes them equally to
+        every client; the client just renders. Optional `kind` filters to one type; optional
+        `agentId` scopes the skills to that agent's resolved set (default: the shared library)."""
+        from agentd.application import capabilities as cap
+        from agentd.main.list_plugins import build_catalog
+        kind = (params.get("kind") or "").strip().lower()
+        rows: list = []
+        if self.registry is not None:
+            specs = []
+            for aid in self.registry.list_ids():
+                try:
+                    specs.append(self.registry.get(aid))
+                except KeyError:
+                    continue
+            rows += cap.agent_descriptors(specs)
+        try:
+            catalog = build_catalog(self.config)
+            rows += cap.plugin_descriptors(catalog)
+            rows += cap.tool_descriptors(catalog)
+        except Exception as e:  # noqa: BLE001 — a bad plugin must never break the catalog
+            log.warning("capabilities.list: catalog build failed: %s", e)
+        rows += cap.skill_descriptors(self._resolved_skills(params.get("agentId")))
+        out = [d.as_dict() for d in rows if not kind or d.kind == kind]
+        return {"capabilities": out, "kind": kind, "count": len(out)}
+
+    def _models_list(self) -> dict:
+        """The ONE model overview — every model the runtime uses, in one place: the brain (and,
+        when cost-efficiency is on, its two split brains) plus every model-bearing tool, each with
+        what it RESOLVES to, its KIND (text/vision/image/embedding), where it's set (`configKey`,
+        the dotted path config.set writes), and the source. Plus the per-kind option lists so a
+        client shows the RIGHT picker. No resolution logic here — it reads the same resolvers the
+        runtime uses, so this view can never drift from what actually runs."""
+        from agentd.main.list_plugins import build_catalog
+        cfg = self.config
+        ce = getattr(cfg, "cost_efficiency", None) or {}
+        ce_on = bool(isinstance(ce, dict) and ce.get("enabled"))
+        brain = getattr(cfg, "model", None)
+        rows: list = []
+        if ce_on:
+            rows.append({"id": "brain-text", "label": "Brain · text turns", "kind": "text",
+                         "resolved": ce.get("text_model") or brain, "configKey": "cost_efficiency.text_model",
+                         "source": "cost_efficiency", "note": "cost-efficiency ON"})
+            rows.append({"id": "brain-vision", "label": "Brain · image turns", "kind": "vision",
+                         "resolved": ce.get("vision_model") or brain, "configKey": "cost_efficiency.vision_model",
+                         "source": "cost_efficiency", "note": "cost-efficiency ON"})
+        else:
+            rows.append({"id": "brain", "label": "Brain (reasoning)", "kind": "text",
+                         "resolved": brain, "configKey": "model", "source": "config.model"})
+        cfg_plugins = getattr(cfg, "plugins", None) or {}
+        try:
+            cat = build_catalog(cfg)
+        except Exception as e:  # noqa: BLE001 — a bad plugin never breaks the overview
+            log.warning("models.list: catalog build failed: %s", e)
+            cat = {}
+        for pid in sorted(cat):
+            for t in cat[pid]["tools"]:
+                if not t.get("needs_model"):
+                    continue
+                tconf = ((cfg_plugins.get(pid) or {}).get("tools") or {}).get(t["name"]) or {}
+                rows.append({
+                    "id": f"{pid}.{t['name']}", "label": t["name"], "kind": t.get("model_kind", "text"),
+                    "resolved": t.get("model"), "plugin": pid,
+                    "configKey": f"plugins.{pid}.tools.{t['name']}.model",
+                    "source": "config" if tconf.get("model") else "tool default",
+                })
+        return {"models": rows, "catalogs": _kind_catalogs(cfg),
+                "costEfficiency": ce_on, "effectiveModel": _effective_model(cfg)}
+
     def _plugins_catalog(self) -> dict:
         """The plugin -> tool catalog for the settings UI: every plugin, its tools, each tool's
         on/off state, whether it takes a model (and the model it resolves to today), and its
@@ -1830,6 +1986,7 @@ class Gateway:
                     "description": t.get("full_description") or t.get("description", ""),
                     "name": name,
                     "needsModel": bool(t.get("needs_model")),
+                    "modelKind": t.get("model_kind", "text"),   # which picker to show (text/vision/image/embedding)
                     "model": t.get("model"),
                     "provider": resolve_tool_provider(cfg, pid, name),
                     "enabled": name not in disabled,
@@ -2375,7 +2532,7 @@ class Gateway:
             "providerKeys": list(PROVIDER_ENV_KEYS),
             # option-sets a client renders as dropdowns (value + display label + group). Any
             # field can reference one of these by key — scalable: add a catalog, reference it.
-            "catalogs": {"models": _build_model_catalog(cfg)},
+            "catalogs": _kind_catalogs(cfg),
             "raw": raw,
             "effectiveModel": _effective_model(cfg),
             "version": __version__,

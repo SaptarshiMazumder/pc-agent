@@ -9,7 +9,7 @@ and escalate to a multimodal ``vision_model`` ONLY on iterations whose OUTGOING 
 carries an image the brain must SEE (an ImageContent block anywhere in the messages).
 
 Why that exact trigger: a text-only brain (e.g. DeepSeek) can still DECIDE to generate an image — that
-is a tool call it emits with text args, and the imagegen tool renders the pixels with its OWN model.
+is a tool call it emits with text args, and the figure-art tool renders the pixels with its OWN model.
 The brain never touches those pixels. The ONLY thing a text model physically cannot do is READ an image
 sitting in its context (litellm forwards tool-result images so "a vision-capable model can SEE them" —
 a text model would choke on / ignore them). So that — and only that — is when we spend the vision model.

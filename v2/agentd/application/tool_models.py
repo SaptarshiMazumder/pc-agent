@@ -78,7 +78,7 @@ def resolve_tool_model(config, plugin: str, tool: str, per_call: str | None = No
 
 def resolve_tool_provider(config, plugin: str, tool: str, per_call: str | None = None,
                           default: str | None = None) -> str | None:
-    """Resolve the backend PROVIDER for `tool` (e.g. imagegen: gemini|fal|replicate; web_search: the
+    """Resolve the backend PROVIDER for `tool` (e.g. figure-art: gemini|fal|replicate; web_search: the
     search chain; browser: playwright|agent_browser). Tool-level, same precedence as the model."""
     return _resolve_field(config, plugin, tool, "provider", per_call, default)
 

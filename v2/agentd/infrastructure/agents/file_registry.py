@@ -19,6 +19,7 @@ import logging
 import tomllib
 from pathlib import Path
 
+from agentd.application.descriptions import first_meaningful_line
 from agentd.domain.agent import AgentSpec, agent_id_from_session_key
 from agentd.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
 from agentd.infrastructure.agents.presentation import MAIN_COLOR, read_sidecar
@@ -28,6 +29,33 @@ log = logging.getLogger("agentd")
 
 def _valid_id(s: str) -> bool:
     return bool(s) and all(c.isalnum() or c in "-_" for c in s)
+
+
+def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -> str:
+    """An agent's one-line description, self-sourced with a fallback chain (never empty for a
+    real agent). `agent.toml [description]` wins; else the first prose line of `IDENTITY.md`
+    (its H1 is the NAME, so we skip headings); else `bundle.toml`'s marketplace description;
+    else the generated tagline. So a client/roster never sees a bare id — no hand-kept field."""
+    explicit = str(toml_data.get("description") or "").strip()
+    if explicit:
+        return explicit
+    identity = agent_dir / "IDENTITY.md"
+    if identity.is_file():
+        try:
+            line = first_meaningful_line(identity.read_text(encoding="utf-8"), skip_headings=True)
+        except OSError:
+            line = ""
+        if line:
+            return line
+    bundle = agent_dir / "bundle.toml"
+    if bundle.is_file():
+        try:
+            b = tomllib.loads(bundle.read_text(encoding="utf-8")).get("bundle") or {}
+            if b.get("description"):
+                return str(b["description"]).strip()
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
+    return tagline or ""
 
 
 class FileAgentRegistry:
@@ -81,6 +109,7 @@ class FileAgentRegistry:
         return AgentSpec(
             id="main",
             name=getattr(c, "agent_name", "") or "the assistant",
+            description="general · all tools",    # the generalist: no specialty to advertise
             tagline="general · all tools",       # honest default for the generalist
             color=MAIN_COLOR,                    # the brand lime — reserved for main
             workspace=workspace,
@@ -160,7 +189,7 @@ class FileAgentRegistry:
         return AgentSpec(
             id=agent_id,
             name=str(data.get("name") or agent_id),
-            description=str(data.get("description") or ""),
+            description=_resolve_agent_description(d, data, tagline),
             tagline=tagline,
             suggestions=suggestions,
             color=color,

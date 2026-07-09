@@ -39,9 +39,13 @@ def build_catalog(config) -> dict:
     catalog: dict = {}
     for tool in discover_plugin_tools(config):
         pid = getattr(tool, "plugin", "") or getattr(tool, "_plugin_id", "") or "(unclassified)"
-        entry = catalog.setdefault(pid, {"description": "", "tools": []})
+        entry = catalog.setdefault(pid, {"name": "", "description": "", "tools": []})
         pconf = cfg_plugins.get(pid) if isinstance(cfg_plugins.get(pid), dict) else {}
-        entry["description"] = pconf.get("description", "") if pconf else ""
+        entry["name"] = getattr(tool, "_plugin_name", "") or pid
+        # description home = the plugin ITSELF (plugin.toml / module docstring, tagged in discovery);
+        # the config.json `plugins.<id>.description` note is an optional OVERRIDE when set.
+        config_note = pconf.get("description", "") if pconf else ""
+        entry["description"] = config_note or getattr(tool, "_plugin_desc", "") or ""
         needs_model = bool(getattr(tool, "needs_model", False))
         model = None
         if needs_model:
@@ -51,6 +55,7 @@ def build_catalog(config) -> dict:
         entry["tools"].append({
             "name": getattr(tool, "name", "?"),
             "needs_model": needs_model,
+            "model_kind": getattr(tool, "model_kind", "text") or "text",
             "model": model,
             "description": (tconf or {}).get("description") or _first_line(getattr(tool, "description", "")),
             # the FULL canonical description from the tool's code (the config `description` is a

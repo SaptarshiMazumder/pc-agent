@@ -86,8 +86,8 @@ class Config:
     # global config; there is NO plugin-level fallback. Model values are litellm "provider/model"
     # (bare id => gemini). CONFIG-ONLY (a knob, not a secret): there is deliberately no env override.
     plugins: dict = field(default_factory=dict)
-    # (the image-gen BACKEND — gemini|fal|replicate — is a plugins knob: config plugins.imagegen.provider,
-    #  resolved by resolve_tool_provider; the model/endpoint is plugins.imagegen[.tools.generate_artwork].)
+    # (the image-gen BACKEND — gemini|fal|replicate — is a plugins knob: config plugins.figure-art.provider,
+    #  resolved by resolve_tool_provider; the model/endpoint is plugins.figure-art[.tools.generate_artwork].)
     reasoning_effort: str = "medium"  # off | low | medium | high (LiteLLM reasoning_effort)
     host: str = "127.0.0.1"
     port: int = 8787
@@ -462,7 +462,7 @@ def load_config(path: Path | None = None) -> Config:
     # plugins map, which is CONFIG-ONLY (a knob, not a secret) — loaded from agentd.config.json's
     # "plugins" key with NO env override by design (env holds keys, not knobs). So there are deliberately
     # no AGENTD_*_MODEL / IMAGEGEN_PROVIDER env vars anymore for search/verify/safe_to_send/resource/
-    # computer/memory-embed/skills-relevance/imagegen.
+    # computer/memory-embed/skills-relevance/figure-art.
     if os.environ.get("AGENTD_REASONING"):
         cfg.reasoning_effort = os.environ["AGENTD_REASONING"]
     if os.environ.get("AGENTD_HOST"):

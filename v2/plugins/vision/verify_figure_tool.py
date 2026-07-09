@@ -39,6 +39,7 @@ class VerifyFigureTool(Tool):
     name = "verify_figure"
     plugin = "vision"
     needs_model = True
+    model_kind = "vision"              # LOOKS AT a figure — needs a multimodal (vision) model
     default_model = vg.DEFAULT_MODEL   # cheap judge; config plugins.vision.* overrides
     description = (
         "VLM correctness check on a figure: does the image contain EXACTLY the expected structures, "

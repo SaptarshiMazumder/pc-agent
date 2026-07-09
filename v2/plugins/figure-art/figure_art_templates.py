@@ -1,4 +1,4 @@
-"""imagegen_templates — the art-template ENGINE (data lives in the agent, logic lives here).
+"""figure_art_templates — the art-template ENGINE (data lives in the agent, logic lives here).
 
 An art template is a `*.toml` file in the agent's `templates/` folder (see
 agents/figure-creator/templates/README.md). Each is a reusable, art-directed style recipe: a rich
@@ -26,7 +26,7 @@ def _candidate_dirs(config) -> list[Path]:
     knob = None
     try:
         from agentd.application.tool_models import tool_config
-        knob = tool_config(config, "imagegen", "generate_artwork", "templates_dir", default=None)
+        knob = tool_config(config, "figure-art", "generate_artwork", "templates_dir", default=None)
     except Exception:
         knob = None
     ws = Path(current_workspace(str(getattr(config, "workspace", "."))) or ".")

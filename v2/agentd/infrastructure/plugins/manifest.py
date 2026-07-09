@@ -21,6 +21,8 @@ class PluginManifest:
     id: str
     name: str
     kind: str                       # "native" | "mcp"
+    description: str = ""           # one-line "what this plugin is" (from plugin.toml; else the
+                                    # module docstring, resolved at load). "" => client default.
     entry: str = ""                 # native: "module:func" (a register(api, ctx) callable)
     mcp: dict = field(default_factory=dict)   # mcp: {command|url|env|headers}
     enabled: bool = True            # author default; the config plugin-gate overrides this
@@ -74,6 +76,7 @@ def load_manifest(path: Path) -> PluginManifest | None:
         id=pid,
         name=str(data.get("name") or pid),
         kind=kind,
+        description=str(data.get("description") or "").strip(),
         entry=str(data.get("entry") or "").strip(),
         mcp=dict(data.get("mcp") or {}),
         enabled=bool(data.get("enabled", True)),

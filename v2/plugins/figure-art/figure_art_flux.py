@@ -1,4 +1,4 @@
-"""fal.ai backend for the imagegen plugin — FLUX (default) and SDXL, with real structural
+"""fal.ai backend for the figure-art plugin — FLUX (default) and SDXL, with real structural
 conditioning via ControlNet / img2img (which is why it beats Gemini for the sketch->figure path).
 
 Three generation modes, chosen from the tool's existing `conditioning` param + reference image:
@@ -10,7 +10,7 @@ Three generation modes, chosen from the tool's existing `conditioning` param + r
                  accuracy lever Gemini can't do.
 
 Dependency-light on purpose: uses the optional `fal-client` package + a FAL_KEY, and errors with an
-actionable message if either is missing (so the imagegen plugin still loads without it — same pattern
+actionable message if either is missing (so the figure-art plugin still loads without it — same pattern
 as trace_image's vtracer backend).
 
 NOTE on endpoint slugs: fal's model catalog ids change over time. They're centralised in _ENDPOINTS

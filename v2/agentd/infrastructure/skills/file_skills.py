@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from agentd.application.descriptions import first_meaningful_line
 from agentd.application.interfaces.skills import Skill
 
 log = logging.getLogger("agentd")
@@ -55,14 +56,6 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return {}, text
 
 
-def _first_meaningful_line(body: str) -> str:
-    for line in body.splitlines():
-        stripped = line.lstrip("#").strip()
-        if stripped:
-            return stripped
-    return ""
-
-
 def _csv(value: str) -> list:
     return [x.strip() for x in (value or "").split(",") if x.strip()]
 
@@ -75,7 +68,7 @@ def _load_one(skill_md: Path) -> Skill | None:
         return None
     meta, body = _parse_frontmatter(text)
     name = meta.get("name") or skill_md.parent.name
-    description = meta.get("description") or _first_meaningful_line(body)
+    description = meta.get("description") or first_meaningful_line(body)
     always = meta.get("always", "").strip().lower() in ("true", "1", "yes", "on")
     requires = {k: v for k, v in (
         ("bins", _csv(meta.get("requires_bins", ""))),

@@ -371,7 +371,7 @@ there is nothing to resolve, and the system says so loudly.
 
 ### Providers: single vs chain
 
-- **imagegen** `provider`: single string — `gemini` | `fal` | `replicate`. The `model` is that
+- **figure-art** `provider`: single string — `gemini` | `fal` | `replicate`. The `model` is that
   backend's model/endpoint (a Gemini id for gemini; an `owner/name` slug for fal/replicate). Resolved
   in `generate_artwork_tool._route`.
 - **web_search** `provider`: a **list** (a fallback chain tried in order), a single name, or `"auto"`
@@ -401,7 +401,7 @@ model = "gemini/gemini-3-flash-preview"
 model = "gemini/gemini-3.1-pro-preview"
 
 # a tool's provider + model (e.g. this agent renders on Replicate; others stay on Gemini)
-[plugins.imagegen.tools.generate_artwork]
+[plugins.figure-art.tools.generate_artwork]
 provider = "replicate"
 model = "black-forest-labs/flux-1.1-pro"
 
@@ -643,7 +643,7 @@ section.)
   `(CONFIG MISSING)`. Create `agentd.config.json` (or set `AGENTD_CONFIG`).
 - **No plugin-level model/provider default** — put `model`/`provider` on the **tool**
   (`plugins.<p>.tools.<t>`), never on the plugin.
-- **`provider` shape differs** — imagegen/browser take a single name; web_search takes a **list**
+- **`provider` shape differs** — figure-art/browser take a single name; web_search takes a **list**
   (chain) or `"auto"`.
 - **`description` in config is inert** — for humans only; it never reaches the model.
 - **DI-gated tools** (browser/computer/simple_login) only register when their `ctx` handle exists, so

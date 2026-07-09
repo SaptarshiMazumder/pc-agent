@@ -252,7 +252,7 @@ thing:
 figure-creator-1.0.0.agentpkg
 ├─ bundle.toml            # id, name, version, description, icon,
 │                         #   agentd_compat = ">=0.3,<0.5"
-│                         #   plugins = ["figures","imagegen","vision","vectorize","figexport"]
+│                         #   plugins = ["figures","figure-art","vision","vectorize","figexport"]
 │                         #   (each: id + version-range + source: vendored | pip | registry)
 │                         #   entitlement = "figure-creator-pro"   # Phase 5; absent = free
 ├─ agent/                 # → unpacked to ~/.agentd/agents/<id>/  (agent.toml, IDENTITY.md,
@@ -273,7 +273,7 @@ name = "Figure Creator Studio"        # window title, installer name, icon set
 default_agent = "figure-creator"
 preinstalled_bundles = ["figure-creator"]
 [provisioning]                         # = the "package profile" from the tiers doc, verbatim
-plugins = ["core_fs","shell","web","skills","memory","figures","imagegen","vision","vectorize","figexport"]
+plugins = ["core_fs","shell","web","skills","memory","figures","figure-art","vision","vectorize","figexport"]
 [store]
 enabled = true                         # a standalone SKU can still upsell other agents
 ```

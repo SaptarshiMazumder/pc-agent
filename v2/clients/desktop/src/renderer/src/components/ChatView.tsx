@@ -41,6 +41,7 @@ export default function ChatView() {
   const [menuOpen, setMenuOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
   const items = session?.items || []
   const running = session?.running || false
   const empty = items.length === 0
@@ -53,6 +54,15 @@ export default function ChatView() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [items])
+
+  // grow the composer to fit its content — measured from the RENDERED height (scrollHeight),
+  // so soft-wrapped long lines grow it too, not only explicit Shift+Enter newlines
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [draft])
 
   function submit(e?: FormEvent) {
     e?.preventDefault()
@@ -133,12 +143,13 @@ export default function ChatView() {
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void pickFiles(e.target.files); e.target.value = '' }} />
         </div>
         <textarea
+          ref={taRef}
           value={draft}
           placeholder={connection === 'open' ? `Message ${agentName}…` : 'connecting…'}
           disabled={connection !== 'open'}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-          rows={Math.min(8, Math.max(1, draft.split('\n').length))}
+          rows={1}
         />
         {running ? (
           <button type="button" className="composer-send stop" onClick={() => void abortRun()} title="stop the run">

@@ -129,6 +129,47 @@ class AgentService:
             "on a mentioned agent's behalf or pretend to be them."
         )
 
+    def _agents_roster_section(self, agent: AgentSpec, tools: list) -> str:
+        """Advertise the OTHER agents this one may delegate to — the roster, surfaced in the
+        prompt the SAME way skills are, so the serving agent SEES specialists (not just the
+        delegation verb) and can choose the right one. Fires only when it actually holds a
+        delegation tool, and honors its `subagents_allow` scope (the same gate agents_list uses).
+        Each line is the agent's uniformly-resolved one-line description — no hand-kept text."""
+        if not any(getattr(t, "name", "") in ("spawn_subagent", "message_agent") for t in tools):
+            return ""
+        list_ids = getattr(self._registry, "list_ids", None)
+        if list_ids is None:
+            return ""
+        from agentd.domain.agent import _matches
+        allow = getattr(agent, "subagents_allow", None)
+        rows: list[str] = []
+        for aid in list_ids():
+            if aid == agent.id:
+                continue                                   # never advertise yourself
+            if allow is not None and not any(_matches(aid, p) for p in allow):
+                continue                                   # outside this agent's delegation scope
+            try:
+                spec = self._registry.get(aid)
+            except KeyError:
+                continue
+            name = (getattr(spec, "name", "") or aid).strip()
+            desc = (getattr(spec, "description", "") or "").strip()
+            if len(desc) > 200:
+                desc = desc[:199].rstrip() + "…"
+            label = f"{aid} ({name})" if name and name != aid else aid
+            rows.append(f"- {label}: {desc}" if desc else f"- {label}")
+        if not rows:
+            return ""
+        return (
+            "## Other agents (delegation)\n"
+            "These specialist agents exist alongside you. When a request fits one of them better "
+            "than it fits you, DELEGATE that part instead of doing it yourself: "
+            "`message_agent(agent=<id>, message=…)` reaches a persistent specialist (it remembers), "
+            "`spawn_subagent(agent=<id>, task=…)` runs a one-off. Wait for the reply and weave it "
+            "into your answer, crediting the agent. Prefer a specialist over attempting specialized "
+            "work yourself.\n" + "\n".join(rows)
+        )
+
     def add_tools(self, tools: list) -> None:
         """Register more tools after construction (e.g. MCP tools discovered async
         at gateway startup). They join the full toolset; each turn is then scoped to
@@ -210,6 +251,12 @@ class AgentService:
         directive = self._mention_directive(text, agent, tools)
         if directive:
             system_prompt = system_prompt + "\n\n" + directive
+        # Standing roster (Layer B): advertise the OTHER agents this one can delegate to — the fix
+        # for "the generalist never knew a specialist existed." Gated to agents that hold a
+        # delegation tool; costs a few lines/turn (a handful of agents), no relevance filter needed.
+        roster = self._agents_roster_section(agent, tools)
+        if roster:
+            system_prompt = system_prompt + "\n\n" + roster
         # Auto-recall (OpenClaw's before_prompt_build): on a USER turn only, silently retrieve
         # relevant long-term memories and prepend them — the agent doesn't call a tool. Gated to
         # INTERACTIVE so heartbeat/cron runs don't burn embeddings; fail-open so a slow/broken

@@ -80,6 +80,9 @@ class Tool(ABC):
     plugin: str = ""
     needs_model: bool = False
     default_model: str = ""  # "" => a text helper may inherit the brain model; VLM tools set a real id
+    # what KIND of model this tool needs, so a client offers the RIGHT picker: "text" (reasoning),
+    # "vision" (reads images), "image" (GENERATES images), "embedding". Default "text".
+    model_kind: str = "text"
 
     @abstractmethod
     async def execute(

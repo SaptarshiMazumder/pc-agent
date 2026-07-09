@@ -11,12 +11,12 @@ from __future__ import annotations
 import asyncio
 
 from agentd.application.interfaces.tool import Tool, ToolResult
-import imagegen_templates as tpl
+import figure_art_templates as tpl
 
 
 class ListTemplatesTool(Tool):
     name = "list_templates"
-    plugin = "imagegen"
+    plugin = "figure-art"
     description = (
         "List the available ART TEMPLATES (the style gallery) for scientific figures — each is a "
         "curated, art-directed look (e.g. biorender-shaded, flat-vector, ghosted-anatomy, "

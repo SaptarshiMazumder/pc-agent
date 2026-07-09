@@ -786,11 +786,19 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 
 /* tool blocks */
 .tool { margin: 10px 0; }
-.tool-head { display: flex; align-items: center; gap: 9px; width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
-.tool-head:hover { border-color: var(--border2); }
+/* the tool CALL is a lightweight inline row (no white card) — a subtle bordered chip that
+   stays clearly distinct from the tool RESULT card (.tool-full) below it */
+.tool-head { display: flex; align-items: center; gap: 9px; width: 100%; background: transparent; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text); cursor: pointer; text-align: left; font: inherit; transition: background .15s ease, border-color .15s ease; }
+.tool-head:hover { background: var(--bg3); border-color: var(--border2); }
 .tool-status { display: flex; flex: none; color: var(--accent); }
 .tool-status.spin svg { animation: ag-spin 1s linear infinite; }
+.tool-status.err { color: var(--danger); }
 .tool-name { font: 600 12.5px var(--mono); color: var(--accent-text); }
+/* a failed tool reads as an error: red warning glyph + red name + danger-tinted head */
+/* a failed tool CALL is signalled by the red ⚠ icon + red name only — no red fill, so it
+   stays as quiet as a normal call; a faint danger tint appears just on hover */
+.tool.error .tool-name { color: var(--danger); }
+.tool.error .tool-head:hover { background: var(--danger-soft); border-color: var(--danger-soft); }
 .tool-args { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-caret { color: var(--faint); display: flex; flex: none; }
 .tool-first { font: 12px var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -813,7 +821,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .composer-box:focus-within { border-color: var(--accent); }
 /* single-line height (22px line + 14px pad) = 36px = the round buttons' height, so with the
    box's flex-end alignment the +, text and send all sit dead-centre on one line */
-.composer textarea { flex: 1; resize: none; background: transparent; border: 0; outline: none; color: var(--text); font-size: 14.5px; line-height: 1.5; padding: 7px 2px; max-height: 160px; }
+.composer textarea { flex: 1; resize: none; background: transparent; border: 0; outline: none; color: var(--text); font-size: 14.5px; line-height: 1.5; padding: 7px 2px; max-height: 200px; overflow-y: auto; }
 /* attach = a round + button that opens the add menu; send = round arrow — both pill/circular */
 .composer-attach { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--dim); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .composer-attach:hover, .composer-attach.active { background: var(--bg3); color: var(--text); }

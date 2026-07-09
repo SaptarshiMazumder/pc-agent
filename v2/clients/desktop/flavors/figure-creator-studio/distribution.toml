@@ -18,7 +18,7 @@ preinstalled_bundles = ["figure-creator"]
 # Bundle installs UNION into this set automatically (acquired addons join the profile).
 plugins = [
   "core_fs", "shell", "web", "skills", "memory", "planning", "resources", "authoring",
-  "html", "figures", "imagegen", "vision", "vectorize", "figexport",
+  "html", "figures", "figure-art", "vision", "vectorize", "figexport",
 ]
 
 [store]

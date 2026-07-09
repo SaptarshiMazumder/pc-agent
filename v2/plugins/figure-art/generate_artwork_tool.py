@@ -21,7 +21,7 @@ from agentd.application.tool_models import resolve_tool_model, resolve_tool_prov
 from agentd.domain.messages import TextContent, ImageContent
 import base64
 
-import imagegen_gemini as gem
+import figure_art_gemini as gem
 
 # The "no-text" half — ALWAYS appended (textless is the whole point; labels are the vector overlay).
 # Kept SEPARATE from style so a rich style can never be diluted by a "flat" directive.
@@ -86,9 +86,10 @@ _CONDITION = {
 
 class GenerateArtworkTool(Tool):
     name = "generate_artwork"
-    plugin = "imagegen"
+    plugin = "figure-art"
     needs_model = True
-    default_model = gem.DEFAULT_MODEL   # last-resort fallback (config plugins.imagegen.* overrides it)
+    model_kind = "image"                # OUTPUTS pixels — its picker must offer image-gen models, not text
+    default_model = gem.DEFAULT_MODEL   # last-resort fallback (config plugins.figure-art.* overrides it)
     description = (
         "Generate a raster scientific illustration. PREFER an art TEMPLATE: pass `template=<id>` (see "
         "list_templates — e.g. biorender-shaded, ghosted-anatomy, isometric-3d-stem) plus `subject` "
@@ -127,7 +128,7 @@ class GenerateArtworkTool(Tool):
                         "description": "Model family. 'flux' (default, quality raster); 'sdxl' (mature ControlNet); 'recraft' = NATIVE VECTOR SVG output (real editable shapes, no tracing; replicate only, flatter look)."},
             "tier": {"type": "string", "description": "FLUX tier: 'schnell' (cheapest) | 'dev' (default) | 'pro' (best)."},
             "lora_url": {"type": "string", "description": "Optional LoRA weights URL (e.g. a Civitai/HF download) to apply — Replicate FLUX only."},
-            "model": {"type": "string", "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.imagegen.tools.generate_artwork > plugins.imagegen default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint."},
+            "model": {"type": "string", "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.figure-art.tools.generate_artwork > plugins.figure-art default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint."},
             "api_key": {"type": "string", "description": "Override key (Gemini: GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN)."},
         },
     }
@@ -146,7 +147,7 @@ class GenerateArtworkTool(Tool):
         # House-DEFAULT template (config-driven safety net): if the caller named NO template and wrote no
         # full custom `prompt` (just a `subject`), fall back to the configured default so the DEFAULT look
         # is the shaded BioRender style — even when the routing skill didn't run and the agent forgot to
-        # pass a template. Knob: plugins.imagegen.tools.generate_artwork.default_template (agent.toml /
+        # pass a template. Knob: plugins.figure-art.tools.generate_artwork.default_template (agent.toml /
         # config). Empty/unset => no default (unchanged). An explicit template or a full prompt still wins.
         if not params.get("template") and not params.get("prompt") and params.get("subject"):
             dt = tool_config(self.config, self.plugin, self.name, "default_template", default=None)
@@ -157,7 +158,7 @@ class GenerateArtworkTool(Tool):
         # LAST so nothing dilutes "textless".
         tmpl = None
         if params.get("template"):
-            import imagegen_templates as tpl
+            import figure_art_templates as tpl
             subject = params.get("subject") or params.get("prompt") or ""
             tmpl = tpl.resolve(self.config, params["template"], subject,
                                palette_override=params.get("palette"))
@@ -177,7 +178,7 @@ class GenerateArtworkTool(Tool):
             # native vector wants FLAT shapes — the shaded raster presets fight clean SVG output.
             prompt += _VECTOR_STYLE
         elif tmpl:
-            import imagegen_templates as tpl
+            import figure_art_templates as tpl
             prompt += tpl.palette_directive(palette, tmpl["palette_locked"])
             if tmpl["negative"]:
                 prompt += f" Do NOT include: {tmpl['negative']}."
@@ -185,7 +186,7 @@ class GenerateArtworkTool(Tool):
             style = params.get("style", DEFAULT_STYLE)
             prompt += _STYLES.get(style, _STYLES[DEFAULT_STYLE])
             if palette:
-                import imagegen_templates as tpl
+                import figure_art_templates as tpl
                 prompt += tpl.palette_directive(palette, False)
 
         # Exemplar images from the template condition the STYLE (repeatable look); user refs follow.
@@ -213,9 +214,9 @@ class GenerateArtworkTool(Tool):
         model_pc = params.get("model") or (tmpl["model"] if tmpl else None)
 
         if provider in ("fal", "replicate"):
-            backend = __import__("imagegen_flux" if provider == "fal" else "imagegen_replicate")
+            backend = __import__("figure_art_flux" if provider == "fal" else "figure_art_replicate")
             key = backend.resolve_key(params.get("api_key"), self.config)
-            # The plugins.imagegen model IS the fal/replicate endpoint (owner/name) here. But the tool's
+            # The plugins.figure-art model IS the fal/replicate endpoint (owner/name) here. But the tool's
             # built-in default is a Gemini id, meaningless as an endpoint — so resolve with no gemini
             # fallback and drop any gemini/* (or bare) id, letting the backend pick its family/tier default.
             endpoint = resolve_tool_model(self.config, self.plugin, self.name,

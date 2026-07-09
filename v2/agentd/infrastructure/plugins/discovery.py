@@ -55,11 +55,16 @@ def discover_plugin_contributions(config, deps: dict | None = None,
         native_tools, native_sections = ([], [])
         if manifest.entry:                     # native, or mcp-with-entry (prompt sections etc.)
             native_tools, native_sections = load_plugin_entry(manifest, config, deps)
-        for t in native_tools:                 # tag provenance so the catalog can show plugin:<id>
-            try:
-                t._plugin_id = manifest.id
-            except (AttributeError, TypeError):
-                pass
+        # tag provenance + the plugin's OWN description (plugin.toml, else its module docstring)
+        # onto each tool, so the catalog/descriptors self-source it instead of a central config note
+        plugin_desc = manifest.description or _module_doc(manifest.entry)
+        for t in native_tools:
+            for attr, val in (("_plugin_id", manifest.id), ("_plugin_name", manifest.name),
+                              ("_plugin_desc", plugin_desc)):
+                try:
+                    setattr(t, attr, val)
+                except (AttributeError, TypeError):
+                    pass
         tools.extend(native_tools)
         sections.extend(native_sections)
         # the plugin's bundled skills (plugins/<id>/skills/) -> advertised like top-level skills.
@@ -73,6 +78,18 @@ def discover_plugin_contributions(config, deps: dict | None = None,
 def discover_plugin_tools(config) -> list:
     """Back-compat: just the tools (callers that don't need sections/servers/skills)."""
     return discover_plugin_contributions(config)[0]
+
+
+def _module_doc(entry: str) -> str:
+    """First meaningful line of a native plugin's module docstring — the fallback plugin
+    description when its `plugin.toml` declares none. The module is already imported by
+    `load_plugin_entry`, so this is a cheap `sys.modules` lookup; undocumented/missing => ''."""
+    import sys
+
+    from agentd.application.descriptions import first_meaningful_line
+    module_name = (entry or "").partition(":")[0]
+    mod = sys.modules.get(module_name)
+    return first_meaningful_line(getattr(mod, "__doc__", "") or "") if mod else ""
 
 
 def _mcp_server_config(manifest: PluginManifest):

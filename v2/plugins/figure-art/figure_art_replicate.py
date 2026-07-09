@@ -1,4 +1,4 @@
-"""Replicate backend for the imagegen plugin — FLUX (default) and SDXL, with ControlNet / img2img
+"""Replicate backend for the figure-art plugin — FLUX (default) and SDXL, with ControlNet / img2img
 structural conditioning and optional Civitai/HF LoRAs.
 
 Same three-mode design as the fal backend (t2i / img2img / controlnet), chosen from the tool's

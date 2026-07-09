@@ -1,4 +1,4 @@
-"""imagegen plugin — raster artwork generation via Gemini (Nano Banana).
+"""figure-art plugin — raster artwork generation via Gemini (Nano Banana).
 
 One tool today: `generate_artwork` (textless illustration for the hybrid overlay flow). Uses the
 google-genai SDK directly with the existing GEMINI_API_KEY / GOOGLE_API_KEY — no core change, no new

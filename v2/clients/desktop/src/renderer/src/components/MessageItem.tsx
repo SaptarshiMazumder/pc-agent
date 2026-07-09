@@ -1,16 +1,31 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Check, Loader2, ChevronRight, ChevronDown, Sparkles } from 'lucide-react'
+import { Check, Loader2, ChevronRight, ChevronDown, Sparkles, AlertTriangle } from 'lucide-react'
 
 import { timeLabel } from '../lib/timefmt'
 import type { ChatItem } from '../state/store'
 import ArtifactView from './ArtifactView'
 
+/** A one-line preview of a value for the tool-call summary. Objects/arrays are JSON-stringified —
+ *  `String({})`/`String([{}])` yields the useless "[object Object]", so never coerce them. */
+function previewValue(v: unknown): string {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'object') {
+    try {
+      return JSON.stringify(v)
+    } catch {
+      return ''
+    }
+  }
+  return String(v)
+}
+
 function summarizeArgs(args: Record<string, unknown>): string {
   return Object.entries(args)
     .map(([k, v]) => {
-      const t = String(v ?? '').replace(/\n/g, ' ')
+      const t = previewValue(v).replace(/\s+/g, ' ').trim()
       return `${k}=${t.length > 60 ? t.slice(0, 60) + '…' : t}`
     })
     .join('  ')
@@ -22,8 +37,8 @@ function ToolBlock({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   return (
     <div className={`tool ${item.isError ? 'error' : ''}`}>
       <button className="tool-head" onClick={() => setExpanded((v) => !v)}>
-        <span className={`tool-status ${item.done ? '' : 'spin'}`} style={item.isError ? { color: 'var(--danger)' } : undefined}>
-          {item.done ? <Check size={15} /> : <Loader2 size={15} />}
+        <span className={`tool-status ${item.done ? '' : 'spin'} ${item.isError ? 'err' : ''}`}>
+          {!item.done ? <Loader2 size={15} /> : item.isError ? <AlertTriangle size={15} /> : <Check size={15} />}
         </span>
         <span className="tool-name">{item.name}</span>
         <span className="tool-args">{summarizeArgs(item.args)}</span>

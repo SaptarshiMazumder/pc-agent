@@ -393,7 +393,59 @@ function ModelsPanel({ ctx }: { ctx: Ctx }) {
           optionsKey: 'models'
         })}
       </div>
+      <ToolModels ctx={ctx} />
     </div>
+  )
+}
+
+/** The "one place" for TOOL models — every model-bearing tool (image generation, vision reading,
+ *  verify, …) with a KIND-CORRECT picker, from the same models.list the terminal reads. So an
+ *  image tool only ever offers image models — no more picking a text model for artwork. */
+function ToolModels({ ctx }: { ctx: Ctx }) {
+  const [rows, setRows] = useState<any[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    gateway
+      .request<{ models: any[] }>('models.list')
+      .then((r) => alive && setRows((r.models || []).filter((m) => m.plugin)))
+      .catch(() => alive && setRows([]))
+    return () => {
+      alive = false
+    }
+  }, [])
+  if (!rows || rows.length === 0) return null
+  return (
+    <>
+      <div className="settings-section" style={{ marginTop: 22 }}>Tool models</div>
+      <p className="settings-help">
+        The model each tool uses, from the one place that sees them all. An <b>image</b> tool offers
+        image-generation models (Nano Banana, FLUX); a <b>vision</b> tool offers multimodal models —
+        you can’t pick the wrong kind. Blank = the tool’s built-in default.
+      </p>
+      <div className="settings-card">
+        {rows.map((m) => {
+          const options = ctx.data?.catalogs?.[m.kind] || ctx.data?.catalogs?.models || []
+          const val = getPath(ctx.draft, m.configKey) ?? m.resolved ?? ''
+          return (
+            <div className="settings-row" key={m.id}>
+              <div className="settings-label">
+                <div className="k">{m.label}</div>
+                <div className="d">{m.kind} · {m.plugin}</div>
+              </div>
+              <div className="settings-ctl">
+                <select
+                  className="settings-select"
+                  value={val}
+                  onChange={(e) => ctx.setDraft((d) => setPath(d, m.configKey, e.target.value))}
+                >
+                  {optionEls(options, val)}
+                </select>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
@@ -577,6 +629,8 @@ interface CatTool {
   name: string
   description: string
   needsModel: boolean
+  /** which model picker to show: text | vision | image | embedding */
+  modelKind?: string
   model: string | null
   provider: string | null
   enabled: boolean
@@ -695,6 +749,8 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
             {p.tools.map((t) => {
               const toolOn = !disabled.includes(t.name)
               const modelVal = knobValue(p.id, t.name, 'model') || t.model || ''
+              // offer the RIGHT kind of model: an image tool shows image models, not text ones
+              const kindModels = ctx.data?.catalogs?.[t.modelKind || 'text'] || models
               const hasProvider = t.provider != null
               const providerVal = knobValue(p.id, t.name, 'provider') || t.provider || ''
               return (
@@ -710,7 +766,7 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
                           <label className="pt-knob">
                             <span>model</span>
                             <select className="settings-select" value={modelVal} onChange={(e) => setKnob(p.id, t.name, 'model', e.target.value)}>
-                              {optionEls(models, modelVal)}
+                              {optionEls(kindModels, modelVal)}
                             </select>
                           </label>
                         )}

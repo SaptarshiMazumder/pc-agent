@@ -109,6 +109,18 @@ export interface InstalledBundle {
   pluginIds: string[]
 }
 
+/** capabilities.list — the ONE uniform shape for everything the runtime exposes (tools, plugins,
+ *  skills, agents). Core resolves every description once and serves it to every client equally. */
+export interface CapabilityDescriptor {
+  kind: 'tool' | 'plugin' | 'skill' | 'agent'
+  id: string
+  name: string
+  description: string
+  /** where it lives (a path or owning-plugin id) — lets a client open/inspect it */
+  source: string
+  extra: Record<string, unknown>
+}
+
 /** The full text of a tool result (a message dict with content blocks). */
 export function resultText(result: any): string {
   if (result && typeof result === 'object') {
