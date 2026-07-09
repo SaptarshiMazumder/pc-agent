@@ -21,8 +21,12 @@ DEFAULT_MODEL = "gemini-3-pro-image"
 
 
 def resolve_key(param_key: str | None, config) -> str:
-    for cand in (param_key, os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY"),
-                 getattr(config, "gemini_api_key", None)):
+    for cand in (
+        param_key,
+        os.environ.get("GEMINI_API_KEY"),
+        os.environ.get("GOOGLE_API_KEY"),
+        getattr(config, "gemini_api_key", None),
+    ):
         if cand:
             return str(cand)
     raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
@@ -36,7 +40,7 @@ def _normalize_model(model: str) -> str:
     m = str(model or "").strip()
     for pref in ("gemini/", "google/", "models/"):
         if m.startswith(pref):
-            m = m[len(pref):]
+            m = m[len(pref) :]
     return m or DEFAULT_MODEL
 
 
@@ -54,6 +58,7 @@ def _alt_model(model: str) -> str | None:
 
 def _ref_parts(reference_images):
     from google.genai import types
+
     parts = []
     for p in reference_images or []:
         path = Path(p)
@@ -62,9 +67,16 @@ def _ref_parts(reference_images):
     return parts
 
 
-def generate_image(prompt: str, out_path: Path, *, model: str, api_key: str,
-                   reference_images=None, aspect_ratio: str | None = None,
-                   image_size: str | None = None) -> dict:
+def generate_image(
+    prompt: str,
+    out_path: Path,
+    *,
+    model: str,
+    api_key: str,
+    reference_images=None,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+) -> dict:
     """Generate one image -> out_path. `reference_images` (paths) are passed as conditioning input
     (Gemini's restyle/img2img path; it has no ControlNet). `aspect_ratio` (e.g. '4:3') and
     `image_size` ('1K'|'2K'|'4K', Gemini 3 Pro Image only) go through image_config, each applied
@@ -74,7 +86,7 @@ def generate_image(prompt: str, out_path: Path, *, model: str, api_key: str,
 
     client = genai.Client(api_key=api_key)
     contents = _ref_parts(reference_images) + [prompt]
-    model = _normalize_model(model)                 # 'gemini/…'/'models/…' -> bare id the SDK wants
+    model = _normalize_model(model)  # 'gemini/…'/'models/…' -> bare id the SDK wants
     cfg = None
     if aspect_ratio or image_size:
         # supported on the image models via image_config; each field applied best-effort so an
@@ -86,8 +98,11 @@ def generate_image(prompt: str, out_path: Path, *, model: str, api_key: str,
             img_kw["image_size"] = image_size
         for attempt in (img_kw, {"aspect_ratio": aspect_ratio} if aspect_ratio else {}, {}):
             try:
-                cfg = (types.GenerateContentConfig(image_config=types.ImageConfig(**attempt))
-                       if attempt else None)
+                cfg = (
+                    types.GenerateContentConfig(image_config=types.ImageConfig(**attempt))
+                    if attempt
+                    else None
+                )
                 break
             except Exception:
                 cfg = None
@@ -101,16 +116,21 @@ def generate_image(prompt: str, out_path: Path, *, model: str, api_key: str,
         resp = client.models.generate_content(model=alt, contents=contents, config=cfg)
         model = alt
 
-    for cand in (resp.candidates or []):
-        for part in (getattr(cand.content, "parts", None) or []):
+    for cand in resp.candidates or []:
+        for part in getattr(cand.content, "parts", None) or []:
             blob = getattr(part, "inline_data", None)
             if blob and getattr(blob, "data", None):
                 data = blob.data
-                if isinstance(data, str):           # some SDK paths hand back base64 text
+                if isinstance(data, str):  # some SDK paths hand back base64 text
                     import base64
+
                     data = base64.b64decode(data)
                 out_path.write_bytes(data)
-                return {"path": str(out_path), "mime": blob.mime_type or "image/png", "model": model}
+                return {
+                    "path": str(out_path),
+                    "mime": blob.mime_type or "image/png",
+                    "model": model,
+                }
     # no image -> surface any text the model returned instead (often a refusal/explanation)
     txt = getattr(resp, "text", "") or "(no image and no text in response)"
     raise RuntimeError(f"model returned no image: {txt[:300]}")

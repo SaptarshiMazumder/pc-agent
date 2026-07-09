@@ -20,7 +20,7 @@ from typing import Any, Protocol, runtime_checkable
 @runtime_checkable
 class BrowserProvider(Protocol):
     active_page: Any  # the live driver page the tool acts on
-    context: Any      # the browser context (for opening isolated pages / tabs)
+    context: Any  # the browser context (for opening isolated pages / tabs)
 
     async def ensure(self) -> None: ...
     async def close(self) -> None: ...
@@ -29,8 +29,8 @@ class BrowserProvider(Protocol):
     def resolve_ref(self, ref: str, page: Any = None): ...
 
     # --- tab handles (stable ids + labels) ---------------------------------
-    def resolve_target(self, target_id: str | None): ...   # -> page
-    def tab_handle(self, page: Any) -> str: ...             # stable id/label for a page
+    def resolve_target(self, target_id: str | None): ...  # -> page
+    def tab_handle(self, page: Any) -> str: ...  # stable id/label for a page
     def list_tabs(self) -> list[dict]: ...
 
     # --- introspection / extras --------------------------------------------

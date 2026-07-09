@@ -12,15 +12,21 @@ import asyncio
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     install = subparsers.add_parser(
-        "install", help="install an agent bundle (registry id, .agentpkg file, or url)")
+        "install", help="install an agent bundle (registry id, .agentpkg file, or url)"
+    )
     install.add_argument("bundle", help="bundle id in the registry, or a path to a .agentpkg")
-    install.add_argument("--registry", default="", help="registry override (dir, file://, https://)")
+    install.add_argument(
+        "--registry", default="", help="registry override (dir, file://, https://)"
+    )
     install.set_defaults(func=run_install)
 
     uninstall = subparsers.add_parser("uninstall", help="remove an installed bundle")
     uninstall.add_argument("bundle", help="installed bundle id")
-    uninstall.add_argument("--purge", action="store_true",
-                           help="ALSO delete the agent's workspace and state (default keeps them)")
+    uninstall.add_argument(
+        "--purge",
+        action="store_true",
+        help="ALSO delete the agent's workspace and state (default keeps them)",
+    )
     uninstall.set_defaults(func=run_uninstall)
 
     bundles = subparsers.add_parser("bundles", help="installed bundles + what the registry offers")
@@ -42,8 +48,7 @@ def run_install(args: argparse.Namespace) -> int:
     params = {"file": args.bundle} if is_file else {"id": args.bundle}
     if not args.registry:
         try:
-            result = rpc.call("marketplace.install", params, timeout=1800,
-                              on_event=_print_progress)
+            result = rpc.call("marketplace.install", params, timeout=1800, on_event=_print_progress)
             return _report_install(result)
         except rpc.DaemonNotRunning:
             pass
@@ -62,8 +67,14 @@ def run_install(args: argparse.Namespace) -> int:
 
 
 def _report_install(result: dict) -> int:
-    print(f"installed {result.get('id')} {result.get('version')}"
-          + (f"  (plugins: {', '.join(result.get('plugins') or [])})" if result.get("plugins") else ""))
+    print(
+        f"installed {result.get('id')} {result.get('version')}"
+        + (
+            f"  (plugins: {', '.join(result.get('plugins') or [])})"
+            if result.get("plugins")
+            else ""
+        )
+    )
     return 0
 
 
@@ -121,7 +132,9 @@ def run_bundles(args: argparse.Namespace) -> int:
         if not bundle.get("compatible", True):
             badges.append("needs newer agentd")
         badge = f"  [{', '.join(badges)}]" if badges else ""
-        print(f"  {bundle['id']:<24} {bundle['version']:<10} {bundle.get('description', '')[:60]}{badge}")
+        print(
+            f"  {bundle['id']:<24} {bundle['version']:<10} {bundle.get('description', '')[:60]}{badge}"
+        )
     return 0
 
 
@@ -129,7 +142,11 @@ def _local_service(registry_override: str, verbose: bool):
     from agentd.config import load_config
     from agentd.infrastructure.marketplace import build_marketplace_service
 
-    on_event = (lambda p: print(f"  [{p.get('step', '?'):<12}] {p.get('message', '')}")) \
-        if verbose else None
-    return build_marketplace_service(load_config(), on_event=on_event,
-                                     registry_url=registry_override)
+    on_event = (
+        (lambda p: print(f"  [{p.get('step', '?'):<12}] {p.get('message', '')}"))
+        if verbose
+        else None
+    )
+    return build_marketplace_service(
+        load_config(), on_event=on_event, registry_url=registry_override
+    )

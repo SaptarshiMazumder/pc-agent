@@ -22,47 +22,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from agentd.application.tool_models import resolve_tool_model
 from agentd.config import load_config
+from agentd.infrastructure.plugins.catalog import _first_line, build_catalog
 from agentd.infrastructure.plugins.discovery import discover_plugin_tools
-
-
-def _first_line(text: str, width: int = 100) -> str:
-    line = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
-    return line if len(line) <= width else line[: width - 3] + "..."
-
-
-def build_catalog(config) -> dict:
-    """{plugin_id: {"description": str, "tools": [{name, needs_model, model, description}]}} — built
-    from the live registered tools, with models resolved and config descriptions folded in."""
-    cfg_plugins = getattr(config, "plugins", None) or {}
-    catalog: dict = {}
-    for tool in discover_plugin_tools(config):
-        pid = getattr(tool, "plugin", "") or getattr(tool, "_plugin_id", "") or "(unclassified)"
-        entry = catalog.setdefault(pid, {"name": "", "description": "", "tools": []})
-        pconf = cfg_plugins.get(pid) if isinstance(cfg_plugins.get(pid), dict) else {}
-        entry["name"] = getattr(tool, "_plugin_name", "") or pid
-        # description home = the plugin ITSELF (plugin.toml / module docstring, tagged in discovery);
-        # the config.json `plugins.<id>.description` note is an optional OVERRIDE when set.
-        config_note = pconf.get("description", "") if pconf else ""
-        entry["description"] = config_note or getattr(tool, "_plugin_desc", "") or ""
-        needs_model = bool(getattr(tool, "needs_model", False))
-        model = None
-        if needs_model:
-            model = resolve_tool_model(config, pid, getattr(tool, "name", ""),
-                                       default=getattr(tool, "default_model", "") or None)
-        tconf = (pconf.get("tools") or {}).get(getattr(tool, "name", "")) if pconf else None
-        entry["tools"].append({
-            "name": getattr(tool, "name", "?"),
-            "needs_model": needs_model,
-            "model_kind": getattr(tool, "model_kind", "text") or "text",
-            "model": model,
-            "description": (tconf or {}).get("description") or _first_line(getattr(tool, "description", "")),
-            # the FULL canonical description from the tool's code (the config `description` is a
-            # truncated human note); UIs show this, CLIs keep using the short `description`.
-            "full_description": (getattr(tool, "description", "") or "").strip(),
-        })
-    return catalog
 
 
 def build_scaffold(config) -> dict:
@@ -83,14 +45,17 @@ def build_scaffold(config) -> dict:
         if "enabled" in ex_tool:
             entry["enabled"] = ex_tool["enabled"]
         entry["description"] = ex_tool.get("description") or (
-            _first_line(getattr(discovered, "description", "")) if discovered is not None else "")
-        for k, v in ex_tool.items():                       # preserve provider/model/any custom knob
+            _first_line(getattr(discovered, "description", "")) if discovered is not None else ""
+        )
+        for k, v in ex_tool.items():  # preserve provider/model/any custom knob
             if k not in ("enabled", "description"):
                 entry[k] = v
         return entry
 
     merged: dict = {}
-    pids = list(existing) + [p for p in sorted(by_plugin) if p not in existing]  # existing order first
+    pids = list(existing) + [
+        p for p in sorted(by_plugin) if p not in existing
+    ]  # existing order first
     for pid in pids:
         ex = existing.get(pid) if isinstance(existing.get(pid), dict) else {}
         ex_tools = ex.get("tools") if isinstance(ex.get("tools"), dict) else {}
@@ -99,9 +64,11 @@ def build_scaffold(config) -> dict:
         if "enabled" in ex:
             out["enabled"] = ex["enabled"]
         out["description"] = ex.get("description") or ""
-        tool_names = list(ex_tools) + [n for n in sorted(disc) if n not in ex_tools]  # existing order first
+        tool_names = list(ex_tools) + [
+            n for n in sorted(disc) if n not in ex_tools
+        ]  # existing order first
         out["tools"] = {n: _merge_tool(n, disc.get(n), ex_tools.get(n)) for n in tool_names}
-        for k, v in ex.items():                            # preserve any other plugin-level key
+        for k, v in ex.items():  # preserve any other plugin-level key
             if k not in ("enabled", "description", "tools"):
                 out[k] = v
         merged[pid] = out
@@ -109,7 +76,10 @@ def build_scaffold(config) -> dict:
 
 
 def _config_path() -> Path:
-    return Path(os.environ.get("AGENTD_CONFIG") or (Path(__file__).resolve().parents[2] / "agentd.config.json"))
+    return Path(
+        os.environ.get("AGENTD_CONFIG")
+        or (Path(__file__).resolve().parents[2] / "agentd.config.json")
+    )
 
 
 def _write_scaffold(config) -> None:
@@ -125,8 +95,10 @@ def _write_scaffold(config) -> None:
 def _print_tree(catalog: dict) -> None:
     total_tools = sum(len(p["tools"]) for p in catalog.values())
     model_tools = sum(1 for p in catalog.values() for t in p["tools"] if t["needs_model"])
-    print(f"agentd tool catalog -- {len(catalog)} plugins, {total_tools} tools "
-          f"({model_tools} model-bearing)\n")
+    print(
+        f"agentd tool catalog -- {len(catalog)} plugins, {total_tools} tools "
+        f"({model_tools} model-bearing)\n"
+    )
     for pid in sorted(catalog):
         p = catalog[pid]
         desc = f"  -- {p['description']}" if p["description"] else ""
@@ -137,12 +109,14 @@ def _print_tree(catalog: dict) -> None:
             if t["description"]:
                 print(f"        {t['description']}")
         print()
-    print("Note: models shown are what each tool resolves TODAY from config.plugins (+ built-in\n"
-          "defaults). Provider-gated tools (browser/computer) appear only when enabled.")
+    print(
+        "Note: models shown are what each tool resolves TODAY from config.plugins (+ built-in\n"
+        "defaults). Provider-gated tools (browser/computer) appear only when enabled."
+    )
 
 
 def main() -> None:
-    try:                                    # tool descriptions may hold non-ASCII; force UTF-8 out
+    try:  # tool descriptions may hold non-ASCII; force UTF-8 out
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass

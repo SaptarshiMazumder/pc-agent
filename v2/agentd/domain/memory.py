@@ -13,6 +13,6 @@ from dataclasses import dataclass
 class MemoryItem:
     id: str
     agent_id: str
-    source: str          # note | memory | session | consolidated
+    source: str  # note | memory | session | consolidated
     text: str
     created_at: float = 0.0

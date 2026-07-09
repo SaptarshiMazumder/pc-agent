@@ -15,10 +15,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.domain.bundle import BundleError, BundleManifest, PluginDep
+from agentd.infrastructure import signing
 from agentd.infrastructure.marketplace import bundle_io
 from agentd.infrastructure.marketplace.factory import build_marketplace_service
 from agentd.infrastructure.marketplace.index_builder import build_index
-from agentd.infrastructure import signing
 
 
 def _make_agent_dir(root: Path, agent_id: str = "demo-agent") -> Path:
@@ -37,13 +37,19 @@ def _make_plugin_dir(root: Path, plugin_id: str = "demo-plugin") -> Path:
     plugin.mkdir(parents=True)
     (plugin / "plugin.toml").write_text(
         f'id = "{plugin_id}"\nname = "Demo Plugin"\nkind = "native"\nentry = "x:y"\n',
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     (plugin / "tool.py").write_text("# tool code\n", encoding="utf-8")
     return plugin
 
 
-def _pack(tmp: Path, agent_id: str = "demo-agent", version: str = "1.0.0",
-          with_plugin: bool = True, **manifest_kwargs) -> Path:
+def _pack(
+    tmp: Path,
+    agent_id: str = "demo-agent",
+    version: str = "1.0.0",
+    with_plugin: bool = True,
+    **manifest_kwargs,
+) -> Path:
     agent_dir = _make_agent_dir(tmp / version, agent_id)
     plugins = {}
     deps = []
@@ -51,8 +57,9 @@ def _pack(tmp: Path, agent_id: str = "demo-agent", version: str = "1.0.0",
         plugin_dir = _make_plugin_dir(tmp / version)
         plugins["demo-plugin"] = plugin_dir
         deps.append(PluginDep(id="demo-plugin", source="vendored"))
-    manifest = BundleManifest(id=agent_id, name="Demo Agent", version=version,
-                              plugins=tuple(deps), **manifest_kwargs)
+    manifest = BundleManifest(
+        id=agent_id, name="Demo Agent", version=version, plugins=tuple(deps), **manifest_kwargs
+    )
     return bundle_io.pack_bundle(agent_dir, tmp / "dist", manifest, plugins)
 
 
@@ -63,15 +70,20 @@ def test_default_local_registry(tmp_path):
 
     assert default_local_registry(tmp_path) == ""
     (tmp_path / "registry").mkdir()
-    assert default_local_registry(tmp_path) == ""            # dir alone isn't enough
+    assert default_local_registry(tmp_path) == ""  # dir alone isn't enough
     (tmp_path / "registry" / "index.json").write_text("{}", encoding="utf-8")
     assert default_local_registry(tmp_path) == str(tmp_path / "registry")
 
 
 def _config(tmp: Path, registry_url: str = "") -> SimpleNamespace:
     return SimpleNamespace(
-        state_dir=tmp / "state", agents_dir=tmp / "agents", plugins_dir=tmp / "plugins",
-        builtin_plugins_dir="", registry_url=registry_url, distribution=None)
+        state_dir=tmp / "state",
+        agents_dir=tmp / "agents",
+        plugins_dir=tmp / "plugins",
+        builtin_plugins_dir="",
+        registry_url=registry_url,
+        distribution=None,
+    )
 
 
 def _service(tmp: Path, registry_url: str = "", **kwargs):
@@ -112,8 +124,12 @@ def test_install_from_local_registry_and_uninstall(tmp_path):
     build_index(package.parent, name="local-test")
     events = []
     reloads = []
-    service = _service(tmp_path, registry_url=str(package.parent),
-                       on_event=events.append, after_change=lambda changed: reloads.append(changed) or {"ok": 1})
+    service = _service(
+        tmp_path,
+        registry_url=str(package.parent),
+        on_event=events.append,
+        after_change=lambda changed: reloads.append(changed) or {"ok": 1},
+    )
 
     catalog = asyncio.run(service.catalog())
     assert catalog["bundles"][0]["id"] == "demo-agent"
@@ -163,8 +179,9 @@ def test_shared_vendored_plugin_survives_sibling_uninstall(tmp_path):
     asyncio.run(service.install(file=str(a)))
     asyncio.run(service.install(file=str(b)))
     asyncio.run(service.uninstall("agent-a"))
-    assert (tmp_path / "plugins" / "demo-plugin" / "plugin.toml").is_file(), \
+    assert (tmp_path / "plugins" / "demo-plugin" / "plugin.toml").is_file(), (
         "agent-b still needs demo-plugin"
+    )
     asyncio.run(service.uninstall("agent-b"))
     assert not (tmp_path / "plugins" / "demo-plugin").exists()
 
@@ -198,7 +215,7 @@ def test_pinned_key_requires_valid_signature(tmp_path):
     config = _config(tmp_path, registry_url=str(package.parent))
     config.distribution = SimpleNamespace(publisher_key=public_b64)
     service = build_marketplace_service(config)
-    result = asyncio.run(service.install(bundle_id="demo-agent"))   # signed: OK
+    result = asyncio.run(service.install(bundle_id="demo-agent"))  # signed: OK
     assert result["installed"]
 
     # tamper: re-index UNSIGNED while the install still pins the key -> refuse

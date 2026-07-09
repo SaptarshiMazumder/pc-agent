@@ -13,7 +13,12 @@ from typing import Protocol
 class Sandbox(Protocol):
     name: str
 
-    async def run(self, command: str, cwd: str | None = None,
-                  env: dict | None = None, timeout: float | None = None) -> tuple[int, str]:
+    async def run(
+        self,
+        command: str,
+        cwd: str | None = None,
+        env: dict | None = None,
+        timeout: float | None = None,
+    ) -> tuple[int, str]:
         """Run a shell command; return (exit_code, combined_output)."""
         ...

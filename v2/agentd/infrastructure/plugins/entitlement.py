@@ -33,9 +33,12 @@ class LicenseEntitlement:
         sku = getattr(manifest, "entitlement", "") or ""
         if not sku or sku in self._skus:
             return True
-        log.info("plugins: '%s' needs license SKU '%s' — not present "
-                 "(drop the .lic file into the licenses folder and restart)",
-                 getattr(manifest, "id", "?"), sku)
+        log.info(
+            "plugins: '%s' needs license SKU '%s' — not present "
+            "(drop the .lic file into the licenses folder and restart)",
+            getattr(manifest, "id", "?"),
+            sku,
+        )
         return False
 
 

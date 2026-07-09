@@ -81,8 +81,12 @@ class ZipFilesTool(Tool):
                 else:
                     used[name] = 0
                 z.write(p, arcname=name)
-        return {"out_path": str(out), "count": len(existing), "size": out.stat().st_size,
-                "missing": missing}
+        return {
+            "out_path": str(out),
+            "count": len(existing),
+            "size": out.stat().st_size,
+            "missing": missing,
+        }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:

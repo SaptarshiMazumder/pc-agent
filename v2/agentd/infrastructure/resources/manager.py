@@ -18,22 +18,47 @@ import time
 from pathlib import Path
 
 from agentd.domain.resource import (
-    KIND_DATA, KIND_DOC, KIND_IMAGE, KIND_OTHER, KIND_SCRIPT, Resource, kind_for_path,
+    KIND_DATA,
+    KIND_DOC,
+    KIND_IMAGE,
+    KIND_OTHER,
+    KIND_SCRIPT,
+    Resource,
+    kind_for_path,
 )
 
 _SKIP_DIRS = {
-    "__pycache__", ".git", ".hg", ".svn", "node_modules", ".venv", "venv",
-    ".mypy_cache", ".pytest_cache", "browser-profile", "sessions", ".agentd",
-    ".idea", ".vscode", "dist", "build", ".cache",
-    "skills",   # the agent's skills live here but are advertised in the Skills section, not as resources
-    "tmp",      # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed/enriched
+    "__pycache__",
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    "browser-profile",
+    "sessions",
+    ".agentd",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    ".cache",
+    "skills",  # the agent's skills live here but are advertised in the Skills section, not as resources
+    "tmp",  # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed/enriched
 }
 _SKIP_SUFFIX = (".pyc", ".pyo", ".lock", ".tmp", ".log")
 _SCAN_CAP = 5000
 _SAMPLE_BYTES = 8192
 _KIND_ORDER = (KIND_SCRIPT, KIND_DOC, KIND_DATA, KIND_IMAGE, KIND_OTHER)
-_KIND_LABEL = {KIND_SCRIPT: "scripts", KIND_DOC: "docs", KIND_DATA: "data",
-               KIND_IMAGE: "images", KIND_OTHER: "other"}
+_KIND_LABEL = {
+    KIND_SCRIPT: "scripts",
+    KIND_DOC: "docs",
+    KIND_DATA: "data",
+    KIND_IMAGE: "images",
+    KIND_OTHER: "other",
+}
 
 
 def _human(size: int) -> str:
@@ -60,16 +85,18 @@ def _is_home(p: Path) -> bool:
 
 
 class ResourceManager:
-    def __init__(self, store, describer, *, max_files: int = 100, rich_fn=None, enrich_max: int = 3):
+    def __init__(
+        self, store, describer, *, max_files: int = 100, rich_fn=None, enrich_max: int = 3
+    ):
         self._store = store
         self._describer = describer
         self._max = max_files
-        self._rich_fn = rich_fn            # optional async (kind, path, bytes) -> str (vision/LLM)
+        self._rich_fn = rich_fn  # optional async (kind, path, bytes) -> str (vision/LLM)
         # background enrichment (the EXPENSIVE describe) — independent of the agent's turn
         self._enrich_max = enrich_max
         self._enrich_tasks: set = set()
-        self._enriched: set = set()        # (agent_id, rel_path, sig) already enriched/queued
-        self._sem = None                   # asyncio.Semaphore, lazily bound to the running loop
+        self._enriched: set = set()  # (agent_id, rel_path, sig) already enriched/queued
+        self._sem = None  # asyncio.Semaphore, lazily bound to the running loop
 
     # ---- describe one file (sync, cached) -----------------------------------
 
@@ -99,7 +126,7 @@ class ResourceManager:
 
     def reconcile(self, workspace, agent_id: str) -> tuple[list[Resource], bool]:
         root = Path(workspace)
-        if not root.is_dir() or _is_home(root):     # never crawl the home folder (main's default)
+        if not root.is_dir() or _is_home(root):  # never crawl the home folder (main's default)
             return [], False
         out: list[Resource] = []
         examined = 0
@@ -122,11 +149,11 @@ class ResourceManager:
                     continue
             if capped:
                 break
-        if not capped:                       # drop index rows whose file is gone
+        if not capped:  # drop index rows whose file is gone
             for r in self._store.list(agent_id):
                 if not (root / r.rel_path).exists():
                     self._store.delete(agent_id, r.rel_path)
-        for r in out:                        # expensive (vision/LLM) describe -> background, independent
+        for r in out:  # expensive (vision/LLM) describe -> background, independent
             self.enqueue_enrich(workspace, agent_id, r)
         return out, capped
 
@@ -200,6 +227,7 @@ class ResourceManager:
         `patterns`, dropping their index rows too. dry_run -> just the would-delete list.
         Bounded to the workspace (refuses home)."""
         from agentd.infrastructure.workspace import cleanup as ws_cleanup
+
         targets = ws_cleanup.plan_cleanup(workspace, patterns=tuple(patterns))
         if not dry_run:
             ws_cleanup.cleanup(workspace, patterns=tuple(patterns))
@@ -210,7 +238,7 @@ class ResourceManager:
     # ---- background enrichment (expensive describe, OFF the agent's path) ----
 
     def _semaphore(self) -> asyncio.Semaphore:
-        if self._sem is None:                # lazily bind to whatever loop is running
+        if self._sem is None:  # lazily bind to whatever loop is running
             self._sem = asyncio.Semaphore(self._enrich_max)
         return self._sem
 
@@ -221,14 +249,16 @@ class ResourceManager:
         No-op without a rich_fn (nothing expensive to do) or outside an event loop."""
         if self._rich_fn is None:
             return
-        if getattr(res, "enriched", False):  # PERSISTED: already enriched -> never re-run (survives restart)
+        if getattr(
+            res, "enriched", False
+        ):  # PERSISTED: already enriched -> never re-run (survives restart)
             return
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             return
         key = (agent_id, res.rel_path, res.sig)
-        if key in self._enriched:            # in-flight this session
+        if key in self._enriched:  # in-flight this session
             return
         self._enriched.add(key)
         task = asyncio.create_task(self._enrich(workspace, agent_id, res.rel_path))
@@ -236,7 +266,7 @@ class ResourceManager:
         task.add_done_callback(self._enrich_tasks.discard)
 
     async def _enrich(self, workspace, agent_id: str, rel_path: str) -> None:
-        async with self._semaphore():        # cap concurrent vision/LLM calls
+        async with self._semaphore():  # cap concurrent vision/LLM calls
             try:
                 await self.describe_rich(workspace, agent_id, rel_path)
             except Exception:  # noqa: BLE001 — background enrichment never breaks a run
@@ -255,13 +285,22 @@ class ResourceManager:
         desc = ""
         if self._rich_fn is not None:
             desc = await self._rich_fn(kind, p, sample)
-        rich = bool(desc)                                          # the expensive describer succeeded
-        if not desc:                                               # rich declined / failed -> basic
+        rich = bool(desc)  # the expensive describer succeeded
+        if not desc:  # rich declined / failed -> basic
             desc = self._describer.describe(kind, p, sample)
         st = p.stat()
         # enriched=True only on a real rich result -> persisted, never re-run on restart;
         # a transient failure (rich="") stays False so it can retry later.
-        self._store.put(agent_id, Resource(
-            os.path.relpath(str(p), str(Path(workspace).resolve())).replace("\\", "/"),
-            kind, st.st_size, _sig(st.st_size, st.st_mtime), desc, time.time(), enriched=rich))
+        self._store.put(
+            agent_id,
+            Resource(
+                os.path.relpath(str(p), str(Path(workspace).resolve())).replace("\\", "/"),
+                kind,
+                st.st_size,
+                _sig(st.st_size, st.st_mtime),
+                desc,
+                time.time(),
+                enriched=rich,
+            ),
+        )
         return desc

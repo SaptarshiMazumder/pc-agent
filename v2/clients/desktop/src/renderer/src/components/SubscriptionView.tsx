@@ -1,6 +1,7 @@
 import { Check, Sparkles, Users } from 'lucide-react'
 
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
 
 /** Subscription — local/free today; paid tiers are placeholders until billing exists. */
 export default function SubscriptionView() {
@@ -11,18 +12,10 @@ export default function SubscriptionView() {
   ]
 
   return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <div className="page-title">Subscription</div>
-            <div className="page-sub">
-              You’re running {flavor?.productName || 'agentd'} locally — no subscription needed. Paid plans
-              arrive with cloud sync.
-            </div>
-          </div>
-        </div>
-
+    <PageShell
+      title="Subscription"
+      sub={`You’re running ${flavor?.productName || 'agentd'} locally — no subscription needed. Paid plans arrive with cloud sync.`}
+    >
         <div className="settings-group">
           <div className="settings-section">Current plan</div>
           <div className="plan-card">
@@ -59,7 +52,6 @@ export default function SubscriptionView() {
             ))}
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

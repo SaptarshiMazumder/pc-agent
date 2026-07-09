@@ -17,12 +17,12 @@ def register(api, ctx):
     from outcome_tool import ReportOutcomeTool
 
     api.register_tool(HeartbeatRespondTool())
-    api.register_tool(ReportOutcomeTool())     # exposed ONLY on a cron run (apply_mode)
+    api.register_tool(ReportOutcomeTool())  # exposed ONLY on a cron run (apply_mode)
     if ctx.task_store is not None:
         from commitment_tool import CommitmentTool
         from cron_tool import CronTool
         from goal_tool import GoalTool
 
         api.register_tool(CronTool(ctx.task_store))
-        api.register_tool(GoalTool(ctx.task_store))   # SqliteTaskStore implements GoalStore too
+        api.register_tool(GoalTool(ctx.task_store))  # SqliteTaskStore implements GoalStore too
         api.register_tool(CommitmentTool(ctx.task_store))

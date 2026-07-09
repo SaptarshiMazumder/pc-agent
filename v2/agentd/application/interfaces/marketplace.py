@@ -37,8 +37,9 @@ class BundleInstaller(Protocol):
         plugin ids actually placed (for the ledger / uninstall refcounting)."""
         ...
 
-    async def remove_files(self, installed: InstalledBundle, keep_plugin_ids: set[str],
-                           purge_state: bool = False) -> None: ...
+    async def remove_files(
+        self, installed: InstalledBundle, keep_plugin_ids: set[str], purge_state: bool = False
+    ) -> None: ...
 
 
 @runtime_checkable

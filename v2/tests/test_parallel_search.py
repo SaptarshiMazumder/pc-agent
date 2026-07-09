@@ -7,13 +7,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.mcp import McpCallResult
-from agentd.domain.messages import TextContent
 from search import build_search_providers
 from search.providers.parallel import ParallelSearchProvider
 
+from agentd.domain.mcp import McpCallResult
+from agentd.domain.messages import TextContent
 
 # ---- fakes -----------------------------------------------------------------
+
 
 class FakeSession:
     """Structurally satisfies the McpSession bits ParallelSearchProvider uses."""
@@ -49,18 +50,25 @@ def _provider(result):
 
 # ---- mapping ---------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_maps_parallel_results_to_searchresults():
-    payload = {"results": [
-        {"url": "https://a.com", "title": "A", "publish_date": "2025-01-01",
-         "excerpts": ["hello ", " world"]},
-        {"url": "https://b.com", "title": "B", "publish_date": None, "excerpts": []},
-    ]}
+    payload = {
+        "results": [
+            {
+                "url": "https://a.com",
+                "title": "A",
+                "publish_date": "2025-01-01",
+                "excerpts": ["hello ", " world"],
+            },
+            {"url": "https://b.com", "title": "B", "publish_date": None, "excerpts": []},
+        ]
+    }
     p, _, _ = _provider(_json_result(payload))
     out = await p.search("recruiters japan", 10, None)
     assert [r.url for r in out] == ["https://a.com", "https://b.com"]
     assert out[0].title == "A" and out[0].age == "2025-01-01"
-    assert out[0].snippet == "hello world"           # excerpts joined + trimmed
+    assert out[0].snippet == "hello world"  # excerpts joined + trimmed
     assert out[1].snippet == "" and out[1].age == ""  # missing fields -> ""
 
 
@@ -108,10 +116,10 @@ async def test_non_json_content_returns_empty():
 @pytest.mark.asyncio
 async def test_session_is_lazily_connected_once_then_closed():
     p, sess, state = _provider(_json_result({"results": []}))
-    assert state["factory_calls"] == 0           # nothing connected until first search
+    assert state["factory_calls"] == 0  # nothing connected until first search
     await p.search("q1", 5, None)
     await p.search("q2", 5, None)
-    assert state["factory_calls"] == 1           # session cached + reused
+    assert state["factory_calls"] == 1  # session cached + reused
     await p.aclose()
     assert sess.closed_log == [True]
 
@@ -123,9 +131,16 @@ def test_available_true_when_mcp_installed():
 
 # ---- chain ordering (matches OpenClaw's no-keys default) -------------------
 
+
 def _search_cfg(**over):
-    base = dict(parallel_search_enabled=True, parallel_search_url=None, parallel_api_key=None,
-                plugins={}, model="gemini/x", brave_api_key=None)
+    base = dict(
+        parallel_search_enabled=True,
+        parallel_search_url=None,
+        parallel_api_key=None,
+        plugins={},
+        model="gemini/x",
+        brave_api_key=None,
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -143,6 +158,9 @@ def test_parallel_disabled_leaves_duckduckgo_only(monkeypatch):
 
 
 def test_explicit_provider_list_overrides_default():
-    provs = build_search_providers(_search_cfg(
-        plugins={"web": {"tools": {"web_search": {"provider": ["duckduckgo", "parallel"]}}}}))
+    provs = build_search_providers(
+        _search_cfg(
+            plugins={"web": {"tools": {"web_search": {"provider": ["duckduckgo", "parallel"]}}}}
+        )
+    )
     assert [p.name for p in provs] == ["duckduckgo", "parallel"]

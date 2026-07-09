@@ -17,8 +17,8 @@ from pathlib import Path
 
 from agentd.application.tool_models import browser_knob
 from agentd.infrastructure.tools.browser.snapshot import (
-    DEFAULT_AI_SNAPSHOT_MAX_CHARS,
     _NETWORKIDLE_TIMEOUT_MS,
+    DEFAULT_AI_SNAPSHOT_MAX_CHARS,
     format_ai_snapshot,
 )
 
@@ -85,14 +85,14 @@ class BaseBrowserSession:
         self.context = None
         self.active_page = None
         # tab registry — stable handles that survive index shuffling
-        self._ids: dict = {}            # page -> "t1"
-        self._labels: dict = {}         # label -> page
+        self._ids: dict = {}  # page -> "t1"
+        self._labels: dict = {}  # label -> page
         self._counter = 0
         # per-page state
-        self._console: dict = {}        # page -> deque[str]
-        self._downloads: list = []      # [{filename, path, url}]
+        self._console: dict = {}  # page -> deque[str]
+        self._downloads: list = []  # [{filename, path, url}]
         self._last_dialog: dict | None = None
-        self._dialog_accept = True      # auto-accept by default so nothing hangs
+        self._dialog_accept = True  # auto-accept by default so nothing hangs
         self._dialog_prompt: str | None = None
 
     # ----------------------------------------------------------- lifecycle
@@ -107,7 +107,7 @@ class BaseBrowserSession:
         # (shared) browser wedges until the gateway restarts. A dead handle -> tear down + relaunch.
         if self.context is not None and self._connected():
             return
-        await self._discard()                          # clear any dead/stale handle first
+        await self._discard()  # clear any dead/stale handle first
         self._pw, self.context = await self._create_context()
         try:
             # cap per-action waits (Playwright defaults to 30s) so a covered/stale
@@ -134,7 +134,7 @@ class BaseBrowserSession:
         """Whether the launched browser is still alive (so ``context.new_page()`` will work)."""
         br = self._browser
         if br is None:
-            return self.context is not None            # providers that don't expose a Browser
+            return self.context is not None  # providers that don't expose a Browser
         try:
             return bool(br.is_connected())
         except Exception:
@@ -197,6 +197,7 @@ class BaseBrowserSession:
             for lbl, pg in list(self._labels.items()):
                 if pg is p:
                     self._labels.pop(lbl, None)
+
         page.on("close", lambda *_: _forget())
 
     def _label_page(self, page, label: str | None):
@@ -238,13 +239,15 @@ class BaseBrowserSession:
     def list_tabs(self) -> list[dict]:
         rows = []
         for page in self.context.pages:
-            rows.append({
-                "tabId": self._ids.get(page, "?"),
-                "label": next((l for l, p in self._labels.items() if p is page), None),
-                "suggestedTargetId": self.suggested_target_id(page),
-                "url": page.url,
-                "active": page is self.active_page,
-            })
+            rows.append(
+                {
+                    "tabId": self._ids.get(page, "?"),
+                    "label": next((l for l, p in self._labels.items() if p is page), None),
+                    "suggestedTargetId": self.suggested_target_id(page),
+                    "url": page.url,
+                    "active": page is self.active_page,
+                }
+            )
         return rows
 
     # ----------------------------------------------------------- listeners
@@ -313,13 +316,13 @@ class BaseBrowserSession:
         else:
             loc = page.locator(selector or "body")
         raw = await loc.aria_snapshot(mode="ai", boxes=labels)
-        text = format_ai_snapshot(
-            raw, depth=depth, compact=compact, urls=urls, max_chars=max_chars
-        )
+        text = format_ai_snapshot(raw, depth=depth, compact=compact, urls=urls, max_chars=max_chars)
         title = await page.title()
         extra = await self._cursor_scan(page, labels=labels)
         note = await self._auth_note(page)
-        return f"Page: {title}\nURL: {page.url}\nTab: {self.tab_handle(page)}\n\n{text}{extra}{note}"
+        return (
+            f"Page: {title}\nURL: {page.url}\nTab: {self.tab_handle(page)}\n\n{text}{extra}{note}"
+        )
 
     async def _cursor_scan(self, page, labels: bool = False) -> str:
         """List non-ARIA clickable elements with [ref=cN] (see _CURSOR_SCAN_JS)."""
@@ -334,8 +337,8 @@ class BaseBrowserSession:
         lines = []
         for it in items:
             name = f' "{it["text"]}"' if it.get("text") else ""
-            box = f' [box={",".join(str(b) for b in it["box"])}]' if labels else ""
-            lines.append(f'- clickable{name} <{it["tag"]}> [ref={it["ref"]}]{box}')
+            box = f" [box={','.join(str(b) for b in it['box'])}]" if labels else ""
+            lines.append(f"- clickable{name} <{it['tag']}> [ref={it['ref']}]{box}")
         return (
             "\n\n[non-ARIA clickables — interactive elements the accessibility tree misses; "
             "use these refs like any other]\n" + "\n".join(lines)

@@ -23,9 +23,19 @@ def _sign(body: bytes) -> str:
 
 def _event_body(text="hi", user="U123", msg_id="m1", reply_token="rt", source=None) -> bytes:
     src = source or {"type": "user", "userId": user}
-    return json.dumps({"events": [{
-        "type": "message", "replyToken": reply_token, "timestamp": 1700000000000,
-        "source": src, "message": {"type": "text", "id": msg_id, "text": text}}]}).encode()
+    return json.dumps(
+        {
+            "events": [
+                {
+                    "type": "message",
+                    "replyToken": reply_token,
+                    "timestamp": 1700000000000,
+                    "source": src,
+                    "message": {"type": "text", "id": msg_id, "text": text},
+                }
+            ]
+        }
+    ).encode()
 
 
 def _chan(**kw):
@@ -42,16 +52,18 @@ def _chan(**kw):
 
 # ---- verify -----------------------------------------------------------------
 
+
 def test_verify_accepts_valid_and_rejects_tampered():
     ch, _ = _chan()
     body = _event_body()
     assert ch.verify(body, _sign(body)) is True
     assert ch.verify(body, "deadbeef") is False
-    assert ch.verify(body + b"x", _sign(body)) is False     # body tampered
-    assert ch.verify(body, None) is False                   # missing header
+    assert ch.verify(body + b"x", _sign(body)) is False  # body tampered
+    assert ch.verify(body, None) is False  # missing header
 
 
 # ---- inbound normalization + policy -----------------------------------------
+
 
 def test_parse_events_normalizes_text_dm():
     ch, _ = _chan()
@@ -64,15 +76,24 @@ def test_parse_events_group_uses_group_id_as_peer():
     ch, _ = _chan()
     body = _event_body(source={"type": "group", "groupId": "Cgrp", "userId": "Ume"})
     (m,) = ch.parse_events(body)
-    assert m.peer == "Cgrp"                                  # reply target = the group
+    assert m.peer == "Cgrp"  # reply target = the group
 
 
 def test_parse_events_skips_non_text_and_bad_json():
     ch, _ = _chan()
-    sticker = json.dumps({"events": [{"type": "message", "source": {"userId": "U1"},
-                                      "message": {"type": "sticker", "id": "s1"}}]}).encode()
+    sticker = json.dumps(
+        {
+            "events": [
+                {
+                    "type": "message",
+                    "source": {"userId": "U1"},
+                    "message": {"type": "sticker", "id": "s1"},
+                }
+            ]
+        }
+    ).encode()
     assert ch.parse_events(sticker) == []
-    assert ch.parse_events(b"not json at all") == []        # never crashes ingress
+    assert ch.parse_events(b"not json at all") == []  # never crashes ingress
 
 
 def test_policy_allowlist_drops_strangers_open_allows_all():
@@ -82,11 +103,12 @@ def test_policy_allowlist_drops_strangers_open_allows_all():
     assert m.peer == "Uowner"
     openc, _ = _chan(policy="open")
     assert len(openc.parse_events(_event_body(user="Uanyone"))) == 1
-    star, _ = _chan(policy="allowlist", allow_from=["*"])   # "*" = allow all (test/bootstrap)
+    star, _ = _chan(policy="allowlist", allow_from=["*"])  # "*" = allow all (test/bootstrap)
     assert len(star.parse_events(_event_body(user="Uwhoever"))) == 1
 
 
 # ---- outbound ---------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_poll_is_empty_push_channel():
@@ -97,12 +119,12 @@ async def test_poll_is_empty_push_channel():
 @pytest.mark.asyncio
 async def test_send_uses_reply_token_first_then_push():
     ch, posts = _chan(reply_token_ttl=60.0)
-    ch.parse_events(_event_body(user="U1", reply_token="RT1"))   # stashes RT1 for peer U1
+    ch.parse_events(_event_body(user="U1", reply_token="RT1"))  # stashes RT1 for peer U1
     await ch.send("U1", "hello")
     assert posts[0][0].endswith("/message/reply")
     assert posts[0][1]["replyToken"] == "RT1"
     assert posts[0][1]["messages"] == [{"type": "text", "text": "hello"}]
-    await ch.send("U1", "again")                             # token consumed -> push
+    await ch.send("U1", "again")  # token consumed -> push
     assert posts[1][0].endswith("/message/push") and posts[1][1]["to"] == "U1"
 
 
@@ -110,14 +132,17 @@ async def test_send_uses_reply_token_first_then_push():
 async def test_send_pushes_when_no_token():
     ch, posts = _chan()
     await ch.send("U9", "hi there")
-    assert posts == [(
-        "https://api.line.me/v2/bot/message/push",
-        {"to": "U9", "messages": [{"type": "text", "text": "hi there"}]})]
+    assert posts == [
+        (
+            "https://api.line.me/v2/bot/message/push",
+            {"to": "U9", "messages": [{"type": "text", "text": "hi there"}]},
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_send_expired_token_falls_back_to_push():
-    ch, posts = _chan(reply_token_ttl=0.0)                   # any age is stale
+    ch, posts = _chan(reply_token_ttl=0.0)  # any age is stale
     ch.parse_events(_event_body(user="U1", reply_token="RT"))
     await ch.send("U1", "hi")
     assert posts[0][0].endswith("/message/push")
@@ -126,7 +151,7 @@ async def test_send_expired_token_falls_back_to_push():
 @pytest.mark.asyncio
 async def test_send_chunks_long_text_over_5000():
     ch, posts = _chan()
-    await ch.send("U1", "x" * 12000)                         # 5000 + 5000 + 2000, one push call
+    await ch.send("U1", "x" * 12000)  # 5000 + 5000 + 2000, one push call
     assert len(posts) == 1
     assert [len(m["text"]) for m in posts[0][1]["messages"]] == [5000, 5000, 2000]
 

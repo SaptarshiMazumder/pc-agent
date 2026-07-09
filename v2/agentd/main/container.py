@@ -70,9 +70,16 @@ def build_memory_bank(config: Config):
     return bank
 
 
-def build_service(config: Config, browser_manager, computer_provider=None,
-                  registry=None, task_store=None, memory_bank=None,
-                  credential_store=None, connect_token_store=None) -> AgentService:
+def build_service(
+    config: Config,
+    browser_manager,
+    computer_provider=None,
+    registry=None,
+    task_store=None,
+    memory_bank=None,
+    credential_store=None,
+    connect_token_store=None,
+) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
 
     `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
@@ -91,8 +98,8 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # are discovered + guarded uniformly. (Internal-/plugin-MCP tools are added async at gateway
     # startup and pass through the SAME enablement there.) The credential vault + connect-token
     # store are injected (shared with the gateway's /connect web form).
+    from agentd.application.services.agent_service import tool_source
     from agentd.domain.agent import apply_enablement, apply_plugin_enablement
-    from agentd.infrastructure.plugins import build_entitlement, discover_plugin_contributions
 
     # plugins contribute tools (join the catalog), prompt sections (teach the model how to use
     # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
@@ -101,7 +108,8 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     from agentd.infrastructure.agents import FileAgentRegistry
-    from agentd.application.services.agent_service import tool_source
+    from agentd.infrastructure.plugins import build_entitlement, discover_plugin_contributions
+
     registry = registry or FileAgentRegistry(config)
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
     # entitle every compatible plugin; a distribution profile with a pinned publisher key
@@ -118,7 +126,7 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         out = []
         for t in raw_tools:
             gt = GuardedTool(t, resolve_policy(config, t))
-            gt.source = tool_source(t)         # plugin:<id> / mcp:<server> — tagged for the catalog
+            gt.source = tool_source(t)  # plugin:<id> / mcp:<server> — tagged for the catalog
             out.append(gt)
         return out
 
@@ -127,38 +135,56 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         if service is None:
             return {"ok": False, "error": "catalog not ready"}
         new_tools, new_sections, _srv, _sk = discover_plugin_contributions(
-            config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
+            config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids
+        )
         if new_tools:
-            kept = apply_enablement(list(new_tools), getattr(config, "tools_enabled", None),
-                                    getattr(config, "tools_disabled", ()))
+            kept = apply_enablement(
+                list(new_tools),
+                getattr(config, "tools_enabled", None),
+                getattr(config, "tools_disabled", ()),
+            )
             kept = apply_plugin_enablement(kept, getattr(config, "plugins", None))
             service.add_tools(_wrap(kept))
         if new_sections:
-            plugin_sections.extend(new_sections)   # same list the prompt builder reads -> live
-        return {"ok": True, "tools": [getattr(t, "name", "") for t in new_tools],
-                "sections": len(new_sections)}
+            plugin_sections.extend(new_sections)  # same list the prompt builder reads -> live
+        return {
+            "ok": True,
+            "tools": [getattr(t, "name", "") for t in new_tools],
+            "sections": len(new_sections),
+        }
 
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     plugin_deps = {
-        "browser": browser_manager, "computer": computer_provider,
-        "task_store": task_store, "memory_bank": memory_bank,
-        "resource_manager": resource_manager, "credential_store": credential_store,
-        "connect_token_store": connect_token_store, "registry": registry,
+        "browser": browser_manager,
+        "computer": computer_provider,
+        "task_store": task_store,
+        "memory_bank": memory_bank,
+        "resource_manager": resource_manager,
+        "credential_store": credential_store,
+        "connect_token_store": connect_token_store,
+        "registry": registry,
         "register_plugin_live": register_plugin_live,
     }
-    plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = \
+    plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
+    )
     if plugin_mcp_servers:
         config.mcp_servers = list(config.mcp_servers or []) + plugin_mcp_servers
     # The catalog is assembled ENTIRELY by plugin discovery now — built-in capability bundles
     # (plugins/) + third-party plugins both flow through discover_plugin_contributions. The core
     # contributes no tool implementations (they all live outside agentd/). Global on/off filter,
     # then wrap EVERY tool in the reliability middleware + tag its source.
-    tools = _wrap(apply_plugin_enablement(
-        apply_enablement(list(plugin_tools), getattr(config, "tools_enabled", None),
-                         getattr(config, "tools_disabled", ())),
-        getattr(config, "plugins", None)))
+    tools = _wrap(
+        apply_plugin_enablement(
+            apply_enablement(
+                list(plugin_tools),
+                getattr(config, "tools_enabled", None),
+                getattr(config, "tools_disabled", ()),
+            ),
+            getattr(config, "plugins", None),
+        )
+    )
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -186,11 +212,16 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         context_policy = WindowContextPolicy(config.context_max_messages)
     from agentd.application.tool_models import brain_model
     from agentd.infrastructure.llm.model_router import build_model_router
-    engine = NativeEngine(                                  # swap here for Claude SDK / LangGraph
-        stream_fn, brain_model(config), max_iterations=config.max_turns,  # brain model: CONFIG-ONLY
-        observers=build_observers(config), context_policy=context_policy,
+
+    engine = NativeEngine(  # swap here for Claude SDK / LangGraph
+        stream_fn,
+        brain_model(config),
+        max_iterations=config.max_turns,  # brain model: CONFIG-ONLY
+        observers=build_observers(config),
+        context_policy=context_policy,
         execution_contract=getattr(config, "execution_contract", ""),
-        model_router=build_model_router(config),           # cost-efficiency brain routing (default off)
+        model_router=build_model_router(config),  # cost-efficiency brain routing (default off)
+        model_trace=getattr(config, "model_trace", True),  # per-step model/token trace (default on)
     )
     # the agent registry: which agent owns a session + its persona/scope.
     # (built above, before plugin discovery, so plugins receive the SAME instance.)
@@ -211,21 +242,27 @@ def build_service(config: Config, browser_manager, computer_provider=None,
     def resolve_skills(agent):
         shared = select_skills(merge_skills(load_skills_dir(main_skills_dir), plugin_skills), agent)
         if agent.id == "main":
-            result = shared                            # main = global + plugin skills
+            result = shared  # main = global + plugin skills
         else:
             own = load_skills_dir(agent.skills_dir) if getattr(agent, "skills_dir", None) else []
-            result = merge_skills(shared, own)         # named: shared + own (own wins)
-        return [s for s in result if skill_eligible(s, config)]   # requires gate (bins/env/config)
+            result = merge_skills(shared, own)  # named: shared + own (own wins)
+        return [s for s in result if skill_eligible(s, config)]  # requires gate (bins/env/config)
+
     # workspace-awareness layer (TURN seam): a manifest of the agent's files in every
     # prompt, so resources it created stay visible. The described Resource Manager wins
     # when on; else the plain workspace index; else nothing (all cut-out-able by flag).
     from agentd.infrastructure.workspace import build_workspace_index
     from agentd.infrastructure.workspace.cleanup import sweep_scratch
+
     workspace_index = resource_manager or build_workspace_index(config)
 
     # Optional relevance filter (post-parity): advertise only the top-K skills most related to the
     # current message. Built lazily; None unless enabled + a model is configured => no behavior change.
-    from agentd.infrastructure.skills.relevance import build_skill_embed_fn, rank_skills_by_relevance
+    from agentd.infrastructure.skills.relevance import (
+        build_skill_embed_fn,
+        rank_skills_by_relevance,
+    )
+
     skill_embed_fn = build_skill_embed_fn(config)
 
     def _build_prompt(tools, agent, mode, query=""):
@@ -236,31 +273,41 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         # The EFFECTIVE workspace: handle_message sets the run context (project workspace for a
         # project chat, plan §11) BEFORE building the prompt — so the manifest indexes, and the
         # sweep cleans, the same folder this run's tools actually use.
-        from agentd.application.run_context import current_workspace
         from pathlib import Path as _Path
+
+        from agentd.application.run_context import current_workspace
+
         ws = _Path(current_workspace(str(agent.workspace)) or str(agent.workspace))
         sweep_scratch(ws, getattr(config, "scratch_ttl_hours", 0.0))
         skills = resolve_skills(agent)
-        if skill_embed_fn is not None:                  # relevance filter (no-op when fn is None)
+        if skill_embed_fn is not None:  # relevance filter (no-op when fn is None)
             skills = rank_skills_by_relevance(
-                skills, query, skill_embed_fn, getattr(config, "skills_relevance_top_k", 30))
+                skills, query, skill_embed_fn, getattr(config, "skills_relevance_top_k", 30)
+            )
         # On a heartbeat tick, re-read HEARTBEAT.md FRESH from the agent's dir (so edits — and a
         # runtime-created agent's checklist — take effect next tick, not only after a restart);
         # fall back to the cached spec text if the dir isn't known.
         heartbeat_text = ""
         if mode == RunMode.HEARTBEAT:
             from agentd.infrastructure.agents.bootstrap import load_heartbeat
-            heartbeat_text = (load_heartbeat(agent.dir) if getattr(agent, "dir", None)
-                              else agent.heartbeat_instructions)
+
+            heartbeat_text = (
+                load_heartbeat(agent.dir)
+                if getattr(agent, "dir", None)
+                else agent.heartbeat_instructions
+            )
         return build_system_prompt(
-            config, tools, agent.model or config.model, config.reasoning_effort,
-            skills=skills, agent=agent,
+            config,
+            tools,
+            agent.model or config.model,
+            config.reasoning_effort,
+            skills=skills,
+            agent=agent,
             heartbeat=heartbeat_text,
-            cron=(mode == RunMode.CRON),   # inject the report_outcome note on scheduled runs
-            channel=(mode == RunMode.CHANNEL),   # inject the channel-reply note on channel runs
-            workspace_resources=(workspace_index.manifest(ws, agent.id)
-                                 if workspace_index else ""),
-            plugin_sections=plugin_sections,   # tools self-describe; plugins add guidance sections
+            cron=(mode == RunMode.CRON),  # inject the report_outcome note on scheduled runs
+            channel=(mode == RunMode.CHANNEL),  # inject the channel-reply note on channel runs
+            workspace_resources=(workspace_index.manifest(ws, agent.id) if workspace_index else ""),
+            plugin_sections=plugin_sections,  # tools self-describe; plugins add guidance sections
         )
 
     def _recall(agent, query):
@@ -270,16 +317,20 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         if not (getattr(config, "memory_auto_recall", False) and memory_bank is not None):
             return ""
         hits = memory_bank.search(
-            agent.id, query,
+            agent.id,
+            query,
             limit=getattr(config, "memory_auto_recall_limit", 5),
-            min_score=getattr(config, "memory_recall_min_score", 0.0))
+            min_score=getattr(config, "memory_recall_min_score", 0.0),
+        )
         if not hits:
             return ""
         log.info("memory: auto-recalled %d note(s) for agent '%s'", len(hits), agent.id)
         lines = "\n".join(f"- {h.text}" for h in hits)
-        return ("## Relevant memories\n"
-                "Recalled automatically from earlier sessions — may bear on this message; verify "
-                "before relying on them:\n" + lines)
+        return (
+            "## Relevant memories\n"
+            "Recalled automatically from earlier sessions — may bear on this message; verify "
+            "before relying on them:\n" + lines
+        )
 
     def _effective_workspace(agent, session_id: str) -> str:
         """Plan §11 — file ownership follows CONTEXT, not identity: a chat tagged into a project
@@ -306,9 +357,9 @@ def build_service(config: Config, browser_manager, computer_provider=None,
         recall=_recall,
         # hot-reload seam, now also driven by marketplace installs (gateway after_change)
         plugin_reloader=register_plugin_live,
-        resolve_workspace=_effective_workspace,   # project chats bind the project workspace (§11)
+        resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
     )
-    _late["service"] = service           # late-bind so register_plugin_live can hot-add tools
+    _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
     return service
 
 
@@ -368,19 +419,28 @@ def build_gateway(config: Config) -> Gateway:
     from agentd.infrastructure.agents import FileAgentRegistry
 
     registry = FileAgentRegistry(config)
-    task_store = build_task_store(config)   # durable cron ledger (None unless autonomy on)
+    task_store = build_task_store(config)  # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
     # Login vault + connect-token store — built ONCE and SHARED by the simple_login tool
     # (mints links) and the gateway's /connect web form (writes the captured creds), so a
     # credential saved via the form is immediately visible to the tool. None unless AGENTD_VAULT_KEY.
     from agentd.infrastructure.credentials import ConnectTokenStore, build_credential_store
+
     credential_store = build_credential_store(config)
     connect_token_store = ConnectTokenStore() if credential_store is not None else None
-    service = build_service(config, browser_manager, computer_provider,
-                            registry=registry, task_store=task_store, memory_bank=memory_bank,
-                            credential_store=credential_store, connect_token_store=connect_token_store)
+    service = build_service(
+        config,
+        browser_manager,
+        computer_provider,
+        registry=registry,
+        task_store=task_store,
+        memory_bank=memory_bank,
+        credential_store=credential_store,
+        connect_token_store=connect_token_store,
+    )
     from agentd.infrastructure.events import build_event_log
     from agentd.infrastructure.safe_to_send import build_safe_to_send_gate
+
     return Gateway(
         config=config,
         service=service,
@@ -389,8 +449,10 @@ def build_gateway(config: Config) -> Gateway:
         registry=registry,
         task_store=task_store,
         memory_bank=memory_bank,
-        event_log=build_event_log(config),   # durable per-run event stream (None unless enabled)
-        credential_store=credential_store,   # /connect form writes here (shared with simple_login)
+        event_log=build_event_log(config),  # durable per-run event stream (None unless enabled)
+        credential_store=credential_store,  # /connect form writes here (shared with simple_login)
         connect_tokens=connect_token_store,
-        safe_to_send_gate=build_safe_to_send_gate(config),  # egress privacy gate (None unless enabled)
+        safe_to_send_gate=build_safe_to_send_gate(
+            config
+        ),  # egress privacy gate (None unless enabled)
     )

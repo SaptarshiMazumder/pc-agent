@@ -10,6 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+pytestmark = pytest.mark.browser  # both tests drive a real Chromium
+
 # a button fully covered by a fixed overlay -> clicks can't land on it
 COVERED_HTML = (
     "data:text/html,<html><body>"
@@ -23,16 +25,23 @@ PLAIN_HTML = "data:text/html,<html><body><button id=b>Target</button></body></ht
 
 def _cfg(tmp_path):
     return SimpleNamespace(
-        state_dir=tmp_path, browser_headless=True, browser_persistent=False,
-        browser_downloads=True, browser_console_buffer=50, browser_channel="",
-        browser_stealth=False, browser_cursor_scan=False,
+        state_dir=tmp_path,
+        browser_headless=True,
+        browser_persistent=False,
+        browser_downloads=True,
+        browser_console_buffer=50,
+        browser_channel="",
+        browser_stealth=False,
+        browser_cursor_scan=False,
         browser_action_timeout_ms=1500,  # short so the test fails fast
     )
 
 
 async def _provider(tmp_path):
     try:
-        from agentd.infrastructure.tools.browser.providers.playwright import PlaywrightBrowserProvider
+        from agentd.infrastructure.tools.browser.providers.playwright import (
+            PlaywrightBrowserProvider,
+        )
     except ImportError:
         pytest.skip("playwright not installed")
     mgr = PlaywrightBrowserProvider(_cfg(tmp_path))
@@ -41,6 +50,7 @@ async def _provider(tmp_path):
     except Exception as e:  # noqa: BLE001
         pytest.skip(f"cannot launch chromium: {e}")
     from browser_tool import BrowserTool
+
     return mgr, BrowserTool(mgr.config, mgr)
 
 
@@ -57,6 +67,7 @@ async def test_covered_element_fails_fast_with_diagnostic(tmp_path):
     ref = _ref(res.content[0].text)
     # click is blocked by the overlay -> should fail within ~1.5s (not 30s) with a hint
     import time
+
     t0 = time.monotonic()
     res = await tool.execute("c", {"action": "act", "kind": "click", "ref": ref}, asyncio.Event())
     elapsed = time.monotonic() - t0
@@ -73,8 +84,15 @@ async def test_stale_ref_reports_stale(tmp_path):
     res = await tool.execute("c", {"action": "navigate", "url": PLAIN_HTML}, asyncio.Event())
     ref = _ref(res.content[0].text)
     # remove the element, then click the now-stale ref
-    await tool.execute("c", {"action": "act", "kind": "evaluate",
-                             "expression": "document.getElementById('b').remove()"}, asyncio.Event())
+    await tool.execute(
+        "c",
+        {
+            "action": "act",
+            "kind": "evaluate",
+            "expression": "document.getElementById('b').remove()",
+        },
+        asyncio.Event(),
+    )
     res = await tool.execute("c", {"action": "act", "kind": "click", "ref": ref}, asyncio.Event())
     txt = res.content[0].text
     assert res.is_error and "stale" in txt, txt

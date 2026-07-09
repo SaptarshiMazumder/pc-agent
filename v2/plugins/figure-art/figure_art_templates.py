@@ -26,6 +26,7 @@ def _candidate_dirs(config) -> list[Path]:
     knob = None
     try:
         from agentd.application.tool_models import tool_config
+
         knob = tool_config(config, "figure-art", "generate_artwork", "templates_dir", default=None)
     except Exception:
         knob = None
@@ -34,7 +35,7 @@ def _candidate_dirs(config) -> list[Path]:
         p = Path(knob)
         dirs.append(p if p.is_absolute() else ws / p)
     dirs.append(ws / "templates")
-    dirs.append(ws.parent / "templates")           # <agent>/templates when ws == <agent>/workspace
+    dirs.append(ws.parent / "templates")  # <agent>/templates when ws == <agent>/workspace
     # de-dup while preserving order
     seen, out = set(), []
     for d in dirs:
@@ -79,17 +80,19 @@ def catalog(config) -> list[dict]:
     """The gallery view: one compact entry per template for list_templates / the agent to browse."""
     items = []
     for t in load_templates(config).values():
-        items.append({
-            "id": t["id"],
-            "name": t.get("name", t["id"]),
-            "description": t.get("description", ""),
-            "when_to_use": t.get("when_to_use", ""),
-            "tags": list(t.get("tags", []) or []),
-            "palette": list(t.get("palette", []) or []),
-            "aspect": t.get("aspect"),
-            "resolution": t.get("resolution"),
-            "has_exemplars": bool(t.get("exemplars")),
-        })
+        items.append(
+            {
+                "id": t["id"],
+                "name": t.get("name", t["id"]),
+                "description": t.get("description", ""),
+                "when_to_use": t.get("when_to_use", ""),
+                "tags": list(t.get("tags", []) or []),
+                "palette": list(t.get("palette", []) or []),
+                "aspect": t.get("aspect"),
+                "resolution": t.get("resolution"),
+                "has_exemplars": bool(t.get("exemplars")),
+            }
+        )
     return sorted(items, key=lambda x: x["id"])
 
 
@@ -112,11 +115,13 @@ def resolve(config, template_id: str, subject: str, palette_override=None) -> di
         raise KeyError(f"unknown art template {template_id!r}. Available: {known}")
     subject = (subject or "").strip()
     base = str(t["prompt"]).strip()
-    prompt = base.replace("{subject}", subject) if "{subject}" in base else f"{base} Subject: {subject}."
+    prompt = (
+        base.replace("{subject}", subject) if "{subject}" in base else f"{base} Subject: {subject}."
+    )
     palette = list(palette_override) if palette_override else list(t.get("palette", []) or [])
     tdir = Path(t.get("_dir", "."))
     exemplars = []
-    for e in (t.get("exemplars", []) or []):
+    for e in t.get("exemplars", []) or []:
         p = Path(e)
         exemplars.append(str(p if p.is_absolute() else tdir / p))
     return {

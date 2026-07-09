@@ -25,14 +25,23 @@ def test_open_profile_provisions_everything():
 
 
 def test_parse_profile_full():
-    profile = parse_profile({
-        "product": {"id": "fc-studio", "name": "Figure Creator Studio",
-                    "default_agent": "figure-creator",
-                    "preinstalled_bundles": ["figure-creator"]},
-        "provisioning": {"plugins": ["core_fs", "figures"]},
-        "store": {"enabled": True, "registry_url": "https://r.example/index.json",
-                  "publisher_key": "PK"},
-    }, source_path="x/distribution.toml")
+    profile = parse_profile(
+        {
+            "product": {
+                "id": "fc-studio",
+                "name": "Figure Creator Studio",
+                "default_agent": "figure-creator",
+                "preinstalled_bundles": ["figure-creator"],
+            },
+            "provisioning": {"plugins": ["core_fs", "figures"]},
+            "store": {
+                "enabled": True,
+                "registry_url": "https://r.example/index.json",
+                "publisher_key": "PK",
+            },
+        },
+        source_path="x/distribution.toml",
+    )
     assert profile.product_name == "Figure Creator Studio"
     assert profile.default_agent == "figure-creator"
     assert profile.is_provisioned("figures") and not profile.is_provisioned("video")
@@ -64,5 +73,6 @@ def test_no_profile_or_no_list_gates_nothing():
 def test_enabled_gate_still_applies_after_provisioning():
     profile = parse_profile({"provisioning": {"plugins": ["figures"]}}, "x")
     config = _config(profile=profile, plugins={"figures": False})
-    assert not _passes_gates(config, _manifest("figures"), None), \
+    assert not _passes_gates(config, _manifest("figures"), None), (
         "provisioned but config-disabled must stay off"
+    )

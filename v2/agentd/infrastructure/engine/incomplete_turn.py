@@ -87,17 +87,54 @@ ACTIONABLE_PROMPT_REQUEST_RE = re.compile(
 # Which provider/models get planning-only recovery at all (OpenClaw: the Gemini family — it
 # tends to emit plan-only turns. litellm names them "gemini/..." / "google/...").
 _GEMINI_PROVIDER_IDS = frozenset(
-    {"gemini", "google", "google-vertex", "vertex_ai", "google-antigravity", "google-gemini-cli"})
+    {"gemini", "google", "google-vertex", "vertex_ai", "google-antigravity", "google-gemini-cli"}
+)
 _GEMINI_MODEL_ID_RE = re.compile(r"^gemini(?:[.-]|$)", re.IGNORECASE)
 
 # Short approval prompts ("go ahead", multilingual) that mean "just do it" — ported set.
-ACK_EXECUTION_NORMALIZED_SET = frozenset({
-    "ok", "okay", "ok do it", "okay do it", "do it", "go ahead", "please do", "sounds good",
-    "sounds good do it", "ship it", "fix it", "make it so", "yes do it", "yep do it",
-    "تمام", "حسنا", "حسنًا", "امض قدما", "نفذها", "mach es", "leg los", "los geht s", "weiter",
-    "やって", "進めて", "そのまま進めて", "allez y", "vas y", "fais le", "continue", "hazlo",
-    "adelante", "sigue", "faz isso", "vai em frente", "pode fazer", "해줘", "진행해", "계속해",
-})
+ACK_EXECUTION_NORMALIZED_SET = frozenset(
+    {
+        "ok",
+        "okay",
+        "ok do it",
+        "okay do it",
+        "do it",
+        "go ahead",
+        "please do",
+        "sounds good",
+        "sounds good do it",
+        "ship it",
+        "fix it",
+        "make it so",
+        "yes do it",
+        "yep do it",
+        "تمام",
+        "حسنا",
+        "حسنًا",
+        "امض قدما",
+        "نفذها",
+        "mach es",
+        "leg los",
+        "los geht s",
+        "weiter",
+        "やって",
+        "進めて",
+        "そのまま進めて",
+        "allez y",
+        "vas y",
+        "fais le",
+        "continue",
+        "hazlo",
+        "adelante",
+        "sigue",
+        "faz isso",
+        "vai em frente",
+        "pode fazer",
+        "해줘",
+        "진행해",
+        "계속해",
+    }
+)
 _ACK_PUNCT_RE = re.compile(r"[^\w\s]+", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 
@@ -107,6 +144,7 @@ class PlanningContext:
     """The signals OpenClaw gates planning-only retries on (besides the assistant text): the
     user's prompt (must be an actual request to act), the model, and the agent's execution
     contract. All-empty (the default) => the regex-only legacy behaviour."""
+
     user_prompt: str = ""
     model: str = ""
     execution_contract: str = ""
@@ -141,7 +179,7 @@ def is_planning_only(m: AssistantMessage) -> bool:
     text = _visible_text(m)
     if not text or len(text) > PLANNING_ONLY_MAX_CHARS or "```" in text:
         return False
-    if PLANNING_ONLY_COMPLETION_RE.search(text):       # delivering a result / stating a blocker
+    if PLANNING_ONLY_COMPLETION_RE.search(text):  # delivering a result / stating a blocker
         return False
     structured = _has_structured_planning_format(text)
     if not PLANNING_ONLY_PROMISE_RE.search(text) and not structured:
@@ -156,7 +194,7 @@ def is_incomplete_turn_recovery_supported_provider_model(model: str) -> bool:
     Other providers opt in via the execution contract (see below)."""
     provider, sep, model_id = (model or "").partition("/")
     provider = provider.strip().lower()
-    if not sep:                                        # bare model id (no "provider/" prefix)
+    if not sep:  # bare model id (no "provider/" prefix)
         return bool(_GEMINI_MODEL_ID_RE.match(provider))
     return provider in _GEMINI_PROVIDER_IDS and bool(_GEMINI_MODEL_ID_RE.match(model_id))
 

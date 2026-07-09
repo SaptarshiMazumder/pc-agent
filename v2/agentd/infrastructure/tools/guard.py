@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-from collections import deque
 from dataclasses import dataclass
 
 from agentd.domain.messages import TextContent
@@ -37,21 +36,34 @@ def is_transient(exc: Exception) -> bool:
     if isinstance(exc, _TRANSIENT):
         return True
     s = (type(exc).__name__ + " " + str(exc)).lower()
-    return any(k in s for k in (
-        "getaddrinfo", "temporarily", "timeout", "timed out", "connection",
-        "unavailable", "reset", "502", "503", "504", "429"))
+    return any(
+        k in s
+        for k in (
+            "getaddrinfo",
+            "temporarily",
+            "timeout",
+            "timed out",
+            "connection",
+            "unavailable",
+            "reset",
+            "502",
+            "503",
+            "504",
+            "429",
+        )
+    )
 
 
 @dataclass(frozen=True)
 class ToolPolicy:
-    timeout_sec: float | None       # None => no wait_for wrapper (tool self-limits)
-    max_retries: int                # extra attempts after the first
-    retryable: bool                 # may retry on transient errors at all
-    retry_on_timeout: bool          # also retry when the wrapper times out
+    timeout_sec: float | None  # None => no wait_for wrapper (tool self-limits)
+    max_retries: int  # extra attempts after the first
+    retryable: bool  # may retry on transient errors at all
+    retry_on_timeout: bool  # also retry when the wrapper times out
     base_backoff_sec: float
     max_backoff_sec: float
-    loop_max_repeats: int = 0           # block after this many IDENTICAL consecutive calls (0 = off)
-    loop_warn_after_errors: int = 0     # nudge after this many consecutive errors (0 = off)
+    loop_max_repeats: int = 0  # block after this many IDENTICAL consecutive calls (0 = off)
+    loop_warn_after_errors: int = 0  # nudge after this many consecutive errors (0 = off)
 
 
 def _resolve(overrides: dict, tool, field: str, global_default):
@@ -67,16 +79,25 @@ def _resolve(overrides: dict, tool, field: str, global_default):
 def resolve_policy(config, tool) -> ToolPolicy:
     overrides = (getattr(config, "tool_overrides", None) or {}).get(tool.name, {}) or {}
     return ToolPolicy(
-        timeout_sec=_resolve(overrides, tool, "timeout_sec", getattr(config, "tool_timeout_default", 300.0)),
-        max_retries=_resolve(overrides, tool, "max_retries", getattr(config, "tool_retries_default", 0)),
+        timeout_sec=_resolve(
+            overrides, tool, "timeout_sec", getattr(config, "tool_timeout_default", 300.0)
+        ),
+        max_retries=_resolve(
+            overrides, tool, "max_retries", getattr(config, "tool_retries_default", 0)
+        ),
         retryable=_resolve(overrides, tool, "retryable", False),
         retry_on_timeout=_resolve(overrides, tool, "retry_on_timeout", False),
         base_backoff_sec=_resolve(overrides, tool, "base_backoff_sec", 0.5),
         max_backoff_sec=_resolve(overrides, tool, "max_backoff_sec", 8.0),
-        loop_max_repeats=_resolve(overrides, tool, "loop_max_repeats",
-                                  getattr(config, "tool_loop_max_repeats_default", 5)),
-        loop_warn_after_errors=_resolve(overrides, tool, "loop_warn_after_errors",
-                                        getattr(config, "tool_loop_warn_after_errors_default", 4)),
+        loop_max_repeats=_resolve(
+            overrides, tool, "loop_max_repeats", getattr(config, "tool_loop_max_repeats_default", 5)
+        ),
+        loop_warn_after_errors=_resolve(
+            overrides,
+            tool,
+            "loop_warn_after_errors",
+            getattr(config, "tool_loop_warn_after_errors_default", 4),
+        ),
     )
 
 
@@ -145,11 +166,15 @@ class GuardedTool(Tool):
         warn = self._policy.loop_warn_after_errors
         self._consec_errors = self._consec_errors + 1 if result.is_error else 0
         if warn and self._consec_errors >= warn:
-            result.content.append(TextContent(text=(
-                f"\n\n[loop guard] '{self.name}' has failed {self._consec_errors} times "
-                f"in a row. Stop retrying the same approach — try a different tool "
-                f"(e.g. the browser for gated content) or report the blocker."
-            )))
+            result.content.append(
+                TextContent(
+                    text=(
+                        f"\n\n[loop guard] '{self.name}' has failed {self._consec_errors} times "
+                        f"in a row. Stop retrying the same approach — try a different tool "
+                        f"(e.g. the browser for gated content) or report the blocker."
+                    )
+                )
+            )
         return result
 
     # --- the guarded execution --------------------------------------------
@@ -167,7 +192,12 @@ class GuardedTool(Tool):
             try:
                 return await self._run_once(tool_call_id, params, abort, on_update)
             except _TimeoutSignal:
-                if p.retryable and p.retry_on_timeout and attempt < p.max_retries and not abort.is_set():
+                if (
+                    p.retryable
+                    and p.retry_on_timeout
+                    and attempt < p.max_retries
+                    and not abort.is_set()
+                ):
                     attempt += 1
                     self._notice(on_update, f"timed out, retrying {attempt}/{p.max_retries}")
                     await self._backoff(attempt, abort)
@@ -178,9 +208,17 @@ class GuardedTool(Tool):
             except asyncio.CancelledError:
                 raise  # a real cancellation (e.g. run aborted) must propagate
             except Exception as e:  # noqa: BLE001
-                if p.retryable and is_transient(e) and attempt < p.max_retries and not abort.is_set():
+                if (
+                    p.retryable
+                    and is_transient(e)
+                    and attempt < p.max_retries
+                    and not abort.is_set()
+                ):
                     attempt += 1
-                    self._notice(on_update, f"transient {type(e).__name__}, retrying {attempt}/{p.max_retries}")
+                    self._notice(
+                        on_update,
+                        f"transient {type(e).__name__}, retrying {attempt}/{p.max_retries}",
+                    )
                     await self._backoff(attempt, abort)
                     continue
                 return ToolResult.text(
@@ -197,15 +235,17 @@ class GuardedTool(Tool):
                     self._inner.execute(tool_call_id, params, abort, on_update),
                     timeout=self._policy.timeout_sec,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise _TimeoutSignal from None
         return await self._inner.execute(tool_call_id, params, abort, on_update)
 
     async def _backoff(self, attempt: int, abort) -> None:
-        delay = min(self._policy.base_backoff_sec * (2 ** (attempt - 1)), self._policy.max_backoff_sec)
+        delay = min(
+            self._policy.base_backoff_sec * (2 ** (attempt - 1)), self._policy.max_backoff_sec
+        )
         try:  # sleep, but wake early if the run is aborted
             await asyncio.wait_for(abort.wait(), timeout=delay)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     def _notice(self, on_update, msg: str) -> None:

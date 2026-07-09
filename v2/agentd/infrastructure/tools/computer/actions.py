@@ -11,20 +11,44 @@ from __future__ import annotations
 
 # Gemini key_combination names ("Control+A") -> pyautogui names. (From v1.)
 KEY_MAP = {
-    "control": "ctrl", "ctrl": "ctrl", "alt": "alt", "option": "alt",
-    "shift": "shift", "cmd": "command", "command": "command", "super": "win",
-    "win": "win", "meta": "win", "enter": "enter", "return": "enter",
-    "tab": "tab", "escape": "esc", "esc": "esc", "backspace": "backspace",
-    "delete": "delete", "space": "space", "up": "up", "down": "down",
-    "left": "left", "right": "right", "pageup": "pageup", "pagedown": "pagedown",
-    "home": "home", "end": "end",
+    "control": "ctrl",
+    "ctrl": "ctrl",
+    "alt": "alt",
+    "option": "alt",
+    "shift": "shift",
+    "cmd": "command",
+    "command": "command",
+    "super": "win",
+    "win": "win",
+    "meta": "win",
+    "enter": "enter",
+    "return": "enter",
+    "tab": "tab",
+    "escape": "esc",
+    "esc": "esc",
+    "backspace": "backspace",
+    "delete": "delete",
+    "space": "space",
+    "up": "up",
+    "down": "down",
+    "left": "left",
+    "right": "right",
+    "pageup": "pageup",
+    "pagedown": "pagedown",
+    "home": "home",
+    "end": "end",
 }
 
 # Actions that change machine state (vs. read-only move/scroll/wait). Used for
 # the safety classification / future approval gate.
 MUTATING_ACTIONS = {
-    "click_at", "type_text_at", "key_combination", "drag_and_drop",
-    "open_web_browser", "open_browser", "navigate",
+    "click_at",
+    "type_text_at",
+    "key_combination",
+    "drag_and_drop",
+    "open_web_browser",
+    "open_browser",
+    "navigate",
 }
 
 

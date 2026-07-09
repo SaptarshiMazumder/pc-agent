@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agentd.application.interfaces.tool import Tool, ToolResult
 import figure_art_templates as tpl
+
+from agentd.application.interfaces.tool import Tool, ToolResult
 
 
 class ListTemplatesTool(Tool):
@@ -30,7 +31,10 @@ class ListTemplatesTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "tag": {"type": "string", "description": "Optional: only templates carrying this tag (e.g. 'medical', 'flat', '3d')."},
+            "tag": {
+                "type": "string",
+                "description": "Optional: only templates carrying this tag (e.g. 'medical', 'flat', '3d').",
+            },
         },
     }
 
@@ -52,7 +56,9 @@ class ListTemplatesTool(Tool):
         if not r["templates"]:
             return ToolResult.text(
                 "No art templates found. Add *.toml files under the agent's templates/ folder "
-                "(see templates/README.md).", details=r)
+                "(see templates/README.md).",
+                details=r,
+            )
         lines = [f"{len(r['templates'])} art template(s):"]
         for t in r["templates"]:
             extra = " [exemplars]" if t.get("has_exemplars") else ""

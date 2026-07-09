@@ -1,8 +1,8 @@
 """WebSocket wire protocol: request / response / event frames.
 
-  {"type":"req",   "id":..., "method":..., "params":{...}}
-  {"type":"res",   "id":..., "ok":true|false, "payload":{...}}
-  {"type":"event", "event":..., "payload":{...}}
+{"type":"req",   "id":..., "method":..., "params":{...}}
+{"type":"res",   "id":..., "ok":true|false, "payload":{...}}
+{"type":"event", "event":..., "payload":{...}}
 """
 
 from __future__ import annotations

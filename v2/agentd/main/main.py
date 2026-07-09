@@ -16,9 +16,7 @@ from agentd.main.container import build_gateway
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     config = load_config()
     gateway = build_gateway(config)
     try:

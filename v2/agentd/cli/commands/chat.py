@@ -8,18 +8,19 @@ import argparse
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "chat", help="chat with your agent (auto-starts the daemon; the default command)")
+        "chat", help="chat with your agent (auto-starts the daemon; the default command)"
+    )
     parser.add_argument("--agent", default=None, help="agent id to talk to")
     parser.add_argument("--session", default=None, help="session key to resume")
-    parser.add_argument("--project", default=None,
-                        help="project id — new chats in this REPL land in that project")
+    parser.add_argument(
+        "--project", default=None, help="project id — new chats in this REPL land in that project"
+    )
     parser.add_argument("--url", default=None, help="explicit gateway URL (skips auto-start)")
     parser.set_defaults(func=run)
 
 
 def run(args: argparse.Namespace) -> int:
-    return _attach(agent=args.agent, session=args.session, url=args.url,
-                   project=args.project)
+    return _attach(agent=args.agent, session=args.session, url=args.url, project=args.project)
 
 
 def run_default() -> int:
@@ -27,8 +28,12 @@ def run_default() -> int:
     return _attach()
 
 
-def _attach(agent: str | None = None, session: str | None = None,
-            url: str | None = None, project: str | None = None) -> int:
+def _attach(
+    agent: str | None = None,
+    session: str | None = None,
+    url: str | None = None,
+    project: str | None = None,
+) -> int:
     from agentd import lifecycle
     from agentd.cli import first_run
 

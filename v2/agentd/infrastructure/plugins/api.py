@@ -16,7 +16,7 @@ class CollectingPluginApi:
 
     def __init__(self):
         self.tools: list = []
-        self.prompt_sections: list = []   # callables (tools, agent, config) -> str
+        self.prompt_sections: list = []  # callables (tools, agent, config) -> str
 
     def register_tool(self, tool) -> None:
         # duck-typed: a tool just needs a .name and .execute (the existing Tool contract).

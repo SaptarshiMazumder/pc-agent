@@ -20,9 +20,18 @@ from agentd.application.run_context import current_workspace
 def _ffprobe_duration(path: Path) -> float | None:
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=nokey=1:noprint_wrappers=1", str(path)],
-            capture_output=True, text=True,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=nokey=1:noprint_wrappers=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         return round(float(out), 3)
     except Exception:
@@ -43,9 +52,18 @@ class TtsTool(Tool):
         "required": ["text", "out_path"],
         "properties": {
             "text": {"type": "string", "description": "The text to speak."},
-            "out_path": {"type": "string", "description": "Output audio file (e.g. .mp3), absolute or relative to the workspace."},
-            "voice": {"type": "string", "description": "edge-tts voice, e.g. en-US-AndrewMultilingualNeural, ja-JP-KeitaNeural. Default en-US-AndrewMultilingualNeural."},
-            "rate": {"type": "string", "description": "Speaking rate like +0%, +12%, -10%. Default +0%."},
+            "out_path": {
+                "type": "string",
+                "description": "Output audio file (e.g. .mp3), absolute or relative to the workspace.",
+            },
+            "voice": {
+                "type": "string",
+                "description": "edge-tts voice, e.g. en-US-AndrewMultilingualNeural, ja-JP-KeitaNeural. Default en-US-AndrewMultilingualNeural.",
+            },
+            "rate": {
+                "type": "string",
+                "description": "Speaking rate like +0%, +12%, -10%. Default +0%.",
+            },
             "volume": {"type": "string", "description": "Volume like +0%, -20%. Default +0%."},
             "pitch": {"type": "string", "description": "Pitch like +0Hz, -10Hz. Default +0Hz."},
         },
@@ -80,9 +98,25 @@ class TtsTool(Tool):
         txt.write_text(text, encoding="utf-8")
         try:
             p = subprocess.run(
-                [sys.executable, "-m", "edge_tts", "--voice", voice, "--rate", rate,
-                 "--volume", volume, "--pitch", pitch, "-f", str(txt), "--write-media", str(out)],
-                capture_output=True, text=True,
+                [
+                    sys.executable,
+                    "-m",
+                    "edge_tts",
+                    "--voice",
+                    voice,
+                    "--rate",
+                    rate,
+                    "--volume",
+                    volume,
+                    "--pitch",
+                    pitch,
+                    "-f",
+                    str(txt),
+                    "--write-media",
+                    str(out),
+                ],
+                capture_output=True,
+                text=True,
             )
         finally:
             txt.unlink(missing_ok=True)
@@ -96,5 +130,8 @@ class TtsTool(Tool):
         except Exception as e:
             return ToolResult.text(f"tts failed: {e}", is_error=True)
         dur = f"{r['duration_sec']:.2f}s" if r["duration_sec"] is not None else "unknown duration"
-        return ToolResult.text(f"Wrote speech to {r['path']} ({dur}, voice {r['voice']}).",
-                               details=r, artifacts=[r["path"]])  # deliverable: the audio
+        return ToolResult.text(
+            f"Wrote speech to {r['path']} ({dur}, voice {r['voice']}).",
+            details=r,
+            artifacts=[r["path"]],
+        )  # deliverable: the audio

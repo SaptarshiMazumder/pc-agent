@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from agentd import runtime_paths
@@ -46,13 +46,13 @@ class DistributionProfile:
 
     product_id: str = "agentd"
     product_name: str = "agentd"
-    default_agent: str = ""                    # "" => leave config.agent_id alone
-    preinstalled_bundles: tuple = ()           # bundle ids installed on first run
-    provisioned_plugins: tuple | None = None   # None => ALL plugins provisioned
+    default_agent: str = ""  # "" => leave config.agent_id alone
+    preinstalled_bundles: tuple = ()  # bundle ids installed on first run
+    provisioned_plugins: tuple | None = None  # None => ALL plugins provisioned
     store_enabled: bool = True
-    registry_url: str = ""                     # "" => no registry configured
-    publisher_key: str = ""                    # base64 ed25519 pubkey ("" => unsigned mode)
-    source_path: str = ""                      # where this profile was loaded from ("" => open)
+    registry_url: str = ""  # "" => no registry configured
+    publisher_key: str = ""  # base64 ed25519 pubkey ("" => unsigned mode)
+    source_path: str = ""  # where this profile was loaded from ("" => open)
 
     @property
     def is_open(self) -> bool:
@@ -78,8 +78,7 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
         product_name=str(product.get("name") or "agentd"),
         default_agent=str(product.get("default_agent") or ""),
         preinstalled_bundles=tuple(str(b) for b in (product.get("preinstalled_bundles") or [])),
-        provisioned_plugins=(tuple(str(p) for p in plugins)
-                             if isinstance(plugins, list) else None),
+        provisioned_plugins=(tuple(str(p) for p in plugins) if isinstance(plugins, list) else None),
         store_enabled=bool(store.get("enabled", True)),
         registry_url=str(store.get("registry_url") or ""),
         publisher_key=str(store.get("publisher_key") or ""),

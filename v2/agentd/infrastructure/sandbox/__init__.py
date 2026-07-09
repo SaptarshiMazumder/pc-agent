@@ -14,14 +14,23 @@ log = logging.getLogger(__name__)
 class LocalSandbox:
     name = "local"
 
-    async def run(self, command: str, cwd: str | None = None,
-                  env: dict | None = None, timeout: float | None = None) -> tuple[int, str]:
+    async def run(
+        self,
+        command: str,
+        cwd: str | None = None,
+        env: dict | None = None,
+        timeout: float | None = None,
+    ) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_shell(
-            command, cwd=cwd, env=env,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return 124, "(timed out)"
         return proc.returncode or 0, (out or b"").decode(errors="replace")

@@ -85,8 +85,16 @@ async def test_disconnect_over_real_websocket_aborts_run():
     aborted = asyncio.Event()
 
     class FakeService:
-        async def handle_message(self, session_id, text, on_event, abort,
-                                 mode="interactive", agent_id=None, attachments=None):
+        async def handle_message(
+            self,
+            session_id,
+            text,
+            on_event,
+            abort,
+            mode="interactive",
+            agent_id=None,
+            attachments=None,
+        ):
             started.set()
             try:
                 while not abort.is_set():  # cooperative abort path
@@ -102,13 +110,19 @@ async def test_disconnect_over_real_websocket_aborts_run():
     port = server.sockets[0].getsockname()[1]
     try:
         ws = await ws_connect(f"ws://127.0.0.1:{port}")
-        await ws.send(json.dumps({
-            "type": "req", "id": "1", "method": "chat.send",
-            "params": {"sessionKey": "s", "message": "hi"},
-        }))
-        await asyncio.wait_for(started.wait(), 3)   # the run is now in flight
-        await ws.close()                            # client disconnects
-        await asyncio.wait_for(aborted.wait(), 3)   # gateway aborted it
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "req",
+                    "id": "1",
+                    "method": "chat.send",
+                    "params": {"sessionKey": "s", "message": "hi"},
+                }
+            )
+        )
+        await asyncio.wait_for(started.wait(), 3)  # the run is now in flight
+        await ws.close()  # client disconnects
+        await asyncio.wait_for(aborted.wait(), 3)  # gateway aborted it
     finally:
         server.close()
         await server.wait_closed()

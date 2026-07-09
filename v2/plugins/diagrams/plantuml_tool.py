@@ -25,9 +25,20 @@ from agentd.application.run_context import current_workspace
 def _ffprobe_dims(path: Path):
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", str(path)],
-            capture_output=True, text=True,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         w, h = out.split("x")
         return int(w), int(h)
@@ -36,8 +47,12 @@ def _ffprobe_dims(path: Path):
 
 
 def _resolve_jar(param_jar: str | None, config) -> str:
-    for cand in (param_jar, os.environ.get("PLANTUML_JAR"),
-                 getattr(config, "plantuml_jar", None), "plantuml.jar"):
+    for cand in (
+        param_jar,
+        os.environ.get("PLANTUML_JAR"),
+        getattr(config, "plantuml_jar", None),
+        "plantuml.jar",
+    ):
         if cand and (Path(cand).is_file() or cand == "plantuml.jar"):
             return str(cand)
     return "plantuml.jar"
@@ -58,15 +73,42 @@ class PlantumlTool(Tool):
         "type": "object",
         "required": ["out_path"],
         "properties": {
-            "source": {"type": "string", "description": "PlantUML source text (@startuml ... @enduml). Provide this OR puml_path."},
-            "puml_path": {"type": "string", "description": "Path to a .puml file. Provide this OR source."},
-            "out_path": {"type": "string", "description": "Desired output PNG path (e.g. diagrams/hires/x.png), absolute or relative to workspace."},
-            "format": {"type": "string", "enum": ["png", "svg"], "description": "Output format. Default png."},
-            "dpi": {"type": "integer", "minimum": 60, "maximum": 600, "description": "Raster DPI for png. Default 200."},
-            "size_limit": {"type": "integer", "description": "PLANTUML_LIMIT_SIZE (max px before clipping). Default 16384."},
+            "source": {
+                "type": "string",
+                "description": "PlantUML source text (@startuml ... @enduml). Provide this OR puml_path.",
+            },
+            "puml_path": {
+                "type": "string",
+                "description": "Path to a .puml file. Provide this OR source.",
+            },
+            "out_path": {
+                "type": "string",
+                "description": "Desired output PNG path (e.g. diagrams/hires/x.png), absolute or relative to workspace.",
+            },
+            "format": {
+                "type": "string",
+                "enum": ["png", "svg"],
+                "description": "Output format. Default png.",
+            },
+            "dpi": {
+                "type": "integer",
+                "minimum": 60,
+                "maximum": 600,
+                "description": "Raster DPI for png. Default 200.",
+            },
+            "size_limit": {
+                "type": "integer",
+                "description": "PLANTUML_LIMIT_SIZE (max px before clipping). Default 16384.",
+            },
             "charset": {"type": "string", "description": "Source charset. Default UTF-8."},
-            "font": {"type": "string", "description": "Inject skinparam defaultFontName (only when using `source`); use a CJK face for Japanese/Chinese/Korean labels."},
-            "jar": {"type": "string", "description": "Path to plantuml.jar. Defaults to $PLANTUML_JAR or plantuml.jar on PATH."},
+            "font": {
+                "type": "string",
+                "description": "Inject skinparam defaultFontName (only when using `source`); use a CJK face for Japanese/Chinese/Korean labels.",
+            },
+            "jar": {
+                "type": "string",
+                "description": "Path to plantuml.jar. Defaults to $PLANTUML_JAR or plantuml.jar on PATH.",
+            },
         },
     }
 
@@ -110,8 +152,19 @@ class PlantumlTool(Tool):
                 puml = tdp / (out.stem + ".puml")
                 puml.write_text(src, encoding="utf-8")
 
-            cmd = ["java", f"-DPLANTUML_LIMIT_SIZE={limit}", "-jar", jar,
-                   "-charset", charset, f"-t{fmt}", f"-Sdpi={dpi}", str(puml), "-o", str(tdp)]
+            cmd = [
+                "java",
+                f"-DPLANTUML_LIMIT_SIZE={limit}",
+                "-jar",
+                jar,
+                "-charset",
+                charset,
+                f"-t{fmt}",
+                f"-Sdpi={dpi}",
+                str(puml),
+                "-o",
+                str(tdp),
+            ]
             p = subprocess.run(cmd, capture_output=True, text=True)
             produced = list(tdp.glob(f"*.{fmt}"))
             if p.returncode != 0 or not produced:
@@ -127,5 +180,6 @@ class PlantumlTool(Tool):
         except Exception as e:
             return ToolResult.text(f"plantuml failed: {e}", is_error=True)
         dims = f"{r['width']}x{r['height']}" if r.get("width") else r["format"]
-        return ToolResult.text(f"Rendered PlantUML -> {r['path']} ({dims}).",
-                               details=r, artifacts=[r["path"]])  # deliverable: the diagram
+        return ToolResult.text(
+            f"Rendered PlantUML -> {r['path']} ({dims}).", details=r, artifacts=[r["path"]]
+        )  # deliverable: the diagram

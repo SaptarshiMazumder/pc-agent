@@ -16,7 +16,11 @@ TOOLS = [_t("web_search", "web"), _t("web_fetch", "web"), _t("read", "core_fs")]
 
 
 def test_no_config_keeps_everything():
-    assert [t.name for t in apply_plugin_enablement(TOOLS, {})] == ["web_search", "web_fetch", "read"]
+    assert [t.name for t in apply_plugin_enablement(TOOLS, {})] == [
+        "web_search",
+        "web_fetch",
+        "read",
+    ]
     assert len(apply_plugin_enablement(TOOLS, None)) == 3
 
 
@@ -27,10 +31,16 @@ def test_disable_single_tool():
 
 def test_enabled_true_or_omitted_is_kept():
     plugins = {"web": {"tools": {"web_search": {"enabled": True}, "web_fetch": {"model": "x"}}}}
-    assert [t.name for t in apply_plugin_enablement(TOOLS, plugins)] == ["web_search", "web_fetch", "read"]
+    assert [t.name for t in apply_plugin_enablement(TOOLS, plugins)] == [
+        "web_search",
+        "web_fetch",
+        "read",
+    ]
 
 
 def test_only_matching_plugin_tool_is_dropped():
     # a same-named tool in a different plugin is unaffected
-    plugins = {"core_fs": {"tools": {"web_fetch": {"enabled": False}}}}  # wrong plugin for web_fetch
+    plugins = {
+        "core_fs": {"tools": {"web_fetch": {"enabled": False}}}
+    }  # wrong plugin for web_fetch
     assert len(apply_plugin_enablement(TOOLS, plugins)) == 3

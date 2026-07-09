@@ -17,13 +17,13 @@ import os
 import sys
 from pathlib import Path
 
+from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
+from agentd.domain.messages import ImageContent, TextContent
+
 # document text extraction (docx/pdf/xlsx/pptx) — one source of truth, shared with the
 # Resource Manager describer so both read & describe documents the same way.
 from agentd.infrastructure.documents import EXTRACTORS as _EXTRACTORS
-
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.domain.messages import ImageContent, TextContent
 
 log = logging.getLogger("agentd")
 
@@ -36,12 +36,30 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 # root). These are generic folder NAMES, identical on every machine.
 FIND_SKIP_DIRS = {
     # caches / dev noise
-    "appdata", "node_modules", ".git", ".venv", "venv", "__pycache__",
-    ".cache", "$recycle.bin", "system volume information",
-    ".vscode", ".cursor", ".idea", "site-packages", ".npm", ".nuget",
+    "appdata",
+    "node_modules",
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".cache",
+    "$recycle.bin",
+    "system volume information",
+    ".vscode",
+    ".cursor",
+    ".idea",
+    "site-packages",
+    ".npm",
+    ".nuget",
     # OS / program dirs (only relevant when scanning a whole drive)
-    "windows", "program files", "program files (x86)", "programdata",
-    "perflogs", "recovery", "$windows.~bt", "$windows.~ws",
+    "windows",
+    "program files",
+    "program files (x86)",
+    "programdata",
+    "perflogs",
+    "recovery",
+    "$windows.~bt",
+    "$windows.~ws",
 }
 
 
@@ -52,10 +70,23 @@ def _drive_roots() -> list[Path]:
 
         return [Path(f"{d}:\\") for d in string.ascii_uppercase if os.path.exists(f"{d}:\\")]
     return [Path("/")]
+
+
 # Real-document extensions are ranked first so noise can't bury an actual file.
 _DOC_EXTS = {
-    ".docx", ".doc", ".pdf", ".txt", ".md", ".rtf", ".odt",
-    ".xlsx", ".xls", ".pptx", ".ppt", ".csv", ".pages",
+    ".docx",
+    ".doc",
+    ".pdf",
+    ".txt",
+    ".md",
+    ".rtf",
+    ".odt",
+    ".xlsx",
+    ".xls",
+    ".pptx",
+    ".ppt",
+    ".csv",
+    ".pages",
 }
 _FIND_HARD_CAP = 5000  # bound walk time; we collect then rank then trim
 
@@ -84,7 +115,10 @@ class ReadTool(Tool):
         "type": "object",
         "required": ["path"],
         "properties": {
-            "path": {"type": "string", "description": "File path (absolute or workspace-relative)."},
+            "path": {
+                "type": "string",
+                "description": "File path (absolute or workspace-relative).",
+            },
             "offset": {"type": "integer", "minimum": 1, "description": "1-indexed start line."},
             "limit": {"type": "integer", "minimum": 1, "description": "Max lines to read."},
         },
@@ -106,7 +140,7 @@ class ReadTool(Tool):
             log.info("skill invoked: %s  (read %s)", skill, path)
             if on_update is not None:
                 try:
-                    on_update(ToolResult.text(f"\U0001F4D6 skill: {skill}"))
+                    on_update(ToolResult.text(f"\U0001f4d6 skill: {skill}"))
                 except Exception:  # noqa: BLE001 — a progress notice never breaks the read
                     pass
 
@@ -130,12 +164,15 @@ class ReadTool(Tool):
         if suffix in _IMAGE_EXTS:
             import base64
             import mimetypes
+
             data = await asyncio.to_thread(path.read_bytes)
             mime = mimetypes.guess_type(str(path))[0] or "image/png"
-            return ToolResult(content=[
-                TextContent(text=f"[image {path.name}]"),
-                ImageContent(data=base64.b64encode(data).decode(), mime_type=mime),
-            ])
+            return ToolResult(
+                content=[
+                    TextContent(text=f"[image {path.name}]"),
+                    ImageContent(data=base64.b64encode(data).decode(), mime_type=mime),
+                ]
+            )
 
         try:
             raw = path.read_text(encoding="utf-8")
@@ -177,7 +214,10 @@ class WriteTool(Tool):
         "type": "object",
         "required": ["path", "content"],
         "properties": {
-            "path": {"type": "string", "description": "File path (absolute or workspace-relative)."},
+            "path": {
+                "type": "string",
+                "description": "File path (absolute or workspace-relative).",
+            },
             "content": {"type": "string", "description": "Full file content."},
         },
     }
@@ -211,12 +251,14 @@ def apply_edits(original: str, edits: list[dict]) -> tuple[str, str]:
         count = text.count(old)
         if count == 0:
             close = difflib.get_close_matches(
-                old.strip().splitlines()[0] if old.strip() else "", text.splitlines(), n=1, cutoff=0.5
+                old.strip().splitlines()[0] if old.strip() else "",
+                text.splitlines(),
+                n=1,
+                cutoff=0.5,
             )
             hint = f" Closest line in file: {close[0]!r}." if close else ""
             raise ValueError(
-                f"Edit {i + 1}: oldText not found in file.{hint} "
-                f"File starts with: {text[:300]!r}"
+                f"Edit {i + 1}: oldText not found in file.{hint} File starts with: {text[:300]!r}"
             )
         if count > 1:
             raise ValueError(
@@ -266,7 +308,10 @@ class EditTool(Tool):
         "type": "object",
         "required": ["path", "edits"],
         "properties": {
-            "path": {"type": "string", "description": "File path (absolute or workspace-relative)."},
+            "path": {
+                "type": "string",
+                "description": "File path (absolute or workspace-relative).",
+            },
             "edits": {
                 "type": "array",
                 "minItems": 1,
@@ -274,7 +319,10 @@ class EditTool(Tool):
                     "type": "object",
                     "required": ["oldText", "newText"],
                     "properties": {
-                        "oldText": {"type": "string", "description": "Exact text to replace (unique in file)."},
+                        "oldText": {
+                            "type": "string",
+                            "description": "Exact text to replace (unique in file).",
+                        },
                         "newText": {"type": "string", "description": "Replacement text."},
                     },
                 },
@@ -312,7 +360,10 @@ class LsTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Directory path (absolute or workspace-relative)."},
+            "path": {
+                "type": "string",
+                "description": "Directory path (absolute or workspace-relative).",
+            },
         },
     }
 
@@ -381,9 +432,19 @@ class FindTool(Tool):
         "type": "object",
         "required": ["pattern"],
         "properties": {
-            "pattern": {"type": "string", "description": "Filename glob, e.g. '*.pdf' or 'CV_*.docx'."},
-            "path": {"type": "string", "description": "Root directory to search (default: workspace)."},
-            "max_results": {"type": "integer", "minimum": 1, "description": "Cap on results (default 100)."},
+            "pattern": {
+                "type": "string",
+                "description": "Filename glob, e.g. '*.pdf' or 'CV_*.docx'.",
+            },
+            "path": {
+                "type": "string",
+                "description": "Root directory to search (default: workspace).",
+            },
+            "max_results": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Cap on results (default 100).",
+            },
         },
     }
 

@@ -17,27 +17,42 @@ from agentd.infrastructure.marketplace import bundle_io
 log = logging.getLogger("agentd")
 
 
-def build_index(directory: Path, name: str = "", publisher: str = "",
-                private_key_b64: str = "", public_key_b64: str = "") -> Path:
+def build_index(
+    directory: Path,
+    name: str = "",
+    publisher: str = "",
+    private_key_b64: str = "",
+    public_key_b64: str = "",
+) -> Path:
     """-> writes <directory>/index.json and returns its path."""
     entries = []
     for package_path in sorted(directory.glob("*.agentpkg")):
         manifest = bundle_io.read_manifest(package_path)
         digest = bundle_io.sha256_file(package_path)
         entry = {
-            "id": manifest.id, "name": manifest.name, "version": manifest.version,
-            "description": manifest.description, "agentd_compat": manifest.agentd_compat,
-            "entitlement": manifest.entitlement, "price": "free" if not manifest.entitlement else "paid",
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "agentd_compat": manifest.agentd_compat,
+            "entitlement": manifest.entitlement,
+            "price": "free" if not manifest.entitlement else "paid",
             "icon": manifest.icon,
-            "url": package_path.name,          # relative: works from disk AND a CDN
-            "sha256": digest, "size": package_path.stat().st_size,
+            "url": package_path.name,  # relative: works from disk AND a CDN
+            "sha256": digest,
+            "size": package_path.stat().st_size,
         }
         if private_key_b64:
             entry["sig"] = signing.sign(private_key_b64, digest.encode("ascii"))
         entries.append(entry)
         log.info("indexed %s %s (%s)", manifest.id, manifest.version, package_path.name)
-    index = {"schema": 1, "name": name or directory.name, "publisher": publisher,
-             "publisher_key": public_key_b64, "bundles": entries}
+    index = {
+        "schema": 1,
+        "name": name or directory.name,
+        "publisher": publisher,
+        "publisher_key": public_key_b64,
+        "bundles": entries,
+    }
     index_path = directory / "index.json"
     index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     return index_path

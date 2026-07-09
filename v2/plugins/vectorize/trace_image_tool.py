@@ -41,8 +41,15 @@ class TraceImageTool(Tool):
         "properties": {
             "image": {"type": "string", "description": "Path to the raster image to trace."},
             "out_svg": {"type": "string", "description": "Output .svg path."},
-            "mode": {"type": "string", "enum": ["color", "binary"], "description": "Color tracing or 2-tone. Default color."},
-            "precision": {"type": "integer", "description": "Color detail 1-8. Default 6 (high fidelity, more paths). Lower = fewer paths, cleaner/posterized."},
+            "mode": {
+                "type": "string",
+                "enum": ["color", "binary"],
+                "description": "Color tracing or 2-tone. Default color.",
+            },
+            "precision": {
+                "type": "integer",
+                "description": "Color detail 1-8. Default 6 (high fidelity, more paths). Lower = fewer paths, cleaner/posterized.",
+            },
         },
     }
 
@@ -63,8 +70,11 @@ class TraceImageTool(Tool):
         through Pillow (composite over white, drop alpha) normalizes the bytes and the path so tracing
         is reliable. Returns the temp path (caller cleans it up)."""
         from PIL import Image
+
         src = Image.open(img).convert("RGBA")
-        flat = Image.alpha_composite(Image.new("RGBA", src.size, (255, 255, 255, 255)), src).convert("RGB")
+        flat = Image.alpha_composite(
+            Image.new("RGBA", src.size, (255, 255, 255, 255)), src
+        ).convert("RGB")
         tmp = out.with_suffix(".trace_src.png")
         flat.save(tmp)
         return tmp
@@ -74,8 +84,8 @@ class TraceImageTool(Tool):
         out = self._resolve(params["out_svg"])
         out.parent.mkdir(parents=True, exist_ok=True)
         mode = params.get("mode", "color")
-        precision = max(1, min(8, int(params.get("precision", 6))))   # default = high fidelity
-        src = self._prep_input(img, out)                # normalized, reliable input
+        precision = max(1, min(8, int(params.get("precision", 6))))  # default = high fidelity
+        src = self._prep_input(img, out)  # normalized, reliable input
 
         try:
             # 1) vtracer python package
@@ -86,28 +96,40 @@ class TraceImageTool(Tool):
             if vtracer is not None:
                 try:
                     vtracer.convert_image_to_svg_py(
-                        str(src), str(out),
+                        str(src),
+                        str(out),
                         colormode=("color" if mode == "color" else "binary"),
-                        color_precision=precision)
+                        color_precision=precision,
+                    )
                     return {"out_svg": str(out), "backend": "vtracer-py", "precision": precision}
-                except BaseException as e:              # pyo3 PanicException is NOT an Exception subclass
+                except BaseException as e:  # pyo3 PanicException is NOT an Exception subclass
                     py_err = e
 
             # 2) vtracer CLI
             cli = shutil.which("vtracer")
             if cli:
-                cmd = [cli, "--input", str(src), "--output", str(out), "--colormode", mode,
-                       "--color_precision", str(precision)]
+                cmd = [
+                    cli,
+                    "--input",
+                    str(src),
+                    "--output",
+                    str(out),
+                    "--colormode",
+                    mode,
+                    "--color_precision",
+                    str(precision),
+                ]
                 subprocess.run(cmd, check=True, capture_output=True, text=True)
                 return {"out_svg": str(out), "backend": "vtracer-cli", "precision": precision}
 
-            if vtracer is not None:                     # pkg present but the trace itself panicked
+            if vtracer is not None:  # pkg present but the trace itself panicked
                 raise RuntimeError(f"vtracer failed to trace the image: {py_err}")
             raise RuntimeError(
                 "no tracing backend found. Install one: `pip install vtracer` (Python) or the vtracer "
-                "CLI (cargo install vtracer). For EDITABLE text/arrows use read_labels_from_image instead.")
+                "CLI (cargo install vtracer). For EDITABLE text/arrows use read_labels_from_image instead."
+            )
         finally:
-            src.unlink(missing_ok=True)                 # clean up the temp input
+            src.unlink(missing_ok=True)  # clean up the temp input
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -116,4 +138,5 @@ class TraceImageTool(Tool):
             return ToolResult.text(f"trace_image failed: {e}", is_error=True)
         return ToolResult.text(
             f"Traced -> {r['out_svg']} (backend: {r['backend']}, precision {r.get('precision')}).",
-            details=r)
+            details=r,
+        )

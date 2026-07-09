@@ -22,7 +22,7 @@ def build_channel(cfg: dict, invoke):
         from agentd.infrastructure.channels.email_channel import EmailChannel
 
         return EmailChannel(invoke, agent_id=agent_id, cfg=cfg)
-    if ctype == "memory":                       # test/local only
+    if ctype == "memory":  # test/local only
         return MemoryChannel(agent_id=agent_id)
     if ctype == "line":
         import os
@@ -39,9 +39,14 @@ def build_channel(cfg: dict, invoke):
         if not (secret and token):
             raise ValueError(
                 f"line channel needs LINE_CHANNEL_SECRET{sfx} + LINE_CHANNEL_ACCESS_TOKEN{sfx} "
-                "(or channel_secret/access_token in config)")
+                "(or channel_secret/access_token in config)"
+            )
         return LineChannel(
-            agent_id=agent_id, channel_secret=secret, access_token=token,
-            policy=cfg.get("policy", "open"), allow_from=cfg.get("allow_from", []),
-            webhook_path=cfg.get("webhook_path", "/line/webhook"))
+            agent_id=agent_id,
+            channel_secret=secret,
+            access_token=token,
+            policy=cfg.get("policy", "open"),
+            allow_from=cfg.get("allow_from", []),
+            webhook_path=cfg.get("webhook_path", "/line/webhook"),
+        )
     return None

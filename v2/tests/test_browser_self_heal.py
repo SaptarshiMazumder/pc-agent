@@ -82,7 +82,7 @@ def test_first_ensure_launches_once():
 def test_alive_session_is_reused_not_relaunched():
     mgr = _mgr()
     asyncio.run(mgr.ensure())
-    asyncio.run(mgr.ensure())                       # still connected -> no relaunch
+    asyncio.run(mgr.ensure())  # still connected -> no relaunch
     assert mgr.launches == 1
 
 
@@ -90,15 +90,15 @@ def test_dead_browser_relaunches_on_next_ensure():
     mgr = _mgr()
     asyncio.run(mgr.ensure())
     first = mgr.context
-    mgr._browser.connected = False                  # browser crashed / window closed
-    asyncio.run(mgr.ensure())                        # stale handle -> tear down + relaunch
+    mgr._browser.connected = False  # browser crashed / window closed
+    asyncio.run(mgr.ensure())  # stale handle -> tear down + relaunch
     assert mgr.launches == 2 and mgr.context is not first and mgr._connected()
 
 
 def test_context_close_event_clears_handle_and_relaunches():
     mgr = _mgr()
     asyncio.run(mgr.ensure())
-    mgr.context.fire_close()                         # context closed under us (browser still "up")
-    assert mgr.context is None                       # handle dropped immediately
+    mgr.context.fire_close()  # context closed under us (browser still "up")
+    assert mgr.context is None  # handle dropped immediately
     asyncio.run(mgr.ensure())
     assert mgr.launches == 2 and mgr.context is not None

@@ -22,7 +22,11 @@ from agentd import runtime_paths
 # provider menu: id -> (env var LiteLLM reads, default model, key URL)
 PROVIDERS: dict[str, tuple[str, str, str]] = {
     "gemini": ("GEMINI_API_KEY", "gemini/gemini-2.5-flash", "https://aistudio.google.com/apikey"),
-    "anthropic": ("ANTHROPIC_API_KEY", "anthropic/claude-sonnet-4-5", "https://console.anthropic.com/"),
+    "anthropic": (
+        "ANTHROPIC_API_KEY",
+        "anthropic/claude-sonnet-4-5",
+        "https://console.anthropic.com/",
+    ),
     "openai": ("OPENAI_API_KEY", "openai/gpt-5.1", "https://platform.openai.com/api-keys"),
     "deepseek": ("DEEPSEEK_API_KEY", "deepseek/deepseek-chat", "https://platform.deepseek.com/"),
 }
@@ -63,8 +67,9 @@ def _write_config(model: str) -> Path:
 def _append_env(var: str, value: str) -> Path:
     env_path = runtime_paths.user_home() / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
-    if not any(line.split("=", 1)[0].strip() == var
-               for line in existing.splitlines() if "=" in line):
+    if not any(
+        line.split("=", 1)[0].strip() == var for line in existing.splitlines() if "=" in line
+    ):
         with env_path.open("a", encoding="utf-8") as f:
             f.write(f"{var}={value}\n")
     return env_path
@@ -75,8 +80,7 @@ def _verify_key(model: str) -> tuple[bool, str]:
     try:
         import litellm
 
-        litellm.completion(model=model, max_tokens=1,
-                           messages=[{"role": "user", "content": "hi"}])
+        litellm.completion(model=model, max_tokens=1, messages=[{"role": "user", "content": "hi"}])
         return True, "key verified"
     except Exception as e:  # noqa: BLE001 — any provider error = not verified
         return False, str(e)[:200]
@@ -133,6 +137,8 @@ def ensure_onboarded() -> bool:
     if sys.stdin.isatty() and sys.stdout.isatty():
         return _wizard()
     _write_config("gemini/gemini-2.5-flash")
-    print("No TTY for setup — wrote ~/.agentd/config.json with defaults. "
-          "Set your API key in ~/.agentd/.env (e.g. GEMINI_API_KEY=...), then run `agentd doctor`.")
+    print(
+        "No TTY for setup — wrote ~/.agentd/config.json with defaults. "
+        "Set your API key in ~/.agentd/.env (e.g. GEMINI_API_KEY=...), then run `agentd doctor`."
+    )
     return True

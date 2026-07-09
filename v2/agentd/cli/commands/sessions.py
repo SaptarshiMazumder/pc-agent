@@ -12,8 +12,7 @@ from agentd.clients.timefmt import whatsapp_when
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
-    sessions = subparsers.add_parser(
-        "sessions", help="saved conversations: list / delete / rename")
+    sessions = subparsers.add_parser("sessions", help="saved conversations: list / delete / rename")
     sessions.add_argument("--agent", default="", help="agent id (default: the default agent)")
     sessions.set_defaults(func=run_list)
     sub = sessions.add_subparsers(dest="sessions_command")
@@ -57,6 +56,7 @@ def run_list(args: argparse.Namespace) -> int:
         rows, agent_id = payload.get("sessions", []), payload.get("agentId", agent or "main")
     except rpc.DaemonNotRunning:
         from agentd.infrastructure.memory.local_store import list_sessions
+
         agent_id, state_dir = _offline_state_dir(agent)
         rows = list_sessions(state_dir)
     except rpc.RpcError as e:
@@ -70,8 +70,10 @@ def run_list(args: argparse.Namespace) -> int:
         title = s.get("title") or s.get("sessionId", "?")
         when = whatsapp_when(s.get("modified") or 0)
         proj = f"  [project {s['projectId']}]" if s.get("projectId") else ""
-        print(f"  {s.get('sessionId', '?'):<22} {when:>10}  {s.get('messages', 0):>3} msgs  "
-              f"{title[:48]}{proj}")
+        print(
+            f"  {s.get('sessionId', '?'):<22} {when:>10}  {s.get('messages', 0):>3} msgs  "
+            f"{title[:48]}{proj}"
+        )
     print("\ndelete: agentd sessions delete <id> · rename: agentd sessions rename <id> <title>")
     return 0
 
@@ -87,11 +89,15 @@ def run_delete(args: argparse.Namespace) -> int:
         if not result.get("ok"):
             print(f"delete failed: {result.get('error', '?')}")
             return 1
-        print(f"deleted {args.session}" if result.get("deleted")
-              else f"no such conversation: {args.session}")
+        print(
+            f"deleted {args.session}"
+            if result.get("deleted")
+            else f"no such conversation: {args.session}"
+        )
         return 0 if result.get("deleted") else 1
     except rpc.DaemonNotRunning:
         from agentd.infrastructure.memory.local_store import delete_session
+
         _, state_dir = _offline_state_dir(args.agent)
         if delete_session(state_dir, args.session):
             print(f"deleted {args.session}")
@@ -116,6 +122,7 @@ def run_rename(args: argparse.Namespace) -> int:
             return 1
     except rpc.DaemonNotRunning:
         from agentd.infrastructure.memory.local_store import write_session_meta
+
         _, state_dir = _offline_state_dir(args.agent)
         title = args.title.strip()[:80]
         write_session_meta(state_dir, args.session, title=title, manual=bool(title))

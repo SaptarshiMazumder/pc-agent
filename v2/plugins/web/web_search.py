@@ -8,9 +8,10 @@ and are selected + ordered by config in `search/factory.py`.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.search import SearchProvider
 from search import cache_get, cache_put, format_results
+from search.factory import search_provider_names
 
+from agentd.application.interfaces.search import SearchProvider
 from agentd.application.interfaces.tool import Tool, ToolResult
 
 
@@ -29,12 +30,22 @@ class WebSearchTool(Tool):
         "For anything that needs a signed-in session, use the browser tool."
     )
     label = "Web Search"
+    # provider = an ORDERED CHAIN of search backends, self-described so a client shows a picker (not a
+    # text box). The names ARE the factory registry keys, so they can't drift from what resolves. An
+    # empty chain (no picks) => the "auto" default order.
+    provider_options = list(search_provider_names())
+    provider_chain = True
     parameters = {
         "type": "object",
         "required": ["query"],
         "properties": {
             "query": {"type": "string", "description": "Search query."},
-            "count": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Result count (default 10)."},
+            "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "description": "Result count (default 10).",
+            },
             "freshness": {
                 "type": "string",
                 "enum": ["day", "week", "month", "year"],

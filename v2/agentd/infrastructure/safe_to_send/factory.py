@@ -19,6 +19,7 @@ def _build_judge_fn(config) -> JudgeFn | None:
     """A cheap async judge(prompt)->text, resolved from the unified plugins map
     (plugins.safe_to_send.safe_to_send -> verify -> search -> brain)."""
     from agentd.application.tool_models import safe_to_send_model
+
     model = safe_to_send_model(config)
     if not model:
         return None

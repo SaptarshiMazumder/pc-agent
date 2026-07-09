@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Domain types + their (de)serialization. Imported from the canonical domain path
@@ -30,7 +30,7 @@ from agentd.domain.messages import Message, message_from_dict, message_to_dict
 
 def _iso_now() -> str:
     """UTC timestamp as an ISO-8601 string (used on each stored line)."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _safe_name(session_id: str) -> str:
@@ -230,8 +230,11 @@ def sessions_in_project(state_dir: Path, project_id: str) -> list[str]:
     sessions_dir = Path(state_dir) / "sessions"
     if not project_id or not sessions_dir.exists():
         return []
-    return [p.stem for p in sessions_dir.glob("*.jsonl")
-            if read_session_meta(state_dir, p.stem).get("projectId") == project_id]
+    return [
+        p.stem
+        for p in sessions_dir.glob("*.jsonl")
+        if read_session_meta(state_dir, p.stem).get("projectId") == project_id
+    ]
 
 
 def list_sessions(state_dir: Path) -> list[dict]:
@@ -253,7 +256,7 @@ def list_sessions(state_dir: Path) -> list[dict]:
             with p.open("r", encoding="utf-8") as f:
                 for line in f:
                     line_count += 1
-                    if not first_user:                 # cheap: only parse until found
+                    if not first_user:  # cheap: only parse until found
                         try:
                             entry = json.loads(line)
                             msg = entry.get("message") if entry.get("type") == "message" else None
@@ -277,7 +280,7 @@ def list_sessions(state_dir: Path) -> list[dict]:
                 "title": title,
                 "titleManual": bool(meta.get("manual")),
                 "snippet": snippet,
-                "projectId": meta.get("projectId") or "",   # "" => standalone chat
+                "projectId": meta.get("projectId") or "",  # "" => standalone chat
                 "messages": max(0, line_count - 1),  # subtract the header line
                 "modified": p.stat().st_mtime,
             }

@@ -20,7 +20,7 @@ from agentd.domain.credential import CREDENTIAL_FIELDS, Credential
 class EncryptedFileCredentialStore:
     def __init__(self, path, key: bytes):
         self._path = Path(path)
-        self._fernet = Fernet(key)                  # raises on a malformed key (caught by the builder)
+        self._fernet = Fernet(key)  # raises on a malformed key (caught by the builder)
         self._data: dict = self._load()
 
     def _load(self) -> dict:
@@ -36,7 +36,7 @@ class EncryptedFileCredentialStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_bytes(blob)
         try:
-            os.chmod(self._path, 0o600)             # owner-only (best-effort; no-op on some FS)
+            os.chmod(self._path, 0o600)  # owner-only (best-effort; no-op on some FS)
         except OSError:
             pass
 
@@ -47,7 +47,9 @@ class EncryptedFileCredentialStore:
         return Credential(site=site, **{f: rec.get(f, "") for f in CREDENTIAL_FIELDS})
 
     def put(self, agent_id: str, cred: Credential) -> None:
-        self._data.setdefault(agent_id, {})[cred.site] = {f: getattr(cred, f) for f in CREDENTIAL_FIELDS}
+        self._data.setdefault(agent_id, {})[cred.site] = {
+            f: getattr(cred, f) for f in CREDENTIAL_FIELDS
+        }
         self._save()
 
     def delete(self, agent_id: str, site: str) -> bool:

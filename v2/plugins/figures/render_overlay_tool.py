@@ -12,10 +12,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import figures_overlay as overlay
+from figures_common import png_block, render_svg_to_png, resolve_path
+
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.domain.messages import TextContent
-from figures_common import resolve_path, render_svg_to_png, png_block
-import figures_overlay as overlay
 
 
 class RenderOverlayTool(Tool):
@@ -48,18 +49,37 @@ class RenderOverlayTool(Tool):
         "required": ["out_svg", "width", "height", "elements"],
         "properties": {
             "out_svg": {"type": "string", "description": "Output .svg path (the editable layer)."},
-            "out_png": {"type": "string", "description": "Optional .png path to also rasterize (returned as an image)."},
+            "out_png": {
+                "type": "string",
+                "description": "Optional .png path to also rasterize (returned as an image).",
+            },
             "width": {"type": "integer", "description": "Canvas width px (match the artwork)."},
             "height": {"type": "integer", "description": "Canvas height px (match the artwork)."},
-            "scale": {"type": "number", "description": "Optional size multiplier for fonts/strokes/dots/pads. Omit = AUTO (derived from resolution, ~1024px reference) so labels never render tiny on a 2K/4K artwork. Bump it if you want chunkier labels; lower it for finer ones."},
-            "background": {"type": "string", "description": "CSS colour for an opaque overlay. Omit = transparent (for layering)."},
-            "font_family": {"type": "string", "description": "CSS font stack for labels. Optional."},
-            "scale": {"type": "number", "description": "PNG device scale factor (if out_png). Default 2."},
+            "scale": {
+                "type": "number",
+                "description": "Optional size multiplier for fonts/strokes/dots/pads. Omit = AUTO (derived from resolution, ~1024px reference) so labels never render tiny on a 2K/4K artwork. Bump it if you want chunkier labels; lower it for finer ones.",
+            },
+            "background": {
+                "type": "string",
+                "description": "CSS colour for an opaque overlay. Omit = transparent (for layering).",
+            },
+            "font_family": {
+                "type": "string",
+                "description": "CSS font stack for labels. Optional.",
+            },
+            "scale": {  # noqa: F601  # TODO: duplicate "scale" key — collides with the size-multiplier param above; rename one
+                "type": "number",
+                "description": "PNG device scale factor (if out_png). Default 2.",
+            },
             "elements": {
                 "type": "array",
                 "description": "Ordered annotation elements; each has a `kind` (label|annotation|leader|arrow|panel|dot|raw) plus its fields.",
-                "items": {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}},
-                          "additionalProperties": True},
+                "items": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {"kind": {"type": "string"}},
+                    "additionalProperties": True,
+                },
             },
         },
     }
@@ -87,14 +107,24 @@ class RenderOverlayTool(Tool):
         out_svg = resolve_path(self.config, params["out_svg"])
         out_svg.parent.mkdir(parents=True, exist_ok=True)
         out_svg.write_text(svg, encoding="utf-8")
-        result = {"svg_path": str(out_svg), "width": spec["width"], "height": spec["height"],
-                  "elements": len(spec["elements"]), "png_path": None}
+        result = {
+            "svg_path": str(out_svg),
+            "width": spec["width"],
+            "height": spec["height"],
+            "elements": len(spec["elements"]),
+            "png_path": None,
+        }
         if params.get("out_png"):
             out_png = resolve_path(self.config, params["out_png"])
             out_png.parent.mkdir(parents=True, exist_ok=True)
-            render_svg_to_png(svg, out_png, spec["width"], spec["height"],
-                              scale=float(params.get("scale", 2)),
-                              background=params.get("background"))
+            render_svg_to_png(
+                svg,
+                out_png,
+                spec["width"],
+                spec["height"],
+                scale=float(params.get("scale", 2)),
+                background=params.get("background"),
+            )
             result["png_path"] = str(out_png)
         return result
 
@@ -103,11 +133,18 @@ class RenderOverlayTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"render_editable_overlay failed: {e}", is_error=True)
-        msg = f"Overlay -> {r['svg_path']} ({r['elements']} element(s), {r['width']}x{r['height']})."
+        msg = (
+            f"Overlay -> {r['svg_path']} ({r['elements']} element(s), {r['width']}x{r['height']})."
+        )
         # deliverable: the labelled figure (SVG always; PNG too when rendered)
         deliverables = [r["svg_path"]] + ([r["png_path"]] if r["png_path"] else [])
         if r["png_path"]:
-            return ToolResult(content=[TextContent(text=msg + f" PNG -> {r['png_path']}."),
-                                       png_block(Path(r["png_path"]))], details=r,
-                              artifacts=deliverables)
+            return ToolResult(
+                content=[
+                    TextContent(text=msg + f" PNG -> {r['png_path']}."),
+                    png_block(Path(r["png_path"])),
+                ],
+                details=r,
+                artifacts=deliverables,
+            )
         return ToolResult.text(msg, details=r, artifacts=deliverables)

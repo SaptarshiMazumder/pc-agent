@@ -77,30 +77,66 @@ CREATE TABLE IF NOT EXISTS commitments (
 CREATE INDEX IF NOT EXISTS idx_commit_agent ON commitments(agent_id, status);
 """
 
-_RUN_COLS = ("id", "task_id", "agent_id", "started_at", "finished_at", "status", "outcome", "detail")
+_RUN_COLS = (
+    "id",
+    "task_id",
+    "agent_id",
+    "started_at",
+    "finished_at",
+    "status",
+    "outcome",
+    "detail",
+)
 _NOTIF_COLS = ("id", "agent_id", "kind", "text", "detail", "created_at", "read")
 
-_COLS = ("id", "agent_id", "session_key", "kind", "payload", "next_due",
-         "every_seconds", "cron_expr", "tz", "enabled", "created_at", "delivery", "failure_alert")
+_COLS = (
+    "id",
+    "agent_id",
+    "session_key",
+    "kind",
+    "payload",
+    "next_due",
+    "every_seconds",
+    "cron_expr",
+    "tz",
+    "enabled",
+    "created_at",
+    "delivery",
+    "failure_alert",
+)
 _GOAL_COLS = ("id", "agent_id", "session_key", "objective", "token_budget", "status", "created_at")
 
 
 def _row_to_task(row) -> ScheduledTask:
     d = dict(zip(_COLS, row))
     return ScheduledTask(
-        id=d["id"], agent_id=d["agent_id"], session_key=d["session_key"],
-        kind=d["kind"], payload=d["payload"], next_due=d["next_due"],
-        every_seconds=d["every_seconds"], cron_expr=d.get("cron_expr"), tz=d.get("tz"),
-        enabled=bool(d["enabled"]), created_at=d["created_at"], delivery=d.get("delivery", "run"),
+        id=d["id"],
+        agent_id=d["agent_id"],
+        session_key=d["session_key"],
+        kind=d["kind"],
+        payload=d["payload"],
+        next_due=d["next_due"],
+        every_seconds=d["every_seconds"],
+        cron_expr=d.get("cron_expr"),
+        tz=d.get("tz"),
+        enabled=bool(d["enabled"]),
+        created_at=d["created_at"],
+        delivery=d.get("delivery", "run"),
         failure_alert=int(d.get("failure_alert") or 0),
     )
 
 
 def _row_to_goal(row) -> Goal:
     d = dict(zip(_GOAL_COLS, row))
-    return Goal(id=d["id"], agent_id=d["agent_id"], session_key=d["session_key"],
-                objective=d["objective"], token_budget=d["token_budget"],
-                status=d["status"], created_at=d["created_at"])
+    return Goal(
+        id=d["id"],
+        agent_id=d["agent_id"],
+        session_key=d["session_key"],
+        objective=d["objective"],
+        token_budget=d["token_budget"],
+        status=d["status"],
+        created_at=d["created_at"],
+    )
 
 
 class SqliteTaskStore:
@@ -115,8 +151,8 @@ class SqliteTaskStore:
             ("tasks", "cron_expr", "TEXT"),
             ("tasks", "tz", "TEXT"),
             ("tasks", "failure_alert", "INTEGER NOT NULL DEFAULT 0"),
-            ("runs", "outcome", "TEXT"),                       # agent-declared outcome
-            ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),    # one-line reason
+            ("runs", "outcome", "TEXT"),  # agent-declared outcome
+            ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),  # one-line reason
         ):
             try:
                 self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
@@ -131,21 +167,42 @@ class SqliteTaskStore:
             "(id, agent_id, session_key, kind, payload, next_due, every_seconds, "
             " cron_expr, tz, enabled, created_at, delivery, failure_alert) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (task_id, task.agent_id, task.session_key, task.kind, task.payload,
-             task.next_due, task.every_seconds, task.cron_expr, task.tz,
-             int(task.enabled), task.created_at, task.delivery, int(task.failure_alert)),
+            (
+                task_id,
+                task.agent_id,
+                task.session_key,
+                task.kind,
+                task.payload,
+                task.next_due,
+                task.every_seconds,
+                task.cron_expr,
+                task.tz,
+                int(task.enabled),
+                task.created_at,
+                task.delivery,
+                int(task.failure_alert),
+            ),
         )
         self._db.commit()
         return task_id
 
     def get(self, task_id: str) -> ScheduledTask | None:
         row = self._db.execute(
-            f"SELECT {','.join(_COLS)} FROM tasks WHERE id=?", (task_id,)).fetchone()
+            f"SELECT {','.join(_COLS)} FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
         return _row_to_task(row) if row else None
 
     def update(self, task_id: str, **fields) -> bool:
-        allowed = ("payload", "next_due", "every_seconds", "cron_expr", "tz",
-                   "kind", "enabled", "delivery")
+        allowed = (
+            "payload",
+            "next_due",
+            "every_seconds",
+            "cron_expr",
+            "tz",
+            "kind",
+            "enabled",
+            "delivery",
+        )
         sets = {k: (int(v) if k == "enabled" else v) for k, v in fields.items() if k in allowed}
         if not sets:
             return False
@@ -157,11 +214,13 @@ class SqliteTaskStore:
     def list(self, agent_id: str | None = None) -> list[ScheduledTask]:
         if agent_id is None:
             rows = self._db.execute(
-                f"SELECT {','.join(_COLS)} FROM tasks ORDER BY created_at DESC").fetchall()
+                f"SELECT {','.join(_COLS)} FROM tasks ORDER BY created_at DESC"
+            ).fetchall()
         else:
             rows = self._db.execute(
                 f"SELECT {','.join(_COLS)} FROM tasks WHERE agent_id=? ORDER BY created_at DESC",
-                (agent_id,)).fetchall()
+                (agent_id,),
+            ).fetchall()
         return [_row_to_task(r) for r in rows]
 
     def remove(self, task_id: str) -> bool:
@@ -183,14 +242,16 @@ class SqliteTaskStore:
     def due(self, now: float) -> list[ScheduledTask]:
         rows = self._db.execute(
             f"SELECT {','.join(_COLS)} FROM tasks WHERE enabled=1 AND next_due<=? "
-            "ORDER BY next_due ASC", (now,)).fetchall()
+            "ORDER BY next_due ASC",
+            (now,),
+        ).fetchall()
         return [_row_to_task(r) for r in rows]
 
     def advance(self, task_id: str, now: float) -> None:
         task = self.get(task_id)
         if task is None:
             return
-        nd = next_due_after(task, now)   # cron expr / interval -> next fire; one-shot -> None
+        nd = next_due_after(task, now)  # cron expr / interval -> next fire; one-shot -> None
         if nd is None:
             self._db.execute("UPDATE tasks SET enabled=0 WHERE id=?", (task_id,))
         else:
@@ -205,15 +266,25 @@ class SqliteTaskStore:
             "INSERT OR REPLACE INTO goals "
             "(id, agent_id, session_key, objective, token_budget, status, created_at) "
             "VALUES (?,?,?,?,?,?,?)",
-            (goal_id, goal.agent_id, goal.session_key, goal.objective,
-             goal.token_budget, goal.status, goal.created_at))
+            (
+                goal_id,
+                goal.agent_id,
+                goal.session_key,
+                goal.objective,
+                goal.token_budget,
+                goal.status,
+                goal.created_at,
+            ),
+        )
         self._db.commit()
         return goal_id
 
     def active_goal(self, session_key: str) -> Goal | None:
         row = self._db.execute(
             f"SELECT {','.join(_GOAL_COLS)} FROM goals WHERE session_key=? AND status='active' "
-            "ORDER BY created_at DESC LIMIT 1", (session_key,)).fetchone()
+            "ORDER BY created_at DESC LIMIT 1",
+            (session_key,),
+        ).fetchone()
         return _row_to_goal(row) if row else None
 
     def update_goal(self, goal_id: str, status: str) -> bool:
@@ -227,15 +298,18 @@ class SqliteTaskStore:
         run_id = uuid.uuid4().hex[:12]
         self._db.execute(
             "INSERT INTO runs (id, task_id, agent_id, started_at, status) VALUES (?,?,?,?,'running')",
-            (run_id, task_id, agent_id, time.time()))
+            (run_id, task_id, agent_id, time.time()),
+        )
         self._db.commit()
         return run_id
 
-    def finish_run(self, run_id: str, status: str,
-                   outcome: str | None = None, detail: str = "") -> None:
+    def finish_run(
+        self, run_id: str, status: str, outcome: str | None = None, detail: str = ""
+    ) -> None:
         self._db.execute(
             "UPDATE runs SET finished_at=?, status=?, outcome=?, detail=? WHERE id=?",
-            (time.time(), status, outcome, detail or "", run_id))
+            (time.time(), status, outcome, detail or "", run_id),
+        )
         self._db.commit()
 
     def consecutive_failures(self, task_id: str) -> int:
@@ -245,7 +319,9 @@ class SqliteTaskStore:
         spam forever — it auto-pauses like any other repeatedly-broken job."""
         rows = self._db.execute(
             "SELECT status FROM runs WHERE task_id=? AND finished_at IS NOT NULL "
-            "ORDER BY started_at DESC LIMIT 50", (task_id,)).fetchall()
+            "ORDER BY started_at DESC LIMIT 50",
+            (task_id,),
+        ).fetchall()
         n = 0
         for (status,) in rows:
             if status in ("failed", "error", "aborted", "incomplete"):
@@ -254,17 +330,21 @@ class SqliteTaskStore:
                 break
         return n
 
-    def recent_runs(self, agent_id: str | None = None, task_id: str | None = None,
-                    limit: int = 20) -> list[RunRecord]:
+    def recent_runs(
+        self, agent_id: str | None = None, task_id: str | None = None, limit: int = 20
+    ) -> list[RunRecord]:
         where, args = [], []
         if agent_id:
-            where.append("agent_id=?"); args.append(agent_id)
+            where.append("agent_id=?")
+            args.append(agent_id)
         if task_id:
-            where.append("task_id=?"); args.append(task_id)
+            where.append("task_id=?")
+            args.append(task_id)
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = self._db.execute(
             f"SELECT {','.join(_RUN_COLS)} FROM runs{clause} ORDER BY started_at DESC LIMIT ?",
-            (*args, limit)).fetchall()
+            (*args, limit),
+        ).fetchall()
         return [RunRecord(*r) for r in rows]
 
     # ---- NotifyStore (outbound user notifications, Phase 5a) ----------------
@@ -274,25 +354,46 @@ class SqliteTaskStore:
         self._db.execute(
             "INSERT OR REPLACE INTO notifications "
             "(id, agent_id, kind, text, detail, created_at, read) VALUES (?,?,?,?,?,?,?)",
-            (notif_id, n.agent_id, n.kind, n.text, n.detail,
-             n.created_at or time.time(), int(n.read)))
+            (
+                notif_id,
+                n.agent_id,
+                n.kind,
+                n.text,
+                n.detail,
+                n.created_at or time.time(),
+                int(n.read),
+            ),
+        )
         self._db.commit()
         return notif_id
 
-    def notifications(self, agent_id: str | None = None, unread_only: bool = False,
-                      limit: int = 50) -> list[Notification]:
+    def notifications(
+        self, agent_id: str | None = None, unread_only: bool = False, limit: int = 50
+    ) -> list[Notification]:
         where, args = [], []
         if agent_id:
-            where.append("agent_id=?"); args.append(agent_id)
+            where.append("agent_id=?")
+            args.append(agent_id)
         if unread_only:
             where.append("read=0")
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = self._db.execute(
             f"SELECT {','.join(_NOTIF_COLS)} FROM notifications{clause} "
-            "ORDER BY created_at DESC LIMIT ?", (*args, limit)).fetchall()
-        return [Notification(
-            id=r[0], agent_id=r[1], kind=r[2], text=r[3], detail=r[4],
-            created_at=r[5], read=bool(r[6])) for r in rows]
+            "ORDER BY created_at DESC LIMIT ?",
+            (*args, limit),
+        ).fetchall()
+        return [
+            Notification(
+                id=r[0],
+                agent_id=r[1],
+                kind=r[2],
+                text=r[3],
+                detail=r[4],
+                created_at=r[5],
+                read=bool(r[6]),
+            )
+            for r in rows
+        ]
 
     def ack(self, notif_id: str) -> bool:
         cur = self._db.execute("UPDATE notifications SET read=1 WHERE id=?", (notif_id,))
@@ -306,28 +407,35 @@ class SqliteTaskStore:
         self._db.execute(
             "INSERT OR REPLACE INTO commitments (id, agent_id, text, due_at, status, created_at) "
             "VALUES (?,?,?,?,?,?)",
-            (cid, c.agent_id, c.text, c.due_at, c.status, c.created_at or time.time()))
+            (cid, c.agent_id, c.text, c.due_at, c.status, c.created_at or time.time()),
+        )
         self._db.commit()
         return cid
 
-    def commitments(self, agent_id: str | None = None, open_only: bool = True,
-                    limit: int = 50) -> list[Commitment]:
+    def commitments(
+        self, agent_id: str | None = None, open_only: bool = True, limit: int = 50
+    ) -> list[Commitment]:
         where, args = [], []
         if agent_id:
-            where.append("agent_id=?"); args.append(agent_id)
+            where.append("agent_id=?")
+            args.append(agent_id)
         if open_only:
             where.append("status='open'")
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = self._db.execute(
             "SELECT id, agent_id, text, due_at, status, created_at FROM commitments"
             f"{clause} ORDER BY (due_at IS NULL), due_at ASC, created_at DESC LIMIT ?",
-            (*args, limit)).fetchall()
-        return [Commitment(id=r[0], agent_id=r[1], text=r[2], due_at=r[3],
-                           status=r[4], created_at=r[5]) for r in rows]
+            (*args, limit),
+        ).fetchall()
+        return [
+            Commitment(id=r[0], agent_id=r[1], text=r[2], due_at=r[3], status=r[4], created_at=r[5])
+            for r in rows
+        ]
 
     def resolve_commitment(self, commitment_id: str, status: str) -> bool:
-        cur = self._db.execute("UPDATE commitments SET status=? WHERE id=?",
-                               (status, commitment_id))
+        cur = self._db.execute(
+            "UPDATE commitments SET status=? WHERE id=?", (status, commitment_id)
+        )
         self._db.commit()
         return cur.rowcount > 0
 

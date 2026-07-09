@@ -7,8 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.workspace import FileWorkspaceIndex, build_workspace_index
 from types import SimpleNamespace
+
+from agentd.infrastructure.workspace import FileWorkspaceIndex, build_workspace_index
 
 
 def _ws(tmp_path):
@@ -19,7 +20,9 @@ def _ws(tmp_path):
 
 def test_manifest_lists_and_classifies(tmp_path):
     ws = _ws(tmp_path)
-    (ws / "generate_sheet.py").write_text("# generates the monthly cost sheet\nprint(1)\n", encoding="utf-8")
+    (ws / "generate_sheet.py").write_text(
+        "# generates the monthly cost sheet\nprint(1)\n", encoding="utf-8"
+    )
     (ws / "NOTES.md").write_text("# Cost tracking\nbody\n", encoding="utf-8")
     (ws / "chart.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (ws / "costs.csv").write_text("a,b\n1,2\n", encoding="utf-8")
@@ -64,7 +67,7 @@ def test_tmp_scratch_dir_not_indexed(tmp_path):
     (ws / "tmp" / "junk.txt").write_text("x", encoding="utf-8")
     paths = [r.rel_path for r in FileWorkspaceIndex().scan(ws)]
     assert "real.py" in paths
-    assert not any(p.startswith("tmp/") for p in paths)        # scratch dir excluded
+    assert not any(p.startswith("tmp/") for p in paths)  # scratch dir excluded
 
 
 def test_classifies_unknown_as_other(tmp_path):
@@ -86,5 +89,7 @@ def test_max_files_cap(tmp_path):
 
 def test_build_workspace_index_gated_by_flag():
     assert build_workspace_index(SimpleNamespace(workspace_index_enabled=False)) is None
-    idx = build_workspace_index(SimpleNamespace(workspace_index_enabled=True, workspace_index_max_files=50))
+    idx = build_workspace_index(
+        SimpleNamespace(workspace_index_enabled=True, workspace_index_max_files=50)
+    )
     assert isinstance(idx, FileWorkspaceIndex)

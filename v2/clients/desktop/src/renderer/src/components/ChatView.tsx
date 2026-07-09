@@ -35,6 +35,7 @@ export default function ChatView() {
   const connection = useApp((s) => s.connection)
   const sendMessage = useApp((s) => s.sendMessage)
   const abortRun = useApp((s) => s.abortRun)
+  const composerSeed = useApp((s) => s.composerSeed)
 
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<OutgoingAttachment[]>([])
@@ -54,6 +55,18 @@ export default function ChatView() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [items])
+
+  // a user message's Edit action loads its text into the composer for tweaking + re-send
+  useEffect(() => {
+    if (!composerSeed) return
+    setDraft(composerSeed.text)
+    const el = taRef.current
+    if (el) {
+      el.focus()
+      // caret to the end
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length))
+    }
+  }, [composerSeed])
 
   // grow the composer to fit its content — measured from the RENDERED height (scrollHeight),
   // so soft-wrapped long lines grow it too, not only explicit Shift+Enter newlines
@@ -153,7 +166,7 @@ export default function ChatView() {
         />
         {running ? (
           <button type="button" className="composer-send stop" onClick={() => void abortRun()} title="stop the run">
-            <Square size={15} />
+            <Square size={13} fill="currentColor" strokeWidth={0} />
           </button>
         ) : (
           <button type="submit" className={`composer-send ${draft.trim() || pending.length ? 'ready' : ''}`} disabled={(!draft.trim() && !pending.length) || connection !== 'open'} title="send">

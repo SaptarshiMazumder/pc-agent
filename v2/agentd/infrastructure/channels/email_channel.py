@@ -36,8 +36,11 @@ def parse_search(raw: str) -> list[dict]:
         data = json.loads(raw)
     except Exception:  # noqa: BLE001 — plain-text result: nothing to parse
         return []
-    items = data if isinstance(data, list) else (
-        data.get("messages") or data.get("results") or data.get("emails") or [])
+    items = (
+        data
+        if isinstance(data, list)
+        else (data.get("messages") or data.get("results") or data.get("emails") or [])
+    )
     out = []
     for it in items:
         if not isinstance(it, dict):
@@ -45,11 +48,13 @@ def parse_search(raw: str) -> list[dict]:
         mid = str(it.get("id") or it.get("message_id") or it.get("messageId") or "").strip()
         if not mid:
             continue
-        out.append({
-            "id": mid,
-            "from": (it.get("from") or it.get("sender") or it.get("fromAddress") or "").strip(),
-            "body": (it.get("body") or it.get("snippet") or it.get("text") or "").strip(),
-        })
+        out.append(
+            {
+                "id": mid,
+                "from": (it.get("from") or it.get("sender") or it.get("fromAddress") or "").strip(),
+                "body": (it.get("body") or it.get("snippet") or it.get("text") or "").strip(),
+            }
+        )
     return out
 
 
@@ -59,13 +64,13 @@ class EmailChannel:
     def __init__(self, invoke, agent_id: str = "main", cfg: dict | None = None):
         cfg = cfg or {}
         self.agent_id = agent_id
-        self._invoke = invoke                     # async (tool_name, params) -> str
+        self._invoke = invoke  # async (tool_name, params) -> str
         self._search_tool = cfg.get("search_tool", "google__search_gmail_messages")
         self._get_tool = cfg.get("get_tool", "google__get_gmail_message_content")
         self._send_tool = cfg.get("send_tool", "google__send_gmail_message")
         self._query = cfg.get("poll_query", "is:unread")
         self._subject = cfg.get("reply_subject", "Re: your message")
-        self._seen: set[str] = set()              # message ids already processed (dedupe)
+        self._seen: set[str] = set()  # message ids already processed (dedupe)
 
     async def send(self, peer: str, text: str) -> None:
         await self._invoke(self._send_tool, {"to": peer, "subject": self._subject, "body": text})
@@ -78,11 +83,12 @@ class EmailChannel:
                 continue
             self._seen.add(m["id"])
             body = m["body"]
-            if not body and self._get_tool:       # fetch full content if search gave none
+            if not body and self._get_tool:  # fetch full content if search gave none
                 try:
                     body = await self._invoke(self._get_tool, {"message_id": m["id"]})
                 except Exception:  # noqa: BLE001
                     log.warning("email get_content failed for %s", m["id"], exc_info=True)
-            out.append(InboundMessage(
-                channel=self.name, peer=m["from"], text=body, external_id=m["id"]))
+            out.append(
+                InboundMessage(channel=self.name, peer=m["from"], text=body, external_id=m["id"])
+            )
         return out

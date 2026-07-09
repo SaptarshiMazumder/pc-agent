@@ -10,7 +10,7 @@ NEVER break the run that triggered it.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from agentd.application.interfaces.notify import Notifier, NotifyStore
 from agentd.domain.notify import Notification
@@ -51,16 +51,17 @@ class ChannelNotifier:
     notifications. Adding a notify channel never means re-implementing the transport."""
 
     def __init__(self, channel, owner_peer: str):
-        self._channel = channel              # any Channel (has async send(peer, text))
-        self._owner = owner_peer             # where THIS user's notifications go on it
+        self._channel = channel  # any Channel (has async send(peer, text))
+        self._owner = owner_peer  # where THIS user's notifications go on it
 
     async def notify(self, n: Notification) -> None:
         body = n.text + (f"\n\n{n.detail}" if n.detail else "")
         try:
             await self._channel.send(self._owner, body)
         except Exception:  # noqa: BLE001 — notify must never break a run
-            log.warning("channel notify failed (%s)", getattr(self._channel, "name", "?"),
-                        exc_info=True)
+            log.warning(
+                "channel notify failed (%s)", getattr(self._channel, "name", "?"), exc_info=True
+            )
 
 
 class CompositeNotifier:
@@ -77,9 +78,11 @@ class CompositeNotifier:
                 log.warning("notifier %s failed", type(nf).__name__, exc_info=True)
 
 
-def build_notifier(store: NotifyStore | None,
-                   broadcast: Callable[[Notification], Awaitable[None]],
-                   extra: list[Notifier] | None = None) -> CompositeNotifier:
+def build_notifier(
+    store: NotifyStore | None,
+    broadcast: Callable[[Notification], Awaitable[None]],
+    extra: list[Notifier] | None = None,
+) -> CompositeNotifier:
     """Compose the active notify channels: live client-push + (if a store is present)
     durable persistence + any ``extra`` notifiers (e.g. ChannelNotifier for email)."""
     channels: list[Notifier] = [ClientPushNotifier(broadcast)]

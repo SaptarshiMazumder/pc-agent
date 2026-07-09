@@ -29,7 +29,7 @@ from agentd.domain.memory import MemoryItem
 
 log = logging.getLogger("agentd")
 
-_COLS = ("id", "agent_id", "source", "text", "created_at")   # the MemoryItem projection (unchanged)
+_COLS = ("id", "agent_id", "source", "text", "created_at")  # the MemoryItem projection (unchanged)
 
 # a fuller row for consolidation/ranking (never leaves the infrastructure layer)
 MemRow = namedtuple("MemRow", "id text created_at tier recall_count last_recalled embedding")
@@ -66,30 +66,34 @@ class SqliteMemoryBank:
     def __init__(self, path, embed_fn=None):
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._embed_fn = embed_fn                       # None => keyword-only
+        self._embed_fn = embed_fn  # None => keyword-only
         self._db = sqlite3.connect(str(self._path))
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS memory ("
             " id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, source TEXT NOT NULL,"
             " text TEXT NOT NULL, created_at REAL NOT NULL DEFAULT 0,"
             " embedding BLOB, tier TEXT NOT NULL DEFAULT 'short',"
-            " recall_count INTEGER NOT NULL DEFAULT 0, last_recalled REAL NOT NULL DEFAULT 0)")
-        self._migrate()                                 # add new columns to a pre-existing DB
+            " recall_count INTEGER NOT NULL DEFAULT 0, last_recalled REAL NOT NULL DEFAULT 0)"
+        )
+        self._migrate()  # add new columns to a pre-existing DB
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_mem_agent ON memory(agent_id, created_at)")
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS memory_recalls ("
             " id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id TEXT NOT NULL, query TEXT NOT NULL,"
-            " score REAL NOT NULL DEFAULT 0, created_at REAL NOT NULL DEFAULT 0)")
-        self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_recall_mem ON memory_recalls(memory_id)")
+            " score REAL NOT NULL DEFAULT 0, created_at REAL NOT NULL DEFAULT 0)"
+        )
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_recall_mem ON memory_recalls(memory_id)")
         self._fts = self._init_fts()
         self._db.commit()
 
     def _migrate(self) -> None:
         have = {r[1] for r in self._db.execute("PRAGMA table_info(memory)").fetchall()}
-        for col, decl in (("embedding", "BLOB"), ("tier", "TEXT NOT NULL DEFAULT 'short'"),
-                          ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
-                          ("last_recalled", "REAL NOT NULL DEFAULT 0")):
+        for col, decl in (
+            ("embedding", "BLOB"),
+            ("tier", "TEXT NOT NULL DEFAULT 'short'"),
+            ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_recalled", "REAL NOT NULL DEFAULT 0"),
+        ):
             if col not in have:
                 self._db.execute(f"ALTER TABLE memory ADD COLUMN {col} {decl}")
 
@@ -97,13 +101,16 @@ class SqliteMemoryBank:
         try:
             self._db.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5("
-                "text, content='memory', content_rowid='rowid')")
+                "text, content='memory', content_rowid='rowid')"
+            )
             self._db.execute(
                 "CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory BEGIN"
-                " INSERT INTO memory_fts(rowid, text) VALUES (new.rowid, new.text); END")
+                " INSERT INTO memory_fts(rowid, text) VALUES (new.rowid, new.text); END"
+            )
             self._db.execute(
                 "CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory BEGIN"
-                " INSERT INTO memory_fts(memory_fts, rowid, text) VALUES('delete', old.rowid, old.text); END")
+                " INSERT INTO memory_fts(memory_fts, rowid, text) VALUES('delete', old.rowid, old.text); END"
+            )
             return True
         except sqlite3.OperationalError:
             return False
@@ -137,8 +144,15 @@ class SqliteMemoryBank:
             "INSERT OR REPLACE INTO memory"
             " (id, agent_id, source, text, created_at, embedding, tier, recall_count, last_recalled)"
             " VALUES (?,?,?,?,?,?,'short',0,0)",
-            (mid, item.agent_id, item.source, item.text, item.created_at or time.time(),
-             self._embed(item.text) if embed else None))
+            (
+                mid,
+                item.agent_id,
+                item.source,
+                item.text,
+                item.created_at or time.time(),
+                self._embed(item.text) if embed else None,
+            ),
+        )
         self._db.commit()
         return mid
 
@@ -173,8 +187,9 @@ class SqliteMemoryBank:
         cols = ",".join(_COLS)
         rows = self._db.execute(
             f"SELECT {cols}, embedding FROM memory WHERE agent_id=? AND embedding IS NOT NULL",
-            (agent_id,)).fetchall()
-        scored = [(self._row(r[:len(_COLS)]), _cosine(qv, _unpack(r[-1]))) for r in rows]
+            (agent_id,),
+        ).fetchall()
+        scored = [(self._row(r[: len(_COLS)]), _cosine(qv, _unpack(r[-1]))) for r in rows]
         scored.sort(key=lambda p: p[1], reverse=True)
         return scored[:limit]
 
@@ -198,8 +213,10 @@ class SqliteMemoryBank:
         agent_sql = " AND m.agent_id=?" if agent_id else ""
         items: list[MemoryItem] = []
         if self._fts:
-            sql = (f"SELECT {cols} FROM memory_fts f JOIN memory m ON m.rowid=f.rowid "
-                   f"WHERE memory_fts MATCH ?{agent_sql} ORDER BY rank LIMIT ?")
+            sql = (
+                f"SELECT {cols} FROM memory_fts f JOIN memory m ON m.rowid=f.rowid "
+                f"WHERE memory_fts MATCH ?{agent_sql} ORDER BY rank LIMIT ?"
+            )
             params = [_fts_query(query)] + ([agent_id] if agent_id else []) + [limit]
             try:
                 items = [self._row(r) for r in self._db.execute(sql, params).fetchall()]
@@ -208,8 +225,10 @@ class SqliteMemoryBank:
         if not items:
             terms = [t for t in re.split(r"\s+", query) if t]
             like = " AND ".join("m.text LIKE ?" for _ in terms) or "1"
-            sql = (f"SELECT {cols} FROM memory m WHERE ({like}){agent_sql} "
-                   "ORDER BY m.created_at DESC LIMIT ?")
+            sql = (
+                f"SELECT {cols} FROM memory m WHERE ({like}){agent_sql} "
+                "ORDER BY m.created_at DESC LIMIT ?"
+            )
             params = [f"%{t}%" for t in terms] + ([agent_id] if agent_id else []) + [limit]
             items = [self._row(r) for r in self._db.execute(sql, params).fetchall()]
         if record and items:
@@ -221,42 +240,51 @@ class SqliteMemoryBank:
         for item, score in hits:
             self._db.execute(
                 "UPDATE memory SET recall_count = recall_count + 1, last_recalled=? WHERE id=?",
-                (now, item.id))
+                (now, item.id),
+            )
             self._db.execute(
                 "INSERT INTO memory_recalls (memory_id, query, score, created_at) VALUES (?,?,?,?)",
-                (item.id, query, float(score), now))
+                (item.id, query, float(score), now),
+            )
         self._db.commit()
 
     def get(self, item_id) -> MemoryItem | None:
         row = self._db.execute(
-            f"SELECT {','.join(_COLS)} FROM memory WHERE id=?", (item_id,)).fetchone()
+            f"SELECT {','.join(_COLS)} FROM memory WHERE id=?", (item_id,)
+        ).fetchone()
         return self._row(row) if row else None
 
     def recent(self, agent_id=None, limit=20) -> list[MemoryItem]:
         if agent_id:
             rows = self._db.execute(
                 f"SELECT {','.join(_COLS)} FROM memory WHERE agent_id=? "
-                "ORDER BY created_at DESC LIMIT ?", (agent_id, limit)).fetchall()
+                "ORDER BY created_at DESC LIMIT ?",
+                (agent_id, limit),
+            ).fetchall()
         else:
             rows = self._db.execute(
-                f"SELECT {','.join(_COLS)} FROM memory ORDER BY created_at DESC LIMIT ?",
-                (limit,)).fetchall()
+                f"SELECT {','.join(_COLS)} FROM memory ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [self._row(r) for r in rows]
 
     # ---- consolidation support (used by dreaming.py) -----------------------
 
     def agent_ids(self) -> list[str]:
-        return [r[0] for r in self._db.execute(
-            "SELECT DISTINCT agent_id FROM memory").fetchall()]
+        return [r[0] for r in self._db.execute("SELECT DISTINCT agent_id FROM memory").fetchall()]
 
     def rows_for(self, agent_id) -> list[MemRow]:
         """Full rows (with unpacked embeddings) for one agent — for merge/promote/decay passes."""
         out = []
         for r in self._db.execute(
-                "SELECT id, text, created_at, tier, recall_count, last_recalled, embedding "
-                "FROM memory WHERE agent_id=?", (agent_id,)).fetchall():
-            out.append(MemRow(r[0], r[1], r[2], r[3], r[4], r[5],
-                              _unpack(r[6]) if r[6] is not None else None))
+            "SELECT id, text, created_at, tier, recall_count, last_recalled, embedding "
+            "FROM memory WHERE agent_id=?",
+            (agent_id,),
+        ).fetchall():
+            out.append(
+                MemRow(
+                    r[0], r[1], r[2], r[3], r[4], r[5], _unpack(r[6]) if r[6] is not None else None
+                )
+            )
         return out
 
     def recall_aggregates(self, agent_id) -> dict[str, RecallAgg]:
@@ -264,7 +292,9 @@ class SqliteMemoryBank:
         days recalled, and the best cosine score seen — the inputs to promotion."""
         rows = self._db.execute(
             "SELECT r.memory_id, r.query, r.score, r.created_at FROM memory_recalls r "
-            "JOIN memory m ON m.id = r.memory_id WHERE m.agent_id=?", (agent_id,)).fetchall()
+            "JOIN memory m ON m.id = r.memory_id WHERE m.agent_id=?",
+            (agent_id,),
+        ).fetchall()
         buckets: dict[str, dict] = {}
         for mem_id, q, score, ts in rows:
             b = buckets.setdefault(mem_id, {"n": 0, "q": set(), "d": set(), "max": 0.0})
@@ -272,8 +302,9 @@ class SqliteMemoryBank:
             b["q"].add((q or "").strip().lower())
             b["d"].add(int(ts // 86400))
             b["max"] = max(b["max"], float(score))
-        return {k: RecallAgg(v["n"], len(v["q"]), len(v["d"]), v["max"])
-                for k, v in buckets.items()}
+        return {
+            k: RecallAgg(v["n"], len(v["q"]), len(v["d"]), v["max"]) for k, v in buckets.items()
+        }
 
     def set_tier(self, item_id, tier) -> None:
         self._db.execute("UPDATE memory SET tier=? WHERE id=?", (tier, item_id))
@@ -289,11 +320,16 @@ class SqliteMemoryBank:
         """Delete ALL of one agent's memory (FTS kept in sync by the delete trigger) plus its
         recall ledger rows. Returns the number of memory rows removed. Used when an agent is
         deleted."""
-        ids = [r[0] for r in self._db.execute(
-            "SELECT id FROM memory WHERE agent_id=?", (agent_id,)).fetchall()]
+        ids = [
+            r[0]
+            for r in self._db.execute(
+                "SELECT id FROM memory WHERE agent_id=?", (agent_id,)
+            ).fetchall()
+        ]
         if ids:
             self._db.executemany(
-                "DELETE FROM memory_recalls WHERE memory_id=?", [(i,) for i in ids])
+                "DELETE FROM memory_recalls WHERE memory_id=?", [(i,) for i in ids]
+            )
         cur = self._db.execute("DELETE FROM memory WHERE agent_id=?", (agent_id,))
         self._db.commit()
         return cur.rowcount

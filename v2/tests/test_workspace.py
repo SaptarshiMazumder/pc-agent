@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.application import run_context as rc
 from agentd.application.run_context import RunContext, current_workspace
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "core_fs"))
 from fs_tools import _resolve  # built-in 'core_fs' bundle
 
@@ -37,7 +38,9 @@ def test_empty_workspace_falls_back_to_global():
 
 def test_resolve_relative_path_roots_at_run_workspace():
     cfg = SimpleNamespace(workspace=Path("/global"))
-    tok = rc._current.set(RunContext("scout", "s", "interactive", workspace=str(Path("/a/scout/ws"))))
+    tok = rc._current.set(
+        RunContext("scout", "s", "interactive", workspace=str(Path("/a/scout/ws")))
+    )
     try:
         assert _resolve(cfg, "notes.txt") == Path("/a/scout/ws") / "notes.txt"
     finally:

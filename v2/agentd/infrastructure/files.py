@@ -12,26 +12,40 @@ from __future__ import annotations
 
 import base64
 import binascii
+import mimetypes
 import re
 import uuid
 from pathlib import Path
 
-import mimetypes
-
 # --- extension -> mime, grouped by how a client should present each kind ------------
 _IMAGE = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
-    ".bmp": "image/bmp", ".ico": "image/x-icon", ".avif": "image/avif",
-    ".tif": "image/tiff", ".tiff": "image/tiff",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".bmp": "image/bmp",
+    ".ico": "image/x-icon",
+    ".avif": "image/avif",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
 }
 _VIDEO = {
-    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
-    ".m4v": "video/x-m4v", ".mkv": "video/x-matroska", ".ogv": "video/ogg",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".m4v": "video/x-m4v",
+    ".mkv": "video/x-matroska",
+    ".ogv": "video/ogg",
 }
 _AUDIO = {
-    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
-    ".m4a": "audio/mp4", ".flac": "audio/flac", ".aac": "audio/aac",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".aac": "audio/aac",
 }
 # recognised documents — not inline-renderable in a webview, shown as an openable chip
 _DOC = {
@@ -42,15 +56,23 @@ _DOC = {
     ".doc": "application/msword",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".xls": "application/vnd.ms-excel",
-    ".csv": "text/csv", ".tsv": "text/tab-separated-values",
-    ".json": "application/json", ".txt": "text/plain",
-    ".md": "text/markdown", ".html": "text/html", ".htm": "text/html",
-    ".zip": "application/zip", ".puml": "text/plain",
+    ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
+    ".json": "application/json",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".zip": "application/zip",
+    ".puml": "text/plain",
 }
 
 # how each family renders on a client: image/video/audio play inline; file = openable chip
 _KINDS: tuple[tuple[dict[str, str], str], ...] = (
-    (_IMAGE, "image"), (_VIDEO, "video"), (_AUDIO, "audio"), (_DOC, "file"),
+    (_IMAGE, "image"),
+    (_VIDEO, "video"),
+    (_AUDIO, "audio"),
+    (_DOC, "file"),
 )
 
 

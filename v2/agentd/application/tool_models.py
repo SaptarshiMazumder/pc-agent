@@ -40,10 +40,11 @@ def brain_model(config, agent_model: str | None = None) -> str:
     if not getattr(config, "config_path", ""):
         raise ConfigMissingError(
             "agentd.config.json not found — the brain model comes ONLY from config. Create "
-            "v2/agentd.config.json (or set AGENTD_CONFIG) with a top-level \"model\".")
+            'v2/agentd.config.json (or set AGENTD_CONFIG) with a top-level "model".'
+        )
     m = getattr(config, "model", None)
     if not m:
-        raise ConfigMissingError("agentd.config.json has no top-level \"model\".")
+        raise ConfigMissingError('agentd.config.json has no top-level "model".')
     return m
 
 
@@ -56,8 +57,9 @@ def _tool_entry(plugins: dict, plugin: str, tool: str) -> dict | None:
     return t if isinstance(t, dict) else None
 
 
-def _resolve_field(config, plugin: str, tool: str, key: str,
-                   per_call: str | None, default: str | None) -> str | None:
+def _resolve_field(
+    config, plugin: str, tool: str, key: str, per_call: str | None, default: str | None
+) -> str | None:
     """Precedence for a knob whose EMPTY value means 'unset' (model/provider): per-call ->
     agent.toml tools[tool][key] -> config tools[tool][key] -> default."""
     if per_call:
@@ -70,14 +72,49 @@ def _resolve_field(config, plugin: str, tool: str, key: str,
     return default
 
 
-def resolve_tool_model(config, plugin: str, tool: str, per_call: str | None = None,
-                       default: str | None = None) -> str | None:
-    """Resolve the MODEL for `tool` (in `plugin`). See module docstring for precedence."""
-    return _resolve_field(config, plugin, tool, "model", per_call, default)
+# SEED per-KIND default models — a model-bearing tool declares its `model_kind` and gets the house
+# model for that kind WITHOUT ever naming one. ``config.model_defaults[<kind>]`` OVERRIDES these per
+# key (config-first); the seed is only the fresh-install fallback. "text" is absent ON PURPOSE — text
+# tools inherit the brain. Change a kind's default for EVERY tool of that kind in ONE config line.
+KIND_DEFAULT_MODELS = {
+    "vision": "gemini/gemini-3.1-pro-preview",  # reads/understands images
+    "image-gen": "gemini/gemini-3-pro-image",  # GENERATES images (Nano Banana Pro)
+    "embedding": "gemini/text-embedding-004",
+}
 
 
-def resolve_tool_provider(config, plugin: str, tool: str, per_call: str | None = None,
-                          default: str | None = None) -> str | None:
+def kind_default_model(config, kind: str | None) -> str | None:
+    """The house default model for a model KIND: ``config.model_defaults[kind]`` (override) else the
+    KIND_DEFAULT_MODELS seed. None for an empty/unknown kind (e.g. 'text' => inherit the brain)."""
+    if not kind:
+        return None
+    md = getattr(config, "model_defaults", None) or {}
+    return md.get(kind) or KIND_DEFAULT_MODELS.get(kind)
+
+
+def resolve_tool_model(
+    config,
+    plugin: str,
+    tool: str,
+    per_call: str | None = None,
+    default: str | None = None,
+    kind: str | None = None,
+) -> str | None:
+    """Resolve the MODEL for `tool`. Precedence (first hit wins): per-call arg > agent.toml
+    plugins[P].tools[T].model > config plugins[P].tools[T].model > the tool's OWN `default_model`
+    (a considered per-tool choice, e.g. verify_figure's cheap judge) > the HOUSE DEFAULT for the
+    tool's KIND (config.model_defaults). So a tool that names NO model just declares `model_kind`
+    and inherits the house default; a tool with a specific need declares `default_model`; and either
+    is overridable from config per-tool (plugins.<p>.tools.<t>.model) or per-kind (model_defaults)."""
+    hit = _resolve_field(config, plugin, tool, "model", per_call, None)
+    if hit:
+        return hit
+    return default or kind_default_model(config, kind)
+
+
+def resolve_tool_provider(
+    config, plugin: str, tool: str, per_call: str | None = None, default: str | None = None
+) -> str | None:
     """Resolve the backend PROVIDER for `tool` (e.g. figure-art: gemini|fal|replicate; web_search: the
     search chain; browser: playwright|agent_browser). Tool-level, same precedence as the model."""
     return _resolve_field(config, plugin, tool, "provider", per_call, default)
@@ -133,6 +170,7 @@ def resource_summary_model(config) -> str | None:
 # any other tool reads its own knob via tool_config(config, plugin, tool, key, default) directly.
 # Presence-based (tool_config), so an explicit false/0/"" set in config is honored, and the
 # built-in default is the last link — the tool still works with an empty/absent plugins block.
+
 
 def browser_knob(config, key: str, default=None):
     """A behavioral knob for the `browser` tool: plugins.browser.tools.browser.<key> (headless,

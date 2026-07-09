@@ -37,7 +37,7 @@ class GatewayInfo:
     host: str
     port: int
     pid: int
-    token: str = ""            # "" => auth disabled on that daemon
+    token: str = ""  # "" => auth disabled on that daemon
     version: str = ""
     started_at: str = ""
 
@@ -74,9 +74,12 @@ def read_gateway_file() -> GatewayInfo | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return GatewayInfo(
-            host=str(data.get("host") or "127.0.0.1"), port=int(data["port"]),
-            pid=int(data.get("pid") or 0), token=str(data.get("token") or ""),
-            version=str(data.get("version") or ""), started_at=str(data.get("started_at") or ""),
+            host=str(data.get("host") or "127.0.0.1"),
+            port=int(data["port"]),
+            pid=int(data.get("pid") or 0),
+            token=str(data.get("token") or ""),
+            version=str(data.get("version") or ""),
+            started_at=str(data.get("started_at") or ""),
         )
     except (OSError, ValueError, KeyError):
         return None
@@ -167,12 +170,18 @@ def spawn_daemon(wait_sec: float = 300.0) -> GatewayInfo:
     log_path = runtime_paths.logs_dir() / "daemon.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 — handed to the child
-    kwargs: dict = {"stdout": log_file, "stderr": subprocess.STDOUT,
-                    "stdin": subprocess.DEVNULL, "close_fds": True}
+    kwargs: dict = {
+        "stdout": log_file,
+        "stderr": subprocess.STDOUT,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+    }
     if sys.platform == "win32":
-        kwargs["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
-                                   | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-                                   | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        )
     else:
         kwargs["start_new_session"] = True
     proc = subprocess.Popen(daemon_command(), **kwargs)  # noqa: S603 — our own daemon
@@ -197,9 +206,12 @@ def spawn_daemon(wait_sec: float = 300.0) -> GatewayInfo:
             if winner is not None:
                 return winner
             raise RuntimeError(
-                f"daemon exited immediately (code {proc.returncode}) — log tail:\n{_log_tail(log_path)}")
+                f"daemon exited immediately (code {proc.returncode}) — log tail:\n{_log_tail(log_path)}"
+            )
         time.sleep(0.25)
-    raise RuntimeError(f"daemon did not come up within {wait_sec:.0f}s — log tail:\n{_log_tail(log_path)}")
+    raise RuntimeError(
+        f"daemon did not come up within {wait_sec:.0f}s — log tail:\n{_log_tail(log_path)}"
+    )
 
 
 def ensure_running(wait_sec: float = 300.0) -> tuple[GatewayInfo, bool]:
@@ -217,8 +229,9 @@ def stop_daemon(timeout: float = 10.0) -> bool:
         clear_gateway_file()
         return True
     if sys.platform == "win32":
-        subprocess.run(["taskkill", "/PID", str(info.pid), "/T", "/F"],
-                       capture_output=True, check=False)
+        subprocess.run(
+            ["taskkill", "/PID", str(info.pid), "/T", "/F"], capture_output=True, check=False
+        )
     else:
         import signal
 

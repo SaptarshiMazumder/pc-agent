@@ -18,8 +18,8 @@ class WindowContextPolicy:
     def prepare(self, messages: list[Message]) -> list[Message]:
         if len(messages) <= self.max_messages:
             return messages
-        window = messages[-self.max_messages:]
-        for i, m in enumerate(window):           # start at a clean user-turn boundary
+        window = messages[-self.max_messages :]
+        for i, m in enumerate(window):  # start at a clean user-turn boundary
             if getattr(m, "role", "") == "user":
                 return window[i:]
-        return window                            # no boundary in window (rare) -> tail as-is
+        return window  # no boundary in window (rare) -> tail as-is

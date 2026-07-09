@@ -63,20 +63,28 @@ class CreateToolTool(Tool):
         "(kebab-case), the tool `name` the model will call, a `description` (when/how to use "
         "it), a `parameters` JSON-schema object, and `code` — the Python body of its execute "
         "step: `params` holds the call args, and you MUST end by returning "
-        "`ToolResult.text(\"...\")` (or with is_error=True). Use stdlib / already-installed "
+        '`ToolResult.text("...")` (or with is_error=True). Use stdlib / already-installed '
         "packages. Prefer create_skill (no code) or add_mcp (a server) when they fit — this "
-        "runs NEW code in-process, so use it only for a genuinely new capability.")
+        "runs NEW code in-process, so use it only for a genuinely new capability."
+    )
     parameters = {
         "type": "object",
         "required": ["id", "name", "code"],
         "properties": {
             "id": {"type": "string", "description": "plugin id, kebab-case (e.g. word-count)"},
-            "name": {"type": "string", "description": "tool name the model calls (e.g. word_count)"},
+            "name": {
+                "type": "string",
+                "description": "tool name the model calls (e.g. word_count)",
+            },
             "description": {"type": "string", "description": "what the tool does + when to use it"},
-            "parameters": {"type": "object",
-                           "description": "JSON-schema for the tool's params (default: no params)"},
-            "code": {"type": "string",
-                     "description": "Python execute body; `params` = args; must return ToolResult.text(...)"},
+            "parameters": {
+                "type": "object",
+                "description": "JSON-schema for the tool's params (default: no params)",
+            },
+            "code": {
+                "type": "string",
+                "description": "Python execute body; `params` = args; must return ToolResult.text(...)",
+            },
         },
     }
 
@@ -97,22 +105,31 @@ class CreateToolTool(Tool):
         if not isinstance(schema, dict):
             schema = {"type": "object", "properties": {}}
 
-        root = (getattr(self._config, "plugins_dir", "") or
-                getattr(self._config, "builtin_plugins_dir", "") or "")
+        root = (
+            getattr(self._config, "plugins_dir", "")
+            or getattr(self._config, "builtin_plugins_dir", "")
+            or ""
+        )
         if not root:
             return ToolResult.text(
                 "no plugins dir configured (set AGENTD_PLUGINS_DIR) — cannot write the tool",
-                is_error=True)
+                is_error=True,
+            )
         d = Path(root) / pid
         if d.exists():
             return ToolResult.text(
-                f"a plugin '{pid}' already exists at {d} — pick a different id", is_error=True)
+                f"a plugin '{pid}' already exists at {d} — pick a different id", is_error=True
+            )
 
         module = _ident(pid)
         body = textwrap.indent(textwrap.dedent(code), " " * 12)
         source = _MODULE_TEMPLATE.format(
-            name=tool_name, label=tool_name.replace("_", " ").title(),
-            description=description, parameters=schema, body=body)
+            name=tool_name,
+            label=tool_name.replace("_", " ").title(),
+            description=description,
+            parameters=schema,
+            body=body,
+        )
         # Compile-check the generated module BEFORE writing it, so a syntax error is reported
         # to the model instead of leaving a broken plugin on disk.
         try:
@@ -120,25 +137,31 @@ class CreateToolTool(Tool):
         except SyntaxError as e:
             return ToolResult.text(
                 f"generated tool has a syntax error (line {e.lineno}): {e.msg} — fix the `code`",
-                is_error=True)
+                is_error=True,
+            )
 
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{module}.py").write_text(source, encoding="utf-8")
         (d / "plugin.toml").write_text(
             f'id = "{pid}"\nname = "{tool_name}"\nkind = "native"\nentry = "{module}:register"\n',
-            encoding="utf-8")
+            encoding="utf-8",
+        )
 
         if not callable(self._reload):
             return ToolResult.text(
                 f"wrote tool '{tool_name}' at {d}, but live reload is unavailable — restart to load it",
-                is_error=True)
+                is_error=True,
+            )
         result = self._reload()
         if not result.get("ok"):
             return ToolResult.text(
                 f"wrote tool '{tool_name}' at {d}, but reload failed: {result.get('error')}",
-                is_error=True)
+                is_error=True,
+            )
         loaded = tool_name in (result.get("tools") or [])
         return ToolResult.text(
             f"Created tool '{tool_name}' (plugin '{pid}') at {d} and loaded it live"
             + ("" if loaded else " (note: not visible in the catalog — check enablement)")
-            + " — callable next turn.", details={"id": pid, "tool": tool_name})
+            + " — callable next turn.",
+            details={"id": pid, "tool": tool_name},
+        )

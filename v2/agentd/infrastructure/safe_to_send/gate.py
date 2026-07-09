@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from agentd.application.interfaces.safe_to_send import SafeToSendContext, SafeToSendVerdict
 
@@ -27,7 +27,8 @@ JudgeFn = Callable[[str], Awaitable[str]]
 # Sent in place of a blocked reply when the judge didn't supply its own safe_reply.
 DEFAULT_SAFE_REPLY = (
     "Sorry, I'm not able to share that here. Could you give me a few more details about "
-    "your own request so I can help you directly?")
+    "your own request so I can help you directly?"
+)
 
 DEFAULT_RUBRIC = (
     "You are a disclosure gate for an AI assistant. The assistant just wrote a REPLY to send to "
@@ -44,13 +45,19 @@ DEFAULT_RUBRIC = (
     "process, contact method, or detail not present in the conversation. If safe=true, leave "
     "safe_reply empty [VERY IMPORTANT, DO NOT INVENT ANSWERS].\n"
     'Reply with ONLY compact JSON: {"safe": true|false, "reason": "<short>", '
-    '"safe_reply": "<text or empty>"}')
+    '"safe_reply": "<text or empty>"}'
+)
 
 
 class LlmSafeToSendGate:
-    def __init__(self, judge_fn: JudgeFn, rubric: str = DEFAULT_RUBRIC,
-                 max_policy_chars: int = 12_000, max_convo_chars: int = 6_000,
-                 safe_reply: str = DEFAULT_SAFE_REPLY):
+    def __init__(
+        self,
+        judge_fn: JudgeFn,
+        rubric: str = DEFAULT_RUBRIC,
+        max_policy_chars: int = 12_000,
+        max_convo_chars: int = 6_000,
+        safe_reply: str = DEFAULT_SAFE_REPLY,
+    ):
         self._judge = judge_fn
         self._rubric = rubric
         self._max_policy = max_policy_chars
@@ -63,13 +70,14 @@ class LlmSafeToSendGate:
             raw = await self._judge(prompt)
             data = _extract_json(raw)
             if data is None:
-                return self._blocked("gate returned unparseable output")   # FAIL-CLOSED
+                return self._blocked("gate returned unparseable output")  # FAIL-CLOSED
             if bool(data.get("safe", False)):
                 return SafeToSendVerdict(safe=True)
             return SafeToSendVerdict(
                 safe=False,
                 reason=str(data.get("reason", "")).strip(),
-                safe_reply=(str(data.get("safe_reply", "")).strip() or self._safe))
+                safe_reply=(str(data.get("safe_reply", "")).strip() or self._safe),
+            )
         except Exception as e:  # noqa: BLE001 — a broken gate must FAIL CLOSED (block), not leak
             log.warning("safe-to-send gate failed (fail-closed -> block): %s", e)
             return self._blocked(f"gate error: {type(e).__name__}")
@@ -80,7 +88,7 @@ class LlmSafeToSendGate:
     def _build_prompt(self, ctx: SafeToSendContext) -> str:
         policy = (ctx.policy or "(no explicit rules)")[: self._max_policy]
         convo = (ctx.conversation or "").strip()
-        convo = convo[-self._max_convo:] if convo else "(none provided)"
+        convo = convo[-self._max_convo :] if convo else "(none provided)"
         return (
             f"{self._rubric}\n\n"
             f"## RECIPIENT\n"
@@ -90,7 +98,8 @@ class LlmSafeToSendGate:
             f"## RECENT CONVERSATION (oldest first — context for judging the reply against the rules)\n{convo}\n\n"
             f"## WHAT THE RECIPIENT ASKED (latest)\n{ctx.question}\n\n"
             f"## THE REPLY ABOUT TO BE SENT\n{ctx.answer}\n\n"
-            f"## YOUR VERDICT (JSON only)")
+            f"## YOUR VERDICT (JSON only)"
+        )
 
 
 def _extract_json(text: str) -> dict | None:

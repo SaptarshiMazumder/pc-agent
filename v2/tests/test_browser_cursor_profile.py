@@ -23,17 +23,27 @@ CURSOR_HTML = (
 
 
 def _cfg(tmp_path, **over):
-    base = dict(state_dir=tmp_path, browser_headless=True, browser_persistent=False,
-               browser_downloads=True, browser_console_buffer=50,
-               browser_channel="", browser_stealth=False, browser_cursor_scan=True)
+    base = dict(
+        state_dir=tmp_path,
+        browser_headless=True,
+        browser_persistent=False,
+        browser_downloads=True,
+        browser_console_buffer=50,
+        browser_channel="",
+        browser_stealth=False,
+        browser_cursor_scan=True,
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
 
+@pytest.mark.browser  # launches a real Chromium (the 3 profile tests below stay hermetic)
 @pytest.mark.asyncio
 async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
     try:
-        from agentd.infrastructure.tools.browser.providers.playwright import PlaywrightBrowserProvider
+        from agentd.infrastructure.tools.browser.providers.playwright import (
+            PlaywrightBrowserProvider,
+        )
     except ImportError:
         pytest.skip("playwright not installed")
     from browser_tool import BrowserTool
@@ -58,8 +68,9 @@ async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
 
     # click the non-ARIA div by its cursor ref -> its onclick fires
     await tool.execute("c", {"action": "act", "kind": "click", "ref": cref}, asyncio.Event())
-    res = await tool.execute("c", {"action": "act", "kind": "evaluate",
-                                   "expression": "document.title"}, asyncio.Event())
+    res = await tool.execute(
+        "c", {"action": "act", "kind": "evaluate", "expression": "document.title"}, asyncio.Event()
+    )
     assert "DIVCLICK" in res.content[0].text
 
     # disabling the scan removes the section
@@ -72,6 +83,7 @@ async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
 
 def test_resolve_chrome_profile_by_abs_path(tmp_path):
     from agentd.infrastructure.tools.browser.providers.playwright import resolve_chrome_profile
+
     prof = tmp_path / "SomeProfile"
     prof.mkdir()
     assert resolve_chrome_profile(str(prof)) == prof
@@ -94,8 +106,8 @@ def test_seed_profile_copies_excluding_caches_and_is_idempotent(tmp_path):
     assert seed_profile_from_chrome(str(src), target) is True
     assert (target / "Default" / "Cookies").read_bytes() == b"cookiedata"
     assert (target / "Default" / "Login Data").exists()
-    assert not (target / "Default" / "Cache").exists()   # caches excluded
-    assert (target / "Local State").exists()             # cookie-key file copied
+    assert not (target / "Default" / "Cache").exists()  # caches excluded
+    assert (target / "Local State").exists()  # cookie-key file copied
 
     # idempotent: already seeded -> returns True, doesn't error
     assert seed_profile_from_chrome(str(src), target) is True
@@ -103,4 +115,5 @@ def test_seed_profile_copies_excluding_caches_and_is_idempotent(tmp_path):
 
 def test_seed_profile_missing_source_returns_false(tmp_path):
     from agentd.infrastructure.tools.browser.providers.playwright import seed_profile_from_chrome
+
     assert seed_profile_from_chrome(str(tmp_path / "nope"), tmp_path / "out") is False

@@ -21,7 +21,8 @@ def test_issue_verify_roundtrip(tmp_path):
     private_b64, public_b64 = _keys()
     (tmp_path / "pro.lic").write_text(
         issue_license(private_b64, ["figure-creator-pro"], subject="user@example.com"),
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     licenses = load_licenses(tmp_path, public_b64)
     assert len(licenses) == 1
     assert entitled_skus(licenses) == {"figure-creator-pro"}
@@ -47,7 +48,9 @@ def test_expired_license_rejected():
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     assert parse_license(issue_license(private_b64, ["pro"], expires=yesterday), public_b64) is None
-    assert parse_license(issue_license(private_b64, ["pro"], expires=tomorrow), public_b64) is not None
+    assert (
+        parse_license(issue_license(private_b64, ["pro"], expires=tomorrow), public_b64) is not None
+    )
 
 
 def test_no_publisher_key_verifies_nothing(tmp_path):
@@ -58,8 +61,9 @@ def test_no_publisher_key_verifies_nothing(tmp_path):
 
 def test_license_entitlement_policy():
     free = PluginManifest(id="web", name="Web", kind="native", entry="x:y")
-    paid = PluginManifest(id="figures", name="Figures", kind="native", entry="x:y",
-                          entitlement="figure-creator-pro")
+    paid = PluginManifest(
+        id="figures", name="Figures", kind="native", entry="x:y", entitlement="figure-creator-pro"
+    )
     policy = LicenseEntitlement(set())
     assert policy.is_entitled(free), "unmarked plugins are always free"
     assert not policy.is_entitled(paid)

@@ -4,6 +4,8 @@ import { Folder, Plus, Pencil, Trash2 } from 'lucide-react'
 import { hashColor } from '../lib/agentPresentation'
 import { whenLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
+import SearchBox from './SearchBox'
 
 /** Projects list page (view:'projects'). Mirrors ChatGPT's Projects page: a single flat list
  *  with per-project chat counts + last-activity, computed client-side from the cross-agent
@@ -46,28 +48,20 @@ export default function ProjectsView() {
     if (name) void createProject(name) // opens a fresh chat inside the new project
   }
 
-  return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <div className="page-title">Projects</div>
-            <div className="page-sub">Group chats and files around a goal. Message a project and its lead agent responds.</div>
-          </div>
-          <div className="settings-head-actions">
-            <input
-              className="field-input head-search"
-              placeholder="Search projects"
-              value={query}
-              spellCheck={false}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button className="btn primary" onClick={() => { setAdding(true); setDraft('') }}>
-              <Plus size={14} />New
-            </button>
-          </div>
-        </div>
+  const actions = (
+    <button className="btn primary" onClick={() => { setAdding(true); setDraft('') }}>
+      <Plus size={14} />New
+    </button>
+  )
+  const search = <SearchBox value={query} onChange={setQuery} placeholder="Search projects" />
 
+  return (
+    <PageShell
+      title="Projects"
+      sub="Group chats and files around a goal. Message a project and its lead agent responds."
+      actions={actions}
+      search={search}
+    >
         {adding && (
           <div className="settings-card ds-form">
             <div className="field">
@@ -148,7 +142,6 @@ export default function ProjectsView() {
             })}
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   )
 }

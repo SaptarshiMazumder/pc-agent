@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import time
 
+from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_run_context
 from agentd.domain.memory import MemoryItem
-
-from agentd.application.interfaces.tool import Tool, ToolResult
 
 
 def _agent_id() -> str:
@@ -26,22 +25,27 @@ class RememberTool(Tool):
     description = (
         "Save a durable fact/learning to your long-term memory so you (or a future session) "
         "can recall it later — a user preference, where a credential lives, a gotcha, a "
-        "decision. Keep each note to one clear sentence.")
+        "decision. Keep each note to one clear sentence."
+    )
     parameters = {
-        "type": "object", "required": ["text"],
-        "properties": {"text": {"type": "string", "description": "The fact to remember (one sentence)."}},
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+            "text": {"type": "string", "description": "The fact to remember (one sentence)."}
+        },
     }
 
     def __init__(self, bank, embedder=None):
         self._bank = bank
-        self._embedder = embedder      # BackgroundEmbedder: fills the vector off the turn
+        self._embedder = embedder  # BackgroundEmbedder: fills the vector off the turn
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         text = (params.get("text") or "").strip()
         if not text:
             return ToolResult.text("nothing to remember (empty text)", is_error=True)
-        item = MemoryItem(id="", agent_id=_agent_id(), source="note", text=text,
-                          created_at=time.time())
+        item = MemoryItem(
+            id="", agent_id=_agent_id(), source="note", text=text, created_at=time.time()
+        )
         # Fast path: write the fact NOW (no network), embed in the background so the agent doesn't
         # wait. Falls back to a synchronous save when there's no embedder (keyword-only mode).
         if self._embedder is not None and getattr(self._bank, "embedder_ready", False):
@@ -57,11 +61,15 @@ class MemorySearchTool(Tool):
     label = "Memory"
     description = (
         "Search your long-term memory for facts you saved earlier (across past sessions). "
-        "Check here before asking the user something you might already know.")
+        "Check here before asking the user something you might already know."
+    )
     parameters = {
-        "type": "object", "required": ["query"],
-        "properties": {"query": {"type": "string"},
-                       "limit": {"type": "integer", "description": "max results (default 5)"}},
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "description": "max results (default 5)"},
+        },
     }
 
     def __init__(self, bank):
@@ -77,7 +85,8 @@ class MemorySearchTool(Tool):
             return ToolResult.text("(no matching memories)")
         return ToolResult.text(
             "Memories:\n" + "\n".join(f"[{h.id}] {h.text}" for h in hits),
-            details=[h.__dict__ for h in hits])
+            details=[h.__dict__ for h in hits],
+        )
 
 
 class MemoryGetTool(Tool):
@@ -103,7 +112,8 @@ class MemoryConsolidateTool(Tool):
         "Consolidate your long-term memory ('dreaming'): collapse duplicate/near-duplicate "
         "notes, promote facts you keep recalling into durable long-term memory, and forget "
         "stale never-recalled ones. Run it on a schedule (e.g. a nightly cron) so memory stays "
-        "clean and gets sharper over time.")
+        "clean and gets sharper over time."
+    )
     parameters = {"type": "object", "properties": {}}
 
     def __init__(self, bank, config=None):
@@ -115,12 +125,14 @@ class MemoryConsolidateTool(Tool):
         from agentd.infrastructure.memory.dreaming import dream
 
         agent_id = _agent_id()
-        removed = consolidate(self._bank, agent_id)            # exact dups (works without embeddings)
+        removed = consolidate(self._bank, agent_id)  # exact dups (works without embeddings)
         d = dream(self._bank, agent_id, self._config or _DefaultDreamCfg())
         d["removed_exact"] = removed
         return ToolResult.text(
             f"dreamed: merged {d['merged']} near-dup(s), promoted {d['promoted']} to long-term, "
-            f"forgot {d['forgotten']} stale, removed {removed} exact dup(s)", details=d)
+            f"forgot {d['forgotten']} stale, removed {removed} exact dup(s)",
+            details=d,
+        )
 
 
 class _DefaultDreamCfg:

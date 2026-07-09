@@ -28,15 +28,30 @@ class RenderHtmlTool(Tool):
         "type": "object",
         "required": ["out_path"],
         "properties": {
-            "html": {"type": "string", "description": "Raw HTML string. Provide one of html / html_path / url."},
+            "html": {
+                "type": "string",
+                "description": "Raw HTML string. Provide one of html / html_path / url.",
+            },
             "html_path": {"type": "string", "description": "Path to a local .html file."},
             "url": {"type": "string", "description": "A URL to load."},
-            "out_path": {"type": "string", "description": "Output path; .png -> image, .pdf -> PDF. Absolute or relative to workspace."},
+            "out_path": {
+                "type": "string",
+                "description": "Output path; .png -> image, .pdf -> PDF. Absolute or relative to workspace.",
+            },
             "width": {"type": "integer", "description": "Viewport width px. Default 1920."},
             "height": {"type": "integer", "description": "Viewport height px. Default 1080."},
-            "scale": {"type": "number", "description": "Device scale factor for crisp PNGs. Default 2."},
-            "full_page": {"type": "boolean", "description": "Capture the full scrollable page (PNG). Default false."},
-            "wait_ms": {"type": "integer", "description": "Settle time before capture. Default 250."},
+            "scale": {
+                "type": "number",
+                "description": "Device scale factor for crisp PNGs. Default 2.",
+            },
+            "full_page": {
+                "type": "boolean",
+                "description": "Capture the full scrollable page (PNG). Default false.",
+            },
+            "wait_ms": {
+                "type": "integer",
+                "description": "Settle time before capture. Default 250.",
+            },
         },
     }
 
@@ -71,13 +86,16 @@ class RenderHtmlTool(Tool):
             except Exception:
                 br = pw.chromium.launch(channel="msedge")
             try:
-                page = br.new_page(viewport={"width": width, "height": height},
-                                   device_scale_factor=scale)
+                page = br.new_page(
+                    viewport={"width": width, "height": height}, device_scale_factor=scale
+                )
                 if params.get("url"):
                     page.goto(params["url"], wait_until="networkidle")
                 elif params.get("html_path"):
-                    page.goto(self._resolve(params["html_path"]).resolve().as_uri(),
-                              wait_until="networkidle")
+                    page.goto(
+                        self._resolve(params["html_path"]).resolve().as_uri(),
+                        wait_until="networkidle",
+                    )
                 else:
                     page.set_content(params["html"], wait_until="networkidle")
                 page.wait_for_timeout(wait_ms)
@@ -94,5 +112,6 @@ class RenderHtmlTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"render_html failed: {e}", is_error=True)
-        return ToolResult.text(f"Rendered HTML -> {r['path']} ({r['format']}).",
-                               details=r, artifacts=[r["path"]])  # deliverable: the rendered output
+        return ToolResult.text(
+            f"Rendered HTML -> {r['path']} ({r['format']}).", details=r, artifacts=[r["path"]]
+        )  # deliverable: the rendered output

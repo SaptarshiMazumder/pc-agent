@@ -33,7 +33,7 @@ def _toml_arr(items: list) -> str:
 class CreateAgentTool(Tool):
     name = "create_agent"
     label = "Create Agent"
-    default_retryable = False        # side-effecting (writes a definition); never auto-retry
+    default_retryable = False  # side-effecting (writes a definition); never auto-retry
     description = (
         "Create a new persistent AGENT by chatting — an agent is a directory of instructions. "
         "action='create' writes agents/<id>/ (agent.toml + IDENTITY.md, plus AGENTS.md when you "
@@ -44,7 +44,7 @@ class CreateAgentTool(Tool):
         "one-line `description` (what it's for — shown to orchestrators picking who to delegate "
         "to), and `subagents_allow` (ids/globs of specialist agents THIS agent may delegate to, "
         "e.g. ['check-*']). For an AUTONOMOUS agent, set `heartbeat` (e.g. '30m') + `heartbeat_md` "
-        "(its standing checklist) and `capabilities` (e.g. {\"autonomy\": true}) — it self-wakes "
+        '(its standing checklist) and `capabilities` (e.g. {"autonomy": true}) — it self-wakes '
         "live, no restart. Cannot create or overwrite the default agent 'main'."
     )
     parameters = {
@@ -54,23 +54,37 @@ class CreateAgentTool(Tool):
             "action": {"type": "string", "enum": ["create", "update", "list"]},
             "id": {"type": "string", "description": "agent id, kebab-case (e.g. support-bot)"},
             "name": {"type": "string", "description": "display name (defaults to the id)"},
-            "identity": {"type": "string",
-                         "description": "IDENTITY.md body: who the agent is, its tone and boundaries"},
-            "rules": {"type": "string",
-                      "description": "optional AGENTS.md body: operating rules / red lines"},
+            "identity": {
+                "type": "string",
+                "description": "IDENTITY.md body: who the agent is, its tone and boundaries",
+            },
+            "rules": {
+                "type": "string",
+                "description": "optional AGENTS.md body: operating rules / red lines",
+            },
             "model": {"type": "string", "description": "optional model id override for this agent"},
-            "description": {"type": "string",
-                            "description": "one line: what this agent is for (shown in agents_list)"},
+            "description": {
+                "type": "string",
+                "description": "one line: what this agent is for (shown in agents_list)",
+            },
             "subagents_allow": {
-                "type": "array", "items": {"type": "string"},
+                "type": "array",
+                "items": {"type": "string"},
                 "description": "ids/globs of specialist agents this one may delegate to "
-                               "(e.g. ['check-*']); omit for no restriction"},
-            "heartbeat": {"type": "string",
-                          "description": "self-wake interval, e.g. '30m' (needs autonomy enabled)"},
-            "heartbeat_md": {"type": "string",
-                             "description": "HEARTBEAT.md: the checklist to re-run on each heartbeat tick"},
-            "capabilities": {"type": "object",
-                             "description": "per-agent toggles, e.g. {\"autonomy\": true, \"notify\": true}"},
+                "(e.g. ['check-*']); omit for no restriction",
+            },
+            "heartbeat": {
+                "type": "string",
+                "description": "self-wake interval, e.g. '30m' (needs autonomy enabled)",
+            },
+            "heartbeat_md": {
+                "type": "string",
+                "description": "HEARTBEAT.md: the checklist to re-run on each heartbeat tick",
+            },
+            "capabilities": {
+                "type": "object",
+                "description": 'per-agent toggles, e.g. {"autonomy": true, "notify": true}',
+            },
         },
     }
 
@@ -91,19 +105,24 @@ class CreateAgentTool(Tool):
             return ToolResult.text("an agent needs an 'id' (kebab-case)", is_error=True)
         if agent_id == "main":
             return ToolResult.text(
-                "'main' is the default agent and cannot be created or overwritten", is_error=True)
+                "'main' is the default agent and cannot be created or overwritten", is_error=True
+            )
         identity = (params.get("identity") or "").strip()
         if not identity:
             return ToolResult.text(
                 "an agent needs an 'identity' (who it is — its role, tone, and boundaries)",
-                is_error=True)
+                is_error=True,
+            )
         name = (params.get("name") or agent_id).strip()
         model = (params.get("model") or "").strip()
         rules = (params.get("rules") or "").strip()
         description = (params.get("description") or "").strip()
         raw_allow = params.get("subagents_allow")
-        allow = [str(a).strip() for a in raw_allow if str(a).strip()] \
-            if isinstance(raw_allow, list) else []
+        allow = (
+            [str(a).strip() for a in raw_allow if str(a).strip()]
+            if isinstance(raw_allow, list)
+            else []
+        )
         heartbeat = (params.get("heartbeat") or "").strip()
         heartbeat_md = (params.get("heartbeat_md") or "").strip()
         caps = params.get("capabilities") if isinstance(params.get("capabilities"), dict) else {}
@@ -113,10 +132,12 @@ class CreateAgentTool(Tool):
         if existed and action == "create":
             return ToolResult.text(
                 f"agent '{agent_id}' already exists — use action='update' to change it",
-                is_error=True)
+                is_error=True,
+            )
         if not existed and action == "update":
             return ToolResult.text(
-                f"no agent '{agent_id}' to update — use action='create'", is_error=True)
+                f"no agent '{agent_id}' to update — use action='create'", is_error=True
+            )
 
         d.mkdir(parents=True, exist_ok=True)
         # TOML: top-level keys MUST precede any [table], so emit name/model/description/heartbeat
@@ -129,8 +150,11 @@ class CreateAgentTool(Tool):
         if heartbeat:
             top.append(f"heartbeat = {_toml_str(heartbeat)}")
         tables: list = []
-        cap_lines = [f"{k} = {'true' if caps.get(k) else 'false'}"
-                     for k in ("autonomy", "notify", "channels") if k in caps]
+        cap_lines = [
+            f"{k} = {'true' if caps.get(k) else 'false'}"
+            for k in ("autonomy", "notify", "channels")
+            if k in caps
+        ]
         if cap_lines:
             tables += ["", "[capabilities]"] + cap_lines
         if allow:
@@ -143,13 +167,17 @@ class CreateAgentTool(Tool):
             (d / "HEARTBEAT.md").write_text(heartbeat_md + "\n", encoding="utf-8")
 
         try:
-            reg.add(agent_id)               # register LIVE — resolvable next message, no restart
+            reg.add(agent_id)  # register LIVE — resolvable next message, no restart
         except Exception as e:  # noqa: BLE001 — files are written; report the registration failure
             return ToolResult.text(
                 f"wrote agents/{agent_id}/ but could not register it live "
-                f"({type(e).__name__}: {e}) — a restart will pick it up", is_error=True)
+                f"({type(e).__name__}: {e}) — a restart will pick it up",
+                is_error=True,
+            )
 
         verb = "Updated" if existed else "Created"
         return ToolResult.text(
             f"{verb} agent '{agent_id}' ({name}) at {d} and registered it live — it's resolvable "
-            f"now, no restart needed.", details={"id": agent_id})
+            f"now, no restart needed.",
+            details={"id": agent_id},
+        )

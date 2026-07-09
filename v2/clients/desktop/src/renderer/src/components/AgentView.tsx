@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { SquarePen, FolderOpen, Sparkles, MessageSquare, Search, ChevronRight, ChevronDown } from 'lucide-react'
+import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDown } from 'lucide-react'
 
 import { gateway } from '../gateway/client'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
+import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
 import WorkspaceTree from './WorkspaceTree'
 
@@ -126,10 +127,7 @@ export default function AgentView() {
               </button>
             </div>
             {tab === 'chats' && chats.length > 0 && (
-              <div className="search-box entity-search">
-                <Search size={15} />
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" spellCheck={false} />
-              </div>
+              <SearchBox className="entity-search" value={query} onChange={setQuery} placeholder="Search chats" />
             )}
           </div>
         </div>

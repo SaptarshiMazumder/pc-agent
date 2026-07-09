@@ -66,23 +66,43 @@ def resolve_schedule(params: dict) -> dict:
                 ZoneInfo(tz)
             except Exception:
                 raise ValueError(f"invalid timezone: {tz}")
-        return {"kind": "cron", "next_due": cron_next(expr, tz, now),
-                "every_seconds": None, "cron_expr": expr, "tz": tz}
+        return {
+            "kind": "cron",
+            "next_due": cron_next(expr, tz, now),
+            "every_seconds": None,
+            "cron_expr": expr,
+            "tz": tz,
+        }
     if params.get("daily"):
-        return {"kind": "every", "next_due": next_daily(params["daily"]),
-                "every_seconds": 86400.0, "cron_expr": None, "tz": None}
+        return {
+            "kind": "every",
+            "next_due": next_daily(params["daily"]),
+            "every_seconds": 86400.0,
+            "cron_expr": None,
+            "tz": None,
+        }
     if params.get("every"):
         sec = parse_interval(params["every"])
         if not sec:
             raise ValueError(f"invalid 'every' interval: {params['every']}")
-        return {"kind": "every", "next_due": now + sec, "every_seconds": float(sec),
-                "cron_expr": None, "tz": None}
+        return {
+            "kind": "every",
+            "next_due": now + sec,
+            "every_seconds": float(sec),
+            "cron_expr": None,
+            "tz": None,
+        }
     if params.get("in"):
         sec = parse_interval(params["in"])
         if not sec:
             raise ValueError(f"invalid 'in' delay: {params['in']}")
-        return {"kind": "at", "next_due": now + sec, "every_seconds": None,
-                "cron_expr": None, "tz": None}
+        return {
+            "kind": "at",
+            "next_due": now + sec,
+            "every_seconds": None,
+            "cron_expr": None,
+            "tz": None,
+        }
     if params.get("at"):
         try:
             dt = datetime.fromisoformat(params["at"])
@@ -90,8 +110,13 @@ def resolve_schedule(params: dict) -> dict:
             raise ValueError(f"invalid 'at' time (ISO like 2026-06-20T09:00): {params['at']}")
         if dt.tzinfo is None:
             dt = dt.astimezone()
-        return {"kind": "at", "next_due": dt.timestamp(), "every_seconds": None,
-                "cron_expr": None, "tz": None}
+        return {
+            "kind": "at",
+            "next_due": dt.timestamp(),
+            "every_seconds": None,
+            "cron_expr": None,
+            "tz": None,
+        }
     raise ValueError("provide a schedule: one of cron, daily, every, in, at")
 
 

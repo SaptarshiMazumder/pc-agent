@@ -1,11 +1,80 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Check, Loader2, ChevronRight, ChevronDown, Sparkles, AlertTriangle } from 'lucide-react'
+import { Check, Loader2, ChevronRight, ChevronDown, Sparkles, AlertTriangle, Copy, Pencil } from 'lucide-react'
 
 import { timeLabel } from '../lib/timefmt'
-import type { ChatItem } from '../state/store'
+import { useApp, type ChatItem } from '../state/store'
 import ArtifactView from './ArtifactView'
+
+/** Icon-only copy button with a brief "copied" flash. Shared by user + assistant messages. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    if (!text) return
+    void navigator.clipboard?.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <button className={`msg-act ${copied ? 'ok' : ''}`} title={copied ? 'Copied' : 'Copy message'} onClick={copy}>
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  )
+}
+
+/** A user message bubble + its hover actions (Copy / Edit) — icons sharing ONE row with the
+ *  timestamp. Edit loads the text back into the composer to tweak and re-send (store.seedComposer). */
+function UserMessage({ item }: { item: Extract<ChatItem, { kind: 'user' }> }) {
+  const seedComposer = useApp((s) => s.seedComposer)
+  const stamp = item.ts ? timeLabel(item.ts) : ''
+  return (
+    <div className="msg-item">
+      <div className="msg-user">
+        {item.text && <div className="bubble">{item.text}</div>}
+        {/* files the user attached (e.g. an edited image sent from the canvas) */}
+        {item.artifacts?.length ? <ArtifactView artifacts={item.artifacts} /> : null}
+        {(item.text || stamp) && (
+          <div className="msg-meta">
+            {item.text && (
+              <div className="msg-actions">
+                <CopyButton text={item.text} />
+                <button className="msg-act" title="Edit message" onClick={() => seedComposer(item.text as string)}>
+                  <Pencil size={14} />
+                </button>
+              </div>
+            )}
+            {stamp && <div className="msg-time">{stamp}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** An assistant answer + a Copy action sharing ONE row with the response time (once done). */
+function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: 'assistant' }> }) {
+  const stamp = item.ts ? timeLabel(item.ts) : ''
+  return (
+    <div className="msg-item">
+      <div className="msg-assistant markdown">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
+        {item.streaming && <span className="caret" />}
+      </div>
+      <ArtifactView artifacts={item.artifacts} />
+      {!item.streaming && (item.text || stamp) && (
+        <div className="msg-meta">
+          {item.text && (
+            <div className="msg-actions">
+              <CopyButton text={item.text} />
+            </div>
+          )}
+          {stamp && <div className="msg-time">{stamp}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** A one-line preview of a value for the tool-call summary. Objects/arrays are JSON-stringified —
  *  `String({})`/`String([{}])` yields the useless "[object Object]", so never coerce them. */
@@ -34,6 +103,9 @@ function summarizeArgs(args: Record<string, unknown>): string {
 function ToolBlock({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   const [expanded, setExpanded] = useState(false)
   const firstLine = (item.result.split('\n')[0] || '').slice(0, 160)
+  // a still-running tool's incremental steps (e.g. the computer tool's "step 1: click …")
+  const progress = item.progress || ''
+  const lastStep = (progress.split('\n').filter(Boolean).pop() || '').slice(0, 160)
   return (
     <div className={`tool ${item.isError ? 'error' : ''}`}>
       <button className="tool-head" onClick={() => setExpanded((v) => !v)}>
@@ -46,38 +118,23 @@ function ToolBlock({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
       </button>
       {item.done && firstLine && !expanded && <div className="tool-first">⎿ {firstLine}</div>}
       {item.done && expanded && <pre className="tool-full">{item.result || '(no output)'}</pre>}
-      {!item.done && <div className="tool-running">running…</div>}
+      {/* while running: collapsed shows the latest step live, expanded shows the full step log */}
+      {!item.done && !expanded && (lastStep
+        ? <div className="tool-first live">⎿ {lastStep}</div>
+        : <div className="tool-running">running…</div>)}
+      {!item.done && expanded && (progress
+        ? <pre className="tool-full">{progress}</pre>
+        : <div className="tool-running">running…</div>)}
     </div>
   )
 }
 
 export default function MessageItem({ item }: { item: ChatItem }) {
-  const stamp = item.ts ? timeLabel(item.ts) : ''
   switch (item.kind) {
     case 'user':
-      return (
-        <div className="msg-item">
-          <div className="msg-user">
-            {item.text && <div className="bubble">{item.text}</div>}
-            {/* files the user attached (e.g. an edited image sent from the canvas) */}
-            {item.artifacts?.length ? <ArtifactView artifacts={item.artifacts} /> : null}
-            {/* timestamp now sits OUTSIDE the bubble, right-aligned under it */}
-            {stamp && <div className="msg-time">{stamp}</div>}
-          </div>
-        </div>
-      )
+      return <UserMessage item={item} />
     case 'assistant':
-      return (
-        <div className="msg-item">
-          <div className="msg-assistant markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
-            {item.streaming && <span className="caret" />}
-          </div>
-          <ArtifactView artifacts={item.artifacts} />
-          {/* agent response time — LEFT-aligned under the answer, once it's done */}
-          {stamp && !item.streaming && <div className="msg-time msg-time--left">{stamp}</div>}
-        </div>
-      )
+      return <AssistantMessage item={item} />
     case 'thinking':
       return (
         <div className="msg-item">
@@ -93,6 +150,17 @@ export default function MessageItem({ item }: { item: ChatItem }) {
       return <div className="msg-item"><ToolBlock item={item} /></div>
     case 'system':
       return <div className={`msg-system ${item.tone === 'error' ? 'error' : ''}`}>{item.text}</div>
+    case 'trace':
+      // per-step model/token trail — which brain ran this loop step and how many tokens it used
+      return (
+        <div className="msg-item">
+          <div className="msg-trace" title="which model ran this step and its token usage">
+            <span className="trace-step">step {item.step}</span>
+            <span className="trace-model">{item.model || '—'}</span>
+            <span className="trace-toks">↑ {item.tokensIn.toLocaleString()} · ↓ {item.tokensOut.toLocaleString()} tok</span>
+          </div>
+        </div>
+      )
     default:
       return null
   }

@@ -63,8 +63,9 @@ class FileAgentRegistry:
 
     def __init__(self, config):
         self._config = config
-        self._agents_dir = Path(getattr(config, "agents_dir", None)
-                                or Path(config.state_dir).parent / "agents")
+        self._agents_dir = Path(
+            getattr(config, "agents_dir", None) or Path(config.state_dir).parent / "agents"
+        )
         self._specs = self._discover()
 
     def refresh(self) -> list[str]:
@@ -109,15 +110,17 @@ class FileAgentRegistry:
         return AgentSpec(
             id="main",
             name=getattr(c, "agent_name", "") or "the assistant",
-            description="general · all tools",    # the generalist: no specialty to advertise
-            tagline="general · all tools",       # honest default for the generalist
-            color=MAIN_COLOR,                    # the brand lime — reserved for main
+            description="general · all tools",  # the generalist: no specialty to advertise
+            tagline="general · all tools",  # honest default for the generalist
+            color=MAIN_COLOR,  # the brand lime — reserved for main
             workspace=workspace,
             state_dir=self._state_dir_for("main"),
             instructions="",
             model=None,
-            tools_allow=None, tools_deny=(), skills_allow=None,
-            skills_dir=d / "skills",              # main's skills = the global library
+            tools_allow=None,
+            tools_deny=(),
+            skills_allow=None,
+            skills_dir=d / "skills",  # main's skills = the global library
             dir=d,
         )
 
@@ -134,7 +137,7 @@ class FileAgentRegistry:
 
         ws = data.get("workspace")
         if ws:
-            workspace = Path(ws).expanduser()           # explicit path wins
+            workspace = Path(ws).expanduser()  # explicit path wins
         else:
             # EVERY agent (main included) gets its OWN isolated workspace at
             # agents/<id>/workspace/ (created on demand), so files never collide.
@@ -153,8 +156,9 @@ class FileAgentRegistry:
         # config.plugins. e.g.  [plugins.vision]  model = "..."  /  [plugins.vision.tools.verify_figure]
         # model = "...". Layered ABOVE global config.plugins by resolve_tool_model. Lowercase the
         # plugin keys so lookups (which lowercase the plugin) match; leave the nested body intact.
-        plugins = {str(k).lower(): v for k, v in (data.get("plugins") or {}).items()
-                   if isinstance(v, dict)}
+        plugins = {
+            str(k).lower(): v for k, v in (data.get("plugins") or {}).items() if isinstance(v, dict)
+        }
         heartbeat = data.get("heartbeat")
 
         # [subagents] allow — which specialist agents this one may delegate to (ids/globs).
@@ -174,11 +178,16 @@ class FileAgentRegistry:
         # daemon generated once from the identity (presentation.json). main is the
         # generalist BY DEFINITION — it gets the standard line rather than a guess.
         sidecar = read_sidecar(d)
-        tagline = str(data.get("tagline") or sidecar.get("tagline")
-                      or ("general · all tools" if agent_id == "main" else ""))
+        tagline = str(
+            data.get("tagline")
+            or sidecar.get("tagline")
+            or ("general · all tools" if agent_id == "main" else "")
+        )
         suggestions = tuple(
-            str(s).strip() for s in (data.get("suggestions") or sidecar.get("suggestions") or [])
-            if str(s).strip())[:3]
+            str(s).strip()
+            for s in (data.get("suggestions") or sidecar.get("suggestions") or [])
+            if str(s).strip()
+        )[:3]
         # colour: authored agent.toml wins; main is pinned to brand lime (never the
         # assigned sidecar); other agents use their assigned sidecar colour, else "".
         if agent_id == "main":
@@ -203,7 +212,7 @@ class FileAgentRegistry:
             subagents_allow=tuple(sub_allow) if sub_allow is not None else None,
             dir=d,
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,
-            skills_dir=d / "skills",          # the agent's OWN skills (agents/<id>/skills/)
+            skills_dir=d / "skills",  # the agent's OWN skills (agents/<id>/skills/)
             google_account=str(data.get("google_account") or ""),
             google_accounts=tuple(str(a) for a in (data.get("google_accounts") or [])),
             audience=audience,
@@ -233,11 +242,14 @@ class FileAgentRegistry:
             raise FileNotFoundError(str(d))
         spec = self._load_dir(agent_id, d)
         self._specs[agent_id] = spec
-        log.info("agents: added '%s' at runtime (now: %s)", agent_id, ", ".join(sorted(self._specs)))
+        log.info(
+            "agents: added '%s' at runtime (now: %s)", agent_id, ", ".join(sorted(self._specs))
+        )
         return spec
 
-    def create(self, agent_id: str, name: str = "", description: str = "",
-               identity: str = "") -> AgentSpec:
+    def create(
+        self, agent_id: str, name: str = "", description: str = "", identity: str = ""
+    ) -> AgentSpec:
         """Scaffold a NEW agent definition and load it live (no restart) — the inverse
         of remove(). Writes agents/<id>/agent.toml (name + description) and, if given,
         IDENTITY.md (who the agent is, read into its bootstrap). Refuses an invalid id
@@ -292,7 +304,7 @@ class FileAgentRegistry:
             raise KeyError(agent_id)
 
         removed = {"id": agent_id, "definition": False, "sessions": False}
-        def_dir = self._agents_dir / agent_id          # definition + workspace/ live here
+        def_dir = self._agents_dir / agent_id  # definition + workspace/ live here
         if def_dir.is_dir():
             shutil.rmtree(def_dir, ignore_errors=True)
             removed["definition"] = not def_dir.exists()
@@ -301,6 +313,10 @@ class FileAgentRegistry:
             shutil.rmtree(state_dir, ignore_errors=True)
             removed["sessions"] = not state_dir.exists()
         del self._specs[agent_id]
-        log.info("agents: removed '%s' (definition=%s sessions=%s)",
-                 agent_id, removed["definition"], removed["sessions"])
+        log.info(
+            "agents: removed '%s' (definition=%s sessions=%s)",
+            agent_id,
+            removed["definition"],
+            removed["sessions"],
+        )
         return removed

@@ -31,7 +31,7 @@ def _image_dims(b: bytes) -> tuple[int, int] | None:
         if b[:2] == b"BM" and len(b) >= 26:
             w, h = struct.unpack("<ii", b[18:26])
             return abs(w), abs(h)
-        if b[:2] == b"\xff\xd8":                              # JPEG: scan SOF markers
+        if b[:2] == b"\xff\xd8":  # JPEG: scan SOF markers
             i = 2
             while i + 9 < len(b):
                 if b[i] != 0xFF:
@@ -39,9 +39,9 @@ def _image_dims(b: bytes) -> tuple[int, int] | None:
                     continue
                 marker = b[i + 1]
                 if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-                    h, w = struct.unpack(">HH", b[i + 5:i + 9])
+                    h, w = struct.unpack(">HH", b[i + 5 : i + 9])
                     return w, h
-                i += 2 + struct.unpack(">H", b[i + 2:i + 4])[0]
+                i += 2 + struct.unpack(">H", b[i + 2 : i + 4])[0]
     except (struct.error, IndexError):
         return None
     return None
@@ -76,12 +76,14 @@ def _first_line(b: bytes) -> str:
 class BasicDescriber:
     def describe(self, kind: str, path: Path, sample: bytes) -> str:
         if kind == KIND_IMAGE:
-            fmt = path.suffix.lstrip(".").upper() or "image"   # label derived from the ext, not a table
+            fmt = (
+                path.suffix.lstrip(".").upper() or "image"
+            )  # label derived from the ext, not a table
             dims = _image_dims(sample)
             return f"{fmt} image, {dims[0]}x{dims[1]}" if dims else f"{fmt} image"
         if _looks_text(sample):
             return _first_line(sample)
-        text = extract_text(path)                              # docx/pdf/xlsx/pptx -> real text
+        text = extract_text(path)  # docx/pdf/xlsx/pptx -> real text
         if text:
             return _first_line_text(text)
-        return ""                                              # opaque binary: name + ext + size say enough
+        return ""  # opaque binary: name + ext + size say enough

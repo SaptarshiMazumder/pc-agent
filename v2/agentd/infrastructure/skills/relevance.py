@@ -32,7 +32,7 @@ def rank_skills_by_relevance(skills, query: str, embed_fn, top_k: int):
         return skills
     always = [s for s in skills if getattr(s, "always", False)]
     rankable = [s for s in skills if not getattr(s, "always", False)]
-    budget = top_k - len(always)                       # always-on skills consume budget first
+    budget = top_k - len(always)  # always-on skills consume budget first
     if budget <= 0 or len(rankable) <= budget:
         return skills
     try:
@@ -52,6 +52,7 @@ def build_skill_embed_fn(config):
     """A cached embedding fn (litellm) when relevance is enabled AND a model is set; else None.
     Skill texts are stable so they're cached across turns; only the per-message query re-embeds."""
     from agentd.application.tool_models import resolve_tool_model
+
     model = resolve_tool_model(config, "skills", "relevance", default="") or ""
     if not (getattr(config, "skills_relevance_enabled", False) and model):
         return None
@@ -59,6 +60,7 @@ def build_skill_embed_fn(config):
 
     def embed(texts):
         import litellm
+
         missing = [t for t in texts if t not in cache]
         if missing:
             resp = litellm.embedding(model=model, input=missing)

@@ -23,7 +23,8 @@ def build_resource_manager(config):
 
     store = SqliteResourceStore(Path(config.state_dir) / "resources.sqlite")
     return ResourceManager(
-        store, BasicDescriber(),
+        store,
+        BasicDescriber(),
         max_files=getattr(config, "resource_index_max_files", 100),
-        rich_fn=build_rich_fn(config),   # Gemini vision captions (background) — None unless enabled
+        rich_fn=build_rich_fn(config),  # Gemini vision captions (background) — None unless enabled
     )

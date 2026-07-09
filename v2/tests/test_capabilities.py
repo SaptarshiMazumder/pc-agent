@@ -38,26 +38,32 @@ def test_capabilities_appear_with_autonomy():
     p = build_system_prompt(cfg, [_tool("cron"), _tool("read")], "m")
     assert "## What you are" in p
     assert "Schedule" in p and "Wake yourself" in p and "Reach the user" in p
-    assert "PROPOSE how you'd compose these" in p          # the propose-architecture nudge
+    assert "PROPOSE how you'd compose these" in p  # the propose-architecture nudge
 
 
 def test_capabilities_grow_with_channels_and_memory():
     cfg = _cfg(autonomy_enabled=True, notify_enabled=True, channels=[{"type": "email"}])
-    p = build_system_prompt(cfg, [_tool("cron"), _tool("memory_search"), _tool("spawn_subagent")], "m")
-    assert "Be reached" in p                                # channels configured
-    assert "Remember across sessions" in p                 # memory tool present
-    assert "Delegate" in p                                  # sub-agent tool present
+    p = build_system_prompt(
+        cfg, [_tool("cron"), _tool("memory_search"), _tool("spawn_subagent")], "m"
+    )
+    assert "Be reached" in p  # channels configured
+    assert "Remember across sessions" in p  # memory tool present
+    assert "Delegate" in p  # sub-agent tool present
 
 
 def test_capabilities_honest_no_autonomy_no_schedule_claim():
     # without autonomy or a cron tool, it must NOT claim it can schedule/wake
-    p = build_system_prompt(_cfg(autonomy_enabled=False, channels=[{"type": "email"}],
-                                 notify_enabled=True), [_tool("read")], "m")
+    p = build_system_prompt(
+        _cfg(autonomy_enabled=False, channels=[{"type": "email"}], notify_enabled=True),
+        [_tool("read")],
+        "m",
+    )
     assert "Schedule" not in p and "Wake yourself" not in p
-    assert "Be reached" in p                                # but it CAN be reached on the channel
+    assert "Be reached" in p  # but it CAN be reached on the channel
 
 
 # --- per-agent gates: the AgentSpec value overrides the global default --------------
+
 
 def test_per_agent_gate_opts_in_when_global_off():
     # global autonomy OFF, but THIS agent's definition opts in -> it CAN wake itself

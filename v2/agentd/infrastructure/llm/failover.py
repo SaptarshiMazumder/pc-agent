@@ -17,19 +17,20 @@ log = logging.getLogger("agentd")
 def make_failover_stream(inner, fallbacks):
     fallbacks = [f for f in (fallbacks or []) if f]
     if not fallbacks:
-        return inner                      # nothing to fail over to -> unchanged
+        return inner  # nothing to fail over to -> unchanged
 
     async def stream(*, model, system_prompt, messages, tools, abort):
         candidates = [model] + [f for f in fallbacks if f != model]
         for i, m in enumerate(candidates):
-            produced = False              # did THIS attempt stream anything yet?
+            produced = False  # did THIS attempt stream anything yet?
             done_ev = None
-            async for ev in inner(model=m, system_prompt=system_prompt,
-                                  messages=messages, tools=tools, abort=abort):
+            async for ev in inner(
+                model=m, system_prompt=system_prompt, messages=messages, tools=tools, abort=abort
+            ):
                 if ev.get("type") == "done":
                     done_ev = ev
                     break
-                produced = True           # any pre-done event = output started
+                produced = True  # any pre-done event = output started
                 yield ev
             if done_ev is None:
                 return
@@ -39,9 +40,14 @@ def make_failover_stream(inner, fallbacks):
                 # MONITOR: primary model failed -> falling back. One clear, greppable line,
                 # WITH the underlying provider error so you can see WHY it failed.
                 reason = getattr(msg, "error_message", None) or "no detail"
-                log.warning("MODEL FALLBACK: '%s' errored before output -> falling back to '%s'"
-                            "  | reason: %s", m, candidates[i + 1], reason)
-                continue                  # clean error + a fallback left -> try next, suppress this
+                log.warning(
+                    "MODEL FALLBACK: '%s' errored before output -> falling back to '%s'"
+                    "  | reason: %s",
+                    m,
+                    candidates[i + 1],
+                    reason,
+                )
+                continue  # clean error + a fallback left -> try next, suppress this
             yield done_ev
             return
 

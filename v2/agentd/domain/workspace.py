@@ -20,7 +20,7 @@ KIND_OTHER = "other"
 
 @dataclass(frozen=True)
 class WorkspaceResource:
-    rel_path: str            # path relative to the agent's workspace root
-    kind: str                # one of KIND_*
-    size: int                # bytes
-    summary: str = ""        # short hint (e.g. a script's first comment / a doc's first heading)
+    rel_path: str  # path relative to the agent's workspace root
+    kind: str  # one of KIND_*
+    size: int  # bytes
+    summary: str = ""  # short hint (e.g. a script's first comment / a doc's first heading)

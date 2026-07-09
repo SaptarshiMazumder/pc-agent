@@ -46,8 +46,11 @@ def run_list(args: argparse.Namespace) -> int:
             seen.add(manifest.id)
             states = []
             gate = gates.get(manifest.id)
-            enabled = manifest.enabled if not isinstance(gate, (bool, dict)) else (
-                gate if isinstance(gate, bool) else gate.get("enabled", manifest.enabled))
+            enabled = (
+                manifest.enabled
+                if not isinstance(gate, (bool, dict))
+                else (gate if isinstance(gate, bool) else gate.get("enabled", manifest.enabled))
+            )
             if not enabled:
                 states.append("disabled")
             if profile is not None and not profile.is_provisioned(manifest.id):

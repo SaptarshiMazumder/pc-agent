@@ -41,7 +41,7 @@ PERSONA = (
     "confirm before heavy or hard-to-undo steps. Turn a real limitation into a design "
     "choice — don't bulldoze ahead on a flawed assumption.\n"
     "- Be honest above everything. NEVER fabricate data, results, sources, or "
-    "capabilities. If you couldn't get something, say so plainly. \"Done\" requires "
+    'capabilities. If you couldn\'t get something, say so plainly. "Done" requires '
     "evidence you actually obtained — not a guess, a hand-written stand-in, or a hopeful "
     "summary. If a tool/site/login fails, report the real blocker; don't paper over it.\n"
     "- Use judgment: prefer the lightest method that works; don't over-engineer.\n"
@@ -103,6 +103,7 @@ def resolve_user_folders() -> dict[str, str]:
                 folders[label] = str(p)
     return folders
 
+
 def _tooling_section(tools) -> str:
     """The ## Tooling list — one line per tool, the summary being the tool's own ``description``
     first line (OpenClaw model: the tool self-describes; no separate card files, no hardcoded dict)."""
@@ -156,27 +157,32 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
     if channels:
         bullets.append("- **Be reached** on a messaging channel (e.g. email) and reply back on it.")
     if {"memory_search", "memory_get", "remember"} & names:
-        bullets.append("- **Remember across sessions** — recall with the memory tools, write durable notes.")
+        bullets.append(
+            "- **Remember across sessions** — recall with the memory tools, write durable notes."
+        )
     if {"spawn_subagent", "subagents"} & names:
         if "agents_list" in names:
             bullets.append(
                 "- **Delegate** to specialist agents: call `agents_list` to see who you can hand "
-                "work to (and what each is for), then `spawn_subagent(agent=\"<id>\", task=…)` to "
+                'work to (and what each is for), then `spawn_subagent(agent="<id>", task=…)` to '
                 "run the right one — spawn SEVERAL at once and they execute in parallel; combine "
                 "their results. Use the same `spawn_subagent` for heavy/parallelizable work (a "
-                "long read, research, a separate analysis) instead of doing it all in one thread.")
+                "long read, research, a separate analysis) instead of doing it all in one thread."
+            )
         else:
             bullets.append(
                 "- **Delegate** heavy or parallelizable work with `spawn_subagent` — a long read, "
                 "research, a separate analysis — rather than doing it all in one thread; you can "
-                "spawn several at once and combine their results.")
+                "spawn several at once and combine their results."
+            )
     if "simple_login" in names:
         bullets.append(
             "- **Log into sites** you have saved credentials for with `simple_login` (open the "
             "login page, then call it) — you never see the password. On a 2FA prompt it returns "
             "OTP_REQUIRED: ask the user for the one-time code, then call again with `otp`. If "
             "there's no saved login it returns a one-time setup link; never ask "
-            "for a password in chat.")
+            "for a password in chat."
+        )
 
     if not bullets:
         return None
@@ -184,8 +190,8 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
         "## What you are\n"
         "You run inside a persistent gateway, not a one-shot script. Beyond acting now you can:\n"
         + "\n".join(bullets)
-        + "\nSo when a request implies ongoing or autonomous work (\"monitor X\", \"remind me\", "
-        "\"do this daily\", \"watch for Y\", \"keep it updated\"), PROPOSE how you'd compose these "
+        + '\nSo when a request implies ongoing or autonomous work ("monitor X", "remind me", '
+        '"do this daily", "watch for Y", "keep it updated"), PROPOSE how you\'d compose these '
         "— e.g. a cron job that does the work, records its outcome, and notifies you on a blocker — "
         "and confirm before setting it up. Don't reinvent them with brittle workarounds."
     )
@@ -225,11 +231,13 @@ def _skills_section(skills, config=None) -> str | None:
             "clearly matches one, READ its SKILL.md with the read tool FIRST, then follow "
             "it. Do not guess a skill's contents from its name."
         )
-        parts.extend(_advertise_skills(
-            on_demand,
-            int(getattr(config, "skills_prompt_max", 150) or 150),
-            int(getattr(config, "skills_prompt_chars", 18000) or 18000),
-        ))
+        parts.extend(
+            _advertise_skills(
+                on_demand,
+                int(getattr(config, "skills_prompt_max", 150) or 150),
+                int(getattr(config, "skills_prompt_chars", 18000) or 18000),
+            )
+        )
     for s in always:
         # full body inlined — always in context, no read needed
         parts.append(f"### Skill: {s.name} (always applies)\n{s.body}")
@@ -240,20 +248,24 @@ def _advertise_skills(on_demand, max_count: int, max_chars: int) -> list[str]:
     """The advertised skill lines, budget-bounded. Full format if it fits; else COMPACT (name +
     path) truncated to the char budget with a '+N more' note. Keeps a big library from flooding
     the prompt (OpenClaw parity)."""
-    full = [f"- {s.name}: {s.description or '(no description)'} [read: {s.path}]" for s in on_demand]
+    full = [
+        f"- {s.name}: {s.description or '(no description)'} [read: {s.path}]" for s in on_demand
+    ]
     if len(on_demand) <= max_count and sum(len(line) + 1 for line in full) <= max_chars:
         return full
     kept: list[str] = []
     used = 0
     for s in on_demand[:max_count]:
-        line = f"- {s.name} [read: {s.path}]"            # compact: drop the description
+        line = f"- {s.name} [read: {s.path}]"  # compact: drop the description
         if used + len(line) + 1 > max_chars:
             break
         kept.append(line)
         used += len(line) + 1
     dropped = len(on_demand) - len(kept)
     if dropped > 0:
-        kept.append(f"- …(+{dropped} more skills not shown — narrow the task or ask to surface them)")
+        kept.append(
+            f"- …(+{dropped} more skills not shown — narrow the task or ask to surface them)"
+        )
     return kept
 
 
@@ -280,8 +292,15 @@ CHANNEL_NOTE = (
 
 
 def build_system_prompt(
-    config, tools, model: str, reasoning_effort: str = "off", skills=None, agent=None,
-    heartbeat: str = "", cron: bool = False, channel: bool = False,
+    config,
+    tools,
+    model: str,
+    reasoning_effort: str = "off",
+    skills=None,
+    agent=None,
+    heartbeat: str = "",
+    cron: bool = False,
+    channel: bool = False,
     workspace_resources: str = "",
     plugin_sections=None,
 ) -> str:
@@ -293,11 +312,15 @@ def build_system_prompt(
 
     # Agent identity / workspace / id come from the resolved agent when present, else
     # from config (single-agent back-compat). `agent` is an AgentSpec (duck-typed).
-    persona_name = (getattr(agent, "name", None) if agent else None) \
-        or getattr(config, "agent_name", "") or "the assistant"
+    persona_name = (
+        (getattr(agent, "name", None) if agent else None)
+        or getattr(config, "agent_name", "")
+        or "the assistant"
+    )
     workspace = (getattr(agent, "workspace", None) if agent else None) or config.workspace
-    runtime_agent_id = (getattr(agent, "id", None) if agent else None) \
-        or getattr(config, "agent_id", "main")
+    runtime_agent_id = (getattr(agent, "id", None) if agent else None) or getattr(
+        config, "agent_id", "main"
+    )
 
     # 1. Identity (rebranded — agent name)
     sections.append(
@@ -450,8 +473,7 @@ def build_system_prompt(
     # 7. Current Date & Time
     now = datetime.now().astimezone()
     sections.append(
-        "## Current Date & Time\n"
-        f"{now.strftime('%Y-%m-%d %H:%M %Z')} (time zone: {now.tzname()})"
+        f"## Current Date & Time\n{now.strftime('%Y-%m-%d %H:%M %Z')} (time zone: {now.tzname()})"
     )
 
     # 8. Project Context (AGENTS.md / SOUL.md / MEMORY.md if present)
@@ -468,8 +490,7 @@ def build_system_prompt(
     if context_parts:
         sections.append(
             "# Project Context\n"
-            "The following project context files have been loaded:\n\n"
-            + "\n\n".join(context_parts)
+            "The following project context files have been loaded:\n\n" + "\n\n".join(context_parts)
         )
 
     # 9. Runtime (OpenClaw pipe format)

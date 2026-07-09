@@ -22,10 +22,12 @@ def _has_google_tools(tools) -> bool:
 def google_section(tools, agent, config) -> str:
     """The ## Google accounts block — shown when a Google tool is present (or an account is
     pinned), with the per-agent 'default to X' line. Verbatim port of the old core block."""
-    single = (getattr(agent, "google_account", "") if agent else "") or \
-        getattr(config, "google_account", "")
-    accounts = list(getattr(agent, "google_accounts", ()) if agent else ()) or \
-        ([single] if single else [])
+    single = (getattr(agent, "google_account", "") if agent else "") or getattr(
+        config, "google_account", ""
+    )
+    accounts = list(getattr(agent, "google_accounts", ()) if agent else ()) or (
+        [single] if single else []
+    )
     if not (accounts or _has_google_tools(tools)):
         return ""
     note = [
@@ -42,8 +44,11 @@ def google_section(tools, agent, config) -> str:
     if len(accounts) == 1:
         note.append(f"Default to **{accounts[0]}** unless the task names another account.")
     elif len(accounts) > 1:
-        note.append("This agent's accounts: " + ", ".join(f"**{a}**" for a in accounts)
-                    + " — use the one that owns each resource.")
+        note.append(
+            "This agent's accounts: "
+            + ", ".join(f"**{a}**" for a in accounts)
+            + " — use the one that owns each resource."
+        )
     # Usage guidance for the Workspace tools (these act on the user's REAL account).
     note.append(
         "These tools act on the user's real Google account, so treat every WRITE — sending mail, "
@@ -51,7 +56,8 @@ def google_section(tools, agent, config) -> str:
         "irreversible: confirm before doing it and report what changed (ids/links). Gmail: act on "
         "the thread in context; never add recipients or send without confirmation. Calendar: check "
         "conflicts and state the timezone. Drive: prefer link/share over download; never delete a "
-        "file unless the user named it.")
+        "file unless the user named it."
+    )
     return "\n".join(note)
 
 

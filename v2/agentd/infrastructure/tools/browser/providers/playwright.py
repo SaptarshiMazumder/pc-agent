@@ -19,9 +19,20 @@ log = logging.getLogger("agentd")
 # Directories never worth copying when seeding from a real Chrome profile (caches /
 # transient state — excluding them keeps the copy small and avoids most locked files).
 _PROFILE_EXCLUDE = (
-    "Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache", "DawnWebGPUCache",
-    "GraphiteDawnCache", "ShaderCache", "Service Worker", "component_crx_cache",
-    "extensions_crx_cache", "Crashpad", "Crash Reports", "blob_storage",
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "DawnCache",
+    "DawnGraphiteCache",
+    "DawnWebGPUCache",
+    "GraphiteDawnCache",
+    "ShaderCache",
+    "Service Worker",
+    "component_crx_cache",
+    "extensions_crx_cache",
+    "Crashpad",
+    "Crash Reports",
+    "blob_storage",
 )
 
 
@@ -68,13 +79,16 @@ def seed_profile_from_chrome(name_or_path: str, target: Path) -> bool:
     target.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copytree(
-            src, target / "Default",
+            src,
+            target / "Default",
             ignore=shutil.ignore_patterns(*_PROFILE_EXCLUDE),
             dirs_exist_ok=True,
         )
     except shutil.Error as e:  # some files locked (Chrome open) — keep what copied
-        log.warning("browser: some profile files were skipped (close Chrome for a full copy): %s",
-                    str(e)[:200])
+        log.warning(
+            "browser: some profile files were skipped (close Chrome for a full copy): %s",
+            str(e)[:200],
+        )
     except Exception as e:  # noqa: BLE001
         log.warning("browser: profile copy failed (%s); using a fresh profile", e)
         return False
@@ -117,7 +131,8 @@ async def launch_with_fallback(launcher, kw: dict):
         if "channel" in kw:
             log.warning(
                 "browser channel '%s' unavailable (%s); falling back to bundled Chromium",
-                kw["channel"], e,
+                kw["channel"],
+                e,
             )
             kw = {k: v for k, v in kw.items() if k != "channel"}
             return await launcher(**kw)
@@ -171,5 +186,5 @@ class PlaywrightBrowserProvider(BaseBrowserSession):
             "profileDir": str(profile_dir) if self.mode == "persistent" else None,
             "headless": browser_knob(self.config, "headless", True),
             "hint": "Log in once headed via `python -m agentd.main.browser_login`. To drive your "
-                    "LIVE Chrome instead, set plugins.browser.tools.browser.cdp_url in config.",
+            "LIVE Chrome instead, set plugins.browser.tools.browser.cdp_url in config.",
         }

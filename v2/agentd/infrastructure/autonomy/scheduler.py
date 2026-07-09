@@ -56,27 +56,37 @@ def in_active_hours(window, now_minute: int) -> bool:
 
 
 class HeartbeatScheduler:
-    def __init__(self, registry, fire, *, enabled: bool = False,
-                 default_interval: str = "", active_hours: str = "",
-                 poll_seconds: float = 15.0, task_store=None, fire_task=None):
-        self._registry = registry              # list_ids() + get(id).heartbeat
-        self._fire = fire                      # async (agent_id) -> None  (heartbeat)
+    def __init__(
+        self,
+        registry,
+        fire,
+        *,
+        enabled: bool = False,
+        default_interval: str = "",
+        active_hours: str = "",
+        poll_seconds: float = 15.0,
+        task_store=None,
+        fire_task=None,
+    ):
+        self._registry = registry  # list_ids() + get(id).heartbeat
+        self._fire = fire  # async (agent_id) -> None  (heartbeat)
         self._enabled = enabled
         self._default = default_interval
         self._window = parse_active_hours(active_hours)
         self._poll = poll_seconds
-        self._task_store = task_store          # durable cron ledger (Phase 2b), or None
-        self._fire_task = fire_task            # async (ScheduledTask) -> None, or None
-        self._intervals: dict[str, float] = {}   # agent_id -> seconds
-        self._next_due: dict[str, float] = {}    # agent_id -> epoch seconds
+        self._task_store = task_store  # durable cron ledger (Phase 2b), or None
+        self._fire_task = fire_task  # async (ScheduledTask) -> None, or None
+        self._intervals: dict[str, float] = {}  # agent_id -> seconds
+        self._next_due: dict[str, float] = {}  # agent_id -> epoch seconds
 
     # ---- timing (pure, unit-testable) --------------------------------------
 
     def load(self, now: float) -> None:
         """Build per-agent intervals from the registry; first tick is one interval out."""
         for agent_id in self._registry.list_ids():
-            iv = parse_interval(getattr(self._registry.get(agent_id), "heartbeat", None)
-                                or self._default)
+            iv = parse_interval(
+                getattr(self._registry.get(agent_id), "heartbeat", None) or self._default
+            )
             if iv:
                 self._intervals[agent_id] = iv
                 self._next_due.setdefault(agent_id, now + iv)
@@ -89,15 +99,16 @@ class HeartbeatScheduler:
         seen = set()
         for agent_id in self._registry.list_ids():
             seen.add(agent_id)
-            iv = parse_interval(getattr(self._registry.get(agent_id), "heartbeat", None)
-                                or self._default)
+            iv = parse_interval(
+                getattr(self._registry.get(agent_id), "heartbeat", None) or self._default
+            )
             if iv and self._intervals.get(agent_id) != iv:
                 self._intervals[agent_id] = iv
                 self._next_due[agent_id] = now + iv
             elif not iv and agent_id in self._intervals:
                 self._intervals.pop(agent_id, None)
                 self._next_due.pop(agent_id, None)
-        for gone in [a for a in self._intervals if a not in seen]:   # agent removed entirely
+        for gone in [a for a in self._intervals if a not in seen]:  # agent removed entirely
             self._intervals.pop(gone, None)
             self._next_due.pop(gone, None)
 
@@ -125,7 +136,7 @@ class HeartbeatScheduler:
             log.info("heartbeat scheduler: ON but no agent declares an interval")
         while True:
             try:
-                self.refresh(time.time())   # live pickup of new/changed agents (no restart)
+                self.refresh(time.time())  # live pickup of new/changed agents (no restart)
                 # heartbeats respect active-hours (don't pester at night)
                 if self.active_now(datetime.now().astimezone()):
                     for agent_id in self.due(time.time()):
@@ -142,7 +153,7 @@ class HeartbeatScheduler:
                             fired = await self._fire_task(task)
                         except Exception as e:  # noqa: BLE001
                             log.warning("cron fire(%s) failed: %s", task.id, e)
-                            fired = True   # a created-but-failed run still advances (no storm)
+                            fired = True  # a created-but-failed run still advances (no storm)
                         if fired:
                             self._task_store.advance(task.id, time.time())  # reschedule/disable
             except asyncio.CancelledError:

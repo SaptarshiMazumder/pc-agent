@@ -86,14 +86,13 @@ def test_gateway_projects_rpcs(tmp_path):
     out = asyncio.run(gw._projects_delete({"id": pid}))
     assert out["ok"] and out["sessionsDeleted"] == 0
     assert read_session_meta(tmp_path, "chat1").get("projectId") == ""
-    assert (tmp_path / "sessions" / "chat1.jsonl").exists()   # chat survives
+    assert (tmp_path / "sessions" / "chat1.jsonl").exists()  # chat survives
 
     # deleteSessions=True removes the chats too
     out2 = asyncio.run(gw._projects_create({"name": "Temp"}))
     SessionStore(tmp_path, "chat2").load()
     write_session_meta(tmp_path, "chat2", projectId=out2["project"]["id"])
-    out3 = asyncio.run(gw._projects_delete({"id": out2["project"]["id"],
-                                            "deleteSessions": True}))
+    out3 = asyncio.run(gw._projects_delete({"id": out2["project"]["id"], "deleteSessions": True}))
     assert out3["ok"] and out3["sessionsDeleted"] == 1
     assert not (tmp_path / "sessions" / "chat2.jsonl").exists()
 
@@ -106,12 +105,13 @@ def test_chat_send_tags_session_with_project(tmp_path):
     async def fake_run(handle, message, mode="interactive", agent_id=None, attachments=None):
         return None
 
-    gw._run = fake_run          # the run itself is not under test
+    gw._run = fake_run  # the run itself is not under test
 
     async def go():
         out = await gw._chat_send(
-            {"sessionKey": "desk-x1", "message": "hi", "agentId": "main",
-             "projectId": "proj-abc"}, None)
+            {"sessionKey": "desk-x1", "message": "hi", "agentId": "main", "projectId": "proj-abc"},
+            None,
+        )
         await gw.runs["desk-x1"].task
         return out
 

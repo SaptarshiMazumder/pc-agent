@@ -16,5 +16,5 @@ class Commitment:
     agent_id: str
     text: str
     due_at: float | None = None
-    status: str = "open"         # open | done | dropped
+    status: str = "open"  # open | done | dropped
     created_at: float = 0.0

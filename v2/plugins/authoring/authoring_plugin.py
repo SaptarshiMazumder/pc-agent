@@ -21,10 +21,10 @@ from __future__ import annotations
 
 def register(api, ctx):
     if getattr(ctx, "registry", None) is None:
-        return                                  # the roster/agent creators need the registry
+        return  # the roster/agent creators need the registry
     from agents_list_tool import AgentsListTool
 
-    api.register_tool(AgentsListTool(ctx.registry))     # read-only roster — always available
+    api.register_tool(AgentsListTool(ctx.registry))  # read-only roster — always available
     if getattr(ctx.config, "agent_workshop", False):
         from create_agent_tool import CreateAgentTool
 

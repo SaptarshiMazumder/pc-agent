@@ -15,12 +15,11 @@ import time
 import uuid
 from datetime import datetime
 
+from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_run_context
 from agentd.domain.agent import cron_session_key
 from agentd.domain.autonomy import ScheduledTask
 from agentd.infrastructure.autonomy.schedule import resolve_schedule
-
-from agentd.application.interfaces.tool import Tool, ToolResult
 
 
 class CronTool(Tool):
@@ -47,25 +46,57 @@ class CronTool(Tool):
         "type": "object",
         "required": ["action"],
         "properties": {
-            "action": {"type": "string",
-                       "enum": ["add", "list", "get", "update", "remove", "run", "runs", "status", "wake"]},
-            "payload": {"type": "string",
-                        "description": "Instruction to run, or text to deliver (add/update)."},
-            "deliver": {"type": "string", "enum": ["run", "message"],
-                        "description": "'run' (default) executes payload; 'message' sends it verbatim."},
-            "failure_alert": {"type": "integer",
-                              "description": "Auto-pause the job + alert the user after this many "
-                                             "consecutive failures (0 = off)."},
-            "cron": {"type": "string",
-                     "description": "Cron expression, e.g. '55 19 * * 6' (Sat 19:55). Day-of-week capable."},
-            "tz": {"type": "string", "description": "IANA timezone for the cron expression, e.g. 'Asia/Tokyo'."},
-            "daily": {"type": "string", "description": "Run every day at this local HH:MM, e.g. '19:30'."},
-            "every": {"type": "string", "description": "Recurring interval, e.g. '30m', '1h', '1d'."},
+            "action": {
+                "type": "string",
+                "enum": ["add", "list", "get", "update", "remove", "run", "runs", "status", "wake"],
+            },
+            "payload": {
+                "type": "string",
+                "description": "Instruction to run, or text to deliver (add/update).",
+            },
+            "deliver": {
+                "type": "string",
+                "enum": ["run", "message"],
+                "description": "'run' (default) executes payload; 'message' sends it verbatim.",
+            },
+            "failure_alert": {
+                "type": "integer",
+                "description": "Auto-pause the job + alert the user after this many "
+                "consecutive failures (0 = off).",
+            },
+            "cron": {
+                "type": "string",
+                "description": "Cron expression, e.g. '55 19 * * 6' (Sat 19:55). Day-of-week capable.",
+            },
+            "tz": {
+                "type": "string",
+                "description": "IANA timezone for the cron expression, e.g. 'Asia/Tokyo'.",
+            },
+            "daily": {
+                "type": "string",
+                "description": "Run every day at this local HH:MM, e.g. '19:30'.",
+            },
+            "every": {
+                "type": "string",
+                "description": "Recurring interval, e.g. '30m', '1h', '1d'.",
+            },
             "in": {"type": "string", "description": "Run once after this delay, e.g. '2h'."},
-            "at": {"type": "string", "description": "Run once at this ISO time, e.g. '2026-06-20T09:00'."},
-            "id": {"type": "string", "description": "Task id (get/update/remove/run; optional for runs)."},
-            "text": {"type": "string", "description": "Ad-hoc instruction to run now (action=wake)."},
-            "agentId": {"type": "string", "description": "Wake a different agent (action=wake); defaults to you."},
+            "at": {
+                "type": "string",
+                "description": "Run once at this ISO time, e.g. '2026-06-20T09:00'.",
+            },
+            "id": {
+                "type": "string",
+                "description": "Task id (get/update/remove/run; optional for runs).",
+            },
+            "text": {
+                "type": "string",
+                "description": "Ad-hoc instruction to run now (action=wake).",
+            },
+            "agentId": {
+                "type": "string",
+                "description": "Wake a different agent (action=wake); defaults to you.",
+            },
         },
     }
     default_retryable = False
@@ -92,15 +123,17 @@ class CronTool(Tool):
                 return ToolResult.text("No scheduled jobs.")
             return ToolResult.text(
                 "Scheduled jobs:\n" + "\n".join(self._fmt(t) for t in tasks),
-                details=[t.__dict__ for t in tasks])
+                details=[t.__dict__ for t in tasks],
+            )
 
         if action in ("get", "update", "remove", "run"):
             tid = (params.get("id") or "").strip()
             task = self._store.get(tid) if tid else None
             if action == "remove":
                 ok = self._store.remove(tid) if tid else False
-                return ToolResult.text(f"removed {tid}" if ok else f"no such job: {tid}",
-                                       is_error=not ok)
+                return ToolResult.text(
+                    f"removed {tid}" if ok else f"no such job: {tid}", is_error=not ok
+                )
             if task is None:
                 return ToolResult.text(f"no such job: {tid}", is_error=True)
             if action == "get":
@@ -122,9 +155,12 @@ class CronTool(Tool):
             deliver = (params.get("deliver") or "run").strip()
             tid = uuid.uuid4().hex[:12]
             task = ScheduledTask(
-                id=tid, agent_id=agent_id,
-                session_key=cron_session_key(agent_id, tid), payload=payload,
-                enabled=True, created_at=time.time(),
+                id=tid,
+                agent_id=agent_id,
+                session_key=cron_session_key(agent_id, tid),
+                payload=payload,
+                enabled=True,
+                created_at=time.time(),
                 delivery=deliver if deliver in ("run", "message") else "run",
                 failure_alert=int(params.get("failure_alert") or 0),
                 **sched,
@@ -146,7 +182,9 @@ class CronTool(Tool):
         for aid in sorted(by_agent):
             ts = by_agent[aid]
             nd = datetime.fromtimestamp(min(t.next_due for t in ts)).strftime("%Y-%m-%d %H:%M")
-            lines.append(f"  - {aid}{' (you)' if aid == agent_id else ''}: {len(ts)} job(s), next {nd}")
+            lines.append(
+                f"  - {aid}{' (you)' if aid == agent_id else ''}: {len(ts)} job(s), next {nd}"
+            )
         runs = self._store.recent_runs(limit=5)
         if runs:
             lines.append("Recent runs:")
@@ -154,8 +192,9 @@ class CronTool(Tool):
                 when = datetime.fromtimestamp(r.started_at).strftime("%m-%d %H:%M")
                 tail = f" — {r.detail}" if r.detail else ""
                 lines.append(f"  - {when} {r.agent_id} [{r.task_id}] {r.status}{tail}")
-        return ToolResult.text("\n".join(lines),
-                               details={"active": len(active), "agents": sorted(by_agent)})
+        return ToolResult.text(
+            "\n".join(lines), details={"active": len(active), "agents": sorted(by_agent)}
+        )
 
     def _runs(self, agent_id: str, params: dict):
         """Run history — for a specific job (id), else this agent's recent runs."""
@@ -163,11 +202,14 @@ class CronTool(Tool):
         runs = self._store.recent_runs(agent_id=None if tid else agent_id, task_id=tid, limit=20)
         if not runs:
             return ToolResult.text("No run history yet.")
-        lines = [f"{datetime.fromtimestamp(r.started_at).strftime('%Y-%m-%d %H:%M')} "
-                 f"[{r.task_id}] {r.agent_id} -> {r.status}"
-                 + (f" — {r.detail}" if r.detail else "") for r in runs]
-        return ToolResult.text("Run history:\n" + "\n".join(lines),
-                               details=[r.__dict__ for r in runs])
+        lines = [
+            f"{datetime.fromtimestamp(r.started_at).strftime('%Y-%m-%d %H:%M')} "
+            f"[{r.task_id}] {r.agent_id} -> {r.status}" + (f" — {r.detail}" if r.detail else "")
+            for r in runs
+        ]
+        return ToolResult.text(
+            "Run history:\n" + "\n".join(lines), details=[r.__dict__ for r in runs]
+        )
 
     def _wake(self, agent_id: str, params: dict):
         """An ad-hoc 'do this now' nudge — a one-shot task due immediately."""
@@ -177,9 +219,17 @@ class CronTool(Tool):
         target = (params.get("agentId") or "").strip() or agent_id
         tid = uuid.uuid4().hex[:12]
         task = ScheduledTask(
-            id=tid, agent_id=target, session_key=cron_session_key(target, tid),
-            kind="at", payload=text, next_due=time.time(), every_seconds=None,
-            enabled=True, created_at=time.time(), delivery="run")
+            id=tid,
+            agent_id=target,
+            session_key=cron_session_key(target, tid),
+            kind="at",
+            payload=text,
+            next_due=time.time(),
+            every_seconds=None,
+            enabled=True,
+            created_at=time.time(),
+            delivery="run",
+        )
         self._store.add(task)
         return ToolResult.text(f"waking {target} now: {text[:60]}", details=task.__dict__)
 
@@ -196,8 +246,9 @@ class CronTool(Tool):
         if params.get("deliver") in ("run", "message"):
             fields["delivery"] = params["deliver"].strip()
         if not fields:
-            return ToolResult.text("nothing to update (give a new schedule/payload/deliver)",
-                                   is_error=True)
+            return ToolResult.text(
+                "nothing to update (give a new schedule/payload/deliver)", is_error=True
+            )
         self._store.update(tid, **fields)
         return ToolResult.text(f"updated {self._fmt(self._store.get(tid))}")
 

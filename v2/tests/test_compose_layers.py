@@ -15,8 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from compose_layers_tool import ComposeLayersTool  # plugins/figures is on sys.path via conftest
 
-OVERLAY = ('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">'
-           '<text x="10" y="20">Fan Blades</text></svg>')
+OVERLAY = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">'
+    '<text x="10" y="20">Fan Blades</text></svg>'
+)
 
 
 def _tool(tmp_path):
@@ -50,5 +52,5 @@ def test_composed_svg_embeds_overlay_not_filename(tmp_path):
     (tmp_path / "ov.svg").write_text(OVERLAY, encoding="utf-8")
     _tool(tmp_path)._run({"artwork": "art.png", "overlay_svg": "ov.svg", "out_svg": "final.svg"})
     out = (tmp_path / "final.svg").read_text(encoding="utf-8")
-    assert "Fan Blades" in out and "<text" in out   # labels really embedded now
-    assert "ov.svg</svg>" not in out                # NOT the old stray-filename node
+    assert "Fan Blades" in out and "<text" in out  # labels really embedded now
+    assert "ov.svg</svg>" not in out  # NOT the old stray-filename node

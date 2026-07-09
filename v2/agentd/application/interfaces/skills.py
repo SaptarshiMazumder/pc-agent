@@ -30,11 +30,11 @@ class Skill:
     matter how many skills exist.
     """
 
-    name: str          # short id, e.g. "photoshop-export" (folder name if unspecified)
-    description: str    # one line: WHEN to use this skill (matched against the task)
-    path: str          # absolute path to the SKILL.md the agent should read
+    name: str  # short id, e.g. "photoshop-export" (folder name if unspecified)
+    description: str  # one line: WHEN to use this skill (matched against the task)
+    path: str  # absolute path to the SKILL.md the agent should read
     always: bool = False  # if true, the full body is INLINED into the prompt every turn
-    body: str = ""        # the playbook body (only needed/populated for always-on skills)
+    body: str = ""  # the playbook body (only needed/populated for always-on skills)
     # Gating (OpenClaw `requires`): a skill is HIDDEN unless its deps are present. Keys:
     #   "bins"   -> all must be on PATH       "env" -> all must be set
     #   "config" -> all (top-level) config attrs must be truthy

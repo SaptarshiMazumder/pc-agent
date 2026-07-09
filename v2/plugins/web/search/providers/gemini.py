@@ -73,13 +73,12 @@ class GeminiGroundingProvider:
         cand = candidates[0]
         parts = ((cand.get("content") or {}).get("parts")) or []
         content = "\n".join(
-            p["text"] for p in parts
-            if isinstance(p, dict) and isinstance(p.get("text"), str)
+            p["text"] for p in parts if isinstance(p, dict) and isinstance(p.get("text"), str)
         ).strip()
 
         gm = cand.get("groundingMetadata") or {}
         raw: list[tuple[str, str | None]] = []
-        for c in (gm.get("groundingChunks") or []):
+        for c in gm.get("groundingChunks") or []:
             web = c.get("web") if isinstance(c, dict) else None
             if isinstance(web, dict) and isinstance(web.get("uri"), str):
                 raw.append((web["uri"], web.get("title")))

@@ -28,7 +28,8 @@ class SqliteResourceStore:
             " size INTEGER NOT NULL, sig TEXT NOT NULL DEFAULT '',"
             " description TEXT NOT NULL DEFAULT '', updated_at REAL NOT NULL DEFAULT 0,"
             " enriched INTEGER NOT NULL DEFAULT 0,"
-            " PRIMARY KEY (agent_id, rel_path))")
+            " PRIMARY KEY (agent_id, rel_path))"
+        )
         try:  # migrate an older DB created before the `enriched` column
             self._db.execute("ALTER TABLE resources ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
@@ -36,13 +37,21 @@ class SqliteResourceStore:
         self._db.commit()
 
     def _row(self, r) -> Resource:
-        return Resource(rel_path=r[0], kind=r[1], size=r[2], sig=r[3],
-                        description=r[4], updated_at=r[5], enriched=bool(r[6]))
+        return Resource(
+            rel_path=r[0],
+            kind=r[1],
+            size=r[2],
+            sig=r[3],
+            description=r[4],
+            updated_at=r[5],
+            enriched=bool(r[6]),
+        )
 
     def get(self, agent_id: str, rel_path: str) -> Resource | None:
         row = self._db.execute(
             f"SELECT {','.join(_COLS)} FROM resources WHERE agent_id=? AND rel_path=?",
-            (agent_id, rel_path)).fetchone()
+            (agent_id, rel_path),
+        ).fetchone()
         return self._row(row) if row else None
 
     def put(self, agent_id: str, res: Resource) -> None:
@@ -50,20 +59,31 @@ class SqliteResourceStore:
             "INSERT OR REPLACE INTO resources"
             " (agent_id, rel_path, kind, size, sig, description, updated_at, enriched)"
             " VALUES (?,?,?,?,?,?,?,?)",
-            (agent_id, res.rel_path, res.kind, res.size, res.sig,
-             res.description, res.updated_at or time.time(), int(res.enriched)))
+            (
+                agent_id,
+                res.rel_path,
+                res.kind,
+                res.size,
+                res.sig,
+                res.description,
+                res.updated_at or time.time(),
+                int(res.enriched),
+            ),
+        )
         self._db.commit()
 
     def delete(self, agent_id: str, rel_path: str) -> bool:
         cur = self._db.execute(
-            "DELETE FROM resources WHERE agent_id=? AND rel_path=?", (agent_id, rel_path))
+            "DELETE FROM resources WHERE agent_id=? AND rel_path=?", (agent_id, rel_path)
+        )
         self._db.commit()
         return cur.rowcount > 0
 
     def list(self, agent_id: str) -> list[Resource]:
         rows = self._db.execute(
             f"SELECT {','.join(_COLS)} FROM resources WHERE agent_id=? ORDER BY rel_path",
-            (agent_id,)).fetchall()
+            (agent_id,),
+        ).fetchall()
         return [self._row(r) for r in rows]
 
     def purge_agent(self, agent_id: str) -> int:

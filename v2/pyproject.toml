@@ -46,7 +46,7 @@ dependencies = [
 computer = ["pyautogui>=0.9.54", "Pillow>=10"]   # computer-use tool (AGENTD_COMPUTER_ENABLED=1)
 mcp = ["mcp>=1.0"]                                # external MCP connectors
 all = ["agentd[computer,mcp]"]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "agentd[all]"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "ruff>=0.6", "mypy>=1.11", "agentd[all]"]
 
 [project.scripts]
 agentd = "agentd.cli.main:main"
@@ -73,3 +73,44 @@ include = [
     "README.md",
 ]
 exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo", "**/.agentd", "**/workspace"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: hits real network/provider APIs (needs secrets; excluded from Stage 1)",
+    "browser: needs Playwright + a real Chromium (excluded from Stage 1)",
+    "computer: needs the computer-use runtime (display + driver; excluded from Stage 1)",
+    "e2e: end-to-end smoke against a booted daemon",
+]
+
+# --- ruff: linter (bug-prone patterns) + formatter (consistent style) ---------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["misc", "clients", "reference", "v1"]
+
+[tool.ruff.lint]
+# E = pycodestyle, F = pyflakes (unused imports/vars — real bugs), I = isort (import order),
+# UP = pyupgrade (modernize syntax), B = flake8-bugbear (likely-bug patterns).
+select = ["E", "F", "I", "UP", "B"]
+# E501 (line-length) is owned by the formatter. The rest are a RATCHET: pre-existing style/best-
+# practice issues to burn down over time, then delete from this list. F-codes (real bugs) are
+# deliberately NOT ratcheted — they stay enabled everywhere (flagged in place with # noqa + TODO).
+ignore = [
+    "E501",
+    "B007", "B011", "B904", "B905", "E402", "E731", "E741", "UP007", "UP031",
+]
+
+# --- mypy: static type checking (start lenient, scoped to core; ratchet later) -
+[tool.mypy]
+python_version = "3.11"
+files = ["agentd"]
+ignore_missing_imports = true    # don't error on untyped 3rd-party libs (litellm, etc.)
+check_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+no_implicit_optional = true
+exclude = ['agentd/_builtin_plugins/', 'agentd/_data/']
+

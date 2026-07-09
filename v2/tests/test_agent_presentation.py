@@ -11,12 +11,14 @@ from agentd.infrastructure.agents import presentation
 
 
 def test_clean_presentation_trims_and_caps():
-    out = presentation.clean_presentation({
-        "tagline": '  "Finance ·  Gmail."  ',
-        "suggestions": ["  Check this month's spend.  ", "", "b" * 200, "three", "four"],
-    })
+    out = presentation.clean_presentation(
+        {
+            "tagline": '  "Finance ·  Gmail."  ',
+            "suggestions": ["  Check this month's spend.  ", "", "b" * 200, "three", "four"],
+        }
+    )
     assert out["tagline"] == "Finance · Gmail"
-    assert len(out["suggestions"]) == 3                    # capped at 3, empty dropped
+    assert len(out["suggestions"]) == 3  # capped at 3, empty dropped
     assert out["suggestions"][0] == "Check this month's spend"
     assert len(out["suggestions"][1]) <= presentation.MAX_SUGGESTION_CHARS
     assert presentation.clean_presentation({"tagline": ""}) == {}
@@ -24,9 +26,14 @@ def test_clean_presentation_trims_and_caps():
 
 
 def test_generate_parses_json_with_noise(monkeypatch):
-    monkeypatch.setattr(presentation, "text_complete", lambda **_k: (
-        'Sure! Here you go:\n{"tagline": "front desk", '
-        '"suggestions": ["Book a table for two", "Check today\'s reservations"]}\nDone.'))
+    monkeypatch.setattr(
+        presentation,
+        "text_complete",
+        lambda **_k: (
+            'Sure! Here you go:\n{"tagline": "front desk", '
+            '"suggestions": ["Book a table for two", "Check today\'s reservations"]}\nDone.'
+        ),
+    )
     out = presentation.generate_presentation("Sakana", "sushi front desk", "IDENTITY...", "m")
     assert out["tagline"] == "front desk"
     assert out["suggestions"] == ["Book a table for two", "Check today's reservations"]
@@ -35,6 +42,7 @@ def test_generate_parses_json_with_noise(monkeypatch):
 def test_generate_never_raises(monkeypatch):
     def boom(**_k):
         raise RuntimeError("model down")
+
     monkeypatch.setattr(presentation, "text_complete", boom)
     assert presentation.generate_presentation("X", "d", "identity", "m") == {}
     monkeypatch.setattr(presentation, "text_complete", lambda **_k: "no json here")
@@ -52,25 +60,31 @@ def test_sidecar_roundtrip(tmp_path):
 
 def _registry(tmp_path):
     from agentd.infrastructure.agents.file_registry import FileAgentRegistry
-    return FileAgentRegistry(SimpleNamespace(
-        state_dir=tmp_path / "state", agents_dir=tmp_path / "agents", agent_name="jarvis"))
+
+    return FileAgentRegistry(
+        SimpleNamespace(
+            state_dir=tmp_path / "state", agents_dir=tmp_path / "agents", agent_name="jarvis"
+        )
+    )
 
 
 def test_registry_reads_sidecar_and_toml_wins(tmp_path):
     d = tmp_path / "agents" / "helper"
     d.mkdir(parents=True)
     (d / "agent.toml").write_text('name = "Helper"\n', encoding="utf-8")
-    (d / "presentation.json").write_text(json.dumps(
-        {"tagline": "generated line", "suggestions": ["Do the thing"]}), encoding="utf-8")
+    (d / "presentation.json").write_text(
+        json.dumps({"tagline": "generated line", "suggestions": ["Do the thing"]}), encoding="utf-8"
+    )
 
     spec = _registry(tmp_path).get("helper")
-    assert spec.tagline == "generated line"               # sidecar fills the gap
+    assert spec.tagline == "generated line"  # sidecar fills the gap
     assert spec.suggestions == ("Do the thing",)
 
     # authored agent.toml fields WIN over the generated sidecar
     (d / "agent.toml").write_text(
         'name = "Helper"\ntagline = "authored line"\nsuggestions = ["One", "Two"]\n',
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     spec = _registry(tmp_path).get("helper")
     assert spec.tagline == "authored line"
     assert spec.suggestions == ("One", "Two")
@@ -79,13 +93,18 @@ def test_registry_reads_sidecar_and_toml_wins(tmp_path):
 def test_agents_list_carries_presentation(tmp_path):
     from agentd.presentation.gateway import Gateway
 
-    spec = SimpleNamespace(name="Helper", version="1", tagline="finance · gmail",
-                           suggestions=("Check spend",), color="#84cc16")
-    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path, agent_id="main",
-                                        agent_name="jarvis"),
-                 service=None,
-                 registry=SimpleNamespace(list_ids=lambda: ["helper"],
-                                          get=lambda a: spec))
+    spec = SimpleNamespace(
+        name="Helper",
+        version="1",
+        tagline="finance · gmail",
+        suggestions=("Check spend",),
+        color="#84cc16",
+    )
+    gw = Gateway(
+        config=SimpleNamespace(state_dir=tmp_path, agent_id="main", agent_name="jarvis"),
+        service=None,
+        registry=SimpleNamespace(list_ids=lambda: ["helper"], get=lambda a: spec),
+    )
     agents = gw._agents_list()["agents"]
     assert agents[0]["tagline"] == "finance · gmail"
     assert agents[0]["suggestions"] == ["Check spend"]
@@ -105,7 +124,15 @@ def test_assign_hue_keeps_agents_apart():
     # base hue comes from the id hash; a clash is pushed at least _MIN_HUE_SEP away
     taken: list[float] = []
     hues = []
-    for aid in ["main", "expense-tracker", "figure-creator", "sakana-sushi", "cost-calc", "x1", "x2"]:
+    for aid in [
+        "main",
+        "expense-tracker",
+        "figure-creator",
+        "sakana-sushi",
+        "cost-calc",
+        "x1",
+        "x2",
+    ]:
         h = presentation.assign_hue(aid, taken)
         taken.append(h)
         hues.append(h)
@@ -129,9 +156,9 @@ def test_registry_reads_color_toml_wins(tmp_path):
     d.mkdir(parents=True)
     (d / "agent.toml").write_text('name = "Helper"\n', encoding="utf-8")
     (d / "presentation.json").write_text(json.dumps({"color": "#112233"}), encoding="utf-8")
-    assert _registry(tmp_path).get("helper").color == "#112233"        # sidecar fills
+    assert _registry(tmp_path).get("helper").color == "#112233"  # sidecar fills
     (d / "agent.toml").write_text('name = "Helper"\ncolor = "#aabbcc"\n', encoding="utf-8")
-    assert _registry(tmp_path).get("helper").color == "#aabbcc"        # authored wins
+    assert _registry(tmp_path).get("helper").color == "#aabbcc"  # authored wins
 
 
 def test_main_is_pinned_to_brand_lime(tmp_path):
@@ -147,19 +174,24 @@ def test_main_is_pinned_to_brand_lime(tmp_path):
 
 def test_registry_create_scaffolds_and_loads(tmp_path):
     reg = _registry(tmp_path)
-    spec = reg.create("travel-planner", name="Travel Planner",
-                      description="plans trips", identity="You are a travel planner.")
+    spec = reg.create(
+        "travel-planner",
+        name="Travel Planner",
+        description="plans trips",
+        identity="You are a travel planner.",
+    )
     assert spec.id == "travel-planner" and spec.name == "Travel Planner"
     assert spec.description == "plans trips"
     d = tmp_path / "agents" / "travel-planner"
     assert (d / "agent.toml").is_file() and (d / "IDENTITY.md").is_file()
-    assert "travel planner" in spec.instructions.lower()   # IDENTITY loaded into bootstrap
-    assert "travel-planner" in reg.list_ids()              # usable without restart
+    assert "travel planner" in spec.instructions.lower()  # IDENTITY loaded into bootstrap
+    assert "travel-planner" in reg.list_ids()  # usable without restart
 
     import pytest
-    with pytest.raises(ValueError):                        # duplicate
+
+    with pytest.raises(ValueError):  # duplicate
         reg.create("travel-planner", name="Dup")
-    with pytest.raises(ValueError):                        # bad id
+    with pytest.raises(ValueError):  # bad id
         reg.create("bad id!", name="x")
 
 
@@ -175,16 +207,20 @@ def test_gateway_agents_create(tmp_path):
         async def send(self, frame):
             events.append(frame)
 
-    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path / "state", agent_id="main",
-                                        agent_name="jarvis", cost_efficiency=None),
-                 service=None, registry=reg)
+    gw = Gateway(
+        config=SimpleNamespace(
+            state_dir=tmp_path / "state", agent_id="main", agent_name="jarvis", cost_efficiency=None
+        ),
+        service=None,
+        registry=reg,
+    )
     gw.clients = {_WS()}
 
     out = asyncio.run(gw._agents_create({"name": "Weather Bot", "description": "forecasts"}))
-    assert out["created"] and out["agentId"] == "weather-bot"     # slug from the name
+    assert out["created"] and out["agentId"] == "weather-bot"  # slug from the name
     assert "weather-bot" in reg.list_ids()
     assert any("agents.changed" in f for f in events)
 
     dup = asyncio.run(gw._agents_create({"name": "Weather Bot"}))
     assert not dup["created"] and "exists" in dup["error"]
-    assert not asyncio.run(gw._agents_create({"name": ""}))["created"]   # needs a name
+    assert not asyncio.run(gw._agents_create({"name": ""}))["created"]  # needs a name

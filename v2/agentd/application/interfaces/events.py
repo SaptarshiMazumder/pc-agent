@@ -8,7 +8,7 @@ loop doesn't know or care which — it only knows "I can emit an event here."
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from agentd.domain.events import AgentEvent
 

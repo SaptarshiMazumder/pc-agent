@@ -26,16 +26,17 @@ class PluginContext:
     shared browser, persist to the cron ledger, read memory, etc. Every handle is OPTIONAL (None
     when that subsystem is off), so a plugin guards on what it needs and the core stays decoupled
     (this interface still imports nothing concrete — the handles are duck-typed ``object``)."""
-    config: object                 # the app Config — for the plugin's OWN settings/keys
-    plugin_dir: str = ""           # the plugin's OWN folder — resolve bundled scripts/data here
-    browser: object = None         # BrowserManager — the shared browser session
-    computer: object = None        # computer-use provider (screen/keyboard/mouse driver)
-    task_store: object = None      # durable cron/task ledger
-    memory_bank: object = None     # long-term memory store
+
+    config: object  # the app Config — for the plugin's OWN settings/keys
+    plugin_dir: str = ""  # the plugin's OWN folder — resolve bundled scripts/data here
+    browser: object = None  # BrowserManager — the shared browser session
+    computer: object = None  # computer-use provider (screen/keyboard/mouse driver)
+    task_store: object = None  # durable cron/task ledger
+    memory_bank: object = None  # long-term memory store
     resource_manager: object = None  # workspace resource index + CRUD
     credential_store: object = None  # saved-login vault (no plaintext secrets ever reach the model)
     connect_token_store: object = None  # channel connect tokens
-    registry: object = None        # AgentRegistry — list/author agents at runtime (create_agent)
+    registry: object = None  # AgentRegistry — list/author agents at runtime (create_agent)
     register_plugin_live: object = None  # callable() -> hot-load NEWLY-written plugins into the
     #                                      live catalog without a restart (used by create_tool)
 
@@ -43,6 +44,7 @@ class PluginContext:
         """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,
         or anything alongside its code). Cleaner + relocation-proof vs ``Path(__file__).parent``."""
         from pathlib import Path
+
         return str(Path(self.plugin_dir) / name) if self.plugin_dir else name
 
 
@@ -51,6 +53,7 @@ class PluginApi(Protocol):
     """Handed to a plugin so it can contribute capabilities. Today: tools + prompt sections.
     Later, additively: register_channel / register_provider / register_gateway_method (OCP —
     existing plugins never change when new kinds are added)."""
+
     def register_tool(self, tool) -> None: ...
 
     def register_prompt_section(self, section) -> None:
@@ -64,6 +67,7 @@ class PluginApi(Protocol):
 @runtime_checkable
 class Plugin(Protocol):
     """What a NATIVE plugin module exposes (referenced by the manifest's ``entry``)."""
+
     def register(self, api: PluginApi, ctx: PluginContext) -> None: ...
 
 
@@ -80,4 +84,5 @@ class EntitlementPolicy(Protocol):
     ``manifest`` is duck-typed (has ``.id`` / ``.name`` / ``.kind``) so this interface imports
     nothing concrete.
     """
+
     def is_entitled(self, manifest) -> bool: ...

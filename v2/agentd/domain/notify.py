@@ -15,8 +15,8 @@ from dataclasses import dataclass
 class Notification:
     id: str
     agent_id: str
-    kind: str            # blocked | failed | info
-    text: str            # headline, e.g. "job-yucho blocked"
-    detail: str = ""     # reason / context, e.g. "needs Google Drive authorization"
+    kind: str  # blocked | failed | info
+    text: str  # headline, e.g. "job-yucho blocked"
+    detail: str = ""  # reason / context, e.g. "needs Google Drive authorization"
     created_at: float = 0.0
     read: bool = False

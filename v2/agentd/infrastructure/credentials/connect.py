@@ -16,10 +16,10 @@ import time
 class ConnectTokenStore:
     def __init__(self, ttl_seconds: float = 900.0):
         self._ttl = float(ttl_seconds)
-        self._tokens: dict[str, tuple[str, str, float]] = {}   # token -> (agent, site, expiry)
+        self._tokens: dict[str, tuple[str, str, float]] = {}  # token -> (agent, site, expiry)
 
     def mint(self, agent_id: str, site: str) -> str:
-        token = secrets.token_urlsafe(24)                      # unguessable, single-use
+        token = secrets.token_urlsafe(24)  # unguessable, single-use
         self._tokens[token] = (agent_id, site, time.time() + self._ttl)
         return token
 

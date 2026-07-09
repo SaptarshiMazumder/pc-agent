@@ -13,20 +13,22 @@ accuracy lever, since the human/source supplies the structure and the model only
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
+
+import figure_art_gemini as gem
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
 from agentd.application.tool_models import resolve_tool_model, resolve_tool_provider, tool_config
-from agentd.domain.messages import TextContent, ImageContent
-import base64
-
-import figure_art_gemini as gem
+from agentd.domain.messages import ImageContent, TextContent
 
 # The "no-text" half — ALWAYS appended (textless is the whole point; labels are the vector overlay).
 # Kept SEPARATE from style so a rich style can never be diluted by a "flat" directive.
-_NO_TEXT = (" NO text, NO labels, NO numbers, NO arrows, NO callouts, NO captions, NO legend, "
-            "NO measurement marks — render purely the artwork, nothing written.")
+_NO_TEXT = (
+    " NO text, NO labels, NO numbers, NO arrows, NO callouts, NO captions, NO legend, "
+    "NO measurement marks — render purely the artwork, nothing written."
+)
 
 # The FINISH guard — a cross-cutting INVARIANT, appended to EVERY call (any template, any plain prompt),
 # so it holds even when no template is chosen and even when the skill's guidance never runs. It pins the
@@ -40,7 +42,8 @@ _FINISH = (
     "model or diorama. The subject sits on a PURE solid white (#FFFFFF) seamless background: no backdrop, "
     "no scenery, no floor or table surface, no vignette, and NO cast, drop, contact or ground shadow "
     "beneath or behind the subject. (Shading, gradients and ambient occlusion WITHIN each structure to "
-    "model its own volume are welcome; only the BACKGROUND and any shadow cast onto it are forbidden.)")
+    "model its own volume are welcome; only the BACKGROUND and any shadow cast onto it are forbidden.)"
+)
 
 # The STYLE half — chosen, not hardcoded. Default is a shaded, volumetric BioRender/Cell-journal
 # look (the previous hard-coded 'flat editorial, thin outlines' is exactly what made art look flat).
@@ -52,35 +55,40 @@ _STYLES = {
         "richly SHADED and VOLUMETRIC with smooth gradient fills, soft ambient occlusion, gentle rim "
         "light and subtle specular highlights so forms read as three-dimensional; clean confident "
         "outlines, cohesive saturated-pastel biomedical palette, self-shading (not cast shadows) for "
-        "depth, crisp focus, clean white background. Polished, publication-grade, not flat."),
+        "depth, crisp focus, clean white background. Polished, publication-grade, not flat."
+    ),
     "cell-journal": (
         " Editorial scientific illustration in the style of a Cell / Nature journal cover: dimensional "
         "gradient-shaded structures, dramatic but clean lighting, rich depth and material detail, "
-        "refined palette, white background. Realistic shading, not flat."),
+        "refined palette, white background. Realistic shading, not flat."
+    ),
     "watercolor-medical": (
         " Classic medical-atlas illustration (Netter-like): hand-painted gradient shading, layered "
         "tones modelling volume and form, warm anatomical palette, soft edges, subtle texture, "
-        "white background."),
+        "white background."
+    ),
     "flat-vector": (
         " Clean flat-vector scientific illustration: thin even outlines, flat or lightly-shaded fills, "
         "soft pastel biomedical palette, minimal depth, white background. (Use only when a flat "
-        "schematic look is explicitly wanted.)"),
+        "schematic look is explicitly wanted.)"
+    ),
 }
 
 # Prompt for NATIVE vector (recraft) — flat clean shapes trace/export best as real SVG paths.
 _VECTOR_STYLE = (
     " Clean flat VECTOR illustration: bold well-defined shapes, limited solid-color palette, crisp "
-    "clean outlines, minimal or no gradients, distinct separable parts, white background.")
+    "clean outlines, minimal or no gradients, distinct separable parts, white background."
+)
 
 # How to USE the reference_images for accuracy. Gemini has no ControlNet, so conditioning is a
 # strong structure-preservation instruction alongside the reference input.
 _CONDITION = {
     "style": " Match the visual STYLE of the reference image(s); the layout may differ.",
     "layout": " Follow the spatial arrangement, structure, and CONNECTIVITY of the reference image(s) "
-              "EXACTLY — do not add, remove, move, or recount any structure. Re-render only the style.",
+    "EXACTLY — do not add, remove, move, or recount any structure. Re-render only the style.",
     "sketch": " The reference is a ROUGH SKETCH defining the correct layout. Keep every region in its "
-              "place and the same arrangement/connectivity; clean it into polished artwork in the "
-              "target style — invent nothing not in the sketch.",
+    "place and the same arrangement/connectivity; clean it into polished artwork in the "
+    "target style — invent nothing not in the sketch.",
 }
 
 
@@ -88,8 +96,13 @@ class GenerateArtworkTool(Tool):
     name = "generate_artwork"
     plugin = "figure-art"
     needs_model = True
-    model_kind = "image"                # OUTPUTS pixels — its picker must offer image-gen models, not text
-    default_model = gem.DEFAULT_MODEL   # last-resort fallback (config plugins.figure-art.* overrides it)
+    model_kind = "image-gen"  # OUTPUTS pixels — its picker must offer image-gen models, not text
+    default_model = (
+        gem.DEFAULT_MODEL
+    )  # last-resort fallback (config plugins.figure-art.* overrides it)
+    # provider = the image-gen BACKEND SDK (single pick), self-described so a client shows a dropdown.
+    # gemini (default) | fal | replicate — see _route(); flux/sdxl are back-compat aliases of fal.
+    provider_options = ["gemini", "fal", "replicate"]
     description = (
         "Generate a raster scientific illustration. PREFER an art TEMPLATE: pass `template=<id>` (see "
         "list_templates — e.g. biorender-shaded, ghosted-anatomy, isometric-3d-stem) plus `subject` "
@@ -109,27 +122,76 @@ class GenerateArtworkTool(Tool):
         "type": "object",
         "required": ["out_path"],
         "properties": {
-            "template": {"type": "string", "description": "Art-template id from list_templates (e.g. 'biorender-shaded', 'ghosted-anatomy', 'isometric-3d-stem'). Supplies the curated style/palette/aspect/model + exemplar conditioning. Combine with `subject`."},
-            "subject": {"type": "string", "description": "With a `template`: WHAT to depict (subject, viewpoint, composition) — merged into the template's {subject} slot."},
-            "prompt": {"type": "string", "description": "Full style prompt when NOT using a template. (With a template, `subject` is used; if only `prompt` is given it is treated as the subject.)"},
-            "out_path": {"type": "string", "description": "Output .png path (absolute or workspace-relative)."},
-            "palette": {"type": "array", "items": {"type": "string"}, "description": "Hex colours to enforce for cohesion (e.g. across a figure's artwork + flowchart icons). Overrides the template's palette."},
-            "style": {"type": "string", "enum": ["biorender-3d", "cell-journal", "watercolor-medical", "flat-vector"],
-                      "description": "Fallback visual style preset when NO template is given. Default 'biorender-3d'."},
-            "allow_text": {"type": "boolean", "description": "Allow baked-in text/labels. Default false (recommended for the hybrid overlay flow)."},
-            "reference_images": {"type": "array", "items": {"type": "string"},
-                                  "description": "Optional paths to reference images for conditioning (sketch/reference)."},
-            "conditioning": {"type": "string", "enum": ["style", "layout", "sketch"],
-                              "description": "How to use reference_images: 'sketch' (rough layout to clean up — highest accuracy), 'layout' (preserve structure/connectivity exactly), 'style' (match look only). Default 'layout' when reference_images given."},
-            "aspect_ratio": {"type": "string", "description": "e.g. '16:9', '1:1', '4:3'. Optional."},
-            "provider": {"type": "string", "enum": ["gemini", "fal", "replicate", "flux", "sdxl"],
-                          "description": "Image backend host. 'gemini' (default, best polish, GEMINI_API_KEY); 'fal' (fal.ai, $10 min, FAL_KEY); 'replicate' (no minimum, REPLICATE_API_TOKEN). fal/replicate give real ControlNet conditioning. ('flux'/'sdxl' are back-compat aliases for fal + that family.)"},
-            "family": {"type": "string", "enum": ["flux", "sdxl", "recraft"],
-                        "description": "Model family. 'flux' (default, quality raster); 'sdxl' (mature ControlNet); 'recraft' = NATIVE VECTOR SVG output (real editable shapes, no tracing; replicate only, flatter look)."},
-            "tier": {"type": "string", "description": "FLUX tier: 'schnell' (cheapest) | 'dev' (default) | 'pro' (best)."},
-            "lora_url": {"type": "string", "description": "Optional LoRA weights URL (e.g. a Civitai/HF download) to apply — Replicate FLUX only."},
-            "model": {"type": "string", "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.figure-art.tools.generate_artwork > plugins.figure-art default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint."},
-            "api_key": {"type": "string", "description": "Override key (Gemini: GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN)."},
+            "template": {
+                "type": "string",
+                "description": "Art-template id from list_templates (e.g. 'biorender-shaded', 'ghosted-anatomy', 'isometric-3d-stem'). Supplies the curated style/palette/aspect/model + exemplar conditioning. Combine with `subject`.",
+            },
+            "subject": {
+                "type": "string",
+                "description": "With a `template`: WHAT to depict (subject, viewpoint, composition) — merged into the template's {subject} slot.",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "Full style prompt when NOT using a template. (With a template, `subject` is used; if only `prompt` is given it is treated as the subject.)",
+            },
+            "out_path": {
+                "type": "string",
+                "description": "Output .png path (absolute or workspace-relative).",
+            },
+            "palette": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Hex colours to enforce for cohesion (e.g. across a figure's artwork + flowchart icons). Overrides the template's palette.",
+            },
+            "style": {
+                "type": "string",
+                "enum": ["biorender-3d", "cell-journal", "watercolor-medical", "flat-vector"],
+                "description": "Fallback visual style preset when NO template is given. Default 'biorender-3d'.",
+            },
+            "allow_text": {
+                "type": "boolean",
+                "description": "Allow baked-in text/labels. Default false (recommended for the hybrid overlay flow).",
+            },
+            "reference_images": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional paths to reference images for conditioning (sketch/reference).",
+            },
+            "conditioning": {
+                "type": "string",
+                "enum": ["style", "layout", "sketch"],
+                "description": "How to use reference_images: 'sketch' (rough layout to clean up — highest accuracy), 'layout' (preserve structure/connectivity exactly), 'style' (match look only). Default 'layout' when reference_images given.",
+            },
+            "aspect_ratio": {
+                "type": "string",
+                "description": "e.g. '16:9', '1:1', '4:3'. Optional.",
+            },
+            "provider": {
+                "type": "string",
+                "enum": ["gemini", "fal", "replicate", "flux", "sdxl"],
+                "description": "Image backend host. 'gemini' (default, best polish, GEMINI_API_KEY); 'fal' (fal.ai, $10 min, FAL_KEY); 'replicate' (no minimum, REPLICATE_API_TOKEN). fal/replicate give real ControlNet conditioning. ('flux'/'sdxl' are back-compat aliases for fal + that family.)",
+            },
+            "family": {
+                "type": "string",
+                "enum": ["flux", "sdxl", "recraft"],
+                "description": "Model family. 'flux' (default, quality raster); 'sdxl' (mature ControlNet); 'recraft' = NATIVE VECTOR SVG output (real editable shapes, no tracing; replicate only, flatter look).",
+            },
+            "tier": {
+                "type": "string",
+                "description": "FLUX tier: 'schnell' (cheapest) | 'dev' (default) | 'pro' (best).",
+            },
+            "lora_url": {
+                "type": "string",
+                "description": "Optional LoRA weights URL (e.g. a Civitai/HF download) to apply — Replicate FLUX only.",
+            },
+            "model": {
+                "type": "string",
+                "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.figure-art.tools.generate_artwork > plugins.figure-art default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint.",
+            },
+            "api_key": {
+                "type": "string",
+                "description": "Override key (Gemini: GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN).",
+            },
         },
     }
 
@@ -159,9 +221,11 @@ class GenerateArtworkTool(Tool):
         tmpl = None
         if params.get("template"):
             import figure_art_templates as tpl
+
             subject = params.get("subject") or params.get("prompt") or ""
-            tmpl = tpl.resolve(self.config, params["template"], subject,
-                               palette_override=params.get("palette"))
+            tmpl = tpl.resolve(
+                self.config, params["template"], subject, palette_override=params.get("palette")
+            )
 
         provider, family = self._route(params, tmpl)
 
@@ -179,6 +243,7 @@ class GenerateArtworkTool(Tool):
             prompt += _VECTOR_STYLE
         elif tmpl:
             import figure_art_templates as tpl
+
             prompt += tpl.palette_directive(palette, tmpl["palette_locked"])
             if tmpl["negative"]:
                 prompt += f" Do NOT include: {tmpl['negative']}."
@@ -187,6 +252,7 @@ class GenerateArtworkTool(Tool):
             prompt += _STYLES.get(style, _STYLES[DEFAULT_STYLE])
             if palette:
                 import figure_art_templates as tpl
+
                 prompt += tpl.palette_directive(palette, False)
 
         # Exemplar images from the template condition the STYLE (repeatable look); user refs follow.
@@ -199,7 +265,7 @@ class GenerateArtworkTool(Tool):
             # Gemini has no ControlNet, so it needs the conditioning spelled out in the prompt. FLUX/SDXL
             # apply it STRUCTURALLY (ControlNet/img2img) in the backend, so don't dilute their prompt.
             prompt += _CONDITION.get(conditioning, _CONDITION["layout"])
-        prompt += _FINISH          # white bg + no cast shadow + illustration-not-photo — a hard invariant
+        prompt += _FINISH  # white bg + no cast shadow + illustration-not-photo — a hard invariant
         if not params.get("allow_text"):
             prompt += _NO_TEXT
         aspect = params.get("aspect_ratio") or (tmpl["aspect"] if tmpl else None)
@@ -219,44 +285,66 @@ class GenerateArtworkTool(Tool):
             # The plugins.figure-art model IS the fal/replicate endpoint (owner/name) here. But the tool's
             # built-in default is a Gemini id, meaningless as an endpoint — so resolve with no gemini
             # fallback and drop any gemini/* (or bare) id, letting the backend pick its family/tier default.
-            endpoint = resolve_tool_model(self.config, self.plugin, self.name,
-                                          per_call=model_pc, default=None)
+            endpoint = resolve_tool_model(
+                self.config, self.plugin, self.name, per_call=model_pc, default=None
+            )
             if endpoint and (endpoint.startswith("gemini") or "/" not in endpoint):
                 endpoint = None
-            kw = dict(family=family, tier=params.get("tier"),
-                      reference_images=[str(r) for r in refs], conditioning=conditioning,
-                      aspect_ratio=aspect, api_key=key,
-                      endpoint=endpoint)
+            kw = dict(
+                family=family,
+                tier=params.get("tier"),
+                reference_images=[str(r) for r in refs],
+                conditioning=conditioning,
+                aspect_ratio=aspect,
+                api_key=key,
+                endpoint=endpoint,
+            )
             if provider == "replicate" and params.get("lora_url"):
                 kw["lora_url"] = params["lora_url"]
             r = backend.generate_image(prompt, out, **kw)
-            return {**r, "palette": palette, "template": (tmpl["id"] if tmpl else None), "aspect": aspect}
+            return {
+                **r,
+                "palette": palette,
+                "template": (tmpl["id"] if tmpl else None),
+                "aspect": aspect,
+            }
 
         key = gem.resolve_key(params.get("api_key"), self.config)
-        model = resolve_tool_model(self.config, self.plugin, self.name,
-                                   per_call=model_pc, default=self.default_model)
+        model = resolve_tool_model(
+            self.config, self.plugin, self.name, per_call=model_pc, default=self.default_model
+        )
         r = gem.generate_image(
-            prompt, out,
+            prompt,
+            out,
             model=model,
             api_key=key,
             reference_images=refs,
             aspect_ratio=aspect,
             image_size=resolution,
         )
-        return {**r, "palette": palette, "template": (tmpl["id"] if tmpl else None), "aspect": aspect}
+        return {
+            **r,
+            "palette": palette,
+            "template": (tmpl["id"] if tmpl else None),
+            "aspect": aspect,
+        }
 
     def _route(self, params, tmpl=None) -> tuple[str, str]:
         """Resolve (provider_host, family). The provider (backend SDK) comes from a per-call `provider`,
         else the chosen template's `provider`, else the plugins config (agent.toml over global). Same one
         place as the model. Back-compat: provider 'flux'/'sdxl' == fal + that family."""
-        provider = resolve_tool_provider(self.config, self.plugin, self.name,
-                                         per_call=params.get("provider") or (tmpl["provider"] if tmpl else None),
-                                         default="gemini")
+        provider = resolve_tool_provider(
+            self.config,
+            self.plugin,
+            self.name,
+            per_call=params.get("provider") or (tmpl["provider"] if tmpl else None),
+            default="gemini",
+        )
         family = params.get("family")
         if provider in ("flux", "sdxl"):
             family = family or provider
             provider = "fal"
-        if family == "recraft":            # native-SVG model lives on replicate
+        if family == "recraft":  # native-SVG model lives on replicate
             provider = "replicate"
         return provider, (family or "flux")
 
@@ -269,9 +357,21 @@ class GenerateArtworkTool(Tool):
         prov = f" via {r['provider']}/{r.get('mode', '')}".rstrip("/") if r.get("provider") else ""
         svg = f" Editable vector SVG -> {r['svg_path']}." if r.get("svg_path") else ""
         tmpl = f" template '{r['template']}'." if r.get("template") else ""
-        pal = (" Palette (reuse for this figure's other assets + the overlay): "
-               + ", ".join(r["palette"]) + ".") if r.get("palette") else ""
+        pal = (
+            (
+                " Palette (reuse for this figure's other assets + the overlay): "
+                + ", ".join(r["palette"])
+                + "."
+            )
+            if r.get("palette")
+            else ""
+        )
         return ToolResult(
-            content=[TextContent(text=f"Artwork -> {r['path']} (model {r['model']}{prov}).{tmpl}{svg}{pal}"),
-                     ImageContent(data=data, mime_type=r["mime"])],
-            details=r)
+            content=[
+                TextContent(
+                    text=f"Artwork -> {r['path']} (model {r['model']}{prov}).{tmpl}{svg}{pal}"
+                ),
+                ImageContent(data=data, mime_type=r["mime"]),
+            ],
+            details=r,
+        )

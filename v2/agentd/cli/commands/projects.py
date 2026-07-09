@@ -14,7 +14,8 @@ from agentd.clients.timefmt import whatsapp_when
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     projects = subparsers.add_parser(
-        "projects", help="projects (folders of chats): list / create / rename / delete")
+        "projects", help="projects (folders of chats): list / create / rename / delete"
+    )
     projects.set_defaults(func=run_list)
     sub = projects.add_subparsers(dest="projects_command")
 
@@ -32,8 +33,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     rm = sub.add_parser("delete", help="delete a project (chats become standalone)")
     rm.add_argument("id")
-    rm.add_argument("--delete-chats", action="store_true",
-                    help="ALSO delete every conversation in the project — permanent")
+    rm.add_argument(
+        "--delete-chats",
+        action="store_true",
+        help="ALSO delete every conversation in the project — permanent",
+    )
     rm.set_defaults(func=run_delete)
 
 
@@ -45,6 +49,7 @@ def run_list(_args: argparse.Namespace) -> int:
     except rpc.DaemonNotRunning:
         from agentd.config import load_config
         from agentd.infrastructure.memory import projects_store
+
         rows = projects_store.list_projects(load_config().state_dir)
     except rpc.RpcError as e:
         print(f"error: {e}")
@@ -68,6 +73,7 @@ def run_create(args: argparse.Namespace) -> int:
     except rpc.DaemonNotRunning:
         from agentd.config import load_config
         from agentd.infrastructure.memory import projects_store
+
         try:
             project = projects_store.create_project(load_config().state_dir, args.name)
         except ValueError as e:
@@ -85,11 +91,11 @@ def run_rename(args: argparse.Namespace) -> int:
     from agentd.cli import rpc
 
     try:
-        ok = rpc.call("projects.rename", {"id": args.id, "name": args.name},
-                      timeout=15).get("ok")
+        ok = rpc.call("projects.rename", {"id": args.id, "name": args.name}, timeout=15).get("ok")
     except rpc.DaemonNotRunning:
         from agentd.config import load_config
         from agentd.infrastructure.memory import projects_store
+
         ok = projects_store.rename_project(load_config().state_dir, args.id, args.name)
     except rpc.RpcError as e:
         print(f"rename failed: {e}")
@@ -102,11 +108,15 @@ def run_delete(args: argparse.Namespace) -> int:
     from agentd.cli import rpc
 
     try:
-        result = rpc.call("projects.delete",
-                          {"id": args.id, "deleteSessions": args.delete_chats}, timeout=60)
+        result = rpc.call(
+            "projects.delete", {"id": args.id, "deleteSessions": args.delete_chats}, timeout=60
+        )
         ok = result.get("ok")
-        tail = (f" (+ {result.get('sessionsDeleted', 0)} chats deleted)"
-                if args.delete_chats else " (its chats are standalone now)")
+        tail = (
+            f" (+ {result.get('sessionsDeleted', 0)} chats deleted)"
+            if args.delete_chats
+            else " (its chats are standalone now)"
+        )
     except rpc.DaemonNotRunning:
         from agentd.config import load_config
         from agentd.infrastructure.agents.file_registry import FileAgentRegistry
@@ -116,6 +126,7 @@ def run_delete(args: argparse.Namespace) -> int:
             sessions_in_project,
             write_session_meta,
         )
+
         config = load_config()
         ok = projects_store.delete_project(config.state_dir, args.id)
         registry = FileAgentRegistry(config)
@@ -131,8 +142,11 @@ def run_delete(args: argparse.Namespace) -> int:
                     deleted += 1
                 else:
                     write_session_meta(sd, sid, projectId="")
-        tail = (f" (+ {deleted} chats deleted)" if args.delete_chats
-                else " (its chats are standalone now)")
+        tail = (
+            f" (+ {deleted} chats deleted)"
+            if args.delete_chats
+            else " (its chats are standalone now)"
+        )
     except rpc.RpcError as e:
         print(f"delete failed: {e}")
         return 1

@@ -26,17 +26,27 @@ class MakePptxTool(Tool):
         "type": "object",
         "required": ["out_path", "slides"],
         "properties": {
-            "out_path": {"type": "string", "description": "Output .pptx path (absolute or relative to workspace)."},
+            "out_path": {
+                "type": "string",
+                "description": "Output .pptx path (absolute or relative to workspace).",
+            },
             "slides": {
-                "type": "array", "minItems": 1,
+                "type": "array",
+                "minItems": 1,
                 "items": {
                     "type": "object",
                     "properties": {
                         "title": {"type": "string"},
                         "bullets": {"type": "array", "items": {"type": "string"}},
                         "subtitle": {"type": "string"},
-                        "image": {"type": "string", "description": "Image path to place on the slide."},
-                        "notes": {"type": "string", "description": "Speaker notes (e.g. the narration)."},
+                        "image": {
+                            "type": "string",
+                            "description": "Image path to place on the slide.",
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Speaker notes (e.g. the narration).",
+                        },
                     },
                 },
             },
@@ -60,7 +70,9 @@ class MakePptxTool(Tool):
             from pptx import Presentation
             from pptx.util import Inches, Pt
         except Exception as e:
-            raise RuntimeError(f"python-pptx not available ({e}); install it: pip install python-pptx")
+            raise RuntimeError(
+                f"python-pptx not available ({e}); install it: pip install python-pptx"
+            )
 
         out = self._resolve(params["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +83,7 @@ class MakePptxTool(Tool):
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
         blank = prs.slide_layouts[6]
-        SW, SH = prs.slide_width, prs.slide_height
+        SW = prs.slide_width
 
         for s in params["slides"]:
             slide = prs.slides.add_slide(blank)
@@ -79,14 +91,18 @@ class MakePptxTool(Tool):
             body_w = Inches(7.0) if has_image else Inches(12.13)
 
             if s.get("title"):
-                tb = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), SW - Inches(1.2), Inches(1.1))
+                tb = slide.shapes.add_textbox(
+                    Inches(0.6), Inches(0.4), SW - Inches(1.2), Inches(1.1)
+                )
                 tf = tb.text_frame
                 tf.word_wrap = True
                 tf.text = s["title"]
                 tf.paragraphs[0].font.size = Pt(title_size)
                 tf.paragraphs[0].font.bold = True
 
-            body = slide.shapes.add_textbox(Inches(0.6), Inches(1.8), body_w, Inches(5.0)).text_frame
+            body = slide.shapes.add_textbox(
+                Inches(0.6), Inches(1.8), body_w, Inches(5.0)
+            ).text_frame
             body.word_wrap = True
             if s.get("bullets"):
                 for j, b in enumerate(s["bullets"]):
@@ -122,5 +138,6 @@ class MakePptxTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"make_pptx failed: {e}", is_error=True)
-        return ToolResult.text(f"Wrote {r['slides']}-slide deck -> {r['path']}.",
-                               details=r, artifacts=[r["path"]])  # deliverable: the deck
+        return ToolResult.text(
+            f"Wrote {r['slides']}-slide deck -> {r['path']}.", details=r, artifacts=[r["path"]]
+        )  # deliverable: the deck

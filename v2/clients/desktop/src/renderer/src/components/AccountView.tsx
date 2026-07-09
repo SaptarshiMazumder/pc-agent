@@ -1,6 +1,7 @@
 import { User, LogIn } from 'lucide-react'
 
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
 
 /** Account — a local-profile stub today; cloud sign-in/sync lands with the accounts backend. */
 export default function AccountView() {
@@ -15,15 +16,7 @@ export default function AccountView() {
   ]
 
   return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <div className="page-title">Account</div>
-            <div className="page-sub">Your local profile. Cloud sign-in is coming soon.</div>
-          </div>
-        </div>
-
+    <PageShell title="Account" sub="Your local profile. Cloud sign-in is coming soon.">
         <div className="account-hero">
           <div className="account-avatar"><User size={30} /></div>
           <div>
@@ -58,7 +51,6 @@ export default function AccountView() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

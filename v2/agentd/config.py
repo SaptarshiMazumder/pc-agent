@@ -32,14 +32,15 @@ class McpServerConfig:
     http (later phase): set `url` (and optional `headers`). `allow` optionally
     restricts which of the server's tools are exposed.
     """
-    name: str                                   # namespace, e.g. "google"
-    transport: str = "stdio"                    # "stdio" | "http"
-    command: list | None = None                 # stdio: ["uvx", "workspace-mcp", ...]
-    env: dict | None = None                     # stdio: extra env for the subprocess
-    url: str | None = None                      # http: server endpoint
-    headers: dict | None = None                 # http: auth headers
+
+    name: str  # namespace, e.g. "google"
+    transport: str = "stdio"  # "stdio" | "http"
+    command: list | None = None  # stdio: ["uvx", "workspace-mcp", ...]
+    env: dict | None = None  # stdio: extra env for the subprocess
+    url: str | None = None  # http: server endpoint
+    headers: dict | None = None  # http: auth headers
     enabled: bool = True
-    allow: list | None = None                   # optional tool allowlist (bare names)
+    allow: list | None = None  # optional tool allowlist (bare names)
 
 
 @dataclass
@@ -58,6 +59,12 @@ class Config:
     # empty => the built-in default catalog (gateway.DEFAULT_MODEL_CATALOG). Each entry is
     # {"value": "provider/model", "label": "Human name", "group": "Provider"}.
     model_catalog: list = field(default_factory=list)
+    # HOUSE default model per KIND, so a tool author just declares `model_kind` and never names a
+    # model. Keys: "vision" (reads images), "image-gen" (generates images), "embedding" — override
+    # any of them here to retune EVERY tool of that kind at once. Empty/absent kind falls back to the
+    # KIND_DEFAULT_MODELS seed in tool_models.py; "text" is omitted on purpose (text tools use the
+    # brain). A per-tool `plugins.<p>.tools.<t>.model` still wins over this.
+    model_defaults: dict = field(default_factory=dict)
     # ALL model-bearing TOOLS and SUBSYSTEMS pick their model from ONE place — this clean
     # PLUGIN -> TOOL -> model hierarchy — decoupled from the agent BRAIN (`model`). (web_search
     # grounding, the verify/safe_to_send judges, resource captions/summaries, computer-use, and the
@@ -108,13 +115,13 @@ class Config:
     agents_dir: Path = field(default_factory=runtime_paths.default_agents_dir)
     # Scratch hygiene: <workspace>/tmp/ is a sanctioned throwaway dir (never indexed/enriched);
     # files in it older than this many hours are auto-swept at turn start. 0 disables the sweep.
-    scratch_ttl_hours: float = 24.0           # AGENTD_SCRATCH_TTL_HOURS
+    scratch_ttl_hours: float = 24.0  # AGENTD_SCRATCH_TTL_HOURS
     # Durable event log (observability): record EVERY run's event stream to
     # <state_dir>/events/<agent>-<run>.jsonl, so a run's play-by-play is viewable even with NO
     # client attached (cron/channel/heartbeat/sub-agent). OFF by default; AGENTD_EVENT_LOG=1.
     # Watch live with: python -m clients.watch [agent|run|latest] -f
-    event_log_enabled: bool = False           # AGENTD_EVENT_LOG
-    event_log_max_runs: int = 200             # keep the most recent N run files (AGENTD_EVENT_LOG_MAX)
+    event_log_enabled: bool = False  # AGENTD_EVENT_LOG
+    event_log_max_runs: int = 200  # keep the most recent N run files (AGENTD_EVENT_LOG_MAX)
     brave_api_key: str | None = None
     # Parallel's hosted Search MCP (https://search.parallel.ai/mcp) — the keyless,
     # streamable-HTTP search backend OpenClaw uses as its zero-config default. Free
@@ -160,8 +167,10 @@ class Config:
     # --- reliability / guardrails (applied to EVERY tool via GuardedTool) -------
     # Per-tool effective values resolve: tool_overrides[name] > the tool's own
     # declared default (default_* class attr) > these globals.
-    tool_timeout_default: float = 300.0   # wall-clock per tool call (AGENTD_TOOL_TIMEOUT); per-tool null = no wrapper
-    tool_retries_default: int = 0         # extra attempts on transient errors (AGENTD_TOOL_RETRIES)
+    tool_timeout_default: float = (
+        300.0  # wall-clock per tool call (AGENTD_TOOL_TIMEOUT); per-tool null = no wrapper
+    )
+    tool_retries_default: int = 0  # extra attempts on transient errors (AGENTD_TOOL_RETRIES)
     # Loop detection (same GuardedTool chokepoint; per-tool overridable via tool_overrides):
     # block a call repeated with IDENTICAL args more than N times in a row (0 = off),
     # and append a "stop retrying / switch tools" nudge after N consecutive errors (0 = off).
@@ -176,9 +185,13 @@ class Config:
     #  2) tools_enabled / tools_disabled (name or trailing-* glob) -- GLOBAL on/off applied to
     #     the WHOLE catalog (internal+plugin, native+mcp). disabled wins; enabled=[] => all.
     #  3) per-agent allow/deny lives in agents/<id>/agent.toml (already implemented).
-    plugins: dict = field(default_factory=dict)        # {plugin_id: bool} load gate (JSON config)
-    tools_enabled: list = field(default_factory=list)  # global allowlist ([] => all); JSON / AGENTD_TOOLS_ENABLED
-    tools_disabled: list = field(default_factory=list) # global denylist; JSON / AGENTD_TOOLS_DISABLED
+    plugins: dict = field(default_factory=dict)  # {plugin_id: bool} load gate (JSON config)
+    tools_enabled: list = field(
+        default_factory=list
+    )  # global allowlist ([] => all); JSON / AGENTD_TOOLS_ENABLED
+    tools_disabled: list = field(
+        default_factory=list
+    )  # global denylist; JSON / AGENTD_TOOLS_DISABLED
     # Where drop-in plugins live (each <plugins_dir>/<id>/plugin.toml). Default <V2_ROOT>/plugins;
     # AGENTD_PLUGINS_DIR overrides. (pip plugins are found via entry-points, no dir needed.)
     plugins_dir: str = ""
@@ -198,8 +211,12 @@ class Config:
     skills_relevance_enabled: bool = False
     skills_relevance_top_k: int = 30
     # Loop/LLM-level timeouts.
-    llm_idle_timeout_seconds: float = 120.0    # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
-    llm_request_timeout_seconds: float = 600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
+    llm_idle_timeout_seconds: float = (
+        120.0  # abort a model stream silent for this long (AGENTD_LLM_IDLE_TIMEOUT)
+    )
+    llm_request_timeout_seconds: float = (
+        600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
+    )
 
     # --- quality + liveness (decoupled seams; all default OFF => unchanged behavior) ---
     # Liveness observers that detect a stuck/looping run, comma-separated.
@@ -207,12 +224,12 @@ class Config:
     liveness: list[str] | None = None
     # The agent-invoked `verify_answer` TOOL (the agent reviews its own draft before
     # replying). OFF => the tool is not registered at all — exactly as if it never existed.
-    verify_tool: bool = False                  # AGENTD_VERIFY_TOOL
+    verify_tool: bool = False  # AGENTD_VERIFY_TOOL
     # (judge model is a plugins knob: config plugins.verify.tools.verify -> search chain -> brain)
     # Include the in-band "## Before You Finish" honesty/completeness self-check. ON by
     # default (S3 — honesty by default): the agent must back claims with real evidence and
     # never fabricate. AGENTD_COMPLETENESS_CHECK=0 to disable.
-    completeness_check: bool = True            # AGENTD_COMPLETENESS_CHECK
+    completeness_check: bool = True  # AGENTD_COMPLETENESS_CHECK
     # Execution contract (OpenClaw). "strict-agentic" forces the planning-only "stop talking,
     # act now" nudge on for EVERY model; "" (default) leaves it to the per-model gate (only the
     # Gemini family gets it). A plain conversational agent is then never nudged. AGENTD_EXECUTION_CONTRACT.
@@ -223,59 +240,65 @@ class Config:
     # to withhold, etc.), replacing it with a safe message. Interactive/owner sessions are
     # NEVER gated. FAIL-CLOSED: a judge error blocks that one reply. The agent stays fully
     # capable; this only governs what may be DISCLOSED to a channel recipient.
-    safe_to_send_check: bool = True            # AGENTD_SAFE_TO_SEND (0 to disable)
+    safe_to_send_check: bool = True  # AGENTD_SAFE_TO_SEND (0 to disable)
     # (judge model is a plugins knob: config plugins.safe_to_send.tools.safe_to_send -> verify chain)
     # Default agent PERSONA/disposition. Loaded from the editable SOUL.md (persona_file)
     # with a built-in fallback; an agent's IDENTITY can override its tone. AGENTD_PERSONA=0.
-    persona_enabled: bool = True               # AGENTD_PERSONA
-    persona_file: str | None = None            # path to SOUL.md; default set in load_config; AGENTD_PERSONA_FILE
+    persona_enabled: bool = True  # AGENTD_PERSONA
+    persona_file: str | None = (
+        None  # path to SOUL.md; default set in load_config; AGENTD_PERSONA_FILE
+    )
     # Long-term memory (Phase 3): when on, the agent gets remember/memory_search/memory_get
     # tools backed by a durable bank (<state_dir>/memory.sqlite) it can recall across
     # sessions. OFF by default (additive; AGENTD_MEMORY=1 to enable).
-    memory_enabled: bool = False               # AGENTD_MEMORY
+    memory_enabled: bool = False  # AGENTD_MEMORY
     # Semantic memory (RAG). When memory is on, notes are embedded on write and memory_search ranks
     # by cosine instead of keywords. The embedding model is a plugins knob: config
     # plugins.memory.tools.embed (defaults ON with a Gemini embed model). Provider-neutral via
     # litellm; point it at a local ollama model for no-key/no-cost embeddings.
     # Auto-recall: silently retrieve relevant memories and prepend them to the prompt on each
     # INTERACTIVE (user) turn — the agent doesn't call a tool. Needs an embedding model + memory.
-    memory_auto_recall: bool = True            # AGENTD_MEMORY_AUTO_RECALL
-    memory_auto_recall_limit: int = 5          # AGENTD_MEMORY_AUTO_RECALL_LIMIT
-    memory_recall_min_score: float = 0.0       # cosine floor for a hit (0 = keep top-K); AGENTD_MEMORY_RECALL_MIN_SCORE
+    memory_auto_recall: bool = True  # AGENTD_MEMORY_AUTO_RECALL
+    memory_auto_recall_limit: int = 5  # AGENTD_MEMORY_AUTO_RECALL_LIMIT
+    memory_recall_min_score: float = (
+        0.0  # cosine floor for a hit (0 = keep top-K); AGENTD_MEMORY_RECALL_MIN_SCORE
+    )
     # Dreaming: a periodic consolidation pass (run it on a cron/heartbeat via memory_consolidate).
     # Merges near-duplicate notes, promotes durable short-term memories to long-term, and forgets
     # stale never-recalled ones. Thresholds mirror OpenClaw's deep-dreaming defaults.
-    memory_dreaming_min_score: float = 0.8              # AGENTD_MEMORY_DREAMING_MIN_SCORE
-    memory_dreaming_min_recall_count: int = 3          # AGENTD_MEMORY_DREAMING_MIN_RECALL_COUNT
-    memory_dreaming_min_unique_queries: int = 3        # AGENTD_MEMORY_DREAMING_MIN_UNIQUE_QUERIES
-    memory_dreaming_recency_half_life_days: float = 14.0   # AGENTD_MEMORY_DREAMING_HALF_LIFE_DAYS
-    memory_dreaming_max_age_days: int = 30             # forget short-tier notes older than this that never stuck
-    memory_dreaming_merge_threshold: float = 0.92      # cosine >= => near-duplicate, keep the newer
+    memory_dreaming_min_score: float = 0.8  # AGENTD_MEMORY_DREAMING_MIN_SCORE
+    memory_dreaming_min_recall_count: int = 3  # AGENTD_MEMORY_DREAMING_MIN_RECALL_COUNT
+    memory_dreaming_min_unique_queries: int = 3  # AGENTD_MEMORY_DREAMING_MIN_UNIQUE_QUERIES
+    memory_dreaming_recency_half_life_days: float = 14.0  # AGENTD_MEMORY_DREAMING_HALF_LIFE_DAYS
+    memory_dreaming_max_age_days: int = (
+        30  # forget short-tier notes older than this that never stuck
+    )
+    memory_dreaming_merge_threshold: float = 0.92  # cosine >= => near-duplicate, keep the newer
     # Context compaction (Phase 3.5 / S7): cap the message history sent to the model to the
     # most-recent N (boundary-safe truncation). 0 = off (send everything). AGENTD_CONTEXT_MAX.
     context_max_messages: int = 0
     # Sub-agents (Phase 4a / S8): the agent can delegate a subtask to a fresh child run via
     # `spawn_subagent` and get its result back. OFF by default; AGENTD_SUBAGENTS=1 to enable.
-    subagents_enabled: bool = False            # AGENTD_SUBAGENTS
-    subagent_max: int = 4                      # max concurrent child runs (runaway guard)
+    subagents_enabled: bool = False  # AGENTD_SUBAGENTS
+    subagent_max: int = 4  # max concurrent child runs (runaway guard)
     # Nesting depth for sub-agent spawning: 1 = no nesting (orchestrator -> leaf children only),
     # up to 5. AGENTD_SUBAGENT_MAX_DEPTH. (A leaf at max depth cannot spawn further.)
-    subagent_max_depth: int = 1                # AGENTD_SUBAGENT_MAX_DEPTH (1..5)
+    subagent_max_depth: int = 1  # AGENTD_SUBAGENT_MAX_DEPTH (1..5)
     # skill_workshop (S10): the agent authors reusable SKILL.md playbooks at runtime.
     # OFF by default; AGENTD_SKILL_WORKSHOP=1 to enable.
-    skill_workshop: bool = False               # AGENTD_SKILL_WORKSHOP
+    skill_workshop: bool = False  # AGENTD_SKILL_WORKSHOP
     # agent_workshop: author new agent DEFINITIONS (agents/<id>/ = agent.toml + IDENTITY.md)
     # by chatting; create_agent registers them LIVE (no restart). OFF by default.
-    agent_workshop: bool = False               # AGENTD_AGENT_WORKSHOP
+    agent_workshop: bool = False  # AGENTD_AGENT_WORKSHOP
     # mcp_workshop: the agent can connect an MCP server by chatting (add_mcp) — config + connect,
     # loads its tools live. OFF by default; only add servers you trust.
-    mcp_workshop: bool = False                 # AGENTD_MCP_WORKSHOP
+    mcp_workshop: bool = False  # AGENTD_MCP_WORKSHOP
     # tool_workshop: the agent can author + hot-load a NEW native tool by chatting (create_tool).
     # This writes and RUNS new Python in-process (RCE by design) — OFF by default, opt-in by env.
-    tool_workshop: bool = False                # AGENTD_TOOL_WORKSHOP
+    tool_workshop: bool = False  # AGENTD_TOOL_WORKSHOP
     # agent_messaging: the agent can message OTHER persistent agents and get a reply (message_agent),
     # honoring each agent's [subagents] allow scope. OFF by default.
-    agent_messaging_enabled: bool = False      # AGENTD_AGENT_MESSAGING
+    agent_messaging_enabled: bool = False  # AGENTD_AGENT_MESSAGING
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -291,6 +314,10 @@ class Config:
     #                       "vision_model": "gemini/gemini-3.1-pro-preview"}   # omit => keep normal brain
     # OFF (or both models unset) => no router => the agent's normal brain runs every turn, unchanged.
     cost_efficiency: dict = field(default_factory=dict)
+    # OBSERVABILITY (display-only): emit a per-step `model_trace` event — which brain model ran each
+    # loop iteration + its token usage — so a client can show "step 1 deepseek 1.2k/0.5k → step 2
+    # gemini …". Default ON; AGENTD_MODEL_TRACE=0 turns it off. No effect on the run itself.
+    model_trace: bool = True
     # Execution sandbox (S17, seam): "" / "local" = run on host (default, unchanged);
     # "docker"/"ssh" select an isolating adapter (not yet implemented). AGENTD_SANDBOX.
     sandbox: str = ""
@@ -300,8 +327,8 @@ class Config:
     # `heartbeat` interval (in its agent.toml) to read its HEARTBEAT.md and act on a
     # tick. The reactive chat path is unchanged either way. AGENTD_AUTONOMY=1 to enable.
     autonomy_enabled: bool = False
-    heartbeat_default_interval: str = ""       # e.g. "30m"; per-agent agent.toml overrides
-    heartbeat_active_hours: str = ""           # e.g. "08:00-22:00" (empty = always)
+    heartbeat_default_interval: str = ""  # e.g. "30m"; per-agent agent.toml overrides
+    heartbeat_active_hours: str = ""  # e.g. "08:00-22:00" (empty = always)
     # Outbound notifications (Phase 5a): the gateway reaches the user when a scheduled
     # run ends blocked/failed (client-push + durable). On by default; AGENTD_NOTIFY=0
     # disables. Only ever fires under autonomy (no cron runs => nothing to notify).
@@ -321,20 +348,20 @@ class Config:
     # (scripts/docs/images/data) into every prompt so resources it created are always
     # visible and reusable. AGENTD_WORKSPACE_INDEX=0 to cut this layer.
     workspace_index_enabled: bool = True
-    workspace_index_max_files: int = 100       # cap the manifest (AGENTD_WORKSPACE_INDEX_MAX)
+    workspace_index_max_files: int = 100  # cap the manifest (AGENTD_WORKSPACE_INDEX_MAX)
     # Resource Manager (OpenClaw-style): a cached, DESCRIBED index of workspace resources
     # (scripts/docs/images/data) + a `resource` CRUD tool. Supersedes the plain workspace
     # index for the manifest when on. AGENTD_RESOURCES=0 to cut this layer.
     resource_manager_enabled: bool = True
-    resource_index_max_files: int = 100        # cap the index (AGENTD_RESOURCES_MAX)
+    resource_index_max_files: int = 100  # cap the index (AGENTD_RESOURCES_MAX)
     # Optional Gemini VISION captions for image resources, computed in the manager's
     # BACKGROUND (never on the agent's path). OFF by default: it sends image bytes to
     # Google + costs API calls. AGENTD_RESOURCE_VISION=1 to enable.
-    resource_vision_enabled: bool = False             # caption images  (AGENTD_RESOURCE_VISION)
+    resource_vision_enabled: bool = False  # caption images  (AGENTD_RESOURCE_VISION)
     # LLM one-line SUMMARIES for text resources (scripts/docs/data + extracted docx/pdf/xlsx),
     # computed in the BACKGROUND. OFF by default: it sends file content to Google + costs API
     # calls. AGENTD_RESOURCE_SUMMARIZE=1. Both tiers reuse the same model/timeout below.
-    resource_summarize_enabled: bool = False          # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
+    resource_summarize_enabled: bool = False  # summarize text  (AGENTD_RESOURCE_SUMMARIZE)
     # Both model tiers are plugins knobs: image captions (google-genai, Gemini only) resolve from
     # config plugins.resources.tools.caption (which also carries the caption timeout knob
     # `timeout_seconds`, default 60.0, read via tool_config); text summaries (litellm, any provider)
@@ -345,20 +372,20 @@ class Config:
     # the same channel; a PUSH channel (line) instead receives via the webhook server
     # below. One with `notify_to` also delivers notifications there (one transport reused).
     channels: list = field(default_factory=list)
-    channel_poll_seconds: float = 15.0         # inbound poll cadence (AGENTD_CHANNEL_POLL)
+    channel_poll_seconds: float = 15.0  # inbound poll cadence (AGENTD_CHANNEL_POLL)
     # Webhook ingress for PUSH channels (LINE etc.). Started only when a channel exposes a
     # webhook_path. Bind loopback + a tunnel/relay in front for reachability.
-    webhook_host: str = "0.0.0.0"              # AGENTD_WEBHOOK_HOST
-    webhook_port: int = 8788                   # AGENTD_WEBHOOK_PORT
+    webhook_host: str = "0.0.0.0"  # AGENTD_WEBHOOK_HOST
+    webhook_port: int = 8788  # AGENTD_WEBHOOK_PORT
     # Public base URL the gateway is reachable at (your ngrok/tunnel/domain), used to build
     # tappable links — e.g. the /connect login-setup form. Blank = no auto links. AGENTD_PUBLIC_URL.
-    public_url: str = ""                       # e.g. https://6dda-….ngrok-free.app
+    public_url: str = ""  # e.g. https://6dda-….ngrok-free.app
     # Webhook TASK triggers (D): external events (git push / CI / any service) POST to
     # /hook/<id> to RUN an agent — distinct from conversational channels. Each hook:
     # {id, secret, agent, allow?: [ids], task?: default-task}. Served on the SAME webhook
     # server. webhook_workshop lets the agent mint hooks by chatting (create_webhook).
     webhooks: list = field(default_factory=list)
-    webhook_workshop: bool = False             # AGENTD_WEBHOOK_WORKSHOP
+    webhook_workshop: bool = False  # AGENTD_WEBHOOK_WORKSHOP
 
     # --- MCP servers (external tool connectors) --------------------------------
     # List of McpServerConfig (JSON config only). Empty = MCP off. Each server's
@@ -398,7 +425,7 @@ def _dotenv_value(raw: str) -> str:
         return value[1:end] if end != -1 else value[1:]
     cuts = [i for i in (value.find(" #"), value.find("\t#")) if i != -1]
     if cuts:
-        value = value[:min(cuts)]
+        value = value[: min(cuts)]
     return value.rstrip()
 
 
@@ -452,7 +479,8 @@ def load_config(path: Path | None = None) -> Config:
         logging.getLogger("agentd").warning(
             "CONFIG MISSING: no agentd.config.json found (searched: %s). Models/knobs fall back to "
             "built-in defaults; the models layer will refuse to resolve until a config exists.",
-            ", ".join(str(c) for c in candidates if c))
+            ", ".join(str(c) for c in candidates if c),
+        )
 
     if os.environ.get("AGENTD_AGENT_NAME"):
         cfg.agent_name = os.environ["AGENTD_AGENT_NAME"]
@@ -489,29 +517,61 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_NOTIFY"):
         cfg.notify_enabled = os.environ["AGENTD_NOTIFY"].lower() in ("1", "true", "yes", "on")
     if os.environ.get("AGENTD_ENFORCE_OUTCOME"):
-        cfg.enforce_outcome = os.environ["AGENTD_ENFORCE_OUTCOME"].lower() not in ("0", "false", "no", "")
+        cfg.enforce_outcome = os.environ["AGENTD_ENFORCE_OUTCOME"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_CRON_FAILURE_ALERT"):
         cfg.cron_failure_alert_default = int(os.environ["AGENTD_CRON_FAILURE_ALERT"])
     if os.environ.get("AGENTD_GOOGLE_ACCOUNT"):
         cfg.google_account = os.environ["AGENTD_GOOGLE_ACCOUNT"].strip()
     if os.environ.get("AGENTD_WORKSPACE_INDEX"):
-        cfg.workspace_index_enabled = os.environ["AGENTD_WORKSPACE_INDEX"].lower() not in ("0", "false", "no", "")
+        cfg.workspace_index_enabled = os.environ["AGENTD_WORKSPACE_INDEX"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_WORKSPACE_INDEX_MAX"):
         cfg.workspace_index_max_files = int(os.environ["AGENTD_WORKSPACE_INDEX_MAX"])
     if os.environ.get("AGENTD_SCRATCH_TTL_HOURS"):
         cfg.scratch_ttl_hours = float(os.environ["AGENTD_SCRATCH_TTL_HOURS"])
     if os.environ.get("AGENTD_EVENT_LOG"):
-        cfg.event_log_enabled = os.environ["AGENTD_EVENT_LOG"].lower() not in ("0", "false", "no", "")
+        cfg.event_log_enabled = os.environ["AGENTD_EVENT_LOG"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
+    if os.environ.get("AGENTD_MODEL_TRACE"):
+        cfg.model_trace = os.environ["AGENTD_MODEL_TRACE"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_EVENT_LOG_MAX"):
         cfg.event_log_max_runs = int(os.environ["AGENTD_EVENT_LOG_MAX"])
     if os.environ.get("AGENTD_RESOURCES"):
-        cfg.resource_manager_enabled = os.environ["AGENTD_RESOURCES"].lower() not in ("0", "false", "no", "")
+        cfg.resource_manager_enabled = os.environ["AGENTD_RESOURCES"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_RESOURCES_MAX"):
         cfg.resource_index_max_files = int(os.environ["AGENTD_RESOURCES_MAX"])
     if os.environ.get("AGENTD_RESOURCE_VISION"):
-        cfg.resource_vision_enabled = os.environ["AGENTD_RESOURCE_VISION"].lower() not in ("0", "false", "no", "")
+        cfg.resource_vision_enabled = os.environ["AGENTD_RESOURCE_VISION"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_RESOURCE_SUMMARIZE"):
-        cfg.resource_summarize_enabled = os.environ["AGENTD_RESOURCE_SUMMARIZE"].lower() not in ("0", "false", "no", "")
+        cfg.resource_summarize_enabled = os.environ["AGENTD_RESOURCE_SUMMARIZE"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_CHANNEL_POLL"):
         cfg.channel_poll_seconds = float(os.environ["AGENTD_CHANNEL_POLL"])
     if os.environ.get("AGENTD_WEBHOOK_HOST"):
@@ -521,17 +581,32 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_PUBLIC_URL"):
         cfg.public_url = os.environ["AGENTD_PUBLIC_URL"].strip()
     if os.environ.get("AGENTD_WEBHOOK_WORKSHOP"):
-        cfg.webhook_workshop = os.environ["AGENTD_WEBHOOK_WORKSHOP"].lower() not in ("0", "false", "no", "")
+        cfg.webhook_workshop = os.environ["AGENTD_WEBHOOK_WORKSHOP"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_HEARTBEAT_INTERVAL"):
         cfg.heartbeat_default_interval = os.environ["AGENTD_HEARTBEAT_INTERVAL"]
     if os.environ.get("AGENTD_HEARTBEAT_HOURS"):
         cfg.heartbeat_active_hours = os.environ["AGENTD_HEARTBEAT_HOURS"]
     if os.environ.get("AGENTD_PARALLEL_SEARCH") is not None:
-        cfg.parallel_search_enabled = os.environ["AGENTD_PARALLEL_SEARCH"].lower() in ("1", "true", "yes", "on")
+        cfg.parallel_search_enabled = os.environ["AGENTD_PARALLEL_SEARCH"].lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
     if os.environ.get("PARALLEL_API_KEY"):
         cfg.parallel_api_key = os.environ["PARALLEL_API_KEY"]
     if os.environ.get("AGENTD_COMPUTER_ENABLED"):
-        cfg.computer_enabled = os.environ["AGENTD_COMPUTER_ENABLED"].lower() not in ("0", "false", "no", "")
+        cfg.computer_enabled = os.environ["AGENTD_COMPUTER_ENABLED"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     # NOTE: computer behavioral knobs (max_steps/send_max/capture/pause/call_timeout_seconds/
     # save_screenshots/corral_to_primary) + its model are CONFIG-ONLY — plugins.computer.tools.computer.
     # <knob>, read via tool_config. Only the enable flag above stays an env toggle (it gates registration).
@@ -548,19 +623,26 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_VERIFY_TOOL"):
         cfg.verify_tool = os.environ["AGENTD_VERIFY_TOOL"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_COMPLETENESS_CHECK"):
-        cfg.completeness_check = (
-            os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in ("0", "false", "no", "")
+        cfg.completeness_check = os.environ["AGENTD_COMPLETENESS_CHECK"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
         )
     if os.environ.get("AGENTD_EXECUTION_CONTRACT"):
         cfg.execution_contract = os.environ["AGENTD_EXECUTION_CONTRACT"].strip()
     # tool-catalog enablement (global on/off) + plugins dir
     if os.environ.get("AGENTD_TOOLS_DISABLED"):
-        cfg.tools_disabled = [s.strip() for s in os.environ["AGENTD_TOOLS_DISABLED"].split(",") if s.strip()]
+        cfg.tools_disabled = [
+            s.strip() for s in os.environ["AGENTD_TOOLS_DISABLED"].split(",") if s.strip()
+        ]
     if os.environ.get("AGENTD_TOOLS_ENABLED"):
-        cfg.tools_enabled = [s.strip() for s in os.environ["AGENTD_TOOLS_ENABLED"].split(",") if s.strip()]
+        cfg.tools_enabled = [
+            s.strip() for s in os.environ["AGENTD_TOOLS_ENABLED"].split(",") if s.strip()
+        ]
     if os.environ.get("AGENTD_PLUGINS_DIR"):
         cfg.plugins_dir = os.environ["AGENTD_PLUGINS_DIR"].strip()
-    if not cfg.plugins_dir:      # default drop-in folder: repo plugins/ | ~/.agentd/plugins
+    if not cfg.plugins_dir:  # default drop-in folder: repo plugins/ | ~/.agentd/plugins
         cfg.plugins_dir = str(runtime_paths.default_user_plugins_dir())
     # the SHIPPED built-ins always load from their own root (repo plugins/ in a checkout,
     # agentd/_builtin_plugins in a wheel), even if plugins_dir is overridden.
@@ -570,22 +652,37 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_SKILLS_PROMPT_CHARS"):
         cfg.skills_prompt_chars = int(os.environ["AGENTD_SKILLS_PROMPT_CHARS"])
     if os.environ.get("AGENTD_SKILLS_RELEVANCE_ENABLED"):
-        cfg.skills_relevance_enabled = \
-            os.environ["AGENTD_SKILLS_RELEVANCE_ENABLED"].lower() in ("1", "true", "yes", "on")
+        cfg.skills_relevance_enabled = os.environ["AGENTD_SKILLS_RELEVANCE_ENABLED"].lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
     if os.environ.get("AGENTD_SKILLS_RELEVANCE_TOP_K"):
         cfg.skills_relevance_top_k = int(os.environ["AGENTD_SKILLS_RELEVANCE_TOP_K"])
     if os.environ.get("AGENTD_SAFE_TO_SEND"):
-        cfg.safe_to_send_check = (
-            os.environ["AGENTD_SAFE_TO_SEND"].lower() not in ("0", "false", "no", "")
+        cfg.safe_to_send_check = os.environ["AGENTD_SAFE_TO_SEND"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
         )
     if os.environ.get("AGENTD_PERSONA"):
         cfg.persona_enabled = os.environ["AGENTD_PERSONA"].lower() not in ("0", "false", "no", "")
-    cfg.persona_file = os.environ.get("AGENTD_PERSONA_FILE") or cfg.persona_file \
-        or str(Path(cfg.state_dir).parent / "SOUL.md")   # default: the repo-root SOUL.md (editable)
+    cfg.persona_file = (
+        os.environ.get("AGENTD_PERSONA_FILE")
+        or cfg.persona_file
+        or str(Path(cfg.state_dir).parent / "SOUL.md")
+    )  # default: the repo-root SOUL.md (editable)
     if os.environ.get("AGENTD_MEMORY"):
         cfg.memory_enabled = os.environ["AGENTD_MEMORY"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_MEMORY_AUTO_RECALL"):
-        cfg.memory_auto_recall = os.environ["AGENTD_MEMORY_AUTO_RECALL"].lower() not in ("0", "false", "no", "")
+        cfg.memory_auto_recall = os.environ["AGENTD_MEMORY_AUTO_RECALL"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_MEMORY_AUTO_RECALL_LIMIT"):
         cfg.memory_auto_recall_limit = int(os.environ["AGENTD_MEMORY_AUTO_RECALL_LIMIT"])
     if os.environ.get("AGENTD_MEMORY_RECALL_MIN_SCORE"):
@@ -593,21 +690,48 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_CONTEXT_MAX"):
         cfg.context_max_messages = int(os.environ["AGENTD_CONTEXT_MAX"])
     if os.environ.get("AGENTD_SUBAGENTS"):
-        cfg.subagents_enabled = os.environ["AGENTD_SUBAGENTS"].lower() not in ("0", "false", "no", "")
+        cfg.subagents_enabled = os.environ["AGENTD_SUBAGENTS"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_SUBAGENT_MAX_DEPTH"):
         cfg.subagent_max_depth = int(os.environ["AGENTD_SUBAGENT_MAX_DEPTH"])
     if os.environ.get("AGENTD_SKILL_WORKSHOP"):
-        cfg.skill_workshop = os.environ["AGENTD_SKILL_WORKSHOP"].lower() not in ("0", "false", "no", "")
+        cfg.skill_workshop = os.environ["AGENTD_SKILL_WORKSHOP"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_AGENT_WORKSHOP"):
-        cfg.agent_workshop = os.environ["AGENTD_AGENT_WORKSHOP"].lower() not in ("0", "false", "no", "")
+        cfg.agent_workshop = os.environ["AGENTD_AGENT_WORKSHOP"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_MCP_WORKSHOP"):
         cfg.mcp_workshop = os.environ["AGENTD_MCP_WORKSHOP"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TOOL_WORKSHOP"):
-        cfg.tool_workshop = os.environ["AGENTD_TOOL_WORKSHOP"].lower() not in ("0", "false", "no", "")
+        cfg.tool_workshop = os.environ["AGENTD_TOOL_WORKSHOP"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_AGENT_MESSAGING"):
-        cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in ("0", "false", "no", "")
+        cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
     if os.environ.get("AGENTD_MODEL_FALLBACKS"):
-        cfg.model_fallbacks = [s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()]
+        cfg.model_fallbacks = [
+            s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()
+        ]
 
     # --- distribution profile + marketplace + gateway auth (M2/M4/M6) -------------
     # The profile decides what THIS INSTALL is; it never comes from the user JSON.
@@ -621,23 +745,29 @@ def load_config(path: Path | None = None) -> Config:
     if cfg.distribution.provisioned_plugins is not None:
         try:
             ledger = json.loads(
-                (Path(cfg.state_dir) / "installed_bundles.json").read_text(encoding="utf-8"))
-            bundle_plugins = tuple(str(p) for b in ledger.get("bundles", [])
-                                   for p in (b.get("plugin_ids") or []))
+                (Path(cfg.state_dir) / "installed_bundles.json").read_text(encoding="utf-8")
+            )
+            bundle_plugins = tuple(
+                str(p) for b in ledger.get("bundles", []) for p in (b.get("plugin_ids") or [])
+            )
             if bundle_plugins:
                 from dataclasses import replace
-                cfg.distribution = replace(cfg.distribution, provisioned_plugins=tuple(
-                    dict.fromkeys(cfg.distribution.provisioned_plugins + bundle_plugins)))
+
+                cfg.distribution = replace(
+                    cfg.distribution,
+                    provisioned_plugins=tuple(
+                        dict.fromkeys(cfg.distribution.provisioned_plugins + bundle_plugins)
+                    ),
+                )
         except (OSError, ValueError):
-            pass    # no ledger / unreadable => nothing installed yet
+            pass  # no ledger / unreadable => nothing installed yet
     # registry resolution: env > JSON config (already applied above) > profile >
     # a LOCAL registry at <state_dir>/registry (local-first: drop .agentpkg files
     # there + `agentd bundle index` and the store just works, no cloud needed).
     if os.environ.get("AGENTD_REGISTRY"):
         cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
     elif not cfg.registry_url:
-        cfg.registry_url = cfg.distribution.registry_url \
-            or default_local_registry(cfg.state_dir)
+        cfg.registry_url = cfg.distribution.registry_url or default_local_registry(cfg.state_dir)
     if os.environ.get("AGENTD_GATEWAY_AUTH"):
         cfg.gateway_auth = os.environ["AGENTD_GATEWAY_AUTH"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TOKEN"):
@@ -663,5 +793,6 @@ def resolve_browser_engine(config) -> str:
     server). Anything other than "agent_browser" => "playwright", so the browser is never accidentally
     lost (and per-agent overridable via agent.toml [plugins.browser])."""
     from agentd.application.tool_models import resolve_tool_provider
+
     prov = resolve_tool_provider(config, "browser", "browser", default="playwright")
     return "agent_browser" if prov == "agent_browser" else "playwright"

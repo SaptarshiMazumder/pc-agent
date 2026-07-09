@@ -19,8 +19,11 @@ def register(api, ctx):
     if ctx.credential_store is not None:
         from login_tool import SimpleLoginTool
 
-        api.register_tool(SimpleLoginTool(
-            ctx.credential_store, ctx.browser,
-            connect_tokens=ctx.connect_token_store,
-            public_url=getattr(ctx.config, "public_url", ""),
-        ))
+        api.register_tool(
+            SimpleLoginTool(
+                ctx.credential_store,
+                ctx.browser,
+                connect_tokens=ctx.connect_token_store,
+                public_url=getattr(ctx.config, "public_url", ""),
+            )
+        )

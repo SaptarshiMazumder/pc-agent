@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Folder, SquarePen, FolderOpen, MessageSquare, Search } from 'lucide-react'
+import { ArrowLeft, Folder, SquarePen, FolderOpen, MessageSquare } from 'lucide-react'
 
 import { hashColor } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
+import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
 import WorkspaceTree from './WorkspaceTree'
 
@@ -97,10 +98,7 @@ export default function ProjectView() {
               </button>
             </div>
             {tab === 'chats' && chats.length > 0 && (
-              <div className="search-box entity-search">
-                <Search size={15} />
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" spellCheck={false} />
-              </div>
+              <SearchBox className="entity-search" value={query} onChange={setQuery} placeholder="Search chats" />
             )}
           </div>
         </div>

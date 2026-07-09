@@ -55,12 +55,17 @@ def build_rich_fn(config):
     want_summary = bool(getattr(config, "resource_summarize_enabled", False))
 
     from agentd.application.tool_models import (
-        RESOURCE_VISION_DEFAULT_MODEL, resolve_tool_model, resource_summary_model, tool_config,
+        RESOURCE_VISION_DEFAULT_MODEL,
+        resolve_tool_model,
+        resource_summary_model,
+        tool_config,
     )
+
     gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     # Both tiers resolve from the unified plugins map (plugins.resources.*).
-    vision_model = resolve_tool_model(config, "resources", "caption",
-                                      default=RESOURCE_VISION_DEFAULT_MODEL)
+    vision_model = resolve_tool_model(
+        config, "resources", "caption", default=RESOURCE_VISION_DEFAULT_MODEL
+    )
     timeout_s = tool_config(config, "resources", "caption", "timeout_seconds", default=60.0)
     # summaries use their own model, else the verify chain, else the main model
     summary_model = resource_summary_model(config)
@@ -72,25 +77,37 @@ def build_rich_fn(config):
 
     _vclient = None
 
-    def _caption(sample: bytes, mime: str) -> str:           # google-genai (Gemini, vision)
+    def _caption(sample: bytes, mime: str) -> str:  # google-genai (Gemini, vision)
         nonlocal _vclient
         from google import genai
         from google.genai import types
+
         if _vclient is None:
-            _vclient = genai.Client(api_key=gemini_key,
-                                    http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
+            _vclient = genai.Client(
+                api_key=gemini_key, http_options=types.HttpOptions(timeout=int(timeout_s * 1000))
+            )
         resp = _vclient.models.generate_content(
             model=vision_model,
-            contents=[types.Part.from_bytes(data=sample, mime_type=mime), _CAPTION_PROMPT])
+            contents=[types.Part.from_bytes(data=sample, mime_type=mime), _CAPTION_PROMPT],
+        )
         return (getattr(resp, "text", "") or "").strip()
 
-    async def _summary(content: str, name: str) -> str:      # litellm (ANY provider)
+    async def _summary(content: str, name: str) -> str:  # litellm (ANY provider)
         import litellm
+
         resp = await litellm.acompletion(
             model=summary_model,
-            messages=[{"role": "user", "content":
-                       _SUMMARY_PROMPT.format(name=name, content=content[:_MAX_SUMMARY_CHARS])}],
-            temperature=0, timeout=timeout_s)
+            messages=[
+                {
+                    "role": "user",
+                    "content": _SUMMARY_PROMPT.format(
+                        name=name, content=content[:_MAX_SUMMARY_CHARS]
+                    ),
+                }
+            ],
+            temperature=0,
+            timeout=timeout_s,
+        )
         return (resp.choices[0].message.content or "").strip()
 
     async def rich_fn(kind: str, path: Path, sample: bytes) -> str:

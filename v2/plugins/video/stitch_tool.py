@@ -22,8 +22,24 @@ from pathlib import Path
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
 
-_ENC = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+_ENC = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-crf",
+    "20",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "160k",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+]
 
 
 def _fwd(p) -> str:
@@ -39,17 +55,39 @@ def _run(cmd):
 
 def _duration(path) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=nokey=1:noprint_wrappers=1", str(path)],
-        capture_output=True, text=True).stdout.strip()
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     return float(out)
 
 
 def _dims(path):
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=width,height", "-of", "csv=s=x:p=0", str(path)],
-        capture_output=True, text=True).stdout.strip()
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=s=x:p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     w, h = out.split("x")
     return int(w), int(h)
 
@@ -104,28 +142,65 @@ class StitchVideoTool(Tool):
         "type": "object",
         "required": ["out_path", "segments"],
         "properties": {
-            "out_path": {"type": "string", "description": "Output .mp4 (absolute or relative to workspace)."},
+            "out_path": {
+                "type": "string",
+                "description": "Output .mp4 (absolute or relative to workspace).",
+            },
             "segments": {
-                "type": "array", "minItems": 1,
+                "type": "array",
+                "minItems": 1,
                 "description": "Ordered segments.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "audio": {"type": "string", "description": "Narration audio file (sets the segment length). Optional."},
-                        "image": {"type": "string", "description": "Still image (diagram/slide PNG). Provide image OR clip."},
-                        "focus": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4,
-                                  "description": "[x,y,w,h] fractions: where the camera lands for THIS diagram beat. The camera auto-flows from the previous beat's focus on the SAME image (continuous pan). Use the WHOLE image [0,0,1,1] for an overview beat, then tighter boxes for each part."},
+                        "audio": {
+                            "type": "string",
+                            "description": "Narration audio file (sets the segment length). Optional.",
+                        },
+                        "image": {
+                            "type": "string",
+                            "description": "Still image (diagram/slide PNG). Provide image OR clip.",
+                        },
+                        "focus": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 4,
+                            "maxItems": 4,
+                            "description": "[x,y,w,h] fractions: where the camera lands for THIS diagram beat. The camera auto-flows from the previous beat's focus on the SAME image (continuous pan). Use the WHOLE image [0,0,1,1] for an overview beat, then tighter boxes for each part.",
+                        },
                         "zoom": {
                             "type": "object",
                             "description": "Manual ken-burns override (explicit from/to focus boxes). Prefer `focus` for auto-chained continuity.",
                             "properties": {
-                                "from": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
-                                "to": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                                "from": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "minItems": 4,
+                                    "maxItems": 4,
+                                },
+                                "to": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "minItems": 4,
+                                    "maxItems": 4,
+                                },
                             },
                         },
-                        "clip": {"type": "string", "description": "Footage file. Provide image OR clip."},
-                        "trim": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2, "description": "Footage [start,end] seconds."},
-                        "duration": {"type": "number", "description": "Explicit length if there's no audio."},
+                        "clip": {
+                            "type": "string",
+                            "description": "Footage file. Provide image OR clip.",
+                        },
+                        "trim": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "description": "Footage [start,end] seconds.",
+                        },
+                        "duration": {
+                            "type": "number",
+                            "description": "Explicit length if there's no audio.",
+                        },
                     },
                 },
             },
@@ -133,9 +208,18 @@ class StitchVideoTool(Tool):
             "height": {"type": "integer", "description": "Output height. Default 1080."},
             "fps": {"type": "integer", "description": "Default 30."},
             "tail": {"type": "number", "description": "Silence after each narration. Default 0.5."},
-            "zoom_scale": {"type": "number", "description": "How far ken-burns zooms (1=full, 0.5=half). Default 1.0."},
-            "move_frac": {"type": "number", "description": "Fraction of a segment spent moving the camera. Default 0.45."},
-            "min_seg_speed": {"type": "number", "description": "Footage sync floor; hold a frame instead of crawling slower. Default 0.7."},
+            "zoom_scale": {
+                "type": "number",
+                "description": "How far ken-burns zooms (1=full, 0.5=half). Default 1.0.",
+            },
+            "move_frac": {
+                "type": "number",
+                "description": "Fraction of a segment spent moving the camera. Default 0.45.",
+            },
+            "min_seg_speed": {
+                "type": "number",
+                "description": "Footage sync floor; hold a frame instead of crawling slower. Default 0.7.",
+            },
             "bg": {"type": "string", "description": "Pad colour. Default 0xFAFAFA."},
         },
     }
@@ -163,13 +247,15 @@ class StitchVideoTool(Tool):
         bg = params.get("bg", "0xFAFAFA")
         margin = 1.15
         segs = params["segments"]
-        pad = (f"scale={OW}:{OH}:force_original_aspect_ratio=decrease,"
-               f"pad={OW}:{OH}:(ow-iw)/2:(oh-ih)/2:color={bg},format=yuv420p,setsar=1")
+        pad = (
+            f"scale={OW}:{OH}:force_original_aspect_ratio=decrease,"
+            f"pad={OW}:{OH}:(ow-iw)/2:(oh-ih)/2:color={bg},format=yuv420p,setsar=1"
+        )
 
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
             clips = []
-            prev_img, prev_to = None, None   # last image + where its camera ended (for continuity)
+            prev_img, prev_to = None, None  # last image + where its camera ended (for continuity)
             for i, seg in enumerate(segs):
                 audio = self._resolve(seg["audio"]) if seg.get("audio") else None
                 clip = work / f"seg_{i:03d}.mp4"
@@ -177,13 +263,23 @@ class StitchVideoTool(Tool):
                     img = self._resolve(seg["image"])
                     T = (_duration(audio) + tail) if audio else float(seg.get("duration", 5.0))
                     z = seg.get("zoom") or {}
-                    target = z.get("to") or seg.get("focus")   # where THIS beat's camera lands
+                    target = z.get("to") or seg.get("focus")  # where THIS beat's camera lands
                     if target is not None:
                         canvas = work / f"seg_{i:03d}_canvas.png"
-                        _run(["ffmpeg", "-y", "-i", _fwd(img), "-vf",
-                              f"scale={CW}:{CH}:force_original_aspect_ratio=decrease,"
-                              f"pad={CW}:{CH}:(ow-iw)/2:(oh-ih)/2:color={bg}",
-                              "-frames:v", "1", _fwd(canvas)])
+                        _run(
+                            [
+                                "ffmpeg",
+                                "-y",
+                                "-i",
+                                _fwd(img),
+                                "-vf",
+                                f"scale={CW}:{CH}:force_original_aspect_ratio=decrease,"
+                                f"pad={CW}:{CH}:(ow-iw)/2:(oh-ih)/2:color={bg}",
+                                "-frames:v",
+                                "1",
+                                _fwd(canvas),
+                            ]
+                        )
                         W0, H0 = _dims(img)
                         content = _content_box(W0, H0, CW, CH)
                         # CONTINUOUS CAMERA: unless an explicit `from` is given, start where the
@@ -191,7 +287,11 @@ class StitchVideoTool(Tool):
                         # instead of cutting back to the wide view between every beat.
                         src = z.get("from")
                         if src is None:
-                            src = prev_to if (prev_to is not None and str(img) == prev_img) else target
+                            src = (
+                                prev_to
+                                if (prev_to is not None and str(img) == prev_img)
+                                else target
+                            )
                         start = _target(src, content, CW, CH, margin, zoom_scale)
                         end = _target(target, content, CW, CH, margin, zoom_scale)
                         N = max(2, round(T * fps))
@@ -208,13 +308,37 @@ class StitchVideoTool(Tool):
                         inp += ["-i", _fwd(audio)]
                         fc = f"[0:v]{vexpr}[v];[1:a]apad[a]"
                     else:
-                        inp += ["-f", "lavfi", "-t", f"{T:.3f}", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+                        inp += [
+                            "-f",
+                            "lavfi",
+                            "-t",
+                            f"{T:.3f}",
+                            "-i",
+                            "anullsrc=channel_layout=stereo:sample_rate=48000",
+                        ]
                         fc = f"[0:v]{vexpr}[v];[1:a]anull[a]"
-                    _run(["ffmpeg", "-y", *inp, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-                          "-t", f"{T:.3f}", "-r", str(fps), *_ENC, _fwd(clip)])
+                    _run(
+                        [
+                            "ffmpeg",
+                            "-y",
+                            *inp,
+                            "-filter_complex",
+                            fc,
+                            "-map",
+                            "[v]",
+                            "-map",
+                            "[a]",
+                            "-t",
+                            f"{T:.3f}",
+                            "-r",
+                            str(fps),
+                            *_ENC,
+                            _fwd(clip),
+                        ]
+                    )
 
                 elif seg.get("clip"):
-                    prev_img, prev_to = None, None   # footage breaks the diagram-camera chain
+                    prev_img, prev_to = None, None  # footage breaks the diagram-camera chain
                     footage = self._resolve(seg["clip"])
                     fdur = _duration(footage)
                     start, end = seg.get("trim", [0.0, fdur])
@@ -231,16 +355,57 @@ class StitchVideoTool(Tool):
                         if freeze > 0.05:
                             vf += f",tpad=stop_mode=clone:stop_duration={freeze:.3f}"
                         vf += "," + pad + f",fps={fps}"
-                        _run(["ffmpeg", "-y", "-i", _fwd(footage), "-i", _fwd(audio),
-                              "-filter_complex", f"[0:v]{vf}[v];[1:a]apad=pad_dur={tail}[a]",
-                              "-map", "[v]", "-map", "[a]", "-t", f"{T:.3f}", "-r", str(fps), *_ENC, _fwd(clip)])
+                        _run(
+                            [
+                                "ffmpeg",
+                                "-y",
+                                "-i",
+                                _fwd(footage),
+                                "-i",
+                                _fwd(audio),
+                                "-filter_complex",
+                                f"[0:v]{vf}[v];[1:a]apad=pad_dur={tail}[a]",
+                                "-map",
+                                "[v]",
+                                "-map",
+                                "[a]",
+                                "-t",
+                                f"{T:.3f}",
+                                "-r",
+                                str(fps),
+                                *_ENC,
+                                _fwd(clip),
+                            ]
+                        )
                     else:
                         T = seg_dur
                         vf = f"trim=start={start}:end={end},setpts=PTS-STARTPTS,{pad},fps={fps}"
-                        _run(["ffmpeg", "-y", "-i", _fwd(footage),
-                              "-f", "lavfi", "-t", f"{T:.3f}", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-                              "-filter_complex", f"[0:v]{vf}[v];[1:a]anull[a]",
-                              "-map", "[v]", "-map", "[a]", "-t", f"{T:.3f}", "-r", str(fps), *_ENC, _fwd(clip)])
+                        _run(
+                            [
+                                "ffmpeg",
+                                "-y",
+                                "-i",
+                                _fwd(footage),
+                                "-f",
+                                "lavfi",
+                                "-t",
+                                f"{T:.3f}",
+                                "-i",
+                                "anullsrc=channel_layout=stereo:sample_rate=48000",
+                                "-filter_complex",
+                                f"[0:v]{vf}[v];[1:a]anull[a]",
+                                "-map",
+                                "[v]",
+                                "-map",
+                                "[a]",
+                                "-t",
+                                f"{T:.3f}",
+                                "-r",
+                                str(fps),
+                                *_ENC,
+                                _fwd(clip),
+                            ]
+                        )
                 else:
                     raise ValueError(f"segment {i} needs `image` or `clip`")
                 clips.append(clip)
@@ -249,9 +414,36 @@ class StitchVideoTool(Tool):
             lst = work / "concat.txt"
             lst.write_text("".join(f"file '{_fwd(c)}'\n" for c in clips), encoding="utf-8")
             try:
-                _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", _fwd(lst), "-c", "copy", _fwd(out)])
+                _run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        _fwd(lst),
+                        "-c",
+                        "copy",
+                        _fwd(out),
+                    ]
+                )
             except RuntimeError:
-                _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", _fwd(lst), *_ENC, _fwd(out)])
+                _run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        _fwd(lst),
+                        *_ENC,
+                        _fwd(out),
+                    ]
+                )
         return {"path": str(out), "duration_sec": round(_duration(out), 2), "segments": len(segs)}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
@@ -261,4 +453,6 @@ class StitchVideoTool(Tool):
             return ToolResult.text(f"stitch_video failed: {e}", is_error=True)
         return ToolResult.text(
             f"Stitched {r['segments']} segment(s) -> {r['path']} ({r['duration_sec']}s).",
-            details=r, artifacts=[r["path"]])  # deliverable: the video
+            details=r,
+            artifacts=[r["path"]],
+        )  # deliverable: the video

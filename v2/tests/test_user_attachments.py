@@ -24,6 +24,7 @@ _PNG_B64 = base64.b64encode(_PNG_BYTES).decode()
 
 # ---- files.py: save an upload -> typed artifact under the workspace --------------
 
+
 def test_save_upload_writes_and_classifies(tmp_path):
     info = save_upload(tmp_path / "uploads", "chart.png", _PNG_B64)
     stored = Path(info["path"])
@@ -56,15 +57,17 @@ def test_image_data_url_only_for_images(tmp_path):
     assert url and url.startswith("data:image/png;base64,")
     doc = tmp_path / "a.txt"
     doc.write_text("hi")
-    assert image_data_url(doc) is None       # not an image
+    assert image_data_url(doc) is None  # not an image
     assert image_data_url(tmp_path / "missing.png") is None
 
 
 # ---- domain: attachments persist/transport with the user message -----------------
 
+
 def test_user_message_roundtrip_carries_attachments(tmp_path):
-    att = Artifact(path=str(tmp_path / "edit.png"), name="edit.png",
-                   mime="image/png", kind="image", size=40)
+    att = Artifact(
+        path=str(tmp_path / "edit.png"), name="edit.png", mime="image/png", kind="image", size=40
+    )
     m = UserMessage(content="make the collar label bigger", attachments=[att])
     d = message_to_dict(m)
     assert d["attachments"][0]["name"] == "edit.png"
@@ -79,6 +82,7 @@ def test_plain_user_message_has_no_attachments_key():
 
 
 # ---- adapter: an attached image is inlined for a vision model --------------------
+
 
 def test_messages_to_litellm_inlines_image_attachment(tmp_path):
     img = tmp_path / "edit.png"
@@ -110,15 +114,18 @@ def test_messages_to_litellm_plain_text_stays_string():
 
 # ---- routing: a user image attachment must escalate to the vision brain ----------
 
+
 def test_router_escalates_on_user_image_attachment():
     from agentd.infrastructure.llm.model_router import CostEfficiencyRouter
 
     r = CostEfficiencyRouter(text_model="deepseek/text", vision_model="gemini/vision")
     img = Artifact(path="x.png", name="x.png", mime="image/png", kind="image", size=1)
     doc = Artifact(path="x.pdf", name="x.pdf", mime="application/pdf", kind="file", size=1)
-    assert r("base", [UserMessage(content="hi")]) == "deepseek/text"                    # text-only
+    assert r("base", [UserMessage(content="hi")]) == "deepseek/text"  # text-only
     assert r("base", [UserMessage(content="see", attachments=[img])]) == "gemini/vision"  # image!
-    assert r("base", [UserMessage(content="see", attachments=[doc])]) == "deepseek/text"  # non-image
+    assert (
+        r("base", [UserMessage(content="see", attachments=[doc])]) == "deepseek/text"
+    )  # non-image
 
 
 def test_has_image_ignores_tool_declared_artifacts():

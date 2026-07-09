@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 class ChannelPoller:
     def __init__(self, channels: list, fire, interval: float = 15.0):
         self._channels = list(channels)
-        self._fire = fire            # async (channel, InboundMessage) -> None
+        self._fire = fire  # async (channel, InboundMessage) -> None
         self._interval = interval
 
     async def tick(self) -> None:

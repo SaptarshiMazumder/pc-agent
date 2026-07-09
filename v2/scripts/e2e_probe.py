@@ -21,11 +21,20 @@ async def main():
 
     async with websockets.connect("ws://127.0.0.1:8787", max_size=20 * 1024 * 1024) as ws:
         req_id = uuid.uuid4().hex[:8]
-        await ws.send(json.dumps({
-            "type": "req", "id": req_id, "method": "chat.send",
-            "params": {"sessionKey": session_key, "message": message,
-                       "idempotencyKey": uuid.uuid4().hex},
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "req",
+                    "id": req_id,
+                    "method": "chat.send",
+                    "params": {
+                        "sessionKey": session_key,
+                        "message": message,
+                        "idempotencyKey": uuid.uuid4().hex,
+                    },
+                }
+            )
+        )
         text_parts = []
         async with asyncio.timeout(180):
             async for raw in ws:

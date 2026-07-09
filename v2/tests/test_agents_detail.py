@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 def _skill(dir_: Path, name: str, desc: str) -> None:
     d = dir_ / name
     d.mkdir(parents=True, exist_ok=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\nbody\n", encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {desc}\n---\nbody\n", encoding="utf-8"
+    )
 
 
 def test_agents_detail_lists_workspace_and_skills(tmp_path):
@@ -31,11 +33,27 @@ def test_agents_detail_lists_workspace_and_skills(tmp_path):
     _skill(sup_skills, "support-skill", "answer tickets")
 
     specs = {
-        "main": SimpleNamespace(id="main", name="JARVIS", tagline="general", version="1",
-                                model=None, color="#a3e635", workspace=main_ws, skills_dir=main_skills),
-        "support": SimpleNamespace(id="support", name="Support", tagline="tickets", version="2",
-                                   model="gemini/x", color="#3366cc", workspace=sup_ws, skills_dir=sup_skills,
-                                   description="help desk"),
+        "main": SimpleNamespace(
+            id="main",
+            name="JARVIS",
+            tagline="general",
+            version="1",
+            model=None,
+            color="#a3e635",
+            workspace=main_ws,
+            skills_dir=main_skills,
+        ),
+        "support": SimpleNamespace(
+            id="support",
+            name="Support",
+            tagline="tickets",
+            version="2",
+            model="gemini/x",
+            color="#3366cc",
+            workspace=sup_ws,
+            skills_dir=sup_skills,
+            description="help desk",
+        ),
     }
     gw = Gateway(
         config=SimpleNamespace(state_dir=tmp_path, agent_id="main"),
@@ -51,7 +69,7 @@ def test_agents_detail_lists_workspace_and_skills(tmp_path):
     assert files == {"report.png": "image", "notes.txt": "file"}
 
     skills = {s["name"] for s in out["skills"]}
-    assert skills == {"shared-skill", "support-skill"}   # shared library + the agent's own
+    assert skills == {"shared-skill", "support-skill"}  # shared library + the agent's own
 
 
 def test_agents_detail_unknown_agent(tmp_path):

@@ -17,10 +17,10 @@ from agentd.domain.messages import ContentBlock
 class McpToolSpec:
     """One tool advertised by an MCP server (from tools/list)."""
 
-    server: str          # the configured server name (used as the namespace)
-    name: str            # the bare tool name as the server knows it
+    server: str  # the configured server name (used as the namespace)
+    name: str  # the bare tool name as the server knows it
     description: str
-    input_schema: dict   # JSON Schema for the tool's arguments (drop-in for validation)
+    input_schema: dict  # JSON Schema for the tool's arguments (drop-in for validation)
 
 
 @dataclass

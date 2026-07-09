@@ -5,8 +5,8 @@ progress) and the CLI (offline installs: effects apply next daemon start)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from agentd import __version__
 from agentd.application.services.marketplace_service import MarketplaceService
@@ -32,7 +32,8 @@ def build_marketplace_service(
             plugins_dir=Path(config.plugins_dir),
             state_dir=state_dir,
             builtin_plugins_dir=Path(config.builtin_plugins_dir)
-            if getattr(config, "builtin_plugins_dir", "") else None,
+            if getattr(config, "builtin_plugins_dir", "")
+            else None,
         ),
         installed_store=JsonInstalledStore(state_dir / "installed_bundles.json"),
         agentd_version=__version__,

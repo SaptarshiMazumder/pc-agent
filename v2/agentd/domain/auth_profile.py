@@ -14,9 +14,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class AuthProfile:
     id: str
-    provider: str               # e.g. "google", "openai"
-    label: str                  # human label, e.g. "work account"
+    provider: str  # e.g. "google", "openai"
+    label: str  # human label, e.g. "work account"
     enabled: bool = True
     cooldown_until: float = 0.0  # not selectable until this epoch (set on failure)
     failures: int = 0
-    last_used: float = 0.0       # for least-recently-used rotation
+    last_used: float = 0.0  # for least-recently-used rotation

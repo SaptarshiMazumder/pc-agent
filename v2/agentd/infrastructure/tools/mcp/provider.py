@@ -11,7 +11,7 @@ every session on shutdown.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from agentd.application.interfaces.mcp import McpSession
 
@@ -40,8 +40,9 @@ class McpProvider:
                 session = await self._session_factory(cfg)
                 specs = await session.list_tools()
             except Exception as e:  # noqa: BLE001 — one bad server never breaks the rest
-                log.warning("MCP server '%s' unavailable, skipping: %s",
-                            getattr(cfg, "name", "?"), e)
+                log.warning(
+                    "MCP server '%s' unavailable, skipping: %s", getattr(cfg, "name", "?"), e
+                )
                 continue
             self._sessions.append(session)
             allow = getattr(cfg, "allow", None)
@@ -64,8 +65,11 @@ class McpProvider:
         self._sessions.append(session)
         self._configs.append(cfg)
         allow = getattr(cfg, "allow", None)
-        tools = [McpTool(session, spec, f"{cfg.name}__{spec.name}")
-                 for spec in specs if not (allow and spec.name not in allow)]
+        tools = [
+            McpTool(session, spec, f"{cfg.name}__{spec.name}")
+            for spec in specs
+            if not (allow and spec.name not in allow)
+        ]
         log.info("MCP hot-add '%s': %d tool(s)", cfg.name, len(tools))
         return tools
 

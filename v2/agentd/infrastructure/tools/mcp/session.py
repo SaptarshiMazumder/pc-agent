@@ -23,8 +23,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from agentd.domain.messages import TextContent
 from agentd.domain.mcp import McpCallResult, McpToolSpec
+from agentd.domain.messages import TextContent
 
 log = logging.getLogger("agentd")
 
@@ -40,6 +40,7 @@ def resolve_subprocess(cfg):
     and any ``${VAR}`` in the command or env values is expanded from the environment
     (handy for mapping a differently-named .env var onto what the server expects).
     """
+
     def expand(v):
         return os.path.expandvars(v) if isinstance(v, str) else v
 
@@ -130,10 +131,11 @@ class _RunnerMcpSession:
     async def call_tool(self, name: str, arguments: dict) -> McpCallResult:
         resp = await self._dispatch(lambda: self._session.call_tool(name, arguments))
         blocks = []
-        for c in (getattr(resp, "content", None) or []):
+        for c in getattr(resp, "content", None) or []:
             text = getattr(c, "text", None)
-            blocks.append(TextContent(text=text if text is not None
-                                      else f"[{getattr(c, 'type', 'content')}]"))
+            blocks.append(
+                TextContent(text=text if text is not None else f"[{getattr(c, 'type', 'content')}]")
+            )
         return McpCallResult(content=blocks, is_error=bool(getattr(resp, "isError", False)))
 
     async def close(self) -> None:

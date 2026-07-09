@@ -17,8 +17,8 @@ from agentd.infrastructure.tools.computer.drivers.gemini_computer_use import (
 )
 from agentd.infrastructure.tools.computer.factory import build_computer_provider
 
-
 # ---- pure helpers -----------------------------------------------------
+
 
 def test_to_real_corners_and_center():
     region = (0, 0, 1920, 1080)
@@ -49,11 +49,13 @@ def test_parse_function_call():
 
 # ---- factory ----------------------------------------------------------
 
+
 def test_factory_disabled_returns_none():
     assert build_computer_provider(SimpleNamespace(computer_enabled=False)) is None
 
 
 # ---- the driver loop (fake model + fake provider; no real desktop) ----
+
 
 class FakeProvider:
     region = (0, 0, 1000, 1000)
@@ -100,8 +102,17 @@ def _always(parts):
 
 def _cfg(tmp_path, max_steps=25, save_screenshots=False):
     return SimpleNamespace(
-        computer_max_steps=max_steps, state_dir=tmp_path,
-        computer_save_screenshots=save_screenshots,
+        state_dir=tmp_path,
+        plugins={
+            "computer": {
+                "tools": {
+                    "computer": {
+                        "max_steps": max_steps,
+                        "save_screenshots": save_screenshots,
+                    }
+                }
+            }
+        },
     )
 
 
@@ -113,11 +124,13 @@ async def _run(provider, gen, tmp_path, task="do it", max_steps=25, abort=None):
 @pytest.mark.asyncio
 async def test_executes_actions_then_returns_summary(tmp_path):
     p = FakeProvider()
-    gen = _scripted_gen([
-        [_fc("click_at", x=500, y=500)],
-        [_fc("type_text_at", x=500, y=500, text="hello")],
-        [SimpleNamespace(text="Done: typed hello.", function_call=None)],
-    ])
+    gen = _scripted_gen(
+        [
+            [_fc("click_at", x=500, y=500)],
+            [_fc("type_text_at", x=500, y=500, text="hello")],
+            [SimpleNamespace(text="Done: typed hello.", function_call=None)],
+        ]
+    )
     summary = await _run(p, gen, tmp_path)
     assert summary == "Done: typed hello."
     assert [a[0] for a in p.acts] == ["click_at", "type_text_at"]
@@ -128,12 +141,13 @@ async def test_executes_actions_then_returns_summary(tmp_path):
 @pytest.mark.asyncio
 async def test_saves_screenshots_when_flag_on(tmp_path):
     p = FakeProvider()
-    gen = _scripted_gen([
-        [_fc("click_at", x=1, y=1)],
-        [SimpleNamespace(text="done", function_call=None)],
-    ])
-    d = GeminiComputerUseDriver(
-        p, "m", _cfg(tmp_path, save_screenshots=True), generate_fn=gen)
+    gen = _scripted_gen(
+        [
+            [_fc("click_at", x=1, y=1)],
+            [SimpleNamespace(text="done", function_call=None)],
+        ]
+    )
+    d = GeminiComputerUseDriver(p, "m", _cfg(tmp_path, save_screenshots=True), generate_fn=gen)
     await d.run("task", asyncio.Event())
     assert list(tmp_path.rglob("step-*.png"))  # step 0 + action step persisted
 

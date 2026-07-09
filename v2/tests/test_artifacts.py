@@ -25,6 +25,7 @@ def _png(p: Path) -> Path:
 
 # ---- files.py: resolve declared paths -> typed artifacts -------------------------
 
+
 def test_describe_artifact_classifies_and_checks_existence(tmp_path):
     d = describe_artifact(_png(tmp_path / "final.png"))
     assert d and d["kind"] == "image" and d["mime"] == "image/png" and d["name"] == "final.png"
@@ -51,9 +52,15 @@ def test_classify_known_kinds():
 
 # ---- domain: artifacts persist/transport with the message ------------------------
 
+
 def test_toolresult_message_roundtrip_carries_artifacts(tmp_path):
-    art = Artifact(path=str(tmp_path / "deck.pptx"), name="deck.pptx",
-                   mime="application/x", kind="file", size=3)
+    art = Artifact(
+        path=str(tmp_path / "deck.pptx"),
+        name="deck.pptx",
+        mime="application/x",
+        kind="file",
+        size=3,
+    )
     m = ToolResultMessage(tool_call_id="1", tool_name="make_pptx", artifacts=[art])
     d = message_to_dict(m)
     assert d["artifacts"][0]["kind"] == "file" and d["artifacts"][0]["name"] == "deck.pptx"
@@ -70,6 +77,7 @@ def test_no_declaration_means_no_artifacts_key():
 
 
 # ---- present_files: the universal agent-declared deliverable tool ----------------
+
 
 def test_show_files_declares_existing_only(tmp_path):
     from show_tool import ShowFilesTool
@@ -92,7 +100,9 @@ def test_zip_files_bundles_and_declares(tmp_path):
     _png(tmp_path / "a.png")
     (tmp_path / "b.svg").write_text("<svg/>")
     tool = ZipFilesTool(SimpleNamespace(workspace=str(tmp_path)))
-    res = asyncio.run(tool.execute("c", {"files": ["a.png", "b.svg"], "out_path": "figs.zip"}, asyncio.Event()))
+    res = asyncio.run(
+        tool.execute("c", {"files": ["a.png", "b.svg"], "out_path": "figs.zip"}, asyncio.Event())
+    )
     assert not res.is_error
     zpath = res.artifacts[0]
     assert zpath.endswith("figs.zip")

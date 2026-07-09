@@ -22,9 +22,13 @@ class RpcError(RuntimeError):
     """The daemon answered ok=false; message carries its error."""
 
 
-def call(method: str, params: dict | None = None, timeout: float = 300.0,
-         info: lifecycle.GatewayInfo | None = None,
-         on_event=None) -> dict:
+def call(
+    method: str,
+    params: dict | None = None,
+    timeout: float = 300.0,
+    info: lifecycle.GatewayInfo | None = None,
+    on_event=None,
+) -> dict:
     """One RPC against the running daemon. Raises DaemonNotRunning / RpcError.
 
     ``on_event(event_name, payload)`` — optional: broadcast frames that arrive while
@@ -37,8 +41,9 @@ def call(method: str, params: dict | None = None, timeout: float = 300.0,
         raise DaemonNotRunning("no agentd daemon is running (start one with `agentd`)")
     request_id = uuid.uuid4().hex
     with connect(info.connect_url(), open_timeout=10, close_timeout=5) as ws:
-        ws.send(json.dumps({"type": "req", "id": request_id, "method": method,
-                            "params": params or {}}))
+        ws.send(
+            json.dumps({"type": "req", "id": request_id, "method": method, "params": params or {}})
+        )
         while True:
             frame = json.loads(ws.recv(timeout=timeout))
             if frame.get("type") == "res" and frame.get("id") == request_id:

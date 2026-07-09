@@ -75,13 +75,17 @@ class RegistryClient:
         digest = sha256_file(artifact)
         if entry.sha256 and digest != entry.sha256.lower():
             artifact.unlink(missing_ok=True)
-            raise BundleError(f"'{entry.id}': sha256 mismatch — refusing corrupted/tampered "
-                              f"artifact (got {digest[:12]}…, want {entry.sha256[:12]}…)")
+            raise BundleError(
+                f"'{entry.id}': sha256 mismatch — refusing corrupted/tampered "
+                f"artifact (got {digest[:12]}…, want {entry.sha256[:12]}…)"
+            )
         if self._pinned_key:  # a pinned key makes signatures MANDATORY (fail closed)
             if not entry.sig:
                 artifact.unlink(missing_ok=True)
-                raise BundleError(f"'{entry.id}': unsigned artifact but this install pins a "
-                                  f"publisher key — refusing")
+                raise BundleError(
+                    f"'{entry.id}': unsigned artifact but this install pins a "
+                    f"publisher key — refusing"
+                )
             if not signing.verify(self._pinned_key, digest.encode("ascii"), entry.sig):
                 artifact.unlink(missing_ok=True)
                 raise BundleError(f"'{entry.id}': publisher signature INVALID — refusing")

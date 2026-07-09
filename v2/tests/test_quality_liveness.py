@@ -41,14 +41,21 @@ def _stream(script):
 
 
 def _text(t):
-    return [{"type": "text_delta", "delta": t},
-            {"type": "done", "message": AssistantMessage(content=[TextContent(text=t)], stop_reason="stop")}]
+    return [
+        {"type": "text_delta", "delta": t},
+        {
+            "type": "done",
+            "message": AssistantMessage(content=[TextContent(text=t)], stop_reason="stop"),
+        },
+    ]
 
 
 def _tool(call_id, text="x"):
     b = ToolCallContent(id=call_id, name="echo", arguments={"text": text})
-    return [{"type": "toolcall_end", "toolCall": {"id": b.id, "name": b.name}},
-            {"type": "done", "message": AssistantMessage(content=[b], stop_reason="toolUse")}]
+    return [
+        {"type": "toolcall_end", "toolCall": {"id": b.id, "name": b.name}},
+        {"type": "done", "message": AssistantMessage(content=[b], stop_reason="toolUse")},
+    ]
 
 
 async def _run(script, *, observers=None, tools=None):
@@ -59,8 +66,13 @@ async def _run(script, *, observers=None, tools=None):
 
     msgs = [UserMessage(content="go")]
     await run_agent_loop(
-        messages=msgs, system_prompt="sys", tools=tools or [EchoTool()],
-        stream_fn=_stream(script), model="fake", on_event=on_event, abort=asyncio.Event(),
+        messages=msgs,
+        system_prompt="sys",
+        tools=tools or [EchoTool()],
+        stream_fn=_stream(script),
+        model="fake",
+        on_event=on_event,
+        abort=asyncio.Event(),
         observers=observers or [],
     )
     return events, msgs
@@ -105,6 +117,7 @@ async def test_llm_judge_parses_fail_verdict():
 
     async def judge(_):
         return '{"ok": false, "reasons": "only 3 of 5 found"}'
+
     v = await LlmJudgeVerifier(judge).verify(VerifyContext(task="5 items", answer="3"))
     assert v.ok is False and "3 of 5" in v.reasons
 
@@ -115,6 +128,7 @@ async def test_llm_judge_extracts_json_from_chatter():
 
     async def judge(_):
         return 'Sure! {"ok": true, "reasons": ""} hope that helps'
+
     assert (await LlmJudgeVerifier(judge).verify(VerifyContext(task="t", answer="a"))).ok is True
 
 
@@ -124,8 +138,10 @@ async def test_llm_judge_fail_open_on_garbage_and_error():
 
     async def garbage(_):
         return "no json here"
+
     async def boom(_):
         raise RuntimeError("judge down")
+
     assert (await LlmJudgeVerifier(garbage).verify(VerifyContext(task="t", answer="a"))).ok is True
     assert (await LlmJudgeVerifier(boom).verify(VerifyContext(task="t", answer="a"))).ok is True
 
@@ -133,6 +149,7 @@ async def test_llm_judge_fail_open_on_garbage_and_error():
 # --- factories + prompt -----------------------------------------------------
 def test_build_observers_default_and_selection():
     from agentd.infrastructure.liveness import build_observers
+
     assert build_observers(SimpleNamespace(liveness=None)) == []
     obs = build_observers(SimpleNamespace(liveness=["callrate", "noprogress", "bogus"]))
     assert [type(o).__name__ for o in obs] == ["CallRateBrake", "NoProgressDetector"]
@@ -141,6 +158,7 @@ def test_build_observers_default_and_selection():
 def test_completeness_section_toggle():
     from agentd.config import load_config
     from agentd.infrastructure.prompt import build_system_prompt
+
     cfg = load_config()
     cfg.completeness_check = False
     assert "Before You Finish" not in build_system_prompt(cfg, [], cfg.model, "medium", skills=[])

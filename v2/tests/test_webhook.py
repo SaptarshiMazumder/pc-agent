@@ -88,21 +88,25 @@ async def test_duplicate_event_id_fires_once():
     ch = _FakeChannel(msgs=[msg])
     srv, fired = _server([ch])
     await srv._handle(_Req("/line/webhook", {"X-Sig": "good"}, b"{}"))
-    await srv._handle(_Req("/line/webhook", {"X-Sig": "good"}, b"{}"))   # redelivery
+    await srv._handle(_Req("/line/webhook", {"X-Sig": "good"}, b"{}"))  # redelivery
     await _drain(srv)
     assert len(fired) == 1
 
 
 @pytest.mark.asyncio
 async def test_two_channels_route_independently_by_path():
-    a = _FakeChannel(path="/line/webhook",
-                     msgs=[InboundMessage(channel="line", peer="cust", text="a", external_id="1")])
-    b = _FakeChannel(path="/line-owner/webhook",
-                     msgs=[InboundMessage(channel="line", peer="owner", text="b", external_id="2")])
+    a = _FakeChannel(
+        path="/line/webhook",
+        msgs=[InboundMessage(channel="line", peer="cust", text="a", external_id="1")],
+    )
+    b = _FakeChannel(
+        path="/line-owner/webhook",
+        msgs=[InboundMessage(channel="line", peer="owner", text="b", external_id="2")],
+    )
     srv, fired = _server([a, b])
     await srv._handle(_Req("/line-owner/webhook", {"X-Sig": "good"}, b"{}"))
     await _drain(srv)
-    assert fired == [("line", "owner", "b", "2")]                        # only channel b's path
+    assert fired == [("line", "owner", "b", "2")]  # only channel b's path
 
 
 @pytest.mark.asyncio
@@ -115,10 +119,19 @@ async def test_get_verify_endpoint_returns_200():
 @pytest.mark.asyncio
 async def test_end_to_end_real_linechannel_signed_post():
     secret = "topsecret"
-    body = json.dumps({"events": [{
-        "type": "message", "replyToken": "rt", "timestamp": 1700000000000,
-        "source": {"type": "user", "userId": "Uxyz"},
-        "message": {"type": "text", "id": "m99", "text": "table for 4"}}]}).encode()
+    body = json.dumps(
+        {
+            "events": [
+                {
+                    "type": "message",
+                    "replyToken": "rt",
+                    "timestamp": 1700000000000,
+                    "source": {"type": "user", "userId": "Uxyz"},
+                    "message": {"type": "text", "id": "m99", "text": "table for 4"},
+                }
+            ]
+        }
+    ).encode()
     sig = base64.b64encode(hmac.new(secret.encode(), body, hashlib.sha256).digest()).decode()
 
     ch = LineChannel(channel_secret=secret, access_token="tok", agent_id="restaurant")

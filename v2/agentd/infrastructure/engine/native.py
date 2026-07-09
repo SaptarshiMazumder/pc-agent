@@ -19,21 +19,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import traceback
-from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Protocol
 
 from agentd.application.interfaces.run_observer import RunObserver, ToolEvent
 from agentd.domain.events import AgentEvent, EventCallback
-from .incomplete_turn import (
-    INCOMPLETE_TURN_FALLBACK_TEXT,
-    MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
-    RETRY_INSTRUCTIONS,
-    RETRY_LIMITS,
-    PlanningContext,
-    build_before_finalize_retry_prompt,
-    classify_incomplete_turn,
-    resolve_max_run_loop_iterations,
-)
-from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.domain.messages import (
     Artifact,
     AssistantMessage,
@@ -45,7 +35,19 @@ from agentd.domain.messages import (
     message_to_dict,
 )
 from agentd.infrastructure.files import resolve_artifacts
+from agentd.infrastructure.memory.local_store import SessionStore
 from agentd.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
+
+from .incomplete_turn import (
+    INCOMPLETE_TURN_FALLBACK_TEXT,
+    MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
+    RETRY_INSTRUCTIONS,
+    RETRY_LIMITS,
+    PlanningContext,
+    build_before_finalize_retry_prompt,
+    classify_incomplete_turn,
+    resolve_max_run_loop_iterations,
+)
 
 
 class StreamFn(Protocol):
@@ -119,6 +121,7 @@ async def run_agent_loop(
     observers: list[RunObserver] | None = None,
     context_policy=None,
     model_router=None,
+    model_trace: bool = False,
 ) -> list[Message]:
     """Run the loop until the model produces a genuine final answer (or limits
     are hit). Mutates `messages` in place; returns only messages produced here."""
@@ -216,6 +219,21 @@ async def run_agent_loop(
             if assistant.text.strip():
                 produced_visible_text = True
             await on_event(AgentEvent("message_end", {"message": message_to_dict(assistant)}))
+            # observability (default off => silent): which brain ran THIS step + its token usage, so a
+            # client can show the per-step model/cost trail (e.g. deepseek -> gemini -> deepseek).
+            if model_trace:
+                u = assistant.usage or {}
+                await on_event(
+                    AgentEvent(
+                        "model_trace",
+                        {
+                            "step": iterations,
+                            "model": active_model,
+                            "tokensIn": int(u.get("input") or 0),
+                            "tokensOut": int(u.get("output") or 0),
+                        },
+                    )
+                )
 
             if abort.is_set() or assistant.stop_reason == "aborted":
                 stop_reason = "aborted"
@@ -258,8 +276,14 @@ async def run_agent_loop(
 
             # 1. Typed incomplete-turn retries (planning/reasoning/empty). planning_only is
             #    gated (OpenClaw): only an agentic task-runner on an actionable prompt gets it.
-            kind = classify_incomplete_turn(assistant, PlanningContext(
-                user_prompt=user_prompt, model=active_model, execution_contract=execution_contract))
+            kind = classify_incomplete_turn(
+                assistant,
+                PlanningContext(
+                    user_prompt=user_prompt,
+                    model=active_model,
+                    execution_contract=execution_contract,
+                ),
+            )
             if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
                 retry_counts[kind] += 1
                 await on_event(
@@ -277,12 +301,17 @@ async def run_agent_loop(
                     continue
 
             # 3. Before-finalize revision hook (legacy callable seam).
-            if verify_answer is not None and finalize_revisions < MAX_BEFORE_AGENT_FINALIZE_REVISIONS:
+            if (
+                verify_answer is not None
+                and finalize_revisions < MAX_BEFORE_AGENT_FINALIZE_REVISIONS
+            ):
                 reason = await _maybe_await(verify_answer(messages))
                 if reason:
                     finalize_revisions += 1
                     await on_event(
-                        AgentEvent("continuation", {"reason": "revision", "attempt": finalize_revisions})
+                        AgentEvent(
+                            "continuation", {"reason": "revision", "attempt": finalize_revisions}
+                        )
                     )
                     inject(build_before_finalize_retry_prompt(reason))
                     continue
@@ -342,6 +371,7 @@ async def _execute_tool_calls(
                 {"toolCallId": call.id, "toolName": call.name, "args": call.arguments},
             )
         )
+
         # Forward a tool's incremental progress (GuardedTool retries/timeouts, the
         # computer tool's per-step updates) as tool_progress events. Sync callback
         # (the contract type); the async emit is scheduled fire-and-forget.
@@ -350,8 +380,14 @@ async def _execute_tool_calls(
                 text = update
             else:  # a ToolResult — join its text blocks
                 text = "".join(getattr(b, "text", "") for b in getattr(update, "content", []))
-            asyncio.create_task(on_event(AgentEvent(
-                "tool_progress", {"toolCallId": call.id, "toolName": call.name, "text": text})))
+            asyncio.create_task(
+                on_event(
+                    AgentEvent(
+                        "tool_progress",
+                        {"toolCallId": call.id, "toolName": call.name, "text": text},
+                    )
+                )
+            )
 
         if tool is None:
             result = ToolResult.text(f"Unknown tool: {call.name}", is_error=True)
@@ -370,7 +406,9 @@ async def _execute_tool_calls(
                 )
         # DELIVERABLES: a producing tool declares the file(s) it made via result.artifacts;
         # resolve each to a typed artifact (skips non-existent/dupes). Nothing is inferred from text.
-        declared = [Artifact(**info) for info in resolve_artifacts(getattr(result, "artifacts", None))]
+        declared = [
+            Artifact(**info) for info in resolve_artifacts(getattr(result, "artifacts", None))
+        ]
         msg = ToolResultMessage(
             tool_call_id=call.id,
             tool_name=call.name,
@@ -381,9 +419,18 @@ async def _execute_tool_calls(
         results[index] = msg
         rtext = "".join(getattr(b, "text", "") for b in result.content)
         digest = hashlib.sha1(rtext.encode("utf-8", "ignore")).hexdigest()[:12] if rtext else None
-        halts.extend(_notify_tool(
-            observers, ToolEvent(call.name, call.arguments, "after",
-                                 is_error=result.is_error, result_digest=digest)))
+        halts.extend(
+            _notify_tool(
+                observers,
+                ToolEvent(
+                    call.name,
+                    call.arguments,
+                    "after",
+                    is_error=result.is_error,
+                    result_digest=digest,
+                ),
+            )
+        )
         await on_event(
             AgentEvent(
                 "tool_execution_end",
@@ -422,25 +469,35 @@ class NativeEngine:
     application's AgentService calls whichever one it was given, none the wiser.
     """
 
-    def __init__(self, stream_fn, model: str, max_iterations: int | None = None,
-                 observers=None, context_policy=None, execution_contract: str = "",
-                 model_router=None):
-        self._stream_fn = stream_fn          # the LLMService (e.g. litellm_stream)
-        self._model = model                  # which model id to pass each call
+    def __init__(
+        self,
+        stream_fn,
+        model: str,
+        max_iterations: int | None = None,
+        observers=None,
+        context_policy=None,
+        execution_contract: str = "",
+        model_router=None,
+        model_trace: bool = False,
+    ):
+        self._stream_fn = stream_fn  # the LLMService (e.g. litellm_stream)
+        self._model = model  # which model id to pass each call
         self._max_iterations = max_iterations
-        self._observers = observers or []    # decoupled liveness seam (default off)
+        self._observers = observers or []  # decoupled liveness seam (default off)
         self._context_policy = context_policy  # compaction policy (S7); None = send all
         self._execution_contract = execution_contract  # gates the planning-only nudge (OpenClaw)
-        self._model_router = model_router    # cost-efficiency brain routing (default off => None)
+        self._model_router = model_router  # cost-efficiency brain routing (default off => None)
+        self._model_trace = model_trace  # emit per-step model_trace events (default off)
 
-    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
-                  model=None):
+    async def run(
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+    ):
         return await run_agent_loop(
             messages=messages,
             system_prompt=system_prompt,
             tools=tools,
             stream_fn=self._stream_fn,
-            model=model or self._model,          # per-agent override, else the engine default
+            model=model or self._model,  # per-agent override, else the engine default
             on_event=on_event,
             abort=abort,
             session=session,
@@ -449,4 +506,5 @@ class NativeEngine:
             context_policy=self._context_policy,
             execution_contract=self._execution_contract,
             model_router=self._model_router,
+            model_trace=self._model_trace,
         )

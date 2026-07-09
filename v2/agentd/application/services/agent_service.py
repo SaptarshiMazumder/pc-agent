@@ -13,7 +13,7 @@ instrument itself (the engine streams the LLM, the session store hits the disk).
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from agentd.application.interfaces.agent_engine import AgentEngine
 from agentd.application.interfaces.agents import AgentRegistry
@@ -60,10 +60,11 @@ class AgentService:
         *,
         engine: AgentEngine,
         tools: list,
-        registry: AgentRegistry,                            # which agent handles a session
+        registry: AgentRegistry,  # which agent handles a session
         make_session: Callable[[str, AgentSpec], SessionStore],  # (id, agent) -> store
         build_prompt: Callable[..., str],  # (tools, agent, mode, query="") -> prompt
-        recall: Callable[[AgentSpec, str], str] | None = None,   # (agent, query) -> memory block, or ""
+        recall: Callable[[AgentSpec, str], str]
+        | None = None,  # (agent, query) -> memory block, or ""
         plugin_reloader: Callable[[], dict] | None = None,  # hot-load NEW plugins into the live
         # catalog (marketplace installs / create_tool). Filled by the composition root — the
         # service only knows "something can extend my toolset live", never how discovery works.
@@ -77,7 +78,7 @@ class AgentService:
         self._registry = registry
         self._make_session = make_session
         self._build_prompt = build_prompt
-        self._recall = recall               # auto-recall: prepends relevant memories on user turns
+        self._recall = recall  # auto-recall: prepends relevant memories on user turns
         self.plugin_reloader = plugin_reloader
         self._resolve_workspace = resolve_workspace
 
@@ -109,7 +110,7 @@ class AgentService:
         mentioned: list[tuple[str, str]] = []
         for aid in list_ids():
             if aid == agent.id:
-                continue                                   # mentioning yourself isn't delegation
+                continue  # mentioning yourself isn't delegation
             try:
                 spec = self._registry.get(aid)
             except KeyError:
@@ -141,13 +142,14 @@ class AgentService:
         if list_ids is None:
             return ""
         from agentd.domain.agent import _matches
+
         allow = getattr(agent, "subagents_allow", None)
         rows: list[str] = []
         for aid in list_ids():
             if aid == agent.id:
-                continue                                   # never advertise yourself
+                continue  # never advertise yourself
             if allow is not None and not any(_matches(aid, p) for p in allow):
-                continue                                   # outside this agent's delegation scope
+                continue  # outside this agent's delegation scope
             try:
                 spec = self._registry.get(aid)
             except KeyError:
@@ -188,8 +190,8 @@ class AgentService:
         self._tools = [t for t in self._tools if not getattr(t, "name", "").startswith(prefix)]
         return before - len(self._tools)
 
-    def list_tools(self, agent_id: str | None = None) -> list:
-        """Enumerate the live tool catalog (read-only; safe to call any time).
+    def _select_tools(self, agent_id: str | None = None) -> list:
+        """The live tool objects behind a catalog query (read-only; safe to call any time).
 
         No ``agent_id`` => the FULL active catalog (every tool currently loaded + enabled).
         With ``agent_id`` => the subset THAT agent actually sees in an interactive turn — i.e.
@@ -202,13 +204,30 @@ class AgentService:
                 tools = apply_mode(select_tools(self._tools, agent), RunMode.INTERACTIVE)
             except KeyError:
                 pass
-        return [_tool_info(t) for t in tools]
+        return list(tools)
 
-    async def handle_message(self, session_id: str, text: str,
-                             on_event: EventSink, abort,
-                             mode: str = RunMode.INTERACTIVE,
-                             agent_id: str | None = None,
-                             attachments: "list[Artifact] | None" = None) -> None:
+    def list_tools(self, agent_id: str | None = None) -> list:
+        """Client-renderable SUMMARIES of the live tool catalog (name/label/summary/source). See
+        ``_select_tools`` for the selection rules; ``catalog_tools`` returns the raw objects."""
+        return [_tool_info(t) for t in self._select_tools(agent_id)]
+
+    def catalog_tools(self, agent_id: str | None = None) -> list:
+        """The RAW live tool objects (not summaries) behind the catalog — needed by the capability,
+        model, and settings views, which read each tool's discovery metadata (plugin id, needs_model,
+        resolved model, full description) that ``_tool_info`` deliberately drops. Same selection as
+        ``list_tools``; tools may be wrapped (GuardedTool), so callers unwrap to read metadata."""
+        return self._select_tools(agent_id)
+
+    async def handle_message(
+        self,
+        session_id: str,
+        text: str,
+        on_event: EventSink,
+        abort,
+        mode: str = RunMode.INTERACTIVE,
+        agent_id: str | None = None,
+        attachments: list[Artifact] | None = None,
+    ) -> None:
         """Run one turn end to end for the resolved agent.
 
         ``mode`` is the run mode (interactive | heartbeat | cron). ``agent_id`` is an
@@ -231,18 +250,24 @@ class AgentService:
         # expose the run context to context-aware tools (e.g. cron tags its task with
         # this agent). Task-local, so concurrent runs never cross. Set BEFORE the prompt is
         # built, so the workspace manifest indexes the same folder the tools will use.
-        set_run_context(RunContext(agent_id=agent.id, session_key=session_id, mode=mode,
-                                   workspace=workspace,
-                                   plugins=getattr(agent, "plugins", None) or None))
+        set_run_context(
+            RunContext(
+                agent_id=agent.id,
+                session_key=session_id,
+                mode=mode,
+                workspace=workspace,
+                plugins=getattr(agent, "plugins", None) or None,
+            )
+        )
         tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
-        session = self._make_session(session_id, agent)   # per-agent session store
-        messages = session.load()                         # prior history (read)
+        session = self._make_session(session_id, agent)  # per-agent session store
+        messages = session.load()  # prior history (read)
         # attachments (already saved to the workspace by the transport layer, carried by
         # reference) ride along on the user turn: the client renders them, and the LLM
         # adapter inlines any image so a vision model can see it.
         user_msg = UserMessage(content=text, attachments=list(attachments or []))
-        messages.append(user_msg)                         # add the new user turn to context
-        session.append(user_msg)                          # persist it
+        messages.append(user_msg)  # add the new user turn to context
+        session.append(user_msg)  # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
         # @mention delegation (Layer B): the user @-mentioned OTHER agents in their message —
         # nudge the serving agent to actually delegate via message_agent and weave the replies
@@ -278,21 +303,29 @@ class AgentService:
             on_event=on_event,
             abort=abort,
             session=session,
-            model=agent.model,        # per-agent override (None = the engine default)
+            model=agent.model,  # per-agent override (None = the engine default)
         )
         # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
         # calling report_outcome (common: it did the work but skipped the bookkeeping), force
         # ONE follow-up turn to make it declare — so a successful run isn't mislabeled
         # 'incomplete'. Fires at most once; if it still won't declare, the gateway marks it.
-        if (mode == RunMode.CRON and not abort.is_set()
-                and current_run_outcome() is None):
-            nudge = UserMessage(content=(
-                "You are a SCHEDULED run and finished WITHOUT recording the outcome. Call "
-                "`report_outcome` now, exactly once: status='done' if you completed the task, "
-                "'blocked' if you could not proceed (put the blocker in `detail`), or 'failed' "
-                "if it errored. Do this now — it is the only way the user learns the result."))
+        if mode == RunMode.CRON and not abort.is_set() and current_run_outcome() is None:
+            nudge = UserMessage(
+                content=(
+                    "You are a SCHEDULED run and finished WITHOUT recording the outcome. Call "
+                    "`report_outcome` now, exactly once: status='done' if you completed the task, "
+                    "'blocked' if you could not proceed (put the blocker in `detail`), or 'failed' "
+                    "if it errored. Do this now — it is the only way the user learns the result."
+                )
+            )
             messages.append(nudge)
             session.append(nudge)
             await self._engine.run(
-                messages=messages, system_prompt=system_prompt, tools=tools,
-                on_event=on_event, abort=abort, session=session, model=agent.model)
+                messages=messages,
+                system_prompt=system_prompt,
+                tools=tools,
+                on_event=on_event,
+                abort=abort,
+                session=session,
+                model=agent.model,
+            )

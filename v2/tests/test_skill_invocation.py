@@ -25,9 +25,9 @@ def test_reading_skill_md_logs_and_emits(tmp_path, caplog):
     updates = []
     with caplog.at_level(logging.INFO, logger="agentd"):
         res = _read(sk, on_update=lambda r: updates.append(r))
-    assert "Web access playbook" in res.content[0].text                      # the read still works
-    assert any("skill invoked: web-access" in r.getMessage() for r in caplog.records)   # server log
-    assert updates and "skill: web-access" in updates[0].content[0].text     # client/watch signal
+    assert "Web access playbook" in res.content[0].text  # the read still works
+    assert any("skill invoked: web-access" in r.getMessage() for r in caplog.records)  # server log
+    assert updates and "skill: web-access" in updates[0].content[0].text  # client/watch signal
 
 
 def test_reading_a_normal_file_does_not_log_a_skill(tmp_path, caplog):

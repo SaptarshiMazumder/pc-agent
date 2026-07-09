@@ -19,17 +19,17 @@ from dataclasses import dataclass
 class ScheduledTask:
     id: str
     agent_id: str
-    session_key: str            # where the run executes (resolves to agent_id)
-    kind: str                   # "at" | "every" | "cron"
-    payload: str                # the instruction the agent runs (or text to deliver)
-    next_due: float             # epoch seconds
-    every_seconds: float | None = None   # for kind="every"
-    cron_expr: str | None = None         # for kind="cron" (e.g. "55 19 * * 6")
-    tz: str | None = None                # IANA timezone for the cron expr (e.g. "Asia/Tokyo")
+    session_key: str  # where the run executes (resolves to agent_id)
+    kind: str  # "at" | "every" | "cron"
+    payload: str  # the instruction the agent runs (or text to deliver)
+    next_due: float  # epoch seconds
+    every_seconds: float | None = None  # for kind="every"
+    cron_expr: str | None = None  # for kind="cron" (e.g. "55 19 * * 6")
+    tz: str | None = None  # IANA timezone for the cron expr (e.g. "Asia/Tokyo")
     enabled: bool = True
     created_at: float = 0.0
-    delivery: str = "run"       # "run" = agent executes payload | "message" = deliver verbatim
-    failure_alert: int = 0      # notify the user after N consecutive failed runs (0 = off)
+    delivery: str = "run"  # "run" = agent executes payload | "message" = deliver verbatim
+    failure_alert: int = 0  # notify the user after N consecutive failed runs (0 = off)
 
 
 @dataclass(frozen=True)
@@ -48,9 +48,9 @@ class RunRecord:
     agent_id: str
     started_at: float
     finished_at: float | None = None
-    status: str = "running"      # running | ok | blocked | failed | error | aborted
-    outcome: str | None = None   # agent-declared: done | blocked | failed
-    detail: str = ""             # one-line reason (e.g. "needs Google Drive auth")
+    status: str = "running"  # running | ok | blocked | failed | error | aborted
+    outcome: str | None = None  # agent-declared: done | blocked | failed
+    detail: str = ""  # one-line reason (e.g. "needs Google Drive auth")
 
 
 def resolve_run_outcome(
@@ -91,5 +91,5 @@ class Goal:
     session_key: str
     objective: str
     token_budget: int | None = None
-    status: str = "active"      # active | complete | blocked
+    status: str = "active"  # active | complete | blocked
     created_at: float = 0.0

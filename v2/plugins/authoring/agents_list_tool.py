@@ -8,9 +8,8 @@ specialists it is allowed to delegate to (the same allowlist the spawn path enfo
 
 from __future__ import annotations
 
-from agentd.application.run_context import current_run_context
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.application.run_context import current_run_context
 
 
 class AgentsListTool(Tool):
@@ -20,8 +19,9 @@ class AgentsListTool(Tool):
     description = (
         "List the OTHER agents you can hand work to — their id, name, and what each is for — so "
         "you delegate to the right specialist. After picking one, run it with "
-        "spawn_subagent(agent=\"<id>\", task=...); you may spawn several at once and they run in "
-        "parallel. Excludes yourself; if you have a scoped specialist allowlist, only those show.")
+        'spawn_subagent(agent="<id>", task=...); you may spawn several at once and they run in '
+        "parallel. Excludes yourself; if you have a scoped specialist allowlist, only those show."
+    )
     parameters = {"type": "object", "properties": {}}
 
     def __init__(self, registry):
@@ -29,6 +29,7 @@ class AgentsListTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         from agentd.domain.agent import _matches
+
         ctx = current_run_context()
         me = (ctx.agent_id if ctx else "") or "main"
         try:

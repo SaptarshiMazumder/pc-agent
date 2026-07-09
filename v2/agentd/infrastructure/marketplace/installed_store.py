@@ -26,13 +26,16 @@ class JsonInstalledStore:
         bundles = []
         for raw in data.get("bundles", []):
             try:
-                bundles.append(InstalledBundle(
-                    id=str(raw["id"]), version=str(raw.get("version") or "0"),
-                    installed_at=str(raw.get("installed_at") or ""),
-                    source=str(raw.get("source") or ""),
-                    plugin_ids=tuple(str(p) for p in raw.get("plugin_ids") or []),
-                    entitlement=str(raw.get("entitlement") or ""),
-                ))
+                bundles.append(
+                    InstalledBundle(
+                        id=str(raw["id"]),
+                        version=str(raw.get("version") or "0"),
+                        installed_at=str(raw.get("installed_at") or ""),
+                        source=str(raw.get("source") or ""),
+                        plugin_ids=tuple(str(p) for p in raw.get("plugin_ids") or []),
+                        entitlement=str(raw.get("entitlement") or ""),
+                    )
+                )
             except (KeyError, TypeError):
                 log.warning("installed_bundles.json: skipping malformed row %r", raw)
         return bundles
@@ -49,10 +52,20 @@ class JsonInstalledStore:
 
     def _write(self, bundles: list[InstalledBundle]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"schema": 1, "bundles": [{
-            "id": b.id, "version": b.version, "installed_at": b.installed_at,
-            "source": b.source, "plugin_ids": list(b.plugin_ids), "entitlement": b.entitlement,
-        } for b in sorted(bundles, key=lambda b: b.id)]}
+        payload = {
+            "schema": 1,
+            "bundles": [
+                {
+                    "id": b.id,
+                    "version": b.version,
+                    "installed_at": b.installed_at,
+                    "source": b.source,
+                    "plugin_ids": list(b.plugin_ids),
+                    "entitlement": b.entitlement,
+                }
+                for b in sorted(bundles, key=lambda b: b.id)
+            ],
+        }
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         tmp.replace(self._path)

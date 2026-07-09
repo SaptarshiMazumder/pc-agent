@@ -12,9 +12,8 @@ same task-local channel pattern as RunContext, so concurrent runs never cross.
 
 from __future__ import annotations
 
-from agentd.application.run_context import set_run_outcome
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.application.run_context import set_run_outcome
 
 _STATUSES = ("done", "blocked", "failed")
 
@@ -33,10 +32,15 @@ class ReportOutcomeTool(Tool):
         "type": "object",
         "required": ["status"],
         "properties": {
-            "status": {"type": "string", "enum": list(_STATUSES),
-                       "description": "done | blocked | failed"},
-            "detail": {"type": "string",
-                       "description": "One line: what you did, or the exact blocker/error."},
+            "status": {
+                "type": "string",
+                "enum": list(_STATUSES),
+                "description": "done | blocked | failed",
+            },
+            "detail": {
+                "type": "string",
+                "description": "One line: what you did, or the exact blocker/error.",
+            },
         },
     }
 
@@ -44,8 +48,7 @@ class ReportOutcomeTool(Tool):
         status = (params.get("status") or "").strip().lower()
         detail = (params.get("detail") or "").strip()
         if status not in _STATUSES:
-            return ToolResult.text(
-                f"status must be one of {', '.join(_STATUSES)}", is_error=True)
+            return ToolResult.text(f"status must be one of {', '.join(_STATUSES)}", is_error=True)
         set_run_outcome(status, detail)
         text = f"outcome recorded: {status}" + (f" — {detail}" if detail else "")
         return ToolResult.text(text, details={"status": status, "detail": detail})

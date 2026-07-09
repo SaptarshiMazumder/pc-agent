@@ -20,14 +20,21 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from figexport_common import px, resolve_path
+
 from agentd.application.interfaces.tool import Tool, ToolResult
-from figexport_common import resolve_path, px
 
 # arrow `style` -> (stroke width pt, default colour) when the element omits width/color.
 _ARROW_LOOK = {
-    "plain": (2.0, "#374151"), "clean": (2.75, "#374151"), "biorender": (3.5, "#374151"),
-    "subtle": (2.0, "#6b7280"), "flow": (2.75, "#374151"), "emphasis": (4.0, "#374151"),
-    "activation": (2.75, "#2f855a"), "inhibition": (2.75, "#c53030"), "transport": (2.5, "#374151"),
+    "plain": (2.0, "#374151"),
+    "clean": (2.75, "#374151"),
+    "biorender": (3.5, "#374151"),
+    "subtle": (2.0, "#6b7280"),
+    "flow": (2.75, "#374151"),
+    "emphasis": (4.0, "#374151"),
+    "activation": (2.75, "#2f855a"),
+    "inhibition": (2.75, "#c53030"),
+    "transport": (2.5, "#374151"),
 }
 
 
@@ -48,17 +55,30 @@ class ExportPptxTool(Tool):
         "type": "object",
         "required": ["artwork", "out_path", "elements"],
         "properties": {
-            "artwork": {"type": "string", "description": "Path to the raster artwork (PNG/JPG). Use a transparent PNG if you want only the annotations."},
+            "artwork": {
+                "type": "string",
+                "description": "Path to the raster artwork (PNG/JPG). Use a transparent PNG if you want only the annotations.",
+            },
             "out_path": {"type": "string", "description": "Output .pptx path."},
             "elements": {
                 "type": "array",
                 "description": "render_editable_overlay-style elements (label, annotation, arrow, leader, panel, node, dot). "
-                               "Coordinates are in the artwork's pixel space (origin top-left).",
-                "items": {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}},
-                          "additionalProperties": True},
+                "Coordinates are in the artwork's pixel space (origin top-left).",
+                "items": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {"kind": {"type": "string"}},
+                    "additionalProperties": True,
+                },
             },
-            "background": {"type": "string", "description": "Optional slide background hex (e.g. '#FFFFFF'). Default: none (white)."},
-            "scale": {"type": "number", "description": "Optional size multiplier for text/strokes/dots (match render_editable_overlay's `scale`). Omit = AUTO from the artwork resolution so text isn't tiny on a 2K/4K slide."},
+            "background": {
+                "type": "string",
+                "description": "Optional slide background hex (e.g. '#FFFFFF'). Default: none (white).",
+            },
+            "scale": {
+                "type": "number",
+                "description": "Optional size multiplier for text/strokes/dots (match render_editable_overlay's `scale`). Omit = AUTO from the artwork resolution so text isn't tiny on a 2K/4K slide.",
+            },
         },
     }
 
@@ -69,15 +89,15 @@ class ExportPptxTool(Tool):
         return resolve_path(self.config, p)
 
     def _run(self, params: dict) -> dict:
-        from pptx import Presentation
-        from pptx.util import Emu, Pt
-        from pptx.dml.color import RGBColor
-        from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
-        from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-        from pptx.oxml.ns import qn
         from PIL import Image
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+        from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+        from pptx.oxml.ns import qn
+        from pptx.util import Emu, Pt
 
-        E = lambda v: Emu(px(v))                                   # px -> EMU
+        E = lambda v: Emu(px(v))  # px -> EMU
 
         def rgb(c, default="#374151"):
             try:
@@ -95,13 +115,22 @@ class ExportPptxTool(Tool):
             tf.margin_left = tf.margin_right = Emu(px(6))
             tf.margin_top = tf.margin_bottom = Emu(px(3))
             try:
-                tf.vertical_anchor = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE,
-                                      "bottom": MSO_ANCHOR.BOTTOM}.get(anchor, MSO_ANCHOR.MIDDLE)
+                tf.vertical_anchor = {
+                    "top": MSO_ANCHOR.TOP,
+                    "middle": MSO_ANCHOR.MIDDLE,
+                    "bottom": MSO_ANCHOR.BOTTOM,
+                }.get(anchor, MSO_ANCHOR.MIDDLE)
             except Exception:
                 pass
             p = tf.paragraphs[0]
-            p.alignment = {"start": PP_ALIGN.LEFT, "left": PP_ALIGN.LEFT, "middle": PP_ALIGN.CENTER,
-                           "center": PP_ALIGN.CENTER, "end": PP_ALIGN.RIGHT, "right": PP_ALIGN.RIGHT}.get(align, PP_ALIGN.CENTER)
+            p.alignment = {
+                "start": PP_ALIGN.LEFT,
+                "left": PP_ALIGN.LEFT,
+                "middle": PP_ALIGN.CENTER,
+                "center": PP_ALIGN.CENTER,
+                "end": PP_ALIGN.RIGHT,
+                "right": PP_ALIGN.RIGHT,
+            }.get(align, PP_ALIGN.CENTER)
             r = p.add_run()
             r.text = str(text)
             r.font.size = Pt(fs * 0.75)
@@ -113,12 +142,14 @@ class ExportPptxTool(Tool):
             if fill is None:
                 sp.fill.background()
             else:
-                sp.fill.solid(); sp.fill.fore_color.rgb = rgb(fill, "#ffffff")
+                sp.fill.solid()
+                sp.fill.fore_color.rgb = rgb(fill, "#ffffff")
             if line is None:
                 sp.line.fill.background()
             else:
-                sp.line.color.rgb = rgb(line, "#94a3b8"); sp.line.width = Pt(line_w)
-            if radius is not None:                                 # 0..1 corner roundness
+                sp.line.color.rgb = rgb(line, "#94a3b8")
+                sp.line.width = Pt(line_w)
+            if radius is not None:  # 0..1 corner roundness
                 try:
                     sp.adjustments[0] = max(0.0, min(0.5, float(radius)))
                 except Exception:
@@ -127,7 +158,8 @@ class ExportPptxTool(Tool):
 
         def oval(x, y, d, fill):
             sp = slide.shapes.add_shape(MSO_SHAPE.OVAL, E(x), E(y), E(d), E(d))
-            sp.fill.solid(); sp.fill.fore_color.rgb = rgb(fill, "#374151")
+            sp.fill.solid()
+            sp.fill.fore_color.rgb = rgb(fill, "#374151")
             sp.line.fill.background()
             return sp
 
@@ -137,7 +169,9 @@ class ExportPptxTool(Tool):
                 return
             try:
                 el = ln._get_or_add_ln()
-                el.append(el.makeelement(qn(f"a:{tag}"), {"type": "triangle", "w": "med", "len": "med"}))
+                el.append(
+                    el.makeelement(qn(f"a:{tag}"), {"type": "triangle", "w": "med", "len": "med"})
+                )
             except Exception:
                 pass
 
@@ -151,7 +185,9 @@ class ExportPptxTool(Tool):
                 pass
 
         def connector(p0, p1, color, width=2.0, head_end=False, head_start=False, dash=False):
-            c = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, E(p0[0]), E(p0[1]), E(p1[0]), E(p1[1]))
+            c = slide.shapes.add_connector(
+                MSO_CONNECTOR.STRAIGHT, E(p0[0]), E(p0[1]), E(p1[0]), E(p1[1])
+            )
             c.line.color.rgb = rgb(color, "#374151")
             c.line.width = Pt(width)
             _end(c.line, "tailEnd", color, head_end)
@@ -166,9 +202,15 @@ class ExportPptxTool(Tool):
             if len(pts) < 2:
                 return
             for i in range(len(pts) - 1):
-                connector(pts[i], pts[i + 1], color, width,
-                          head_end=(head_end and i == len(pts) - 2),
-                          head_start=(head_start and i == 0), dash=dash)
+                connector(
+                    pts[i],
+                    pts[i + 1],
+                    color,
+                    width,
+                    head_end=(head_end and i == len(pts) - 2),
+                    head_start=(head_start and i == 0),
+                    dash=dash,
+                )
 
         art = self._resolve(params["artwork"])
         with Image.open(art) as im:
@@ -180,9 +222,9 @@ class ExportPptxTool(Tool):
         prs = Presentation()
         prs.slide_width = E(W)
         prs.slide_height = E(H)
-        slide = prs.slides.add_slide(prs.slide_layouts[6])         # blank
+        slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
         if params.get("background"):
-            bg = rrect(0, 0, W, H, params["background"], None, 0)
+            bg = rrect(0, 0, W, H, params["background"], None, 0)  # noqa: F841  # TODO: bg is never added to the slide — the `background` param currently renders nothing
         slide.shapes.add_picture(str(art), Emu(0), Emu(0), width=E(W), height=E(H))
 
         n_text = n_shape = n_conn = n_pic = 0
@@ -198,21 +240,41 @@ class ExportPptxTool(Tool):
                 box = el.get("box")
                 bw = approx_w(text, fs, bold) + 2 * 9 * S
                 bh = fs + 2 * 6 * S
-                left = x - (bw / 2 if anchor in ("middle", "center") else (bw if anchor in ("end", "right") else 0))
+                left = x - (
+                    bw / 2
+                    if anchor in ("middle", "center")
+                    else (bw if anchor in ("end", "right") else 0)
+                )
                 if box:
-                    sp = rrect(left, y - bh / 2, bw, bh,
-                               (box or {}).get("fill", "#ffffff"), (box or {}).get("stroke", "#d1d5db"),
-                               float((box or {}).get("stroke_width", 1)) * S, radius=0.3)
+                    sp = rrect(
+                        left,
+                        y - bh / 2,
+                        bw,
+                        bh,
+                        (box or {}).get("fill", "#ffffff"),
+                        (box or {}).get("stroke", "#d1d5db"),
+                        float((box or {}).get("stroke_width", 1)) * S,
+                        radius=0.3,
+                    )
                     set_text(sp, text, fs, el.get("color", "#1f2937"), bold, "center")
                     n_shape += 1
                 else:
                     tb = slide.shapes.add_textbox(E(left), E(y - bh / 2), E(bw), E(bh))
-                    set_text(tb, text, fs, el.get("color", "#1f2937"), bold,
-                             "left" if anchor == "start" else ("right" if anchor in ("end", "right") else "center"))
+                    set_text(
+                        tb,
+                        text,
+                        fs,
+                        el.get("color", "#1f2937"),
+                        bold,
+                        "left"
+                        if anchor == "start"
+                        else ("right" if anchor in ("end", "right") else "center"),
+                    )
                     n_text += 1
 
             elif kind == "annotation":
-                at = el.get("at", [0, 0]); tgt = el.get("target", at)
+                at = el.get("at", [0, 0])
+                tgt = el.get("target", at)
                 text = el.get("text", "")
                 fs = float(el.get("font_size", 14)) * S
                 bold = True
@@ -220,16 +282,29 @@ class ExportPptxTool(Tool):
                 bh = fs + 2 * 6 * S
                 side = el.get("side", "left" if at[0] < tgt[0] else "right")
                 edge = (at[0] + bw / 2, at[1]) if side == "left" else (at[0] - bw / 2, at[1])
-                connector(edge, tgt, el.get("leader_color", "#9ca3af"),
-                          float(el.get("leader_width", 1.2)) * S)
+                connector(
+                    edge,
+                    tgt,
+                    el.get("leader_color", "#9ca3af"),
+                    float(el.get("leader_width", 1.2)) * S,
+                )
                 if el.get("dot", True):
                     dr = float(el.get("dot_r", 3)) * S
-                    oval(tgt[0] - dr, tgt[1] - dr, 2 * dr, el.get("dot_color", "#4b5563")); n_shape += 1
-                sp = rrect(at[0] - bw / 2, at[1] - bh / 2, bw, bh,
-                           (el.get("box") or {}).get("fill", "#ffffff"),
-                           (el.get("box") or {}).get("stroke", "#d1d5db"), S, radius=0.3)
+                    oval(tgt[0] - dr, tgt[1] - dr, 2 * dr, el.get("dot_color", "#4b5563"))
+                    n_shape += 1
+                sp = rrect(
+                    at[0] - bw / 2,
+                    at[1] - bh / 2,
+                    bw,
+                    bh,
+                    (el.get("box") or {}).get("fill", "#ffffff"),
+                    (el.get("box") or {}).get("stroke", "#d1d5db"),
+                    S,
+                    radius=0.3,
+                )
                 set_text(sp, text, fs, el.get("color", "#1f2937"), bold, "center")
-                n_shape += 1; n_conn += 1
+                n_shape += 1
+                n_conn += 1
 
             elif kind == "arrow":
                 pts = el.get("points") or [el.get("from", [0, 0]), el.get("to", [0, 0])]
@@ -238,38 +313,67 @@ class ExportPptxTool(Tool):
                 color = el.get("color", look[1])
                 head = el.get("head", "standard") != "none"
                 start_head = el.get("start_head", "none") not in ("none", None)
-                polyline(pts, color, width, head_end=head, head_start=start_head,
-                         dash=bool(el.get("dash")))
+                polyline(
+                    pts,
+                    color,
+                    width,
+                    head_end=head,
+                    head_start=start_head,
+                    dash=bool(el.get("dash")),
+                )
                 n_conn += max(1, len(pts) - 1)
 
             elif kind == "leader":
                 pts = el.get("points") or [el.get("from", [0, 0]), el.get("to", [0, 0])]
                 color = el.get("color", "#6b7280")
-                polyline(pts, color, float(el.get("width", 1.2)) * S,
-                         head_end=(el.get("head", "none") not in ("none", None)),
-                         dash=bool(el.get("dash")))
+                polyline(
+                    pts,
+                    color,
+                    float(el.get("width", 1.2)) * S,
+                    head_end=(el.get("head", "none") not in ("none", None)),
+                    dash=bool(el.get("dash")),
+                )
                 if el.get("dot", el.get("head", "none") == "none"):
                     dr = float(el.get("dot_r", 2.6)) * S
-                    oval(pts[-1][0] - dr, pts[-1][1] - dr, 2 * dr, el.get("dot_color", color)); n_shape += 1
+                    oval(pts[-1][0] - dr, pts[-1][1] - dr, 2 * dr, el.get("dot_color", color))
+                    n_shape += 1
                 n_conn += max(1, len(pts) - 1)
 
             elif kind == "panel":
                 x, y, w, h = float(el["x"]), float(el["y"]), float(el["w"]), float(el["h"])
-                rrect(x, y, w, h, el.get("fill"), el.get("stroke", "#9ca3af"),
-                      float(el.get("stroke_width", 1.4)) * S, radius=0.04)
+                rrect(
+                    x,
+                    y,
+                    w,
+                    h,
+                    el.get("fill"),
+                    el.get("stroke", "#9ca3af"),
+                    float(el.get("stroke_width", 1.4)) * S,
+                    radius=0.04,
+                )
                 n_shape += 1
                 if el.get("title"):
                     fs = float(el.get("title_size", 13)) * S
                     tw = approx_w(el["title"], fs, True) + 16 * S
-                    tb = slide.shapes.add_textbox(E(x + w / 2 - tw / 2), E(y - (fs + 6 * S) / 2), E(tw), E(fs + 8 * S))
+                    tb = slide.shapes.add_textbox(
+                        E(x + w / 2 - tw / 2), E(y - (fs + 6 * S) / 2), E(tw), E(fs + 8 * S)
+                    )
                     set_text(tb, el["title"], fs, el.get("title_color", "#374151"), True, "center")
                     n_text += 1
 
             elif kind == "node":
                 x, y, w, h = float(el["x"]), float(el["y"]), float(el["w"]), float(el["h"])
                 pad = float(el.get("pad", 10)) * S
-                sp = rrect(x, y, w, h, el.get("fill", "#ffffff"), el.get("stroke", "#94a3b8"),
-                           float(el.get("stroke_width", 1.6)) * S, radius=float(el.get("radius_frac", 0.1)))
+                sp = rrect(
+                    x,
+                    y,
+                    w,
+                    h,
+                    el.get("fill", "#ffffff"),
+                    el.get("stroke", "#94a3b8"),
+                    float(el.get("stroke_width", 1.6)) * S,
+                    radius=float(el.get("radius_frac", 0.1)),
+                )
                 n_shape += 1
                 fs = float(el.get("font_size", 13)) * S
                 text = el.get("text", "")
@@ -280,33 +384,56 @@ class ExportPptxTool(Tool):
                         icon_h = (h - 2 * pad) * (0.58 if text else 1.0)
                         iw = min(w - 2 * pad, icon_h)
                         try:
-                            slide.shapes.add_picture(str(ip), E(x + (w - iw) / 2), E(y + pad),
-                                                     height=E(icon_h))
+                            slide.shapes.add_picture(
+                                str(ip), E(x + (w - iw) / 2), E(y + pad), height=E(icon_h)
+                            )
                             n_pic += 1
                         except Exception:
                             pass
                         if text:
-                            tb = slide.shapes.add_textbox(E(x + pad), E(y + pad + icon_h),
-                                                          E(w - 2 * pad), E(h - 2 * pad - icon_h))
-                            set_text(tb, text, fs, el.get("text_color", "#1f2937"), True, "center"); n_text += 1
+                            tb = slide.shapes.add_textbox(
+                                E(x + pad),
+                                E(y + pad + icon_h),
+                                E(w - 2 * pad),
+                                E(h - 2 * pad - icon_h),
+                            )
+                            set_text(tb, text, fs, el.get("text_color", "#1f2937"), True, "center")
+                            n_text += 1
                 elif text:
                     set_text(sp, text, fs, el.get("text_color", "#1f2937"), True, "center")
                 if el.get("step") is not None:
                     d = fs * 1.8
-                    badge = oval(x + 3 * S, y + 3 * S, d, el.get("step_bg", el.get("stroke", "#94a3b8")))
-                    set_text(badge, str(el["step"]), fs * 0.9, el.get("step_color", "#ffffff"), True, "center")
+                    badge = oval(
+                        x + 3 * S, y + 3 * S, d, el.get("step_bg", el.get("stroke", "#94a3b8"))
+                    )
+                    set_text(
+                        badge,
+                        str(el["step"]),
+                        fs * 0.9,
+                        el.get("step_color", "#ffffff"),
+                        True,
+                        "center",
+                    )
                     n_shape += 1
 
             elif kind == "dot":
                 dr = float(el.get("r", 3)) * S
-                oval(float(el["x"]) - dr, float(el["y"]) - dr, 2 * dr, el.get("fill", "#374151")); n_shape += 1
+                oval(float(el["x"]) - dr, float(el["y"]) - dr, 2 * dr, el.get("fill", "#374151"))
+                n_shape += 1
             # 'raw' has no editable-PPTX equivalent -> skipped
 
         out = self._resolve(params["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
         prs.save(str(out))
-        return {"out_path": str(out), "width": W, "height": H,
-                "textboxes": n_text, "shapes": n_shape, "connectors": n_conn, "pictures": n_pic}
+        return {
+            "out_path": str(out),
+            "width": W,
+            "height": H,
+            "textboxes": n_text,
+            "shapes": n_shape,
+            "connectors": n_conn,
+            "pictures": n_pic,
+        }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -316,4 +443,6 @@ class ExportPptxTool(Tool):
         return ToolResult.text(
             f"PPTX -> {r['out_path']} (slide {r['width']}x{r['height']}px; {r['textboxes']} text box(es), "
             f"{r['shapes']} shape(s), {r['connectors']} connector(s), {r['pictures']} picture(s) — all editable).",
-            details=r, artifacts=[r["out_path"]])  # deliverable: the editable deck
+            details=r,
+            artifacts=[r["out_path"]],
+        )  # deliverable: the editable deck

@@ -3,12 +3,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agentd.application.interfaces.skills import Skill
+from agentd.infrastructure.prompt import _skills_section
 from agentd.infrastructure.skills.file_skills import (
     FileSkillRegistry,
     _parse_frontmatter,
 )
-from agentd.infrastructure.prompt import _skills_section
-from agentd.application.interfaces.skills import Skill
 
 
 def _make_skill(root: Path, folder: str, text: str) -> Path:
@@ -20,9 +20,7 @@ def _make_skill(root: Path, folder: str, text: str) -> Path:
 
 
 def test_parse_frontmatter():
-    meta, body = _parse_frontmatter(
-        "---\nname: foo\ndescription: do a thing\n---\n# Title\nbody\n"
-    )
+    meta, body = _parse_frontmatter("---\nname: foo\ndescription: do a thing\n---\n# Title\nbody\n")
     assert meta == {"name": "foo", "description": "do a thing"}
     assert body.startswith("# Title")
 
@@ -51,13 +49,13 @@ def test_registry_reads_frontmatter(tmp_path):
 def test_name_falls_back_to_folder_and_desc_to_first_line(tmp_path):
     _make_skill(tmp_path, "my-skill", "# My Skill\nWhat it does.\n")
     s = FileSkillRegistry(tmp_path).all()[0]
-    assert s.name == "my-skill"            # no frontmatter name -> folder
-    assert s.description == "My Skill"     # first meaningful line
+    assert s.name == "my-skill"  # no frontmatter name -> folder
+    assert s.description == "My Skill"  # first meaningful line
 
 
 def test_folders_without_skill_md_and_loose_files_ignored(tmp_path):
     _make_skill(tmp_path, "real", "---\ndescription: real one\n---\nbody")
-    (tmp_path / "notes").mkdir()                       # dir, no SKILL.md
+    (tmp_path / "notes").mkdir()  # dir, no SKILL.md
     (tmp_path / "README.md").write_text("x", encoding="utf-8")  # loose file
     skills = FileSkillRegistry(tmp_path).all()
     assert [s.name for s in skills] == ["real"]
@@ -100,8 +98,13 @@ def test_registry_parses_always_flag_and_body(tmp_path):
 
 
 def test_always_skill_is_inlined_not_just_advertised():
-    always = Skill(name="router", description="routing", path="/s/router/SKILL.md",
-                   always=True, body="# Router\nALWAYS-ON RULES")
+    always = Skill(
+        name="router",
+        description="routing",
+        path="/s/router/SKILL.md",
+        always=True,
+        body="# Router\nALWAYS-ON RULES",
+    )
     on_demand = Skill(name="helper", description="a helper", path="/s/helper/SKILL.md")
     section = _skills_section([always, on_demand])
     # always-on skill: full body inlined, no "read:" needed

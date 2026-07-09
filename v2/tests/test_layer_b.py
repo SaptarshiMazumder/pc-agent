@@ -12,8 +12,8 @@ from agentd.domain.agent import AgentSpec
 from agentd.infrastructure.memory import projects_store
 from agentd.infrastructure.memory.local_store import read_session_meta, write_session_meta
 
-
 # ---------------------------------------------------------------- projects_store
+
 
 def test_lead_and_members(tmp_path):
     p = projects_store.create_project(tmp_path, "Q3 Report")
@@ -34,6 +34,7 @@ def test_project_workspace_dir(tmp_path):
 
 
 # ---------------------------------------------------------------- gateway RPCs
+
 
 def _gateway(tmp_path, agents=("main",)):
     from agentd.presentation.gateway import Gateway
@@ -95,6 +96,7 @@ def test_inherit_project_onto_child(tmp_path):
 
 # ---------------------------------------------------------------- agent service
 
+
 def _service(registry, resolve_workspace=None, engine=None):
     from agentd.application.services.agent_service import AgentService
 
@@ -118,8 +120,10 @@ def _service(registry, resolve_workspace=None, engine=None):
 def test_mention_directive(tmp_path):
     registry = SimpleNamespace(
         list_ids=lambda: ["main", "figure-creator"],
-        get=lambda a: {"main": SimpleNamespace(name="JARVIS"),
-                       "figure-creator": SimpleNamespace(name="Figure Creator")}[a],
+        get=lambda a: {
+            "main": SimpleNamespace(name="JARVIS"),
+            "figure-creator": SimpleNamespace(name="Figure Creator"),
+        }[a],
     )
     svc = _service(registry)
     me = SimpleNamespace(id="main")
@@ -128,10 +132,10 @@ def test_mention_directive(tmp_path):
     # mention by display name -> directive names the id; tool required; self-mention ignored
     d = svc._mention_directive("hey @Figure Creator draw a cell", me, [msg_tool])
     assert "figure-creator" in d and "message_agent" in d
-    assert svc._mention_directive("hey @Figure Creator", me, []) == ""          # tool absent
-    assert svc._mention_directive("hey @JARVIS do it", me, [msg_tool]) == ""    # self
+    assert svc._mention_directive("hey @Figure Creator", me, []) == ""  # tool absent
+    assert svc._mention_directive("hey @JARVIS do it", me, [msg_tool]) == ""  # self
     assert svc._mention_directive("no mentions here", me, [msg_tool]) == ""
-    d2 = svc._mention_directive("ask @figure-creator please", me, [msg_tool])   # by id
+    d2 = svc._mention_directive("ask @figure-creator please", me, [msg_tool])  # by id
     assert "figure-creator" in d2
 
 
@@ -140,11 +144,15 @@ def test_workspace_binding(tmp_path):
     falls back to the agent's own workspace when the resolver is absent."""
     from agentd.application.run_context import current_run_context
 
-    agent = AgentSpec(id="main", name="A",
-                      workspace=tmp_path / "agents" / "main" / "workspace",
-                      state_dir=tmp_path / "agents" / "main")
-    registry = SimpleNamespace(get=lambda a: agent, resolve=lambda k: agent,
-                               list_ids=lambda: ["main"])
+    agent = AgentSpec(
+        id="main",
+        name="A",
+        workspace=tmp_path / "agents" / "main" / "workspace",
+        state_dir=tmp_path / "agents" / "main",
+    )
+    registry = SimpleNamespace(
+        get=lambda a: agent, resolve=lambda k: agent, list_ids=lambda: ["main"]
+    )
 
     seen = {}
 
@@ -158,8 +166,8 @@ def test_workspace_binding(tmp_path):
     proj_ws = str(tmp_path / "projects" / "proj-1" / "workspace")
     svc = _service(registry, resolve_workspace=lambda a, sid: proj_ws, engine=Engine())
     asyncio.run(svc.handle_message("desk-1", "hi", on_event, asyncio.Event()))
-    assert seen["ws"] == proj_ws                     # project chat -> project workspace
+    assert seen["ws"] == proj_ws  # project chat -> project workspace
 
     svc2 = _service(registry, resolve_workspace=None, engine=Engine())
     asyncio.run(svc2.handle_message("desk-1", "hi", on_event, asyncio.Event()))
-    assert seen["ws"] == str(agent.workspace)        # no resolver -> unchanged behavior
+    assert seen["ws"] == str(agent.workspace)  # no resolver -> unchanged behavior

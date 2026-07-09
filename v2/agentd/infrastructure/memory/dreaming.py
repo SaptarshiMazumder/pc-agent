@@ -29,8 +29,9 @@ def _cfg(config, name, default):
 def dream(bank, agent_id: str, config, now: float | None = None) -> dict:
     """Consolidate one agent's memory. Returns counts: {merged, promoted, forgotten}."""
     now = time.time() if now is None else now
-    merged = _merge_near_dupes(bank, agent_id,
-                               _cfg(config, "memory_dreaming_merge_threshold", 0.92))
+    merged = _merge_near_dupes(
+        bank, agent_id, _cfg(config, "memory_dreaming_merge_threshold", 0.92)
+    )
 
     min_score = _cfg(config, "memory_dreaming_min_score", 0.8)
     min_recall = _cfg(config, "memory_dreaming_min_recall_count", 3)
@@ -68,7 +69,7 @@ def _merge_near_dupes(bank, agent_id: str, threshold: float) -> int:
     for i, a in enumerate(rows):
         if a.id in dropped:
             continue
-        for b in rows[i + 1:]:
+        for b in rows[i + 1 :]:
             if b.id in dropped:
                 continue
             if _cosine(a.embedding, b.embedding) >= threshold:
@@ -76,7 +77,7 @@ def _merge_near_dupes(bank, agent_id: str, threshold: float) -> int:
                 if bank.delete(drop.id):
                     removed += 1
                     dropped.add(drop.id)
-                    if drop.id == a.id:      # a itself was dropped; stop pairing it
+                    if drop.id == a.id:  # a itself was dropped; stop pairing it
                         break
     return removed
 

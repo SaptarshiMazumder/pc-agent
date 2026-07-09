@@ -30,20 +30,29 @@ class FileEventLog:
         except OSError:
             pass
         self._max_runs = max(1, int(max_runs))
-        self._handles: dict[str, object] = {}     # run_id -> open append handle
+        self._handles: dict[str, object] = {}  # run_id -> open append handle
 
     def emit(self, session_key: str, run_id: str, event: AgentEvent) -> None:
         f = self._handle(session_key, run_id)
         if f is None:
             return
         try:
-            f.write(json.dumps(
-                {"ts": time.time(), "sessionKey": session_key, "runId": run_id,
-                 "event": event.to_dict()}, ensure_ascii=False) + "\n")
-            f.flush()                              # flush so a tailing viewer sees it live
+            f.write(
+                json.dumps(
+                    {
+                        "ts": time.time(),
+                        "sessionKey": session_key,
+                        "runId": run_id,
+                        "event": event.to_dict(),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            f.flush()  # flush so a tailing viewer sees it live
         except (OSError, ValueError, TypeError):
             pass
-        if event.type == "agent_end":             # run finished -> release the handle
+        if event.type == "agent_end":  # run finished -> release the handle
             self._close_one(run_id)
 
     def _handle(self, session_key: str, run_id: str):
@@ -63,12 +72,11 @@ class FileEventLog:
     def _prune(self) -> None:
         """Keep only the most recent N run files; never delete one that's still open."""
         try:
-            files = sorted(self._dir.glob("*.jsonl"),
-                           key=lambda p: p.stat().st_mtime, reverse=True)
+            files = sorted(self._dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
         except OSError:
             return
         open_names = {Path(getattr(h, "name", "")).name for h in self._handles.values()}
-        for p in files[self._max_runs:]:
+        for p in files[self._max_runs :]:
             if p.name in open_names:
                 continue
             try:

@@ -11,17 +11,26 @@ from agentd.domain.autonomy import resolve_run_outcome
 
 
 def test_declared_done_maps_to_ok():
-    assert resolve_run_outcome("ok", ("done", "all good"), enforce=True, is_cron=True) \
-        == ("ok", "done", "all good")
+    assert resolve_run_outcome("ok", ("done", "all good"), enforce=True, is_cron=True) == (
+        "ok",
+        "done",
+        "all good",
+    )
 
 
 def test_declared_failed_maps_to_failed():
-    assert resolve_run_outcome("ok", ("failed", "drive auth"), enforce=True, is_cron=True) \
-        == ("failed", "failed", "drive auth")
+    assert resolve_run_outcome("ok", ("failed", "drive auth"), enforce=True, is_cron=True) == (
+        "failed",
+        "failed",
+        "drive auth",
+    )
 
 
 def test_declared_blocked_maps_to_blocked():
-    assert resolve_run_outcome("ok", ("blocked", "need creds"), enforce=True, is_cron=True)[0] == "blocked"
+    assert (
+        resolve_run_outcome("ok", ("blocked", "need creds"), enforce=True, is_cron=True)[0]
+        == "blocked"
+    )
 
 
 def test_cron_ok_without_declaration_is_incomplete():
@@ -54,11 +63,20 @@ def test_consecutive_failures_counts_incomplete(tmp_path):
     from agentd.infrastructure.tasks.sqlite_store import SqliteTaskStore
 
     s = SqliteTaskStore(tmp_path / "a.sqlite")
-    s.add(ScheduledTask(id="t", agent_id="a", session_key="k", kind="every",
-                        payload="p", next_due=time.time(), every_seconds=60))
+    s.add(
+        ScheduledTask(
+            id="t",
+            agent_id="a",
+            session_key="k",
+            kind="every",
+            payload="p",
+            next_due=time.time(),
+            every_seconds=60,
+        )
+    )
     for _ in range(3):
         s.finish_run(s.record_run("t", "a"), "incomplete")
-    assert s.consecutive_failures("t") == 3        # incomplete now counts
-    s.finish_run(s.record_run("t", "a"), "ok")     # a good run resets the streak
+    assert s.consecutive_failures("t") == 3  # incomplete now counts
+    s.finish_run(s.record_run("t", "a"), "ok")  # a good run resets the streak
     assert s.consecutive_failures("t") == 0
     s.close()

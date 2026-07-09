@@ -13,7 +13,7 @@ def consolidate(bank, agent_id: str, limit: int = 500) -> int:
     most recent occurrence. Returns how many were removed."""
     seen: set[str] = set()
     removed = 0
-    for item in bank.recent(agent_id, limit=limit):   # newest-first -> first seen is the keeper
+    for item in bank.recent(agent_id, limit=limit):  # newest-first -> first seen is the keeper
         key = " ".join(item.text.split()).lower()
         if key in seen:
             if bank.delete(item.id):

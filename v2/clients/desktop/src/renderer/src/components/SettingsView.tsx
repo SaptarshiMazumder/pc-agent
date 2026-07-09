@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, RotateCcw, Save, ShieldCheck, Loader2, AlertCircle, Search, X, Cpu } from 'lucide-react'
+import { Check, RotateCcw, Save, ShieldCheck, Loader2, AlertCircle, X, Cpu, Eye, EyeOff, Lock, Plus, Trash2, Plug, ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react'
 
 import { gateway } from '../gateway/client'
 import {
@@ -10,8 +10,15 @@ import {
   type GroupDef
 } from '../lib/settingsSchema'
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
+import SearchBox from './SearchBox'
 
-type ModelOption = { value: string; label: string; group?: string }
+/** does a field match a search query (matched on its label + bare key) */
+function fieldMatches(f: FieldDef, ql: string): boolean {
+  return !ql || `${f.label} ${bareKey(f.key)}`.toLowerCase().includes(ql)
+}
+
+type ModelOption = { value: string; label: string; group?: string; provider?: string }
 
 /** The daemon's editable-config surface (config.get response). */
 interface ConfigData {
@@ -20,6 +27,9 @@ interface ConfigData {
   envPath: string
   values: Record<string, any>
   env: Record<string, boolean>
+  envValues: Record<string, string>
+  /** {config_key: AGENTD_VAR} — knobs an env var currently pins (config.json can't win) */
+  envOverrides: Record<string, string>
   providerKeys: string[]
   catalogs: Record<string, ModelOption[]>
   raw: string
@@ -65,6 +75,13 @@ function setPath(obj: Record<string, any>, path: string, value: any): Record<str
   return root
 }
 
+/** The AGENTD_* env var pinning a config field (so it's read-only in the UI), or '' if none.
+ *  Only config-scope knobs can be env-pinned; nesting maps to its top-level config key. */
+function envVarFor(data: ConfigData | null, key: string): string {
+  if (fieldScope(key) !== 'config') return ''
+  return data?.envOverrides?.[key.split('.')[0]] || ''
+}
+
 /** the shared render context passed down to GroupCard / FieldRow */
 interface Ctx {
   draft: Record<string, any>
@@ -86,6 +103,7 @@ export default function SettingsView() {
   const toggleTheme = useApp((s) => s.toggleTheme)
 
   const [tab, setTab] = useState<string>('general')
+  const [search, setSearch] = useState('')
   const [data, setData] = useState<ConfigData | null>(null)
   const [draft, setDraft] = useState<Record<string, any>>({})
   const [keysDraft, setKeysDraft] = useState<Record<string, string>>({})
@@ -102,7 +120,8 @@ export default function SettingsView() {
       const res = (await gateway.request('config.get')) as ConfigData
       setData(res)
       setDraft({ ...res.values })
-      setKeysDraft({})
+      // prefill secret fields with the saved values so a key shows up (masked) with a reveal toggle
+      setKeysDraft({ ...(res.envValues || {}) })
       setListBuf({})
       setLoadError('')
     } catch (e) {
@@ -158,11 +177,16 @@ export default function SettingsView() {
     return out
   }, [draft, data])
 
-  // only non-empty secrets are sent — a blank field means "keep the current value"
-  const keys = useMemo(
-    () => Object.fromEntries(Object.entries(keysDraft).filter(([, v]) => v.trim() !== '')),
-    [keysDraft]
-  )
+  // secret fields are PREFILLED with the saved value (envValues), so only send the ones the user
+  // actually CHANGED — a cleared field ('') deletes the key on the backend, an edit rewrites it.
+  const keys = useMemo(() => {
+    const orig = data?.envValues || {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(keysDraft)) {
+      if (v !== (orig[k] ?? '')) out[k] = v
+    }
+    return out
+  }, [keysDraft, data])
   const changeCount = Object.keys(patch).length + Object.keys(keys).length
   const dirty = changeCount > 0
 
@@ -206,7 +230,7 @@ export default function SettingsView() {
   const reset = (): void => {
     if (!data) return
     setDraft({ ...data.values })
-    setKeysDraft({})
+    setKeysDraft({ ...(data.envValues || {}) })
     setListBuf({})
     setNote('')
   }
@@ -214,97 +238,99 @@ export default function SettingsView() {
   const active = SETTINGS_TABS.find((t) => t.id === tab) || SETTINGS_TABS[0]
   const ctx: Ctx = { draft, data, keysDraft, listBuf, setListBuf, setDraft, valueOf, setValue }
 
+  const sub = data ? (
+    <>Configuring <code>{data.path}</code></>
+  ) : loadError ? (
+    <span className="danger-text">Couldn’t load config: {loadError}</span>
+  ) : (
+    'Loading configuration…'
+  )
+
+  const actions = (dirty || note) ? (
+    <>
+      <span className={`settings-savenote ${note.startsWith('Couldn') ? 'err' : ''}`}>
+        {note ? (
+          note.startsWith('Couldn') ? <AlertCircle size={14} /> : <Check size={14} />
+        ) : (
+          <ShieldCheck size={14} />
+        )}
+        {note || `${changeCount} unsaved change${changeCount === 1 ? '' : 's'}`}
+      </span>
+      {dirty && (
+        <button className="btn ghost" onClick={reset} disabled={saving}>
+          <RotateCcw size={14} />Reset
+        </button>
+      )}
+      <button className="btn primary" onClick={() => void save()} disabled={!dirty || saving}>
+        {saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />}
+        {saving ? 'Saving…' : 'Save changes'}
+      </button>
+    </>
+  ) : null
+
+  const nav = SETTINGS_TABS.map((t) => {
+    const Icon = t.icon
+    return (
+      <button
+        key={t.id}
+        className={`settings-nav-item ${t.id === tab ? 'active' : ''}`}
+        onClick={() => { setTab(t.id); setSearch('') }}
+      >
+        <Icon size={16} />
+        <span>{t.label}</span>
+      </button>
+    )
+  })
+
+  // Only the tabs with a lot to sift through carry a (pinned) search: the tool catalog and the
+  // provider-key list. It lives in the PageShell scaffold, so it never scrolls away.
+  const searchable = active.custom === 'tools' || active.id === 'keys'
+  const searchNode = searchable ? (
+    <SearchBox
+      value={search}
+      onChange={setSearch}
+      placeholder={active.custom === 'tools' ? 'Search tools & plugins…' : 'Search keys…'}
+    />
+  ) : null
+
+  const ql = search.trim().toLowerCase()
+  const keysEmpty =
+    active.id === 'keys' && ql !== '' && !active.groups.some((g) => g.fields.some((f) => fieldMatches(f, ql)))
+
   return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <div className="page-title">Settings</div>
-            <div className="page-sub">
-              {data ? (
-                <>Configuring <code>{data.path}</code></>
-              ) : loadError ? (
-                <span className="danger-text">Couldn’t load config: {loadError}</span>
-              ) : (
-                'Loading configuration…'
-              )}
-            </div>
-          </div>
-          {(dirty || note) && (
-            <div className="settings-head-actions">
-              <span className={`settings-savenote ${note.startsWith('Couldn') ? 'err' : ''}`}>
-                {note ? (
-                  note.startsWith('Couldn') ? <AlertCircle size={14} /> : <Check size={14} />
-                ) : (
-                  <ShieldCheck size={14} />
-                )}
-                {note || `${changeCount} unsaved change${changeCount === 1 ? '' : 's'}`}
-              </span>
-              {dirty && (
-                <button className="btn ghost" onClick={reset} disabled={saving}>
-                  <RotateCcw size={14} />Reset
-                </button>
-              )}
-              <button className="btn primary" onClick={() => void save()} disabled={!dirty || saving}>
-                {saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />}
-                {saving ? 'Saving…' : 'Save changes'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="settings-layout">
-          {/* left rail of tabs */}
-          <nav className="settings-nav">
-            {SETTINGS_TABS.map((t) => {
-              const Icon = t.icon
-              return (
-                <button
-                  key={t.id}
-                  className={`settings-nav-item ${t.id === tab ? 'active' : ''}`}
-                  onClick={() => setTab(t.id)}
-                >
-                  <Icon size={16} />
-                  <span>{t.label}</span>
-                </button>
-              )
-            })}
-          </nav>
-
-          {/* the active tab's content */}
-          <div className="settings-content">
-            {active.custom === 'runtime' ? (
-              <RuntimeTab
-                ctx={ctx}
-                flavor={flavor}
-                hello={hello}
-                supervisor={supervisor}
-                connection={connection}
-                groups={active.groups}
-                onReload={load}
-                onNote={setNote}
-              />
-            ) : (
-              <>
-                {active.custom === 'models' && <ModelsPanel ctx={ctx} />}
-                {active.custom === 'tools' && <ToolsAndPlugins ctx={ctx} onEdit={() => setNote('')} />}
-                {active.groups.map((group) => (
-                  <GroupCard key={group.title} group={group} ctx={ctx} />
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <PageShell title="Settings" sub={sub} actions={actions} nav={nav} search={searchNode}>
+      {active.custom === 'runtime' ? (
+        <RuntimeTab
+          ctx={ctx}
+          flavor={flavor}
+          hello={hello}
+          supervisor={supervisor}
+          connection={connection}
+          groups={active.groups}
+          onReload={load}
+          onNote={setNote}
+        />
+      ) : (
+        <>
+          {active.custom === 'models' && <ModelsPanel ctx={ctx} />}
+          {active.custom === 'tools' && <ToolsAndPlugins ctx={ctx} query={search} onEdit={() => setNote('')} />}
+          {keysEmpty && <div className="settings-empty">No keys match “{search.trim()}”.</div>}
+          {active.groups.map((group) => (
+            <GroupCard key={group.title} group={group} ctx={ctx} query={active.id === 'keys' ? search : ''} />
+          ))}
+        </>
+      )}
+    </PageShell>
   )
 }
 
 // ---- a group of fields as one card (shared by every tab) --------------------------
-function GroupCard({ group, ctx }: { group: GroupDef; ctx: Ctx }) {
+// `query` (when the tab has a search bar) narrows the visible fields to those matching it.
+function GroupCard({ group, ctx, query = '' }: { group: GroupDef; ctx: Ctx; query?: string }) {
+  const ql = query.trim().toLowerCase()
   const fields = group.fields.filter((f) => {
-    if (!f.showWhen) return true
-    return getPath(ctx.draft, f.showWhen.key) === f.showWhen.equals
+    if (f.showWhen && getPath(ctx.draft, f.showWhen.key) !== f.showWhen.equals) return false
+    return fieldMatches(f, ql)
   })
   if (fields.length === 0) return null
   const optionsFor = (f: FieldDef): ModelOption[] =>
@@ -322,7 +348,8 @@ function GroupCard({ group, ctx }: { group: GroupDef; ctx: Ctx }) {
             value={ctx.valueOf(field)}
             options={optionsFor(field)}
             envSet={fieldScope(field.key) === 'env' && !!ctx.data?.env[bareKey(field.key)]}
-            envTouched={fieldScope(field.key) === 'env' && !!ctx.keysDraft[bareKey(field.key)]?.trim()}
+            envTouched={fieldScope(field.key) === 'env' && (ctx.keysDraft[bareKey(field.key)] ?? '') !== (ctx.data?.envValues?.[bareKey(field.key)] ?? '')}
+            pinnedBy={envVarFor(ctx.data, field.key)}
             listBuf={ctx.listBuf}
             setListBuf={ctx.setListBuf}
             onChange={(v) => ctx.setValue(field, v)}
@@ -352,6 +379,7 @@ function ModelsPanel({ ctx }: { ctx: Ctx }) {
       options={models}
       envSet={false}
       envTouched={false}
+      pinnedBy={envVarFor(ctx.data, f.key)}
       listBuf={ctx.listBuf}
       setListBuf={ctx.setListBuf}
       onChange={(v) => ctx.setValue(f, v)}
@@ -420,23 +448,34 @@ function ToolModels({ ctx }: { ctx: Ctx }) {
       <p className="settings-help">
         The model each tool uses, from the one place that sees them all. An <b>image</b> tool offers
         image-generation models (Nano Banana, FLUX); a <b>vision</b> tool offers multimodal models —
-        you can’t pick the wrong kind. Blank = the tool’s built-in default.
+        you can’t pick the wrong kind. For a backend-coupled model (image-gen) picking it also sets the
+        tool’s <b>provider</b> automatically, so they can’t drift. Blank = the tool’s built-in default.
       </p>
       <div className="settings-card">
         {rows.map((m) => {
-          const options = ctx.data?.catalogs?.[m.kind] || ctx.data?.catalogs?.models || []
+          const options: ModelOption[] = ctx.data?.catalogs?.[m.kind] || ctx.data?.catalogs?.models || []
           const val = getPath(ctx.draft, m.configKey) ?? m.resolved ?? ''
+          const curProv = options.find((o) => o.value === val)?.provider
           return (
             <div className="settings-row" key={m.id}>
               <div className="settings-label">
-                <div className="k">{m.label}</div>
+                <div className="k">{m.label}{curProv ? ` · runs on ${curProv}` : ''}</div>
                 <div className="d">{m.kind} · {m.plugin}</div>
               </div>
               <div className="settings-ctl">
                 <select
                   className="settings-select"
                   value={val}
-                  onChange={(e) => ctx.setDraft((d) => setPath(d, m.configKey, e.target.value))}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    const prov = options.find((o) => o.value === v)?.provider
+                    // a backend-coupled model sets its provider too, so model + provider stay consistent
+                    ctx.setDraft((d) => {
+                      let next = setPath(d, m.configKey, v)
+                      if (prov) next = setPath(next, m.configKey.replace(/\.model$/, '.provider'), prov)
+                      return next
+                    })
+                  }}
                 >
                   {optionEls(options, val)}
                 </select>
@@ -485,6 +524,7 @@ function FieldRow({
   options,
   envSet,
   envTouched,
+  pinnedBy,
   listBuf,
   setListBuf,
   onChange
@@ -494,10 +534,13 @@ function FieldRow({
   options: ModelOption[]
   envSet: boolean
   envTouched: boolean
+  /** AGENTD_* var pinning this knob in .env → render read-only (config.json can't win) */
+  pinnedBy?: string
   listBuf: Record<string, string>
   setListBuf: (u: (b: Record<string, string>) => Record<string, string>) => void
   onChange: (v: any) => void
 }) {
+  const [shown, setShown] = useState(false) // secret reveal (eye) toggle
   const control = () => {
     switch (field.type) {
       case 'toggle':
@@ -559,18 +602,34 @@ function FieldRow({
             {field.unit && <span className="settings-unit">{field.unit}</span>}
           </div>
         )
-      case 'secret':
+      case 'secret': {
+        const filled = (value ?? '') !== ''
         return (
-          <input
-            type="password"
-            className="settings-input"
-            autoComplete="off"
-            spellCheck={false}
-            value={value ?? ''}
-            placeholder={envSet ? 'Saved — leave blank to keep' : field.placeholder || 'Paste a key to add'}
-            onChange={(e) => onChange(e.target.value)}
-          />
+          <div className={`secret-input ${filled ? 'has-eye' : ''}`}>
+            <input
+              type={shown ? 'text' : 'password'}
+              className="settings-input"
+              autoComplete="off"
+              spellCheck={false}
+              value={value ?? ''}
+              placeholder={field.placeholder || 'Paste a key to add'}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            {/* eye only when there's something to reveal (a saved/typed key) */}
+            {filled && (
+              <button
+                type="button"
+                className="secret-eye"
+                title={shown ? 'Hide key' : 'Show key'}
+                aria-label={shown ? 'Hide key' : 'Show key'}
+                onClick={() => setShown((s) => !s)}
+              >
+                {shown ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            )}
+          </div>
         )
+      }
       case 'list': {
         const text = listBuf[field.key] !== undefined ? listBuf[field.key] : (Array.isArray(value) ? value.join('\n') : '')
         return (
@@ -604,7 +663,7 @@ function FieldRow({
 
   const stacked = field.type === 'list' || field.type === 'secret' || field.type === 'text' || field.type === 'modellist'
   return (
-    <div className={`settings-row ${stacked ? 'settings-row--stacked' : ''}`}>
+    <div className={`settings-row ${stacked ? 'settings-row--stacked' : ''} ${pinnedBy ? 'settings-row--pinned' : ''}`}>
       <div className="settings-label">
         <div className="k">
           {field.label}
@@ -613,10 +672,18 @@ function FieldRow({
               {envTouched ? 'will save' : envSet ? 'set' : 'not set'}
             </span>
           )}
+          {pinnedBy && (
+            <span className="pinned-lock" title={`Locked — set by ${pinnedBy} in .env (remove it there to edit here)`}>
+              <Lock size={12} />
+            </span>
+          )}
         </div>
         {field.help && <div className="d">{field.help}</div>}
       </div>
-      <div className="settings-ctl">{control()}</div>
+      {/* pinned knobs are non-interactive: config.json (what a save writes) can't beat the env var */}
+      <div className="settings-ctl">
+        {pinnedBy ? <div className="pinned-ctl">{control()}</div> : control()}
+      </div>
     </div>
   )
 }
@@ -627,15 +694,56 @@ function FieldRow({
 // tools_disabled (per-tool), plugins[id].enabled (plugin gate) and plugins[id].tools[t].model.
 interface CatTool {
   name: string
+  /** short display name (MCP tools strip the `server__` prefix) */
+  label?: string
   description: string
   needsModel: boolean
   /** which model picker to show: text | vision | image | embedding */
   modelKind?: string
   model: string | null
-  provider: string | null
+  provider: string | string[] | null
+  /** self-described valid provider values → render a picker instead of a text box (empty ⇒ free text) */
+  providerOptions?: string[]
+  /** provider is an ORDERED chain (multi-select) vs a single pick */
+  providerChain?: boolean
   enabled: boolean
 }
-interface CatPlugin { id: string; description: string; enabled: boolean; tools: CatTool[] }
+
+/** An ordered provider CHAIN picker (e.g. web_search): removable chips + an add-dropdown, written
+ *  back as an array. Reuses the modellist styling. Empty ⇒ the tool's own default order. */
+function ProviderChain({ options, value, onChange }: { options: string[]; value: string[]; onChange: (v: string[]) => void }) {
+  const remaining = options.filter((o) => !value.includes(o))
+  return (
+    <div className="modellist">
+      {value.map((m) => (
+        <span className="modellist-chip" key={m}>
+          {m}
+          <button title="remove" onClick={() => onChange(value.filter((x) => x !== m))}>
+            <X size={12} />
+          </button>
+        </span>
+      ))}
+      <select
+        className="settings-select modellist-add"
+        value=""
+        onChange={(e) => { if (e.target.value) onChange([...value, e.target.value]) }}
+      >
+        <option value="">{value.length ? '+ add…' : 'auto (default order)'}</option>
+        {remaining.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
+interface CatPlugin {
+  id: string
+  description: string
+  enabled: boolean
+  tools: CatTool[]
+  /** an MCP server (data source) rather than a native plugin — rendered with an endpoint + remove */
+  mcp?: boolean
+  endpoint?: string
+  transport?: string
+}
 
 /** A description as ONE truncated line; clicking opens the full text in the Canvas. Shared by
  *  plugins and tools so both read the same way (no per-element styling). */
@@ -647,26 +755,51 @@ function DescLine({ text, title, onOpen }: { text: string; title: string; onOpen
   )
 }
 
-function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
+function ToolsAndPlugins({ ctx, query, onEdit }: { ctx: Ctx; query: string; onEdit: () => void }) {
   const openCanvas = useApp((s) => s.openCanvas)
   const [cat, setCat] = useState<CatPlugin[] | null>(null)
   const [err, setErr] = useState('')
-  const [q, setQ] = useState('')
+  // add-an-MCP form — the SAME mcp.add RPC the Data sources page uses (connects live, no restart)
+  const [adding, setAdding] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const [form, setForm] = useState({ name: '', kind: 'stdio' as 'stdio' | 'http', command: '', url: '' })
+  // clean split: native plugins vs MCP servers; collapse set (by plugin id) so long lists stay readable
+  const [subtab, setSubtab] = useState<'plugins' | 'mcp'>('plugins')
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 
   // open a description (in-memory markdown) in the Canvas — the same surface skills use
   const openDesc = (kind: 'plugin' | 'tool', id: string, description: string): void =>
     openCanvas({ path: `doc:${kind}:${id}`, name: `${id} · ${kind}`, mime: 'text/markdown', kind: 'file', text: description })
 
-  useEffect(() => {
-    let alive = true
+  const reload = useCallback(() => {
     gateway
       .request<{ plugins: CatPlugin[] }>('plugins.catalog')
-      .then((r) => alive && setCat(r.plugins || []))
-      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
-    return () => {
-      alive = false
-    }
+      .then((r) => setCat(r.plugins || []))
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
   }, [])
+  useEffect(() => reload(), [reload])
+
+  const canAdd = form.name.trim() && (form.kind === 'http' ? form.url.trim() : form.command.trim())
+  const addMcp = async (): Promise<void> => {
+    if (!canAdd || busy) return
+    setBusy(true); setNote('')
+    try {
+      const params: Record<string, unknown> = { name: form.name.trim() }
+      if (form.kind === 'http') params.url = form.url.trim()
+      else params.command = form.command.trim().split(/\s+/).filter(Boolean)
+      const r = await gateway.request<{ added: boolean; error?: string }>('mcp.add', params)
+      if (!r.added) throw new Error(r.error || 'could not connect')
+      setNote(`Connected “${form.name.trim()}” — its tools are live.`)
+      setAdding(false); setForm({ name: '', kind: 'stdio', command: '', url: '' }); reload()
+    } catch (e) {
+      setNote(`Couldn’t add: ${e instanceof Error ? e.message : String(e)}`)
+    } finally { setBusy(false) }
+  }
+  const removeMcp = async (name: string): Promise<void> => {
+    try { await gateway.request('mcp.remove', { name }); setNote(`Removed “${name}”.`); reload() }
+    catch (e) { setNote(`Couldn’t remove: ${e instanceof Error ? e.message : String(e)}`) }
+  }
 
   const models = ctx.data?.catalogs?.models || []
   const disabled: string[] = Array.isArray(ctx.draft.tools_disabled) ? ctx.draft.tools_disabled : []
@@ -696,14 +829,26 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
       return { ...d, tools_disabled: next }
     })
   }
-  const setKnob = (pid: string, tool: string, knob: string, val: string): void => {
+  const setKnob = (pid: string, tool: string, knob: string, val: unknown): void => {
     onEdit()
     ctx.setDraft((d) => setPath(d, `plugins.${pid}.tools.${tool}.${knob}`, val))
+  }
+  // Picking a model also sets its backend PROVIDER when the model is backend-coupled (image-gen):
+  // the catalog entry carries `provider`, so model + provider move together — ONE choice, never a
+  // mismatch. For models with no provider (text/vision), only the model is written.
+  const setModelKnob = (pid: string, tool: string, value: string, opts: ModelOption[]): void => {
+    onEdit()
+    const prov = opts.find((o) => o.value === value)?.provider
+    ctx.setDraft((d) => {
+      let next = setPath(d, `plugins.${pid}.tools.${tool}.model`, value)
+      if (prov) next = setPath(next, `plugins.${pid}.tools.${tool}.provider`, prov)
+      return next
+    })
   }
   const knobValue = (pid: string, tool: string, knob: string): string =>
     getPath(ctx.draft, `plugins.${pid}.tools.${tool}.${knob}`) ?? ''
 
-  const ql = q.trim().toLowerCase()
+  const ql = query.trim().toLowerCase()
   const plugins = (cat || [])
     .map((p) => ({
       ...p,
@@ -716,47 +861,155 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
           )
         : p.tools
     }))
-    .filter((p) => p.tools.length > 0)
+    // keep any plugin with (matching) tools; ALSO keep MCP cards with no tools (not connected yet)
+    // so every server stays visible — but still honour the search box.
+    .filter((p) => p.tools.length > 0 || (p.mcp && (!ql || p.id.toLowerCase().includes(ql))))
+
+  // Add-MCP is a full PAGE that takes over the tab (not a modal, not inline) — so it never pushes
+  // the list down and can't be clipped by the scroll container.
+  if (adding) {
+    return (
+      <div className="settings-group">
+        <button className="btn ghost" onClick={() => { setAdding(false); setNote('') }}>
+          <ArrowLeft size={14} />Tools &amp; plugins
+        </button>
+        <div className="settings-section" style={{ marginTop: 14 }}>Add MCP server</div>
+        <p className="settings-help">
+          Connect any MCP server — a shell <b>command (stdio)</b> or an <b>HTTP URL</b>. It connects
+          live (no restart) and its tools join the catalog.
+        </p>
+        <form className="settings-card ds-form" onSubmit={(e) => { e.preventDefault(); void addMcp() }}>
+          <label className="field">
+            <span className="field-label">Name</span>
+            <input className="field-input" autoFocus placeholder="e.g. gmail" value={form.name} spellCheck={false}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          </label>
+          <div className="field">
+            <span className="field-label">Type</span>
+            <div className="seg seg--start">
+              <button type="button" className={form.kind === 'stdio' ? 'on' : ''} onClick={() => setForm((f) => ({ ...f, kind: 'stdio' }))}>Command (stdio)</button>
+              <button type="button" className={form.kind === 'http' ? 'on' : ''} onClick={() => setForm((f) => ({ ...f, kind: 'http' }))}>URL (http)</button>
+            </div>
+          </div>
+          {form.kind === 'stdio' ? (
+            <label className="field">
+              <span className="field-label">Command</span>
+              <input className="field-input" placeholder="uvx some-mcp-server --flag" value={form.command} spellCheck={false}
+                onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))} />
+            </label>
+          ) : (
+            <label className="field">
+              <span className="field-label">URL</span>
+              <input className="field-input" placeholder="https://server.example.com/mcp" value={form.url} spellCheck={false}
+                onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} />
+            </label>
+          )}
+          {note.startsWith('Couldn') && <div className="field-error">{note}</div>}
+          <div className="ds-form-actions">
+            <button type="button" className="btn ghost" onClick={() => { setAdding(false); setNote('') }} disabled={busy}>Cancel</button>
+            <button type="submit" className="btn primary" disabled={!canAdd || busy}>
+              {busy ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+              {busy ? 'Connecting…' : 'Connect'}
+            </button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  const shown = plugins.filter((p) => (subtab === 'mcp' ? !!p.mcp : !p.mcp))
+  const allCollapsed = shown.length > 0 && shown.every((p) => collapsed.has(p.id))
+  const toggleAll = (): void => setCollapsed(allCollapsed ? new Set() : new Set(shown.map((p) => p.id)))
+  const toggleOne = (id: string): void =>
+    setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   return (
     <div className="settings-group">
-      <div className="settings-section">Tools &amp; plugins</div>
-      <p className="settings-help">
-        Every capability, grouped by the plugin it belongs to. Toggle a whole plugin or a single tool,
-        and set the model a tool uses. Changes take effect after the daemon restarts.
-      </p>
-      <div className="tools-search tp-search">
-        <Search size={15} />
-        <input value={q} placeholder="Search tools & plugins…" onChange={(e) => setQ(e.target.value)} />
+      <div className="tp-head">
+        <div className="settings-section">Tools &amp; plugins</div>
+        <div className="seg seg--start">
+          <button className={subtab === 'plugins' ? 'on' : ''} onClick={() => setSubtab('plugins')}>Plugins</button>
+          <button className={subtab === 'mcp' ? 'on' : ''} onClick={() => setSubtab('mcp')}>MCP servers</button>
+        </div>
       </div>
+      <div className="tp-toolbar">
+        <button className="btn ghost" onClick={toggleAll} disabled={shown.length === 0}>
+          {allCollapsed ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {allCollapsed ? 'Expand all' : 'Collapse all'}
+        </button>
+        {subtab === 'mcp' && (
+          <button className="btn primary" onClick={() => { setAdding(true); setNote('') }}>
+            <Plus size={14} />Add MCP server
+          </button>
+        )}
+      </div>
+      <p className="settings-help">
+        {subtab === 'mcp'
+          ? 'MCP servers (data sources) — each exposes its own tools. Add any server; it connects live (no restart). Per-tool on/off applies after a restart.'
+          : 'Native plugins — toggle a whole plugin or a single tool, and set the model a tool uses. Changes apply after the daemon restarts.'}
+      </p>
+      {note && <div className={`ds-note ${note.startsWith('Couldn') ? 'err' : ''}`}>{note}</div>}
       {err && <div className="settings-empty danger-text">Couldn’t load: {err}</div>}
       {!cat && !err && <div className="settings-empty">Loading…</div>}
-      {cat && plugins.length === 0 && <div className="settings-empty">No matches for “{q}”.</div>}
+      {cat && shown.length === 0 && (
+        <div className="settings-empty">
+          {query.trim()
+            ? `No matches for “${query.trim()}”.`
+            : subtab === 'mcp'
+              ? 'No MCP servers yet — add one above to connect external tools.'
+              : 'No plugins.'}
+        </div>
+      )}
 
-      {plugins.map((p) => {
-        const on = pluginOn(p.id)
+      {shown.map((p) => {
+        const on = p.mcp ? p.enabled : pluginOn(p.id)
+        const isCollapsed = collapsed.has(p.id)
         return (
-          <div className={`plugin-card ${on ? '' : 'plugin-off'}`} key={p.id}>
+          <div className={`plugin-card ${on ? '' : 'plugin-off'} ${isCollapsed ? 'plugin-collapsed' : ''}`} key={p.id}>
             <div className="plugin-head">
+              <button className="plugin-collapse" title={isCollapsed ? 'expand' : 'collapse'} onClick={() => toggleOne(p.id)}>
+                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+              </button>
               <div className="plugin-headmain">
-                <span className="plugin-name">{p.id}</span>
-                {p.description && (
-                  <DescLine text={p.description} title={p.id} onOpen={() => openDesc('plugin', p.id, p.description)} />
-                )}
+                <span className="plugin-name" onClick={() => toggleOne(p.id)}>
+                  {p.mcp && <Plug size={13} className="mcp-ico" />}{p.id}
+                  {p.mcp && <span className="key-chip">{p.enabled ? 'mcp · connected' : 'mcp'}</span>}
+                  {isCollapsed && <span className="plugin-count">{p.tools.length} tool{p.tools.length === 1 ? '' : 's'}</span>}
+                </span>
+                {!isCollapsed && (p.mcp
+                  ? (p.endpoint ? <span className="mcp-endpoint">{p.endpoint}</span> : null)
+                  : (p.description && (
+                      <DescLine text={p.description} title={p.id} onOpen={() => openDesc('plugin', p.id, p.description)} />
+                    )))}
               </div>
-              <button className={`switch ${on ? 'on' : ''}`} title="enable / disable plugin" onClick={() => setPluginOn(p.id, !on)} />
+              {p.mcp ? (
+                <button className="hover-btn danger" title="remove MCP server" onClick={() => void removeMcp(p.id)}>
+                  <Trash2 size={15} />
+                </button>
+              ) : (
+                <button className={`switch ${on ? 'on' : ''}`} title="enable / disable plugin" onClick={() => setPluginOn(p.id, !on)} />
+              )}
             </div>
-            {p.tools.map((t) => {
+            {!isCollapsed && p.tools.map((t) => {
               const toolOn = !disabled.includes(t.name)
               const modelVal = knobValue(p.id, t.name, 'model') || t.model || ''
               // offer the RIGHT kind of model: an image tool shows image models, not text ones
               const kindModels = ctx.data?.catalogs?.[t.modelKind || 'text'] || models
-              const hasProvider = t.provider != null
-              const providerVal = knobValue(p.id, t.name, 'provider') || t.provider || ''
+              // image-gen models are BACKEND-COUPLED (catalog entry carries `provider`): picking the
+              // model sets the provider too, so we DON'T show a separate (mismatchable) provider control.
+              const modelDrivesProvider = t.needsModel && kindModels.some((o) => o.provider)
+              const modelProv = kindModels.find((o) => o.value === modelVal)?.provider
+              const provOpts = t.providerOptions || []
+              const hasProvider = !modelDrivesProvider && (provOpts.length > 0 || t.provider != null)
+              const rawProv = knobValue(p.id, t.name, 'provider')
+              // current provider value: draft override, else the resolved default (string | array)
+              const provVal: string | string[] = rawProv !== '' ? rawProv : (t.provider ?? '')
+              const provStr = typeof provVal === 'string' ? provVal : ''
+              const provArr = Array.isArray(provVal) ? provVal : provVal ? [String(provVal)] : []
               return (
                 <div className="pt-row" key={t.name}>
                   <div className="pt-info">
-                    <div className="pt-name">{t.name}</div>
+                    <div className="pt-name">{t.label || t.name}</div>
                     {t.description && (
                       <DescLine text={t.description} title={t.name} onOpen={() => openDesc('tool', t.name, t.description)} />
                     )}
@@ -764,8 +1017,8 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
                       <div className="pt-knobs">
                         {t.needsModel && (
                           <label className="pt-knob">
-                            <span>model</span>
-                            <select className="settings-select" value={modelVal} onChange={(e) => setKnob(p.id, t.name, 'model', e.target.value)}>
+                            <span>model{modelDrivesProvider && modelProv ? ` · runs on ${modelProv}` : ''}</span>
+                            <select className="settings-select" value={modelVal} onChange={(e) => setModelKnob(p.id, t.name, e.target.value, kindModels)}>
                               {optionEls(kindModels, modelVal)}
                             </select>
                           </label>
@@ -773,7 +1026,20 @@ function ToolsAndPlugins({ ctx, onEdit }: { ctx: Ctx; onEdit: () => void }) {
                         {hasProvider && (
                           <label className="pt-knob">
                             <span>provider</span>
-                            <input className="settings-input" value={providerVal} spellCheck={false} onChange={(e) => setKnob(p.id, t.name, 'provider', e.target.value)} />
+                            {provOpts.length === 0 ? (
+                              // open-ended / unknown backend → free text (graceful fallback)
+                              <input className="settings-input" value={provStr} spellCheck={false} onChange={(e) => setKnob(p.id, t.name, 'provider', e.target.value)} />
+                            ) : t.providerChain ? (
+                              // ordered chain (e.g. web_search) → chip multi-select, written as an array
+                              <ProviderChain options={provOpts} value={provArr} onChange={(arr) => setKnob(p.id, t.name, 'provider', arr)} />
+                            ) : (
+                              // single pick (browser engine, image backend) → dropdown
+                              <select className="settings-select" value={provStr} onChange={(e) => setKnob(p.id, t.name, 'provider', e.target.value)}>
+                                <option value="">(default)</option>
+                                {provStr && !provOpts.includes(provStr) && <option value={provStr}>{provStr}</option>}
+                                {provOpts.map((o) => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            )}
                           </label>
                         )}
                       </div>

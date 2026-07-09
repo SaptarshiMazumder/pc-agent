@@ -1,15 +1,15 @@
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.search import SearchProvider, SearchResult
 from search.providers.brave import BraveProvider
 from search.providers.duckduckgo import DuckDuckGoProvider
 from search.providers.gemini import GeminiGroundingProvider
+
+from agentd.application.interfaces.search import SearchProvider, SearchResult
 
 
 def test_providers_satisfy_port():
@@ -19,6 +19,7 @@ def test_providers_satisfy_port():
 
 
 # ---- Brave ------------------------------------------------------------
+
 
 class _FakeResp:
     def __init__(self, data):
@@ -45,24 +46,32 @@ class _FakeClient:
 
     async def get(self, url, params=None, headers=None):
         _FakeClient.captured = {"params": params, "headers": headers}
-        return _FakeResp({"web": {"results": [
-            {"title": "T1", "url": "https://a", "description": "D1", "age": "1 day"},
-        ]}})
+        return _FakeResp(
+            {
+                "web": {
+                    "results": [
+                        {"title": "T1", "url": "https://a", "description": "D1", "age": "1 day"},
+                    ]
+                }
+            }
+        )
 
 
 @pytest.mark.asyncio
 async def test_brave_parse_and_freshness(monkeypatch):
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
     p = BraveProvider("secret")
     out = await p.search("hi", 5, "week")
     assert out == [SearchResult(title="T1", url="https://a", snippet="D1", age="1 day")]
-    assert _FakeClient.captured["params"]["freshness"] == "pw"      # week -> pw
+    assert _FakeClient.captured["params"]["freshness"] == "pw"  # week -> pw
     assert _FakeClient.captured["headers"]["X-Subscription-Token"] == "secret"
     assert p.available() and not BraveProvider("").available()
 
 
 # ---- DuckDuckGo -------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_ddg_wraps_sync_and_ignores_freshness(monkeypatch):
@@ -73,6 +82,7 @@ async def test_ddg_wraps_sync_and_ignores_freshness(monkeypatch):
 
 
 # ---- Gemini grounding (parse only; no network) ------------------------
+
 
 class _FakeHeadResp:
     def __init__(self, url):
@@ -116,7 +126,9 @@ async def test_gemini_returns_answer_even_without_chunks():
     # chunks (the old code dropped it and fell through to DuckDuckGo).
     p = GeminiGroundingProvider("gemini/x", "k")
     out = await p._parse(_FakeGeminiClient(), _gen_data("ungrounded answer", []), count=5)
-    assert out == [SearchResult(title="Gemini grounded answer", url="", snippet="ungrounded answer")]
+    assert out == [
+        SearchResult(title="Gemini grounded answer", url="", snippet="ungrounded answer")
+    ]
 
 
 @pytest.mark.asyncio

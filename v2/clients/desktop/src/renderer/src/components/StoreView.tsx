@@ -1,8 +1,10 @@
-import { RefreshCw, Search, Check } from 'lucide-react'
+import { RefreshCw, Check } from 'lucide-react'
 import { useState } from 'react'
 
 import { glyph } from '../lib/glyphs'
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
+import SearchBox from './SearchBox'
 
 export default function StoreView() {
   const catalog = useApp((s) => s.catalog)
@@ -16,21 +18,13 @@ export default function StoreView() {
   const q = query.trim().toLowerCase()
   const bundles = catalog.filter((b) => !q || b.name.toLowerCase().includes(q) || (b.description || '').toLowerCase().includes(q))
 
-  return (
-    <div className="store">
-      <div className="store-inner">
-        <div className="page-head">
-          <div className="grow">
-            <div className="page-title">Store</div>
-            <div className="page-sub">Install agents into this app — live, no restart.</div>
-          </div>
-          <div className="pill-search">
-            <Search size={16} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search agents" />
-          </div>
-          <button className="btn" onClick={() => void refreshCatalog()}><RefreshCw size={15} />Refresh</button>
-        </div>
+  const actions = (
+    <button className="btn" onClick={() => void refreshCatalog()}><RefreshCw size={15} />Refresh</button>
+  )
+  const search = <SearchBox value={query} onChange={setQuery} placeholder="Search agents" />
 
+  return (
+    <PageShell title="Store" sub="Install agents into this app — live, no restart." actions={actions} search={search}>
         {catalogError && <div className="banner banner-error">{catalogError}</div>}
 
         <div className="cards">
@@ -70,7 +64,6 @@ export default function StoreView() {
           })}
           {bundles.length === 0 && !catalogError && <div className="page-sub">No bundles match.</div>}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

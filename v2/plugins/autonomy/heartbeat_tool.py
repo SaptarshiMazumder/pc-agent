@@ -23,14 +23,22 @@ class HeartbeatRespondTool(Tool):
         "type": "object",
         "required": ["outcome"],
         "properties": {
-            "outcome": {"type": "string",
-                        "description": "Short outcome — 'nothing-to-do', or what you did."},
-            "notify": {"type": "boolean",
-                       "description": "Should the user be notified? Default false."},
-            "summary": {"type": "string",
-                        "description": "Human-facing summary to send if notify=true."},
-            "next_check": {"type": "string",
-                           "description": "Optional hint for when to check next, e.g. '1h'."},
+            "outcome": {
+                "type": "string",
+                "description": "Short outcome — 'nothing-to-do', or what you did.",
+            },
+            "notify": {
+                "type": "boolean",
+                "description": "Should the user be notified? Default false.",
+            },
+            "summary": {
+                "type": "string",
+                "description": "Human-facing summary to send if notify=true.",
+            },
+            "next_check": {
+                "type": "string",
+                "description": "Optional hint for when to check next, e.g. '1h'.",
+            },
         },
     }
 

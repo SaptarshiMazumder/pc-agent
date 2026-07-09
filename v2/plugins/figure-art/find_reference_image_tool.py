@@ -22,24 +22,37 @@ from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
-from agentd.domain.messages import TextContent, ImageContent
+from agentd.domain.messages import ImageContent, TextContent
 
-_EXT = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-        "image/webp": ".webp", "image/gif": ".gif"}
+_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
 
 
 def _search_ddg_images(query: str, n: int) -> list[dict]:
     """Keyless image search via the `ddgs` lib. Returns [{url,title,source,w,h}, ...]."""
     from ddgs import DDGS
+
     with DDGS() as d:
         raw = list(d.images(query, max_results=n))
     out = []
     for r in raw:
         u = r.get("image") or r.get("url")
         if u:
-            out.append({"url": u, "title": r.get("title", ""), "source": r.get("source", ""),
-                        "w": r.get("width"), "h": r.get("height")})
+            out.append(
+                {
+                    "url": u,
+                    "title": r.get("title", ""),
+                    "source": r.get("source", ""),
+                    "w": r.get("width"),
+                    "h": r.get("height"),
+                }
+            )
     return out
 
 
@@ -47,6 +60,7 @@ def _download(url: str, dest: Path, min_side: int) -> dict:
     """Download one image URL -> dest. Validates it's a real image >= min_side. Raises on failure."""
     import httpx
     from PIL import Image
+
     with httpx.Client(timeout=25, follow_redirects=True, headers={"User-Agent": _UA}) as c:
         r = c.get(url)
         r.raise_for_status()
@@ -81,11 +95,26 @@ class FindReferenceImageTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "What to find references of, written in ENGLISH (e.g. 'T4 bacteriophage labelled diagram') — translate from the user's language; English gives the best results. Provide query OR url."},
-            "url": {"type": "string", "description": "A specific image URL to download (found via web_search/Gemini/browser). Provide query OR url."},
-            "count": {"type": "integer", "description": "How many candidates to download for query mode. Default 4."},
-            "min_side": {"type": "integer", "description": "Reject images whose smaller side is under this (skips thumbnails). Default 320."},
-            "out_dir": {"type": "string", "description": "Where to save (default: workspace/refs)."},
+            "query": {
+                "type": "string",
+                "description": "What to find references of, written in ENGLISH (e.g. 'T4 bacteriophage labelled diagram') — translate from the user's language; English gives the best results. Provide query OR url.",
+            },
+            "url": {
+                "type": "string",
+                "description": "A specific image URL to download (found via web_search/Gemini/browser). Provide query OR url.",
+            },
+            "count": {
+                "type": "integer",
+                "description": "How many candidates to download for query mode. Default 4.",
+            },
+            "min_side": {
+                "type": "integer",
+                "description": "Reject images whose smaller side is under this (skips thumbnails). Default 320.",
+            },
+            "out_dir": {
+                "type": "string",
+                "description": "Where to save (default: workspace/refs).",
+            },
         },
     }
 
@@ -126,14 +155,16 @@ class FindReferenceImageTool(Tool):
                 break
             tried += 1
             try:
-                d = _download(cand["url"], dest_dir / f"ref_{len(got)+1}", min_side)
+                d = _download(cand["url"], dest_dir / f"ref_{len(got) + 1}", min_side)
                 d["title"], d["source"] = cand.get("title", ""), cand.get("source", "")
                 got.append(d)
             except Exception:
                 continue
         if not got:
-            raise RuntimeError(f"found {len(candidates)} results for {query!r} but none downloaded "
-                               f"(hotlink-blocked or too small). Try a different query.")
+            raise RuntimeError(
+                f"found {len(candidates)} results for {query!r} but none downloaded "
+                f"(hotlink-blocked or too small). Try a different query."
+            )
         return {"downloaded": got, "query": query}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
@@ -142,13 +173,18 @@ class FindReferenceImageTool(Tool):
         except Exception as e:
             return ToolResult.text(f"find_reference_image failed: {e}", is_error=True)
         got = r["downloaded"]
-        lines = [f"Downloaded {len(got)} reference image(s)"
-                 + (f" for {r['query']!r}" if r["query"] else "") + ". Pick the cleanest/most accurate "
-                 "and pass its path to generate_artwork `reference_images` (conditioning='layout'):"]
+        lines = [
+            f"Downloaded {len(got)} reference image(s)"
+            + (f" for {r['query']!r}" if r["query"] else "")
+            + ". Pick the cleanest/most accurate "
+            "and pass its path to generate_artwork `reference_images` (conditioning='layout'):"
+        ]
         content = []
         for i, g in enumerate(got, 1):
-            lines.append(f"  {i}. {g['path']}  ({g['width']}x{g['height']})"
-                         + (f" — {g.get('source') or g['url']}" if g.get('source') or g.get('url') else ""))
+            lines.append(
+                f"  {i}. {g['path']}  ({g['width']}x{g['height']})"
+                + (f" — {g.get('source') or g['url']}" if g.get("source") or g.get("url") else "")
+            )
             try:
                 data = base64.b64encode(Path(g["path"]).read_bytes()).decode()
                 mime = "image/png" if g["path"].lower().endswith(".png") else "image/jpeg"

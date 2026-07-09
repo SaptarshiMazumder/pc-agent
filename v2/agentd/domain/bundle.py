@@ -31,7 +31,7 @@ bundle.toml shape:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
@@ -54,8 +54,8 @@ class PluginDep:
 
     id: str
     source: str = "vendored"
-    package: str = ""              # pip: the distribution name
-    version: str = ""              # pip: a specifier ("" => latest)
+    package: str = ""  # pip: the distribution name
+    version: str = ""  # pip: a specifier ("" => latest)
 
 
 @dataclass(frozen=True)
@@ -64,10 +64,10 @@ class BundleManifest:
     name: str
     version: str
     description: str = ""
-    agentd_compat: str = ""        # "" => compatible with any agentd
-    entitlement: str = ""          # "" => free; else the license SKU that unlocks it
+    agentd_compat: str = ""  # "" => compatible with any agentd
+    entitlement: str = ""  # "" => free; else the license SKU that unlocks it
     publisher: str = ""
-    icon: str = ""                 # store-card glyph name ("" => client default)
+    icon: str = ""  # store-card glyph name ("" => client default)
     plugins: tuple[PluginDep, ...] = ()
 
 
@@ -81,20 +81,20 @@ class RegistryEntry:
     version: str
     description: str = ""
     agentd_compat: str = ""
-    url: str = ""                  # absolute, or relative to the index location
+    url: str = ""  # absolute, or relative to the index location
     sha256: str = ""
     size: int = 0
-    price: str = "free"            # informational until payments (M7+)
+    price: str = "free"  # informational until payments (M7+)
     entitlement: str = ""
-    icon: str = ""                 # store-card glyph name ("" => client default)
-    sig: str = ""                  # base64 ed25519 over the sha256 digest (M7)
+    icon: str = ""  # store-card glyph name ("" => client default)
+    sig: str = ""  # base64 ed25519 over the sha256 digest (M7)
 
 
 @dataclass(frozen=True)
 class RegistryIndex:
     name: str = ""
     publisher: str = ""
-    publisher_key: str = ""        # base64 ed25519 public key ("" => unsigned index)
+    publisher_key: str = ""  # base64 ed25519 public key ("" => unsigned index)
     bundles: tuple[RegistryEntry, ...] = ()
 
 
@@ -106,8 +106,8 @@ class InstalledBundle:
     id: str
     version: str
     installed_at: str = ""
-    source: str = ""               # registry url / file path it came from
-    plugin_ids: tuple[str, ...] = ()   # vendored plugin dirs THIS bundle placed
+    source: str = ""  # registry url / file path it came from
+    plugin_ids: tuple[str, ...] = ()  # vendored plugin dirs THIS bundle placed
     entitlement: str = ""
 
 
@@ -135,15 +135,24 @@ def parse_bundle_manifest(data: dict) -> BundleManifest:
         if not _valid_id(dep_id):
             raise BundleError(f"bundle '{bundle_id}': bad plugin id {dep_id!r}")
         if source not in VALID_PLUGIN_SOURCES:
-            raise BundleError(f"bundle '{bundle_id}': plugin '{dep_id}' has unknown source "
-                              f"{source!r} (want one of {VALID_PLUGIN_SOURCES})")
+            raise BundleError(
+                f"bundle '{bundle_id}': plugin '{dep_id}' has unknown source "
+                f"{source!r} (want one of {VALID_PLUGIN_SOURCES})"
+            )
         if source == "pip" and not raw.get("package"):
             raise BundleError(f"bundle '{bundle_id}': pip plugin '{dep_id}' needs `package`")
-        deps.append(PluginDep(id=dep_id, source=source,
-                              package=str(raw.get("package") or ""),
-                              version=str(raw.get("version") or "")))
+        deps.append(
+            PluginDep(
+                id=dep_id,
+                source=source,
+                package=str(raw.get("package") or ""),
+                version=str(raw.get("version") or ""),
+            )
+        )
     return BundleManifest(
-        id=bundle_id, name=str(bundle.get("name") or bundle_id), version=version,
+        id=bundle_id,
+        name=str(bundle.get("name") or bundle_id),
+        version=version,
         description=str(bundle.get("description") or ""),
         agentd_compat=str(bundle.get("agentd_compat") or ""),
         entitlement=str(bundle.get("entitlement") or ""),
@@ -160,19 +169,27 @@ def parse_registry_index(data: dict) -> RegistryIndex:
     for raw in data.get("bundles") or []:
         if not isinstance(raw, dict) or not _valid_id(str(raw.get("id") or "")):
             continue
-        entries.append(RegistryEntry(
-            id=str(raw["id"]), name=str(raw.get("name") or raw["id"]),
-            version=str(raw.get("version") or "0"),
-            description=str(raw.get("description") or ""),
-            agentd_compat=str(raw.get("agentd_compat") or ""),
-            url=str(raw.get("url") or ""), sha256=str(raw.get("sha256") or ""),
-            size=int(raw.get("size") or 0), price=str(raw.get("price") or "free"),
-            entitlement=str(raw.get("entitlement") or ""), icon=str(raw.get("icon") or ""),
-            sig=str(raw.get("sig") or ""),
-        ))
+        entries.append(
+            RegistryEntry(
+                id=str(raw["id"]),
+                name=str(raw.get("name") or raw["id"]),
+                version=str(raw.get("version") or "0"),
+                description=str(raw.get("description") or ""),
+                agentd_compat=str(raw.get("agentd_compat") or ""),
+                url=str(raw.get("url") or ""),
+                sha256=str(raw.get("sha256") or ""),
+                size=int(raw.get("size") or 0),
+                price=str(raw.get("price") or "free"),
+                entitlement=str(raw.get("entitlement") or ""),
+                icon=str(raw.get("icon") or ""),
+                sig=str(raw.get("sig") or ""),
+            )
+        )
     return RegistryIndex(
-        name=str(data.get("name") or ""), publisher=str(data.get("publisher") or ""),
-        publisher_key=str(data.get("publisher_key") or ""), bundles=tuple(entries),
+        name=str(data.get("name") or ""),
+        publisher=str(data.get("publisher") or ""),
+        publisher_key=str(data.get("publisher_key") or ""),
+        bundles=tuple(entries),
     )
 
 

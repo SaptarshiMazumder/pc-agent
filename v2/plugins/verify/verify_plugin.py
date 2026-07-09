@@ -7,7 +7,6 @@ lives in agentd.infrastructure.verify (an inner layer this plugin reads — allo
 
 from __future__ import annotations
 
-
 # The verify-before-send DIRECTIVE — system-prompt guidance, shown only when verify_answer is in
 # the toolset (the tool's `description` covers the tool itself; this is the behavioral rule).
 _VERIFY_GUIDANCE = (

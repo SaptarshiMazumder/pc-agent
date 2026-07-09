@@ -32,6 +32,7 @@ async def _async_append(lst, x):
 
 # ---- store ------------------------------------------------------------------
 
+
 def test_notify_store_roundtrip_filters_ack(tmp_path):
     store = SqliteTaskStore(tmp_path / "a.sqlite")
     nid = store.save(_notif(agent_id="spending-agent", text="blocked", detail="needs Drive auth"))
@@ -40,16 +41,17 @@ def test_notify_store_roundtrip_filters_ack(tmp_path):
     assert rows[0].detail == "needs Drive auth"
 
     store.save(_notif(agent_id="other", kind="failed"))
-    assert len(store.notifications(agent_id="spending-agent")) == 1      # agent filter
-    assert len(store.notifications(unread_only=True)) == 2               # both unread
+    assert len(store.notifications(agent_id="spending-agent")) == 1  # agent filter
+    assert len(store.notifications(unread_only=True)) == 2  # both unread
 
-    assert store.ack(nid) is True                                        # ack one
+    assert store.ack(nid) is True  # ack one
     assert len(store.notifications(unread_only=True)) == 1
     assert store.notifications(agent_id="spending-agent")[0].read is True
     store.close()
 
 
 # ---- adapters ---------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_client_push_notifier_calls_broadcast():
@@ -76,20 +78,22 @@ async def test_composite_fans_out_and_isolates_failures(tmp_path):
             raise RuntimeError("boom")
 
     comp = CompositeNotifier(
-        [_Boom(), ClientPushNotifier(lambda n: _async_append(pushed, n)), StoreNotifier(store)])
-    await comp.notify(_notif(text="x"))            # _Boom raises but is isolated
+        [_Boom(), ClientPushNotifier(lambda n: _async_append(pushed, n)), StoreNotifier(store)]
+    )
+    await comp.notify(_notif(text="x"))  # _Boom raises but is isolated
     assert pushed and store.notifications()[0].text == "x"
     store.close()
 
 
 def test_build_notifier_composition(tmp_path):
     store = SqliteTaskStore(tmp_path / "a.sqlite")
-    assert len(build_notifier(store, lambda n: None)._notifiers) == 2     # push + store
-    assert len(build_notifier(None, lambda n: None)._notifiers) == 1      # push only
+    assert len(build_notifier(store, lambda n: None)._notifiers) == 2  # push + store
+    assert len(build_notifier(None, lambda n: None)._notifiers) == 1  # push only
     store.close()
 
 
 # ---- gateway ----------------------------------------------------------------
+
 
 def test_gateway_notifications_list_and_ack(tmp_path):
     from agentd.presentation.gateway import Gateway
@@ -103,7 +107,7 @@ def test_gateway_notifications_list_and_ack(tmp_path):
     assert out["autonomy"] is True and len(out["notifications"]) == 2
     nid = out["notifications"][0]["id"]
     assert gw._notifications_ack({"id": nid})["acked"] == 1
-    assert gw._notifications_ack({"id": "*"})["acked"] == 1               # remaining one
+    assert gw._notifications_ack({"id": "*"})["acked"] == 1  # remaining one
     assert gw._notifications_list({"unread": True})["notifications"] == []
 
     off = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None, task_store=None)
@@ -121,8 +125,12 @@ async def test_gateway_notify_run_builds_notification(tmp_path):
         async def notify(self, n):
             seen.append(n)
 
-    gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None,
-                 task_store=SqliteTaskStore(tmp_path / "a.sqlite"), notifier=_Fake())
+    gw = Gateway(
+        config=SimpleNamespace(state_dir=tmp_path),
+        service=None,
+        task_store=SqliteTaskStore(tmp_path / "a.sqlite"),
+        notifier=_Fake(),
+    )
     handle = RunHandle(run_id="r", session_key="agent:spending-agent:cron", abort=asyncio.Event())
     await gw._notify_run(handle, "blocked", "needs Drive auth")
     assert seen[0].agent_id == "spending-agent" and seen[0].kind == "blocked"

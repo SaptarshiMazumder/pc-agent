@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.browser]
 
 HTML = (
     "data:text/html,"
@@ -56,7 +56,7 @@ def _provider(tmp_path):
         browser_persistent=False,  # ephemeral: fast, no profile lock
         browser_downloads=True,
         browser_console_buffer=200,
-        browser_channel="",        # bundled Chromium — hermetic, no real-Chrome dependency
+        browser_channel="",  # bundled Chromium — hermetic, no real-Chrome dependency
         browser_stealth=False,
     )
     return PlaywrightBrowserProvider(cfg), cfg
@@ -92,17 +92,27 @@ async def test_browser_tool_full_smoke(tmp_path):
 
     # --- click by ref --------------------------------------------------------
     await _run(tool, action="act", kind="click", ref=btn)
-    res = await _run(tool, action="act", kind="evaluate",
-                     expression="document.getElementById('out').textContent")
+    res = await _run(
+        tool, action="act", kind="evaluate", expression="document.getElementById('out').textContent"
+    )
     assert "clicked" in res.content[0].text
 
     # --- multi-field fill in ONE act (selector-based) ------------------------
-    await _run(tool, action="act", kind="fill", fields=[
-        {"selector": "#name", "text": "Alice"},
-        {"selector": "#email", "text": "alice@example.com"},
-    ])
-    res = await _run(tool, action="act", kind="evaluate",
-                     expression="document.getElementById('name').value + '|' + document.getElementById('email').value")
+    await _run(
+        tool,
+        action="act",
+        kind="fill",
+        fields=[
+            {"selector": "#name", "text": "Alice"},
+            {"selector": "#email", "text": "alice@example.com"},
+        ],
+    )
+    res = await _run(
+        tool,
+        action="act",
+        kind="evaluate",
+        expression="document.getElementById('name').value + '|' + document.getElementById('email').value",
+    )
     assert "Alice|alice@example.com" in res.content[0].text
 
     # --- type by ref (slowly) ------------------------------------------------
@@ -110,8 +120,9 @@ async def test_browser_tool_full_smoke(tmp_path):
     refs = _refs(res.content[0].text)
     name_ref = next(r for (role, _), r in refs.items() if role == "textbox")
     await _run(tool, action="act", kind="type", ref=name_ref, text="Bob", slowly=True)
-    res = await _run(tool, action="act", kind="evaluate",
-                     expression="document.getElementById('name').value")
+    res = await _run(
+        tool, action="act", kind="evaluate", expression="document.getElementById('name').value"
+    )
     assert "Bob" in res.content[0].text
 
     # --- select option -------------------------------------------------------
@@ -120,8 +131,9 @@ async def test_browser_tool_full_smoke(tmp_path):
     sel_ref = next((r for (role, _), r in refs.items() if role == "combobox"), None)
     if sel_ref:
         await _run(tool, action="act", kind="select", ref=sel_ref, value="b")
-        res = await _run(tool, action="act", kind="evaluate",
-                         expression="document.getElementById('sel').value")
+        res = await _run(
+            tool, action="act", kind="evaluate", expression="document.getElementById('sel').value"
+        )
         assert "b" in res.content[0].text
 
     # --- screenshots: full page + single element -----------------------------
@@ -161,8 +173,12 @@ async def test_browser_tool_full_smoke(tmp_path):
     f = tmp_path / "upload.txt"
     f.write_text("hi")
     await _run(tool, action="upload", selector="#file", paths=[str(f)])
-    res = await _run(tool, action="act", kind="evaluate",
-                     expression="document.getElementById('file').files.length")
+    res = await _run(
+        tool,
+        action="act",
+        kind="evaluate",
+        expression="document.getElementById('file').files.length",
+    )
     assert "1" in res.content[0].text
 
     # --- iframe: full snapshot descends in; frame-encoded ref resolves -------

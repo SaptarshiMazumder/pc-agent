@@ -20,9 +20,9 @@ from agentd.infrastructure.plugins.manifest import PluginManifest, load_manifest
 log = logging.getLogger("agentd")
 
 
-def discover_plugin_contributions(config, deps: dict | None = None,
-                                  entitlement=None,
-                                  skip_ids: set | None = None) -> tuple[list, list, list, list]:
+def discover_plugin_contributions(
+    config, deps: dict | None = None, entitlement=None, skip_ids: set | None = None
+) -> tuple[list, list, list, list]:
     """Everything enabled, installed plugins contribute:
     ``(tools, prompt_sections, mcp_servers, skill_dirs)``.
 
@@ -47,20 +47,23 @@ def discover_plugin_contributions(config, deps: dict | None = None,
     skill_dirs: list = []
     for manifest in _discover_manifests(config, entitlement):
         if skip_ids is not None and manifest.id in skip_ids:
-            continue                            # already loaded in a prior (hot-reload) pass
+            continue  # already loaded in a prior (hot-reload) pass
         if skip_ids is not None:
-            skip_ids.add(manifest.id)           # mark loaded so the next reload skips it
+            skip_ids.add(manifest.id)  # mark loaded so the next reload skips it
         if manifest.kind == "mcp":
             servers.append(_mcp_server_config(manifest))
         native_tools, native_sections = ([], [])
-        if manifest.entry:                     # native, or mcp-with-entry (prompt sections etc.)
+        if manifest.entry:  # native, or mcp-with-entry (prompt sections etc.)
             native_tools, native_sections = load_plugin_entry(manifest, config, deps)
         # tag provenance + the plugin's OWN description (plugin.toml, else its module docstring)
         # onto each tool, so the catalog/descriptors self-source it instead of a central config note
         plugin_desc = manifest.description or _module_doc(manifest.entry)
         for t in native_tools:
-            for attr, val in (("_plugin_id", manifest.id), ("_plugin_name", manifest.name),
-                              ("_plugin_desc", plugin_desc)):
+            for attr, val in (
+                ("_plugin_id", manifest.id),
+                ("_plugin_name", manifest.name),
+                ("_plugin_desc", plugin_desc),
+            ):
                 try:
                     setattr(t, attr, val)
                 except (AttributeError, TypeError):
@@ -87,6 +90,7 @@ def _module_doc(entry: str) -> str:
     import sys
 
     from agentd.application.descriptions import first_meaningful_line
+
     module_name = (entry or "").partition(":")[0]
     mod = sys.modules.get(module_name)
     return first_meaningful_line(getattr(mod, "__doc__", "") or "") if mod else ""
@@ -95,6 +99,7 @@ def _module_doc(entry: str) -> str:
 def _mcp_server_config(manifest: PluginManifest):
     """An mcp plugin's ``[mcp]`` block -> an McpServerConfig the existing provider connects to."""
     from agentd.config import McpServerConfig
+
     mcp = manifest.mcp or {}
     return McpServerConfig(
         name=manifest.id,
@@ -134,6 +139,7 @@ def _compatible(manifest) -> bool:
     import os
     import shutil
     import sys
+
     oses = req.get("os") or []
     if oses and sys.platform not in oses and _os_family(sys.platform) not in oses:
         return False
@@ -164,8 +170,11 @@ def _entitled(entitlement, manifest) -> bool:
     try:
         return bool(entitlement.is_entitled(manifest))
     except Exception as e:  # noqa: BLE001
-        log.warning("plugins: entitlement check errored for '%s' (allowing): %s",
-                    getattr(manifest, "id", "?"), e)
+        log.warning(
+            "plugins: entitlement check errored for '%s' (allowing): %s",
+            getattr(manifest, "id", "?"),
+            e,
+        )
         return True
 
 
@@ -194,7 +203,9 @@ def _passes_gates(config, manifest, entitlement) -> bool:
         log.info("plugins: '%s' disabled by config", manifest.id)
         return False
     if not _compatible(manifest):
-        log.info("plugins: '%s' skipped — incompatible (requires=%s)", manifest.id, manifest.requires)
+        log.info(
+            "plugins: '%s' skipped — incompatible (requires=%s)", manifest.id, manifest.requires
+        )
         return False
     if not _entitled(entitlement, manifest):
         log.info("plugins: '%s' skipped — not entitled", manifest.id)
@@ -210,8 +221,10 @@ def _discover_manifests(config, entitlement=None) -> list[PluginManifest]:
     # built-in root is scanned FIRST and independently of plugins_dir, so overriding plugins_dir
     # never drops the standard library. Same dir listed twice => deduped by id (harmless).
     # (Guard the empty string -> Path("") is ".", which we must NOT scan.)
-    for raw_dir in (getattr(config, "builtin_plugins_dir", "") or "",
-                    getattr(config, "plugins_dir", "") or ""):
+    for raw_dir in (
+        getattr(config, "builtin_plugins_dir", "") or "",
+        getattr(config, "plugins_dir", "") or "",
+    ):
         d = Path(raw_dir)
         if not (raw_dir and d.is_dir()):
             continue
@@ -236,6 +249,7 @@ def _entrypoint_manifests(config, seen: set[str], entitlement=None) -> list[Plug
     out: list[PluginManifest] = []
     try:
         from importlib.metadata import entry_points
+
         eps = list(entry_points(group="agentd.plugins"))
     except Exception as e:  # noqa: BLE001 — entry-point lookup never breaks discovery
         log.debug("plugins: entry-point discovery skipped: %s", e)

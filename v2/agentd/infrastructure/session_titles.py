@@ -48,7 +48,7 @@ def clean_title(raw: str) -> str:
     title = " ".join((raw or "").splitlines()).strip()
     title = re.sub(r"^(title|chat title)\s*[:\-]\s*", "", title, flags=re.IGNORECASE)
     title = title.strip().strip("\"'").strip()
-    title = re.sub(r"[.\s]+$", "", title)              # drop a trailing period/space
+    title = re.sub(r"[.\s]+$", "", title)  # drop a trailing period/space
     return title[:MAX_TITLE_CHARS].rstrip()
 
 

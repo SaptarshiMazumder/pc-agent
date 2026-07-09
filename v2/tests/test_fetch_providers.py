@@ -6,10 +6,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.fetch import FetchProvider, FetchResult
 from fetch.extract import extract_html, sanitize_url, truncate
 from fetch.factory import build_fetch_providers
 from web_fetch import _CACHE, MIN_USEFUL_CHARS, WebFetchTool
+
+from agentd.application.interfaces.fetch import FetchProvider, FetchResult
 
 LONG = "x" * (MIN_USEFUL_CHARS + 50)
 THIN = "tiny"
@@ -48,6 +49,7 @@ def _clear_cache():
 
 # ---- extract helpers --------------------------------------------------
 
+
 def test_sanitize_url():
     assert sanitize_url("https:// example.com ") == "https://example.com"
     with pytest.raises(ValueError):
@@ -61,11 +63,14 @@ def test_truncate():
 
 
 def test_extract_html_basic():
-    title, text = extract_html("<html><head><title>Hi</title></head><body><p>Hello world</p></body></html>", "https://x")
+    title, text = extract_html(
+        "<html><head><title>Hi</title></head><body><p>Hello world</p></body></html>", "https://x"
+    )
     assert "Hello world" in text
 
 
 # ---- dispatcher: escalation chain ------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_httpx_good_no_escalation():
@@ -115,6 +120,7 @@ async def test_cache_hit():
 
 
 # ---- factory ----------------------------------------------------------
+
 
 def test_factory_chain():
     assert [p.name for p in build_fetch_providers(None, None)] == ["httpx"]

@@ -16,8 +16,13 @@ KEY = Fernet.generate_key()
 
 
 def _cred(site="hp"):
-    return Credential(site=site, login_url="https://hp/login", username="u@e.com",
-                      password="SECRET-PW", otp_selector="#otp")
+    return Credential(
+        site=site,
+        login_url="https://hp/login",
+        username="u@e.com",
+        password="SECRET-PW",
+        otp_selector="#otp",
+    )
 
 
 def test_put_get_roundtrip(tmp_path):
@@ -33,7 +38,7 @@ def test_persists_encrypted_not_plaintext(tmp_path):
     p = tmp_path / "v.vault"
     EncryptedFileCredentialStore(p, KEY).put("main", _cred())
     blob = p.read_bytes()
-    assert b"SECRET-PW" not in blob and b"u@e.com" not in blob      # encrypted, not plaintext
+    assert b"SECRET-PW" not in blob and b"u@e.com" not in blob  # encrypted, not plaintext
     # a fresh store with the SAME key reads it back
     assert EncryptedFileCredentialStore(p, KEY).get("main", "hp").password == "SECRET-PW"
 
@@ -50,9 +55,9 @@ def test_isolation_and_purge(tmp_path):
     s.put("a", _cred("x"))
     s.put("b", _cred("y"))
     assert s.list("a") == ["x"] and s.list("b") == ["y"]
-    assert s.get("a", "y") is None                                  # b's site invisible to a
+    assert s.get("a", "y") is None  # b's site invisible to a
     assert s.purge_agent("a") == 1 and s.list("a") == []
-    assert s.list("b") == ["y"]                                     # b untouched
+    assert s.list("b") == ["y"]  # b untouched
     assert s.delete("b", "y") is True and s.get("b", "y") is None
 
 

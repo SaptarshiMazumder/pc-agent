@@ -29,7 +29,11 @@ class CdpBrowserProvider(BaseBrowserSession):
         # the /json/version websocket itself) or a direct ws:// URL.
         self._browser = await pw.chromium.connect_over_cdp(self.endpoint)
         # An attached Chrome already has its default context with the user's tabs.
-        context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
+        context = (
+            self._browser.contexts[0]
+            if self._browser.contexts
+            else await self._browser.new_context()
+        )
         return pw, context
 
     async def profiles(self) -> dict:

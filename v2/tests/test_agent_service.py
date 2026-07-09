@@ -51,11 +51,17 @@ class FakeEngine:
     def __init__(self):
         self.calls = []
 
-    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None,
-                  model=None):
+    async def run(
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+    ):
         self.calls.append(
-            {"messages": list(messages), "system_prompt": system_prompt,
-             "tools": tools, "session": session, "model": model}
+            {
+                "messages": list(messages),
+                "system_prompt": system_prompt,
+                "tools": tools,
+                "session": session,
+                "model": model,
+            }
         )
         return []
 
@@ -101,23 +107,30 @@ async def test_explicit_agent_id_overrides_session_key_resolution():
 
     class TwoAgentRegistry:
         def resolve(self, session_key):
-            return main                       # the session key would say 'main'
+            return main  # the session key would say 'main'
+
         def get(self, agent_id):
             return {"main": main, "support": support}[agent_id]
+
         def list_ids(self):
             return ["main", "support"]
 
     captured = {}
 
     class FakeEngine:
-        async def run(self, *, messages, system_prompt, tools, on_event, abort,
-                      session=None, model=None):
-            captured["model"] = model        # support's model identity flows through
+        async def run(
+            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+        ):
+            captured["model"] = model  # support's model identity flows through
 
     svc = AgentService(
-        engine=FakeEngine(), tools=[], registry=TwoAgentRegistry(),
+        engine=FakeEngine(),
+        tools=[],
+        registry=TwoAgentRegistry(),
         make_session=lambda sid, agent: FakeSession(),
-        build_prompt=lambda tools, agent, mode, query="": captured.setdefault("agent", agent.id) or "SYS",
+        build_prompt=lambda tools, agent, mode, query="": (
+            captured.setdefault("agent", agent.id) or "SYS"
+        ),
     )
 
     async def sink(_e):
@@ -131,8 +144,13 @@ async def test_explicit_agent_id_overrides_session_key_resolution():
 @pytest.mark.asyncio
 async def test_per_agent_model_override_reaches_engine():
     engine = FakeEngine()
-    spec = AgentSpec(id="support", name="S", workspace=Path("."), state_dir=Path("."),
-                     model="gemini/gemini-2.5-flash")
+    spec = AgentSpec(
+        id="support",
+        name="S",
+        workspace=Path("."),
+        state_dir=Path("."),
+        model="gemini/gemini-2.5-flash",
+    )
     svc = AgentService(
         engine=engine,
         tools=[],
@@ -150,11 +168,14 @@ async def test_per_agent_model_override_reaches_engine():
 
 class _OutcomeEngine:
     """Declares an outcome only on its Nth run — simulates the agent forgetting, then declaring."""
+
     def __init__(self, declare_on_run):
         self.runs = 0
         self._on = declare_on_run
 
-    async def run(self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None):
+    async def run(
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+    ):
         self.runs += 1
         if self.runs == self._on:
             set_run_outcome("done", "all good")
@@ -163,9 +184,13 @@ class _OutcomeEngine:
 
 def _svc(engine, agent_id="job"):
     spec = AgentSpec(id=agent_id, name="J", workspace=Path("."), state_dir=Path("."))
-    return AgentService(engine=engine, tools=["report_outcome"], registry=FakeRegistry(spec),
-                        make_session=lambda sid, agent: FakeSession(),
-                        build_prompt=lambda tools, agent, mode, query="": "SYS")
+    return AgentService(
+        engine=engine,
+        tools=["report_outcome"],
+        registry=FakeRegistry(spec),
+        make_session=lambda sid, agent: FakeSession(),
+        build_prompt=lambda tools, agent, mode, query="": "SYS",
+    )
 
 
 @pytest.mark.asyncio
@@ -174,9 +199,10 @@ async def test_cron_forces_outcome_when_agent_skips_it():
     engine = _OutcomeEngine(declare_on_run=2)
     tok = rc._outcome.set(None)
     try:
-        await _svc(engine).handle_message("agent:job:x", "do it", _sink, asyncio.Event(),
-                                          mode=RunMode.CRON)
-        assert engine.runs == 2                          # a 2nd, forcing turn ran
+        await _svc(engine).handle_message(
+            "agent:job:x", "do it", _sink, asyncio.Event(), mode=RunMode.CRON
+        )
+        assert engine.runs == 2  # a 2nd, forcing turn ran
         assert rc.current_run_outcome() == ("done", "all good")
     finally:
         rc._outcome.reset(tok)
@@ -184,22 +210,23 @@ async def test_cron_forces_outcome_when_agent_skips_it():
 
 @pytest.mark.asyncio
 async def test_cron_no_nudge_when_already_declared():
-    engine = _OutcomeEngine(declare_on_run=1)            # declares on the first run
+    engine = _OutcomeEngine(declare_on_run=1)  # declares on the first run
     tok = rc._outcome.set(None)
     try:
-        await _svc(engine).handle_message("agent:job:x", "do it", _sink, asyncio.Event(),
-                                          mode=RunMode.CRON)
-        assert engine.runs == 1                          # no follow-up needed
+        await _svc(engine).handle_message(
+            "agent:job:x", "do it", _sink, asyncio.Event(), mode=RunMode.CRON
+        )
+        assert engine.runs == 1  # no follow-up needed
     finally:
         rc._outcome.reset(tok)
 
 
 @pytest.mark.asyncio
 async def test_interactive_run_is_never_forced():
-    engine = _OutcomeEngine(declare_on_run=99)           # never declares
+    engine = _OutcomeEngine(declare_on_run=99)  # never declares
     tok = rc._outcome.set(None)
     try:
         await _svc(engine, "main").handle_message("s1", "hi", _sink, asyncio.Event())  # interactive
-        assert engine.runs == 1                          # only cron runs are forced
+        assert engine.runs == 1  # only cron runs are forced
     finally:
         rc._outcome.reset(tok)

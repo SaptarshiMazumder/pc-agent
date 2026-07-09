@@ -7,9 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from login_tool import SimpleLoginTool
+
 from agentd.application.run_context import RunContext, set_run_context
 from agentd.domain.credential import Credential
-from login_tool import SimpleLoginTool
 
 
 class FakePage:
@@ -75,26 +76,29 @@ def test_no_saved_login_is_graceful():
 
 
 def test_success_no_otp_and_password_never_leaks():
-    cred = Credential(site="hp", login_url="https://hp/login", username="u@e.com", password="TOPSECRET")
+    cred = Credential(
+        site="hp", login_url="https://hp/login", username="u@e.com", password="TOPSECRET"
+    )
 
-    def present(sel, page):                     # password present before submit, gone after; no otp field
+    def present(sel, page):  # password present before submit, gone after; no otp field
         return ("password" in sel) and page.submits == 0
 
     page = FakePage(present)
     tool = SimpleLoginTool(FakeStore(cred), FakeMgr(page))
     r = _run(tool, {"site": "hp"})
     assert not r.is_error and "Logged in" in _text(r)
-    assert any(v == "TOPSECRET" for _, v in page.fills)   # the password WAS typed into the form
-    assert "TOPSECRET" not in _text(r)                    # but NEVER appears in the result
+    assert any(v == "TOPSECRET" for _, v in page.fills)  # the password WAS typed into the form
+    assert "TOPSECRET" not in _text(r)  # but NEVER appears in the result
 
 
 def test_otp_required_then_resume():
-    cred = Credential(site="hp", login_url="https://hp/login", username="u", password="p",
-                      otp_selector="#otp")
+    cred = Credential(
+        site="hp", login_url="https://hp/login", username="u", password="p", otp_selector="#otp"
+    )
 
     def present(sel, page):
         if sel == "#otp":
-            return page.submits == 1            # OTP page appears after the 1st submit only
+            return page.submits == 1  # OTP page appears after the 1st submit only
         if "password" in sel:
             return page.submits == 0
         return False
@@ -103,6 +107,6 @@ def test_otp_required_then_resume():
     tool = SimpleLoginTool(FakeStore(cred), FakeMgr(page))
     r1 = _run(tool, {"site": "hp"})
     assert "OTP_REQUIRED" in _text(r1)
-    r2 = _run(tool, {"site": "hp", "otp": "402913"})      # resume with the code from the user
+    r2 = _run(tool, {"site": "hp", "otp": "402913"})  # resume with the code from the user
     assert not r2.is_error and "Logged in" in _text(r2)
     assert ("#otp", "402913") in page.fills

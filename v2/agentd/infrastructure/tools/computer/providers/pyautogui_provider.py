@@ -56,20 +56,29 @@ def _corral_foreground_to_primary() -> None:
         u.MonitorFromWindow.argtypes = [ctypes.c_void_p, wintypes.DWORD]
         u.MonitorFromPoint.restype = ctypes.c_void_p
         u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
-        u.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
-                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+        u.SetWindowPos.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+        ]
         u.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
         hwnd = u.GetForegroundWindow()
         if not hwnd:
             return
         primary = u.MonitorFromPoint(wintypes.POINT(0, 0), 1)  # MONITOR_DEFAULTTOPRIMARY
-        if u.MonitorFromWindow(hwnd, 2) == primary:            # MONITOR_DEFAULTTONEAREST
+        if u.MonitorFromWindow(hwnd, 2) == primary:  # MONITOR_DEFAULTTONEAREST
             return  # already on the captured monitor — leave it alone
-        u.ShowWindow(hwnd, 9)                                  # SW_RESTORE (un-maximize so it can move)
-        u.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0004)  # SWP_NOSIZE|NOZORDER -> top-left to (0,0)
-        u.ShowWindow(hwnd, 3)                                  # SW_MAXIMIZE on the primary monitor
-        time.sleep(0.2)                                        # let it finish before the screenshot
+        u.ShowWindow(hwnd, 9)  # SW_RESTORE (un-maximize so it can move)
+        u.SetWindowPos(
+            hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0004
+        )  # SWP_NOSIZE|NOZORDER -> top-left to (0,0)
+        u.ShowWindow(hwnd, 3)  # SW_MAXIMIZE on the primary monitor
+        time.sleep(0.2)  # let it finish before the screenshot
     except Exception:  # noqa: BLE001 — corralling must never break a run
         pass
 
@@ -79,8 +88,12 @@ def _virtual_rect() -> tuple[int, int, int, int]:
         import ctypes
 
         u = ctypes.windll.user32
-        return (u.GetSystemMetrics(76), u.GetSystemMetrics(77),  # SM_X/Y VIRTUALSCREEN
-                u.GetSystemMetrics(78), u.GetSystemMetrics(79))   # SM_CX/CY VIRTUALSCREEN
+        return (
+            u.GetSystemMetrics(76),
+            u.GetSystemMetrics(77),  # SM_X/Y VIRTUALSCREEN
+            u.GetSystemMetrics(78),
+            u.GetSystemMetrics(79),
+        )  # SM_CX/CY VIRTUALSCREEN
     w, h = pyautogui.size()
     return (0, 0, w, h)
 
@@ -159,8 +172,9 @@ class PyAutoGuiProvider:
                     pyautogui.hscroll(mag if d == "right" else -mag)
             elif action == "drag_and_drop":
                 pyautogui.moveTo(*self._real(a["x"], a["y"]))
-                pyautogui.dragTo(*self._real(a["destination_x"], a["destination_y"]),
-                                 duration=0.4, button="left")
+                pyautogui.dragTo(
+                    *self._real(a["destination_x"], a["destination_y"]), duration=0.4, button="left"
+                )
             elif action == "open_browser":  # custom verb: open the default browser at a url
                 webbrowser.open(a.get("url") or "https://www.google.com")
             elif action == "open_web_browser":

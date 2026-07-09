@@ -19,48 +19,50 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class AgentSpec:
-    id: str                                       # "main", "support", ...
-    name: str                                     # persona name (identity in the prompt)
-    workspace: Path                               # working dir for file/exec tools
-    state_dir: Path                               # sessions live under <state_dir>/sessions/
-    instructions: str = ""                        # bootstrap text (IDENTITY/AGENTS/... block)
-    description: str = ""                          # one-line "what this agent is for" — shown to
+    id: str  # "main", "support", ...
+    name: str  # persona name (identity in the prompt)
+    workspace: Path  # working dir for file/exec tools
+    state_dir: Path  # sessions live under <state_dir>/sessions/
+    instructions: str = ""  # bootstrap text (IDENTITY/AGENTS/... block)
+    description: str = ""  # one-line "what this agent is for" — shown to
     #                                               orchestrators by agents_list for delegation
     # Display presentation — what a launcher UI shows for this agent. Authored in
     # agent.toml (tagline/suggestions) or auto-generated ONCE from the identity and
     # stored in a sidecar (see infrastructure/agents/presentation.py).
-    tagline: str = ""                             # short picker line, e.g. "finance · gmail"
-    suggestions: tuple[str, ...] = ()             # up to 3 starter prompts for an empty chat
-    color: str = ""                               # avatar/dot colour (hex). Authored in agent.toml
+    tagline: str = ""  # short picker line, e.g. "finance · gmail"
+    suggestions: tuple[str, ...] = ()  # up to 3 starter prompts for an empty chat
+    color: str = ""  # avatar/dot colour (hex). Authored in agent.toml
     #                                               or assigned once (unique across agents) by the daemon
-    model: str | None = None                      # per-agent model override (carried; wired later)
+    model: str | None = None  # per-agent model override (carried; wired later)
     # Per-agent TOOL-model overrides (from agent.toml [plugins.*]), same plugin->tool->model shape as
     # global config.plugins: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}. Layered ABOVE
     # global config.plugins by resolve_tool_model, so an agent can point a plugin (or one tool) at a
     # different model without touching global config. Empty = inherit global.
     plugins: dict = field(default_factory=dict)
-    tools_allow: tuple[str, ...] | None = None    # None = all tools
+    tools_allow: tuple[str, ...] | None = None  # None = all tools
     tools_deny: tuple[str, ...] = ()
     # Delegation scope: ids/globs of the specialist agents THIS agent may spawn/delegate to
     # (from [subagents] allow). None = no restriction (may delegate to any existing agent).
     subagents_allow: tuple[str, ...] | None = None
-    skills_allow: tuple[str, ...] | None = None   # None = all (global) skills
-    skills_dir: Path | None = None                # the agent's OWN skills dir (agents/<id>/skills/)
-    dir: Path | None = None                        # the agent's DEFINITION dir (agents/<id>/) — lets
+    skills_allow: tuple[str, ...] | None = None  # None = all (global) skills
+    skills_dir: Path | None = None  # the agent's OWN skills dir (agents/<id>/skills/)
+    dir: Path | None = None  # the agent's DEFINITION dir (agents/<id>/) — lets
     #                                                a heartbeat tick re-read HEARTBEAT.md fresh
-    google_account: str = ""                      # the ONE Google account this agent acts as (workspace MCP)
-    google_accounts: tuple[str, ...] = ()         # OR several it may use (multi-account: pass user_google_email)
-    audience: str = ""                            # "external" => apply the safe-to-send privacy gate to
+    google_account: str = ""  # the ONE Google account this agent acts as (workspace MCP)
+    google_accounts: tuple[
+        str, ...
+    ] = ()  # OR several it may use (multi-account: pass user_google_email)
+    audience: str = ""  # "external" => apply the safe-to-send privacy gate to
     #                                               this agent's channel replies. Absent / "internal" /
     #                                               anything else => NOT gated. From agent.toml.
     # Capability gates — None = inherit the global config default; True/False = per-agent.
     # These drive the "What you are" self-knowledge section so a definition is self-describing.
-    autonomy_enabled: bool | None = None          # may schedule (cron) + wake on a heartbeat
-    notify_enabled: bool | None = None            # may reach the user (notifications)
-    channels_enabled: bool | None = None          # may be reached on a messaging channel
-    heartbeat: str | None = None                  # autonomy interval, e.g. "15m" (Phase 2)
-    heartbeat_instructions: str = ""              # HEARTBEAT.md, injected only on a tick
-    version: str = "1"                            # agent-definition version (S18, from agent.toml)
+    autonomy_enabled: bool | None = None  # may schedule (cron) + wake on a heartbeat
+    notify_enabled: bool | None = None  # may reach the user (notifications)
+    channels_enabled: bool | None = None  # may be reached on a messaging channel
+    heartbeat: str | None = None  # autonomy interval, e.g. "15m" (Phase 2)
+    heartbeat_instructions: str = ""  # HEARTBEAT.md, injected only on a tick
+    version: str = "1"  # agent-definition version (S18, from agent.toml)
 
 
 def agent_id_from_session_key(session_key: str) -> str:
@@ -144,7 +146,11 @@ def apply_plugin_enablement(tools: list, plugins: dict | None) -> list:
     for t in tools:
         pid = getattr(t, "_plugin_id", "") or getattr(t, "plugin", "")
         pconf = plugins.get(pid)
-        tconf = (pconf.get("tools") or {}).get(getattr(t, "name", "")) if isinstance(pconf, dict) else None
+        tconf = (
+            (pconf.get("tools") or {}).get(getattr(t, "name", ""))
+            if isinstance(pconf, dict)
+            else None
+        )
         if isinstance(tconf, dict) and tconf.get("enabled") is False:
             continue
         out.append(t)
@@ -180,13 +186,13 @@ class RunMode:
     INTERACTIVE = "interactive"
     HEARTBEAT = "heartbeat"
     CRON = "cron"
-    CHANNEL = "channel"        # replying to a peer on a messaging channel (Phase 5b)
+    CHANNEL = "channel"  # replying to a peer on a messaging channel (Phase 5b)
 
 
 # tool name -> the ONLY run mode it is exposed in (absent from this map = every mode).
 _MODE_ONLY = {
     "heartbeat_respond": RunMode.HEARTBEAT,
-    "report_outcome": RunMode.CRON,        # scheduled runs declare done/blocked/failed
+    "report_outcome": RunMode.CRON,  # scheduled runs declare done/blocked/failed
 }
 
 

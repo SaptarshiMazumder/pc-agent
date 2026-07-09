@@ -31,10 +31,15 @@ def test_env_scalar_overrides(monkeypatch):
 
 def test_tool_overrides_from_json(tmp_path, monkeypatch):
     cfgfile = tmp_path / "agentd.config.json"
-    cfgfile.write_text(json.dumps({
-        "tool_timeout_default": 250,
-        "tool_overrides": {"computer": {"timeout_sec": 900}, "exec": {"timeout_sec": None}},
-    }), encoding="utf-8")
+    cfgfile.write_text(
+        json.dumps(
+            {
+                "tool_timeout_default": 250,
+                "tool_overrides": {"computer": {"timeout_sec": 900}, "exec": {"timeout_sec": None}},
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("AGENTD_CONFIG", str(cfgfile))
     c = load_config()
     assert c.tool_timeout_default == 250

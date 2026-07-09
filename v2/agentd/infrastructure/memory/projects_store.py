@@ -47,8 +47,9 @@ def _write(state_dir: Path, projects: list[dict]) -> None:
     path = _path(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"projects": projects}, ensure_ascii=False, indent=2),
-                   encoding="utf-8")
+    tmp.write_text(
+        json.dumps({"projects": projects}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     tmp.replace(path)
 
 
@@ -70,8 +71,13 @@ def create_project(state_dir: Path, name: str) -> dict:
     name = clean_project_name(name)
     if not name:
         raise ValueError("project name required")
-    project = {"id": f"proj-{uuid.uuid4().hex[:8]}", "name": name, "createdAt": time.time(),
-               "defaultAgentId": "", "members": []}
+    project = {
+        "id": f"proj-{uuid.uuid4().hex[:8]}",
+        "name": name,
+        "createdAt": time.time(),
+        "defaultAgentId": "",
+        "members": [],
+    }
     _write(state_dir, _read(state_dir) + [project])
     return project
 
@@ -95,8 +101,9 @@ def set_members(state_dir: Path, project_id: str, members: list) -> bool:
     projects = _read(state_dir)
     for p in projects:
         if p["id"] == project_id:
-            p["members"] = list(dict.fromkeys(str(m).strip() for m in (members or [])
-                                              if str(m).strip()))
+            p["members"] = list(
+                dict.fromkeys(str(m).strip() for m in (members or []) if str(m).strip())
+            )
             _write(state_dir, projects)
             return True
     return False

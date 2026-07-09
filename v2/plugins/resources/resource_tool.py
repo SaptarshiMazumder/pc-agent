@@ -9,18 +9,15 @@ described catalog + index-maintaining writes.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from agentd.application.run_context import current_run_context, current_workspace
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.application.run_context import current_run_context, current_workspace
 
 _READ_CAP = 20_000
 
 
 class ResourceTool(Tool):
     name = "resource"
-    concurrency = "sequential"   # create/edit/delete mutate the workspace + index
+    concurrency = "sequential"  # create/edit/delete mutate the workspace + index
     description = (
         "Manage your workspace resources (scripts, docs, images, data) with a live, "
         "described index. Actions: list (described catalog) · read · create · edit · "
@@ -32,9 +29,14 @@ class ResourceTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "action": {"type": "string",
-                       "enum": ["list", "read", "create", "edit", "delete", "describe", "cleanup"]},
-            "path": {"type": "string", "description": "workspace-relative path (not for 'list'/'cleanup')."},
+            "action": {
+                "type": "string",
+                "enum": ["list", "read", "create", "edit", "delete", "describe", "cleanup"],
+            },
+            "path": {
+                "type": "string",
+                "description": "workspace-relative path (not for 'list'/'cleanup').",
+            },
             "content": {"type": "string", "description": "file content (for create/edit)."},
         },
         "required": ["action"],
@@ -60,11 +62,12 @@ class ResourceTool(Tool):
                 manifest = self._m.manifest(ws, agent_id)
                 return ToolResult.text(manifest or "(no resources yet)")
             if action == "cleanup":
-                deleted = self._m.cleanup(ws, agent_id)   # purge <workspace>/tmp/ scratch
+                deleted = self._m.cleanup(ws, agent_id)  # purge <workspace>/tmp/ scratch
                 if not deleted:
                     return ToolResult.text("nothing to clean (tmp/ is empty)")
                 return ToolResult.text(
-                    f"cleaned {len(deleted)} scratch file(s) from tmp/: " + ", ".join(deleted[:20]))
+                    f"cleaned {len(deleted)} scratch file(s) from tmp/: " + ", ".join(deleted[:20])
+                )
             if not path:
                 return ToolResult.text(f"action '{action}' needs a path", is_error=True)
             if action == "read":
@@ -74,12 +77,16 @@ class ResourceTool(Tool):
                 return ToolResult.text(text)
             if action == "create":
                 r = self._m.create(ws, agent_id, path, params.get("content") or "")
-                self._m.enqueue_enrich(ws, agent_id, r)   # expensive describe -> background
-                return ToolResult.text(f"created {r.rel_path} ({r.kind}) - {r.description or 'no description'}")
+                self._m.enqueue_enrich(ws, agent_id, r)  # expensive describe -> background
+                return ToolResult.text(
+                    f"created {r.rel_path} ({r.kind}) - {r.description or 'no description'}"
+                )
             if action == "edit":
                 r = self._m.edit(ws, agent_id, path, params.get("content") or "")
-                self._m.enqueue_enrich(ws, agent_id, r)   # re-describe in the background
-                return ToolResult.text(f"updated {r.rel_path} - {r.description or 'no description'}")
+                self._m.enqueue_enrich(ws, agent_id, r)  # re-describe in the background
+                return ToolResult.text(
+                    f"updated {r.rel_path} - {r.description or 'no description'}"
+                )
             if action == "delete":
                 ok = self._m.delete(ws, agent_id, path)
                 return ToolResult.text(f"deleted {path}" if ok else f"not found: {path}")

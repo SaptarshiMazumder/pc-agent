@@ -10,9 +10,8 @@ Decoupled: the tool wraps a Verifier (the LLM-judge), nothing else.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.verifier import Verifier, VerifyContext
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.application.interfaces.verifier import Verifier, VerifyContext
 
 
 class VerifyTool(Tool):

@@ -51,12 +51,36 @@
       "label": "GPT-5"
     },
     {
+      "value": "openai/gpt-5-mini",
+      "label": "GPT-5 mini"
+    },
+    {
+      "value": "openai/gpt-5-nano",
+      "label": "GPT-5 nano"
+    },
+    {
       "value": "openai/gpt-4.1",
       "label": "GPT-4.1"
     },
     {
+      "value": "openai/gpt-4.1-mini",
+      "label": "GPT-4.1 mini"
+    },
+    {
       "value": "openai/gpt-4o",
       "label": "GPT-4o"
+    },
+    {
+      "value": "openai/gpt-4o-mini",
+      "label": "GPT-4o mini"
+    },
+    {
+      "value": "openai/o3",
+      "label": "o3"
+    },
+    {
+      "value": "openai/o4-mini",
+      "label": "o4-mini"
     },
     {
       "value": "xai/grok-4",
@@ -363,7 +387,7 @@
   "resource_vision_enabled": true,
   "resource_summarize_enabled": true,
   "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here \u2014 it gates whether the computer tool is registered at all.",
-  "computer_enabled": false,
+  "computer_enabled": true,
   "_section_channels": "MCP servers + messaging channels + webhook ingress.",
   "mcp_servers": [],
   "channels": [
@@ -378,5 +402,9 @@
     }
   ],
   "webhook_host": "0.0.0.0",
-  "webhook_port": 8788
+  "webhook_port": 8788,
+  "model_fallbacks": [
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-2.5-pro"
+  ]
 }

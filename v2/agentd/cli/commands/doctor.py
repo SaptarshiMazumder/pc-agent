@@ -36,9 +36,14 @@ def _check_playwright_browsers() -> tuple[str, str]:
         import playwright  # noqa: F401
     except ImportError:
         return WARN, "playwright not installed (browser tool off)"
-    root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "") or
-                (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ms-playwright"
-                 if os.name == "nt" else Path.home() / ".cache" / "ms-playwright"))
+    root = Path(
+        os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+        or (
+            Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ms-playwright"
+            if os.name == "nt"
+            else Path.home() / ".cache" / "ms-playwright"
+        )
+    )
     if root.is_dir() and any(d.name.startswith("chromium") for d in root.iterdir()):
         return OK, f"chromium present ({root})"
     return WARN, "no chromium — run `playwright install chromium` to enable the browser tool"
@@ -63,22 +68,38 @@ def run(args: argparse.Namespace) -> int:
     provider = model.split("/", 1)[0] if "/" in model else "gemini"
     key_vars = _KEY_VARS.get(provider)
     if key_vars is None:
-        rows.append(("api key", WARN, f"model '{model}': unknown provider — ensure its env key is set"))
+        rows.append(
+            ("api key", WARN, f"model '{model}': unknown provider — ensure its env key is set")
+        )
     elif any(os.environ.get(v) for v in key_vars):
         rows.append(("api key", OK, f"{provider}: {' or '.join(key_vars)} present"))
     else:
-        rows.append(("api key", FAIL,
-                     f"model '{model}' needs {' or '.join(key_vars)} (set it in "
-                     f"{runtime_paths.user_home() / '.env'})"))
+        rows.append(
+            (
+                "api key",
+                FAIL,
+                f"model '{model}' needs {' or '.join(key_vars)} (set it in "
+                f"{runtime_paths.user_home() / '.env'})",
+            )
+        )
 
     info = lifecycle.find_running()
-    rows.append(("daemon", OK if info else WARN,
-                 f"running (pid {info.pid}, {info.ws_url})" if info
-                 else "not running — starts automatically with `agentd`"))
+    rows.append(
+        (
+            "daemon",
+            OK if info else WARN,
+            f"running (pid {info.pid}, {info.ws_url})"
+            if info
+            else "not running — starts automatically with `agentd`",
+        )
+    )
 
     rows.append(("playwright", *_check_playwright_browsers()))
-    for binary, why in (("ffmpeg", "video/tts tools"), ("java", "plantuml diagrams"),
-                        ("node", "desktop shell dev")):
+    for binary, why in (
+        ("ffmpeg", "video/tts tools"),
+        ("java", "plantuml diagrams"),
+        ("node", "desktop shell dev"),
+    ):
         path = shutil.which(binary)
         rows.append((binary, OK if path else WARN, path or f"not on PATH ({why} degrade)"))
 
@@ -95,6 +116,8 @@ def run(args: argparse.Namespace) -> int:
     for name, status, detail in rows:
         print(f"  {name.ljust(width)}  [{status:^4}]  {detail}")
     failures = [r for r in rows if r[1] == FAIL]
-    print(f"\n{len(rows) - len(failures)}/{len(rows)} checks passing"
-          + (f" — fix the {len(failures)} FAIL(s) above" if failures else " — you're good"))
+    print(
+        f"\n{len(rows) - len(failures)}/{len(rows)} checks passing"
+        + (f" — fix the {len(failures)} FAIL(s) above" if failures else " — you're good")
+    )
     return 1 if failures else 0

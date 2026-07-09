@@ -36,7 +36,7 @@ def test_single_agent_rows_carry_agent_id(tmp_path):
     out = gw._sessions_list({"agentId": "main"})
     assert out["agentId"] == "main"
     assert [r["sessionId"] for r in out["sessions"]] == ["desk-1"]
-    assert out["sessions"][0]["agentId"] == "main"   # every row now tagged
+    assert out["sessions"][0]["agentId"] == "main"  # every row now tagged
 
 
 def test_all_merges_across_agents_and_hides_internal(tmp_path):
@@ -51,7 +51,7 @@ def test_all_merges_across_agents_and_hides_internal(tmp_path):
     out = gw._sessions_list({"all": True})
 
     by_id = {r["sessionId"]: r["agentId"] for r in out["sessions"]}
-    assert by_id == {"desk-main": "main", "desk-support": "support"}   # internal excluded
+    assert by_id == {"desk-main": "main", "desk-support": "support"}  # internal excluded
     assert out["all"] is True
 
 
@@ -68,5 +68,5 @@ def test_project_id_filters_across_agents(tmp_path):
     out = gw._sessions_list({"projectId": "proj-x"})
 
     got = {(r["sessionId"], r["agentId"]) for r in out["sessions"]}
-    assert got == {("desk-a", "main"), ("desk-b", "support")}   # cross-agent, one project
+    assert got == {("desk-a", "main"), ("desk-b", "support")}  # cross-agent, one project
     assert out["projectId"] == "proj-x"

@@ -22,9 +22,9 @@ class ComputerTool(Tool):
         "Operate the computer's GUI to accomplish a task, like a human at the keyboard: "
         "open and control ANY application — click, type, scroll, drag, upload files, change "
         "settings — AND drive the user's REAL web browser, which is already signed in to "
-        "their accounts. Give ONE high-level task in plain language (e.g. \"open Notepad, "
-        "type the meeting notes, and save as notes.txt on the Desktop\", or \"open my "
-        "LinkedIn profile and read my headline\"); it runs autonomously and returns a "
+        'their accounts. Give ONE high-level task in plain language (e.g. "open Notepad, '
+        'type the meeting notes, and save as notes.txt on the Desktop", or "open my '
+        'LinkedIn profile and read my headline"); it runs autonomously and returns a '
         "summary of what it did.\n"
         "When to use this vs the other tools:\n"
         "- Desktop GUI actions (apps, settings, files a human would click) -> use this.\n"
@@ -55,8 +55,9 @@ class ComputerTool(Tool):
         from agentd.infrastructure.tools.computer.drivers import GeminiComputerUseDriver
 
         try:
-            model = resolve_tool_model(self.config, "computer", "computer",
-                                       default=COMPUTER_DEFAULT_MODEL)
+            model = resolve_tool_model(
+                self.config, "computer", "computer", default=COMPUTER_DEFAULT_MODEL
+            )
             driver = GeminiComputerUseDriver(self.provider, model, self.config)
             summary = await driver.run(params["task"], abort, on_update)
             return ToolResult.text(summary)

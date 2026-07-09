@@ -29,8 +29,11 @@ export type ChatItem = (
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string; streaming: boolean }
   | { kind: 'thinking'; text: string; streaming: boolean }
-  | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean }
+  | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean; progress?: string }
   | { kind: 'system'; text: string; tone: 'info' | 'error' }
+  // per-step model/token trace (which brain ran this loop step + its usage); emitted only when
+  // config.model_trace is on (default on; AGENTD_MODEL_TRACE=0 to hide)
+  | { kind: 'trace'; step: number; model: string; tokensIn: number; tokensOut: number }
 ) & { ts?: number; artifacts?: Artifact[] } // ts: epoch ms (server-side); artifacts: media the item produced
 
 export interface SessionState {
@@ -328,6 +331,10 @@ interface AppState {
   removeProjectMember(projectId: string, agentId: string): Promise<void>
   sendMessage(text: string, attachments?: OutgoingAttachment[]): Promise<void>
   abortRun(): Promise<void>
+  /** load text into the chat composer (a user message's Edit action); `n` forces a fresh apply
+   *  even when the same text is edited twice. */
+  composerSeed: { text: string; n: number } | null
+  seedComposer(text: string): void
   refreshCatalog(): Promise<void>
   installBundle(id: string): Promise<void>
   uninstallBundle(id: string): Promise<void>
@@ -392,6 +399,22 @@ export const useApp = create<AppState>((set, get) => {
           )
         }))
         break
+      case 'model_trace':
+        patchSession(sessionKey, (session) => ({
+          ...session,
+          items: [
+            ...session.items,
+            {
+              kind: 'trace',
+              step: Number(event.step || 0),
+              model: String(event.model || ''),
+              tokensIn: Number(event.tokensIn || 0),
+              tokensOut: Number(event.tokensOut || 0),
+              ts
+            }
+          ]
+        }))
+        break
       case 'tool_execution_start':
         patchSession(sessionKey, (session) => ({
           ...session,
@@ -400,6 +423,24 @@ export const useApp = create<AppState>((set, get) => {
             { kind: 'tool', name: event.toolName || '?', args: event.args || {}, result: '', isError: false, done: false, ts }
           ]
         }))
+        break
+      case 'tool_progress':
+        // a running tool's incremental steps (the computer tool's per-step updates, GuardedTool
+        // retries, …) — accumulate onto the matching not-yet-done tool block so they render live
+        patchSession(sessionKey, (session) => {
+          const items = [...session.items]
+          const text = String(event.text || '').trim()
+          if (text) {
+            for (let i = items.length - 1; i >= 0; i--) {
+              const item = items[i]
+              if (item.kind === 'tool' && !item.done && item.name === (event.toolName || '?')) {
+                items[i] = { ...item, progress: item.progress ? `${item.progress}\n${text}` : text }
+                break
+              }
+            }
+          }
+          return { ...session, items }
+        })
         break
       case 'tool_execution_end':
         patchSession(sessionKey, (session) => {
@@ -633,6 +674,7 @@ export const useApp = create<AppState>((set, get) => {
     viewedAgentId: '',
     projects: [],
     sessions: {},
+    composerSeed: null,
     openTabs: [],
     tabTitles: {},
     sidebarCollapsed: false,
@@ -1081,6 +1123,10 @@ export const useApp = create<AppState>((set, get) => {
       } catch {
         /* no active run — fine */
       }
+    },
+
+    seedComposer(text) {
+      set({ composerSeed: { text, n: Date.now() } })
     },
 
     async refreshCatalog() {

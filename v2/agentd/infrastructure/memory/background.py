@@ -33,7 +33,7 @@ class BackgroundEmbedder:
             return
         try:
             task = asyncio.create_task(self._run(item_id, text))
-        except RuntimeError:                    # no running loop (e.g. a sync/CLI path)
+        except RuntimeError:  # no running loop (e.g. a sync/CLI path)
             log.warning("memory: no running loop; note %s kept keyword-only", item_id)
             return
         self._tasks.add(task)
@@ -41,12 +41,12 @@ class BackgroundEmbedder:
 
     async def _run(self, item_id: str, text: str) -> None:
         try:
-            vec = await asyncio.to_thread(self._bank.embed_vector, text)   # network, off the loop
+            vec = await asyncio.to_thread(self._bank.embed_vector, text)  # network, off the loop
         except Exception as e:  # noqa: BLE001 — embed is best-effort; the note is already saved
             log.warning("memory: background embed failed (note kept, keyword-only): %s", e)
             return
         try:
-            self._bank.store_embedding(item_id, vec)     # DB write, back on the loop thread
+            self._bank.store_embedding(item_id, vec)  # DB write, back on the loop thread
             log.debug("memory: embedded note %s in background", item_id)
         except Exception as e:  # noqa: BLE001
             log.warning("memory: store embedding failed for %s: %s", item_id, e)

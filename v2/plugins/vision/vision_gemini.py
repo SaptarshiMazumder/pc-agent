@@ -27,8 +27,12 @@ GROUNDING_MODEL = "gemini-3.1-pro-preview"
 
 
 def resolve_key(param_key: str | None, config) -> str:
-    for cand in (param_key, os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY"),
-                 getattr(config, "gemini_api_key", None)):
+    for cand in (
+        param_key,
+        os.environ.get("GEMINI_API_KEY"),
+        os.environ.get("GOOGLE_API_KEY"),
+        getattr(config, "gemini_api_key", None),
+    ):
         if cand:
             return str(cand)
     raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
@@ -38,15 +42,17 @@ def _mime(path: Path) -> str:
     return "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
 
 
-def analyze(image_path: Path, prompt: str, *, model: str, api_key: str | None = None,
-            want_json: bool) -> str:
+def analyze(
+    image_path: Path, prompt: str, *, model: str, api_key: str | None = None, want_json: bool
+) -> str:
     """Return the model's text (or JSON string) for an image + prompt, via the provider-agnostic
     one-shot (LiteLLM). `model` is a litellm id (bare id => gemini); `api_key` is optional (gemini
     falls back to GEMINI_API_KEY/GOOGLE_API_KEY, other providers read their own env key)."""
     from agentd.infrastructure.llm.oneshot import vision_complete
 
-    return vision_complete(model=model, prompt=prompt, image_paths=[image_path],
-                           want_json=want_json, api_key=api_key)
+    return vision_complete(
+        model=model, prompt=prompt, image_paths=[image_path], want_json=want_json, api_key=api_key
+    )
 
 
 def parse_json(text: str):
@@ -60,5 +66,6 @@ def parse_json(text: str):
 
 def image_dims(image_path: Path) -> tuple[int, int]:
     from PIL import Image
+
     with Image.open(image_path) as im:
         return im.size

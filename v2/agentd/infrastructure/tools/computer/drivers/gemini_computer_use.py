@@ -55,9 +55,22 @@ def _is_transient(e: Exception) -> bool:
     if isinstance(e, _TRANSIENT):
         return True
     s = (type(e).__name__ + " " + str(e)).lower()
-    return any(k in s for k in (
-        "getaddrinfo", "temporarily", "timeout", "timed out", "connection",
-        "unavailable", "reset", "502", "503", "504", "429"))
+    return any(
+        k in s
+        for k in (
+            "getaddrinfo",
+            "temporarily",
+            "timeout",
+            "timed out",
+            "connection",
+            "unavailable",
+            "reset",
+            "502",
+            "503",
+            "504",
+            "429",
+        )
+    )
 
 
 class GeminiComputerUseDriver:
@@ -85,7 +98,9 @@ class GeminiComputerUseDriver:
         # the worker thread, so the SDK timeout must fire first).
         timeout_ms = int(computer_knob(self._config, "call_timeout_seconds", 120.0) * 1000)
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
-        env = getattr(types.Environment, "ENVIRONMENT_DESKTOP", types.Environment.ENVIRONMENT_BROWSER)
+        env = getattr(
+            types.Environment, "ENVIRONMENT_DESKTOP", types.Environment.ENVIRONMENT_BROWSER
+        )
         # Custom verb so the model can open the browser DIRECTLY (we launch Chrome in
         # code) instead of fumbling the URL into the Start menu. Desktop-app control
         # (the predefined computer_use functions) is unchanged.
@@ -98,9 +113,11 @@ class GeminiComputerUseDriver:
             ),
             parameters=types.Schema(
                 type=types.Type.OBJECT,
-                properties={"url": types.Schema(
-                    type=types.Type.STRING,
-                    description="Full URL including https://")},
+                properties={
+                    "url": types.Schema(
+                        type=types.Type.STRING, description="Full URL including https://"
+                    )
+                },
                 required=["url"],
             ),
         )
@@ -117,7 +134,8 @@ class GeminiComputerUseDriver:
             for i in range(4):
                 try:
                     return client.models.generate_content(
-                        model=self._model, contents=contents, config=cfg)
+                        model=self._model, contents=contents, config=cfg
+                    )
                 except Exception as e:  # noqa: BLE001
                     if i == 3 or not _is_transient(e):
                         raise
@@ -199,13 +217,26 @@ class GeminiComputerUseDriver:
                     data["safety_acknowledgement"] = "true"
                 png, _ = _shot_part()
                 _save(png, step)
-                responses.append(types.FunctionResponse(
-                    name=name, response=data,
-                    parts=[types.FunctionResponsePart(
-                        inline_data=types.FunctionResponseBlob(mime_type="image/png", data=png))],
-                ))
-            contents.append(types.Content(
-                role="user", parts=[types.Part(function_response=r) for r in responses]))
+                responses.append(
+                    types.FunctionResponse(
+                        name=name,
+                        response=data,
+                        parts=[
+                            types.FunctionResponsePart(
+                                inline_data=types.FunctionResponseBlob(
+                                    mime_type="image/png", data=png
+                                )
+                            )
+                        ],
+                    )
+                )
+            contents.append(
+                types.Content(
+                    role="user", parts=[types.Part(function_response=r) for r in responses]
+                )
+            )
 
-        return (f"Reached the step cap ({self._max_steps}) without the model signalling "
-                f"completion. Last note: {last_text}").strip()
+        return (
+            f"Reached the step cap ({self._max_steps}) without the model signalling "
+            f"completion. Last note: {last_text}"
+        ).strip()

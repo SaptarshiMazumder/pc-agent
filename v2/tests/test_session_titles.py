@@ -28,12 +28,15 @@ def test_generate_title_falls_back_to_snippet_on_error(monkeypatch):
 
     monkeypatch.setattr(session_titles, "text_complete", boom)
     title = session_titles.generate_title("Center a div in CSS please", "Use flexbox", "any/model")
-    assert title.startswith("Center a div")   # snippet fallback, never raises
+    assert title.startswith("Center a div")  # snippet fallback, never raises
 
 
 def test_generate_title_uses_model_output(monkeypatch):
     monkeypatch.setattr(session_titles, "text_complete", lambda **_k: "  Centering A Div.  ")
-    assert session_titles.generate_title("how do I center a div", "flexbox", "any/model") == "Centering A Div"
+    assert (
+        session_titles.generate_title("how do I center a div", "flexbox", "any/model")
+        == "Centering A Div"
+    )
 
 
 def test_generate_title_empty_user_returns_empty():

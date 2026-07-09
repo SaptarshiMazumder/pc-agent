@@ -22,7 +22,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     issue = sub.add_parser("issue", help="(publisher) sign a license file")
     issue.add_argument("--key", required=True, help="keypair file from `agentd bundle keygen`")
     issue.add_argument("--sku", required=True, help="comma-separated SKU(s) to grant")
-    issue.add_argument("--expires", default="", help="ISO date (e.g. 2027-07-04); empty = perpetual")
+    issue.add_argument(
+        "--expires", default="", help="ISO date (e.g. 2027-07-04); empty = perpetual"
+    )
     issue.add_argument("--subject", default="", help="who this license is for (email/customer id)")
     issue.add_argument("--out", default="", help="output .lic path (default <first-sku>.lic)")
     issue.set_defaults(func=run_issue)
@@ -40,12 +42,15 @@ def run_issue(args: argparse.Namespace) -> int:
 
     keypair = json.loads(Path(args.key).read_text(encoding="utf-8"))
     skus = [s.strip() for s in args.sku.split(",") if s.strip()]
-    content = issue_license(keypair["private_key"], skus,
-                            expires=args.expires, subject=args.subject)
+    content = issue_license(
+        keypair["private_key"], skus, expires=args.expires, subject=args.subject
+    )
     out = Path(args.out or f"{skus[0]}.lic")
     out.write_text(content, encoding="utf-8")
-    print(f"license written: {out}  (skus: {', '.join(skus)}"
-          + (f", expires {args.expires})" if args.expires else ", perpetual)"))
+    print(
+        f"license written: {out}  (skus: {', '.join(skus)}"
+        + (f", expires {args.expires})" if args.expires else ", perpetual)")
+    )
     return 0
 
 
@@ -79,8 +84,10 @@ def run_list(args: argparse.Namespace) -> int:
         return 0
     licenses = load_licenses(licenses_dir, publisher_key)
     for lic in licenses:
-        print(f"  {Path(lic.path).name:<32} skus: {', '.join(lic.skus)}"
-              + (f"  (until {lic.expires})" if lic.expires else "  (perpetual)"))
+        print(
+            f"  {Path(lic.path).name:<32} skus: {', '.join(lic.skus)}"
+            + (f"  (until {lic.expires})" if lic.expires else "  (perpetual)")
+        )
     invalid = len(files) - len(licenses)
     if invalid:
         print(f"  ({invalid} file(s) failed verification — see the daemon log)")

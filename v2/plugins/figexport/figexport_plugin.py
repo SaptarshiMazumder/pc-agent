@@ -10,8 +10,8 @@ python-pptx is already installed and the PDF path reuses the existing browser.
 
 from __future__ import annotations
 
-from export_pptx_tool import ExportPptxTool
 from export_pdf_tool import ExportPdfTool
+from export_pptx_tool import ExportPptxTool
 
 
 def register(api, ctx):

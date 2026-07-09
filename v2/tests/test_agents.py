@@ -39,10 +39,11 @@ class _T:
 
 # ---- session-key routing ---------------------------------------------------
 
+
 def test_agent_id_from_session_key():
     assert agent_id_from_session_key("agent:support:slack:u1") == "support"
     assert agent_id_from_session_key("agent:marketing:main") == "marketing"
-    assert agent_id_from_session_key("default") == "main"       # legacy plain key
+    assert agent_id_from_session_key("default") == "main"  # legacy plain key
     assert agent_id_from_session_key("agent:") == "main"
     assert agent_id_from_session_key("") == "main"
     # per-task cron keys (4 segments) still resolve the agent from parts[1]
@@ -53,7 +54,7 @@ def test_cron_session_key_is_per_task_and_round_trips():
     k1 = cron_session_key("expense-calc", "abc123")
     k2 = cron_session_key("expense-calc", "def456")
     assert k1 == "agent:expense-calc:cron:abc123"
-    assert k1 != k2                                       # per-task -> independent sessions
+    assert k1 != k2  # per-task -> independent sessions
     # the agent is still recoverable (routing/parsing unchanged)
     assert agent_id_from_session_key(k1) == "expense-calc"
     assert agent_id_from_session_key(k2) == "expense-calc"
@@ -61,25 +62,36 @@ def test_cron_session_key_is_per_task_and_round_trips():
 
 # ---- tool / skill scoping --------------------------------------------------
 
+
 def test_select_tools_allow_deny_wildcard():
     tools = [_T("read"), _T("write"), _T("google__gmail"), _T("google__drive")]
-    assert [t.name for t in select_tools(tools, _spec())] == \
-        ["read", "write", "google__gmail", "google__drive"]            # None = all
-    allow = _spec(tools_allow=("read", "google__*"))                   # wildcard server
-    assert [t.name for t in select_tools(tools, allow)] == \
-        ["read", "google__gmail", "google__drive"]
+    assert [t.name for t in select_tools(tools, _spec())] == [
+        "read",
+        "write",
+        "google__gmail",
+        "google__drive",
+    ]  # None = all
+    allow = _spec(tools_allow=("read", "google__*"))  # wildcard server
+    assert [t.name for t in select_tools(tools, allow)] == [
+        "read",
+        "google__gmail",
+        "google__drive",
+    ]
     deny = _spec(tools_deny=("write",))
     assert "write" not in [t.name for t in select_tools(tools, deny)]
 
 
 def test_select_skills():
     skills = [_T("github"), _T("git"), _T("language")]
-    assert [s.name for s in select_skills(skills, _spec(skills_allow=("git*",)))] == \
-        ["github", "git"]
-    assert len(select_skills(skills, _spec())) == 3                    # None = all
+    assert [s.name for s in select_skills(skills, _spec(skills_allow=("git*",)))] == [
+        "github",
+        "git",
+    ]
+    assert len(select_skills(skills, _spec())) == 3  # None = all
 
 
 # ---- bootstrap loader ------------------------------------------------------
+
 
 def test_load_bootstrap_concatenates(tmp_path):
     d = tmp_path / "support"
@@ -100,6 +112,7 @@ def test_load_bootstrap_empty_dir(tmp_path):
 
 # ---- registry: back-compat synthesized main --------------------------------
 
+
 def test_registry_synthesizes_main_when_no_agents_dir(tmp_path):
     cfg = _cfg(tmp_path)  # agents_dir does not exist
     reg = FileAgentRegistry(cfg)
@@ -108,14 +121,15 @@ def test_registry_synthesizes_main_when_no_agents_dir(tmp_path):
     assert main.name == "JARVIS"
     # main is now a first-class agent rooted at agents/main/ (no home/flat special-case)
     assert main.workspace == cfg.agents_dir / "main" / "workspace"
-    assert main.skills_dir == cfg.agents_dir / "main" / "skills"   # main's = the global library
-    assert main.state_dir == cfg.state_dir / "agents" / "main"     # partitions like every agent
+    assert main.skills_dir == cfg.agents_dir / "main" / "skills"  # main's = the global library
+    assert main.state_dir == cfg.state_dir / "agents" / "main"  # partitions like every agent
     assert main.tools_allow is None and main.instructions == ""
-    assert reg.resolve("default") is main           # legacy keys -> main
-    assert reg.resolve("agent:nope:x") is main      # unknown agent -> main
+    assert reg.resolve("default") is main  # legacy keys -> main
+    assert reg.resolve("agent:nope:x") is main  # unknown agent -> main
 
 
 # ---- registry: an independent file-defined agent ---------------------------
+
 
 def test_registry_loads_file_agent(tmp_path):
     agents = tmp_path / "agents"
@@ -136,7 +150,7 @@ def test_registry_loads_file_agent(tmp_path):
     # partitioned session path (NOT the legacy flat path)
     assert s.state_dir == (tmp_path / "state") / "agents" / "support"
     assert reg.resolve("agent:support:slack:u1") is s
-    assert reg.resolve("default").id == "main"      # main still default
+    assert reg.resolve("default").id == "main"  # main still default
 
 
 def test_registry_parses_safe_to_send_audience(tmp_path):
@@ -144,7 +158,7 @@ def test_registry_parses_safe_to_send_audience(tmp_path):
     sup = agents / "support"
     sup.mkdir(parents=True)
     (sup / "agent.toml").write_text(
-        'name = "Support"\n[safe_to_send]\naudience = "External"\n',   # case-normalized
+        'name = "Support"\n[safe_to_send]\naudience = "External"\n',  # case-normalized
         encoding="utf-8",
     )
     reg = FileAgentRegistry(_cfg(tmp_path, agents_dir=agents))
@@ -160,9 +174,9 @@ def test_file_defined_main_partitions_like_others(tmp_path):
     cfg = _cfg(tmp_path, agents_dir=agents)
     reg = FileAgentRegistry(cfg)
     main = reg.get("main")
-    assert main.state_dir == cfg.state_dir / "agents" / "main"   # main partitions like every agent
+    assert main.state_dir == cfg.state_dir / "agents" / "main"  # main partitions like every agent
     assert main.workspace == agents / "main" / "workspace"
-    assert main.skills_dir == agents / "main" / "skills"         # main's = the global library
+    assert main.skills_dir == agents / "main" / "skills"  # main's = the global library
     assert "Main persona." in main.instructions
 
 

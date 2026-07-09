@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 log = logging.getLogger("agentd")
-_MAX_EXTRACT_BYTES = 10_000_000   # don't text-extract very large documents
+_MAX_EXTRACT_BYTES = 10_000_000  # don't text-extract very large documents
 
 
 def _extract_docx(path: Path) -> str:

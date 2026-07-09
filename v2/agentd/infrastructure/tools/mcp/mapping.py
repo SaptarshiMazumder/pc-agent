@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentd.domain.messages import TextContent
 from agentd.domain.mcp import McpCallResult
+from agentd.domain.messages import TextContent
 
 from .. import ToolResult
 

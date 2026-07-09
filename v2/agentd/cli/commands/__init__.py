@@ -15,5 +15,16 @@ from agentd.cli.commands import (
     sessions,
 )
 
-ALL = [chat, serve, daemon, doctor, agents, sessions, projects, plugins,
-       marketplace, bundle, license_]
+ALL = [
+    chat,
+    serve,
+    daemon,
+    doctor,
+    agents,
+    sessions,
+    projects,
+    plugins,
+    marketplace,
+    bundle,
+    license_,
+]

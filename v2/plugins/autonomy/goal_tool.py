@@ -11,10 +11,9 @@ from __future__ import annotations
 import time
 import uuid
 
+from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_run_context
 from agentd.domain.autonomy import Goal
-
-from agentd.application.interfaces.tool import Tool, ToolResult
 
 
 class GoalTool(Tool):
@@ -33,10 +32,15 @@ class GoalTool(Tool):
         "properties": {
             "action": {"type": "string", "enum": ["create", "get", "update"]},
             "objective": {"type": "string", "description": "What to achieve (action=create)."},
-            "token_budget": {"type": "integer",
-                             "description": "Optional advisory token budget (action=create)."},
-            "status": {"type": "string", "enum": ["complete", "blocked"],
-                       "description": "How the goal ended (action=update)."},
+            "token_budget": {
+                "type": "integer",
+                "description": "Optional advisory token budget (action=create).",
+            },
+            "status": {
+                "type": "string",
+                "enum": ["complete", "blocked"],
+                "description": "How the goal ended (action=update).",
+            },
         },
     }
     default_retryable = False
@@ -55,9 +59,15 @@ class GoalTool(Tool):
             objective = (params.get("objective") or "").strip()
             if not objective:
                 return ToolResult.text("objective is required for action=create", is_error=True)
-            goal = Goal(id=uuid.uuid4().hex[:12], agent_id=agent_id, session_key=session_key,
-                        objective=objective, token_budget=params.get("token_budget"),
-                        status="active", created_at=time.time())
+            goal = Goal(
+                id=uuid.uuid4().hex[:12],
+                agent_id=agent_id,
+                session_key=session_key,
+                objective=objective,
+                token_budget=params.get("token_budget"),
+                status="active",
+                created_at=time.time(),
+            )
             self._store.create_goal(goal)
             budget = f" (budget {goal.token_budget} tokens)" if goal.token_budget else ""
             return ToolResult.text(f"goal set: {objective}{budget}", details=goal.__dict__)
@@ -69,7 +79,8 @@ class GoalTool(Tool):
             budget = f" | budget: {goal.token_budget} tokens" if goal.token_budget else ""
             return ToolResult.text(
                 f"objective: {goal.objective}{budget} | status: {goal.status}",
-                details=goal.__dict__)
+                details=goal.__dict__,
+            )
 
         if action == "update":
             status = (params.get("status") or "").strip()

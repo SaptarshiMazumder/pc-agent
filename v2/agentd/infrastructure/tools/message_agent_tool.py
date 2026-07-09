@@ -14,16 +14,18 @@ from . import Tool, ToolResult
 class MessageAgentTool(Tool):
     name = "message_agent"
     label = "Message Agent"
-    concurrency = "parallel"          # several agents can be messaged at once
-    default_timeout_sec = None        # the other agent's turn can take a while
-    default_retryable = False         # side-effecting (runs another agent); never auto-retry
+    concurrency = "parallel"  # several agents can be messaged at once
+    default_timeout_sec = None  # the other agent's turn can take a while
+    default_retryable = False  # side-effecting (runs another agent); never auto-retry
     description = (
         "Send a message or task to ANOTHER persistent agent and get its reply back. Unlike "
         "spawn_subagent (a throwaway helper with no memory), this reaches the agent's OWN "
         "ongoing session, so it remembers your past exchanges. Use `agents_list` to see who you "
-        "can reach; you may message several agents in one turn (they run in parallel).")
+        "can reach; you may message several agents in one turn (they run in parallel)."
+    )
     parameters = {
-        "type": "object", "required": ["agent", "message"],
+        "type": "object",
+        "required": ["agent", "message"],
         "properties": {
             "agent": {"type": "string", "description": "the target agent's id"},
             "message": {"type": "string", "description": "the message / task for that agent"},
@@ -31,7 +33,7 @@ class MessageAgentTool(Tool):
     }
 
     def __init__(self, message_fn):
-        self._message = message_fn        # async (target_id, message) -> str
+        self._message = message_fn  # async (target_id, message) -> str
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         target = (params.get("agent") or "").strip()

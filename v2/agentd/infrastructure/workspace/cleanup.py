@@ -15,7 +15,7 @@ import fnmatch
 import os
 from pathlib import Path
 
-SCRATCH_DIRNAME = "tmp"           # <workspace>/tmp/ — the sanctioned scratch area
+SCRATCH_DIRNAME = "tmp"  # <workspace>/tmp/ — the sanctioned scratch area
 
 
 def _is_home(p: Path) -> bool:
@@ -40,6 +40,7 @@ def sweep_scratch(workspace, ttl_hours: float, *, now: float | None = None) -> i
     if not d.is_dir():
         return 0
     import time
+
     cutoff = (now if now is not None else time.time()) - ttl_hours * 3600
     n = 0
     for p in d.rglob("*"):

@@ -9,16 +9,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.config import McpServerConfig, load_config
-from agentd.domain.messages import TextContent
 from agentd.domain.mcp import McpCallResult, McpToolSpec
+from agentd.domain.messages import TextContent
 from agentd.infrastructure.tools.guard import GuardedTool
 from agentd.infrastructure.tools.mcp.factory import build_mcp_provider
 from agentd.infrastructure.tools.mcp.mapping import to_tool_result
 from agentd.infrastructure.tools.mcp.provider import McpProvider
 from agentd.infrastructure.tools.mcp.tool import McpTool
 
-
 # ---- fakes (satisfy the McpSession protocol structurally) -----------------
+
 
 class FakeSession:
     def __init__(self, name, specs=None, call=None, closed_log=None):
@@ -40,8 +40,12 @@ class FakeSession:
 
 
 def _spec(server, name, schema=None):
-    return McpToolSpec(server=server, name=name, description=f"{name} desc",
-                       input_schema=schema or {"type": "object", "properties": {}})
+    return McpToolSpec(
+        server=server,
+        name=name,
+        description=f"{name} desc",
+        input_schema=schema or {"type": "object", "properties": {}},
+    )
 
 
 def _provider(cfg, session):
@@ -49,10 +53,12 @@ def _provider(cfg, session):
         if isinstance(session, Exception):
             raise session
         return session
+
     return McpProvider([cfg], factory)
 
 
 # ---- McpTool ---------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_mcptool_success_maps_to_toolresult():
@@ -65,8 +71,9 @@ async def test_mcptool_success_maps_to_toolresult():
 
 @pytest.mark.asyncio
 async def test_mcptool_error_flag_propagates():
-    sess = FakeSession("g", call=lambda n, a: McpCallResult(
-        content=[TextContent(text="boom")], is_error=True))
+    sess = FakeSession(
+        "g", call=lambda n, a: McpCallResult(content=[TextContent(text="boom")], is_error=True)
+    )
     res = await McpTool(sess, _spec("g", "x"), "g__x").execute("c", {}, asyncio.Event())
     assert res.is_error is True and res.content[0].text == "boom"
 
@@ -75,8 +82,10 @@ async def test_mcptool_error_flag_propagates():
 async def test_mcptool_never_raises_on_exception():
     def boom(n, a):
         raise ConnectionError("server gone")
+
     res = await McpTool(FakeSession("g", call=boom), _spec("g", "x"), "g__x").execute(
-        "c", {}, asyncio.Event())
+        "c", {}, asyncio.Event()
+    )
     assert res.is_error is True and "ConnectionError" in res.content[0].text
 
 
@@ -84,25 +93,30 @@ async def test_mcptool_never_raises_on_exception():
 async def test_mcptool_reraises_cancellation():
     def cancel(n, a):
         raise asyncio.CancelledError()
+
     with pytest.raises(asyncio.CancelledError):
         await McpTool(FakeSession("g", call=cancel), _spec("g", "x"), "g__x").execute(
-            "c", {}, asyncio.Event())
+            "c", {}, asyncio.Event()
+        )
 
 
 def test_mcptool_schema_and_policy_attrs():
     schema = {"type": "object", "required": ["q"], "properties": {"q": {"type": "string"}}}
     t = McpTool(FakeSession("g"), _spec("g", "search", schema), "g__search")
-    assert t.parameters == schema           # MCP inputSchema is JSON Schema -> drop-in
+    assert t.parameters == schema  # MCP inputSchema is JSON Schema -> drop-in
     assert t.name == "g__search"
     assert McpTool.default_retryable is False and McpTool.default_timeout_sec == 120.0
 
 
 # ---- McpProvider -----------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_discover_namespaces_tools():
     cfg = McpServerConfig(name="google", command=["x"])
-    sess = FakeSession("google", specs=[_spec("google", "gmail_send"), _spec("google", "drive_list")])
+    sess = FakeSession(
+        "google", specs=[_spec("google", "gmail_send"), _spec("google", "drive_list")]
+    )
     tools = await _provider(cfg, sess).discover()
     assert [t.name for t in tools] == ["google__gmail_send", "google__drive_list"]
 
@@ -142,12 +156,14 @@ async def test_aclose_closes_all_sessions():
 
 # ---- mapping ---------------------------------------------------------------
 
+
 def test_mapping_empty_content_placeholder():
     res = to_tool_result(McpCallResult(content=[]))
     assert res.content[0].text == "(no content)" and res.is_error is False
 
 
 # ---- factory ---------------------------------------------------------------
+
 
 def test_factory_none_without_servers():
     assert build_mcp_provider(SimpleNamespace(mcp_servers=[])) is None
@@ -160,16 +176,19 @@ def test_factory_supports_http_transport():
 
 
 def test_factory_skips_unknown_transport():
-    cfg = SimpleNamespace(mcp_servers=[McpServerConfig(name="w", transport="websocket", url="ws://x")])
+    cfg = SimpleNamespace(
+        mcp_servers=[McpServerConfig(name="w", transport="websocket", url="ws://x")]
+    )
     assert build_mcp_provider(cfg) is None
 
 
 # ---- subprocess env (inherit .env + ${VAR} expansion) ----------------------
 
+
 def test_resolve_subprocess_inherits_and_expands(monkeypatch):
     from agentd.infrastructure.tools.mcp.session import resolve_subprocess
 
-    monkeypatch.setenv("MY_CLIENT_ID", "abc123")     # e.g. a value from .env
+    monkeypatch.setenv("MY_CLIENT_ID", "abc123")  # e.g. a value from .env
     monkeypatch.setenv("INHERITED_VAR", "yes")
     cfg = McpServerConfig(
         name="g",
@@ -179,19 +198,25 @@ def test_resolve_subprocess_inherits_and_expands(monkeypatch):
     cmd, env = resolve_subprocess(cfg)
     assert cmd == ["uvx", "workspace-mcp"]
     assert env["GOOGLE_OAUTH_CLIENT_ID"] == "abc123"  # ${VAR} expanded from env
-    assert env["FLAG"] == "1"                          # literal overlay
-    assert env["INHERITED_VAR"] == "yes"               # full env inherited (secrets in .env reach the server)
+    assert env["FLAG"] == "1"  # literal overlay
+    assert env["INHERITED_VAR"] == "yes"  # full env inherited (secrets in .env reach the server)
 
 
 # ---- config conversion -----------------------------------------------------
 
+
 def test_config_coerces_mcp_servers_dicts(tmp_path, monkeypatch):
     cfgfile = tmp_path / "agentd.config.json"
-    cfgfile.write_text(json.dumps({
-        "mcp_servers": [
-            {"name": "google", "command": ["uvx", "workspace-mcp"], "env": {"K": "v"}},
-        ]
-    }), encoding="utf-8")
+    cfgfile.write_text(
+        json.dumps(
+            {
+                "mcp_servers": [
+                    {"name": "google", "command": ["uvx", "workspace-mcp"], "env": {"K": "v"}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("AGENTD_CONFIG", str(cfgfile))
     cfg = load_config()
     assert len(cfg.mcp_servers) == 1
@@ -201,6 +226,7 @@ def test_config_coerces_mcp_servers_dicts(tmp_path, monkeypatch):
 
 
 # ---- gateway wiring (discovered MCP tools get guarded + added) -------------
+
 
 @pytest.mark.asyncio
 async def test_gateway_discovers_and_guards_mcp_tools():
@@ -213,10 +239,12 @@ async def test_gateway_discovers_and_guards_mcp_tools():
         async def discover(self):
             sess = FakeSession("g", specs=[_spec("g", "ping")])
             return [McpTool(sess, _spec("g", "ping"), "g__ping")]
+
         async def aclose(self):
             pass
 
     from agentd.presentation.gateway import Gateway
+
     gw = Gateway(config=load_config(), service=svc, mcp_provider=FakeProvider())
     await gw._discover_mcp_tools()
 

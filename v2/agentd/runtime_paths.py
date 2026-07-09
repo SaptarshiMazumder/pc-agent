@@ -150,7 +150,6 @@ def packaged_starter_agents_dir() -> Path:
 def ensure_user_layout() -> Path:
     """Create the ~/.agentd skeleton (idempotent). Returns the home dir."""
     home = user_home()
-    for d in (home, home / "agents", home / "plugins", home / "state",
-              licenses_dir(), logs_dir()):
+    for d in (home, home / "agents", home / "plugins", home / "state", licenses_dir(), logs_dir()):
         d.mkdir(parents=True, exist_ok=True)
     return home

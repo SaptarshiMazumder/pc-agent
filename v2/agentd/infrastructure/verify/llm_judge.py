@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from agentd.application.interfaces.verifier import Verdict, VerifyContext
 
@@ -58,7 +58,9 @@ class LlmJudgeVerifier:
             return Verdict(ok=True)
 
     def _build_prompt(self, ctx: VerifyContext) -> str:
-        evidence = "\n".join(f"- {e}" for e in (ctx.evidence or [])[: self._max_evidence]) or "(none)"
+        evidence = (
+            "\n".join(f"- {e}" for e in (ctx.evidence or [])[: self._max_evidence]) or "(none)"
+        )
         return (
             f"{self._rubric}\n\n"
             f"## TASK\n{ctx.task}\n\n"

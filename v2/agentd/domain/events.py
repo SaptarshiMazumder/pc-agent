@@ -32,8 +32,9 @@ parent that's blocked on a child shows the child working instead of going silent
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 
 @dataclass
@@ -45,6 +46,7 @@ class AgentEvent:
     "agent_end"); ``payload`` carries any extra data for that event (e.g. the text
     delta string, the tool name, the stop reason).
     """
+
     type: str
     payload: dict[str, Any] = field(default_factory=dict)
 

@@ -50,6 +50,7 @@ def now_ms() -> int:
 @dataclass
 class TextContent:
     """Plain visible text (what the user actually reads)."""
+
     text: str
     type: str = "text"  # discriminator tag (kept in the serialized form)
 
@@ -57,6 +58,7 @@ class TextContent:
 @dataclass
 class ThinkingContent:
     """The model's internal reasoning (shown only if reasoning display is on)."""
+
     thinking: str
     type: str = "thinking"
 
@@ -64,6 +66,7 @@ class ThinkingContent:
 @dataclass
 class ImageContent:
     """An image, carried inline as base64 (e.g. a screenshot the agent produced)."""
+
     data: str  # base64-encoded image bytes
     mime_type: str  # e.g. "image/png"
     type: str = "image"
@@ -72,6 +75,7 @@ class ImageContent:
 @dataclass
 class ToolCallContent:
     """A request from the model to run a tool. Produced by the LLM, executed by the loop."""
+
     id: str  # unique id for this call; the matching ToolResultMessage references it
     name: str  # which tool to run, e.g. "read" / "exec" / "browser"
     arguments: dict[str, Any]  # the tool's parameters, e.g. {"path": "cv.docx"}
@@ -90,6 +94,7 @@ class Artifact:
     explicitly hands back (see ToolResult.artifacts). Carried by reference (path); the
     client streams the bytes from the daemon's /file endpoint, so large media never
     bloats the transcript."""
+
     path: str
     name: str = ""
     mime: str = ""
@@ -97,14 +102,17 @@ class Artifact:
     size: int = 0
 
 
-def artifact_to_dict(a: "Artifact") -> dict[str, Any]:
+def artifact_to_dict(a: Artifact) -> dict[str, Any]:
     return {"path": a.path, "name": a.name, "mime": a.mime, "kind": a.kind, "size": a.size}
 
 
-def artifact_from_dict(d: dict[str, Any]) -> "Artifact":
+def artifact_from_dict(d: dict[str, Any]) -> Artifact:
     return Artifact(
-        path=d.get("path", ""), name=d.get("name", ""), mime=d.get("mime", ""),
-        kind=d.get("kind", "file"), size=int(d.get("size") or 0),
+        path=d.get("path", ""),
+        name=d.get("name", ""),
+        mime=d.get("mime", ""),
+        kind=d.get("kind", "file"),
+        size=int(d.get("size") or 0),
     )
 
 
@@ -120,6 +128,7 @@ class UserMessage:
     document). Attachments are carried BY REFERENCE (Artifact path), exactly like a tool's
     declared deliverables: the transcript stays lean, the client streams the bytes from
     /file, and the LLM adapter inlines any IMAGE attachment so a vision model can SEE it."""
+
     content: str
     attachments: list[Artifact] = field(default_factory=list)  # user-supplied files (by ref)
     timestamp: int = field(default_factory=now_ms)  # when it was created (ms)
@@ -129,6 +138,7 @@ class UserMessage:
 @dataclass
 class AssistantMessage:
     """One turn produced by the model. May contain thinking, text, and/or tool calls."""
+
     content: list[ContentBlock] = field(default_factory=list)  # the blocks of this turn
     stop_reason: str = "stop"  # one of STOP_REASONS — why the turn ended
     usage: dict[str, int] = field(default_factory=dict)  # token counts: {"input": n, "output": n}
@@ -152,6 +162,7 @@ class AssistantMessage:
 @dataclass
 class ToolResultMessage:
     """The output of one executed tool, fed back to the model on the next iteration."""
+
     tool_call_id: str  # ties this result to the ToolCallContent.id that requested it
     tool_name: str  # which tool produced it
     content: list[ContentBlock] = field(default_factory=list)  # usually a single TextContent

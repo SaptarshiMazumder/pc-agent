@@ -20,14 +20,14 @@ from .mapping import to_tool_result
 
 class McpTool(Tool):
     # Reliability defaults consumed by resolve_policy() when GuardedTool wraps this.
-    default_timeout_sec = 120.0   # MCP calls hit external APIs; allow headroom
-    default_retryable = False     # external side effects — don't auto-retry
+    default_timeout_sec = 120.0  # MCP calls hit external APIs; allow headroom
+    default_retryable = False  # external side effects — don't auto-retry
     concurrency = "parallel"
 
     def __init__(self, session: McpSession, spec: McpToolSpec, namespaced_name: str):
         self._session = session
         self._spec = spec
-        self.name = namespaced_name                       # e.g. "google__gmail_send"
+        self.name = namespaced_name  # e.g. "google__gmail_send"
         self.description = spec.description or f"MCP tool '{spec.name}' from '{spec.server}'."
         self.parameters = spec.input_schema or {"type": "object", "properties": {}}
         self.label = namespaced_name
@@ -38,7 +38,5 @@ class McpTool(Tool):
         except asyncio.CancelledError:
             raise  # abort propagates; never swallow cancellation
         except Exception as e:  # noqa: BLE001 — never raise; surface as an error result
-            return ToolResult.text(
-                f"{self.name} failed: {type(e).__name__}: {e}", is_error=True
-            )
+            return ToolResult.text(f"{self.name} failed: {type(e).__name__}: {e}", is_error=True)
         return to_tool_result(result)

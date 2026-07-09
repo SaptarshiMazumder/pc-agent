@@ -21,16 +21,20 @@ def run_status(args: argparse.Namespace) -> int:
     if info is None:
         print("agentd: not running (start with `agentd` or `agentd serve`)")
         return 1
-    print(f"agentd: running  pid {info.pid}  {info.ws_url}  "
-          f"v{info.version or '?'}  since {info.started_at or '?'}  "
-          f"auth {'on' if info.token else 'off'}")
+    print(
+        f"agentd: running  pid {info.pid}  {info.ws_url}  "
+        f"v{info.version or '?'}  since {info.started_at or '?'}  "
+        f"auth {'on' if info.token else 'off'}"
+    )
     try:
         from agentd.cli import rpc
 
         hello = rpc.call("hello", timeout=10, info=info)
-        print(f"product: {hello.get('product', 'agentd')}  |  model: {hello.get('model', '?')}  |  "
-              f"default agent: {hello.get('agentId', '?')}  |  "
-              f"agents: {', '.join(a['id'] for a in hello.get('agents', []))}")
+        print(
+            f"product: {hello.get('product', 'agentd')}  |  model: {hello.get('model', '?')}  |  "
+            f"default agent: {hello.get('agentId', '?')}  |  "
+            f"agents: {', '.join(a['id'] for a in hello.get('agents', []))}"
+        )
     except Exception as e:  # noqa: BLE001 — status must not crash on a busy daemon
         print(f"(hello failed: {e})")
     return 0

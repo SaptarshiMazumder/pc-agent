@@ -40,10 +40,24 @@ class FakeTool(Tool):
             self.finally_ran = True
 
 
-def _pol(timeout=None, max_retries=0, retryable=False, retry_on_timeout=False,
-         loop_max_repeats=0, loop_warn_after_errors=0):
-    return ToolPolicy(timeout, max_retries, retryable, retry_on_timeout, 0.01, 0.05,
-                      loop_max_repeats, loop_warn_after_errors)
+def _pol(
+    timeout=None,
+    max_retries=0,
+    retryable=False,
+    retry_on_timeout=False,
+    loop_max_repeats=0,
+    loop_warn_after_errors=0,
+):
+    return ToolPolicy(
+        timeout,
+        max_retries,
+        retryable,
+        retry_on_timeout,
+        0.01,
+        0.05,
+        loop_max_repeats,
+        loop_warn_after_errors,
+    )
 
 
 async def _run(tool, on_update=None, abort=None):
@@ -51,6 +65,7 @@ async def _run(tool, on_update=None, abort=None):
 
 
 # ---- timeout ----------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_timeout_returns_error_and_cancels_inner():
@@ -86,6 +101,7 @@ async def test_no_wrapper_when_timeout_none():
 
 
 # ---- retry ------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_retry_succeeds_after_transient():
@@ -126,12 +142,15 @@ async def test_timeout_not_retried_by_default():
 async def test_on_update_retry_notice():
     notices = []
     inner = FakeTool(exc=ConnectionError("x"), exc_times=1)
-    res = await _run(GuardedTool(inner, _pol(retryable=True, max_retries=2)),
-                     on_update=lambda u: notices.append(u))
+    res = await _run(
+        GuardedTool(inner, _pol(retryable=True, max_retries=2)),
+        on_update=lambda u: notices.append(u),
+    )
     assert not res.is_error and notices  # a retry notice was emitted
 
 
 # ---- loop detection ---------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_loop_blocks_identical_repeats():
@@ -172,6 +191,7 @@ async def test_loop_nudge_after_consecutive_errors():
 
 # ---- delegation + helpers --------------------------------------------
 
+
 def test_attribute_delegation():
     g = GuardedTool(FakeTool(), _pol())
     assert g.name == "fake" and g.label == "Fake" and g.concurrency == "parallel"
@@ -186,6 +206,7 @@ def test_is_transient():
 
 # ---- resolve_policy precedence ---------------------------------------
 
+
 class _ToolNoneDefault:
     name = "x"
     default_timeout_sec = None  # explicit opt-out must pass through (not global)
@@ -197,7 +218,9 @@ class _ToolNoDefaults:
 
 
 def _cfg(overrides=None):
-    return SimpleNamespace(tool_overrides=overrides or {}, tool_timeout_default=300.0, tool_retries_default=0)
+    return SimpleNamespace(
+        tool_overrides=overrides or {}, tool_timeout_default=300.0, tool_retries_default=0
+    )
 
 
 def test_resolve_tool_default_none_passthrough():

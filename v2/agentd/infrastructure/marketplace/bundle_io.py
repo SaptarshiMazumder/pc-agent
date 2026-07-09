@@ -18,8 +18,15 @@ from agentd.domain.bundle import BundleError, BundleManifest, parse_bundle_manif
 log = logging.getLogger("agentd")
 
 # never packed: runtime junk + user data that must not ship inside an artifact
-EXCLUDED_DIRS = {"__pycache__", ".git", ".pytest_cache", "node_modules", "workspace",
-                 "sessions", ".agentd"}
+EXCLUDED_DIRS = {
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+    "node_modules",
+    "workspace",
+    "sessions",
+    ".agentd",
+}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
 
@@ -53,8 +60,9 @@ def _safe_members(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return members
 
 
-def unpack_bundle(package_path: Path, manifest: BundleManifest,
-                  agents_dir: Path, plugins_dir: Path) -> list[str]:
+def unpack_bundle(
+    package_path: Path, manifest: BundleManifest, agents_dir: Path, plugins_dir: Path
+) -> list[str]:
     """agent/** -> agents_dir/<bundle id>/ ; plugins/<pid>/** -> plugins_dir/<pid>/.
     Existing agent dir is REPLACED except its workspace/ (user files survive
     updates). Returns the vendored plugin ids actually placed."""
@@ -82,13 +90,21 @@ def unpack_bundle(package_path: Path, manifest: BundleManifest,
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)
-    log.info("bundle %s: unpacked agent -> %s%s", manifest.id, agent_dst,
-             f", plugins: {', '.join(sorted(placed_plugins))}" if placed_plugins else "")
+    log.info(
+        "bundle %s: unpacked agent -> %s%s",
+        manifest.id,
+        agent_dst,
+        f", plugins: {', '.join(sorted(placed_plugins))}" if placed_plugins else "",
+    )
     return sorted(placed_plugins)
 
 
-def pack_bundle(agent_dir: Path, out_dir: Path, manifest: BundleManifest,
-                vendored_plugin_dirs: dict[str, Path] | None = None) -> Path:
+def pack_bundle(
+    agent_dir: Path,
+    out_dir: Path,
+    manifest: BundleManifest,
+    vendored_plugin_dirs: dict[str, Path] | None = None,
+) -> Path:
     """agent_dir + vendored plugin dirs -> <out_dir>/<id>-<version>.agentpkg.
     The manifest is serialized to bundle.toml inside the zip (single source)."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -130,8 +146,12 @@ def _manifest_toml(manifest: BundleManifest) -> str:
         f"publisher = {_toml_str(manifest.publisher)}",
     ]
     for dep in manifest.plugins:
-        lines += ["", "[[bundle.plugins]]", f"id = {_toml_str(dep.id)}",
-                  f"source = {_toml_str(dep.source)}"]
+        lines += [
+            "",
+            "[[bundle.plugins]]",
+            f"id = {_toml_str(dep.id)}",
+            f"source = {_toml_str(dep.source)}",
+        ]
         if dep.package:
             lines.append(f"package = {_toml_str(dep.package)}")
         if dep.version:

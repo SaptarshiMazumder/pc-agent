@@ -8,10 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from login_tool import SimpleLoginTool
+
 from agentd.application.run_context import RunContext, set_run_context
 from agentd.infrastructure.channels.webhook import WebhookServer
 from agentd.infrastructure.credentials import ConnectTokenStore
-from login_tool import SimpleLoginTool
 
 
 def test_token_mint_resolve_consume_is_single_use():
@@ -19,17 +20,19 @@ def test_token_mint_resolve_consume_is_single_use():
     t = ts.mint("cost-calc", "hotpepper")
     assert ts.resolve(t) == ("cost-calc", "hotpepper")
     assert ts.consume(t) == ("cost-calc", "hotpepper")
-    assert ts.resolve(t) is None and ts.consume(t) is None        # consumed -> dead
+    assert ts.resolve(t) is None and ts.consume(t) is None  # consumed -> dead
 
 
 def test_token_expiry():
-    ts = ConnectTokenStore(ttl_seconds=-1)                        # already expired
+    ts = ConnectTokenStore(ttl_seconds=-1)  # already expired
     assert ts.resolve(ts.mint("a", "s")) is None
 
 
 def test_link_format():
-    assert ConnectTokenStore.link("https://x.ngrok-free.app/", "abc") \
+    assert (
+        ConnectTokenStore.link("https://x.ngrok-free.app/", "abc")
         == "https://x.ngrok-free.app/connect/abc"
+    )
 
 
 class _Req:
@@ -64,15 +67,27 @@ def test_connect_submit_writes_vault_and_consumes_token():
     ts, vault = ConnectTokenStore(), _Vault()
     srv = WebhookServer([], None, credential_store=vault, connect_tokens=ts)
     t = ts.mint("cost-calc", "hotpepper")
-    resp = asyncio.run(srv._connect_submit(_Req(t, {
-        "login_url": "https://salonboard/login", "username": "me@x.com", "password": "PW123"})))
+    resp = asyncio.run(
+        srv._connect_submit(
+            _Req(
+                t,
+                {
+                    "login_url": "https://salonboard/login",
+                    "username": "me@x.com",
+                    "password": "PW123",
+                },
+            )
+        )
+    )
     assert resp.status == 200 and "Connected" in resp.text
     assert len(vault.saved) == 1
     agent, cred = vault.saved[0]
     assert agent == "cost-calc" and cred.site == "hotpepper"
     assert cred.username == "me@x.com" and cred.password == "PW123"
     # the token is single-use -> a replay fails
-    again = asyncio.run(srv._connect_submit(_Req(t, {"login_url": "x", "username": "y", "password": "z"})))
+    again = asyncio.run(
+        srv._connect_submit(_Req(t, {"login_url": "x", "username": "y", "password": "z"}))
+    )
     assert again.status == 404
 
 
@@ -80,14 +95,17 @@ def _login_tool(public_url):
     class S:
         def get(self, agent, site):
             return None
-    return SimpleLoginTool(S(), browser_manager=None,
-                           connect_tokens=ConnectTokenStore(), public_url=public_url)
+
+    return SimpleLoginTool(
+        S(), browser_manager=None, connect_tokens=ConnectTokenStore(), public_url=public_url
+    )
 
 
 def test_simple_login_no_creds_returns_connect_link():
     set_run_context(RunContext("cost-calc", "agent:cost-calc:line:U1", "channel"))
-    r = asyncio.run(_login_tool("https://x.ngrok-free.app").execute(
-        "c", {"site": "hotpepper"}, asyncio.Event()))
+    r = asyncio.run(
+        _login_tool("https://x.ngrok-free.app").execute("c", {"site": "hotpepper"}, asyncio.Event())
+    )
     assert r.is_error and "https://x.ngrok-free.app/connect/" in r.content[0].text
 
 

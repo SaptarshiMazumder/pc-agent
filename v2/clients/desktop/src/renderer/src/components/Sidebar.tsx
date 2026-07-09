@@ -20,6 +20,7 @@ import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
+import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
 import SettingsMenu from './SettingsMenu'
 
@@ -160,17 +161,16 @@ export default function Sidebar() {
       <div className="nav-rows">
         <NavRow icon={<SquarePen size={17} />} label="New chat" onClick={() => newChat()} title="New chat" />
         {searchOpen ? (
-          <div className="search nav-search">
-            <Search size={16} />
-            <input
-              value={query}
-              autoFocus
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search chats"
-              onBlur={() => { if (!query.trim()) setSearchOpen(false) }}
-              onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) } }}
-            />
-          </div>
+          <SearchBox
+            className="search nav-search"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search chats"
+            iconSize={16}
+            autoFocus
+            onBlur={() => { if (!query.trim()) setSearchOpen(false) }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) } }}
+          />
         ) : (
           <NavRow icon={<Search size={17} />} label="Search" onClick={() => setSearchOpen(true)} title="Search chats" />
         )}

@@ -19,15 +19,17 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class ToolEvent:
-    name: str                       # the tool's name
-    args: dict                      # the call arguments
-    phase: str                      # "before" | "after"
-    is_error: bool | None = None    # after: did the tool return an error?
-    result_digest: str | None = None  # after: short hash of the result text (for "new info?" checks)
+    name: str  # the tool's name
+    args: dict  # the call arguments
+    phase: str  # "before" | "after"
+    is_error: bool | None = None  # after: did the tool return an error?
+    result_digest: str | None = (
+        None  # after: short hash of the result text (for "new info?" checks)
+    )
 
 
 @runtime_checkable
 class RunObserver(Protocol):
-    def on_tool(self, ev: ToolEvent) -> str | None: ...   # halt reason or None
-    def on_turn(self, index: int) -> str | None: ...      # halt reason or None
-    def reset(self) -> None: ...                           # called once at run start
+    def on_tool(self, ev: ToolEvent) -> str | None: ...  # halt reason or None
+    def on_turn(self, index: int) -> str | None: ...  # halt reason or None
+    def reset(self) -> None: ...  # called once at run start

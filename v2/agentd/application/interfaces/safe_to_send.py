@@ -22,19 +22,19 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class SafeToSendContext:
-    audience: str                   # who the reply is going to (e.g. "external" — a public-channel recipient)
-    policy: str                     # the agent's OWN operating rules (its AGENTS.md / bootstrap)
-    question: str                   # what the recipient asked
-    answer: str                     # the reply about to be sent
-    conversation: str = ""          # recent dialog (so the judge can tell the recipient's OWN info,
+    audience: str  # who the reply is going to (e.g. "external" — a public-channel recipient)
+    policy: str  # the agent's OWN operating rules (its AGENTS.md / bootstrap)
+    question: str  # what the recipient asked
+    answer: str  # the reply about to be sent
+    conversation: str = ""  # recent dialog (so the judge can tell the recipient's OWN info,
     #                                 and whether they've identified themselves, from an actual leak)
 
 
 @dataclass(frozen=True)
 class SafeToSendVerdict:
-    safe: bool                      # True => deliver the reply as-is
-    reason: str = ""                # if blocked: why (for the audit log)
-    safe_reply: str = ""            # if blocked: a safe replacement to send instead
+    safe: bool  # True => deliver the reply as-is
+    reason: str = ""  # if blocked: why (for the audit log)
+    safe_reply: str = ""  # if blocked: a safe replacement to send instead
 
 
 @runtime_checkable

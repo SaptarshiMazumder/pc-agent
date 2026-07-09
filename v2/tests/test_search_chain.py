@@ -6,10 +6,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.search import SearchResult
 from search.cache import _CACHE
 from search.format import format_results
 from web_search import WebSearchTool
+
+from agentd.application.interfaces.search import SearchResult
 
 
 class FakeProvider:
@@ -65,8 +66,9 @@ async def test_error_provider_skipped():
 
 @pytest.mark.asyncio
 async def test_all_errors_is_error():
-    res = await _run([FakeProvider("a", error=RuntimeError("x")),
-                      FakeProvider("b", error=RuntimeError("y"))])
+    res = await _run(
+        [FakeProvider("a", error=RuntimeError("x")), FakeProvider("b", error=RuntimeError("y"))]
+    )
     assert res.is_error and "web_search failed" in res.content[0].text
 
 
@@ -103,7 +105,9 @@ async def test_cache_hit_skips_providers():
 
 
 def test_format_results_shape():
-    out = format_results([SearchResult(title="T", url="https://u", snippet="snip", age="2d")], "brave")
+    out = format_results(
+        [SearchResult(title="T", url="https://u", snippet="snip", age="2d")], "brave"
+    )
     assert out.startswith("Search results (provider: brave):")
     assert "1. T  (2d)" in out and "https://u" in out and "snip" in out
     assert format_results([], "x") == "No results (provider: x)."

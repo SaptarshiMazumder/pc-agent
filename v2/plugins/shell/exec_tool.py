@@ -14,10 +14,9 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
+from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
 from agentd.application.tool_models import tool_config
-
-from agentd.application.interfaces.tool import Tool, ToolResult
 
 OUTPUT_CAP = 50_000
 
@@ -36,7 +35,11 @@ async def _kill_process(proc: asyncio.subprocess.Process) -> None:
     try:
         if sys.platform == "win32":
             killer = await asyncio.create_subprocess_exec(
-                "taskkill", "/F", "/T", "/PID", str(proc.pid),
+                "taskkill",
+                "/F",
+                "/T",
+                "/PID",
+                str(proc.pid),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -135,7 +138,10 @@ class ExecTool(Tool):
                 "description": "Extra environment variables (merged).",
             },
             "timeout_sec": {"type": "integer", "minimum": 1, "description": "Timeout in seconds."},
-            "background": {"type": "boolean", "description": "Run in background; returns a session id."},
+            "background": {
+                "type": "boolean",
+                "description": "Run in background; returns a session id.",
+            },
         },
     }
 
@@ -147,7 +153,8 @@ class ExecTool(Tool):
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
         env = {**os.environ, **(params.get("env") or {})}
         timeout = params.get("timeout_sec") or tool_config(
-            self.config, "shell", "exec", "timeout_sec", default=1800)
+            self.config, "shell", "exec", "timeout_sec", default=1800
+        )
 
         if params.get("background"):
             session_id = await _REGISTRY.start(command, cwd, env)

@@ -33,20 +33,22 @@ def test_always_on_skills_are_never_dropped():
     skills = [_sk("alpha"), _sk("beta"), _sk("epsilon", always=True)]
     out = rank_skills_by_relevance(skills, "about beta", _vocab_embed, top_k=2)
     names = [s.name for s in out]
-    assert "epsilon" in names and "beta" in names and "alpha" not in names   # always-on kept + top match
+    assert (
+        "epsilon" in names and "beta" in names and "alpha" not in names
+    )  # always-on kept + top match
 
 
 def test_preserves_original_order():
     skills = [_sk("alpha"), _sk("beta"), _sk("gamma")]
     out = rank_skills_by_relevance(skills, "alpha gamma please", _vocab_embed, top_k=2)
-    assert [s.name for s in out] == ["alpha", "gamma"]                    # input order, not score order
+    assert [s.name for s in out] == ["alpha", "gamma"]  # input order, not score order
 
 
 def test_noop_when_already_small_or_disabled():
     skills = [_sk("a"), _sk("b")]
-    assert rank_skills_by_relevance(skills, "q", _vocab_embed, top_k=5) is skills   # <= top_k
-    assert rank_skills_by_relevance(skills, "", _vocab_embed, top_k=1) is skills    # no query
-    assert rank_skills_by_relevance(skills, "q", None, top_k=1) is skills           # no embedder
+    assert rank_skills_by_relevance(skills, "q", _vocab_embed, top_k=5) is skills  # <= top_k
+    assert rank_skills_by_relevance(skills, "", _vocab_embed, top_k=1) is skills  # no query
+    assert rank_skills_by_relevance(skills, "q", None, top_k=1) is skills  # no embedder
 
 
 def test_fails_open_on_embed_error():
@@ -56,7 +58,7 @@ def test_fails_open_on_embed_error():
         raise RuntimeError("embedding endpoint down")
 
     out = rank_skills_by_relevance(skills, "q", boom, top_k=1)
-    assert out is skills                                                  # all advertised, no skill lost
+    assert out is skills  # all advertised, no skill lost
 
 
 def test_build_embed_fn_none_unless_enabled_and_model():
@@ -68,6 +70,6 @@ def test_build_embed_fn_none_unless_enabled_and_model():
         plugins = {"skills": {"tools": {"relevance": {"model": model}}}} if model else {}
         return SimpleNamespace(skills_relevance_enabled=enabled, plugins=plugins)
 
-    assert build_skill_embed_fn(_cfg(False, "text-embed")) is None      # disabled
-    assert build_skill_embed_fn(_cfg(True, "")) is None                 # no model => off
-    assert build_skill_embed_fn(_cfg(True, "text-embed")) is not None   # enabled + model
+    assert build_skill_embed_fn(_cfg(False, "text-embed")) is None  # disabled
+    assert build_skill_embed_fn(_cfg(True, "")) is None  # no model => off
+    assert build_skill_embed_fn(_cfg(True, "text-embed")) is not None  # enabled + model

@@ -25,13 +25,16 @@ def test_persona_present_by_default():
 def test_persona_disabled_by_config():
     p = build_system_prompt(_cfg(persona_enabled=False), [], "m")
     assert PERSONA not in p
-    assert "performative" not in p        # persona-unique phrase (honesty section still mentions fabricate)
+    assert (
+        "performative" not in p
+    )  # persona-unique phrase (honesty section still mentions fabricate)
 
 
 def test_persona_precedes_agent_identity():
     # the agent's IDENTITY is loaded AFTER the persona so it can refine/override the tone.
-    agent = SimpleNamespace(name="Scout", workspace=Path("."), id="scout",
-                            instructions="## Scout\nYou are terse.")
+    agent = SimpleNamespace(
+        name="Scout", workspace=Path("."), id="scout", instructions="## Scout\nYou are terse."
+    )
     p = build_system_prompt(_cfg(), [], "m", agent=agent)
     assert p.index(PERSONA) < p.index("You are terse.")
 
@@ -46,10 +49,11 @@ def test_persona_loaded_from_editable_file(tmp_path):
 
 def test_persona_falls_back_to_constant_when_file_missing():
     p = build_system_prompt(_cfg(persona_file=str(Path("no") / "such" / "SOUL.md")), [], "m")
-    assert PERSONA in p           # missing file -> built-in fallback (never breaks)
+    assert PERSONA in p  # missing file -> built-in fallback (never breaks)
 
 
 # ---- S3: honesty self-check on by default -----------------------------------
+
 
 def test_honesty_check_on_by_default():
     p = build_system_prompt(_cfg(), [], "m")

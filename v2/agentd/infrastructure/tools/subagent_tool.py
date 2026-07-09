@@ -14,25 +14,33 @@ from . import Tool, ToolResult
 class SpawnSubagentTool(Tool):
     name = "spawn_subagent"
     label = "Subagent"
-    concurrency = "parallel"          # the agent may fan several out in one turn
-    default_timeout_sec = None        # a child run can take a while — don't let the guard time it out
-    default_retryable = False         # expensive + side-effecting: never auto-retry
+    concurrency = "parallel"  # the agent may fan several out in one turn
+    default_timeout_sec = None  # a child run can take a while — don't let the guard time it out
+    default_retryable = False  # expensive + side-effecting: never auto-retry
     description = (
         "Delegate a self-contained subtask to a fresh sub-agent and get its result back. "
         "Use it to parallelize or offload heavy work (research, a long read, a separate "
         "analysis) rather than doing everything yourself. Give a COMPLETE, standalone task — "
         "the sub-agent does NOT see this conversation. You may call it several times in one "
-        "turn to run tasks in parallel.")
+        "turn to run tasks in parallel."
+    )
     parameters = {
-        "type": "object", "required": ["task"],
+        "type": "object",
+        "required": ["task"],
         "properties": {
-            "task": {"type": "string", "description": "the complete, standalone task for the sub-agent"},
-            "agent": {"type": "string", "description": "optional: run it as this agent id (default: yours)"},
+            "task": {
+                "type": "string",
+                "description": "the complete, standalone task for the sub-agent",
+            },
+            "agent": {
+                "type": "string",
+                "description": "optional: run it as this agent id (default: yours)",
+            },
         },
     }
 
     def __init__(self, spawn_fn):
-        self._spawn = spawn_fn        # async (agent_id|None, task) -> str
+        self._spawn = spawn_fn  # async (agent_id|None, task) -> str
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         task = (params.get("task") or "").strip()

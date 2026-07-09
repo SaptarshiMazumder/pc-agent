@@ -30,23 +30,32 @@ log = logging.getLogger(__name__)
 
 LINE_REPLY_URL = "https://api.line.me/v2/bot/message/reply"
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
-TEXT_LIMIT = 5000           # LINE per-message character cap
-MAX_MESSAGES_PER_CALL = 5   # LINE per reply/push call
+TEXT_LIMIT = 5000  # LINE per-message character cap
+MAX_MESSAGES_PER_CALL = 5  # LINE per reply/push call
 
 
 def _chunks(text: str, limit: int = TEXT_LIMIT) -> list[str]:
-    return [text[i:i + limit] for i in range(0, len(text), limit)]
+    return [text[i : i + limit] for i in range(0, len(text), limit)]
 
 
 class LineChannel:
     name = "line"
-    signature_header = "X-Line-Signature"      # header the WebhookServer (L2) reads for verify
+    signature_header = "X-Line-Signature"  # header the WebhookServer (L2) reads for verify
 
-    def __init__(self, *, agent_id: str = "main", channel_secret: str, access_token: str,
-                 policy: str = "open", allow_from=(), webhook_path: str = "/line/webhook",
-                 reply_token_ttl: float = 60.0, http_post=None):
+    def __init__(
+        self,
+        *,
+        agent_id: str = "main",
+        channel_secret: str,
+        access_token: str,
+        policy: str = "open",
+        allow_from=(),
+        webhook_path: str = "/line/webhook",
+        reply_token_ttl: float = 60.0,
+        http_post=None,
+    ):
         self.agent_id = agent_id
-        self.webhook_path = webhook_path           # how the WebhookServer (L2) routes to us
+        self.webhook_path = webhook_path  # how the WebhookServer (L2) routes to us
         self.policy = (policy or "open").lower()
         self._allow = {str(s).strip() for s in (allow_from or ()) if str(s).strip()}
         self._secret = (channel_secret or "").encode()
@@ -54,7 +63,7 @@ class LineChannel:
         self._reply_ttl = float(reply_token_ttl)
         # injected for tests; defaults to a real httpx POST. async (url, headers, json) -> (status, text)
         self._post = http_post or self._default_post
-        self._reply_tokens: dict[str, tuple[str, float]] = {}   # peer -> (token, monotonic ts)
+        self._reply_tokens: dict[str, tuple[str, float]] = {}  # peer -> (token, monotonic ts)
 
     # ---- inbound (called by the WebhookServer driver) -----------------------
 
@@ -74,7 +83,7 @@ class LineChannel:
         except Exception:  # noqa: BLE001 — authentic-but-unparseable never crashes ingress
             return []
         out: list[InboundMessage] = []
-        for ev in (data.get("events") or []):
+        for ev in data.get("events") or []:
             if ev.get("type") != "message":
                 continue
             msg = ev.get("message") or {}
@@ -82,8 +91,7 @@ class LineChannel:
                 continue
             src = ev.get("source") or {}
             sender = str(src.get("userId") or "")
-            if (self.policy == "allowlist"
-                    and "*" not in self._allow and sender not in self._allow):
+            if self.policy == "allowlist" and "*" not in self._allow and sender not in self._allow:
                 log.warning("line: dropped message from non-allowed sender %s", sender)
                 continue
             peer = str(src.get("groupId") or src.get("roomId") or sender)
@@ -92,9 +100,15 @@ class LineChannel:
             token = ev.get("replyToken")
             if token:
                 self._reply_tokens[peer] = (token, time.monotonic())
-            out.append(InboundMessage(
-                channel=self.name, peer=peer, text=str(msg.get("text") or ""),
-                external_id=str(msg.get("id") or ""), ts=float(ev.get("timestamp") or 0) / 1000.0))
+            out.append(
+                InboundMessage(
+                    channel=self.name,
+                    peer=peer,
+                    text=str(msg.get("text") or ""),
+                    external_id=str(msg.get("id") or ""),
+                    ts=float(ev.get("timestamp") or 0) / 1000.0,
+                )
+            )
         return out
 
     async def poll(self) -> list[InboundMessage]:
@@ -108,8 +122,10 @@ class LineChannel:
         if not (text or "").strip():
             return
         chunks = _chunks(text)
-        groups = [chunks[i:i + MAX_MESSAGES_PER_CALL]
-                  for i in range(0, len(chunks), MAX_MESSAGES_PER_CALL)]
+        groups = [
+            chunks[i : i + MAX_MESSAGES_PER_CALL]
+            for i in range(0, len(chunks), MAX_MESSAGES_PER_CALL)
+        ]
         token = self._take_fresh_token(peer)
         for i, group in enumerate(groups):
             messages = [{"type": "text", "text": c} for c in group]
@@ -119,7 +135,7 @@ class LineChannel:
                 await self._deliver(LINE_PUSH_URL, {"to": peer, "messages": messages})
 
     def _take_fresh_token(self, peer: str) -> str | None:
-        entry = self._reply_tokens.pop(peer, None)   # single-use: always remove
+        entry = self._reply_tokens.pop(peer, None)  # single-use: always remove
         if entry and (time.monotonic() - entry[1]) < self._reply_ttl:
             return entry[0]
         return None

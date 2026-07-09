@@ -7,6 +7,10 @@
 ============================================================================= */
 
 :root {
+  /* tell the engine this is a LIGHT surface so native controls (the <select> dropdown popup,
+     scrollbars) render light and honour accent-color — without this the popup renders in the
+     default scheme with an OS-blue highlight that accent-color can't override. */
+  color-scheme: light;
   /* --- surfaces (warm neutrals, not cold blue-black) --- */
   --bg: #f4f2ea;
   --bg2: #ffffff;
@@ -31,14 +35,16 @@
   --prim-bg-h: #bef264;
   --prim-ink: #182100;        /* dark ink on lime */
 
-  /* --- user chat bubble (accent-tinted, clearly distinct) --- */
+  /* --- user chat bubble (subtle accent tint; text follows the theme). Border intentionally
+     hidden — see .msg-user .bubble. --- */
   --user-bubble: rgba(127, 191, 20, 0.16);
   --user-border: rgba(127, 191, 20, 0.34);
 
   /* --- semantic --- */
   --danger: #c0392b;
   --danger-soft: rgba(192, 57, 43, 0.1);
-  --sky: #2563eb;
+  --sky: var(--accent-text);  /* was blue (#2563eb) — repointed to the brand accent so
+                                 settings/store chips & notes read on-theme, not off-brand blue */
 
   /* --- aurora gradient hues --- */
   --aur-lime: rgba(127, 191, 20, 0.30);
@@ -65,6 +71,12 @@
   --fw-heavy: 650;
   --fw-bold: 700;
 
+  /* ink sitting ON a light/accent fill (lime primary buttons, any future accent-filled component).
+     It is the ONE exception to the dark-mode weight cut below: dark ink on a LIGHT fill doesn't
+     bloom the way light-on-dark text does, so it must go HEAVIER in dark, not lighter. Give any
+     such element `font-weight: var(--fw-on-accent)` and the rule applies automatically. */
+  --fw-on-accent: 600;
+
   /* media-overlay controls FOLLOW THE THEME (Gemini-style): dark text/chips on a light
      scrim in light mode, light text/chips on a dark scrim in dark mode */
   --ov-scrim-bottom: linear-gradient(to top, rgba(248,247,241,.94) 0%, rgba(248,247,241,.40) 48%, transparent 100%);
@@ -77,6 +89,8 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;   /* dark native popups/scrollbars; the lime accent-color now tints the
+                           <select> highlight instead of the OS blue */
   --bg: #131210;
   --bg2: #1a1815;
   --bg3: #232019;
@@ -100,6 +114,9 @@
   --fw-heavy: 600;
   --fw-bold: 600;
 
+  /* NOT reduced — bumped: dark ink on a light lime fill reads thin at the cut weights above */
+  --fw-on-accent: 700;
+
   --accent: #a3e635;
   --accent-text: #a3e635;
   --accent-soft: rgba(163, 230, 53, 0.14);
@@ -112,7 +129,7 @@
 
   --danger: #f0715f;
   --danger-soft: rgba(240, 113, 95, 0.13);
-  --sky: #7cc7ff;
+  --sky: var(--accent-text);  /* was blue (#7cc7ff) — repointed to the brand accent */
 
   --aur-lime: rgba(163, 230, 53, 0.20);
   --aur-blue: rgba(95, 155, 240, 0.15);
@@ -140,6 +157,9 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* tint native form controls (the <select> dropdown popup's highlighted option, checkboxes,
+     radios, range) with the brand lime instead of Chromium's default OS blue */
+  accent-color: var(--accent);
 }
 /* Windows/Chromium renders light-on-dark text HEAVIER and largely ignores the smoothing
    hint above (it's mainly a macOS lever), so the weights that look right in LIGHT mode read
@@ -267,6 +287,14 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .search { margin: 6px 12px 2px; background: var(--bg3); border-color: transparent; } /* sidebar: soft */
 .pill-search { width: 240px; }        /* Store header */
 .tp-search { margin-bottom: 14px; }   /* tools & plugins list */
+/* the clear (×) button — appears only when there's text; empties the field on click */
+.search-clear {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; margin: -3px -5px -3px 0; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--faint); cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.search-clear:hover { background: var(--bg); color: var(--text); }
 
 /* --- tiny layout/state utilities (instead of one-off inline styles) --- */
 .grow { flex: 1; min-width: 0; }
@@ -278,7 +306,6 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .danger-text { color: var(--danger); }
 .confirm-text { font-size: 11px; font-weight: var(--fw-semi); }
 .list-empty { padding: 4px 9px; }                /* quiet empty-note inside a list/menu */
-.head-search { width: 180px; }                   /* page-header search input */
 .row-end { display: flex; justify-content: flex-end; margin-top: 10px; }
 .mt-8 { margin-top: 8px; }
 
@@ -356,8 +383,11 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
    strong-weight .row-title looking bold on its own) — token so dark mode lightens too */
 .session-row .row-title { font-weight: var(--fw-normal); }
 .session-row .row-actions {
-  position: absolute; right: 4px; top: 0; bottom: 0;
-  display: flex; align-items: center; gap: 1px; padding-left: 24px;
+  /* span to the real right edge (right:0) — a right inset left a sliver of the row's own bg
+     showing past the scrim, which read as a stray green "border" on ACTIVE rows (accent-soft
+     bg). padding-right keeps the ⋯'s spacing from the edge unchanged. */
+  position: absolute; right: 0; top: 0; bottom: 0;
+  display: flex; align-items: center; gap: 1px; padding-left: 24px; padding-right: 4px;
   opacity: 0; pointer-events: none; border-radius: 0 9px 9px 0;
   background: linear-gradient(90deg, transparent, var(--bg3) 42%);
 }
@@ -701,9 +731,26 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .msg-item { animation: ag-up .28s ease; }
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; margin: 10px 0; }
 .msg-user .artifacts { align-items: flex-end; margin: 8px 0 0; }
-.msg-user .bubble { max-width: 80%; background: var(--user-bubble); border: 1px solid var(--user-border); padding: 10px 15px; border-radius: 16px 16px 5px 16px; white-space: pre-wrap; font-size: 14.5px; line-height: 1.55; }
-.msg-time { font: 10px var(--mono); color: var(--faint); margin-top: 5px; text-align: right; }
-.msg-time--left { text-align: left; }
+/* border is TRANSPARENT by default (reserves the 1px so there's no layout shift) and only takes
+   colour on hover — the "outline appears on hover" behaviour, with box-sizing:border-box keeping
+   the bubble the same size either way. */
+.msg-user .bubble { max-width: 80%; background: var(--user-bubble); border: 1px solid transparent; padding: 10px 15px; border-radius: 16px 16px 5px 16px; white-space: pre-wrap; font-size: 14.5px; line-height: 1.55; transition: border-color .15s ease; }
+.msg-user:hover .bubble { border-color: var(--user-border); }
+
+/* actions (icon-only Copy / Edit) + timestamp share ONE row so the actions never push the time
+   onto a line of its own. The icons fade in on message hover but keep their space (opacity, not
+   display) so nothing shifts. .msg-meta sits right under the bubble/answer. */
+.msg-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.msg-time { font: 10px var(--mono); color: var(--faint); }
+.msg-actions { display: inline-flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.msg-item:hover .msg-actions { opacity: 1; pointer-events: auto; }
+.msg-act {
+  display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px;
+  padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--faint);
+  cursor: pointer; transition: background .12s ease, color .12s ease;
+}
+.msg-act:hover { background: var(--bg3); color: var(--text); }
+.msg-act.ok { color: var(--accent-text); }
 
 .msg-assistant { margin: 10px 0; font-size: 14.5px; line-height: 1.68; color: var(--text); }
 .msg-assistant p { margin: 0 0 10px; }
@@ -714,6 +761,15 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .thinking-text { color: var(--dim); font-size: 13px; font-style: italic; line-height: 1.55; white-space: pre-wrap; }
 .msg-system { text-align: center; color: var(--faint); font: 12px var(--mono); margin: 12px 0; }
 .msg-system.error { color: var(--danger); }
+/* per-step model/token trace chip (AGENTD_MODEL_TRACE) */
+.msg-trace {
+  display: inline-flex; align-items: center; gap: 10px; margin: 4px 0;
+  padding: 3px 11px; border-radius: 999px; background: var(--bg3);
+  font: 11px var(--mono); color: var(--dim);
+}
+.msg-trace .trace-step { color: var(--faint); }
+.msg-trace .trace-model { color: var(--accent-text); font-weight: var(--fw-semi); }
+.msg-trace .trace-toks { color: var(--faint); }
 
 /* artifacts — media/documents an agent produced */
 .artifacts { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: 8px 0 4px; }
@@ -802,6 +858,8 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .tool-args { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-caret { color: var(--faint); display: flex; flex: none; }
 .tool-first { font: 12px var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the latest step of a STILL-running tool — accent + gentle pulse so it reads as live */
+.tool-first.live { color: var(--accent-text); animation: ag-pulse 1.2s ease infinite; }
 .tool-running { font: 12px var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
 .tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: 9px; max-height: 280px; overflow: auto; font: 12px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
 
@@ -827,7 +885,9 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .composer-attach:hover, .composer-attach.active { background: var(--bg3); color: var(--text); }
 .composer-send { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--border2); color: var(--faint); }
 .composer-send.ready { background: var(--prim-bg); color: var(--prim-ink); cursor: pointer; }
-.composer-send.stop { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
+/* stop = a FILLED lime button (brand colour) with a solid square glyph — not a red outline */
+.composer-send.stop { background: var(--prim-bg); color: var(--prim-ink); border: 0; }
+.composer-send.stop:hover { background: var(--prim-bg-h); }
 .composer-hint { max-width: 788px; margin: 6px auto 0; text-align: center; font: 11px var(--mono); color: var(--faint); }
 
 /* + menu (opens upward from the attach button, ChatGPT-style) */
@@ -883,7 +943,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .cv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; min-width: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 12.5px; cursor: pointer; }
 .cv-btn:hover { background: var(--bg3); border-color: var(--border2); }
 .cv-btn:disabled { opacity: .5; cursor: default; }
-.cv-btn.primary { background: var(--prim-bg); color: var(--prim-ink); border: 0; font-weight: var(--fw-semi); }
+.cv-btn.primary { background: var(--prim-bg); color: var(--prim-ink); border: 0; font-weight: var(--fw-on-accent); }
 .cv-btn.primary:disabled { background: var(--border2); color: var(--faint); }
 .cv-btn.wide { padding: 0 14px; height: 34px; }
 .cv-toolbar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--border); background: var(--bg2); flex: none; }
@@ -949,7 +1009,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   padding: 9px 12px; border-top: 1px solid var(--border); background: var(--bg2);
 }
 .cv-send-hint { font-size: 12.5px; color: var(--faint); }
-.cv-btn.accent { background: var(--prim-bg); color: var(--prim-ink); border: 0; font-weight: var(--fw-semi); }
+.cv-btn.accent { background: var(--prim-bg); color: var(--prim-ink); border: 0; font-weight: var(--fw-on-accent); }
 .cv-btn.accent:hover { background: var(--prim-bg-h); }
 .cv-send-bar {
   flex: none; display: flex; align-items: flex-end; gap: 10px; padding: 10px 12px;
@@ -971,18 +1031,15 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .cv-range { width: 82px; accent-color: var(--accent); cursor: pointer; }
 
 /* =========================================================================
-   STORE
+   PAGE TITLES (shared by every PageShell header)
 ========================================================================= */
-.store { flex: 1; overflow-y: auto; padding: 60px 34px 34px; }
-.store-inner, .settings-inner { max-width: 1040px; margin: 0 auto; }
-.settings-inner { max-width: 720px; }
-.page-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
+.settings-inner { max-width: 720px; margin: 0 auto; width: 100%; }
 .page-title { font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px; letter-spacing: -.02em; }
 .page-sub { color: var(--dim); font-size: 14px; margin-top: 2px; }
 /* (.pill-search base lives in the DESIGN SYSTEM search-box group at the top) */
 .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg2); color: var(--text); font-size: 13px; cursor: pointer; }
 .btn:hover { background: var(--bg3); }
-.btn.primary { border: 0; background: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-semi); }
+.btn.primary { border: 0; background: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent); }
 .btn.primary:hover { background: var(--prim-bg-h); }
 .btn.ghost { border-color: var(--border2); background: transparent; color: var(--dim); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 16px; }
@@ -1004,9 +1061,22 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* =========================================================================
    SETTINGS
 ========================================================================= */
-/* every non-chat PAGE starts a comfortable way down from the top (ChatGPT/Gemini feel) —
-   the shared page-top offset for .settings-based pages and the Store */
-.settings { flex: 1; overflow-y: auto; padding: 44px 34px 34px; }
+/* ── PAGE SHELL (rendered by <PageShell>) — a FIXED header band (+ optional FIXED nav rail)
+   with ONLY the body scrolling. Same flex-column technique as .entity-page below: the header
+   and nav are flex:none siblings and the body is the sole overflow:auto region, so they stay
+   pinned WITHOUT position:sticky and the body keeps its app-wide soft top/bottom scroll edges.
+   Every page built on PageShell inherits this — no per-page wiring, now or in future. */
+.settings { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.page-bar { flex: none; padding: 44px 34px 12px; }          /* the pinned top band */
+.page-bar .settings-head { padding: 0; }
+.settings-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 34px 40px; }
+/* pinned search bar (PageShell `search` slot): a flex:none band under the header — it never
+   scrolls, the body below it does. Single-column centres it in the same max-width as the body;
+   two-column pins it inside the content column, right above the first label. */
+.page-search { flex: none; padding: 2px 34px 12px; }
+.page-search--col { padding: 2px 0 12px; }                  /* .settings-layout already pads the sides */
+.settings-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.page-search .search-box { width: 100%; max-width: 440px; }
 .settings-section { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); margin-bottom: 9px; }
 .settings-section svg { vertical-align: -2px; margin-right: 5px; }
 .ds-sub svg { vertical-align: -2px; margin-right: 4px; }
@@ -1033,9 +1103,6 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 
 /* --- tabbed settings (header + nav rail + content) --- */
 .settings-inner.settings-wide { max-width: 1060px; }
-/* NOT sticky: pinned headers suppressed the app-wide top scroll-fade (softScroll skips scrollers
-   with sticky children so the pinned bar itself isn't dimmed). Headers scroll away normally —
-   ChatGPT-style — and every page gets the same soft top/bottom edges as the sidebar. */
 .settings-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
   padding: 16px 0 12px;
@@ -1043,8 +1110,14 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .settings-head-titles { min-width: 0; }
 .settings-head-titles .page-sub { margin-top: 3px; }
 .settings-head-actions { display: flex; align-items: center; gap: 10px; flex: none; padding-top: 3px; }
-.settings-layout { display: flex; gap: 28px; align-items: flex-start; }
-.settings-nav { flex: none; width: 194px; display: flex; flex-direction: column; gap: 2px; }
+/* two-column body (Settings): a FIXED nav rail + a scrolling content column — the centered
+   max-width row that fills the height left under the pinned header. Only .settings-content
+   scrolls (no sticky child → it keeps its soft edges); the rail is pinned by being flex:none. */
+.settings-layout {
+  flex: 1; min-height: 0; width: 100%; max-width: 1060px; margin: 0 auto;
+  display: flex; gap: 28px; padding: 2px 34px 0;
+}
+.settings-nav { flex: none; width: 194px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-bottom: 16px; }
 .settings-nav-item {
   display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
   padding: 9px 12px; border: 0; border-radius: 10px; cursor: pointer;
@@ -1054,7 +1127,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .settings-nav-item:hover { background: var(--bg3); color: var(--text); }
 .settings-nav-item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: var(--fw-semi); }
 .settings-nav-item svg { flex: none; }
-.settings-content { flex: 1; min-width: 0; animation: ag-up .22s ease; }
+.settings-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: 40px; animation: ag-up .22s ease; }
 
 .settings-group { margin-bottom: 18px; }
 .settings-help { color: var(--dim); font-size: 12.5px; line-height: 1.55; margin: -2px 0 11px; max-width: 660px; }
@@ -1100,6 +1173,24 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .key-chip.ok { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-soft); }
 .key-chip.edit { color: var(--sky); border-color: var(--border2); }
 
+/* a knob pinned by an AGENTD_* env var: control shown but non-interactive + a quiet lock icon
+   (hover the lock for the "set by X in .env" detail — no verbose inline note) */
+.pinned-ctl { pointer-events: none; opacity: .5; }
+.pinned-lock { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 7px; color: var(--faint); }
+
+/* secret input: the saved key shows masked; the eye (only on a filled field) toggles reveal/hide */
+.secret-input { position: relative; width: 100%; }
+.secret-input .settings-input { width: 100%; }
+.secret-input.has-eye .settings-input { padding-right: 42px; }
+.secret-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--dim); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.secret-eye:hover { background: var(--bg3); color: var(--text); }
+
 /* plugin cards */
 .plugin-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 2px 16px 12px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
 /* the one KEPT divider: separates a plugin's NAME row from its tools list below */
@@ -1108,6 +1199,24 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* unified Tools & plugins view */
 /* (.tp-search base lives in the DESIGN SYSTEM search-box group at the top) */
 .plugin-headmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+/* Tools & plugins section header (title + Plugins/MCP sub-tabs) and the toolbar under it */
+.tp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.tp-head .settings-section { margin-bottom: 0; }
+.tp-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+/* collapse/expand a plugin card */
+.plugin-collapse {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-left: -4px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--dim); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.plugin-collapse:hover { background: var(--bg3); color: var(--text); }
+.plugin-name { cursor: pointer; }
+.plugin-count { margin-left: 10px; font: 11px var(--mono); color: var(--faint); font-weight: var(--fw-normal); letter-spacing: 0; }
+.plugin-collapsed .plugin-head { border-bottom: 0; padding-bottom: 10px; }
+/* MCP server card bits (an MCP server rendered as a plugin card) */
+.mcp-ico { vertical-align: -2px; margin-right: 6px; color: var(--dim); }
+.mcp-endpoint { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plugin-off .pt-row { opacity: .5; }
 .pt-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--row-line); }
 .pt-row:last-child { border-bottom: 0; }
@@ -1155,7 +1264,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .modellist-add { min-width: 190px; }
 
 /* Tools tab: live catalog with per-tool switches */
-.tools-note { font-size: 12.5px; color: var(--sky); background: rgba(37,99,235,.08); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; }
+.tools-note { font-size: 12.5px; color: var(--sky); background: var(--accent-soft); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; }
 .tools-card { padding: 0; overflow: hidden; }
 .tools-search { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-bottom: 1px solid var(--row-line); color: var(--faint); }
 .tools-search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; color: var(--text); font-size: 13px; }

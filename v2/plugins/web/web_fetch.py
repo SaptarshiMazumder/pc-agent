@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import time
 
-from agentd.application.interfaces.fetch import FetchProvider, FetchResult
 from fetch import DEFAULT_MAX_CHARS, MAX_CHARS_CAP, sanitize_url
 
+from agentd.application.interfaces.fetch import FetchProvider, FetchResult
 from agentd.application.interfaces.tool import Tool, ToolResult
 
 CACHE_TTL_SEC = 900
@@ -104,4 +104,6 @@ class WebFetchTool(Tool):
         if best is not None:  # all providers were thin; return the best we got
             _cache_put(cache_key, best)
             return ToolResult.text(_render(best), details=best.__dict__)
-        return ToolResult.text(f"web_fetch failed: {last_error or 'no provider available'}", is_error=True)
+        return ToolResult.text(
+            f"web_fetch failed: {last_error or 'no provider available'}", is_error=True
+        )

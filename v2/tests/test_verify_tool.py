@@ -9,8 +9,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.verifier import Verdict
 from verify_tool import VerifyTool
+
+from agentd.application.interfaces.verifier import Verdict
 
 
 class _StubVerifier:
@@ -35,8 +36,9 @@ async def test_verify_tool_pass():
 async def test_verify_tool_needs_work_surfaces_reasons():
     stub = _StubVerifier(Verdict(ok=False, reasons="only 3 of 5 items"))
     tool = VerifyTool(SimpleNamespace(), stub)
-    res = await tool.execute("c", {"answer": "3 items", "task": "5 items",
-                                    "evidence": "found A,B,C"}, asyncio.Event())
+    res = await tool.execute(
+        "c", {"answer": "3 items", "task": "5 items", "evidence": "found A,B,C"}, asyncio.Event()
+    )
     txt = res.content[0].text
     assert "NEEDS WORK" in txt and "3 of 5 items" in txt
     assert "do not apologize" in txt.lower()
@@ -48,6 +50,7 @@ def test_verify_tool_registered_only_when_enabled():
     # verify migrated to the built-in 'verify' bundle (plugins/verify/); its config-gating now
     # lives in the plugin's register(), so assert against that directly.
     import verify_plugin
+
     from agentd.config import load_config
 
     class _Api:
@@ -80,6 +83,8 @@ def test_verify_tool_registered_only_when_enabled():
 def test_verify_prompt_section_only_when_tool_present():
     # the ## Verify directive is a prompt section contributed by the verify bundle, gated on the tool.
     import verify_plugin
+
     assert "## Verify Before You Send" in verify_plugin._verify_section(
-        [SimpleNamespace(name="verify_answer")], None, None)
+        [SimpleNamespace(name="verify_answer")], None, None
+    )
     assert verify_plugin._verify_section([SimpleNamespace(name="read")], None, None) == ""

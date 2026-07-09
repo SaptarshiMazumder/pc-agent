@@ -34,9 +34,9 @@ def build_embed_fn(model: str, cache: dict | None = None):
     if not model:
         return None
     store: dict = cache if cache is not None else {}
-    lock = threading.Lock()   # the cache is shared across the loop thread (recall) AND worker
-                              # threads (background writes) — guard dict access without holding
-                              # the lock across the network call
+    lock = threading.Lock()  # the cache is shared across the loop thread (recall) AND worker
+    # threads (background writes) — guard dict access without holding
+    # the lock across the network call
 
     def embed(texts):
         import litellm
@@ -44,7 +44,7 @@ def build_embed_fn(model: str, cache: dict | None = None):
         with lock:
             missing = [t for t in texts if t not in store]
         if missing:
-            resp = litellm.embedding(model=model, input=missing)   # network — no lock held
+            resp = litellm.embedding(model=model, input=missing)  # network — no lock held
             with lock:
                 for t, item in zip(missing, resp["data"]):
                     store[t] = item["embedding"]

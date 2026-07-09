@@ -25,9 +25,9 @@ _PER_FILE_CAP = 20_000
 _TOTAL_CAP = 100_000
 
 
-def load_bootstrap(agent_dir: Path,
-                   per_file_cap: int = _PER_FILE_CAP,
-                   total_cap: int = _TOTAL_CAP) -> str:
+def load_bootstrap(
+    agent_dir: Path, per_file_cap: int = _PER_FILE_CAP, total_cap: int = _TOTAL_CAP
+) -> str:
     """Concatenate an agent's bootstrap files into one prompt block ("" if none)."""
     parts: list[str] = []
     total = 0

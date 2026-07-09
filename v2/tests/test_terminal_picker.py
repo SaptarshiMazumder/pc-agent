@@ -21,6 +21,7 @@ OPTS = [
 
 # --- pure helpers ---------------------------------------------------------
 
+
 def test_filter_empty_query_returns_all():
     assert filter_options(OPTS, "") == OPTS
     assert filter_options(OPTS, "   ") == OPTS
@@ -43,15 +44,15 @@ def test_window_scrolls_and_clamps():
     start, end = window_bounds(100, 50, height=10)
     assert start <= 50 < end and end - start == 10
     start, end = window_bounds(100, 99, height=10)
-    assert (start, end) == (90, 100)          # clamped at the tail
+    assert (start, end) == (90, 100)  # clamped at the tail
 
 
 def test_render_marks_cursor_current_and_hint():
     out_console = Console(width=100, record=True)
     out_console.print(render_menu("pick one", OPTS, 0, ""))
     out = out_console.export_text()
-    assert "❯ term-aaa" in out                 # cursor row
-    assert "← current" in out                  # current marker
+    assert "❯ term-aaa" in out  # cursor row
+    assert "← current" in out  # current marker
     assert "enter select" in out and "esc cancel" in out
 
 
@@ -68,11 +69,12 @@ def test_render_scroll_indicators():
     out_console = Console(width=100, record=True)
     out_console.print(render_menu("long", many, 15, ""))
     out = out_console.export_text()
-    assert "↑" in out and "more" in out        # rows hidden above and below
+    assert "↑" in out and "more" in out  # rows hidden above and below
     assert "↓" in out
 
 
 # --- pick() driven by a scripted key sequence -----------------------------
+
 
 def _drive(keys, options, monkeypatch):
     seq = iter(keys)
@@ -152,8 +154,9 @@ def test_read_line_palette_esc_prefills_slash(monkeypatch):
 
 
 def test_read_line_midline_slash_is_literal(monkeypatch):
-    monkeypatch.setattr(picker, "pick",
-                        lambda c, t, o: pytest.fail("palette must not open mid-line"))
+    monkeypatch.setattr(
+        picker, "pick", lambda c, t, o: pytest.fail("palette must not open mid-line")
+    )
     assert _read(["a", "/", "b", "enter"], monkeypatch, commands=PALETTE) == "a/b"
 
 
@@ -174,11 +177,11 @@ def test_read_line_ctrl_c_and_eof_raise(monkeypatch):
 def test_wrapped_rows_counts_soft_wrapped_lines():
     assert picker.wrapped_rows(0, 80) == 1
     assert picker.wrapped_rows(1, 80) == 1
-    assert picker.wrapped_rows(80, 80) == 1    # exact multiple: wrap is deferred
+    assert picker.wrapped_rows(80, 80) == 1  # exact multiple: wrap is deferred
     assert picker.wrapped_rows(81, 80) == 2
     assert picker.wrapped_rows(160, 80) == 2
     assert picker.wrapped_rows(161, 80) == 3
-    assert picker.wrapped_rows(10, 0) == 1     # degenerate width never crashes
+    assert picker.wrapped_rows(10, 0) == 1  # degenerate width never crashes
 
 
 def test_read_line_left_arrow_and_backspace_edit_at_cursor(monkeypatch):
@@ -212,18 +215,19 @@ def test_read_line_redraw_clears_wrapped_rows(monkeypatch):
     monkeypatch.setattr(picker, "read_key", lambda: next(seq))
     assert picker.read_line(con, "> ", commands=None) == "x" * 59
     text = out.getvalue()
-    assert "\x1b[3A" in text                   # cursor-up over the wrapped rows
-    assert "\x1b[J" in text                    # erase-down, not erase-line
-    assert "\x1b[2K" not in text               # the old buggy single-row erase
+    assert "\x1b[3A" in text  # cursor-up over the wrapped rows
+    assert "\x1b[J" in text  # erase-down, not erase-line
+    assert "\x1b[2K" not in text  # the old buggy single-row erase
 
 
 def test_command_options_cover_all_commands():
     opts = command_options()
     assert [o.value for o in opts] == [c for c, _ in COMMANDS]
-    assert all(o.detail for o in opts)          # every command has a description
+    assert all(o.detail for o in opts)  # every command has a description
 
 
 # --- session_options bridge ------------------------------------------------
+
 
 def test_session_options_maps_sessions_to_menu_rows():
     sessions = [
@@ -232,6 +236,6 @@ def test_session_options_maps_sessions_to_menu_rows():
     ]
     opts = session_options(sessions, current="term-bbb")
     assert [o.value for o in opts] == ["term-aaa", "term-bbb"]
-    assert opts[0].detail.startswith("term-aaa · 16 msgs · ")   # id · msgs · when
-    assert opts[1].detail == "term-bbb · 4 msgs"   # no timestamp -> no trailing when
+    assert opts[0].detail.startswith("term-aaa · 16 msgs · ")  # id · msgs · when
+    assert opts[1].detail == "term-bbb · 4 msgs"  # no timestamp -> no trailing when
     assert opts[1].current and not opts[0].current

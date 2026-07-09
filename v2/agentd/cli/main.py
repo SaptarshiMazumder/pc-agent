@@ -13,7 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentd",
         description="agentd — your agents, one daemon. Bare `agentd` starts (or attaches to) "
-                    "the daemon and opens the chat REPL.",
+        "the daemon and opens the chat REPL.",
     )
     parser.add_argument("--version", action="version", version=f"agentd {__version__}")
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     func = getattr(args, "func", None)
-    if func is None:                      # bare `agentd` -> onboard + daemon + chat
+    if func is None:  # bare `agentd` -> onboard + daemon + chat
         from agentd.cli.commands import chat
 
         return chat.run_default()

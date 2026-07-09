@@ -22,8 +22,8 @@ class UpdatePlanTool(Tool):
         "Update current run plan. Use for non-trivial multi-step work; keep the plan "
         "current while executing. BREAK THE TASK DOWN into the smallest individual "
         "steps, and for EACH step name the specific tool it will use — e.g. "
-        "\"web_search: find X\", \"browser: open Y and read Z\", \"computer: click W\", "
-        "\"read: open file F\". Short steps; max one `in_progress`; mark steps "
+        '"web_search: find X", "browser: open Y and read Z", "computer: click W", '
+        '"read: open file F". Short steps; max one `in_progress`; mark steps '
         "completed as you finish them. Skip planning only for simple one-step work."
     )
     parameters = {
@@ -64,9 +64,7 @@ class UpdatePlanTool(Tool):
             1 for s in plan if isinstance(s, dict) and s.get("status") == "in_progress"
         )
         if in_progress > 1:
-            return ToolResult.text(
-                "plan can contain at most one in_progress step", is_error=True
-            )
+            return ToolResult.text("plan can contain at most one in_progress step", is_error=True)
         details = {"status": "updated", "plan": plan}
         explanation = (params.get("explanation") or "").strip()
         if explanation:
@@ -88,7 +86,7 @@ _PLANNING_GUIDANCE = (
     "as you go (mark steps in_progress / completed), and use the BEST tool per step — `browser` (it "
     "is SIGNED IN via a persistent profile) or `web_search` for the web; `computer` ONLY when a task "
     "truly needs the real desktop GUI. ONLY skip planning for a genuinely simple, single-step request.\n"
-    "Example - \"summarize the 3 latest posts on a blog into a file\":\n"
+    'Example - "summarize the 3 latest posts on a blog into a file":\n'
     "  1. web_fetch: fetch the blog index; note the 3 latest post URLs\n"
     "  2. web_fetch: fetch each post; extract the key points\n"
     "  3. write: save the summaries to a file\n"

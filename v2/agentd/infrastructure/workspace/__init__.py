@@ -12,36 +12,95 @@ import os
 from pathlib import Path
 
 from agentd.domain.workspace import (
-    KIND_DATA, KIND_DOC, KIND_IMAGE, KIND_OTHER, KIND_SCRIPT, WorkspaceResource,
+    KIND_DATA,
+    KIND_DOC,
+    KIND_IMAGE,
+    KIND_OTHER,
+    KIND_SCRIPT,
+    WorkspaceResource,
 )
 
 # extension -> kind
 _EXT_KIND = {
-    **{e: KIND_SCRIPT for e in
-       (".py", ".js", ".mjs", ".ts", ".sh", ".bash", ".ps1", ".bat", ".cmd",
-        ".rb", ".go", ".rs", ".php", ".pl", ".r")},
+    **{
+        e: KIND_SCRIPT
+        for e in (
+            ".py",
+            ".js",
+            ".mjs",
+            ".ts",
+            ".sh",
+            ".bash",
+            ".ps1",
+            ".bat",
+            ".cmd",
+            ".rb",
+            ".go",
+            ".rs",
+            ".php",
+            ".pl",
+            ".r",
+        )
+    },
     **{e: KIND_DOC for e in (".md", ".markdown", ".txt", ".rst")},
-    **{e: KIND_IMAGE for e in
-       (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff")},
-    **{e: KIND_DATA for e in
-       (".csv", ".tsv", ".json", ".ndjson", ".yaml", ".yml", ".xml",
-        ".xlsx", ".xls", ".parquet", ".db", ".sqlite", ".sqlite3")},
+    **{
+        e: KIND_IMAGE
+        for e in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff")
+    },
+    **{
+        e: KIND_DATA
+        for e in (
+            ".csv",
+            ".tsv",
+            ".json",
+            ".ndjson",
+            ".yaml",
+            ".yml",
+            ".xml",
+            ".xlsx",
+            ".xls",
+            ".parquet",
+            ".db",
+            ".sqlite",
+            ".sqlite3",
+        )
+    },
 }
 
 # directories never worth listing (caches, vcs, runtime state, big vendored trees)
 _SKIP_DIRS = {
-    "__pycache__", ".git", ".hg", ".svn", "node_modules", ".venv", "venv",
-    ".mypy_cache", ".pytest_cache", "browser-profile", "sessions", ".agentd",
-    ".idea", ".vscode", "dist", "build", ".cache", "skills",
-    "tmp",   # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed
+    "__pycache__",
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    "browser-profile",
+    "sessions",
+    ".agentd",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    ".cache",
+    "skills",
+    "tmp",  # the SCRATCH dir (cleanup.SCRATCH_DIRNAME): throwaway files, never indexed
 }
 _SKIP_SUFFIX = (".pyc", ".pyo", ".lock", ".tmp", ".log")
-_SCAN_CAP = 5000          # hard ceiling on entries examined (protects huge dirs, e.g. home)
+_SCAN_CAP = 5000  # hard ceiling on entries examined (protects huge dirs, e.g. home)
 _SUMMARY_BYTES = 600
 _COMMENT_PREFIXES = ("#", "//", "--", ";", "%")
 _KIND_ORDER = (KIND_SCRIPT, KIND_DOC, KIND_DATA, KIND_IMAGE, KIND_OTHER)
-_KIND_LABEL = {KIND_SCRIPT: "scripts", KIND_DOC: "docs", KIND_DATA: "data",
-               KIND_IMAGE: "images", KIND_OTHER: "other"}
+_KIND_LABEL = {
+    KIND_SCRIPT: "scripts",
+    KIND_DOC: "docs",
+    KIND_DATA: "data",
+    KIND_IMAGE: "images",
+    KIND_OTHER: "other",
+}
 
 
 def _human(size: int) -> str:
@@ -62,13 +121,13 @@ def _summary(path: Path, kind: str) -> str:
         return ""
     for line in head.splitlines():
         s = line.strip()
-        if not s or s.startswith("#!"):           # skip blanks + shebang
+        if not s or s.startswith("#!"):  # skip blanks + shebang
             continue
         if kind == KIND_DOC:
             return s[:80]
         if s.startswith(_COMMENT_PREFIXES) or s.startswith('"""') or s.startswith("'''"):
             return s.lstrip("#/-;%\"' ").strip()[:80]
-        return s[:80]                              # first real line of code
+        return s[:80]  # first real line of code
     return ""
 
 
@@ -80,7 +139,7 @@ class FileWorkspaceIndex:
         root = Path(workspace)
         if not root.is_dir():
             return []
-        try:                                         # never crawl the home folder (main's default)
+        try:  # never crawl the home folder (main's default)
             if root.resolve() == Path.home().resolve():
                 return []
         except (OSError, RuntimeError):

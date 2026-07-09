@@ -15,10 +15,10 @@ import logging
 import os
 import re
 import time
-from pathlib import Path
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import websockets
@@ -27,7 +27,6 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response as HttpResponse
 
 from agentd import __version__, lifecycle
-
 from agentd.application.run_context import current_run_context, take_run_outcome
 from agentd.application.services.agent_service import AgentService
 from agentd.config import Config
@@ -38,7 +37,14 @@ from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
 from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agentd.infrastructure.memory.local_store import list_sessions
-from agentd.presentation.protocol import Event, ProtocolError, Request, Response, dump_frame, parse_frame
+from agentd.presentation.protocol import (
+    Event,
+    ProtocolError,
+    Request,
+    Response,
+    dump_frame,
+    parse_frame,
+)
 
 log = logging.getLogger("agentd")
 
@@ -56,12 +62,17 @@ def _effective_model(config) -> str:
     only image turns use the vision_model), so reflect the routing here — this is the banner the user
     reads to know which model is really doing the work."""
     from agentd.application.tool_models import ConfigMissingError, brain_model
+
     try:
         base = brain_model(config)
     except ConfigMissingError:
         return "(CONFIG MISSING)"
     ce = getattr(config, "cost_efficiency", None) or {}
-    if isinstance(ce, dict) and ce.get("enabled") and (ce.get("text_model") or ce.get("vision_model")):
+    if (
+        isinstance(ce, dict)
+        and ce.get("enabled")
+        and (ce.get("text_model") or ce.get("vision_model"))
+    ):
         text = ce.get("text_model") or base
         vision = ce.get("vision_model") or base
         if text != vision:
@@ -93,42 +104,74 @@ def _trim_history_block(block: dict) -> dict:
     if kind == "text":
         return {"type": "text", "text": _cap(block.get("text", ""), _HISTORY_TEXT_CAP)}
     if kind == "thinking":
-        return {"type": "thinking", "thinking": _cap(block.get("thinking", ""), _HISTORY_THINKING_CAP)}
+        return {
+            "type": "thinking",
+            "thinking": _cap(block.get("thinking", ""), _HISTORY_THINKING_CAP),
+        }
     if kind == "image":
         return {"type": "image", "data": "", "mimeType": block.get("mimeType", ""), "elided": True}
     if kind == "toolCall":
         args = block.get("arguments") or {}
-        trimmed = {k: (_cap(v, _HISTORY_ARG_CAP) if isinstance(v, str) else v) for k, v in args.items()}
-        return {"type": "toolCall", "id": block.get("id", ""), "name": block.get("name", ""),
-                "arguments": trimmed}
+        trimmed = {
+            k: (_cap(v, _HISTORY_ARG_CAP) if isinstance(v, str) else v) for k, v in args.items()
+        }
+        return {
+            "type": "toolCall",
+            "id": block.get("id", ""),
+            "name": block.get("name", ""),
+            "arguments": trimmed,
+        }
     return block
 
 
 def _trim_history_message(message: dict) -> dict:
     """Trim one wire-form message for the sessions.history payload (keeps it KB, not MB)."""
     role = message.get("role")
-    ts = message.get("ts", "")          # the line's stored send time (ISO) — kept for display
+    ts = message.get("ts", "")  # the line's stored send time (ISO) — kept for display
     if role == "user":
-        out = {"role": "user", "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
-               "ts": ts, "timestamp": message.get("timestamp", 0)}
-        if message.get("attachments"):  # user-supplied files (by ref) — so a resumed chat shows them
+        out = {
+            "role": "user",
+            "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
+            "ts": ts,
+            "timestamp": message.get("timestamp", 0),
+        }
+        if message.get(
+            "attachments"
+        ):  # user-supplied files (by ref) — so a resumed chat shows them
             out["attachments"] = message["attachments"]
         return out
     if role == "assistant":
-        return {"role": "assistant",
-                "content": [_trim_history_block(b) for b in message.get("content") or []],
-                "stopReason": message.get("stopReason", "stop"),
-                "errorMessage": message.get("errorMessage"),
-                "ts": ts, "timestamp": message.get("timestamp", 0)}
+        return {
+            "role": "assistant",
+            "content": [_trim_history_block(b) for b in message.get("content") or []],
+            "stopReason": message.get("stopReason", "stop"),
+            "errorMessage": message.get("errorMessage"),
+            "ts": ts,
+            "timestamp": message.get("timestamp", 0),
+        }
     if role == "toolResult":
-        trimmed = {"role": "toolResult", "toolCallId": message.get("toolCallId", ""),
-                   "toolName": message.get("toolName", ""),
-                   "content": [{"type": "text",
-                                "text": _cap("".join(b.get("text", "") for b in message.get("content") or []
-                                                     if b.get("type") == "text"), _HISTORY_TOOL_RESULT_CAP)}],
-                   "isError": message.get("isError", False),
-                   "ts": ts, "timestamp": message.get("timestamp", 0)}
-        if message.get("artifacts"):   # keep declared deliverables so a resumed chat renders them
+        trimmed = {
+            "role": "toolResult",
+            "toolCallId": message.get("toolCallId", ""),
+            "toolName": message.get("toolName", ""),
+            "content": [
+                {
+                    "type": "text",
+                    "text": _cap(
+                        "".join(
+                            b.get("text", "")
+                            for b in message.get("content") or []
+                            if b.get("type") == "text"
+                        ),
+                        _HISTORY_TOOL_RESULT_CAP,
+                    ),
+                }
+            ],
+            "isError": message.get("isError", False),
+            "ts": ts,
+            "timestamp": message.get("timestamp", 0),
+        }
+        if message.get("artifacts"):  # keep declared deliverables so a resumed chat renders them
             trimmed["artifacts"] = message["artifacts"]
         return trimmed
     return message
@@ -162,7 +205,7 @@ class RunHandle:
     task: asyncio.Task | None = None
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
-    cron_failure_alert: int = 0      # auto-pause + alert after N consecutive failures (0=off)
+    cron_failure_alert: int = 0  # auto-pause + alert after N consecutive failures (0=off)
 
 
 def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | None:
@@ -175,13 +218,20 @@ def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | No
     if event.type == "agent_start":
         return AgentEvent("subagent_event", {"childAgent": child, "kind": "start"})
     if event.type == "tool_execution_start":
-        return AgentEvent("subagent_event", {"childAgent": child, "kind": "tool",
-                                             "tool": event.payload.get("toolName", "")})
+        return AgentEvent(
+            "subagent_event",
+            {"childAgent": child, "kind": "tool", "tool": event.payload.get("toolName", "")},
+        )
     if event.type == "agent_end":
         err = event.payload.get("error")
-        return AgentEvent("subagent_event", {
-            "childAgent": child, "kind": "error" if err else "done",
-            "detail": err or event.payload.get("stopReason", "")})
+        return AgentEvent(
+            "subagent_event",
+            {
+                "childAgent": child,
+                "kind": "error" if err else "done",
+                "detail": err or event.payload.get("stopReason", ""),
+            },
+        )
     return None
 
 
@@ -201,6 +251,7 @@ def _guarded_with_source(tools, config) -> list:
     namespaced MCP tools that flow through here). Mirrors the container's wrap step."""
     from agentd.application.services.agent_service import tool_source
     from agentd.infrastructure.tools.guard import GuardedTool, resolve_policy
+
     out = []
     for t in tools:
         gt = GuardedTool(t, resolve_policy(config, t))
@@ -227,14 +278,18 @@ def _persist_mcp_servers(config) -> bool:
     from pathlib import Path
 
     from agentd.config import V2_ROOT
+
     path = None
-    for cand in (os.environ.get("AGENTD_CONFIG"), "agentd.config.json",
-                 str(V2_ROOT / "agentd.config.json")):
+    for cand in (
+        os.environ.get("AGENTD_CONFIG"),
+        "agentd.config.json",
+        str(V2_ROOT / "agentd.config.json"),
+    ):
         if cand and Path(cand).is_file():
             path = Path(cand)
             break
     if path is None:
-        path = V2_ROOT / "agentd.config.json"          # create at the default location
+        path = V2_ROOT / "agentd.config.json"  # create at the default location
     try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
         data["mcp_servers"] = [_server_dict(s) for s in (config.mcp_servers or [])]
@@ -253,9 +308,13 @@ def _persist_webhooks(config) -> bool:
     from pathlib import Path
 
     from agentd.config import V2_ROOT
+
     path = None
-    for cand in (os.environ.get("AGENTD_CONFIG"), "agentd.config.json",
-                 str(V2_ROOT / "agentd.config.json")):
+    for cand in (
+        os.environ.get("AGENTD_CONFIG"),
+        "agentd.config.json",
+        str(V2_ROOT / "agentd.config.json"),
+    ):
         if cand and Path(cand).is_file():
             path = Path(cand)
             break
@@ -274,40 +333,143 @@ def _persist_webhooks(config) -> bool:
 # --- editable-config surface (config.get / config.set) ------------------------------
 # Provider API keys the settings UI can inspect (presence only) and set. These are
 # SECRETS: they live in the .env file (read by LiteLLM/tools straight from os.environ),
-# never in agentd.config.json. config.get returns booleans (is-it-set), NEVER the value.
+# never in agentd.config.json. config.get returns per-key presence booleans (`env`) AND the
+# actual values (`envValues`) so the LOCAL settings UI can show a saved key masked with a
+# reveal (eye) toggle. Deliberate local-first choice: the gateway is loopback-only + token-
+# authed, so a key never leaves the user's own machine; every client reads the SAME .env.
 PROVIDER_ENV_KEYS = (
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
-    "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
-    "XAI_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY", "FAL_KEY",
-    "REPLICATE_API_TOKEN", "BRAVE_API_KEY", "PARALLEL_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "XAI_API_KEY",
+    "TOGETHER_API_KEY",
+    "FIREWORKS_API_KEY",
+    "FAL_KEY",
+    "REPLICATE_API_TOKEN",
+    "BRAVE_API_KEY",
+    "PARALLEL_API_KEY",
 )
 # The config knobs the settings UI may READ and WRITE (a curated allowlist — never the
 # install identity `distribution`, the `gateway_token` secret, or `config_path`). Anything
 # not here is ignored on write, so a client can't set an arbitrary attribute.
 EXPOSED_CONFIG_KEYS = (
-    "agent_name", "model", "reasoning_effort", "max_turns",
-    "model_fallbacks", "cost_efficiency", "model_catalog",
-    "llm_idle_timeout_seconds", "llm_request_timeout_seconds",
-    "host", "port", "workspace", "state_dir",
-    "tool_timeout_default", "tool_retries_default",
-    "tool_loop_max_repeats_default", "tool_loop_warn_after_errors_default",
-    "tools_enabled", "tools_disabled",
-    "verify_tool", "completeness_check", "computer_enabled", "execution_contract",
-    "subagents_enabled", "subagent_max", "subagent_max_depth",
-    "memory_enabled", "memory_auto_recall", "memory_auto_recall_limit",
-    "skill_workshop", "agent_workshop", "mcp_workshop", "tool_workshop",
+    "agent_name",
+    "model",
+    "reasoning_effort",
+    "max_turns",
+    "model_fallbacks",
+    "cost_efficiency",
+    "model_catalog",
+    "model_defaults",
+    "llm_idle_timeout_seconds",
+    "llm_request_timeout_seconds",
+    "host",
+    "port",
+    "workspace",
+    "state_dir",
+    "tool_timeout_default",
+    "tool_retries_default",
+    "tool_loop_max_repeats_default",
+    "tool_loop_warn_after_errors_default",
+    "tools_enabled",
+    "tools_disabled",
+    "verify_tool",
+    "completeness_check",
+    "computer_enabled",
+    "execution_contract",
+    "subagents_enabled",
+    "subagent_max",
+    "subagent_max_depth",
+    "memory_enabled",
+    "memory_auto_recall",
+    "memory_auto_recall_limit",
+    "skill_workshop",
+    "agent_workshop",
+    "mcp_workshop",
+    "tool_workshop",
     "agent_messaging_enabled",
-    "autonomy_enabled", "heartbeat_default_interval", "heartbeat_active_hours",
-    "notify_enabled", "safe_to_send_check",
-    "workspace_index_enabled", "resource_manager_enabled",
-    "resource_vision_enabled", "resource_summarize_enabled",
-    "scratch_ttl_hours", "context_max_messages", "event_log_enabled",
-    "parallel_search_enabled", "google_account", "public_url",
-    "webhook_host", "webhook_port", "skills_relevance_enabled",
+    "autonomy_enabled",
+    "heartbeat_default_interval",
+    "heartbeat_active_hours",
+    "notify_enabled",
+    "safe_to_send_check",
+    "workspace_index_enabled",
+    "resource_manager_enabled",
+    "resource_vision_enabled",
+    "resource_summarize_enabled",
+    "scratch_ttl_hours",
+    "context_max_messages",
+    "event_log_enabled",
+    "parallel_search_enabled",
+    "google_account",
+    "public_url",
+    "webhook_host",
+    "webhook_port",
+    "skills_relevance_enabled",
     "plugins",
 )
 WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
 PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})
+
+# Which AGENTD_* env var (if any) OVERRIDES each exposed knob at boot. config.get reports the ones
+# currently set so the UI can mark that field read-only ("pinned by <VAR> in .env") — otherwise a
+# save silently reverts on restart. MUST mirror the `if os.environ.get("AGENTD_…")` handlers in
+# config.py (only keys config.py actually consumes belong here — e.g. `model`/tool models are
+# CONFIG-ONLY, so AGENTD_MODEL is dead and deliberately absent). Display-only: an omission just
+# means a field isn't flagged, never wrong data.
+EXPOSED_KEY_ENV = {
+    "agent_name": "AGENTD_AGENT_NAME",
+    "reasoning_effort": "AGENTD_REASONING",
+    "max_turns": "AGENTD_MAX_TURNS",
+    "model_fallbacks": "AGENTD_MODEL_FALLBACKS",
+    "llm_idle_timeout_seconds": "AGENTD_LLM_IDLE_TIMEOUT",
+    "llm_request_timeout_seconds": "AGENTD_LLM_REQUEST_TIMEOUT",
+    "host": "AGENTD_HOST",
+    "port": "AGENTD_PORT",
+    "workspace": "AGENTD_WORKSPACE",
+    "state_dir": "AGENTD_STATE_DIR",
+    "tool_timeout_default": "AGENTD_TOOL_TIMEOUT",
+    "tool_retries_default": "AGENTD_TOOL_RETRIES",
+    "tools_enabled": "AGENTD_TOOLS_ENABLED",
+    "tools_disabled": "AGENTD_TOOLS_DISABLED",
+    "verify_tool": "AGENTD_VERIFY_TOOL",
+    "completeness_check": "AGENTD_COMPLETENESS_CHECK",
+    "computer_enabled": "AGENTD_COMPUTER_ENABLED",
+    "execution_contract": "AGENTD_EXECUTION_CONTRACT",
+    "subagents_enabled": "AGENTD_SUBAGENTS",
+    "subagent_max_depth": "AGENTD_SUBAGENT_MAX_DEPTH",
+    "memory_enabled": "AGENTD_MEMORY",
+    "memory_auto_recall": "AGENTD_MEMORY_AUTO_RECALL",
+    "memory_auto_recall_limit": "AGENTD_MEMORY_AUTO_RECALL_LIMIT",
+    "skill_workshop": "AGENTD_SKILL_WORKSHOP",
+    "agent_workshop": "AGENTD_AGENT_WORKSHOP",
+    "mcp_workshop": "AGENTD_MCP_WORKSHOP",
+    "tool_workshop": "AGENTD_TOOL_WORKSHOP",
+    "agent_messaging_enabled": "AGENTD_AGENT_MESSAGING",
+    "autonomy_enabled": "AGENTD_AUTONOMY",
+    "heartbeat_default_interval": "AGENTD_HEARTBEAT_INTERVAL",
+    "heartbeat_active_hours": "AGENTD_HEARTBEAT_HOURS",
+    "notify_enabled": "AGENTD_NOTIFY",
+    "safe_to_send_check": "AGENTD_SAFE_TO_SEND",
+    "workspace_index_enabled": "AGENTD_WORKSPACE_INDEX",
+    "resource_manager_enabled": "AGENTD_RESOURCES",
+    "resource_vision_enabled": "AGENTD_RESOURCE_VISION",
+    "resource_summarize_enabled": "AGENTD_RESOURCE_SUMMARIZE",
+    "scratch_ttl_hours": "AGENTD_SCRATCH_TTL_HOURS",
+    "context_max_messages": "AGENTD_CONTEXT_MAX",
+    "event_log_enabled": "AGENTD_EVENT_LOG",
+    "parallel_search_enabled": "AGENTD_PARALLEL_SEARCH",
+    "google_account": "AGENTD_GOOGLE_ACCOUNT",
+    "public_url": "AGENTD_PUBLIC_URL",
+    "webhook_host": "AGENTD_WEBHOOK_HOST",
+    "webhook_port": "AGENTD_WEBHOOK_PORT",
+    "skills_relevance_enabled": "AGENTD_SKILLS_RELEVANCE_ENABLED",
+}
 
 # Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
 # so a user picks a model by name instead of typing an id. The config's own `model_catalog`
@@ -334,14 +496,34 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
     {"value": "mistral/mistral-large-latest", "label": "Mistral Large"},
 )
-# IMAGE-GENERATION models (for tools whose model_kind is "image", e.g. generate_artwork). These
+# IMAGE-GENERATION models (for tools whose model_kind is "image-gen", e.g. generate_artwork). These
 # OUTPUT pixels — a text/vision model here fails. Kept a separate list so an image tool's dropdown
 # never offers a text model (and vice-versa). `provider` is the backend SDK the tool should use.
 IMAGE_MODEL_CATALOG = (
-    {"value": "gemini/gemini-3-pro-image", "label": "Nano Banana Pro (Gemini 3 Pro Image)", "group": "Google", "provider": "gemini"},
-    {"value": "gemini/gemini-2.5-flash-image", "label": "Nano Banana (Gemini 2.5 Flash Image)", "group": "Google", "provider": "gemini"},
-    {"value": "black-forest-labs/flux-1.1-pro", "label": "FLUX 1.1 Pro", "group": "FLUX", "provider": "replicate"},
-    {"value": "black-forest-labs/flux-schnell", "label": "FLUX schnell (fast)", "group": "FLUX", "provider": "replicate"},
+    {
+        "value": "gemini/gemini-3-pro-image",
+        "label": "Nano Banana Pro (Gemini 3 Pro Image)",
+        "group": "Google",
+        "provider": "gemini",
+    },
+    {
+        "value": "gemini/gemini-2.5-flash-image",
+        "label": "Nano Banana (Gemini 2.5 Flash Image)",
+        "group": "Google",
+        "provider": "gemini",
+    },
+    {
+        "value": "black-forest-labs/flux-1.1-pro",
+        "label": "FLUX 1.1 Pro",
+        "group": "FLUX",
+        "provider": "replicate",
+    },
+    {
+        "value": "black-forest-labs/flux-schnell",
+        "label": "FLUX schnell (fast)",
+        "group": "FLUX",
+        "provider": "replicate",
+    },
 )
 # EMBEDDING models (for tools whose model_kind is "embedding", e.g. memory search).
 EMBEDDING_MODEL_CATALOG = (
@@ -350,10 +532,20 @@ EMBEDDING_MODEL_CATALOG = (
     {"value": "openai/text-embedding-3-large", "label": "OpenAI 3-large", "group": "OpenAI"},
 )
 _PROVIDER_LABEL = {
-    "gemini": "Google", "google": "Google", "vertex_ai": "Google", "anthropic": "Anthropic",
-    "openai": "OpenAI", "azure": "OpenAI", "deepseek": "DeepSeek", "xai": "xAI",
-    "groq": "Groq", "mistral": "Mistral", "openrouter": "OpenRouter", "together": "Together",
-    "fireworks": "Fireworks", "ollama": "Ollama",
+    "gemini": "Google",
+    "google": "Google",
+    "vertex_ai": "Google",
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "azure": "OpenAI",
+    "deepseek": "DeepSeek",
+    "xai": "xAI",
+    "groq": "Groq",
+    "mistral": "Mistral",
+    "openrouter": "OpenRouter",
+    "together": "Together",
+    "fireworks": "Fireworks",
+    "ollama": "Ollama",
 }
 # Which env key(s) a provider needs before its models can actually run. () => local/no key
 # (always available); a prefix absent here is treated as "unknown provider" => not filtered
@@ -387,7 +579,7 @@ def _provider_has_key(model_id: str) -> bool:
     """True if the provider behind this model is usable right now (a required key is present,
     or it needs none / is an unknown custom provider we won't second-guess)."""
     envs = _PROVIDER_KEY_ENV.get(_provider_prefix(model_id))
-    if not envs:                       # unknown provider or keyless (ollama) => don't hide
+    if not envs:  # unknown provider or keyless (ollama) => don't hide
         return True
     return any(os.environ.get(e) for e in envs)
 
@@ -397,15 +589,17 @@ def _provider_has_key(model_id: str) -> bool:
 # NEVER this code. Kinds: text | vision | image | embedding.
 _SEED_CATALOGS = {
     "text": DEFAULT_MODEL_CATALOG,
-    "vision": DEFAULT_MODEL_CATALOG,      # multimodal text models double as vision
-    "image": IMAGE_MODEL_CATALOG,
+    "vision": DEFAULT_MODEL_CATALOG,  # multimodal text models double as vision
+    "image-gen": IMAGE_MODEL_CATALOG,
     "embedding": EMBEDDING_MODEL_CATALOG,
 }
 
 
 def _has_kind(cfg, kind: str) -> bool:
-    return any(isinstance(e, dict) and str(e.get("kind") or "text").lower() == kind
-               for e in (getattr(cfg, "model_catalog", None) or []))
+    return any(
+        isinstance(e, dict) and str(e.get("kind") or "text").lower() == kind
+        for e in (getattr(cfg, "model_catalog", None) or [])
+    )
 
 
 def _catalog_for(cfg, kind: str, forced=()) -> list:
@@ -421,10 +615,14 @@ def _catalog_for(cfg, kind: str, forced=()) -> list:
         v = (str(value) if value else "").strip()
         if not v or v in seen:
             return
-        if not force and not _provider_has_key(v):     # hide a menu model with no key
+        if not force and not _provider_has_key(v):  # hide a menu model with no key
             return
-        seen[v] = {"value": v, "label": (label or v), "group": (group or _provider_group(v)),
-                   **({"provider": provider} if provider else {})}
+        seen[v] = {
+            "value": v,
+            "label": (label or v),
+            "group": (group or _provider_group(v)),
+            **({"provider": provider} if provider else {}),
+        }
 
     menu = getattr(cfg, "model_catalog", None) or []
     tagged = []
@@ -433,7 +631,7 @@ def _catalog_for(cfg, kind: str, forced=()) -> list:
             tagged.append(e)
         elif isinstance(e, str) and kind == "text":
             tagged.append({"value": e})
-    for e in (tagged or _SEED_CATALOGS.get(kind, ())):
+    for e in tagged or _SEED_CATALOGS.get(kind, ()):
         add(e.get("value") or e.get("id"), e.get("label"), e.get("group"), e.get("provider"))
     for v in forced:
         add(v, force=True)
@@ -455,16 +653,18 @@ def _kind_catalogs(cfg) -> dict:
     model. In-use tool models are forced in so nothing a tool actually uses disappears; vision reuses
     the text picker unless the config explicitly declares vision-kind models."""
     plugins = getattr(cfg, "plugins", None) or {}
+
     def in_use(pid, tool):
         t = ((plugins.get(pid) or {}).get("tools") or {}).get(tool) or {}
         return [t["model"]] if t.get("model") else []
+
     text = _build_model_catalog(cfg)
     vision_forced = in_use("vision", "read_labels_from_image") + in_use("vision", "verify_figure")
     return {
-        "models": text,            # back-compat key (text)
+        "models": text,  # back-compat key (text)
         "text": text,
         "vision": _catalog_for(cfg, "vision", vision_forced) if _has_kind(cfg, "vision") else text,
-        "image": _catalog_for(cfg, "image", in_use("figure-art", "generate_artwork")),
+        "image-gen": _catalog_for(cfg, "image-gen", in_use("figure-art", "generate_artwork")),
         "embedding": _catalog_for(cfg, "embedding"),
     }
 
@@ -473,6 +673,7 @@ def _config_file_path():
     """The agentd.config.json this daemon reads (first existing candidate), or the
     default write location when none exists yet. Same resolver load_config uses."""
     from agentd import runtime_paths
+
     for cand in runtime_paths.config_candidates():
         if cand and Path(cand).is_file():
             return Path(cand)
@@ -493,6 +694,7 @@ def _json_safe(value):
 def _persist_config_patch(patch: dict) -> tuple[bool, str]:
     """Merge ``patch`` into agentd.config.json, PRESERVING every other key. Best-effort."""
     import json
+
     path = _config_file_path()
     try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
@@ -525,7 +727,7 @@ def _update_env_file(env_path: Path, keys: dict) -> bool:
             if name in remaining:
                 val = remaining.pop(name)
                 if val == "":
-                    continue                       # delete this line
+                    continue  # delete this line
                 out.append(f"{name}={val}")
                 continue
         out.append(line)
@@ -553,21 +755,23 @@ class Gateway:
     longer composes anything itself."""
 
     config: Config
-    service: AgentService                          # injected use-case (does the work)
-    browser_manager: object | None = None          # injected; closed on shutdown
-    mcp_provider: object | None = None             # injected; discovered at startup, closed on shutdown
-    registry: object | None = None                 # injected; the agent registry (for the scheduler)
-    task_store: object | None = None               # injected; durable cron ledger (Phase 2b), or None
-    memory_bank: object | None = None               # injected; long-term memory store (S4), or None
-    event_log: object | None = None                 # injected; durable per-run event stream, or None
-    credential_store: object | None = None          # injected; login vault (/connect form writes here)
-    connect_tokens: object | None = None            # injected; one-time /connect-link tokens
-    safe_to_send_gate: object | None = None         # injected; out-of-band privacy gate on channel replies
-    notifier: object | None = None                  # built in serve(); outbound user notifications (5a)
-    channels: list = field(default_factory=list)    # active messaging channels (5b), built in serve()
-    channel_notifiers: list = field(default_factory=list)  # ChannelNotifier per notify-capable channel
-    subagent_active: int = 0                         # in-flight sub-agent runs (runaway guard, S8)
-    webhook_server: object | None = None             # the WebhookServer (set in serve); hosts task hooks
+    service: AgentService  # injected use-case (does the work)
+    browser_manager: object | None = None  # injected; closed on shutdown
+    mcp_provider: object | None = None  # injected; discovered at startup, closed on shutdown
+    registry: object | None = None  # injected; the agent registry (for the scheduler)
+    task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
+    memory_bank: object | None = None  # injected; long-term memory store (S4), or None
+    event_log: object | None = None  # injected; durable per-run event stream, or None
+    credential_store: object | None = None  # injected; login vault (/connect form writes here)
+    connect_tokens: object | None = None  # injected; one-time /connect-link tokens
+    safe_to_send_gate: object | None = None  # injected; out-of-band privacy gate on channel replies
+    notifier: object | None = None  # built in serve(); outbound user notifications (5a)
+    channels: list = field(default_factory=list)  # active messaging channels (5b), built in serve()
+    channel_notifiers: list = field(
+        default_factory=list
+    )  # ChannelNotifier per notify-capable channel
+    subagent_active: int = 0  # in-flight sub-agent runs (runaway guard, S8)
+    webhook_server: object | None = None  # the WebhookServer (set in serve); hosts task hooks
     # M2 auth: the bearer token clients must present ("" => open, the test/dev default).
     # Set by serve() from config (gateway_auth/gateway_token) — never at construction, so
     # unit tests that drive _handle_conn directly are unaffected.
@@ -588,15 +792,16 @@ class Gateway:
         if existing is not None and existing.pid != os.getpid():
             raise SystemExit(
                 f"agentd is already running (pid {existing.pid}, {existing.ws_url}) — "
-                f"attach with `agentd chat` or stop it with `agentd stop`.")
+                f"attach with `agentd chat` or stop it with `agentd stop`."
+            )
         # M2 auth: mint (or adopt) the bearer token clients must present. The token
         # travels ONLY via the 0600 rendezvous file — never argv, never logs.
         if getattr(self.config, "gateway_auth", False):
             self.auth_token = getattr(self.config, "gateway_token", "") or lifecycle.mint_token()
         # Fast, in-process registrations happen BEFORE bind (cheap, chat depends on them)…
-        self._build_subagents()           # the spawn_subagent tool (S8), if enabled
-        self._build_agent_messaging()     # message_agent: talk to OTHER persistent agents (A5)
-        self._build_add_mcp()             # add_mcp: connect an MCP server by chatting (B2)
+        self._build_subagents()  # the spawn_subagent tool (S8), if enabled
+        self._build_agent_messaging()  # message_agent: talk to OTHER persistent agents (A5)
+        self._build_add_mcp()  # add_mcp: connect an MCP server by chatting (B2)
         # …but everything SLOW or external is deferred until AFTER the port is open (see
         # _deferred_startup): a cold external MCP server (uvx download, OAuth dance) used to
         # hold the bind for minutes, which stalls every client and the desktop supervisor.
@@ -608,19 +813,34 @@ class Gateway:
             nonlocal scheduler_task, poller_task, webhook_task
             scheduler_task, poller_task, webhook_task = tasks
 
-        async with serve(self._handle_conn, self.config.host, self.config.port,
-                          process_request=self._http_request,
-                          max_size=MAX_WS_FRAME):
-            lifecycle.write_gateway_file(lifecycle.GatewayInfo(
-                host=self.config.host, port=self.config.port, pid=os.getpid(),
-                token=self.auth_token, version=__version__,
-                started_at=datetime.now().isoformat(timespec="seconds")))
-            log.info("listening on ws://%s:%s (auth %s)", self.config.host, self.config.port,
-                     "on" if self.auth_token else "off")
+        async with serve(
+            self._handle_conn,
+            self.config.host,
+            self.config.port,
+            process_request=self._http_request,
+            max_size=MAX_WS_FRAME,
+        ):
+            lifecycle.write_gateway_file(
+                lifecycle.GatewayInfo(
+                    host=self.config.host,
+                    port=self.config.port,
+                    pid=os.getpid(),
+                    token=self.auth_token,
+                    version=__version__,
+                    started_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            )
+            log.info(
+                "listening on ws://%s:%s (auth %s)",
+                self.config.host,
+                self.config.port,
+                "on" if self.auth_token else "off",
+            )
             print(f"agentd listening on ws://{self.config.host}:{self.config.port}")
             print(f"model: {_effective_model(self.config)} | workspace: {self.config.workspace}")
             startup_task = asyncio.create_task(
-                self._deferred_startup(_adopt_background), name="deferred-startup")
+                self._deferred_startup(_adopt_background), name="deferred-startup"
+            )
             try:
                 await asyncio.Future()  # run forever
             finally:
@@ -650,17 +870,18 @@ class Gateway:
         to serve() so shutdown still cancels them."""
         try:
             await self._discover_mcp_tools()  # connect external MCP servers, add their tools
-            self._build_channels()            # messaging channels (5b) — email needs MCP tools first
-            self._build_notifier()            # outbound notifications (client-push + durable + channels)
-            adopt_background((
-                self._start_scheduler(),      # autonomy (heartbeat); None if disabled
-                self._start_channel_poller(),  # inbound poll channels; None if none
-                self._start_webhook_server(),  # push channels (LINE) + task hooks (/hook/<id>)
-            ))
-            self._build_create_webhook()      # create_webhook: mint task triggers by chatting (D)
+            self._build_channels()  # messaging channels (5b) — email needs MCP tools first
+            self._build_notifier()  # outbound notifications (client-push + durable + channels)
+            adopt_background(
+                (
+                    self._start_scheduler(),  # autonomy (heartbeat); None if disabled
+                    self._start_channel_poller(),  # inbound poll channels; None if none
+                    self._start_webhook_server(),  # push channels (LINE) + task hooks (/hook/<id>)
+                )
+            )
+            self._build_create_webhook()  # create_webhook: mint task triggers by chatting (D)
             # fill in any missing agent taglines/suggestions (one-time, per agent)
-            asyncio.create_task(self._maybe_generate_presentations(),
-                                name="agent-presentation")
+            asyncio.create_task(self._maybe_generate_presentations(), name="agent-presentation")
             log.info("deferred startup complete (MCP + channels + background services)")
         except asyncio.CancelledError:
             raise
@@ -675,10 +896,13 @@ class Gateway:
         from agentd.infrastructure.autonomy import HeartbeatScheduler
 
         scheduler = HeartbeatScheduler(
-            self.registry, self._post_heartbeat, enabled=True,
+            self.registry,
+            self._post_heartbeat,
+            enabled=True,
             default_interval=self.config.heartbeat_default_interval,
             active_hours=self.config.heartbeat_active_hours,
-            task_store=self.task_store, fire_task=self._post_cron,   # cron (2b)
+            task_store=self.task_store,
+            fire_task=self._post_cron,  # cron (2b)
         )
         return asyncio.create_task(scheduler.run(), name="autonomy-scheduler")
 
@@ -718,9 +942,11 @@ class Gateway:
 
         tool = SpawnSubagentTool(self._spawn_subagent)
         self.service.add_tools([GuardedTool(tool, resolve_policy(self.config, tool))])
-        log.info("sub-agents enabled (max %d concurrent, max depth %d)",
-                 getattr(self.config, "subagent_max", 4),
-                 min(5, max(1, int(getattr(self.config, "subagent_max_depth", 1) or 1))))
+        log.info(
+            "sub-agents enabled (max %d concurrent, max depth %d)",
+            getattr(self.config, "subagent_max", 4),
+            min(5, max(1, int(getattr(self.config, "subagent_max_depth", 1) or 1))),
+        )
 
     def _build_agent_messaging(self) -> None:
         """Register message_agent (A5) when enabled — call ANOTHER persistent agent and get its
@@ -755,7 +981,7 @@ class Gateway:
         ctx = current_run_context()
         caller = (ctx.agent_id if ctx else None) or "main"
         parent_key = ctx.session_key if ctx else ""
-        if ":peer:" in parent_key:                       # a messaged agent can't chain further
+        if ":peer:" in parent_key:  # a messaged agent can't chain further
             return "agent-to-agent messaging cannot chain further (loop guard)."
         if not target_id:
             return "message_agent needs a target agent id."
@@ -763,25 +989,33 @@ class Gateway:
             return "cannot message yourself — just do the work, or use spawn_subagent."
         if self.registry is not None and target_id not in self.registry.list_ids():
             return f"unknown agent: {target_id}"
-        if self.registry is not None:                    # honor the caller's delegation allowlist
+        if self.registry is not None:  # honor the caller's delegation allowlist
             from agentd.domain.agent import _matches
+
             try:
                 spec = self.registry.get(caller)
             except KeyError:
                 spec = None
             allow = getattr(spec, "subagents_allow", None)
             if allow is not None and not any(_matches(target_id, p) for p in allow):
-                return (f"'{caller}' may not message '{target_id}' "
-                        f"(allowed: {', '.join(allow) or 'none'}).")
+                return (
+                    f"'{caller}' may not message '{target_id}' "
+                    f"(allowed: {', '.join(allow) or 'none'})."
+                )
         session_key = f"agent:{target_id}:peer:{caller}"
         # Layer B: a delegation FROM a project chat stays in the project (child meta inherits
         # projectId), so the target agent works in the project's shared workspace.
         self._inherit_project(caller, parent_key, target_id, session_key)
-        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
-                           abort=asyncio.Event(), client_id=None,
-                           parent_session_key=parent_key or None)   # relay progress to the caller
+        handle = RunHandle(
+            run_id=uuid.uuid4().hex[:12],
+            session_key=session_key,
+            abort=asyncio.Event(),
+            client_id=None,
+            parent_session_key=parent_key or None,
+        )  # relay progress to the caller
         await asyncio.create_task(
-            self._run(handle, message, mode=RunMode.INTERACTIVE, agent_id=target_id))
+            self._run(handle, message, mode=RunMode.INTERACTIVE, agent_id=target_id)
+        )
         return self._last_answer(target_id, session_key) or "(the agent produced no reply)"
 
     async def _spawn_subagent(self, agent_id: str | None, task: str) -> str:
@@ -796,38 +1030,47 @@ class Gateway:
         max_depth = min(5, max(1, int(getattr(self.config, "subagent_max_depth", 1) or 1)))
         depth = _subagent_depth(parent_key)
         if depth >= max_depth:
-            return (f"sub-agents cannot spawn deeper here (already at depth {depth}, "
-                    f"max {max_depth}).")
+            return (
+                f"sub-agents cannot spawn deeper here (already at depth {depth}, max {max_depth})."
+            )
         cap = int(getattr(self.config, "subagent_max", 4))
         if self.subagent_active >= cap:
             return f"sub-agent limit reached ({cap} concurrent); try again when some finish."
 
-        child_agent = (agent_id or parent_agent)
+        child_agent = agent_id or parent_agent
         if self.registry is not None and child_agent not in self.registry.list_ids():
             return f"unknown agent: {child_agent}"
         # Allowlist (A4): when delegating to a NAMED other agent, honor the caller's [subagents]
         # allow scope (ids/globs). None => unrestricted; spawning oneself is always allowed.
         if agent_id and child_agent != parent_agent and self.registry is not None:
             from agentd.domain.agent import _matches
+
             try:
                 spec = self.registry.get(parent_agent)
             except KeyError:
                 spec = None
             allow = getattr(spec, "subagents_allow", None)
             if allow is not None and not any(_matches(child_agent, p) for p in allow):
-                return (f"'{parent_agent}' may not delegate to '{child_agent}' "
-                        f"(allowed: {', '.join(allow) or 'none'}).")
+                return (
+                    f"'{parent_agent}' may not delegate to '{child_agent}' "
+                    f"(allowed: {', '.join(allow) or 'none'})."
+                )
         session_key = f"agent:{child_agent}:sub:{depth + 1}:{uuid.uuid4().hex[:8]}"
         # Layer B: sub-work spawned from a project chat inherits the project (shared workspace).
         self._inherit_project(parent_agent, parent_key, child_agent, session_key)
-        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
-                           abort=asyncio.Event(), client_id=None,
-                           parent_session_key=parent_key or None)  # relay progress to parent
+        handle = RunHandle(
+            run_id=uuid.uuid4().hex[:12],
+            session_key=session_key,
+            abort=asyncio.Event(),
+            client_id=None,
+            parent_session_key=parent_key or None,
+        )  # relay progress to parent
         self.subagent_active += 1
         try:
             # own Task => its own copied context => child set_run_context can't leak to parent
             await asyncio.create_task(
-                self._run(handle, task, mode=RunMode.INTERACTIVE, agent_id=child_agent))
+                self._run(handle, task, mode=RunMode.INTERACTIVE, agent_id=child_agent)
+            )
         finally:
             self.subagent_active -= 1
         return self._last_answer(child_agent, session_key) or "(sub-agent produced no answer)"
@@ -839,8 +1082,10 @@ class Gateway:
         from agentd.infrastructure.channels import ChannelPoller
 
         poller = ChannelPoller(
-            self.channels, self._fire_channel,
-            interval=float(getattr(self.config, "channel_poll_seconds", 15.0)))
+            self.channels,
+            self._fire_channel,
+            interval=float(getattr(self.config, "channel_poll_seconds", 15.0)),
+        )
         return asyncio.create_task(poller.run(), name="channel-poller")
 
     def _start_webhook_server(self):
@@ -850,21 +1095,24 @@ class Gateway:
         None if nothing needs the server."""
         push = [c for c in self.channels if getattr(c, "webhook_path", None)]
         connect_on = self.credential_store is not None and self.connect_tokens is not None
-        task_hooks_on = bool(getattr(self.config, "webhooks", None)) or \
-            bool(getattr(self.config, "webhook_workshop", False))
-        if not push and not connect_on and not task_hooks_on:   # nothing needs the HTTP server
+        task_hooks_on = bool(getattr(self.config, "webhooks", None)) or bool(
+            getattr(self.config, "webhook_workshop", False)
+        )
+        if not push and not connect_on and not task_hooks_on:  # nothing needs the HTTP server
             return None
         from agentd.infrastructure.channels.webhook import WebhookServer
 
         server = WebhookServer(
-            push, self._fire_channel,
+            push,
+            self._fire_channel,
             host=getattr(self.config, "webhook_host", "0.0.0.0"),
             port=int(getattr(self.config, "webhook_port", 8788)),
             credential_store=self.credential_store if connect_on else None,
             connect_tokens=self.connect_tokens if connect_on else None,
             run_task=self._run_task if task_hooks_on else None,
-            hooks=list(getattr(self.config, "webhooks", None) or []))
-        self.webhook_server = server             # so create_webhook can add hooks live
+            hooks=list(getattr(self.config, "webhooks", None) or []),
+        )
+        self.webhook_server = server  # so create_webhook can add hooks live
         return asyncio.create_task(server.run(), name="webhook-server")
 
     async def _run_task(self, agent_id: str, task: str) -> None:
@@ -876,8 +1124,12 @@ class Gateway:
             log.warning("webhook task: unknown agent '%s' — ignoring", agent_id)
             return
         session_key = f"agent:{agent_id}:hook:{uuid.uuid4().hex[:8]}"
-        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
-                           abort=asyncio.Event(), client_id=None)
+        handle = RunHandle(
+            run_id=uuid.uuid4().hex[:12],
+            session_key=session_key,
+            abort=asyncio.Event(),
+            client_id=None,
+        )
         await self._run(handle, task, mode=RunMode.INTERACTIVE, agent_id=agent_id)
 
     def _build_create_webhook(self) -> None:
@@ -897,13 +1149,16 @@ class Gateway:
         server and persisted. Returns the URL + secret to paste into the external service."""
         import re
         import secrets
+
         if self.webhook_server is None:
             return {"created": False, "error": "webhook server not running"}
         agent = (params.get("agent") or "main").strip() or "main"
         if self.registry is not None and agent not in self.registry.list_ids():
             return {"created": False, "error": f"unknown agent: {agent}"}
-        hid = re.sub(r"[^a-z0-9-]+", "-", (params.get("id") or "").strip().lower()).strip("-") \
+        hid = (
+            re.sub(r"[^a-z0-9-]+", "-", (params.get("id") or "").strip().lower()).strip("-")
             or f"hook-{secrets.token_hex(3)}"
+        )
         if hid in {h.get("id") for h in (self.config.webhooks or [])}:
             return {"created": False, "error": f"a hook '{hid}' already exists"}
         hook = {"id": hid, "secret": secrets.token_urlsafe(24), "agent": agent}
@@ -913,12 +1168,20 @@ class Gateway:
         self.webhook_server.add_hook(hook)
         self.config.webhooks = list(self.config.webhooks or []) + [hook]
         persisted = _persist_webhooks(self.config)
-        base = (getattr(self.config, "public_url", "")
-                or f"http://{getattr(self.config, 'webhook_host', '0.0.0.0')}:"
-                   f"{getattr(self.config, 'webhook_port', 8788)}").rstrip("/")
+        base = (
+            getattr(self.config, "public_url", "")
+            or f"http://{getattr(self.config, 'webhook_host', '0.0.0.0')}:"
+            f"{getattr(self.config, 'webhook_port', 8788)}"
+        ).rstrip("/")
         log.info("create_webhook '%s' -> agent '%s', persisted=%s", hid, agent, persisted)
-        return {"created": True, "id": hid, "secret": hook["secret"],
-                "url": f"{base}/hook/{hid}", "agent": agent, "persisted": persisted}
+        return {
+            "created": True,
+            "id": hid,
+            "secret": hook["secret"],
+            "url": f"{base}/hook/{hid}",
+            "agent": agent,
+            "persisted": persisted,
+        }
 
     async def _invoke_tool(self, name: str, params: dict) -> str:
         """Invoke a registered (namespaced MCP) tool by name OUTSIDE the agent loop —
@@ -940,13 +1203,17 @@ class Gateway:
         existing = self.runs.get(session_key)
         if existing is not None and existing.task is not None and not existing.task.done():
             return  # a run for this peer is already in flight; next poll picks it up
-        handle = RunHandle(run_id=uuid.uuid4().hex[:12], session_key=session_key,
-                           abort=asyncio.Event(), client_id=None)
+        handle = RunHandle(
+            run_id=uuid.uuid4().hex[:12],
+            session_key=session_key,
+            abort=asyncio.Event(),
+            client_id=None,
+        )
         handle.task = asyncio.create_task(self._run_channel(handle, channel, msg, agent_id))
         self.runs[session_key] = handle
         log.info("channel %s: message from %s -> run %s", channel.name, msg.peer, handle.run_id)
 
-    async def _run_channel(self, handle: "RunHandle", channel, msg, agent_id: str) -> None:
+    async def _run_channel(self, handle: RunHandle, channel, msg, agent_id: str) -> None:
         await self._run(handle, msg.text, mode=RunMode.CHANNEL, agent_id=agent_id)
         reply = self._last_answer(agent_id, handle.session_key)
         if reply:
@@ -960,8 +1227,9 @@ class Gateway:
             except Exception:  # noqa: BLE001
                 log.warning("channel reply send failed (%s)", channel.name, exc_info=True)
 
-    async def _verify_safe_to_send(self, handle: "RunHandle", agent_id: str,
-                                   question: str, answer: str) -> str:
+    async def _verify_safe_to_send(
+        self, handle: RunHandle, agent_id: str, question: str, answer: str
+    ) -> str:
         """Run the out-of-band safe-to-send gate on an outbound channel reply and return the
         text to actually send: the original answer if cleared, or a safe replacement if blocked.
         Applies ONLY to agents tagged `audience = "external"` in their toml; anything else
@@ -977,10 +1245,15 @@ class Gateway:
             return answer
         from agentd.application.interfaces.safe_to_send import SafeToSendContext
 
-        verdict = await gate.check(SafeToSendContext(
-            audience=spec.audience, policy=spec.instructions or "",
-            conversation=self._recent_dialog(agent_id, handle.session_key),
-            question=question, answer=answer))
+        verdict = await gate.check(
+            SafeToSendContext(
+                audience=spec.audience,
+                policy=spec.instructions or "",
+                conversation=self._recent_dialog(agent_id, handle.session_key),
+                question=question,
+                answer=answer,
+            )
+        )
         if verdict.safe:
             self._emit_gate_event(handle, "allowed", "")
             return answer
@@ -988,7 +1261,8 @@ class Gateway:
         self._emit_gate_event(handle, "blocked", verdict.reason)
         return verdict.safe_reply or (
             "Sorry, I'm not able to share that here. Could you give me a few more details "
-            "about your own request so I can help you directly?")
+            "about your own request so I can help you directly?"
+        )
 
     def _spec(self, agent_id: str):
         """The AgentSpec for an id, or None (no registry / unknown id)."""
@@ -1008,7 +1282,9 @@ class Gateway:
             from agentd.infrastructure.memory.local_store import SessionStore
 
             spec = self._spec(agent_id)
-            state_dir = spec.state_dir if spec is not None else getattr(self.config, "state_dir", None)
+            state_dir = (
+                spec.state_dir if spec is not None else getattr(self.config, "state_dir", None)
+            )
             if state_dir is None:
                 return ""
             msgs = SessionStore(state_dir, session_key).load()
@@ -1026,13 +1302,16 @@ class Gateway:
         except Exception:  # noqa: BLE001 — context is a nice-to-have, never break the gate
             return ""
 
-    def _emit_gate_event(self, handle: "RunHandle", decision: str, reason: str) -> None:
+    def _emit_gate_event(self, handle: RunHandle, decision: str, reason: str) -> None:
         """Record a safe-to-send decision to the durable event log (best-effort)."""
         if self.event_log is None:
             return
         try:
-            self.event_log.emit(handle.session_key, handle.run_id,
-                                AgentEvent("safe_to_send", {"decision": decision, "reason": reason}))
+            self.event_log.emit(
+                handle.session_key,
+                handle.run_id,
+                AgentEvent("safe_to_send", {"decision": decision, "reason": reason}),
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -1066,11 +1345,15 @@ class Gateway:
         if existing is not None and existing.task is not None and not existing.task.done():
             return False
         # deliver=message -> emit the stored text verbatim; deliver=run -> execute it
-        message = (OUTBOX_PROMPT.format(text=task.payload)
-                   if getattr(task, "delivery", "run") == "message" else task.payload)
+        message = (
+            OUTBOX_PROMPT.format(text=task.payload)
+            if getattr(task, "delivery", "run") == "message"
+            else task.payload
+        )
         run_id = uuid.uuid4().hex[:12]
-        handle = RunHandle(run_id=run_id, session_key=session_key,
-                           abort=asyncio.Event(), client_id=None)
+        handle = RunHandle(
+            run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=None
+        )
         if self.task_store is not None:
             handle.cron_run_id = self.task_store.record_run(task.id, task.agent_id)  # history
             handle.cron_task_id = task.id
@@ -1089,10 +1372,12 @@ class Gateway:
         if existing is not None and existing.task is not None and not existing.task.done():
             return  # previous tick still running
         run_id = uuid.uuid4().hex[:12]
-        handle = RunHandle(run_id=run_id, session_key=session_key,
-                           abort=asyncio.Event(), client_id=None)
+        handle = RunHandle(
+            run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=None
+        )
         handle.task = asyncio.create_task(
-            self._run(handle, HEARTBEAT_PROMPT, mode=RunMode.HEARTBEAT))
+            self._run(handle, HEARTBEAT_PROMPT, mode=RunMode.HEARTBEAT)
+        )
         self.runs[session_key] = handle
         log.info("heartbeat tick: agent %s (run %s)", agent_id, run_id)
 
@@ -1107,8 +1392,11 @@ class Gateway:
 
             raw = await self.mcp_provider.discover()
             # apply the SAME global on/off as the rest of the catalog (uniform layer-2 enablement)
-            raw = apply_enablement(raw, getattr(self.config, "tools_enabled", None),
-                                   getattr(self.config, "tools_disabled", ()))
+            raw = apply_enablement(
+                raw,
+                getattr(self.config, "tools_enabled", None),
+                getattr(self.config, "tools_disabled", ()),
+            )
             self.service.add_tools(_guarded_with_source(raw, self.config))
             if raw:
                 log.info("MCP: added %d tool(s) to the toolset", len(raw))
@@ -1134,9 +1422,11 @@ class Gateway:
             try:
                 for aid in self.registry.list_ids():
                     spec = self.registry.get(aid)
-                    for p in (getattr(spec, "workspace", None),
-                              getattr(spec, "state_dir", None),
-                              getattr(spec, "dir", None)):
+                    for p in (
+                        getattr(spec, "workspace", None),
+                        getattr(spec, "state_dir", None),
+                        getattr(spec, "dir", None),
+                    ):
                         if p:
                             roots.append(Path(p))
             except Exception:  # noqa: BLE001 — a bad spec never blocks file serving
@@ -1166,11 +1456,11 @@ class Gateway:
             return self._serve_file(split, getattr(request, "headers", {}))
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
             log.exception("http /file failed")
-            return HttpResponse(500, "Internal Server Error",
-                                Headers({"Content-Length": "0"}), b"")
+            return HttpResponse(500, "Internal Server Error", Headers({"Content-Length": "0"}), b"")
 
     def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""
+
         def deny(code: int, reason: str) -> HttpResponse:
             return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
 
@@ -1184,7 +1474,7 @@ class Gateway:
                 except Exception:  # noqa: BLE001
                     auth = ""
                 if auth.startswith("Bearer "):
-                    tok = auth[len("Bearer "):].strip()
+                    tok = auth[len("Bearer ") :].strip()
             if not hmac.compare_digest(tok, self.auth_token):
                 return deny(401, "Unauthorized")
 
@@ -1208,7 +1498,7 @@ class Gateway:
         except Exception:  # noqa: BLE001
             rng = ""
         if rng.startswith("bytes=") and size > 0:
-            spec = rng[len("bytes="):].split(",")[0].strip()
+            spec = rng[len("bytes=") :].split(",")[0].strip()
             lo, _, hi = spec.partition("-")
             try:
                 if lo == "":
@@ -1265,9 +1555,9 @@ class Gateway:
             query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
             presented = (query.get("token") or [""])[0]
             if not presented:
-                auth_header = (request.headers.get("Authorization") or "")
+                auth_header = request.headers.get("Authorization") or ""
                 if auth_header.startswith("Bearer "):
-                    presented = auth_header[len("Bearer "):].strip()
+                    presented = auth_header[len("Bearer ") :].strip()
         return hmac.compare_digest(presented, self.auth_token)
 
     async def _handle_conn(self, ws: ServerConnection) -> None:
@@ -1390,13 +1680,16 @@ class Gateway:
             elif req.method == "marketplace.install":
                 payload = await self._marketplace().install(
                     bundle_id=(req.params.get("id") or "").strip(),
-                    file=(req.params.get("file") or "").strip())
+                    file=(req.params.get("file") or "").strip(),
+                )
             elif req.method == "marketplace.uninstall":
                 payload = await self._marketplace().uninstall(
-                    (req.params.get("id") or "").strip(),
-                    purge_state=bool(req.params.get("purge")))
+                    (req.params.get("id") or "").strip(), purge_state=bool(req.params.get("purge"))
+                )
             else:
-                return Response(id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"})
+                return Response(
+                    id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"}
+                )
             return Response(id=req.id, ok=True, payload=payload)
         except Exception as e:
             log.exception("dispatch error for %s", req.method)
@@ -1417,7 +1710,7 @@ class Gateway:
         try:
             return agent_id, self.registry.get(agent_id).state_dir
         except KeyError:
-            if agent_id == "main":                 # main should always resolve
+            if agent_id == "main":  # main should always resolve
                 return "main", self.config.state_dir
             # where this agent's partition WOULD be — absent => empty, never main's
             return agent_id, Path(self.config.state_dir) / "agents" / agent_id
@@ -1440,7 +1733,7 @@ class Gateway:
             for aid, state_dir in self._agent_state_dirs():
                 for s in list_sessions(state_dir):
                     if str(s.get("sessionId", "")).startswith("agent_"):
-                        continue                       # internal (sub-agent/cron/agent-msg): hide
+                        continue  # internal (sub-agent/cron/agent-msg): hide
                     if project_id and (s.get("projectId") or "") != project_id:
                         continue
                     rows.append({**s, "agentId": aid})
@@ -1449,8 +1742,11 @@ class Gateway:
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         # Internal agent-to-agent / cron threads (on-disk `agent_…` stems) are never human
         # chats — hide them here too, so a per-agent session picker matches the cross-agent lists.
-        rows = [{**s, "agentId": agent_id} for s in list_sessions(state_dir)
-                if not str(s.get("sessionId", "")).startswith("agent_")]
+        rows = [
+            {**s, "agentId": agent_id}
+            for s in list_sessions(state_dir)
+            if not str(s.get("sessionId", "")).startswith("agent_")
+        ]
         return {"sessions": rows, "agentId": agent_id}
 
     def _sessions_history(self, params: dict) -> dict:
@@ -1462,6 +1758,7 @@ class Gateway:
         if not session_key:
             return {"messages": [], "sessionKey": "", "agentId": agent_id}
         from agentd.infrastructure.memory.local_store import read_session_messages
+
         # A tool result's DECLARED artifacts are persisted in the transcript, so a resumed
         # chat replays the same deliverables a live run showed — no re-derivation needed.
         messages = [_trim_history_message(m) for m in read_session_messages(state_dir, session_key)]
@@ -1476,10 +1773,17 @@ class Gateway:
         if not session_key:
             return {"ok": False, "error": "sessionKey required"}
         from agentd.infrastructure.memory.local_store import write_session_meta
+
         title = (params.get("title") or "").strip()[:80]
         write_session_meta(state_dir, session_key, title=title, manual=bool(title))
-        await self._send_all(dump_frame(Event(
-            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key})))
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="sessions.changed",
+                    payload={"agentId": agent_id, "sessionKey": session_key},
+                )
+            )
+        )
         return {"ok": True, "sessionKey": session_key, "title": title, "agentId": agent_id}
 
     async def _sessions_delete(self, params: dict) -> dict:
@@ -1494,11 +1798,17 @@ class Gateway:
         if handle is not None and handle.task is not None and not handle.task.done():
             return {"ok": False, "error": "session has an active run — /abort it first"}
         from agentd.infrastructure.memory.local_store import delete_session
+
         deleted = delete_session(state_dir, session_key)
-        self.runs.pop(session_key, None)               # forget any finished handle
-        await self._send_all(dump_frame(Event(
-            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key,
-                                               "deleted": True})))
+        self.runs.pop(session_key, None)  # forget any finished handle
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="sessions.changed",
+                    payload={"agentId": agent_id, "sessionKey": session_key, "deleted": True},
+                )
+            )
+        )
         return {"ok": True, "deleted": deleted, "sessionKey": session_key, "agentId": agent_id}
 
     async def _sessions_move(self, params: dict) -> dict:
@@ -1510,10 +1820,17 @@ class Gateway:
         if not session_key:
             return {"ok": False, "error": "sessionKey required"}
         from agentd.infrastructure.memory.local_store import write_session_meta
+
         project_id = (params.get("projectId") or "").strip()
         write_session_meta(state_dir, session_key, projectId=project_id)
-        await self._send_all(dump_frame(Event(
-            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": session_key})))
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="sessions.changed",
+                    payload={"agentId": agent_id, "sessionKey": session_key},
+                )
+            )
+        )
         return {"ok": True, "sessionKey": session_key, "projectId": project_id, "agentId": agent_id}
 
     async def _sessions_duplicate(self, params: dict) -> dict:
@@ -1525,12 +1842,18 @@ class Gateway:
         if not session_key:
             return {"ok": False, "error": "sessionKey required"}
         from agentd.infrastructure.memory.local_store import duplicate_session
+
         new_key = duplicate_session(state_dir, session_key)
         if not new_key:
             return {"ok": False, "error": "session not found"}
-        await self._send_all(dump_frame(Event(
-            event="sessions.changed", payload={"agentId": agent_id, "sessionKey": new_key,
-                                               "created": True})))
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="sessions.changed",
+                    payload={"agentId": agent_id, "sessionKey": new_key, "created": True},
+                )
+            )
+        )
         return {"ok": True, "sessionKey": new_key, "agentId": agent_id}
 
     # ------------------------------------------------------------------ projects
@@ -1567,26 +1890,30 @@ class Gateway:
                     seen.add(key)
                     pairs.append((aid, sd))
         root = str(self.config.state_dir)
-        if root not in seen:                            # legacy/global sessions => main
+        if root not in seen:  # legacy/global sessions => main
             pairs.append(("main", self.config.state_dir))
         return pairs
 
     def _projects_list(self) -> dict:
         from agentd.infrastructure.memory import projects_store
+
         return {"projects": projects_store.list_projects(self.config.state_dir)}
 
     async def _projects_create(self, params: dict) -> dict:
         from agentd.infrastructure.memory import projects_store
-        project = projects_store.create_project(self.config.state_dir,
-                                                str(params.get("name") or ""))
+
+        project = projects_store.create_project(
+            self.config.state_dir, str(params.get("name") or "")
+        )
         await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": True, "project": project}
 
     async def _projects_rename(self, params: dict) -> dict:
         from agentd.infrastructure.memory import projects_store
-        ok = projects_store.rename_project(self.config.state_dir,
-                                           (params.get("id") or "").strip(),
-                                           str(params.get("name") or ""))
+
+        ok = projects_store.rename_project(
+            self.config.state_dir, (params.get("id") or "").strip(), str(params.get("name") or "")
+        )
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": ok}
@@ -1600,6 +1927,7 @@ class Gateway:
             sessions_in_project,
             write_session_meta,
         )
+
         project_id = (params.get("id") or "").strip()
         if not project_id:
             return {"ok": False, "error": "id required"}
@@ -1610,7 +1938,7 @@ class Gateway:
                 if params.get("deleteSessions"):
                     delete_session(state_dir, sid)
                     sessions_deleted += 1
-                else:                                   # untag -> standalone chat
+                else:  # untag -> standalone chat
                     write_session_meta(state_dir, sid, projectId="")
         await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         await self._send_all(dump_frame(Event(event="sessions.changed", payload={})))
@@ -1620,6 +1948,7 @@ class Gateway:
         """Set a project's LEAD agent (Layer B): who answers when you 'message the project'.
         Empty agentId clears it. Validates the agent exists; broadcasts projects.changed."""
         from agentd.infrastructure.memory import projects_store
+
         project_id = (params.get("id") or "").strip()
         agent_id = (params.get("agentId") or "").strip()
         if not project_id:
@@ -1635,6 +1964,7 @@ class Gateway:
         """Add/remove one agent on a project's curated roster (Layer B). The roster is what
         the project UI surfaces — the lead may still call ANY agent (open orchestration)."""
         from agentd.infrastructure.memory import projects_store
+
         project_id = (params.get("id") or "").strip()
         agent_id = (params.get("agentId") or "").strip()
         if not project_id or not agent_id:
@@ -1657,11 +1987,13 @@ class Gateway:
         if not session_key:
             return ""
         from agentd.infrastructure.memory.local_store import read_session_meta
+
         _, state_dir = self._resolve_state_dir(agent_id)
         return (read_session_meta(state_dir, session_key).get("projectId") or "").strip()
 
-    def _inherit_project(self, parent_agent: str, parent_key: str,
-                         child_agent: str, child_key: str) -> None:
+    def _inherit_project(
+        self, parent_agent: str, parent_key: str, child_agent: str, child_key: str
+    ) -> None:
         """Layer B: a child run spawned from a PROJECT chat belongs to the same project — write
         the child session's meta (projectId + internal) BEFORE it runs, so its workspace binds
         to the project folder and its deliverables stay with the project. Best-effort."""
@@ -1670,6 +2002,7 @@ class Gateway:
             if not pid:
                 return
             from agentd.infrastructure.memory.local_store import write_session_meta
+
             _, child_state_dir = self._resolve_state_dir(child_agent)
             write_session_meta(child_state_dir, child_key, projectId=pid, internal=True)
         except Exception:  # noqa: BLE001 — inheritance must never block the delegation itself
@@ -1696,7 +2029,7 @@ class Gateway:
                     aid = "main"
             aid, state_dir = self._resolve_state_dir(aid)
             if read_session_meta(state_dir, session_key).get("title"):
-                return                                 # already titled — do it once
+                return  # already titled — do it once
             messages = read_session_messages(state_dir, session_key)
             first_user = next((m["content"] for m in messages if m.get("role") == "user"), "")
             if not first_user:
@@ -1704,8 +2037,9 @@ class Gateway:
             first_assistant = ""
             for m in messages:
                 if m.get("role") == "assistant":
-                    first_assistant = "".join(b.get("text", "") for b in m.get("content", [])
-                                              if b.get("type") == "text")
+                    first_assistant = "".join(
+                        b.get("text", "") for b in m.get("content", []) if b.get("type") == "text"
+                    )
                     if first_assistant:
                         break
             # title model: a config override (plugins.titles.tools.generate.model), else the
@@ -1716,8 +2050,14 @@ class Gateway:
             title = await asyncio.to_thread(generate_title, first_user, first_assistant, model)
             if title:
                 write_session_meta(state_dir, session_key, title=title, auto=True)
-                await self._send_all(dump_frame(Event(
-                    event="sessions.changed", payload={"agentId": aid, "sessionKey": session_key})))
+                await self._send_all(
+                    dump_frame(
+                        Event(
+                            event="sessions.changed",
+                            payload={"agentId": aid, "sessionKey": session_key},
+                        )
+                    )
+                )
                 log.info("session '%s' titled: %r", session_key, title)
         except Exception:  # noqa: BLE001 — titling must never break anything
             log.debug("auto-title failed for %s", session_key, exc_info=True)
@@ -1738,23 +2078,35 @@ class Gateway:
             return {"added": False, "error": "need a command (stdio) or url (http)"}
         if any(getattr(s, "name", "") == name for s in (self.config.mcp_servers or [])):
             return {"added": False, "error": f"server '{name}' already exists"}
-        cfg = McpServerConfig(name=name, transport="http" if url else "stdio",
-                              command=command, url=url, env=params.get("env") or None,
-                              headers=params.get("headers") or None)
+        cfg = McpServerConfig(
+            name=name,
+            transport="http" if url else "stdio",
+            command=command,
+            url=url,
+            env=params.get("env") or None,
+            headers=params.get("headers") or None,
+        )
         provider = self._ensure_mcp_provider()
         if provider is None:
             return {"added": False, "error": "MCP SDK not installed (pip install mcp)"}
         tools = await provider.add_server(cfg)
         if not tools:
             return {"added": False, "error": f"could not connect to '{name}'"}
-        tools = apply_enablement(tools, getattr(self.config, "tools_enabled", None),
-                                 getattr(self.config, "tools_disabled", ()))
+        tools = apply_enablement(
+            tools,
+            getattr(self.config, "tools_enabled", None),
+            getattr(self.config, "tools_disabled", ()),
+        )
         self.service.add_tools(_guarded_with_source(tools, self.config))
         self.config.mcp_servers = list(self.config.mcp_servers or []) + [cfg]
         persisted = _persist_mcp_servers(self.config)
         log.info("mcp.add '%s' -> %d tool(s), persisted=%s", name, len(tools), persisted)
-        return {"added": True, "name": name, "tools": [getattr(t, "name", "") for t in tools],
-                "persisted": persisted}
+        return {
+            "added": True,
+            "name": name,
+            "tools": [getattr(t, "name", "") for t in tools],
+            "persisted": persisted,
+        }
 
     def _ensure_mcp_provider(self):
         """The live MCP provider, building an empty one on first hot-add if none exists yet
@@ -1763,8 +2115,10 @@ class Gateway:
             return self.mcp_provider
         try:
             import mcp  # noqa: F401
+
             from agentd.infrastructure.tools.mcp.provider import McpProvider
             from agentd.infrastructure.tools.mcp.session import create_session
+
             self.mcp_provider = McpProvider([], create_session)
             return self.mcp_provider
         except Exception:  # noqa: BLE001
@@ -1780,16 +2134,19 @@ class Gateway:
             from agentd.infrastructure.marketplace import build_marketplace_service
 
             self.marketplace = build_marketplace_service(
-                self.config, on_event=self._marketplace_progress,
-                after_change=self._marketplace_after_change)
+                self.config,
+                on_event=self._marketplace_progress,
+                after_change=self._marketplace_after_change,
+            )
         return self.marketplace
 
     def _marketplace_progress(self, payload: dict) -> None:
         """Sync -> async bridge for install progress (the service is transport-blind)."""
         try:
             asyncio.get_running_loop().create_task(
-                self._send_all(dump_frame(Event(event="marketplace.progress", payload=payload))))
-        except RuntimeError:   # no loop (CLI offline path) — progress goes nowhere, fine
+                self._send_all(dump_frame(Event(event="marketplace.progress", payload=payload)))
+            )
+        except RuntimeError:  # no loop (CLI offline path) — progress goes nowhere, fine
             pass
 
     def _marketplace_after_change(self, changed: dict | None = None) -> dict:
@@ -1814,8 +2171,11 @@ class Gateway:
             tools = (reloader() or {}).get("tools", [])
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._send_all(dump_frame(Event(
-                event="agents.changed", payload=self._agents_list()))))
+            loop.create_task(
+                self._send_all(
+                    dump_frame(Event(event="agents.changed", payload=self._agents_list()))
+                )
+            )
             # a freshly installed agent gets its tagline/suggestions generated too
             loop.create_task(self._maybe_generate_presentations())
         except RuntimeError:
@@ -1825,13 +2185,21 @@ class Gateway:
     def _mcp_list(self) -> dict:
         """Every MCP server — config-registered AND plugin-MCP — with whether its tools are live.
         The unified 'what MCP do I have' surface (matches /tools for tools)."""
-        loaded = {info["name"].split("__", 1)[0]
-                  for info in self.service.list_tools() if "__" in info.get("name", "")}
-        servers = [{
-            "name": getattr(s, "name", ""), "transport": getattr(s, "transport", "stdio"),
-            "command": getattr(s, "command", None), "url": getattr(s, "url", None),
-            "connected": getattr(s, "name", "") in loaded,
-        } for s in (self.config.mcp_servers or [])]
+        loaded = {
+            info["name"].split("__", 1)[0]
+            for info in self.service.list_tools()
+            if "__" in info.get("name", "")
+        }
+        servers = [
+            {
+                "name": getattr(s, "name", ""),
+                "transport": getattr(s, "transport", "stdio"),
+                "command": getattr(s, "command", None),
+                "url": getattr(s, "url", None),
+                "connected": getattr(s, "name", "") in loaded,
+            }
+            for s in (self.config.mcp_servers or [])
+        ]
         return {"servers": servers, "count": len(servers)}
 
     def _mcp_remove(self, params: dict) -> dict:
@@ -1859,6 +2227,7 @@ class Gateway:
         """Skills for a capabilities query: the shared library (no agent), else that agent's set
         (shared library + its own, deduped, own wins) — the same resolution agents.detail uses."""
         from agentd.infrastructure.skills.file_skills import load_skills_dir
+
         if self.registry is None:
             return []
         try:
@@ -1879,13 +2248,37 @@ class Gateway:
                     by_name[sk.name] = sk
         return list(by_name.values())
 
+    def _tool_catalog(self, agent_id: str | None = None) -> dict:
+        """The plugin -> tool catalog behind the capability / model / settings views. The UNION of
+        (a) COLD discovery — every installed plugin, including tools switched off via ``tools_disabled``
+        that the settings page must still show to re-enable, and (b) the LIVE registered toolset
+        (``service.catalog_tools``) — the DI-gated tools (browser/computer, the autonomy ledger) that
+        cold discovery can't see because it injects no runtime handles. That missing-half is the bug
+        this fixes. Falls back to cold-only when there's no service yet."""
+        from agentd.infrastructure.plugins.catalog import (
+            build_catalog,
+            catalog_from_tools,
+            merge_catalogs,
+        )
+
+        try:
+            cold = build_catalog(self.config)
+        except Exception as e:  # noqa: BLE001 — a bad plugin never sinks the whole catalog
+            log.warning("tool catalog: cold discovery failed: %s", e)
+            cold = {}
+        svc = getattr(self, "service", None)
+        if svc is None or not hasattr(svc, "catalog_tools"):
+            return cold
+        live = catalog_from_tools(self.config, svc.catalog_tools(agent_id))
+        return merge_catalogs(cold, live)
+
     def _capabilities_list(self, params: dict) -> dict:
         """The UNIFORM capability catalog — tools, plugins, skills, agents in ONE shape
         (CapabilityDescriptor). Core resolves every description once and exposes them equally to
         every client; the client just renders. Optional `kind` filters to one type; optional
         `agentId` scopes the skills to that agent's resolved set (default: the shared library)."""
         from agentd.application import capabilities as cap
-        from agentd.main.list_plugins import build_catalog
+
         kind = (params.get("kind") or "").strip().lower()
         rows: list = []
         if self.registry is not None:
@@ -1897,7 +2290,7 @@ class Gateway:
                     continue
             rows += cap.agent_descriptors(specs)
         try:
-            catalog = build_catalog(self.config)
+            catalog = self._tool_catalog()
             rows += cap.plugin_descriptors(catalog)
             rows += cap.tool_descriptors(catalog)
         except Exception as e:  # noqa: BLE001 — a bad plugin must never break the catalog
@@ -1913,25 +2306,48 @@ class Gateway:
         the dotted path config.set writes), and the source. Plus the per-kind option lists so a
         client shows the RIGHT picker. No resolution logic here — it reads the same resolvers the
         runtime uses, so this view can never drift from what actually runs."""
-        from agentd.main.list_plugins import build_catalog
         cfg = self.config
         ce = getattr(cfg, "cost_efficiency", None) or {}
         ce_on = bool(isinstance(ce, dict) and ce.get("enabled"))
         brain = getattr(cfg, "model", None)
         rows: list = []
         if ce_on:
-            rows.append({"id": "brain-text", "label": "Brain · text turns", "kind": "text",
-                         "resolved": ce.get("text_model") or brain, "configKey": "cost_efficiency.text_model",
-                         "source": "cost_efficiency", "note": "cost-efficiency ON"})
-            rows.append({"id": "brain-vision", "label": "Brain · image turns", "kind": "vision",
-                         "resolved": ce.get("vision_model") or brain, "configKey": "cost_efficiency.vision_model",
-                         "source": "cost_efficiency", "note": "cost-efficiency ON"})
+            rows.append(
+                {
+                    "id": "brain-text",
+                    "label": "Brain · text turns",
+                    "kind": "text",
+                    "resolved": ce.get("text_model") or brain,
+                    "configKey": "cost_efficiency.text_model",
+                    "source": "cost_efficiency",
+                    "note": "cost-efficiency ON",
+                }
+            )
+            rows.append(
+                {
+                    "id": "brain-vision",
+                    "label": "Brain · image turns",
+                    "kind": "vision",
+                    "resolved": ce.get("vision_model") or brain,
+                    "configKey": "cost_efficiency.vision_model",
+                    "source": "cost_efficiency",
+                    "note": "cost-efficiency ON",
+                }
+            )
         else:
-            rows.append({"id": "brain", "label": "Brain (reasoning)", "kind": "text",
-                         "resolved": brain, "configKey": "model", "source": "config.model"})
+            rows.append(
+                {
+                    "id": "brain",
+                    "label": "Brain (reasoning)",
+                    "kind": "text",
+                    "resolved": brain,
+                    "configKey": "model",
+                    "source": "config.model",
+                }
+            )
         cfg_plugins = getattr(cfg, "plugins", None) or {}
         try:
-            cat = build_catalog(cfg)
+            cat = self._tool_catalog()
         except Exception as e:  # noqa: BLE001 — a bad plugin never breaks the overview
             log.warning("models.list: catalog build failed: %s", e)
             cat = {}
@@ -1940,14 +2356,23 @@ class Gateway:
                 if not t.get("needs_model"):
                     continue
                 tconf = ((cfg_plugins.get(pid) or {}).get("tools") or {}).get(t["name"]) or {}
-                rows.append({
-                    "id": f"{pid}.{t['name']}", "label": t["name"], "kind": t.get("model_kind", "text"),
-                    "resolved": t.get("model"), "plugin": pid,
-                    "configKey": f"plugins.{pid}.tools.{t['name']}.model",
-                    "source": "config" if tconf.get("model") else "tool default",
-                })
-        return {"models": rows, "catalogs": _kind_catalogs(cfg),
-                "costEfficiency": ce_on, "effectiveModel": _effective_model(cfg)}
+                rows.append(
+                    {
+                        "id": f"{pid}.{t['name']}",
+                        "label": t["name"],
+                        "kind": t.get("model_kind", "text"),
+                        "resolved": t.get("model"),
+                        "plugin": pid,
+                        "configKey": f"plugins.{pid}.tools.{t['name']}.model",
+                        "source": "config" if tconf.get("model") else "tool default",
+                    }
+                )
+        return {
+            "models": rows,
+            "catalogs": _kind_catalogs(cfg),
+            "costEfficiency": ce_on,
+            "effectiveModel": _effective_model(cfg),
+        }
 
     def _plugins_catalog(self) -> dict:
         """The plugin -> tool catalog for the settings UI: every plugin, its tools, each tool's
@@ -1955,7 +2380,6 @@ class Gateway:
         provider if one is configured. Reuses the same discovery + model resolver the CLI's
         list_plugins uses, then overlays enable state from config (plugin gate + tools_disabled)."""
         from agentd.application.tool_models import resolve_tool_provider
-        from agentd.main.list_plugins import build_catalog
 
         cfg = self.config
         cfg_plugins = getattr(cfg, "plugins", None) or {}
@@ -1970,7 +2394,7 @@ class Gateway:
             return True
 
         try:
-            cat = build_catalog(cfg)
+            cat = self._tool_catalog()
         except Exception as e:  # noqa: BLE001 — never let discovery crash the settings page
             log.warning("plugins.catalog: build failed: %s", e)
             return {"plugins": [], "error": str(e)}
@@ -1981,23 +2405,92 @@ class Gateway:
             tools = []
             for t in sorted(p["tools"], key=lambda x: x["name"]):
                 name = t["name"]
-                tools.append({
-                    # UIs show the FULL canonical description; fall back to the short one
-                    "description": t.get("full_description") or t.get("description", ""),
-                    "name": name,
-                    "needsModel": bool(t.get("needs_model")),
-                    "modelKind": t.get("model_kind", "text"),   # which picker to show (text/vision/image/embedding)
-                    "model": t.get("model"),
-                    "provider": resolve_tool_provider(cfg, pid, name),
-                    "enabled": name not in disabled,
-                })
-            out.append({
-                "id": pid,
-                "description": p.get("description", ""),
-                "enabled": plugin_enabled(pid),
-                "tools": tools,
-            })
+                tools.append(
+                    {
+                        # UIs show the FULL canonical description; fall back to the short one
+                        "description": t.get("full_description") or t.get("description", ""),
+                        "name": name,
+                        "needsModel": bool(t.get("needs_model")),
+                        "modelKind": t.get(
+                            "model_kind", "text"
+                        ),  # which picker to show (text/vision/image/embedding)
+                        "model": t.get("model"),
+                        "provider": resolve_tool_provider(cfg, pid, name),
+                        # self-described provider options so the client renders a picker (dropdown / ordered
+                        # chain), never a free-text box; empty => open-ended provider => free text.
+                        "providerOptions": t.get("provider_options") or [],
+                        "providerChain": bool(t.get("provider_chain")),
+                        "enabled": name not in disabled,
+                    }
+                )
+            out.append(
+                {
+                    "id": pid,
+                    "description": p.get("description", ""),
+                    "enabled": plugin_enabled(pid),
+                    "tools": tools,
+                }
+            )
+        # MCP servers (plugin-declared like google + runtime-added) shown as cards too, so the page
+        # reflects EVERY capability, not just native plugins. Removable/addable via mcp.* RPCs.
+        out.extend(self._mcp_plugin_cards(disabled))
         return {"plugins": out}
+
+    def _mcp_plugin_cards(self, disabled: set) -> list:
+        """Every MCP server as a plugin-style card: its live tools (server__tool), whether it's
+        connected, and its endpoint. Union of config.mcp_servers (so a not-yet-connected server
+        still shows) with the live MCP tools grouped by their `server__` prefix."""
+        from agentd.infrastructure.plugins.catalog import _unwrap_tool
+
+        svc = getattr(self, "service", None)
+        by_server: dict = {}
+        if svc is not None and hasattr(svc, "catalog_tools"):
+            try:
+                for raw in svc.catalog_tools():
+                    tool = _unwrap_tool(raw)
+                    name = getattr(tool, "name", "") or ""
+                    pid = getattr(tool, "_plugin_id", "") or getattr(tool, "plugin", "")
+                    if pid or "__" not in name:  # native tool, or not an MCP server__tool
+                        continue
+                    by_server.setdefault(name.split("__", 1)[0], []).append(tool)
+            except Exception as e:  # noqa: BLE001 — a bad MCP tool never breaks the page
+                log.warning("plugins.catalog: MCP grouping failed: %s", e)
+        servers = {
+            getattr(s, "name", ""): s for s in (getattr(self.config, "mcp_servers", None) or [])
+        }
+        cards = []
+        for name in sorted(set(servers) | set(by_server)):
+            s = servers.get(name)
+            live = sorted(by_server.get(name, []), key=lambda t: getattr(t, "name", ""))
+            endpoint = ""
+            if s is not None:
+                endpoint = getattr(s, "url", None) or " ".join(getattr(s, "command", None) or [])
+            cards.append(
+                {
+                    "id": name,
+                    "mcp": True,  # UI renders these as a data-source card
+                    "transport": getattr(s, "transport", "stdio") if s is not None else "stdio",
+                    "endpoint": endpoint,
+                    "description": endpoint or "MCP server",
+                    "enabled": bool(live),  # connected iff its tools are live
+                    "tools": [
+                        {
+                            "name": getattr(t, "name", ""),
+                            "label": getattr(t, "name", "").split("__", 1)[-1],
+                            "description": (getattr(t, "description", "") or "").strip(),
+                            "needsModel": False,
+                            "modelKind": "text",
+                            "model": None,
+                            "provider": None,
+                            "providerOptions": [],
+                            "providerChain": False,
+                            "enabled": getattr(t, "name", "") not in disabled,
+                        }
+                        for t in live
+                    ],
+                }
+            )
+        return cards
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
@@ -2010,14 +2503,20 @@ class Gateway:
         agents = []
         for aid in self.registry.list_ids():
             spec = self.registry.get(aid)
-            agents.append({
-                "id": aid, "name": spec.name,
-                "version": getattr(spec, "version", "1"),
-                "tagline": getattr(spec, "tagline", ""),
-                "suggestions": list(getattr(spec, "suggestions", ()) or ()),
-                "color": getattr(spec, "color", ""),
-            })
-        return {"agents": agents, "default": default if default in {a["id"] for a in agents} else "main"}
+            agents.append(
+                {
+                    "id": aid,
+                    "name": spec.name,
+                    "version": getattr(spec, "version", "1"),
+                    "tagline": getattr(spec, "tagline", ""),
+                    "suggestions": list(getattr(spec, "suggestions", ()) or ()),
+                    "color": getattr(spec, "color", ""),
+                }
+            )
+        return {
+            "agents": agents,
+            "default": default if default in {a["id"] for a in agents} else "main",
+        }
 
     def _agents_detail(self, params: dict) -> dict:
         """Everything the Agent DETAIL page shows for ONE agent: identity + a listing of its
@@ -2030,16 +2529,25 @@ class Gateway:
         try:
             spec = self.registry.get(agent_id)
         except KeyError:
-            return {"id": agent_id, "name": agent_id, "workspaceFiles": [], "skills": [],
-                    "error": "unknown agent"}
+            return {
+                "id": agent_id,
+                "name": agent_id,
+                "workspaceFiles": [],
+                "skills": [],
+                "error": "unknown agent",
+            }
 
         # --- workspace files (top level, non-recursive, newest first) ---
         from agentd.infrastructure.files import classify
+
         files: list = []
         ws = Path(getattr(spec, "workspace", "") or "")
         try:
-            entries = sorted(ws.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True) \
-                if ws.is_dir() else []
+            entries = (
+                sorted(ws.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+                if ws.is_dir()
+                else []
+            )
         except OSError:
             entries = []
         for p in entries[:200]:
@@ -2051,27 +2559,37 @@ class Gateway:
                 files.append({"name": p.name, "kind": "folder", "size": 0, "modified": st.st_mtime})
             else:
                 cls = classify(p)
-                files.append({"name": p.name, "kind": cls[0] if cls else "file",
-                              "size": st.st_size, "modified": st.st_mtime})
+                files.append(
+                    {
+                        "name": p.name,
+                        "kind": cls[0] if cls else "file",
+                        "size": st.st_size,
+                        "modified": st.st_mtime,
+                    }
+                )
 
         # --- skills: shared library (main) + the agent's own, deduped by name (own wins).
         # Each is tagged `source`: "shared" = inherited from the default library, "own" = defined
         # for THIS agent (agents/<id>/skills/). The own pass runs last, so an override lands as
         # "own". (For main itself, own dir == the shared library, so all resolve to "own".) ---
         from agentd.infrastructure.skills.file_skills import load_skills_dir
+
         skills_by_name: dict = {}
         try:
             main_skills_dir = self.registry.get("main").skills_dir
         except KeyError:
             main_skills_dir = None
-        for sd, source in ((main_skills_dir, "shared"),
-                           (getattr(spec, "skills_dir", None), "own")):
+        for sd, source in ((main_skills_dir, "shared"), (getattr(spec, "skills_dir", None), "own")):
             if not sd:
                 continue
             for sk in load_skills_dir(sd):
                 # path included so a client can OPEN the SKILL.md (canvas view/edit)
-                skills_by_name[sk.name] = {"name": sk.name, "description": sk.description,
-                                           "path": sk.path, "source": source}
+                skills_by_name[sk.name] = {
+                    "name": sk.name,
+                    "description": sk.description,
+                    "path": sk.path,
+                    "source": source,
+                }
 
         return {
             "id": spec.id,
@@ -2098,6 +2616,7 @@ class Gateway:
         project_id = (params.get("projectId") or "").strip()
         if project_id:
             from agentd.infrastructure.memory import projects_store
+
             if projects_store.get_project(self.config.state_dir, project_id) is None:
                 return None, "unknown project"
             return projects_store.project_workspace_dir(self.config.state_dir, project_id), ""
@@ -2124,6 +2643,7 @@ class Gateway:
         Each entry: {name, kind(folder|image|video|audio|file), size, modified, rel, path}.
         `path` is absolute (for /file + canvas), `rel` drives further ops/expansion."""
         from agentd.infrastructure.files import classify
+
         root, err = self._workspace_root(params)
         if root is None:
             return {"entries": [], "error": err}
@@ -2144,13 +2664,28 @@ class Gateway:
                 continue
             crel = f"{rel}/{p.name}" if rel else p.name
             if p.is_dir():
-                dirs.append({"name": p.name, "kind": "folder", "size": 0,
-                             "modified": st.st_mtime, "rel": crel, "path": str(p)})
+                dirs.append(
+                    {
+                        "name": p.name,
+                        "kind": "folder",
+                        "size": 0,
+                        "modified": st.st_mtime,
+                        "rel": crel,
+                        "path": str(p),
+                    }
+                )
             else:
                 cls = classify(p)
-                files.append({"name": p.name, "kind": cls[0] if cls else "file",
-                              "size": st.st_size, "modified": st.st_mtime,
-                              "rel": crel, "path": str(p)})
+                files.append(
+                    {
+                        "name": p.name,
+                        "kind": cls[0] if cls else "file",
+                        "size": st.st_size,
+                        "modified": st.st_mtime,
+                        "rel": crel,
+                        "path": str(p),
+                    }
+                )
         return {"entries": dirs + files, "path": rel, "root": str(root)}
 
     def _workspace_mkdir(self, params: dict) -> dict:
@@ -2174,7 +2709,9 @@ class Gateway:
         keeping its real name (deduped with ' (n)' on collision — never silently overwrite)."""
         import base64
         import binascii
+
         from agentd.infrastructure.files import _safe_name
+
         root, err = self._workspace_root(params)
         if root is None:
             return {"ok": False, "error": err}
@@ -2191,7 +2728,7 @@ class Gateway:
             target = d / name
             stem, suffix = target.stem, target.suffix
             n = 2
-            while target.exists():                     # dedupe: report.png -> report (2).png
+            while target.exists():  # dedupe: report.png -> report (2).png
                 target = d / f"{stem} ({n}){suffix}"
                 n += 1
             target.write_bytes(raw)
@@ -2203,6 +2740,7 @@ class Gateway:
         """Delete ONE file or folder (recursive) inside the workspace. The root itself is
         refused, so 'delete' can never empty an agent's/project's whole workspace by accident."""
         import shutil
+
         root, err = self._workspace_root(params)
         if root is None:
             return {"ok": False, "error": err}
@@ -2246,11 +2784,11 @@ class Gateway:
                 except KeyError:
                     continue
                 if getattr(spec, "dir", None) is None:
-                    continue                     # nowhere to persist (synthesized main)
+                    continue  # nowhere to persist (synthesized main)
                 if getattr(spec, "color", ""):
                     hue = pres.hex_to_hue(spec.color)
                     if hue is not None:
-                        taken.append(hue)        # an assigned/authored colour is 'taken'
+                        taken.append(hue)  # an assigned/authored colour is 'taken'
                 else:
                     missing.append(spec)
             for spec in missing:
@@ -2272,11 +2810,16 @@ class Gateway:
                     continue
                 ce = getattr(self.config, "cost_efficiency", None) or {}
                 default_model = ce.get("text_model") or brain_model(self.config)
-                model = resolve_tool_model(self.config, "agents", "presentation",
-                                           default=default_model)
+                model = resolve_tool_model(
+                    self.config, "agents", "presentation", default=default_model
+                )
                 data = await asyncio.to_thread(
-                    pres.generate_presentation, spec.name,
-                    getattr(spec, "description", ""), spec.instructions, model)
+                    pres.generate_presentation,
+                    spec.name,
+                    getattr(spec, "description", ""),
+                    spec.instructions,
+                    model,
+                )
                 if not data:
                     continue
                 pres.update_sidecar(spec.dir, **data)
@@ -2284,9 +2827,10 @@ class Gateway:
                 log.info("agent '%s' presented: %r", aid, data.get("tagline"))
 
             if changed:
-                self.registry.refresh()          # sidecars -> live specs
-                await self._send_all(dump_frame(Event(
-                    event="agents.changed", payload=self._agents_list())))
+                self.registry.refresh()  # sidecars -> live specs
+                await self._send_all(
+                    dump_frame(Event(event="agents.changed", payload=self._agents_list()))
+                )
         except Exception:  # noqa: BLE001 — presentation is décor, never breaks serving
             log.debug("agent presentation generation failed", exc_info=True)
 
@@ -2307,12 +2851,18 @@ class Gateway:
 
         cron = self.task_store.purge_agent(agent_id) if self.task_store is not None else {}
         memory = self.memory_bank.purge_agent(agent_id) if self.memory_bank is not None else 0
-        removed = self.registry.remove(agent_id)   # definition + workspace + sessions, drop from cache
+        removed = self.registry.remove(
+            agent_id
+        )  # definition + workspace + sessions, drop from cache
         log.info("agents.remove %s -> %s cron=%s memory=%s", agent_id, removed, cron, memory)
-        return {"removed": True, "agentId": agent_id,
-                "definition": removed.get("definition", False),
-                "sessions": removed.get("sessions", False),
-                "cron": cron, "memory": memory}
+        return {
+            "removed": True,
+            "agentId": agent_id,
+            "definition": removed.get("definition", False),
+            "sessions": removed.get("sessions", False),
+            "cron": cron,
+            "memory": memory,
+        }
 
     async def _agents_create(self, params: dict) -> dict:
         """Create a new agent from a client (the 'Create agent' button) — the uniform
@@ -2330,9 +2880,11 @@ class Gateway:
             return {"created": False, "error": "name or id required"}
         try:
             spec = self.registry.create(
-                agent_id, name=name,
+                agent_id,
+                name=name,
                 description=str(params.get("description") or "").strip(),
-                identity=str(params.get("identity") or params.get("instructions") or "").strip())
+                identity=str(params.get("identity") or params.get("instructions") or "").strip(),
+            )
         except ValueError as e:
             return {"created": False, "error": str(e)}
         # show it right away, then fill colour/tagline in the background
@@ -2346,6 +2898,7 @@ class Gateway:
         matching the given glob patterns. Dry-run by DEFAULT (returns what WOULD be deleted);
         apply=true actually deletes. Stale index rows auto-prune on the agent's next turn."""
         from agentd.infrastructure.workspace.cleanup import cleanup, plan_cleanup
+
         agent_id = (params.get("agentId") or "main").strip().lower()
         patterns = tuple(params.get("patterns") or ())
         apply = bool(params.get("apply"))
@@ -2360,7 +2913,12 @@ class Gateway:
             log.info("workspace.cleanup %s -> deleted %d", agent_id, len(deleted))
             return {"agentId": agent_id, "applied": True, "deleted": deleted, "count": len(deleted)}
         targets = plan_cleanup(ws, patterns=patterns)
-        return {"agentId": agent_id, "applied": False, "wouldDelete": targets, "count": len(targets)}
+        return {
+            "agentId": agent_id,
+            "applied": False,
+            "wouldDelete": targets,
+            "count": len(targets),
+        }
 
     def _cron_list(self) -> dict:
         """Scheduled jobs across ALL agents + recent runs — the uniform 'list my jobs'
@@ -2375,16 +2933,29 @@ class Gateway:
                 return f"every {int(t.every_seconds)}s"
             return "once"
 
-        jobs = [{
-            "id": t.id, "agentId": t.agent_id, "kind": t.kind, "schedule": sched(t),
-            "nextDue": datetime.fromtimestamp(t.next_due).strftime("%Y-%m-%d %H:%M"),
-            "enabled": bool(t.enabled), "delivery": t.delivery, "payload": t.payload,
-        } for t in self.task_store.list(None)]
-        runs = [{
-            "taskId": r.task_id, "agentId": r.agent_id, "status": r.status,
-            "detail": r.detail,
-            "at": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M"),
-        } for r in self.task_store.recent_runs(limit=10)]
+        jobs = [
+            {
+                "id": t.id,
+                "agentId": t.agent_id,
+                "kind": t.kind,
+                "schedule": sched(t),
+                "nextDue": datetime.fromtimestamp(t.next_due).strftime("%Y-%m-%d %H:%M"),
+                "enabled": bool(t.enabled),
+                "delivery": t.delivery,
+                "payload": t.payload,
+            }
+            for t in self.task_store.list(None)
+        ]
+        runs = [
+            {
+                "taskId": r.task_id,
+                "agentId": r.agent_id,
+                "status": r.status,
+                "detail": r.detail,
+                "at": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M"),
+            }
+            for r in self.task_store.recent_runs(limit=10)
+        ]
         return {"autonomy": True, "jobs": jobs, "runs": runs}
 
     def _cron_runs(self, params: dict) -> dict:
@@ -2398,14 +2969,24 @@ class Gateway:
             limit = max(1, min(int(params.get("limit", 200)), 1000))
         except (TypeError, ValueError):
             limit = 200
-        runs = [{
-            "id": r.id, "taskId": r.task_id, "agentId": r.agent_id, "status": r.status,
-            "outcome": r.outcome, "detail": r.detail,
-            "startedAt": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M:%S"),
-            "finishedAt": (datetime.fromtimestamp(r.finished_at).strftime("%H:%M:%S")
-                           if r.finished_at else None),
-            "durationSec": (round(r.finished_at - r.started_at, 1) if r.finished_at else None),
-        } for r in self.task_store.recent_runs(agent_id=aid, task_id=tid, limit=limit)]
+        runs = [
+            {
+                "id": r.id,
+                "taskId": r.task_id,
+                "agentId": r.agent_id,
+                "status": r.status,
+                "outcome": r.outcome,
+                "detail": r.detail,
+                "startedAt": datetime.fromtimestamp(r.started_at).strftime("%Y-%m-%d %H:%M:%S"),
+                "finishedAt": (
+                    datetime.fromtimestamp(r.finished_at).strftime("%H:%M:%S")
+                    if r.finished_at
+                    else None
+                ),
+                "durationSec": (round(r.finished_at - r.started_at, 1) if r.finished_at else None),
+            }
+            for r in self.task_store.recent_runs(agent_id=aid, task_id=tid, limit=limit)
+        ]
         return {"autonomy": True, "runs": runs}
 
     def _require_store(self):
@@ -2427,10 +3008,15 @@ class Gateway:
         deliver = (params.get("deliver") or "run").strip()
         tid = uuid.uuid4().hex[:12]
         task = ScheduledTask(
-            id=tid, agent_id=agent_id, session_key=cron_session_key(agent_id, tid),
-            payload=payload, enabled=True, created_at=time.time(),
+            id=tid,
+            agent_id=agent_id,
+            session_key=cron_session_key(agent_id, tid),
+            payload=payload,
+            enabled=True,
+            created_at=time.time(),
             delivery=deliver if deliver in ("run", "message") else "run",
-            **resolve_schedule(params))
+            **resolve_schedule(params),
+        )
         store.add(task)
         return {"id": task.id}
 
@@ -2466,7 +3052,7 @@ class Gateway:
         tid = (params.get("id") or "").strip()
         if not tid or store.get(tid) is None:
             raise ValueError(f"no such job: {tid}")
-        store.update(tid, next_due=time.time(), enabled=1)   # fires on the next scheduler poll
+        store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
     def _hello(self) -> dict:
@@ -2497,14 +3083,15 @@ class Gateway:
             # where a LOCAL registry is auto-detected — clients can show real setup
             # instructions instead of a bare error (local-first store).
             "localRegistryDir": str(Path(self.config.state_dir) / "registry"),
-            "agents": self._agents_list()["agents"],   # so any client can show/pick agents
+            "agents": self._agents_list()["agents"],  # so any client can show/pick agents
         }
 
     def _config_get(self) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
-        of every EXPOSED knob, plus provider-key presence (booleans only — never the secret),
-        the config file path, and the raw file text (for the Advanced/raw editor)."""
+        of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
+        UI can reveal a saved key), the config file path, and the raw file text (Advanced editor)."""
         import json
+
         cfg = self.config
         values: dict = {}
         for key in EXPOSED_CONFIG_KEYS:
@@ -2529,7 +3116,14 @@ class Gateway:
             "envPath": str(path.parent / ".env"),
             "values": values,
             "env": {name: bool(os.environ.get(name)) for name in PROVIDER_ENV_KEYS},
+            # actual values so the local UI can reveal a saved key (masked by default); loopback + token-authed
+            "envValues": {name: os.environ.get(name, "") for name in PROVIDER_ENV_KEYS},
             "providerKeys": list(PROVIDER_ENV_KEYS),
+            # {config_key: AGENTD_VAR} for knobs an env var currently PINS — the UI marks these
+            # read-only so a save never silently reverts on the next daemon boot.
+            "envOverrides": {
+                k: v for k, v in EXPOSED_KEY_ENV.items() if os.environ.get(v) not in (None, "")
+            },
             # option-sets a client renders as dropdowns (value + display label + group). Any
             # field can reference one of these by key — scalable: add a catalog, reference it.
             "catalogs": _kind_catalogs(cfg),
@@ -2547,6 +3141,7 @@ class Gateway:
           * ``raw``    a full JSON document -> overwrites the whole config file (Advanced editor).
         A daemon restart guarantees full effect (some knobs only bind at startup)."""
         import json
+
         patch = params.get("patch") or {}
         keys = params.get("keys") or {}
         raw = params.get("raw")
@@ -2575,7 +3170,7 @@ class Gateway:
             ok, path = _persist_config_patch(clean)
             if not ok:
                 return {"saved": False, "error": f"could not write {path}"}
-            for k, v in clean.items():                 # hot-apply (full effect on restart)
+            for k, v in clean.items():  # hot-apply (full effect on restart)
                 try:
                     if k in PATH_CONFIG_KEYS and isinstance(v, str):
                         setattr(self.config, k, Path(v).expanduser())
@@ -2594,7 +3189,7 @@ class Gateway:
             result["saved"] = result["saved"] or wrote
 
         if not clean and not keys:
-            result["saved"] = True                     # nothing to change is not a failure
+            result["saved"] = True  # nothing to change is not a failure
         return result
 
     async def _chat_send(self, params: dict, client_id: str | None = None) -> dict:
@@ -2623,6 +3218,7 @@ class Gateway:
                 read_session_meta,
                 write_session_meta,
             )
+
             _, state_dir = self._resolve_state_dir(agent_id)
             if read_session_meta(state_dir, session_key).get("projectId") != project_id:
                 write_session_meta(state_dir, session_key, projectId=project_id)
@@ -2642,7 +3238,8 @@ class Gateway:
             run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
         )
         handle.task = asyncio.create_task(
-            self._run(handle, message, agent_id=agent_id, attachments=attachments))
+            self._run(handle, message, agent_id=agent_id, attachments=attachments)
+        )
         self.runs[session_key] = handle
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
 
@@ -2704,8 +3301,12 @@ class Gateway:
         """
         for handle in list(self.runs.values()):
             if handle.client_id == client_id and self._abort_handle(handle):
-                log.info("client %s disconnected; aborting run %s (session %s)",
-                         client_id, handle.run_id, handle.session_key)
+                log.info(
+                    "client %s disconnected; aborting run %s (session %s)",
+                    client_id,
+                    handle.run_id,
+                    handle.session_key,
+                )
 
     async def _chat_abort(self, params: dict) -> dict:
         session_key = params.get("sessionKey") or "default"
@@ -2716,9 +3317,14 @@ class Gateway:
 
     # -------------------------------------------------------------------- run
 
-    async def _run(self, handle: RunHandle, message: str,
-                   mode: str = RunMode.INTERACTIVE, agent_id: str | None = None,
-                   attachments: list[Artifact] | None = None) -> None:
+    async def _run(
+        self,
+        handle: RunHandle,
+        message: str,
+        mode: str = RunMode.INTERACTIVE,
+        agent_id: str | None = None,
+        attachments: list[Artifact] | None = None,
+    ) -> None:
         # The gateway (presentation) now only adapts transport: it provides the event
         # sink (broadcast) and delegates the actual work to the AgentService use-case.
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
@@ -2743,8 +3349,13 @@ class Gateway:
         err_msg = ""
         try:
             await self.service.handle_message(
-                handle.session_key, message, on_event, handle.abort,
-                mode=mode, agent_id=agent_id, attachments=attachments,
+                handle.session_key,
+                message,
+                on_event,
+                handle.abort,
+                mode=mode,
+                agent_id=agent_id,
+                attachments=attachments,
             )
         except asyncio.CancelledError:
             status = "aborted"  # abort already broadcast agent_end(aborted) from the loop
@@ -2767,48 +3378,68 @@ class Gateway:
             # pure policy. With enforce_outcome on, a cron run that finished `ok` but
             # declared nothing becomes `incomplete` (no silent success) — a decoupled
             # layer you can cut with AGENTD_ENFORCE_OUTCOME=0.
-            declared = take_run_outcome()          # (raw_status, detail) | None
+            declared = take_run_outcome()  # (raw_status, detail) | None
             status, outcome, detail = resolve_run_outcome(
-                status, declared,
+                status,
+                declared,
                 enforce=getattr(self.config, "enforce_outcome", True),
                 is_cron=handle.cron_run_id is not None,
             )
             if handle.cron_run_id is not None and self.task_store is not None:
                 try:
                     self.task_store.finish_run(
-                        handle.cron_run_id, status, outcome=outcome, detail=detail or "")
+                        handle.cron_run_id, status, outcome=outcome, detail=detail or ""
+                    )
                 except Exception:  # noqa: BLE001
                     pass
             # reach the user when a SCHEDULED run couldn't finish on its own (5a) —
             # gated on cron_run_id so interactive/heartbeat runs never push a notice.
-            if (self.notifier is not None and handle.cron_run_id is not None
-                    and status in ("blocked", "failed", "error", "incomplete")):
+            if (
+                self.notifier is not None
+                and handle.cron_run_id is not None
+                and status in ("blocked", "failed", "error", "incomplete")
+            ):
                 await self._notify_run(handle, status, detail or err_msg)
             # failure-alert escalation (S14): after N consecutive failed/incomplete runs,
             # AUTO-PAUSE the job so a broken task stops running (+ spamming) forever. The
             # job's own failure_alert wins; else the global default (cron_failure_alert_default).
-            alert = handle.cron_failure_alert or getattr(self.config, "cron_failure_alert_default", 0)
-            if (alert and self.task_store is not None
-                    and status in ("failed", "error", "aborted", "incomplete")
-                    and self.task_store.consecutive_failures(handle.cron_task_id) >= alert):
+            alert = handle.cron_failure_alert or getattr(
+                self.config, "cron_failure_alert_default", 0
+            )
+            if (
+                alert
+                and self.task_store is not None
+                and status in ("failed", "error", "aborted", "incomplete")
+                and self.task_store.consecutive_failures(handle.cron_task_id) >= alert
+            ):
                 try:
                     self.task_store.update(handle.cron_task_id, enabled=0)
                     if self.notifier is not None:
                         await self._notify_run(
-                            handle, "failed",
+                            handle,
+                            "failed",
                             f"paused after {alert} consecutive failed/incomplete runs — "
-                            f"needs your attention.")
+                            f"needs your attention.",
+                        )
                 except Exception:  # noqa: BLE001
                     pass
 
     async def _broadcast(self, session_key: str, run_id: str, event: AgentEvent) -> None:
         # `ts` (epoch seconds) stamps every live event server-side, so all clients
         # show the same send time — and it matches the transcript's stored timestamps.
-        await self._send_all(dump_frame(Event(
-            event="chat.event",
-            payload={"sessionKey": session_key, "runId": run_id, "ts": time.time(),
-                     "event": event.to_dict()},
-        )))
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="chat.event",
+                    payload={
+                        "sessionKey": session_key,
+                        "runId": run_id,
+                        "ts": time.time(),
+                        "event": event.to_dict(),
+                    },
+                )
+            )
+        )
 
     async def _send_all(self, frame: str) -> None:
         """Send one frame to every connected client, pruning dead connections."""
@@ -2831,22 +3462,40 @@ class Gateway:
         from agentd.infrastructure.notify import build_notifier
 
         self.notifier = build_notifier(
-            self.task_store, self._push_notification, extra=self.channel_notifiers)
+            self.task_store, self._push_notification, extra=self.channel_notifiers
+        )
 
     async def _push_notification(self, n: Notification) -> None:
         """Broadcast a notification to connected clients (session-less, event=notification)."""
-        await self._send_all(dump_frame(Event(event="notification", payload={
-            "id": n.id, "agentId": n.agent_id, "kind": n.kind,
-            "text": n.text, "detail": n.detail,
-            "at": datetime.fromtimestamp(n.created_at or time.time()).strftime("%Y-%m-%d %H:%M"),
-        })))
+        await self._send_all(
+            dump_frame(
+                Event(
+                    event="notification",
+                    payload={
+                        "id": n.id,
+                        "agentId": n.agent_id,
+                        "kind": n.kind,
+                        "text": n.text,
+                        "detail": n.detail,
+                        "at": datetime.fromtimestamp(n.created_at or time.time()).strftime(
+                            "%Y-%m-%d %H:%M"
+                        ),
+                    },
+                )
+            )
+        )
 
-    async def _notify_run(self, handle: "RunHandle", status: str, detail: str) -> None:
+    async def _notify_run(self, handle: RunHandle, status: str, detail: str) -> None:
         """A scheduled run ended blocked/failed -> notify the user (5a)."""
         agent_id = agent_id_from_session_key(handle.session_key)
         n = Notification(
-            id=uuid.uuid4().hex[:12], agent_id=agent_id, kind=status,
-            text=f"{agent_id} — scheduled run {status}", detail=detail, created_at=time.time())
+            id=uuid.uuid4().hex[:12],
+            agent_id=agent_id,
+            kind=status,
+            text=f"{agent_id} — scheduled run {status}",
+            detail=detail,
+            created_at=time.time(),
+        )
         try:
             await self.notifier.notify(n)
         except Exception:  # noqa: BLE001 — notify must never break the run
@@ -2861,19 +3510,34 @@ class Gateway:
             limit = 50
         ns = self.task_store.notifications(
             agent_id=(params.get("agentId") or "").strip() or None,
-            unread_only=bool(params.get("unread", False)), limit=limit)
-        return {"autonomy": True, "notifications": [{
-            "id": n.id, "agentId": n.agent_id, "kind": n.kind, "text": n.text,
-            "detail": n.detail, "read": n.read,
-            "at": datetime.fromtimestamp(n.created_at).strftime("%Y-%m-%d %H:%M"),
-        } for n in ns]}
+            unread_only=bool(params.get("unread", False)),
+            limit=limit,
+        )
+        return {
+            "autonomy": True,
+            "notifications": [
+                {
+                    "id": n.id,
+                    "agentId": n.agent_id,
+                    "kind": n.kind,
+                    "text": n.text,
+                    "detail": n.detail,
+                    "read": n.read,
+                    "at": datetime.fromtimestamp(n.created_at).strftime("%Y-%m-%d %H:%M"),
+                }
+                for n in ns
+            ],
+        }
 
     def _notifications_ack(self, params: dict) -> dict:
         if self.task_store is None:
             return {"acked": 0}
         nid = (params.get("id") or "").strip()
-        if nid in ("*", "all"):                     # ack everything unread
-            acked = sum(1 for n in self.task_store.notifications(unread_only=True, limit=1000)
-                        if self.task_store.ack(n.id))
+        if nid in ("*", "all"):  # ack everything unread
+            acked = sum(
+                1
+                for n in self.task_store.notifications(unread_only=True, limit=1000)
+                if self.task_store.ack(n.id)
+            )
             return {"acked": acked}
         return {"acked": int(bool(nid and self.task_store.ack(nid))), "id": nid}

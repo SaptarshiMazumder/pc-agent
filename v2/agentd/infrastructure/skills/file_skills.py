@@ -70,11 +70,15 @@ def _load_one(skill_md: Path) -> Skill | None:
     name = meta.get("name") or skill_md.parent.name
     description = meta.get("description") or first_meaningful_line(body)
     always = meta.get("always", "").strip().lower() in ("true", "1", "yes", "on")
-    requires = {k: v for k, v in (
-        ("bins", _csv(meta.get("requires_bins", ""))),
-        ("env", _csv(meta.get("requires_env", ""))),
-        ("config", _csv(meta.get("requires_config", ""))),
-    ) if v}
+    requires = {
+        k: v
+        for k, v in (
+            ("bins", _csv(meta.get("requires_bins", ""))),
+            ("env", _csv(meta.get("requires_env", ""))),
+            ("config", _csv(meta.get("requires_config", ""))),
+        )
+        if v
+    }
     return Skill(
         name=name,
         description=description,
@@ -94,6 +98,7 @@ def skill_eligible(skill, config=None) -> bool:
         return True
     import os
     import shutil
+
     if any(shutil.which(b) is None for b in req.get("bins", [])):
         return False
     if any(not os.environ.get(e) for e in req.get("env", [])):

@@ -16,8 +16,8 @@ from agentd.domain.channels import InboundMessage
 
 
 class Channel(Protocol):
-    name: str            # transport name (also the <channel> segment of the session key)
-    agent_id: str        # the agent that handles this channel's inbound messages
+    name: str  # transport name (also the <channel> segment of the session key)
+    agent_id: str  # the agent that handles this channel's inbound messages
 
     async def poll(self) -> list[InboundMessage]:
         """Return messages that have arrived since the last poll (already deduped)."""

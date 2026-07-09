@@ -19,15 +19,18 @@ def test_render_plan_checklist_marks_and_text():
         {"step": "reply: summarize", "status": "pending"},
     ]
     plain = render_plan(plan).plain
-    assert "☒ find: locate CV" in plain          # completed
-    assert "☐ browser: open LinkedIn" in plain    # in_progress
-    assert "☐ reply: summarize" in plain          # pending
-    assert plain.startswith("  ⎿ ")               # Claude-Code-style first row
+    assert "☒ find: locate CV" in plain  # completed
+    assert "☐ browser: open LinkedIn" in plain  # in_progress
+    assert "☐ reply: summarize" in plain  # pending
+    assert plain.startswith("  ⎿ ")  # Claude-Code-style first row
 
 
 def test_render_plan_tolerates_unknown_status_and_junk():
-    plain = render_plan([{"step": "x", "status": "weird"}, "junk", {"step": "y", "status": "pending"}]).plain
-    assert "☐ x" in plain and "☐ y" in plain      # junk entry skipped, unknown -> box
+    plain = render_plan(
+        [{"step": "x", "status": "weird"}, "junk", {"step": "y", "status": "pending"}]
+    ).plain
+    assert "☐ x" in plain and "☐ y" in plain  # junk entry skipped, unknown -> box
+
 
 SESSIONS = [
     {"sessionId": "term-aaa", "messages": 16, "modified": 1_700_000_000},
@@ -102,6 +105,7 @@ def test_table_builds_and_renders():
 # These exercise the NON-interactive paths (no TTY in CI, so pickers are skipped): they
 # verify the right RPC is called with the right params and that client state updates.
 
+
 def _client_with_stub(monkeypatch, responses):
     """A TerminalClient whose .request records calls and returns canned payloads."""
     from rich.console import Console
@@ -141,9 +145,13 @@ def test_session_move_calls_rpc_and_adopts_project(monkeypatch):
     import asyncio
 
     client, calls = _client_with_stub(
-        monkeypatch, {"sessions.move": lambda p: {"ok": True, "projectId": p.get("projectId")}})
+        monkeypatch, {"sessions.move": lambda p: {"ok": True, "projectId": p.get("projectId")}}
+    )
     asyncio.run(client._cmd_session(["move", "proj-x"]))
-    assert ("sessions.move", {"sessionKey": "term-1", "agentId": "main", "projectId": "proj-x"}) in calls
+    assert (
+        "sessions.move",
+        {"sessionKey": "term-1", "agentId": "main", "projectId": "proj-x"},
+    ) in calls
     assert client.project_id == "proj-x"
 
 
@@ -151,7 +159,8 @@ def test_session_duplicate_switches_to_the_copy(monkeypatch):
     import asyncio
 
     client, _ = _client_with_stub(
-        monkeypatch, {"sessions.duplicate": {"ok": True, "sessionKey": "term-copy"}})
+        monkeypatch, {"sessions.duplicate": {"ok": True, "sessionKey": "term-copy"}}
+    )
     asyncio.run(client._cmd_session(["duplicate"]))
     assert client.session_key == "term-copy"
 
@@ -168,7 +177,8 @@ def test_config_set_coerces_scalar_and_patches(monkeypatch):
     import asyncio
 
     client, calls = _client_with_stub(
-        monkeypatch, {"config.get": {}, "config.set": {"saved": True}})
+        monkeypatch, {"config.get": {}, "config.set": {"saved": True}}
+    )
     asyncio.run(client._cmd_config(["set", "completeness_check", "true"]))
     assert ("config.set", {"patch": {"completeness_check": True}}) in calls
 
@@ -177,6 +187,8 @@ def test_store_install_calls_marketplace(monkeypatch):
     import asyncio
 
     client, calls = _client_with_stub(
-        monkeypatch, {"marketplace.install": {"installed": True, "id": "figure-creator", "version": "1.0.0"}})
+        monkeypatch,
+        {"marketplace.install": {"installed": True, "id": "figure-creator", "version": "1.0.0"}},
+    )
     asyncio.run(client._cmd_store(["install", "figure-creator"]))
     assert ("marketplace.install", {"id": "figure-creator"}) in calls

@@ -37,5 +37,9 @@ def test_parallel_disabled_leaves_duckduckgo(monkeypatch):
 
 def test_explicit_override_respected_and_unknowns_dropped(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    names = _names(_cfg(plugins={"web": {"tools": {"web_search": {"provider": ["brave", "tavily", "gemini"]}}}}))
+    names = _names(
+        _cfg(
+            plugins={"web": {"tools": {"web_search": {"provider": ["brave", "tavily", "gemini"]}}}}
+        )
+    )
     assert names == ["brave", "gemini"]  # tavily unknown -> dropped, order preserved

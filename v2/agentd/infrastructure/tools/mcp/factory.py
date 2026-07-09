@@ -13,15 +13,18 @@ log = logging.getLogger("agentd")
 
 
 def build_mcp_provider(config):
-    servers = [s for s in (getattr(config, "mcp_servers", None) or [])
-               if getattr(s, "enabled", True)]
+    servers = [
+        s for s in (getattr(config, "mcp_servers", None) or []) if getattr(s, "enabled", True)
+    ]
     if not servers:
         return None
     try:
         import mcp  # noqa: F401 — the official SDK is an optional dependency
     except ImportError:
-        log.warning("mcp_servers configured but the `mcp` SDK is not installed; "
-                    "MCP disabled. Install with: pip install mcp")
+        log.warning(
+            "mcp_servers configured but the `mcp` SDK is not installed; "
+            "MCP disabled. Install with: pip install mcp"
+        )
         return None
 
     # stdio (subprocess) and http (hosted streamable-HTTP) are both supported; the

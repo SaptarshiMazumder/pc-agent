@@ -22,13 +22,15 @@ async def req(ws, method, params):
 
 async def main():
     async with websockets.connect("ws://127.0.0.1:8787", max_size=20 * 1024 * 1024) as ws:
-        await req(ws, "chat.send", {
-            "sessionKey": SESSION,
-            "message": "Run this exact shell command and wait for it: python -c \"import time; time.sleep(120); print('done')\"",
-            "idempotencyKey": uuid.uuid4().hex,
-        })
-
-        sent_abort = False
+        await req(
+            ws,
+            "chat.send",
+            {
+                "sessionKey": SESSION,
+                "message": "Run this exact shell command and wait for it: python -c \"import time; time.sleep(120); print('done')\"",
+                "idempotencyKey": uuid.uuid4().hex,
+            },
+        )
 
         async def aborter():
             await asyncio.sleep(8)
@@ -54,11 +56,15 @@ async def main():
         abort_task.cancel()
 
         # session must be free again
-        await req(ws, "chat.send", {
-            "sessionKey": SESSION,
-            "message": "Just say the word OK and nothing else, do not use tools.",
-            "idempotencyKey": uuid.uuid4().hex,
-        })
+        await req(
+            ws,
+            "chat.send",
+            {
+                "sessionKey": SESSION,
+                "message": "Just say the word OK and nothing else, do not use tools.",
+                "idempotencyKey": uuid.uuid4().hex,
+            },
+        )
         async with asyncio.timeout(60):
             async for raw in ws:
                 frame = json.loads(raw)

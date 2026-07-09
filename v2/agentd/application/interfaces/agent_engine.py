@@ -24,5 +24,5 @@ class AgentEngine(Protocol):
         on_event: EventSink,
         abort,
         session=None,
-        model: str | None = None,   # per-turn model override (None = the engine's default)
+        model: str | None = None,  # per-turn model override (None = the engine's default)
     ) -> list[Message]: ...

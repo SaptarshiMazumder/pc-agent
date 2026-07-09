@@ -3,6 +3,7 @@ import { Plug, Plus, Trash2, Loader2, RefreshCw } from 'lucide-react'
 
 import { gateway } from '../gateway/client'
 import { useApp } from '../state/store'
+import PageShell from './PageShell'
 
 interface McpServer {
   name: string
@@ -69,25 +70,24 @@ export default function DataSourcesView() {
     }
   }
 
-  return (
-    <div className="settings">
-      <div className="settings-inner settings-wide">
-        <div className="settings-head">
-          <div className="settings-head-titles">
-            <div className="page-title">Data sources</div>
-            <div className="page-sub">Connect external tools &amp; data via MCP servers. They load live — no restart.</div>
-          </div>
-          <div className="settings-head-actions">
-            <button className="btn ghost" onClick={() => void load()}>
-              <RefreshCw size={14} />Refresh
-            </button>
-            <button className="btn primary" onClick={() => setAdding((a) => !a)}>
-              <Plus size={14} />Add source
-            </button>
-          </div>
-        </div>
+  const actions = (
+    <>
+      <button className="btn ghost" onClick={() => void load()}>
+        <RefreshCw size={14} />Refresh
+      </button>
+      <button className="btn primary" onClick={() => setAdding((a) => !a)}>
+        <Plus size={14} />Add source
+      </button>
+    </>
+  )
 
-        {note && <div className={`ds-note ${note.startsWith('Couldn') ? 'err' : ''}`}>{note}</div>}
+  return (
+    <PageShell
+      title="Data sources"
+      sub="Connect external tools & data via MCP servers. They load live — no restart."
+      actions={actions}
+    >
+      {note && <div className={`ds-note ${note.startsWith('Couldn') ? 'err' : ''}`}>{note}</div>}
 
         {adding && (
           <div className="settings-card ds-form">
@@ -173,7 +173,6 @@ export default function DataSourcesView() {
               </div>
             ))}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

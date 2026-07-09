@@ -23,10 +23,12 @@ from cryptography.hazmat.primitives.serialization import (
 def generate_keypair() -> tuple[str, str]:
     """-> (private_b64, public_b64), both raw key bytes base64'd."""
     private = Ed25519PrivateKey.generate()
-    private_b64 = base64.b64encode(private.private_bytes(
-        Encoding.Raw, PrivateFormat.Raw, NoEncryption())).decode()
-    public_b64 = base64.b64encode(private.public_key().public_bytes(
-        Encoding.Raw, PublicFormat.Raw)).decode()
+    private_b64 = base64.b64encode(
+        private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+    ).decode()
+    public_b64 = base64.b64encode(
+        private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
     return private_b64, public_b64
 
 

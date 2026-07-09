@@ -14,44 +14,49 @@ from __future__ import annotations
 
 import logging
 
-from agentd.application.run_context import current_run_context
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from agentd.application.run_context import current_run_context
 
 log = logging.getLogger("agentd")
 
 # generic fallbacks when a site has no configured selector (per-site selectors are more reliable)
 _USER_HEURISTIC = "input[type=email], input[type=text]:not([type=password]):not([type=hidden])"
 _PASS_HEURISTIC = "input[type=password]"
-_OTP_HEURISTIC = "input[autocomplete=one-time-code], input[name*=otp i], input[name*=code i], input[type=tel]"
+_OTP_HEURISTIC = (
+    "input[autocomplete=one-time-code], input[name*=otp i], input[name*=code i], input[type=tel]"
+)
 
 
 class SimpleLoginTool(Tool):
     name = "simple_login"
     label = "Login"
-    concurrency = "sequential"        # drives the one shared browser; never run two at once
-    default_retryable = False         # side-effecting (submits a login); never auto-retry
+    concurrency = "sequential"  # drives the one shared browser; never run two at once
+    default_retryable = False  # side-effecting (submits a login); never auto-retry
     description = (
         "Log into a website using YOUR saved credentials for it (connected once, securely — you "
         "never see or handle the password). Open the site's login page, then call "
-        "simple_login(site=\"<name>\"); it fills username/email + password and submits. If the "
+        'simple_login(site="<name>"); it fills username/email + password and submits. If the '
         "site asks for a one-time 2FA code, it returns OTP_REQUIRED — ask the user for the code, "
-        "then call again with otp=\"<code>\". If there's no saved login, it returns a one-time "
+        'then call again with otp="<code>". If there\'s no saved login, it returns a one-time '
         "setup link — share it ONLY if your instructions permit giving setup links to the person "
-        "you're talking to; NEVER ask for a password in chat.")
+        "you're talking to; NEVER ask for a password in chat."
+    )
     parameters = {
-        "type": "object", "required": ["site"],
+        "type": "object",
+        "required": ["site"],
         "properties": {
             "site": {"type": "string", "description": "the saved-login name, e.g. 'hotpepper'"},
-            "otp": {"type": "string",
-                    "description": "the one-time 2FA code — ONLY on the resume call after OTP_REQUIRED"},
+            "otp": {
+                "type": "string",
+                "description": "the one-time 2FA code — ONLY on the resume call after OTP_REQUIRED",
+            },
         },
     }
 
     def __init__(self, store, browser_manager, connect_tokens=None, public_url=""):
         self._store = store
         self._mgr = browser_manager
-        self._connect = connect_tokens          # mints the one-time /connect link (or None)
+        self._connect = connect_tokens  # mints the one-time /connect link (or None)
         self._public_url = (public_url or "").strip()
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
@@ -67,18 +72,21 @@ class SimpleLoginTool(Tool):
         try:
             await self._mgr.ensure()
             page = self._mgr.resolve_target(None)
-            if not otp:                                   # fresh login: fill the form
+            if not otp:  # fresh login: fill the form
                 await page.goto(cred.login_url, wait_until="domcontentloaded")
                 await page.fill(cred.user_selector or _USER_HEURISTIC, cred.username)
                 pass_sel = cred.pass_selector or _PASS_HEURISTIC
-                await page.fill(pass_sel, cred.password)  # SECRET — typed internally, never returned
+                await page.fill(
+                    pass_sel, cred.password
+                )  # SECRET — typed internally, never returned
                 await self._submit(page, cred, pass_sel)
                 await self._settle()
                 if await self._present(page, cred.otp_selector or _OTP_HEURISTIC):
                     return ToolResult.text(
                         f"OTP_REQUIRED: '{site}' is asking for a one-time 2FA code. Ask the user "
-                        f"for it, then call simple_login(site='{site}', otp='<code>').")
-            else:                                         # resume: type the OTP (ephemeral, ok)
+                        f"for it, then call simple_login(site='{site}', otp='<code>')."
+                    )
+            else:  # resume: type the OTP (ephemeral, ok)
                 otp_sel = cred.otp_selector or _OTP_HEURISTIC
                 await page.fill(otp_sel, otp)
                 await self._submit(page, cred, otp_sel)
@@ -87,7 +95,8 @@ class SimpleLoginTool(Tool):
                 return ToolResult.text(f"Logged in to {site}.")
             return ToolResult.text(
                 f"Login to {site} didn't complete — the saved credentials or the code may be wrong.",
-                is_error=True)
+                is_error=True,
+            )
         except Exception as e:  # noqa: BLE001 — only the exception TYPE, never a message (no secret leak)
             return ToolResult.text(f"login error on {site}: {type(e).__name__}", is_error=True)
 
@@ -98,15 +107,20 @@ class SimpleLoginTool(Tool):
         # setup links with the people it talks to must not.)
         if self._connect is not None and self._public_url:
             from agentd.infrastructure.credentials import ConnectTokenStore
+
             token = self._connect.mint(agent_id, site)
             link = ConnectTokenStore.link(self._public_url, token)
             log.info("simple_login: no credential for agent=%s site=%s", agent_id, site)
-            return (f"No saved login for '{site}'. A one-time setup link (expires ~15 min):\n{link}\n"
-                    f"Share this link ONLY if your instructions permit giving setup links to the "
-                    f"person you're talking to; otherwise don't share it. Never ask for a password "
-                    f"in chat.")
-        return (f"No saved login for '{site}' (and no setup link is configured — set "
-                f"AGENTD_PUBLIC_URL). Never ask for a password in chat; respond per your instructions.")
+            return (
+                f"No saved login for '{site}'. A one-time setup link (expires ~15 min):\n{link}\n"
+                f"Share this link ONLY if your instructions permit giving setup links to the "
+                f"person you're talking to; otherwise don't share it. Never ask for a password "
+                f"in chat."
+            )
+        return (
+            f"No saved login for '{site}' (and no setup link is configured — set "
+            f"AGENTD_PUBLIC_URL). Never ask for a password in chat; respond per your instructions."
+        )
 
     async def _submit(self, page, cred, field_sel) -> None:
         if cred.submit_selector:

@@ -11,11 +11,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.llm.litellm import (
-    _ToolCallAccumulator,
-    litellm_stream,
-    messages_to_litellm,
-)
 from agentd.domain.messages import (
     AssistantMessage,
     TextContent,
@@ -23,6 +18,11 @@ from agentd.domain.messages import (
     ToolCallContent,
     ToolResultMessage,
     UserMessage,
+)
+from agentd.infrastructure.llm.litellm import (
+    _ToolCallAccumulator,
+    litellm_stream,
+    messages_to_litellm,
 )
 
 
@@ -88,10 +88,12 @@ def test_drops_placeholder_and_orphaned_tool_result():
         AssistantMessage(  # placeholder wedged between the call and its result
             content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason="error"
         ),
-        ToolResultMessage(tool_call_id="c1", tool_name="sheet",
-                          content=[TextContent(text="OK")]),
-        ToolResultMessage(tool_call_id="ghost", tool_name="x",  # no matching call -> orphan
-                          content=[TextContent(text="orphan")]),
+        ToolResultMessage(tool_call_id="c1", tool_name="sheet", content=[TextContent(text="OK")]),
+        ToolResultMessage(
+            tool_call_id="ghost",
+            tool_name="x",  # no matching call -> orphan
+            content=[TextContent(text="orphan")],
+        ),
     ]
     out = messages_to_litellm("S", history)
     # placeholder dropped -> exactly one assistant (the tool-call turn)
@@ -144,7 +146,9 @@ def test_accumulator_bad_json_kept_raw():
 
 def make_chunk(delta=None, finish_reason=None, usage=None):
     return SimpleNamespace(
-        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)] if delta or finish_reason else [],
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)]
+        if delta or finish_reason
+        else [],
         usage=usage,
     )
 
@@ -252,12 +256,16 @@ async def test_idle_timeout_emits_error_done(monkeypatch):
         return StallingStream()
 
     import litellm
+
     monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
 
     events = []
     async for ev in litellm_stream(
-        model="gemini/gemini-3.1-pro-preview", system_prompt="S",
-        messages=[UserMessage(content="hi")], tools=[], abort=asyncio.Event(),
+        model="gemini/gemini-3.1-pro-preview",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
         idle_timeout_sec=0.05,
     ):
         events.append(ev)
@@ -273,17 +281,24 @@ async def test_request_timeout_passed_to_acompletion(monkeypatch):
 
     async def fake_acompletion(**kwargs):
         captured.update(kwargs)
-        return FakeStream([
-            make_chunk(delta=make_delta(content="hi")),
-            make_chunk(delta=make_delta(), finish_reason="stop"),
-        ])
+        return FakeStream(
+            [
+                make_chunk(delta=make_delta(content="hi")),
+                make_chunk(delta=make_delta(), finish_reason="stop"),
+            ]
+        )
 
     import litellm
+
     monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
 
     async for _ in litellm_stream(
-        model="gemini/x", system_prompt="S", messages=[UserMessage(content="hi")],
-        tools=[], abort=asyncio.Event(), request_timeout_sec=99,
+        model="gemini/x",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
+        request_timeout_sec=99,
     ):
         pass
     assert captured.get("request_timeout") == 99
@@ -297,12 +312,17 @@ async def test_local_provider_skips_idle(monkeypatch):
         return StallingStream()
 
     import litellm
+
     monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
 
     async def consume():
         async for _ in litellm_stream(
-            model="ollama/llama3", system_prompt="S", messages=[UserMessage(content="hi")],
-            tools=[], abort=asyncio.Event(), idle_timeout_sec=0.05,
+            model="ollama/llama3",
+            system_prompt="S",
+            messages=[UserMessage(content="hi")],
+            tools=[],
+            abort=asyncio.Event(),
+            idle_timeout_sec=0.05,
         ):
             pass
 

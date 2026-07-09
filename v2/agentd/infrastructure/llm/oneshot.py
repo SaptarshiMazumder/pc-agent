@@ -35,8 +35,14 @@ def _image_part(path: Path) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
 
 
-def text_complete(*, model: str, prompt: str, max_tokens: int | None = None,
-                  api_key: str | None = None, timeout: float | None = None) -> str:
+def text_complete(
+    *,
+    model: str,
+    prompt: str,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+    timeout: float | None = None,
+) -> str:
     """One text-only prompt -> the model's text. The non-streaming, no-tools sibling of
     vision_complete, for small server-side utility calls (e.g. auto-titling a chat).
     Synchronous — call it from a worker thread (asyncio.to_thread)."""
@@ -59,8 +65,15 @@ def text_complete(*, model: str, prompt: str, max_tokens: int | None = None,
     return (resp.choices[0].message.content or "") if resp.choices else ""
 
 
-def vision_complete(*, model: str, prompt: str, image_paths, want_json: bool = False,
-                    api_key: str | None = None, timeout: float | None = None) -> str:
+def vision_complete(
+    *,
+    model: str,
+    prompt: str,
+    image_paths,
+    want_json: bool = False,
+    api_key: str | None = None,
+    timeout: float | None = None,
+) -> str:
     """One image+prompt call -> the model's text (or JSON string in JSON mode).
 
     `model` is a litellm id (bare id => gemini). `image_paths` is one path or a list. `api_key`

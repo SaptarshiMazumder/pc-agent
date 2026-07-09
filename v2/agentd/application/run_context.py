@@ -17,7 +17,7 @@ class RunContext:
     agent_id: str
     session_key: str
     mode: str
-    workspace: str = ""   # the agent's working dir for file/exec tools ("" = use the global default)
+    workspace: str = ""  # the agent's working dir for file/exec tools ("" = use the global default)
     # Per-agent model overrides from agent.toml [plugins.*]: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}.
     # Layered ABOVE global config.plugins by resolve_tool_model. None/empty = inherit global.
     plugins: dict | None = None

@@ -33,23 +33,34 @@ log = logging.getLogger("agentd")
 @dataclass(frozen=True)
 class License:
     skus: tuple[str, ...]
-    expires: str = ""          # ISO date, "" => perpetual
+    expires: str = ""  # ISO date, "" => perpetual
     issuer: str = ""
     subject: str = ""
     path: str = ""
 
 
-def issue_license(private_key_b64: str, skus: list[str], expires: str = "",
-                  issuer: str = "agentd", subject: str = "") -> str:
+def issue_license(
+    private_key_b64: str,
+    skus: list[str],
+    expires: str = "",
+    issuer: str = "agentd",
+    subject: str = "",
+) -> str:
     """Publisher-side: -> the license file CONTENT (JSON text). Written by
     `agentd license issue`; later, by the registry backend after checkout."""
     claims = {"skus": sorted(set(skus)), "exp": expires, "iss": issuer, "sub": subject}
     payload = json.dumps(claims, sort_keys=True).encode("utf-8")
-    return json.dumps({
-        "type": "agentd-license",
-        "payload": base64.b64encode(payload).decode(),
-        "sig": signing.sign(private_key_b64, payload),
-    }, indent=2) + "\n"
+    return (
+        json.dumps(
+            {
+                "type": "agentd-license",
+                "payload": base64.b64encode(payload).decode(),
+                "sig": signing.sign(private_key_b64, payload),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def parse_license(text: str, publisher_key_b64: str, path: str = "") -> License | None:
@@ -63,15 +74,21 @@ def parse_license(text: str, publisher_key_b64: str, path: str = "") -> License 
         if not signing.verify(publisher_key_b64, payload, envelope.get("sig", "")):
             raise ValueError("signature invalid")
         claims = json.loads(payload)
-        skus = tuple(str(s) for s in (claims.get("skus") or
-                                      ([claims["sku"]] if claims.get("sku") else [])))
+        skus = tuple(
+            str(s) for s in (claims.get("skus") or ([claims["sku"]] if claims.get("sku") else []))
+        )
         if not skus:
             raise ValueError("no skus")
         expires = str(claims.get("exp") or "")
         if expires and date.fromisoformat(expires) < date.today():
             raise ValueError(f"expired {expires}")
-        return License(skus=skus, expires=expires, issuer=str(claims.get("iss") or ""),
-                       subject=str(claims.get("sub") or ""), path=path)
+        return License(
+            skus=skus,
+            expires=expires,
+            issuer=str(claims.get("iss") or ""),
+            subject=str(claims.get("sub") or ""),
+            path=path,
+        )
     except Exception as e:  # noqa: BLE001 — fail closed, loudly, never fatally
         log.warning("licensing: ignoring %s: %s", path or "license", e)
         return None
@@ -90,8 +107,12 @@ def load_licenses(licenses_dir: Path, publisher_key_b64: str) -> list[License]:
             continue
         if parsed is not None:
             licenses.append(parsed)
-            log.info("licensing: %s -> skus %s%s", path.name, ", ".join(parsed.skus),
-                     f" (until {parsed.expires})" if parsed.expires else "")
+            log.info(
+                "licensing: %s -> skus %s%s",
+                path.name,
+                ", ".join(parsed.skus),
+                f" (until {parsed.expires})" if parsed.expires else "",
+            )
     return licenses
 
 

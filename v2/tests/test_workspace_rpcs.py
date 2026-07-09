@@ -21,7 +21,9 @@ def _gateway(tmp_path):
         service=None,
         registry=SimpleNamespace(
             list_ids=lambda: ["main"],
-            get=lambda a: {"main": SimpleNamespace(workspace=ws, state_dir=tmp_path / "agents" / "main")}[a],
+            get=lambda a: {
+                "main": SimpleNamespace(workspace=ws, state_dir=tmp_path / "agents" / "main")
+            }[a],
         ),
     )
     return gw, ws
@@ -50,15 +52,19 @@ def test_mkdir_upload_delete_roundtrip(tmp_path):
     assert (ws / "docs" / "drafts").is_dir()
 
     b64 = base64.b64encode(b"hello").decode()
-    up = gw._workspace_upload({"agentId": "main", "path": "docs", "name": "note.txt", "dataBase64": b64})
+    up = gw._workspace_upload(
+        {"agentId": "main", "path": "docs", "name": "note.txt", "dataBase64": b64}
+    )
     assert up["ok"] and (ws / "docs" / "note.txt").read_bytes() == b"hello"
     # collision -> deduped name, never overwrites
-    up2 = gw._workspace_upload({"agentId": "main", "path": "docs", "name": "note.txt", "dataBase64": b64})
+    up2 = gw._workspace_upload(
+        {"agentId": "main", "path": "docs", "name": "note.txt", "dataBase64": b64}
+    )
     assert up2["ok"] and up2["name"] == "note (2).txt"
 
     assert gw._workspace_delete({"agentId": "main", "path": "docs/note.txt"})["ok"]
     assert not (ws / "docs" / "note.txt").exists()
-    assert gw._workspace_delete({"agentId": "main", "path": "docs"})["ok"]   # recursive
+    assert gw._workspace_delete({"agentId": "main", "path": "docs"})["ok"]  # recursive
     assert not (ws / "docs").exists()
 
 

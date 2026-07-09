@@ -20,15 +20,15 @@ VALID_KINDS = ("native", "mcp")
 class PluginManifest:
     id: str
     name: str
-    kind: str                       # "native" | "mcp"
-    description: str = ""           # one-line "what this plugin is" (from plugin.toml; else the
-                                    # module docstring, resolved at load). "" => client default.
-    entry: str = ""                 # native: "module:func" (a register(api, ctx) callable)
-    mcp: dict = field(default_factory=dict)   # mcp: {command|url|env|headers}
-    enabled: bool = True            # author default; the config plugin-gate overrides this
-    scripts: tuple = ()             # declared helper scripts bundled in the plugin folder
-    data: tuple = ()                # declared data files bundled in the plugin folder
-    root: Path | None = None        # the plugin's directory (added to sys.path for native)
+    kind: str  # "native" | "mcp"
+    description: str = ""  # one-line "what this plugin is" (from plugin.toml; else the
+    # module docstring, resolved at load). "" => client default.
+    entry: str = ""  # native: "module:func" (a register(api, ctx) callable)
+    mcp: dict = field(default_factory=dict)  # mcp: {command|url|env|headers}
+    enabled: bool = True  # author default; the config plugin-gate overrides this
+    scripts: tuple = ()  # declared helper scripts bundled in the plugin folder
+    data: tuple = ()  # declared data files bundled in the plugin folder
+    root: Path | None = None  # the plugin's directory (added to sys.path for native)
     # COMPATIBILITY gate (one of the 4 load gates): a plugin is skipped unless its platform /
     # binaries / env are present. Keys: "os" (platform allowlist, e.g. ["windows","linux"]),
     # "bins" (all on PATH), "env" (all set). Empty => always compatible. From [requires] in the toml.
@@ -63,14 +63,19 @@ def load_manifest(path: Path) -> PluginManifest | None:
     root = path.parent
     scripts = tuple(str(s).strip() for s in (data.get("scripts") or []) if str(s).strip())
     files = tuple(str(s).strip() for s in (data.get("data") or []) if str(s).strip())
-    for rel in (*scripts, *files):                   # declared-but-missing => warn (never fatal)
+    for rel in (*scripts, *files):  # declared-but-missing => warn (never fatal)
         if not (root / rel).exists():
             log.warning("plugins: '%s' declares missing asset %r", pid, rel)
     raw_req = dict(data.get("requires") or {})
-    requires = {k: [str(x).strip().lower() if k == "os" else str(x).strip()
-                    for x in (raw_req.get(k) or []) if str(x).strip()]
-                for k in ("os", "bins", "env")}
-    requires = {k: v for k, v in requires.items() if v}     # keep only declared keys
+    requires = {
+        k: [
+            str(x).strip().lower() if k == "os" else str(x).strip()
+            for x in (raw_req.get(k) or [])
+            if str(x).strip()
+        ]
+        for k in ("os", "bins", "env")
+    }
+    requires = {k: v for k, v in requires.items() if v}  # keep only declared keys
     distribution = dict(data.get("distribution") or {})
     return PluginManifest(
         id=pid,

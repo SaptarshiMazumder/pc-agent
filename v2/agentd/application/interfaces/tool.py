@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import jsonschema
 
@@ -43,12 +44,17 @@ class ToolResult:
     artifacts: list[str] = field(default_factory=list)
 
     @staticmethod
-    def text(text: str, details: Any = None, is_error: bool = False,
-             artifacts: list[str] | None = None) -> "ToolResult":
+    def text(
+        text: str, details: Any = None, is_error: bool = False, artifacts: list[str] | None = None
+    ) -> ToolResult:
         """Convenience constructor for the common case: a single text result (optionally
         declaring the deliverable file(s) the tool produced)."""
-        return ToolResult(content=[TextContent(text=text)], details=details,
-                          is_error=is_error, artifacts=list(artifacts or []))
+        return ToolResult(
+            content=[TextContent(text=text)],
+            details=details,
+            is_error=is_error,
+            artifacts=list(artifacts or []),
+        )
 
 
 # A tool may call this to report incremental progress.
@@ -79,10 +85,36 @@ class Tool(ABC):
     # needs_model=False means the model resolver skips the tool entirely.
     plugin: str = ""
     needs_model: bool = False
-    default_model: str = ""  # "" => a text helper may inherit the brain model; VLM tools set a real id
+    default_model: str = (
+        ""  # "" => a text helper may inherit the brain model; VLM tools set a real id
+    )
     # what KIND of model this tool needs, so a client offers the RIGHT picker: "text" (reasoning),
-    # "vision" (reads images), "image" (GENERATES images), "embedding". Default "text".
+    # "vision" (reads images), "image-gen" (GENERATES images), "embedding". Default "text".
     model_kind: str = "text"
+    # PROVIDER (swappable backend) self-description — so a client offers a PICKER, never a text box
+    # (same idea as model_kind). A tool with a swappable backend (search chain, browser engine, image
+    # SDK) declares the VALID `provider` values here; empty => the client shows a free-text field (an
+    # open-ended/unknown backend). ``provider_chain`` = the provider is an ORDERED LIST tried in order
+    # (e.g. web_search's search chain), not a single pick. The runtime still resolves the actual value
+    # via resolve_tool_provider(config, …); this is purely the advertised option set.
+    provider_options: list[str] = []
+    provider_chain: bool = False
+
+    def resolve_model(self, config, per_call: str | None = None) -> str | None:
+        """This tool's model, resolved uniformly so a tool author NEVER has to name a model: just
+        set ``needs_model = True`` + ``model_kind`` and call this. Precedence: per-call > config
+        override > the house default for this ``model_kind`` (config.model_defaults) > default_model.
+        Deferred import keeps the interface layer free of the application resolver."""
+        from agentd.application.tool_models import resolve_tool_model
+
+        return resolve_tool_model(
+            config,
+            self.plugin,
+            self.name,
+            per_call=per_call,
+            default=self.default_model or None,
+            kind=self.model_kind,
+        )
 
     @abstractmethod
     async def execute(

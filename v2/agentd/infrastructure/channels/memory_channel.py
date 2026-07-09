@@ -18,15 +18,16 @@ class MemoryChannel:
         self.agent_id = agent_id
         self._inbox: list[InboundMessage] = []
         self._cursor = 0
-        self.sent: list[tuple[str, str]] = []   # (peer, text) replies + notifications land here
+        self.sent: list[tuple[str, str]] = []  # (peer, text) replies + notifications land here
 
     def inject(self, peer: str, text: str, external_id: str = "") -> None:
         """Simulate an inbound message arriving from ``peer``."""
-        self._inbox.append(InboundMessage(
-            channel=self.name, peer=peer, text=text, external_id=external_id))
+        self._inbox.append(
+            InboundMessage(channel=self.name, peer=peer, text=text, external_id=external_id)
+        )
 
     async def poll(self) -> list[InboundMessage]:
-        new = self._inbox[self._cursor:]          # only messages not yet seen
+        new = self._inbox[self._cursor :]  # only messages not yet seen
         self._cursor = len(self._inbox)
         return new
 

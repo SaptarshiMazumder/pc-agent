@@ -35,9 +35,9 @@ def test_gateway_file_roundtrip(home):
 
 def test_clear_only_pid_keeps_successors_file(home):
     lifecycle.write_gateway_file(GatewayInfo("127.0.0.1", 8787, pid=222))
-    lifecycle.clear_gateway_file(only_pid=111)     # not the owner -> keep it
+    lifecycle.clear_gateway_file(only_pid=111)  # not the owner -> keep it
     assert lifecycle.read_gateway_file() is not None
-    lifecycle.clear_gateway_file(only_pid=222)     # the owner -> remove it
+    lifecycle.clear_gateway_file(only_pid=222)  # the owner -> remove it
     assert lifecycle.read_gateway_file() is None
 
 
@@ -56,6 +56,7 @@ def _stub_spawn(monkeypatch, child_pid, writes_pid=None, exit_code=None):
     port_open is always true. writes_pid simulates whoever won the bind (our child, or a
     concurrent starter) — written AS A SIDE EFFECT of spawn, i.e. AFTER spawn_daemon's
     own clear_gateway_file(), which is what makes it visible to the wait loop."""
+
     def fake_popen(*_a, **_k):
         if writes_pid is not None:
             lifecycle.write_gateway_file(GatewayInfo("127.0.0.1", 8787, pid=writes_pid, token="t"))
@@ -75,7 +76,7 @@ def test_spawn_adopts_concurrent_winner(home, monkeypatch):
 
 
 def test_spawn_returns_own_child_when_it_binds(home, monkeypatch):
-    _stub_spawn(monkeypatch, child_pid=555, writes_pid=555)   # our child binds
+    _stub_spawn(monkeypatch, child_pid=555, writes_pid=555)  # our child binds
     info = lifecycle.spawn_daemon(wait_sec=5)
     assert info.pid == 555
 

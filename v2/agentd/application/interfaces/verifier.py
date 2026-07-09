@@ -18,15 +18,15 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class VerifyContext:
-    task: str                       # what the user asked for (latest user message)
-    answer: str                     # the agent's proposed final answer
+    task: str  # what the user asked for (latest user message)
+    answer: str  # the agent's proposed final answer
     evidence: list = field(default_factory=list)  # recent tool-result summaries (proof)
 
 
 @dataclass(frozen=True)
 class Verdict:
-    ok: bool                        # True => accept the answer
-    reasons: str = ""               # if not ok: what's wrong (fed back to the agent)
+    ok: bool  # True => accept the answer
+    reasons: str = ""  # if not ok: what's wrong (fed back to the agent)
 
 
 @runtime_checkable

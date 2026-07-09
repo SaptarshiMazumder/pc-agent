@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentd.clients.timefmt import whatsapp_day, whatsapp_when
 
-NOW = datetime(2026, 7, 5, 18, 0).timestamp()          # Sunday 5 July 2026, 18:00
+NOW = datetime(2026, 7, 5, 18, 0).timestamp()  # Sunday 5 July 2026, 18:00
 
 
 def ts(*args):

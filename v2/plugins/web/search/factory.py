@@ -27,6 +27,7 @@ def _search_model(config) -> str:
     # a reasoning model makes grounding slow enough to blow the web_search timeout. Resolved from
     # the unified plugins map (plugins.web.web_search -> plugins.web -> the brain).
     from agentd.application.tool_models import search_model
+
     return search_model(config)
 
 
@@ -58,6 +59,13 @@ def _registry(config) -> dict:
     }
 
 
+def search_provider_names() -> tuple[str, ...]:
+    """The valid search-backend names = the registry KEYS, so the list a client offers as the
+    web_search `provider` chain can't drift from what actually resolves. (config is unused for the
+    keys — the lambdas that need it are never called here, so passing None is safe.)"""
+    return tuple(_registry(None))
+
+
 def _default_order(config) -> list[str]:
     # Mirror OpenClaw's autoDetectOrder: gemini (20) -> parallel (76) -> duckduckgo (100).
     # Gemini web search reuses the Gemini model key, so it is auto-enabled and PRIMARY
@@ -74,6 +82,7 @@ def _default_order(config) -> list[str]:
 
 def build_search_providers(config) -> list[SearchProvider]:
     from agentd.application.tool_models import resolve_tool_provider
+
     registry = _registry(config)
     # The provider CHAIN is a per-TOOL knob: plugins.web.tools.web_search.provider — a list (explicit
     # order), a single name, or "auto"/absent => the OpenClaw-style auto-detect order. Per-agent

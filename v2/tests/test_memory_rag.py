@@ -17,8 +17,20 @@ from agentd.infrastructure.embeddings import build_embed_fn, cosine
 from agentd.infrastructure.memory.bank import SqliteMemoryBank
 from agentd.infrastructure.memory.dreaming import dream
 
-_VOCAB = ["login", "expires", "weeks", "lives", "tokyo", "prefers", "dark",
-          "mode", "concise", "emails", "cat", "dog"]
+_VOCAB = [
+    "login",
+    "expires",
+    "weeks",
+    "lives",
+    "tokyo",
+    "prefers",
+    "dark",
+    "mode",
+    "concise",
+    "emails",
+    "cat",
+    "dog",
+]
 
 
 def _embed(texts):
@@ -40,6 +52,7 @@ class _Cfg:
 
 # ---- embeddings util --------------------------------------------------------
 
+
 def test_build_embed_fn_none_without_model():
     assert build_embed_fn("") is None and build_embed_fn(None) is None
 
@@ -47,10 +60,11 @@ def test_build_embed_fn_none_without_model():
 def test_cosine_basic():
     assert cosine([1, 0], [1, 0]) == pytest.approx(1.0)
     assert cosine([1, 0], [0, 1]) == pytest.approx(0.0)
-    assert cosine([0, 0], [1, 1]) == 0.0                 # degenerate -> 0, no div-by-zero
+    assert cosine([0, 0], [1, 1]) == 0.0  # degenerate -> 0, no div-by-zero
 
 
 # ---- vector search ----------------------------------------------------------
+
 
 def test_vector_search_ranks_by_cosine(tmp_path):
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
@@ -58,7 +72,7 @@ def test_vector_search_ranks_by_cosine(tmp_path):
     bank.save(MemoryItem(id="2", agent_id="A", source="note", text="lives tokyo"))
     bank.save(MemoryItem(id="3", agent_id="A", source="note", text="prefers dark mode"))
     hits = bank.search("A", "login expires", limit=2)
-    assert hits[0].id == "1"                              # closest by cosine, not keyword rank
+    assert hits[0].id == "1"  # closest by cosine, not keyword rank
     bank.close()
 
 
@@ -66,7 +80,7 @@ def test_vector_search_agent_scoped(tmp_path):
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     bank.save(MemoryItem(id="a", agent_id="A", source="note", text="prefers dark mode"))
     bank.save(MemoryItem(id="b", agent_id="B", source="note", text="prefers dark mode"))
-    assert [h.id for h in bank.search("A", "dark mode")] == ["a"]   # only A's row
+    assert [h.id for h in bank.search("A", "dark mode")] == ["a"]  # only A's row
     bank.close()
 
 
@@ -76,17 +90,18 @@ def test_falls_back_to_keyword_when_no_embeddings(tmp_path):
     plain.save(MemoryItem(id="1", agent_id="A", source="note", text="login expires weeks"))
     plain.close()
     reopened = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
-    assert reopened.search("A", "login expires")[0].id == "1"      # vector path empty -> keyword
+    assert reopened.search("A", "login expires")[0].id == "1"  # vector path empty -> keyword
     reopened.close()
 
 
 # ---- recall tracking --------------------------------------------------------
 
+
 def test_recall_records_ledger_and_bumps_count(tmp_path):
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     bank.save(MemoryItem(id="1", agent_id="A", source="note", text="login expires weeks"))
-    bank.search("A", "login expires")                    # a recall
-    bank.search("A", "when does login expire weeks")     # another, different query
+    bank.search("A", "login expires")  # a recall
+    bank.search("A", "when does login expire weeks")  # another, different query
     aggs = bank.recall_aggregates("A")
     assert aggs["1"].count == 2 and aggs["1"].unique_queries == 2
     assert [r for r in bank.rows_for("A") if r.id == "1"][0].recall_count == 2
@@ -103,11 +118,12 @@ def test_search_record_false_skips_ledger(tmp_path):
 
 # ---- dreaming ---------------------------------------------------------------
 
+
 def test_dreaming_promotes_frequently_recalled(tmp_path):
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     bank.save(MemoryItem(id="1", agent_id="A", source="note", text="login expires weeks"))
     bank.search("A", "login expires")
-    bank.search("A", "weeks login")                      # 2 recalls, 2 unique queries
+    bank.search("A", "weeks login")  # 2 recalls, 2 unique queries
     out = dream(bank, "A", _Cfg(), now=None)
     assert out["promoted"] == 1
     assert [r for r in bank.rows_for("A") if r.id == "1"][0].tier == "long"
@@ -117,21 +133,31 @@ def test_dreaming_promotes_frequently_recalled(tmp_path):
 def test_dreaming_merges_near_duplicates(tmp_path):
     now = 1_000_000_000.0
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
-    bank.save(MemoryItem(id="1", agent_id="A", source="note", text="prefers dark mode", created_at=now - 10))
-    bank.save(MemoryItem(id="2", agent_id="A", source="note", text="prefers dark mode", created_at=now - 5))
-    out = dream(bank, "A", _Cfg(), now=now)   # fresh notes -> merge only, no stale-forget
+    bank.save(
+        MemoryItem(
+            id="1", agent_id="A", source="note", text="prefers dark mode", created_at=now - 10
+        )
+    )
+    bank.save(
+        MemoryItem(
+            id="2", agent_id="A", source="note", text="prefers dark mode", created_at=now - 5
+        )
+    )
+    out = dream(bank, "A", _Cfg(), now=now)  # fresh notes -> merge only, no stale-forget
     assert out["merged"] == 1
     survivors = [r.id for r in bank.rows_for("A")]
-    assert survivors == ["2"]                            # kept the newer of the near-dup pair
+    assert survivors == ["2"]  # kept the newer of the near-dup pair
     bank.close()
 
 
 def test_dreaming_forgets_stale_never_recalled(tmp_path):
     now = 1_000_000_000.0
-    old = now - 40 * 86400                               # 40 days old, past 30-day max_age
+    old = now - 40 * 86400  # 40 days old, past 30-day max_age
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     bank.save(MemoryItem(id="1", agent_id="A", source="note", text="cat", created_at=old))
-    bank.save(MemoryItem(id="2", agent_id="A", source="note", text="dog", created_at=now))  # fresh, kept
+    bank.save(
+        MemoryItem(id="2", agent_id="A", source="note", text="dog", created_at=now)
+    )  # fresh, kept
     out = dream(bank, "A", _Cfg(), now=now)
     assert out["forgotten"] == 1
     assert {r.id for r in bank.rows_for("A")} == {"2"}
@@ -140,45 +166,50 @@ def test_dreaming_forgets_stale_never_recalled(tmp_path):
 
 # ---- background write (embed off the turn) ----------------------------------
 
+
 @pytest.mark.asyncio
 async def test_background_embedder_fills_vector(tmp_path):
     from agentd.infrastructure.memory.background import BackgroundEmbedder
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
-    mid = bank.save_pending(MemoryItem(id="1", agent_id="A", source="note", text="login expires weeks"))
+    mid = bank.save_pending(
+        MemoryItem(id="1", agent_id="A", source="note", text="login expires weeks")
+    )
     # right after the instant write: fact stored, but NO vector yet -> vector search misses it
     assert [r.embedding for r in bank.rows_for("A")] == [None]
     emb = BackgroundEmbedder(bank)
     emb.schedule(mid, "login expires weeks")
-    await emb.drain()                                    # let the background embed complete
+    await emb.drain()  # let the background embed complete
     assert [r for r in bank.rows_for("A")][0].embedding is not None
-    assert bank.search("A", "login expires")[0].id == "1"   # now vector-searchable
+    assert bank.search("A", "login expires")[0].id == "1"  # now vector-searchable
     bank.close()
 
 
 @pytest.mark.asyncio
 async def test_remember_tool_defers_embed_but_stays_recallable(tmp_path):
+    from memory_tools import RememberTool
+
     from agentd.application.run_context import RunContext, set_run_context
     from agentd.infrastructure.memory.background import BackgroundEmbedder
-    from memory_tools import RememberTool
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     emb = BackgroundEmbedder(bank)
     set_run_context(RunContext("A", "s", "interactive"))
     r = await RememberTool(bank, emb).execute("c", {"text": "prefers dark mode"}, asyncio.Event())
-    assert r.is_error is False                            # returns immediately (embed not awaited)
-    assert bank.rows_for("A")[0].embedding is None        # vector not filled yet
+    assert r.is_error is False  # returns immediately (embed not awaited)
+    assert bank.rows_for("A")[0].embedding is None  # vector not filled yet
     await emb.drain()
-    assert bank.rows_for("A")[0].embedding is not None     # background embed landed
+    assert bank.rows_for("A")[0].embedding is not None  # background embed landed
     bank.close()
 
 
 def test_remember_tool_without_embedder_saves_sync(tmp_path):
     # no embedder passed -> falls back to the synchronous save (keyword-only deployments/tests)
-    from agentd.application.run_context import RunContext, set_run_context
     from memory_tools import RememberTool
 
-    bank = SqliteMemoryBank(tmp_path / "m.sqlite")       # no embed_fn
+    from agentd.application.run_context import RunContext, set_run_context
+
+    bank = SqliteMemoryBank(tmp_path / "m.sqlite")  # no embed_fn
     set_run_context(RunContext("A", "s", "interactive"))
     res = asyncio.run(RememberTool(bank).execute("c", {"text": "lives tokyo"}, asyncio.Event()))
     assert res.is_error is False and bank.search("A", "tokyo")[0].text == "lives tokyo"
@@ -187,9 +218,16 @@ def test_remember_tool_without_embedder_saves_sync(tmp_path):
 
 # ---- auto-recall (agent_service seam) ---------------------------------------
 
+
 def _spec():
-    return AgentSpec(id="main", name="main", workspace=Path("."), state_dir=Path("."),
-                     tools_allow=None, tools_deny=())
+    return AgentSpec(
+        id="main",
+        name="main",
+        workspace=Path("."),
+        state_dir=Path("."),
+        tools_allow=None,
+        tools_deny=(),
+    )
 
 
 class _FakeEngine:
@@ -221,9 +259,15 @@ class _Reg:
 
 def _svc(engine, recall):
     from agentd.application.services.agent_service import AgentService
-    return AgentService(engine=engine, tools=[], registry=_Reg(_spec()),
-                        make_session=lambda *a, **k: _FakeSession(),
-                        build_prompt=lambda *a, **k: "BASE", recall=recall)
+
+    return AgentService(
+        engine=engine,
+        tools=[],
+        registry=_Reg(_spec()),
+        make_session=lambda *a, **k: _FakeSession(),
+        build_prompt=lambda *a, **k: "BASE",
+        recall=recall,
+    )
 
 
 @pytest.mark.asyncio
@@ -232,8 +276,9 @@ async def test_auto_recall_prepends_on_interactive_turn():
 
     eng = _FakeEngine()
     svc = _svc(eng, recall=lambda agent, q: "## Relevant memories\n- prior fact")
-    await svc.handle_message("s", "hi", on_event=None, abort=asyncio.Event(),
-                             mode=RunMode.INTERACTIVE)
+    await svc.handle_message(
+        "s", "hi", on_event=None, abort=asyncio.Event(), mode=RunMode.INTERACTIVE
+    )
     assert eng.system_prompt.startswith("## Relevant memories")
     assert "BASE" in eng.system_prompt
 
@@ -244,9 +289,10 @@ async def test_auto_recall_skipped_on_heartbeat_turn():
 
     eng = _FakeEngine()
     svc = _svc(eng, recall=lambda agent, q: "## Relevant memories\n- prior fact")
-    await svc.handle_message("s", "hi", on_event=None, abort=asyncio.Event(),
-                             mode=RunMode.HEARTBEAT)
-    assert eng.system_prompt == "BASE"                   # non-user turn: no recall injection
+    await svc.handle_message(
+        "s", "hi", on_event=None, abort=asyncio.Event(), mode=RunMode.HEARTBEAT
+    )
+    assert eng.system_prompt == "BASE"  # non-user turn: no recall injection
 
 
 @pytest.mark.asyncio
@@ -258,6 +304,7 @@ async def test_auto_recall_failopen_on_embed_error():
 
     eng = _FakeEngine()
     svc = _svc(eng, recall=_boom)
-    await svc.handle_message("s", "hi", on_event=None, abort=asyncio.Event(),
-                             mode=RunMode.INTERACTIVE)
-    assert eng.system_prompt == "BASE"                   # recall raised -> turn proceeds unchanged
+    await svc.handle_message(
+        "s", "hi", on_event=None, abort=asyncio.Event(), mode=RunMode.INTERACTIVE
+    )
+    assert eng.system_prompt == "BASE"  # recall raised -> turn proceeds unchanged

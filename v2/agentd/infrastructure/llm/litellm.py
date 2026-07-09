@@ -31,7 +31,8 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 # Domain types (the conversation vocabulary). Imported from the canonical domain
 # location now that this module lives in the infrastructure layer.
@@ -67,7 +68,7 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
     its own past reasoning re-fed).
     """
     out: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    emitted_call_ids: set[str] = set()        # tool-call ids actually sent, for pairing
+    emitted_call_ids: set[str] = set()  # tool-call ids actually sent, for pairing
     for m in messages:
         if isinstance(m, UserMessage):
             # A plain text turn stays a plain string. When the user ATTACHED files, build a
@@ -87,8 +88,12 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
                     else:
                         extra_notes.append(f"- {att.name} ({att.path})")
                 if extra_notes:
-                    parts.append({"type": "text",
-                                  "text": "(attached files:\n" + "\n".join(extra_notes) + ")"})
+                    parts.append(
+                        {
+                            "type": "text",
+                            "text": "(attached files:\n" + "\n".join(extra_notes) + ")",
+                        }
+                    )
                 out.append({"role": "user", "content": parts or m.content})
             else:
                 out.append({"role": "user", "content": m.content})
@@ -134,10 +139,15 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
             images = [b for b in m.content if isinstance(b, ImageContent)]
             if images:
                 parts: list[dict[str, Any]] = [
-                    {"type": "text", "text": f"(image output from the {m.tool_name} tool above)"}]
+                    {"type": "text", "text": f"(image output from the {m.tool_name} tool above)"}
+                ]
                 for img in images:
-                    parts.append({"type": "image_url", "image_url": {
-                        "url": f"data:{img.mime_type};base64,{img.data}"}})
+                    parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{img.mime_type};base64,{img.data}"},
+                        }
+                    )
                 out.append({"role": "user", "content": parts})
     return out
 
@@ -220,8 +230,11 @@ def _is_local_provider(model: str) -> bool:
     which legitimately stay silent for long stretches while loading weights — so
     the network-silence idle watchdog should not apply to them."""
     m = (model or "").lower()
-    return (m.startswith(("ollama/", "lm_studio/", "hosted_vllm/", "openai/local"))
-            or "localhost" in m or "127.0.0.1" in m)
+    return (
+        m.startswith(("ollama/", "lm_studio/", "hosted_vllm/", "openai/local"))
+        or "localhost" in m
+        or "127.0.0.1" in m
+    )
 
 
 async def litellm_stream(
@@ -244,10 +257,10 @@ async def litellm_stream(
     litellm.suppress_debug_info = True
 
     # Accumulators for the pieces we collect as the stream arrives:
-    text_parts: list[str] = []       # visible text shards
-    thinking_parts: list[str] = []   # reasoning shards
-    acc = _ToolCallAccumulator()     # tool-call fragments
-    usage: dict[str, int] = {}       # token counts (from the final usage-only chunk)
+    text_parts: list[str] = []  # visible text shards
+    thinking_parts: list[str] = []  # reasoning shards
+    acc = _ToolCallAccumulator()  # tool-call fragments
+    usage: dict[str, int] = {}  # token counts (from the final usage-only chunk)
     finish_reason: str | None = None
     error_message: str | None = None
     aborted = False
@@ -285,11 +298,14 @@ async def litellm_stream(
                 aborted = True
                 break
             try:
-                chunk = (await asyncio.wait_for(it.__anext__(), timeout=effective_idle)
-                         if effective_idle else await it.__anext__())
+                chunk = (
+                    await asyncio.wait_for(it.__anext__(), timeout=effective_idle)
+                    if effective_idle
+                    else await it.__anext__()
+                )
             except StopAsyncIteration:
                 break
-            except asyncio.TimeoutError:  # no chunk for too long -> treat as a hang
+            except TimeoutError:  # no chunk for too long -> treat as a hang
                 error_message = f"LLM idle timeout after {effective_idle}s (no response)"
                 break
 

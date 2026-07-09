@@ -59,7 +59,9 @@ class BuiltinsStagingHook(BuildHookInterface):
         force_include = build_data.setdefault("force_include", {})
         force_include[str(builtins_dst)] = "agentd/_builtin_plugins"
         force_include[str(data_dst)] = "agentd/_data"
-        self.app.display_info(f"agentd wheel: staged {plugin_count} built-in plugin file(s) + starter data")
+        self.app.display_info(
+            f"agentd wheel: staged {plugin_count} built-in plugin file(s) + starter data"
+        )
 
     def finalize(self, version: str, build_data: dict, artifact_path: str) -> None:
         self._cleanup()

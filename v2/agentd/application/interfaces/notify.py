@@ -28,8 +28,9 @@ class NotifyStore(Protocol):
         """Persist a notification; returns its id."""
         ...
 
-    def notifications(self, agent_id: str | None = None, unread_only: bool = False,
-                      limit: int = 50) -> list[Notification]:
+    def notifications(
+        self, agent_id: str | None = None, unread_only: bool = False, limit: int = 50
+    ) -> list[Notification]:
         """Notifications (optionally one agent / only unread), newest first."""
         ...
 
