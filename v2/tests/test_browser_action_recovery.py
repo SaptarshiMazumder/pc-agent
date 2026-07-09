@@ -26,14 +26,22 @@ PLAIN_HTML = "data:text/html,<html><body><button id=b>Target</button></body></ht
 def _cfg(tmp_path):
     return SimpleNamespace(
         state_dir=tmp_path,
-        browser_headless=True,
-        browser_persistent=False,
-        browser_downloads=True,
-        browser_console_buffer=50,
-        browser_channel="",
-        browser_stealth=False,
-        browser_cursor_scan=False,
-        browser_action_timeout_ms=1500,  # short so the test fails fast
+        plugins={
+            "browser": {
+                "tools": {
+                    "browser": {
+                        "headless": True,
+                        "persistent": False,
+                        "downloads": True,
+                        "console_buffer": 50,
+                        "channel": "",
+                        "stealth": False,
+                        "cursor_scan": False,
+                        "action_timeout_ms": 1500,  # short so the test fails fast
+                    }
+                }
+            }
+        },
     )
 
 

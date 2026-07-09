@@ -56,12 +56,54 @@ def analyze(
 
 
 def parse_json(text: str):
-    """Tolerant JSON parse — strip ``` fences the model sometimes adds even in JSON mode."""
+    """Tolerant JSON parse — strip ``` fences the model sometimes adds even in JSON mode, and
+    SALVAGE a truncated array. A long label list can exceed the model's output budget and come back
+    cut off mid-object (`Expecting ',' delimiter…`); rather than lose every label, we recover the
+    complete objects that did arrive by scanning balanced top-level `{...}` blocks."""
     t = text.strip()
     if t.startswith("```"):
         t = t.split("```", 2)[1] if "```" in t[3:] else t.strip("`")
         t = t[4:].strip() if t.lower().startswith("json") else t
-    return json.loads(t)
+    try:
+        return json.loads(t)
+    except json.JSONDecodeError:
+        if "[" not in t:
+            raise
+        return _salvage_array(t[t.index("[") + 1 :])
+
+
+def _salvage_array(body: str):
+    """Recover the complete top-level {...} objects from a truncated JSON array body. Returns the
+    list of objects that parsed (possibly empty); ignores the trailing cut-off fragment."""
+    out = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(body):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    out.append(json.loads(body[start : i + 1]))
+                except json.JSONDecodeError:
+                    pass
+                start = -1
+    return out
 
 
 def image_dims(image_path: Path) -> tuple[int, int]:

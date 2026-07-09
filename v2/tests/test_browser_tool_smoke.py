@@ -52,12 +52,20 @@ def _provider(tmp_path):
         pytest.skip("playwright not installed")
     cfg = SimpleNamespace(
         state_dir=tmp_path,
-        browser_headless=True,
-        browser_persistent=False,  # ephemeral: fast, no profile lock
-        browser_downloads=True,
-        browser_console_buffer=200,
-        browser_channel="",  # bundled Chromium — hermetic, no real-Chrome dependency
-        browser_stealth=False,
+        plugins={
+            "browser": {
+                "tools": {
+                    "browser": {
+                        "headless": True,
+                        "persistent": False,  # ephemeral: fast, no profile lock
+                        "downloads": True,
+                        "console_buffer": 200,
+                        "channel": "",  # bundled Chromium — hermetic, no real-Chrome dependency
+                        "stealth": False,
+                    }
+                }
+            }
+        },
     )
     return PlaywrightBrowserProvider(cfg), cfg
 

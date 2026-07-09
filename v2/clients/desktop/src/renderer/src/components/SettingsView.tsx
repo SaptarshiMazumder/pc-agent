@@ -133,6 +133,16 @@ export default function SettingsView() {
     if (connection === 'open') void load()
   }, [connection, load])
 
+  // a tool's gear icon deep-links here (Tools & plugins, filtered to that tool), then clears the target
+  const settingsTarget = useApp((s) => s.settingsTarget)
+  const clearSettingsTarget = useApp((s) => s.clearSettingsTarget)
+  useEffect(() => {
+    if (!settingsTarget) return
+    setTab(settingsTarget.tab)
+    setSearch(settingsTarget.query || '')
+    clearSettingsTarget()
+  }, [settingsTarget, clearSettingsTarget])
+
   // ---- read/write a single field's value --------------------------------------
   const valueOf = (field: FieldDef): any => {
     const scope = fieldScope(field.key)
@@ -865,6 +875,16 @@ function ToolsAndPlugins({ ctx, query, onEdit }: { ctx: Ctx; query: string; onEd
     // so every server stays visible — but still honour the search box.
     .filter((p) => p.tools.length > 0 || (p.mcp && (!ql || p.id.toLowerCase().includes(ql))))
 
+  // a live search (incl. a gear deep-link) should follow its matches across the sub-tabs: if what
+  // you searched for only exists in the OTHER tab, switch to it so the result is never hidden.
+  const qHasMcp = plugins.some((p) => p.mcp)
+  const qHasPlugin = plugins.some((p) => !p.mcp)
+  useEffect(() => {
+    if (!ql) return
+    if (subtab === 'plugins' && !qHasPlugin && qHasMcp) setSubtab('mcp')
+    else if (subtab === 'mcp' && !qHasMcp && qHasPlugin) setSubtab('plugins')
+  }, [ql, subtab, qHasMcp, qHasPlugin])
+
   // Add-MCP is a full PAGE that takes over the tab (not a modal, not inline) — so it never pushes
   // the list down and can't be clipped by the scroll container.
   if (adding) {
@@ -963,7 +983,8 @@ function ToolsAndPlugins({ ctx, query, onEdit }: { ctx: Ctx; query: string; onEd
 
       {shown.map((p) => {
         const on = p.mcp ? p.enabled : pluginOn(p.id)
-        const isCollapsed = collapsed.has(p.id)
+        // an active search (incl. a gear deep-link) always reveals matches, even in a collapsed card
+        const isCollapsed = !ql && collapsed.has(p.id)
         return (
           <div className={`plugin-card ${on ? '' : 'plugin-off'} ${isCollapsed ? 'plugin-collapsed' : ''}`} key={p.id}>
             <div className="plugin-head">

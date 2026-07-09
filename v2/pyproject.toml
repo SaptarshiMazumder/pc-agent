@@ -45,7 +45,17 @@ dependencies = [
 [project.optional-dependencies]
 computer = ["pyautogui>=0.9.54", "Pillow>=10"]   # computer-use tool (AGENTD_COMPUTER_ENABLED=1)
 mcp = ["mcp>=1.0"]                                # external MCP connectors
-all = ["agentd[computer,mcp]"]
+# figure vectorization (extract_annotations + trace_image backends). The tools load without these
+# and return actionable install errors — install this extra to enable the extraction route.
+figures-vector = [
+    "numpy>=1.26",
+    "scikit-image>=0.24",
+    "rapidocr>=2.0",       # PP-OCRv5 via onnxruntime (no torch/paddle)
+    "onnxruntime>=1.17",
+    "vtracer>=0.6",        # binary trace of non-stroke blobs (fallback tier only)
+    "Pillow>=10",
+]
+all = ["agentd[computer,mcp,figures-vector]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "ruff>=0.6", "mypy>=1.11", "agentd[all]"]
 
 [project.scripts]

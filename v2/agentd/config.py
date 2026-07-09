@@ -284,6 +284,14 @@ class Config:
     # Nesting depth for sub-agent spawning: 1 = no nesting (orchestrator -> leaf children only),
     # up to 5. AGENTD_SUBAGENT_MAX_DEPTH. (A leaf at max depth cannot spawn further.)
     subagent_max_depth: int = 1  # AGENTD_SUBAGENT_MAX_DEPTH (1..5)
+    # @mention routing (Layer B): what an explicit user @mention of ANOTHER agent does.
+    #   "direct"   — that agent answers the turn AS ITSELF, in the same thread, one-off (no
+    #                sub-agent hop); the next message reverts to the current agent.  [default]
+    #   "delegate" — the current agent stays the driver and delegates via `message_agent` (the
+    #                sub-agent block), weaving the reply into its own answer.
+    # Only a single, unambiguous mention routes direct; two+ mentions always delegate (the
+    # current agent orchestrates several specialists in one turn). AGENTD_MENTION_ROUTING.
+    mention_routing: str = "direct"  # AGENTD_MENTION_ROUTING (direct | delegate)
     # skill_workshop (S10): the agent authors reusable SKILL.md playbooks at runtime.
     # OFF by default; AGENTD_SKILL_WORKSHOP=1 to enable.
     skill_workshop: bool = False  # AGENTD_SKILL_WORKSHOP
@@ -698,6 +706,8 @@ def load_config(path: Path | None = None) -> Config:
         )
     if os.environ.get("AGENTD_SUBAGENT_MAX_DEPTH"):
         cfg.subagent_max_depth = int(os.environ["AGENTD_SUBAGENT_MAX_DEPTH"])
+    if os.environ.get("AGENTD_MENTION_ROUTING"):
+        cfg.mention_routing = os.environ["AGENTD_MENTION_ROUTING"].strip().lower()
     if os.environ.get("AGENTD_SKILL_WORKSHOP"):
         cfg.skill_workshop = os.environ["AGENTD_SKILL_WORKSHOP"].lower() not in (
             "0",

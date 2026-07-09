@@ -11,6 +11,22 @@ from __future__ import annotations
 from agentd.application.interfaces.tool import Tool, ToolResult
 
 _PLAN_STEP_STATUSES = ("pending", "in_progress", "completed")
+_STATUS_ICON = {"completed": "✓", "in_progress": "▶", "pending": "○"}
+
+
+def render_plan(plan: list, explanation: str = "") -> str:
+    """The plan as a compact, human-readable checklist every client can show (✓ done · ▶ in progress
+    · ○ to do). This is the tool's OUTPUT so it renders as real content, not an empty "(no output)"."""
+    lines: list[str] = []
+    for s in plan:
+        if not isinstance(s, dict):
+            continue
+        icon = _STATUS_ICON.get(str(s.get("status", "")).strip().lower(), "○")
+        step = str(s.get("step", "")).strip()
+        if step:
+            lines.append(f"{icon} {step}")
+    body = "\n".join(lines)
+    return f"{explanation}\n\n{body}" if explanation else body
 
 
 class UpdatePlanTool(Tool):
@@ -69,8 +85,10 @@ class UpdatePlanTool(Tool):
         explanation = (params.get("explanation") or "").strip()
         if explanation:
             details["explanation"] = explanation
-        # OpenClaw returns EMPTY content + the plan in details (UI/transcript only).
-        return ToolResult(content=[], details=details, is_error=False)
+        # Return the plan as a readable checklist (not empty content, which every client showed as
+        # "(no output)"). `details` keeps the structured plan too. A small plan echo is cheap and lets
+        # the model + user track progress — same as Claude's todo tool.
+        return ToolResult.text(render_plan(plan, explanation), details=details, is_error=False)
 
 
 # Strong planning DIRECTIVE — system-prompt guidance contributed by this plugin (OpenClaw's

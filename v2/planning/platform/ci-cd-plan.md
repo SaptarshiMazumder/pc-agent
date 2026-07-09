@@ -1,6 +1,13 @@
 # CI/CD Build-Out Plan — pc-agent (`v2/`)
 
-> **Status:** Phase 0 ✅ · Phase 1 ✅ (ruff green, mypy informational, import-linter clean, 704 tests, `verify.ps1`; eslint deferred) · **Phase 2 ci.yml WRITTEN** (`.github/workflows/ci.yml`), push to activate · **Target:** GitHub Actions · **Scope:** Stages 1–4 · **Adds:** ruff + mypy
+> **Status:** Phase 0 ✅ · Phase 1 ✅ · Phase 2 ✅ (`ci.yml` live+green) · **Phase 3 ✅ `integration.yml` written; the 4 browser tests' stale flat-config bug FIXED + verified (4 pass real Chromium); Stage-1 710 green** — push to activate · Next: Phase 4 (installers) · **Target:** GitHub Actions · **Scope:** Stages 1–4 · **Adds:** ruff + mypy
+
+## Phase 3 completion notes
+
+- **Reality vs plan:** triage found **0 `live` (API) tests** (all hermetic) → no secrets needed yet; `computer` tests are hermetic and run in Stage 1. So Stage 2's real payload = the **4 `browser` tests**.
+- **Fixed the deferred Stage-2 config bug:** the 3 browser test helpers (`_cfg`/`_provider`) fed flat `browser_*` attrs the provider reads via `browser_knob` (`plugins.browser.tools.browser.*`) → converted to the knob shape; also the cursor-scan runtime toggle. Verified: **4 browser tests pass under real Chromium** locally.
+- **`integration.yml`** (Stage 2): push to `develop`/`main` + `workflow_dispatch` (not every push); `playwright install --with-deps chromium`; `pytest -m "browser or live or computer"`; fork-guard + secrets env stubbed for future `live` tests.
+- **CI caught a real WIP regression:** user's uncommitted plan-tool change (empty content → rendered `render_plan` checklist, deliberate: empty showed as "(no output)") broke the committed `test_plan_tool` empty-content assertion. Resolution = **update the stale test** (not revert the code). Lesson logged: a red test can mean the test is stale, not the code wrong.
 
 ## Phase 1 completion notes (what actually shipped)
 

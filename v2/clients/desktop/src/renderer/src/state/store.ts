@@ -31,9 +31,9 @@ export type ChatItem = (
   | { kind: 'thinking'; text: string; streaming: boolean }
   | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean; progress?: string }
   | { kind: 'system'; text: string; tone: 'info' | 'error' }
-  // per-step model/token trace (which brain ran this loop step + its usage); emitted only when
-  // config.model_trace is on (default on; AGENTD_MODEL_TRACE=0 to hide)
-  | { kind: 'trace'; step: number; model: string; tokensIn: number; tokensOut: number }
+  // a delegated sub-agent run, GROUPED into one drillable block: the child's beats (each tool it
+  // ran, one level down) accumulate under `steps` while it runs, then it settles done/error
+  | { kind: 'subagent'; agent: string; steps: string[]; status: 'running' | 'done' | 'error'; detail?: string }
 ) & { ts?: number; artifacts?: Artifact[] } // ts: epoch ms (server-side); artifacts: media the item produced
 
 export interface SessionState {
@@ -42,6 +42,11 @@ export interface SessionState {
   // deliverables a tool produced, held until the next assistant answer renders them
   // (so the tool log stays pure text and media collects under the answer)
   pendingArtifacts?: Artifact[]
+  // live model/token usage for the CURRENT (or most recent) loop step — surfaced in the
+  // persistent status strip under the composer, Claude-style, NOT archived per step in the
+  // scrollback. Populated from model_trace events (config.model_trace / AGENTD_MODEL_TRACE);
+  // undefined when tracing is off.
+  usage?: { model: string; tokensIn: number; tokensOut: number; step: number }
 }
 
 /** A file the user is sending TO the agent (e.g. an edited image from the canvas). Bytes
@@ -257,6 +262,8 @@ interface AppState {
   connection: 'idle' | 'connecting' | 'open' | 'closed'
   hello: Hello | null
   view: View
+  /** Settings deep-link — a tool's gear icon jumps to Tools & plugins filtered to that tool; null = none */
+  settingsTarget: { tab: string; query: string } | null
   theme: Theme
 
   agents: AgentInfo[]
@@ -290,6 +297,9 @@ interface AppState {
 
   bootstrap(): Promise<void>
   setView(view: View): void
+  /** open Settings on a specific tab, filtered to a tool (a tool's gear icon uses this) */
+  openToolConfig(toolName: string): void
+  clearSettingsTarget(): void
   toggleTheme(): void
   toggleSidebar(): void
   openCanvas(artifact: Artifact): void
@@ -400,19 +410,17 @@ export const useApp = create<AppState>((set, get) => {
         }))
         break
       case 'model_trace':
+        // update the persistent status strip (model + token usage), NOT the scrollback — Claude
+        // shows this live in a status bar and hides it once the step is over, never archiving a
+        // per-step line in the transcript. Each trace REPLACES the last (in-place, one indicator).
         patchSession(sessionKey, (session) => ({
           ...session,
-          items: [
-            ...session.items,
-            {
-              kind: 'trace',
-              step: Number(event.step || 0),
-              model: String(event.model || ''),
-              tokensIn: Number(event.tokensIn || 0),
-              tokensOut: Number(event.tokensOut || 0),
-              ts
-            }
-          ]
+          usage: {
+            model: String(event.model || session.usage?.model || ''),
+            tokensIn: Number(event.tokensIn || 0),
+            tokensOut: Number(event.tokensOut || 0),
+            step: Number(event.step || 0)
+          }
         }))
         break
       case 'tool_execution_start':
@@ -459,22 +467,28 @@ export const useApp = create<AppState>((set, get) => {
         })
         break
       case 'subagent_event':
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          items: [
-            ...session.items,
-            {
-              kind: 'system',
-              tone: event.kind === 'error' ? 'error' : 'info',
-              text:
-                event.kind === 'start' ? `subagent ${event.childAgent} started`
-                : event.kind === 'tool' ? `subagent ${event.childAgent} · ${event.tool}`
-                : event.kind === 'error' ? `subagent ${event.childAgent}: ${event.detail || 'error'}`
-                : `subagent ${event.childAgent} done`,
-              ts
+        patchSession(sessionKey, (session) => {
+          const agent = event.childAgent
+          const items = [...session.items]
+          // attach to the most recent STILL-RUNNING block for this child; otherwise open a new one
+          let idx = -1
+          for (let i = items.length - 1; i >= 0; i--) {
+            const it = items[i]
+            if (it.kind === 'subagent' && it.agent === agent && it.status === 'running') { idx = i; break }
+          }
+          if (event.kind === 'start' || idx < 0) {
+            // a fresh delegation (or a stray beat before its start) → new grouped block
+            items.push({ kind: 'subagent', agent, steps: event.kind === 'tool' && event.tool ? [event.tool] : [], status: event.kind === 'error' ? 'error' : event.kind === 'done' ? 'done' : 'running', detail: event.detail, ts })
+          } else {
+            const prev = items[idx] as Extract<ChatItem, { kind: 'subagent' }>
+            if (event.kind === 'tool' && event.tool) {
+              items[idx] = { ...prev, steps: [...prev.steps, event.tool] }
+            } else if (event.kind === 'done' || event.kind === 'error') {
+              items[idx] = { ...prev, status: event.kind, detail: event.detail }
             }
-          ]
-        }))
+          }
+          return { ...session, items }
+        })
         break
       case 'agent_end': {
         const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
@@ -663,6 +677,7 @@ export const useApp = create<AppState>((set, get) => {
     connection: 'idle',
     hello: null,
     view: 'chat',
+    settingsTarget: null,
     theme: initialTheme(),
 
     agents: [],
@@ -708,6 +723,14 @@ export const useApp = create<AppState>((set, get) => {
     setView(view) {
       set({ view })
       if (view === 'store') void get().refreshCatalog()
+    },
+
+    openToolConfig(toolName) {
+      // a tool's gear icon → Settings ▸ Tools & plugins, filtered to that tool
+      set({ view: 'settings', settingsTarget: { tab: 'tools', query: toolName } })
+    },
+    clearSettingsTarget() {
+      set({ settingsTarget: null })
     },
 
     toggleTheme() {

@@ -40,15 +40,21 @@ class RenderOverlayTool(Tool):
         "is the editable 'icons, not just boxes' flowchart node.\n"
         "  • dot / raw — a marker point / literal SVG escape hatch.\n"
         "Writes `out_svg` (the editable layer). If `out_png` is given, also rasterizes it (transparent "
-        "by default) and returns the image so you can SEE it. Coordinates are in the artwork's pixel space."
+        "by default) and returns the image so you can SEE it. Coordinates are in the artwork's pixel space. "
+        "Pass elements inline OR via `elements_path` = a spec JSON file (what extract_annotations writes; "
+        "preferred for large element sets — never retype them)."
     )
     label = "Render Overlay"
     concurrency = "parallel"
     parameters = {
         "type": "object",
-        "required": ["out_svg", "width", "height", "elements"],
+        "required": ["out_svg"],
         "properties": {
             "out_svg": {"type": "string", "description": "Output .svg path (the editable layer)."},
+            "elements_path": {
+                "type": "string",
+                "description": "Path to a spec JSON — either an array of elements or {width,height,elements} (what extract_annotations writes). Use this instead of retyping a large `elements` list; width/height come from the file when present.",
+            },
             "out_png": {
                 "type": "string",
                 "description": "Optional .png path to also rasterize (returned as an image).",
@@ -87,16 +93,43 @@ class RenderOverlayTool(Tool):
     def __init__(self, config):
         self.config = config
 
+    def _load_elements(self, params: dict) -> tuple[list, dict]:
+        """Elements from `elements` (inline) or `elements_path` (a JSON file: an array, or the
+        {width,height,elements} spec extract_annotations writes). Returns (elements, file_spec)."""
+        import json
+
+        inline = params.get("elements")
+        path = params.get("elements_path")
+        if bool(inline) == bool(path):
+            raise ValueError("provide exactly ONE of: elements, elements_path")
+        if inline:
+            return list(inline), {}
+        data = json.loads(resolve_path(self.config, path).read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data, {}
+        if isinstance(data, dict) and isinstance(data.get("elements"), list):
+            return data["elements"], data
+        raise ValueError(
+            f"`elements_path` must hold an array or {{width,height,elements}} — got {type(data).__name__}"
+        )
+
     def _run(self, params: dict) -> dict:
+        raw_elements, file_spec = self._load_elements(params)
         # Resolve any node-icon path to absolute (so a workspace-relative icon embeds correctly).
         elements = []
-        for el in params["elements"]:
+        for el in raw_elements:
             if el.get("kind") == "node" and el.get("icon"):
                 el = {**el, "icon": str(resolve_path(self.config, el["icon"]))}
             elements.append(el)
+        width = params.get("width", file_spec.get("width"))
+        height = params.get("height", file_spec.get("height"))
+        if not width or not height:
+            raise ValueError(
+                "width/height required (inline, or via an elements_path spec that has them)"
+            )
         spec = {
-            "width": int(params["width"]),
-            "height": int(params["height"]),
+            "width": int(width),
+            "height": int(height),
             "background": params.get("background"),
             "font_family": params.get("font_family", overlay.DEFAULT_FONT),
             "elements": elements,

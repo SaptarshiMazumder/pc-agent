@@ -12,7 +12,7 @@ from planning_plugin import UpdatePlanTool  # built-in 'planning' bundle
 
 
 @pytest.mark.asyncio
-async def test_stores_plan_in_details_with_empty_content():
+async def test_stores_plan_in_details_and_renders_checklist():
     res = await UpdatePlanTool().execute(
         "c1",
         {
@@ -25,7 +25,7 @@ async def test_stores_plan_in_details_with_empty_content():
         asyncio.Event(),
     )
     assert res.is_error is False
-    assert res.content == []  # OpenClaw: empty content
+    assert res.content and "open LinkedIn" in res.content[0].text  # rendered checklist, not empty
     assert res.details["status"] == "updated"
     assert res.details["explanation"] == "kick off"
     assert len(res.details["plan"]) == 2

@@ -22,19 +22,25 @@ CURSOR_HTML = (
 )
 
 
-def _cfg(tmp_path, **over):
-    base = dict(
+def _cfg(tmp_path):
+    return SimpleNamespace(
         state_dir=tmp_path,
-        browser_headless=True,
-        browser_persistent=False,
-        browser_downloads=True,
-        browser_console_buffer=50,
-        browser_channel="",
-        browser_stealth=False,
-        browser_cursor_scan=True,
+        plugins={
+            "browser": {
+                "tools": {
+                    "browser": {
+                        "headless": True,
+                        "persistent": False,
+                        "downloads": True,
+                        "console_buffer": 50,
+                        "channel": "",
+                        "stealth": False,
+                        "cursor_scan": True,
+                    }
+                }
+            }
+        },
     )
-    base.update(over)
-    return SimpleNamespace(**base)
 
 
 @pytest.mark.browser  # launches a real Chromium (the 3 profile tests below stay hermetic)
@@ -74,7 +80,7 @@ async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
     assert "DIVCLICK" in res.content[0].text
 
     # disabling the scan removes the section
-    mgr.config.browser_cursor_scan = False
+    mgr.config.plugins["browser"]["tools"]["browser"]["cursor_scan"] = False
     res = await tool.execute("c", {"action": "snapshot"}, asyncio.Event())
     assert "[non-ARIA clickables" not in res.content[0].text
 

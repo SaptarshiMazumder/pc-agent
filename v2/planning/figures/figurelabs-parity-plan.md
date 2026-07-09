@@ -36,9 +36,10 @@ The quality gap the user experiences has four root causes, all now located preci
 
 **The fix is one architectural move plus three subsystems** (§5): switch the default route to
 *generate-labeled-then-extract* (diff the labeled image against its stripped version, OCR the text,
-trace the arrow strokes, re-emit through our existing SVG engine), add a **Figure Spec planning
-step** (multi-panel decomposition), add an **edit router + figure manifest**, and make
-**verification a gate**. Everything reuses the engine we already built; the new code is mostly
+trace the arrow strokes, re-emit through our existing SVG engine — with extraction running
+**lazily**: the labeled PNG is the default deliverable, SVG only on user request / Edit button),
+add a **Figure Spec planning step** (multi-panel decomposition), add an **edit router + figure
+manifest**, and make **verification a gate**. Everything reuses the engine we already built; the new code is mostly
 deterministic pixel work with tiny, verified dependencies.
 
 Constraints honored per user direction: **1K generation stays for now**; the **strip-labels step is
@@ -150,30 +151,52 @@ rendering.
 
 ## 5. The redesign
 
-### 5.1 New default route: generate-labeled, then EXTRACT the annotation layer
+### 5.1 New default route: labeled PNG first; EXTRACT to SVG only on demand
 
-Replace the textless-first oracle route as default with:
+**Vectorization is lazy** (user decision 2026-07-09): the default deliverable is the labeled
+Nano Banana PNG. The SVG/editable layer is produced only when the user asks to convert to
+editable OR clicks an **Edit-as-SVG** button in the client. This mirrors FigureLabs' own
+economics (generation 50cr; vectorize 150cr as a separate user-triggered step), makes the first
+response faster/cheaper, and lets the user iterate on the raster until happy before vectorizing.
 
-1. **Generate the labeled figure `L` directly** — `allow_text:true`, prompt asks for the full
-   figure *with* labels, leader lines, and flow arrows in house style (this is where NB shines;
-   the user confirms raw labeled NB output is high quality with correct labels).
-2. **Strip → `T'`** (existing, trusted). Because `T'` is derived *from* `L`, pixel alignment is
+**Phase 1 — generate (every request):**
+
+1. Figure Spec (§5.2) → **generate the labeled figure `L` directly** — `allow_text:true`,
+   prompt asks for the full figure *with* labels, leader lines, and flow arrows in house style
+   (this is where NB shines; the user confirms raw labeled NB output is high quality with
+   correct labels).
+2. Gates on `L` (white-bg check + `verify_figure` vs spec, §5.3/5.6) → deliver the **PNG** and
+   write the **manifest stub** (request, spec, template, path to `L`, state=`raster`).
+
+**Phase 2 — vectorize (only on user request / Edit button):**
+
+3. **Strip → `T'`** (existing, trusted). Because `T'` is derived *from* `L`, pixel alignment is
    guaranteed — the oracle-drift class of bugs disappears structurally.
-3. **Diff `L` vs `T'`** → binary annotation mask = exactly what NB drew as annotations (text
+4. **Diff `L` vs `T'`** → binary annotation mask = exactly what NB drew as annotations (text
    glyphs, leaders, arrows), in exact position. Also a free alignment check: if the diff
    covers a large area fraction, the strip drifted → retry strip.
-4. **OCR the text regions** (in-mask, white-margin, clean sans-serif — the easy OCR case) →
+5. **OCR the text regions** (in-mask, white-margin, clean sans-serif — the easy OCR case) →
    emit real `<text>`/`label` elements at the OCR box positions. Erase text boxes from the mask
    (white-fill; labels sit on margins).
-5. **Vectorize the remaining strokes** (arrows + leaders), two tiers:
+6. **Vectorize the remaining strokes** (arrows + leaders), two tiers:
    - **Tier 1 (semantic, default):** skeletonize each connected stroke → fit Bézier centerline →
      detect arrowhead blob at endpoints (contour area/shape at stroke tips) → sample stroke color
      from `L` → re-emit as `arrow`/`leader` elements through `figures_overlay.py` with the right
      route (`curved`/`elbow`), head kind, width, and color. Truly editable objects, NB's placement.
    - **Tier 2 (visual fallback):** binary-mode trace (vtracer/potrace) of the stroke mask →
      `raw` paths that look identical to NB's marks. Used when centerline fitting fails QA.
-6. **Compose** (existing `compose_figure_layers`): `T'` as raster `<image>` + vector text +
+7. **Compose** (existing `compose_figure_layers`): `T'` as raster `<image>` + vector text +
    semantic arrows. Same deliverable format as today, but the annotations are NB-placed.
+   Manifest state → `vectorized`.
+
+**WYSIWYG guarantee:** the PNG the user approved is exactly what gets vectorized — extraction
+preserves NB's marks instead of re-synthesizing them, so "convert to editable" cannot change how
+the figure looks (beyond font substitution on the OCR'd text).
+
+**Trigger plumbing:** agent-side, "make it editable" routes the skill to Phase 2 via the
+figure's manifest (most recent figure by default). Client-side, the Edit-as-SVG button on an
+image artifact card can simply send the canned convert request referencing the figure (the
+artifacts channel already knows which file it renders); a dedicated RPC can come later.
 
 New tool: `extract_annotations(labeled, base) -> elements[]` (one plugin tool wrapping steps 3-5;
 pure deterministic pixel work). The existing oracle route (`read_labels_from_image`) **stays** as
@@ -194,6 +217,25 @@ right depth, flows/arrows with semantics (flow/activation/inhibition…), layout
 
 Delete the "pick exactly ONE route" rule; replace with "pick ONE route *per panel*".
 
+### 5.2b Strip-independence (added 2026-07-10 after a real failure)
+
+First live "make it editable" run failed: the strip (Nano Banana) **under-removed** — it left most
+labels in the base and slightly redrew the artwork, so the pixel-diff saw almost nothing (diff
+1.2%) and the diff-only OCR caught just the 2 titles; the `read_labels_from_image` fallback then
+hard-crashed on a truncated VLM JSON array. Fixes, so extraction degrades gracefully instead of
+returning nothing:
+
+- **OCR the LABELLED image directly**, not the diff mask — every label is read regardless of strip
+  quality. This is the core fix (text no longer depends on the strip working).
+- **Clean base by whitening the labels the strip LEFT** (per-box: if the base still matches L there,
+  whiten it) — prevents baked-text-under-editable-text doubling when the strip under-removes.
+- **Filter strokes to real annotations**: keep a traced stroke only if it has an arrowhead OR an
+  endpoint near a label box; drop artwork-redraw noise (killed the "46 bogus leaders").
+- **Salvage truncated VLM JSON** in `vision_gemini.parse_json` (recover the complete `{...}` objects)
+  so the fallback survives an over-long label list.
+- Graceful degradation contract: **labels always become editable** (OCR-on-L); leaders/arrows become
+  editable when the strip works, else stay as baked raster in the (text-cleaned) base.
+
 ### 5.3 Robustness checks in the extraction step (deterministic, cheap)
 
 - **Alignment gate:** diff-area fraction threshold → retry strip.
@@ -210,7 +252,11 @@ Delete the "pick exactly ONE route" rule; replace with "pick ONE route *per pane
 - **Figure manifest** (JSON sidecar per figure): request, spec, template, paths to `L`, `T'`,
   mask, elements JSON, overlay SVG, final SVG/PNG, version chain. Written by compose; read by the
   edit router. Kills the `*_final_v4.svg` filename archaeology.
-- **Edit router** (skill logic, explicit decision table):
+- **Edit router** (skill logic, explicit decision table). The router is **state-aware** via the
+  manifest: on a `raster`-state figure (not yet vectorized) fixes are NB raster edits of `L`
+  directly (region-redraw / text-edit on the image, FigureLabs-style); the layer-based paths
+  below apply once state=`vectorized`. For label-text fixes on a raster figure the router may
+  suggest vectorizing first — element edits are cheaper and drift-free.
   - *Artwork content* ("fix the nozzle shape") → new tool `edit_artwork_region`: NB edit of `T'`
     with the instruction + optional region hint → re-strip → re-extract only affected annotations
     → re-compose. (= FigureLabs Region Redraw.)
@@ -307,13 +353,22 @@ everything is; the VLM only supplies *what it says*). RapidOCR is the determinis
 
 ## 7. Phased build plan
 
+*Status 2026-07-09: **P1–P4 BUILT** (uncommitted). New: `plugins/vectorize/vectorize_extract.py` +
+`extract_annotations_tool.py`, `plugins/figure-art/edit_artwork_tool.py`, white-bg canvas check in
+`generate_artwork`, `elements_path` on `render_editable_overlay`/`export_pptx`, both skills
+rewritten (Figure Spec, multi-panel, lazy vectorize, manifest convention, edit router),
+`figures-vector` extra in pyproject/requirements. Tests: `tests/test_extract_annotations.py`
+(6 passing, incl. end-to-end with real OCR). svgpathtools dropped — waypoints + the engine's
+Catmull-Rom `curved` route replaced raw Bézier emission. Manifest is a skill convention (JSON
+sidecar), not a tool. Daemon restart needed to pick up the new tools.*
+
 | Phase | Scope | Payoff |
 |---|---|---|
-| **P1** | Figure Spec planning step + drop ONE-route rule + skill emits semantic `arrow` elements | Multi-panel parity + styled arrows appear immediately, zero new code |
-| **P2** | `extract_annotations` tool (diff→OCR→trace→semantic re-emit) + new default route | Label placement accuracy + NB arrow fidelity — the core gap |
-| **P3** | Manifest + edit router + `edit_artwork_region` | "Fix the nozzle" works; FigureLabs edit-op parity |
-| **P4** | Deterministic gates (alignment, leaders, white-bg) + mandatory verify + repair cycle | Consistency; kills the "sometimes it just ships broken" tail |
-| **P5** | `compose_panels` tool, model currency/alternates, de-collision, PPTX arrowhead fidelity | Polish + export parity |
+| **P1** ✅ | Figure Spec planning step + drop ONE-route rule + skill emits semantic `arrow` elements | Multi-panel parity + styled arrows appear immediately, zero new code |
+| **P2** ✅ | `extract_annotations` tool (diff→OCR→trace→semantic re-emit) + on-demand vectorize flow with manifest state machine | Label placement accuracy + NB arrow fidelity — the core gap |
+| **P3** ✅ | Manifest + edit router + `edit_artwork` | "Fix the nozzle" works; FigureLabs edit-op parity |
+| **P4** ✅ | Deterministic gates (alignment, leaders, white-bg) + mandatory verify + repair cycle | Consistency; kills the "sometimes it just ships broken" tail |
+| **P5** | `compose_panels` tool, model currency/alternates, de-collision, PPTX arrowhead fidelity, desktop Edit-as-SVG button on image artifacts | Polish + export parity |
 
 ---
 

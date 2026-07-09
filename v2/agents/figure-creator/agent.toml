@@ -11,6 +11,11 @@
 # plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
+# Advertised to the generalist when it decides how to delegate (agent.toml description WINS over
+# IDENTITY's first line). States the DELIVERY CONTRACT so a delegator relays the user's intent
+# instead of inventing an output format: the default deliverable is a PNG image; the editable
+# vector layer is produced ONLY on explicit request.
+description = "Creates scientific figures. DELIVERS A PNG image by default. Produces an editable vector SVG/PPTX/PDF ONLY when the user explicitly asks to make it editable/vector (or clicks Edit-as-SVG); an edit request edits the raster image. When delegating, pass the user's ask through faithfully — do NOT add an 'editable' or 'SVG' requirement the user did not state."
 
 # figure-creator NO LONGER overrides any MODEL. The image model (figure-art.generate_artwork) and the
 # reading/verify models (vision.read_labels_from_image / vision.verify_figure) are set ONCE in

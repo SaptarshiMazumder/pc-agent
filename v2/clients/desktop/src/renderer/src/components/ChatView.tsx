@@ -49,7 +49,11 @@ export default function ChatView() {
 
   const currentAgent = agents.find((a) => a.id === currentAgentId)
   const agentName = currentAgent?.name || hello?.agentName || currentAgentId || 'agent'
-  const model = hello?.model || ''
+  // status-strip data (Claude-style): the model that ACTUALLY ran the latest step + its token
+  // usage, live while running, kept out of the scrollback. Falls back to the configured model.
+  const usage = session?.usage
+  const model = usage?.model || hello?.model || ''
+  const usageStr = usage ? `↑ ${usage.tokensIn.toLocaleString()} · ↓ ${usage.tokensOut.toLocaleString()} tok` : ''
   const suggestions = currentAgent?.suggestions?.length ? currentAgent.suggestions : DEFAULT_SUGGESTIONS
 
   useEffect(() => {
@@ -174,7 +178,12 @@ export default function ChatView() {
           </button>
         )}
       </div>
-      <div className="composer-hint">{running ? 'agent is running — press Stop to interrupt' : `agentd runs locally${model ? ' · ' + model : ''}`}</div>
+      <div className="composer-hint">
+        <span className="hint-model">{model || 'agentd'}</span>
+        {usageStr && <><span className="hint-sep"> · </span><span className="hint-toks">{usageStr}</span></>}
+        <span className="hint-sep"> · </span>
+        <span className="hint-note">{running ? 'running — press Stop to interrupt' : 'runs locally'}</span>
+      </div>
     </form>
   )
 

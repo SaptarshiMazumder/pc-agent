@@ -348,12 +348,49 @@ class GenerateArtworkTool(Tool):
             provider = "replicate"
         return provider, (family or "flux")
 
+    @staticmethod
+    def _white_bg_fraction(path: Path, border: int = 8, thr: int = 245) -> float | None:
+        """Deterministic check of the `_FINISH` invariant: fraction of the border band that is
+        (near-)pure white. The invariant was previously prompt-only — this actually measures it.
+        Best-effort: returns None when it can't be computed (never fails the generation)."""
+        try:
+            from PIL import Image
+
+            im = Image.open(path).convert("RGB")
+            W, H = im.size
+            b = min(border, W // 2, H // 2)
+            px = im.load()
+            ok = total = 0
+            for y in range(0, H, 2):
+                for x in (*range(0, b), *range(W - b, W)):
+                    r, g, bl = px[x, y]
+                    ok += min(r, g, bl) >= thr
+                    total += 1
+            for x in range(0, W, 2):
+                for y in (*range(0, b), *range(H - b, H)):
+                    r, g, bl = px[x, y]
+                    ok += min(r, g, bl) >= thr
+                    total += 1
+            return ok / total if total else None
+        except Exception:
+            return None
+
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"generate_artwork failed: {e}", is_error=True)
         data = base64.b64encode(Path(r["path"]).read_bytes()).decode()
+        bg = await asyncio.to_thread(self._white_bg_fraction, Path(r["path"]))
+        canvas = ""
+        if bg is not None:
+            r["bg_white_fraction"] = round(bg, 3)
+            if bg < 0.95:
+                canvas = (
+                    f" CANVAS CHECK FAILED: only {bg:.0%} of the border is pure white — the house "
+                    f"invariant (pure-white background, no cast shadow, no scenery) looks violated. "
+                    f"LOOK at the image; if so, regenerate before building on it."
+                )
         prov = f" via {r['provider']}/{r.get('mode', '')}".rstrip("/") if r.get("provider") else ""
         svg = f" Editable vector SVG -> {r['svg_path']}." if r.get("svg_path") else ""
         tmpl = f" template '{r['template']}'." if r.get("template") else ""
@@ -369,7 +406,7 @@ class GenerateArtworkTool(Tool):
         return ToolResult(
             content=[
                 TextContent(
-                    text=f"Artwork -> {r['path']} (model {r['model']}{prov}).{tmpl}{svg}{pal}"
+                    text=f"Artwork -> {r['path']} (model {r['model']}{prov}).{tmpl}{svg}{pal}{canvas}"
                 ),
                 ImageContent(data=data, mime_type=r["mime"]),
             ],

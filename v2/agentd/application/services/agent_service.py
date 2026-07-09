@@ -72,6 +72,10 @@ class AgentService:
         # the EFFECTIVE working dir for this run's file/exec tools. Injected by the composition
         # root so a PROJECT chat binds to the project's shared workspace (plan §11: file ownership
         # follows context, not identity). None => the agent's own workspace, exactly as before.
+        mention_routing: str = "direct",  # what a user @mention of ANOTHER agent does: "direct"
+        # (the mentioned agent answers the turn AS ITSELF, one-off) | "delegate" (this agent
+        # orchestrates it via message_agent). Injected from Config; single unambiguous mentions
+        # honor it, 2+ mentions always delegate. See handle_message's reroute.
     ):
         self._engine = engine
         self._tools = tools
@@ -81,6 +85,7 @@ class AgentService:
         self._recall = recall  # auto-recall: prepends relevant memories on user turns
         self.plugin_reloader = plugin_reloader
         self._resolve_workspace = resolve_workspace
+        self._mention_routing = (mention_routing or "direct").strip().lower()
 
     def _resolve_agent(self, session_id: str, agent_id: str | None):
         """Explicit agent_id wins (a client naming the agent); else resolve from the
@@ -92,32 +97,39 @@ class AgentService:
                 pass
         return self._registry.resolve(session_id)
 
-    def _mention_directive(self, text: str, agent: AgentSpec, tools: list) -> str:
-        """A system-prompt directive when the user @-mentions OTHER agents (Layer B routing).
-
-        Matches ``@id`` or ``@Display Name`` (case-insensitive) against the registry, excluding
-        the serving agent itself. Emitted ONLY when the ``message_agent`` tool is actually in this
-        turn's toolset — otherwise a mention stays plain text (no false capability). Pure string
-        work + registry interface, so it lives in the application layer."""
+    def _mentioned_agents(self, text: str, exclude: AgentSpec) -> list[tuple[str, str]]:
+        """Pure parse: the OTHER agents named in ``text`` via ``@id`` or ``@Display Name``
+        (case-insensitive), matched against the registry and EXCLUDING ``exclude`` (the serving/
+        owning agent — @-ing yourself isn't routing). No tool gate; shared by BOTH direct routing
+        and the delegation directive. Returns ``[(id, name), …]`` in registry order."""
         if "@" not in (text or ""):
-            return ""
-        if not any(getattr(t, "name", "") == "message_agent" for t in tools):
-            return ""
+            return []
         list_ids = getattr(self._registry, "list_ids", None)
         if list_ids is None:
-            return ""
+            return []
         low = text.lower()
-        mentioned: list[tuple[str, str]] = []
+        found: list[tuple[str, str]] = []
         for aid in list_ids():
-            if aid == agent.id:
-                continue  # mentioning yourself isn't delegation
+            if aid == exclude.id:
+                continue  # mentioning yourself isn't routing
             try:
                 spec = self._registry.get(aid)
             except KeyError:
                 continue
             name = (getattr(spec, "name", "") or aid).strip()
             if f"@{aid.lower()}" in low or (name and f"@{name.lower()}" in low):
-                mentioned.append((aid, name))
+                found.append((aid, name))
+        return found
+
+    def _mention_directive(self, text: str, agent: AgentSpec, tools: list) -> str:
+        """The delegation directive — for when the current agent must ORCHESTRATE the mentioned
+        agent(s) (routing="delegate", or 2+ agents named, i.e. NOT a single-agent direct reroute).
+
+        Emitted ONLY when ``message_agent`` is actually in this turn's toolset — otherwise a
+        mention degrades to plain text (no false capability). Pure string work + registry."""
+        if not any(getattr(t, "name", "") == "message_agent" for t in tools):
+            return ""
+        mentioned = self._mentioned_agents(text, agent)
         if not mentioned:
             return ""
         listing = ", ".join(f"'{name}' (id: {aid})" for aid, name in mentioned)
@@ -236,15 +248,30 @@ class AgentService:
         unknown override falls back to the default agent. Defaults keep the reactive
         path unchanged.
         """
-        agent = self._resolve_agent(session_id, agent_id)  # explicit override or session key
+        owner = self._resolve_agent(session_id, agent_id)  # whose thread this is (history/files)
+        # DIRECT @mention routing (Layer B): when the user addresses exactly ONE other agent, that
+        # agent answers THIS turn AS ITSELF — no sub-agent hop — while the thread's history and
+        # workspace stay bound to the OWNER, so the conversation is continuous and reloads intact.
+        # The next message reverts to the owner (one-off). Two+ mentions stay orchestration (the
+        # delegation directive below). `agent` = who SERVES (persona / tools / prompt / identity).
+        agent = owner
+        reroute = False
+        if self._mention_routing != "delegate" and mode in (RunMode.INTERACTIVE, RunMode.CHANNEL):
+            others = self._mentioned_agents(text, owner)
+            if len(others) == 1:
+                try:
+                    agent = self._registry.get(others[0][0])
+                    reroute = True
+                except KeyError:
+                    agent = owner  # vanished mid-flight — just answer as the owner
         # The EFFECTIVE workspace for this run (plan §11): a chat inside a project binds to the
         # project's SHARED folder (every agent in the project reads/writes the same files); a
-        # standalone chat stays on the agent's own workspace — byte-for-byte today's behavior.
-        # The agent never chooses: the daemon 'cd's it here, before the first tool runs.
-        workspace = str(agent.workspace)
+        # standalone chat stays on the OWNER's workspace — byte-for-byte today's behavior. The
+        # serving agent never chooses: the daemon 'cd's it here, before the first tool runs.
+        workspace = str(owner.workspace)
         if self._resolve_workspace is not None:
             try:
-                workspace = self._resolve_workspace(agent, session_id) or workspace
+                workspace = self._resolve_workspace(owner, session_id) or workspace
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a turn
                 pass
         # expose the run context to context-aware tools (e.g. cron tags its task with
@@ -259,8 +286,8 @@ class AgentService:
                 plugins=getattr(agent, "plugins", None) or None,
             )
         )
-        tools = apply_mode(select_tools(self._tools, agent), mode)  # agent scope + run-mode scope
-        session = self._make_session(session_id, agent)  # per-agent session store
+        tools = apply_mode(select_tools(self._tools, agent), mode)  # serving-agent scope + run mode
+        session = self._make_session(session_id, owner)  # history stays in the OWNER's partition
         messages = session.load()  # prior history (read)
         # attachments (already saved to the workspace by the transport layer, carried by
         # reference) ride along on the user turn: the client renders them, and the LLM
@@ -269,11 +296,11 @@ class AgentService:
         messages.append(user_msg)  # add the new user turn to context
         session.append(user_msg)  # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
-        # @mention delegation (Layer B): the user @-mentioned OTHER agents in their message —
-        # nudge the serving agent to actually delegate via message_agent and weave the replies
-        # into its answer. Only fires when the tool is really available (config-gated), so a
-        # mention degrades to plain text instead of a false promise.
-        directive = self._mention_directive(text, agent, tools)
+        # @mention delegation (Layer B): with routing="delegate" (or 2+ agents named, i.e. NOT a
+        # single-agent direct reroute) the serving agent delegates via message_agent and weaves
+        # the replies in. Suppressed when we ALREADY rerouted this turn straight to the one agent
+        # named — it's answering as itself, so there's nothing to delegate.
+        directive = "" if reroute else self._mention_directive(text, agent, tools)
         if directive:
             system_prompt = system_prompt + "\n\n" + directive
         # Standing roster (Layer B): advertise the OTHER agents this one can delegate to — the fix

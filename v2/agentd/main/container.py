@@ -358,6 +358,7 @@ def build_service(
         # hot-reload seam, now also driven by marketplace installs (gateway after_change)
         plugin_reloader=register_plugin_live,
         resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
+        mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
     )
     _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
     return service

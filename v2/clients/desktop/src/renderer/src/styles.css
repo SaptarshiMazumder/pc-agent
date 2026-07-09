@@ -761,15 +761,28 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .thinking-text { color: var(--dim); font-size: 13px; font-style: italic; line-height: 1.55; white-space: pre-wrap; }
 .msg-system { text-align: center; color: var(--faint); font: 12px var(--mono); margin: 12px 0; }
 .msg-system.error { color: var(--danger); }
-/* per-step model/token trace chip (AGENTD_MODEL_TRACE) */
-.msg-trace {
-  display: inline-flex; align-items: center; gap: 10px; margin: 4px 0;
-  padding: 3px 11px; border-radius: 999px; background: var(--bg3);
-  font: 11px var(--mono); color: var(--dim);
-}
-.msg-trace .trace-step { color: var(--faint); }
-.msg-trace .trace-model { color: var(--accent-text); font-weight: var(--fw-semi); }
-.msg-trace .trace-toks { color: var(--faint); }
+/* deep-link affordance on tool blocks → Settings ▸ Tools & plugins for that tool.
+   HIDDEN for now (kept in the DOM + store wiring, flip `display` back to re-enable later). */
+.tool-gear { display: none; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease; }
+.tool:hover .tool-gear, .tool-head:focus-within .tool-gear { opacity: 1; }
+.tool-gear:hover { background: var(--bg3); color: var(--text); }
+/* update_plan's checklist BODY — reuses the tool shell (.tool / .tool-head / caret); the list just
+   sits indented under the head, exactly where a normal tool's result (.tool-full) would. */
+.todo-list { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.todo-step { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.todo-check { flex: none; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--dim); }
+.todo-dot { width: 11px; height: 11px; border: 1.5px solid var(--border2); border-radius: 50%; }
+.todo-dot.active { background: var(--accent); border-color: var(--accent); }
+.todo-step.completed .todo-check { color: var(--accent-text); }
+.todo-step.completed .todo-text { color: var(--faint); text-decoration: line-through; }
+.todo-step.in_progress .todo-check { color: var(--accent-text); }
+.todo-step.in_progress .todo-text { color: var(--text); font-weight: var(--fw-medium); }
+/* status-strip model/token usage (AGENTD_MODEL_TRACE): lives in the persistent .composer-hint
+   below the composer, Claude-style — shown live while running, NOT archived per step. */
+.composer-hint .hint-model { color: var(--accent-text); font-weight: var(--fw-semi); }
+.composer-hint .hint-toks { color: var(--dim); }
+.composer-hint .hint-sep,
+.composer-hint .hint-note { color: var(--faint); }
 
 /* artifacts — media/documents an agent produced */
 .artifacts { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: 8px 0 4px; }

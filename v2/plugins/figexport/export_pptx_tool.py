@@ -46,20 +46,25 @@ class ExportPptxTool(Tool):
         "or rounded pill, arrow/leader -> connector with a real arrowhead (multi-point -> elbow chain), "
         "panel -> region frame, node -> flowchart box with an embedded ICON picture + wrapped text + "
         "step badge, dot -> marker. Slide is sized to the artwork's pixels so coordinates line up. "
-        "Input: `artwork` (PNG/JPG), `elements`, `out_path`. Everything is retypable / recolourable / "
-        "resizable in PowerPoint."
+        "Input: `artwork` (PNG/JPG), `out_path`, and `elements` inline OR `elements_path` (the spec "
+        "file extract_annotations writes — never retype a large set). Everything is retypable / "
+        "recolourable / resizable in PowerPoint."
     )
     label = "Export PPTX"
     concurrency = "parallel"
     parameters = {
         "type": "object",
-        "required": ["artwork", "out_path", "elements"],
+        "required": ["artwork", "out_path"],
         "properties": {
             "artwork": {
                 "type": "string",
                 "description": "Path to the raster artwork (PNG/JPG). Use a transparent PNG if you want only the annotations.",
             },
             "out_path": {"type": "string", "description": "Output .pptx path."},
+            "elements_path": {
+                "type": "string",
+                "description": "Path to a spec JSON — an array of elements or {width,height,elements} (what extract_annotations writes). Use instead of retyping a large `elements` list.",
+            },
             "elements": {
                 "type": "array",
                 "description": "render_editable_overlay-style elements (label, annotation, arrow, leader, panel, node, dot). "
@@ -87,6 +92,24 @@ class ExportPptxTool(Tool):
 
     def _resolve(self, p):
         return resolve_path(self.config, p)
+
+    def _elements(self, params: dict) -> list:
+        """Elements inline OR from `elements_path` (array, or the {width,height,elements} spec
+        extract_annotations writes)."""
+        import json
+
+        inline = params.get("elements")
+        path = params.get("elements_path")
+        if bool(inline) == bool(path):
+            raise ValueError("provide exactly ONE of: elements, elements_path")
+        if inline:
+            return list(inline)
+        data = json.loads(self._resolve(path).read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get("elements"), list):
+            return data["elements"]
+        raise ValueError("`elements_path` must hold an array or {width,height,elements}")
 
     def _run(self, params: dict) -> dict:
         from PIL import Image
@@ -228,7 +251,7 @@ class ExportPptxTool(Tool):
         slide.shapes.add_picture(str(art), Emu(0), Emu(0), width=E(W), height=E(H))
 
         n_text = n_shape = n_conn = n_pic = 0
-        for el in params["elements"]:
+        for el in self._elements(params):
             kind = el.get("kind")
 
             if kind == "label":
