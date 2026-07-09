@@ -240,7 +240,9 @@ def test_parse_json_salvages_truncated_array():
     good = '[{"label": "A", "point": [1, 2]}, {"label": "B", "point": [3, 4]}]'
     assert len(vg.parse_json(good)) == 2
     # truncated mid-third-object (blew up the old parser) -> salvage the 2 complete ones
-    truncated = '[{"label": "A", "point": [1, 2]}, {"label": "B", "point": [3, 4]}, {"label": "C", "po'
+    truncated = (
+        '[{"label": "A", "point": [1, 2]}, {"label": "B", "point": [3, 4]}, {"label": "C", "po'
+    )
     out = vg.parse_json(truncated)
     assert isinstance(out, list) and len(out) == 2
     assert [o["label"] for o in out] == ["A", "B"]
