@@ -149,6 +149,90 @@ def clean_base(labeled_arr, base_arr, label_boxes):
     return clean, n
 
 
+def remove_background(rgb, prefer_rembg: bool = True):
+    """Make the BACKGROUND transparent, keeping the artwork — so the composed SVG shows the artwork
+    cleanly cut out (not sitting on a white rectangle). Positions are UNCHANGED; only an alpha
+    channel is added. Returns a uint8 RGBA array (H, W, 4).
+
+    Two backends:
+      • rembg (the best available neural bg remover) if installed and `prefer_rembg` — handles any
+        background, including non-white.
+      • else a deterministic method ideal for the strip's pure-white output: the near-white region
+        CONNECTED TO THE BORDER becomes transparent, so the artwork's edge is cut pixel-exactly and
+        any WHITE enclosed INSIDE the artwork is kept (a flood/label approach, not a naive
+        white->alpha that would punch holes in the drawing).
+    Transparent pixels' RGB is forced to white so a flattened (alpha-dropped) preview stays clean.
+    """
+    import numpy as np
+
+    a = np.asarray(rgb)[..., :3].astype(np.uint8)
+
+    # Is the background (the image border) predominantly near-white? Our strip output always is, and
+    # for a white background the deterministic cut below is PIXEL-EXACT at the artwork edge — cleaner
+    # than a neural matte, and free. Only reach for rembg when the background ISN'T white.
+    border_px = np.concatenate(
+        [a[0], a[-1], a[:, 0], a[:, -1]]
+    )
+    white_border = float((border_px.min(axis=-1) >= 238).mean()) > 0.6
+
+    if prefer_rembg and not white_border:
+        try:
+            from PIL import Image
+            from rembg import remove
+
+            out = remove(Image.fromarray(a).convert("RGB"))  # -> RGBA PIL (neural matte)
+            rgba = np.asarray(out.convert("RGBA")).copy()
+            rgba[rgba[..., 3] == 0, :3] = 255
+            return rgba
+        except Exception:  # noqa: BLE001 — rembg absent/failed -> deterministic fallback below
+            pass
+
+    from skimage.measure import label as sk_label
+
+    near_white = a.min(axis=-1) >= 238
+    lab = sk_label(near_white, connectivity=1)
+    border = set(lab[0, :]) | set(lab[-1, :]) | set(lab[:, 0]) | set(lab[:, -1])
+    border.discard(0)
+    bg = np.isin(lab, list(border)) & near_white  # border-connected white = background
+    alpha = np.where(bg, 0, 255).astype(np.uint8)
+    rgb2 = a.copy()
+    rgb2[bg] = 255
+    return np.dstack([rgb2, alpha])
+
+
+def split_objects(rgba, min_area_frac: float = 0.003):
+    """Split a background-removed RGBA artwork into its DISTINCT objects by connected opaque regions.
+    Each connected piece (>= min_area) becomes one object — so an image of an apple, a mango and a
+    banana yields THREE objects (each individually selectable downstream), while a single connected
+    figure (a cross-section) stays ONE object. Returns a list of dicts:
+        {"bbox": (x, y, w, h),  "rgba": HxWx4 crop of JUST this object (other objects' alpha zeroed)}
+    ordered top-to-bottom, left-to-right. Positions are the artwork's real pixel coords (unchanged).
+    """
+    import numpy as np
+    from skimage.measure import label as sk_label
+    from skimage.measure import regionprops
+
+    arr = np.asarray(rgba)
+    if arr.shape[-1] < 4:  # no alpha -> treat the whole thing as one object
+        H, W = arr.shape[:2]
+        return [{"bbox": (0, 0, W, H), "rgba": arr}]
+    alpha = arr[..., 3]
+    opaque = alpha > 8
+    lab = sk_label(opaque, connectivity=2)
+    H, W = alpha.shape
+    min_area = max(64, int(min_area_frac * H * W))
+    objs = []
+    for rp in regionprops(lab):
+        if rp.area < min_area:
+            continue
+        y0, x0, y1, x1 = rp.bbox
+        crop = arr[y0:y1, x0:x1].copy()
+        crop[lab[y0:y1, x0:x1] != rp.label, 3] = 0  # keep ONLY this object's pixels
+        objs.append({"bbox": (x0, y0, x1 - x0, y1 - y0), "rgba": crop})
+    objs.sort(key=lambda o: (o["bbox"][1], o["bbox"][0]))
+    return objs
+
+
 def snap_to_mask(mask, x: float, y: float, win: int = 24):
     """Move a point onto the nearest True pixel of `mask` within a ±win window (Chebyshev). Used to
     refine a VLM's approximate arrow endpoint onto the real drawn ink. Returns (x, y) unchanged if

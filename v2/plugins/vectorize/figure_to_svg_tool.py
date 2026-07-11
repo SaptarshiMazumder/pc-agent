@@ -24,6 +24,7 @@ overlay + compose reuse the figures plugin. Needs numpy+scikit-image+rapidocr+vt
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import sys
 from pathlib import Path
@@ -93,6 +94,10 @@ class FigureToSvgTool(Tool):
             "semantic_arrows": {
                 "type": "boolean",
                 "description": "Rebuild arrows as clean semantic vectors via a VLM (default true). false = blob-trace all arrows/lines (faster, no VLM call, figurelabs-style shapes).",
+            },
+            "remove_bg": {
+                "type": "boolean",
+                "description": "Remove the background so the artwork is cut out (transparent) in the SVG instead of sitting on a white rectangle (default true). Uses rembg if installed, else deterministic white-background removal. Positions are unchanged.",
             },
             "out_svg": {
                 "type": "string",
@@ -314,6 +319,18 @@ class FigureToSvgTool(Tool):
                     max(0, int(x0) - 2) : min(W, int(x1) + 2),
                 ] = False
             comps = vx.components(arr_mask)
+
+        # 2d. REMOVE THE BACKGROUND (default): cut the white behind the artwork away so the composed
+        # SVG shows the artwork transparently (cleanly-cut borders), not on a white rectangle.
+        # Positions are unchanged — only alpha is added. rembg if installed, else deterministic
+        # border-connected white removal (keeps white enclosed inside the artwork).
+        bg_removed = False
+        if params.get("remove_bg", True):
+            try:
+                art_arr = vx.remove_background(art_arr)
+                bg_removed = True
+            except Exception:  # never block the conversion on bg removal
+                bg_removed = False
         base_path = image.with_name(stem + "_base_clean.png")
         Image.fromarray(art_arr).save(base_path)
 
@@ -340,58 +357,90 @@ class FigureToSvgTool(Tool):
                 elements.append(raw)
                 n_blob += 1
 
-        if not elements:
-            raise RuntimeError(
-                "nothing to vectorize — OCR found no text and the diff found no arrows/lines. If "
-                "this is a plain illustration (no labels), it doesn't need figure_to_svg; for pure "
-                "shape tracing use trace_image."
-            )
-
-        # 5 + 6. overlay + compose (raster base by default, or vtrace the artwork to vector)
         _sibling("figures")
         import figures_overlay as fov
-        from compose_layers_tool import ComposeLayersTool
+        from figures_common import render_svg_to_png
 
-        overlay_svg = fov.build_svg(
-            {"width": W, "height": H, "font_family": fov.DEFAULT_FONT, "elements": elements}
+        # 5. ARTWORK OBJECTS: split the (bg-removed) artwork into its connected pieces and place each
+        # as its OWN embedded `image` element — so every object (apple/mango/banana, or the single
+        # cross-section) is individually SELECTABLE in the SVG (and PPTX via the elements JSON).
+        # Positions are the real pixels; nothing moves. (Vector mode instead vtraces the whole artwork.)
+        vector_artwork = params.get("artwork_mode") == "vector"
+        obj_els = []
+        if not vector_artwork:
+            for idx, o in enumerate(vx.split_objects(art_arr)):
+                ox, oy, ow, oh = o["bbox"]
+                op = image.with_name(f"{stem}_obj{idx}.png")
+                Image.fromarray(o["rgba"]).save(op)
+                obj_els.append(
+                    {"kind": "image", "path": str(op), "x": ox, "y": oy, "width": ow, "height": oh}
+                )
+        elements = obj_els + elements  # artwork objects at the BOTTOM, labels/arrows on top
+        n_objects = len(obj_els)
+
+        if not elements:
+            raise RuntimeError(
+                "nothing to vectorize — no artwork objects, text or lines found. For a plain image "
+                "with no labels, use trace_image."
+            )
+
+        # write the elements spec so export_pptx / render_editable_overlay can reuse it (elements_path)
+        out_json = image.with_name(stem + "_elements.json")
+        out_json.write_text(
+            json.dumps({"width": W, "height": H, "elements": elements}, indent=1), encoding="utf-8"
         )
-        overlay_path.write_text(overlay_svg, encoding="utf-8")
 
-        compose = ComposeLayersTool(self.config)
-        art = {"artwork": str(base_path)}
-        if params.get("artwork_mode") == "vector":
+        # 6. Build the editable SVG. Object mode -> the image elements ARE the artwork, build directly.
+        # Vector mode -> vtrace the whole artwork and compose the overlay over it.
+        if vector_artwork:
+            from compose_layers_tool import ComposeLayersTool
             from trace_image_tool import TraceImageTool
 
+            overlay_svg = fov.build_svg(
+                {"width": W, "height": H, "font_family": fov.DEFAULT_FONT, "elements": elements}
+            )
+            overlay_path.write_text(overlay_svg, encoding="utf-8")
             traced = image.with_name(stem + "_artwork.svg")
             TraceImageTool(self.config)._run(
                 {"image": str(base_path), "out_svg": str(traced), "mode": "color"}
             )
-            art = {"artwork_svg_path": str(traced)}
-        # SVG is the deliverable and needs no browser — always produce it. The preview PNG needs a
-        # headless browser (Playwright), so it's best-effort: a missing browser must not lose the SVG.
-        cr = compose._run({**art, "overlay_svg_path": str(overlay_path), "out_svg": str(out_svg)})
-        png = None
-        try:
-            pr = compose._run(
-                {**art, "overlay_svg_path": str(overlay_path), "out_png": str(out_png)}
-            )
-            png = pr["out_png"]
-        except Exception:
+            compose = ComposeLayersTool(self.config)
+            art = {"artwork_svg_path": str(traced), "overlay_svg_path": str(overlay_path)}
+            out_svg_final = compose._run({**art, "out_svg": str(out_svg)})["out_svg"]
             png = None
+            try:
+                png = compose._run({**art, "out_png": str(out_png)})["out_png"]
+            except Exception:
+                png = None
+        else:
+            svg = fov.build_svg(
+                {"width": W, "height": H, "font_family": fov.DEFAULT_FONT, "elements": elements}
+            )
+            out_svg.write_text(svg, encoding="utf-8")
+            out_svg_final = str(out_svg)
+            png = None
+            try:  # preview PNG needs a headless browser — best-effort, never loses the SVG
+                render_svg_to_png(svg, out_png, W, H, background="#FFFFFF")
+                png = str(out_png)
+            except Exception:
+                png = None
 
         return {
-            "out_svg": cr["out_svg"],
+            "out_svg": out_svg_final,
             "out_png": png,
+            "out_json": str(out_json),
             "base_png": str(base_path),
             "overlay_svg": str(overlay_path),
             "width": W,
             "height": H,
             "diff_fraction": round(frac, 4),
             "labels": len(label_boxes),
+            "objects": n_objects,
             "semantic_arrows": n_sem,
             "blob_shapes": n_blob,
             "cleaned_labels": n_cleaned,
             "strip_failed": strip_failed,
+            "bg_removed": bg_removed,
             "artwork_mode": params.get("artwork_mode", "raster"),
             "stripped": stripped,
             "cached": False,
@@ -420,12 +469,14 @@ class FigureToSvgTool(Tool):
                 "doubling. For editable vector arrows too, retry (the strip is non-deterministic) or "
                 "pass artwork_mode='vector' to trace the whole thing."
             )
+        bg = " bg removed" if r.get("bg_removed") else ""
+        objs = f"{r.get('objects', 0)} selectable object(s), " if r.get("objects") else ""
         content = [
             TextContent(
                 text=(
                     f"Editable SVG -> {r['out_svg']} ({r['width']}x{r['height']}, {r['artwork_mode']} "
-                    f"artwork): {r['labels']} label(s), {r['semantic_arrows']} semantic arrow(s), "
-                    f"{r['blob_shapes']} traced shape(s){made}.{warn}{preview}"
+                    f"artwork{bg}): {objs}{r['labels']} label(s), {r['semantic_arrows']} semantic "
+                    f"arrow(s), {r['blob_shapes']} traced shape(s){made}.{warn}{preview}"
                 )
             )
         ]

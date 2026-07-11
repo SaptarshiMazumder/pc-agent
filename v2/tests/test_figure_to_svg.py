@@ -144,6 +144,7 @@ def test_figure_to_svg_no_double_text_on_failed_strip(figure, tmp_path):
     r = res.details
     assert r["cleaned_labels"] >= 1  # it detected + erased the left-behind label(s)
     assert r["base_png"].endswith("_base_clean.png")  # composited on the cleaned base, not the raw
+    # convert to RGB: the base is now RGBA (bg removed), and transparent pixels keep white RGB
     base = np.asarray(Image.open(r["base_png"]).convert("RGB"))
     # "Cortex" was drawn ~x555-645, y118-152 on the white margin -> that box is now blank (no baked glyph)
     assert base[125:145, 560:640].min() >= 245
@@ -187,6 +188,34 @@ def test_force_reconverts_even_if_svg_exists(figure, tmp_path, monkeypatch):
     )
     assert not res.is_error, res.content[0].text
     assert res.details["cached"] is False  # it actually re-converted
+
+
+def test_split_into_multiple_selectable_objects(tmp_path):
+    """The apple/mango/banana ask: 3 separate blobs -> 3 separate `<image>` objects in the SVG, each
+    individually selectable (bg removed, connected-component split)."""
+    pytest.importorskip("rapidocr")
+    from PIL import Image as _I
+    from PIL import ImageDraw as _D
+
+    from figure_to_svg_tool import FigureToSvgTool
+
+    im = _I.new("RGB", (600, 400), "white")
+    d = _D.Draw(im)
+    d.ellipse([40, 150, 160, 270], fill=(200, 60, 60))  # "apple"
+    d.ellipse([250, 150, 370, 270], fill=(230, 170, 40))  # "mango"
+    d.ellipse([450, 150, 560, 270], fill=(240, 220, 60))  # "banana"
+    p = tmp_path / "fruits.png"
+    im.save(p)
+    tool = FigureToSvgTool(SimpleNamespace(workspace=str(tmp_path)))
+    # base=itself (no strip/network), no semantic arrows -> pure artwork-splitting path
+    res = asyncio.run(
+        tool.execute("t", {"image": str(p), "base": str(p), "semantic_arrows": False}, None)
+    )
+    assert not res.is_error, res.content[0].text
+    r = res.details
+    assert r["objects"] == 3 and r["bg_removed"] is True
+    svg = Path(r["out_svg"]).read_text(encoding="utf-8")
+    assert svg.count("<image") == 3  # three separate selectable image objects
 
 
 def test_failed_strip_keeps_lines_as_artwork_no_double(figure, tmp_path):

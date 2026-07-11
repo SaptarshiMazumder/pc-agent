@@ -193,6 +193,18 @@ def test_strip_verify_detects_echo(monkeypatch):
     assert et.strip_verify(labelled, stripped)[0] is True
 
 
+def test_remove_background_cuts_white_keeps_artwork(imgs):
+    """BG removal: border-connected white -> transparent; the artwork (and any enclosed white)
+    stays opaque; positions unchanged. Deterministic path (prefer_rembg=False)."""
+    rgba = vx.remove_background(np.asarray(imgs.base), prefer_rembg=False)
+    assert rgba.shape[2] == 4  # RGBA
+    assert rgba[5, 5, 3] == 0  # a corner = background white -> transparent
+    # the green ellipse (x 260-460, y 160-360) centre -> opaque artwork
+    assert rgba[260, 360, 3] == 255
+    # same size -> nothing moved
+    assert rgba.shape[:2] == np.asarray(imgs.base).shape[:2]
+
+
 def test_white_bg_fraction():
     white = np.full((100, 100, 3), 255, dtype=np.uint8)
     assert vx.white_background_fraction(white) > 0.99

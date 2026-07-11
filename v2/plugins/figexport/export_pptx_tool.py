@@ -41,26 +41,29 @@ _ARROW_LOOK = {
 class ExportPptxTool(Tool):
     name = "export_pptx"
     description = (
-        "Export a fully-editable PowerPoint (.pptx) figure: the artwork as a picture, plus EVERY "
-        "render_editable_overlay-style element as a native, restyleable object — label/annotation -> text box "
-        "or rounded pill, arrow/leader -> connector with a real arrowhead (multi-point -> elbow chain), "
-        "panel -> region frame, node -> flowchart box with an embedded ICON picture + wrapped text + "
-        "step badge, dot -> marker. Slide is sized to the artwork's pixels so coordinates line up. "
-        "Input: `artwork` (PNG/JPG), `out_path`, and `elements` inline OR `elements_path` (the spec "
-        "file extract_annotations writes — never retype a large set). Everything is retypable / "
-        "recolourable / resizable in PowerPoint."
+        "Export a fully-editable PowerPoint (.pptx) figure: EVERY render_editable_overlay-style element "
+        "as a native, restyleable object — label/annotation -> text box or rounded pill, arrow/leader "
+        "-> connector with a real arrowhead (multi-point -> elbow chain), panel -> region frame, node "
+        "-> flowchart box with an embedded ICON picture + wrapped text + step badge, dot -> marker, "
+        "image -> a SEPARATE selectable PICTURE at its position (so each artwork object is its own "
+        "movable shape). Input: `out_path`, `elements` inline OR `elements_path` (the spec file "
+        "figure_to_svg / extract_annotations write), and OPTIONALLY `artwork` (a single slide-filling "
+        "base picture — omit it when the elements already carry `image` objects). Everything is "
+        "retypable / recolourable / resizable in PowerPoint."
     )
     label = "Export PPTX"
     concurrency = "parallel"
     parameters = {
         "type": "object",
-        "required": ["artwork", "out_path"],
+        "required": ["out_path"],
         "properties": {
             "artwork": {
                 "type": "string",
-                "description": "Path to the raster artwork (PNG/JPG). Use a transparent PNG if you want only the annotations.",
+                "description": "Optional path to a single base raster artwork (PNG/JPG) placed slide-filling under the elements. OMIT when the elements already contain `image` objects (the per-object artwork, e.g. from figure_to_svg) — then each object is its own selectable picture.",
             },
             "out_path": {"type": "string", "description": "Output .pptx path."},
+            "width": {"type": "integer", "description": "Slide width px (only if no `artwork` and the elements spec has no width)."},
+            "height": {"type": "integer", "description": "Slide height px (only if no `artwork` and the elements spec has no height)."},
             "elements_path": {
                 "type": "string",
                 "description": "Path to a spec JSON — an array of elements or {width,height,elements} (what extract_annotations writes). Use instead of retyping a large `elements` list.",
@@ -110,6 +113,27 @@ class ExportPptxTool(Tool):
         if isinstance(data, dict) and isinstance(data.get("elements"), list):
             return data["elements"]
         raise ValueError("`elements_path` must hold an array or {width,height,elements}")
+
+    def _canvas_size(self, params: dict, elements: list) -> tuple:
+        """Slide size (px) when there is NO base artwork: explicit width/height, else the elements
+        spec's width/height, else the bounding box of the positioned elements, else 1920x1080."""
+        import json
+
+        if params.get("width") and params.get("height"):
+            return int(params["width"]), int(params["height"])
+        path = params.get("elements_path")
+        if path:
+            try:
+                data = json.loads(self._resolve(path).read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("width") and data.get("height"):
+                    return int(data["width"]), int(data["height"])
+            except Exception:
+                pass
+        maxx = maxy = 0.0
+        for el in elements:
+            maxx = max(maxx, float(el.get("x", 0)) + float(el.get("width", 0)))
+            maxy = max(maxy, float(el.get("y", 0)) + float(el.get("height", 0)))
+        return (int(maxx), int(maxy)) if maxx > 0 and maxy > 0 else (1920, 1080)
 
     def _run(self, params: dict) -> dict:
         from PIL import Image
@@ -235,9 +259,16 @@ class ExportPptxTool(Tool):
                     dash=dash,
                 )
 
-        art = self._resolve(params["artwork"])
-        with Image.open(art) as im:
-            W, H = im.size
+        # Base artwork is OPTIONAL: with a single `artwork` it's placed slide-filling under the
+        # elements; without it, the slide size comes from the elements spec (or width/height) and the
+        # `image` elements ARE the artwork (each a separate, selectable picture).
+        elements = self._elements(params)
+        art = self._resolve(params["artwork"]) if params.get("artwork") else None
+        if art is not None:
+            with Image.open(art) as im:
+                W, H = im.size
+        else:
+            W, H = self._canvas_size(params, elements)
         # Resolution-aware sizing: mirror the SVG overlay engine so text/strokes are proportionate on a
         # 2K/4K slide instead of microscopic. Sizes are authored in ~1024px reference units; coordinates
         # stay in the artwork's pixel space.
@@ -248,11 +279,24 @@ class ExportPptxTool(Tool):
         slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
         if params.get("background"):
             bg = rrect(0, 0, W, H, params["background"], None, 0)  # noqa: F841  # TODO: bg is never added to the slide — the `background` param currently renders nothing
-        slide.shapes.add_picture(str(art), Emu(0), Emu(0), width=E(W), height=E(H))
+        if art is not None:
+            slide.shapes.add_picture(str(art), Emu(0), Emu(0), width=E(W), height=E(H))
 
         n_text = n_shape = n_conn = n_pic = 0
-        for el in self._elements(params):
+        for el in elements:
             kind = el.get("kind")
+
+            if kind == "image":
+                # a standalone artwork OBJECT -> its own selectable picture at (x,y,w,h)
+                path = el.get("path")
+                w, h = float(el.get("width", 0)), float(el.get("height", 0))
+                if path and w > 0 and h > 0 and Path(str(path)).is_file():
+                    slide.shapes.add_picture(
+                        str(path), E(float(el.get("x", 0))), E(float(el.get("y", 0))),
+                        width=E(w), height=E(h),
+                    )
+                    n_pic += 1
+                continue
 
             if kind == "label":
                 text = el.get("text", "")
