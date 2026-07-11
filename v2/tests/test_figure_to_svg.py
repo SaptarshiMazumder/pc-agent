@@ -189,10 +189,9 @@ def test_split_into_multiple_selectable_objects(tmp_path):
     """The apple/mango/banana ask: 3 separate blobs -> 3 separate `<image>` objects in the SVG, each
     individually selectable (bg removed, connected-component split)."""
     pytest.importorskip("rapidocr")
+    from figure_to_svg_tool import FigureToSvgTool
     from PIL import Image as _I
     from PIL import ImageDraw as _D
-
-    from figure_to_svg_tool import FigureToSvgTool
 
     im = _I.new("RGB", (600, 400), "white")
     d = _D.Draw(im)
@@ -245,10 +244,9 @@ def test_deterministic_line_lands_on_the_ink(tmp_path):
     """DETERMINISTIC line, no LLM: a clean straight arrow (textless base supplied) is traced into ONE
     line whose endpoints land ON the actual drawn stroke — not a model's guess in a random place."""
     pytest.importorskip("rapidocr")
+    from figure_to_svg_tool import FigureToSvgTool
     from PIL import Image as _I
     from PIL import ImageDraw as _D
-
-    from figure_to_svg_tool import FigureToSvgTool
 
     lab = _I.new("RGB", (500, 300), "white")
     d = _D.Draw(lab)
