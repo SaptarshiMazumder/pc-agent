@@ -55,7 +55,9 @@ class _Gate:
     """Minimal stand-in exposing the gateway's _tools_invoke over a fake service."""
 
     def __init__(self, tool):
-        self.service = SimpleNamespace(find_tool=lambda n: tool if tool and tool.name == n else None)
+        self.service = SimpleNamespace(
+            find_tool=lambda n: tool if tool and tool.name == n else None
+        )
 
     # bind the real method so we test the actual gating/return logic
     from agentd.presentation.gateway import Gateway

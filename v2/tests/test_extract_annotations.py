@@ -170,6 +170,25 @@ def test_tool_end_to_end_with_ocr(imgs, tmp_path):
     assert abs(lab["y"] - 140) < 30
 
 
+def test_strip_verify_detects_echo(monkeypatch):
+    """The strip's verification: if the 'stripped' image still holds most of the original text, the
+    model echoed the input (strip failed). We stub OCR to isolate the ratio logic."""
+    import extract_annotations_tool as et
+
+    labelled, stripped = Path("lab.png"), Path("strip.png")
+    # echo — stripped keeps all 4 labels -> NOT removed
+    monkeypatch.setattr(et, "_ocr_lines", lambda p: ["a", "b", "c", "d"])
+    ok, before, after = et.strip_verify(labelled, stripped)
+    assert ok is False and before == 4 and after == 4
+    # clean strip — no text left -> removed
+    monkeypatch.setattr(et, "_ocr_lines", lambda p: [] if "strip" in str(p) else ["a", "b", "c", "d"])
+    ok2, _, after2 = et.strip_verify(labelled, stripped)
+    assert ok2 is True and after2 == 0
+    # partial (1 of 4 left, 25% <= 45% threshold) -> counts as removed
+    monkeypatch.setattr(et, "_ocr_lines", lambda p: ["a"] if "strip" in str(p) else ["a", "b", "c", "d"])
+    assert et.strip_verify(labelled, stripped)[0] is True
+
+
 def test_white_bg_fraction():
     white = np.full((100, 100, 3), 255, dtype=np.uint8)
     assert vx.white_background_fraction(white) > 0.99

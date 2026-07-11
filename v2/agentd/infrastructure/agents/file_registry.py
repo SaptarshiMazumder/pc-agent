@@ -206,8 +206,7 @@ class FileAgentRegistry:
             # agents/main/ materialises on disk (workspace/skills are auto-created) it
             # loads through here, and "main" must never become the user-facing name.
             name=str(
-                data.get("name")
-                or (self._main_display_name() if agent_id == "main" else agent_id)
+                data.get("name") or (self._main_display_name() if agent_id == "main" else agent_id)
             ),
             description=_resolve_agent_description(d, data, tagline),
             tagline=tagline,

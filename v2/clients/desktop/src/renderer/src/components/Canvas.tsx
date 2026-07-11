@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
-import { X, ExternalLink, Download, Wand2, Loader2 } from 'lucide-react'
+import { X, ExternalLink, Download } from 'lucide-react'
 
 import { kindLabel } from '../lib/canvasFile'
-import { actionsFor } from '../lib/artifacts'
 import { useApp } from '../state/store'
 import { CanvasBody } from './canvasViewers'
 
@@ -13,9 +12,6 @@ export default function Canvas(): JSX.Element | null {
   const width = useApp((s) => s.canvas.width)
   const close = useApp((s) => s.closeCanvas)
   const setWidth = useApp((s) => s.setCanvasWidth)
-  const actions = useApp((s) => s.artifactActions)
-  const runAction = useApp((s) => s.runArtifactAction)
-  const busy = useApp((s) => !!s.artifactActionBusy[artifact?.path ?? ''])
 
   useEffect(() => {
     if (!artifact) return
@@ -25,10 +21,6 @@ export default function Canvas(): JSX.Element | null {
   }, [artifact, close])
 
   if (!artifact) return null
-
-  // self-declared tool actions for this file (e.g. Convert to Vector on a PNG) — only real files,
-  // and only when the owning tool is installed (data-driven, see lib/artifacts + store).
-  const acts = artifact.text == null ? actionsFor(actions, artifact) : []
 
   function startResize(e: React.MouseEvent): void {
     e.preventDefault()
@@ -54,18 +46,6 @@ export default function Canvas(): JSX.Element | null {
           <span className="canvas-kind">{kindLabel(artifact)}</span>
         </div>
         <div className="canvas-head-actions">
-          {/* self-declared tool actions (e.g. Convert to Vector on a PNG) — a labelled button each */}
-          {acts.map((ac) => (
-            <button
-              key={ac.tool}
-              className="artifact-btn"
-              title={busy ? 'working…' : ac.label}
-              disabled={busy}
-              onClick={() => runAction(ac, artifact).catch((err) => console.error(`${ac.label} failed`, err))}
-            >
-              {busy ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />} {busy ? 'Working…' : ac.label}
-            </button>
-          ))}
           {/* open-in-app / download act on a real file — hide for synthetic in-memory docs */}
           {artifact.text == null && (
             <>

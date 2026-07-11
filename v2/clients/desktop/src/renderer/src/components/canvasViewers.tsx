@@ -1,11 +1,38 @@
 import { useEffect, useRef, useState } from 'react'
-import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Download } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Download, Wand2, Loader2 } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
-import { fileUrl } from '../lib/artifacts'
+import { fileUrl, actionsFor } from '../lib/artifacts'
 import { EDITABLE, ext, viewerKind } from '../lib/canvasFile'
+import { useApp } from '../state/store'
 import FabricEditor, { rasterMode, svgMode } from './FabricEditor'
 import Markdown from './Markdown'
+
+/** Self-declared tool action button(s) for this artifact (e.g. "Convert to Vector" on a PNG),
+ *  rendered in a viewer toolbar beside View/Edit. Data-driven: shows only when an installed tool
+ *  advertises an action for this artifact's mime; empty → nothing. */
+function ActionTabs({ a }: { a: Artifact }): JSX.Element | null {
+  const actions = useApp((s) => s.artifactActions)
+  const runAction = useApp((s) => s.runArtifactAction)
+  const busy = useApp((s) => !!s.artifactActionBusy[a.path])
+  const acts = actionsFor(actions, a)
+  if (!acts.length) return null
+  return (
+    <>
+      {acts.map((ac) => (
+        <button
+          key={ac.tool}
+          className="cv-tab"
+          title={busy ? 'working…' : ac.label}
+          disabled={busy}
+          onClick={() => runAction(ac, a).catch((err) => console.error(`${ac.label} failed`, err))}
+        >
+          {busy ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />} {busy ? 'Working…' : ac.label}
+        </button>
+      ))}
+    </>
+  )
+}
 
 // ---------------------------------------------------------------- image (zoom / pan)
 function ImageViewer({ a }: { a: Artifact }): JSX.Element {
@@ -78,6 +105,7 @@ function RasterViewer({ a }: { a: Artifact }): JSX.Element {
         <button className={`cv-tab ${mode === 'edit' ? 'on' : ''}`} onClick={() => setMode('edit')}>
           <Pencil size={14} /> Edit
         </button>
+        <ActionTabs a={a} />
       </div>
       <div className="cv-text-body">
         {mode === 'view' ? <ImageViewer a={a} key="v" /> : <FabricEditor a={a} mode={rasterMode} key="e" />}

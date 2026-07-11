@@ -40,7 +40,7 @@ _STRIP_PROMPT = (
     "background, backdrop, scenery or colour fill behind the subject. Keep ALL artwork, anatomy, colours "
     "and shading unchanged and sharp, on a pure solid white background. There must be NO text, NO leader "
     "or pointer lines, NO arrows and NO markers anywhere in the output — only the clean illustration on "
-    "a pure white background."
+    "a pure white background. The final image should be a clean image which contains the artwork but no lines, markers, text or other pointers."
 )
 
 # Alignment gate thresholds on diff coverage (fraction of pixels changed L->T').
@@ -122,10 +122,29 @@ def _ocr_lines(png_path: Path):
     return lines
 
 
-def strip_labels(config, labelled: Path, api_key) -> Path:
-    """Strip the labels off a labelled figure via the image model (Nano Banana) -> a clean textless
-    base derived FROM the image, so pixel alignment is guaranteed. Shared by extract_annotations and
-    figure_to_svg (and mirrors what read_labels_from_image does standalone)."""
+def strip_verify(labelled: Path, stripped: Path, thr: float = 0.45):
+    """VERIFY a strip actually removed the labels. The image model often just ECHOES the input
+    (reproduces the figure with the labels intact) — so OCR the labelled image AND the stripped
+    output and compare: if the stripped image STILL holds most of the original's text, the strip
+    FAILED. Returns (removed_ok, n_text_before, n_text_after). OCR-unavailable => (True, 0, 0) so it
+    never blocks the pipeline."""
+    try:
+        before = _ocr_lines(labelled)
+        after = _ocr_lines(stripped)
+    except Exception:
+        return True, 0, 0
+    if len(before) < 2:
+        return True, len(before), len(after)  # ~nothing to remove
+    return (len(after) / len(before) <= thr), len(before), len(after)
+
+
+def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
+    """Strip the labels off a labelled figure via the image model -> a clean textless base (aligned
+    to the input). VERIFICATION + RETRY loop: after each attempt it checks (via OCR) that the labels
+    are actually gone; if the model just echoed the input, it retries — escalating through the strip
+    model list (config plugins.figure-art.tools.generate_artwork.strip_models, else one retry of the
+    primary) — before giving up. Whether it ultimately succeeded is checkable by the caller (and by
+    figure_to_svg's own strip-failure detection) so the agent can be told. Shared by both tools."""
     import sys as _sys
 
     igdir = str(Path(__file__).resolve().parent.parent / "figure-art")  # sibling plugin
@@ -133,11 +152,31 @@ def strip_labels(config, labelled: Path, api_key) -> Path:
         _sys.path.insert(0, igdir)
     import figure_art_gemini as ig
 
-    model = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
+    from agentd.application.tool_models import tool_config
+
     key = ig.resolve_key(api_key, config)
+    primary = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
+    extra = tool_config(config, "figure-art", "generate_artwork", "strip_models", default=None) or []
+    attempts = [primary] + [m for m in extra if m and m != primary]
+    if len(attempts) == 1:
+        attempts.append(primary)  # nothing to escalate to -> retry once (catches a transient echo)
+
     out = labelled.with_name(labelled.stem + "_textless.png")
-    ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
-    return out
+    last_exc = None
+    for model in attempts:
+        try:
+            ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
+        except Exception as e:  # noqa: BLE001 — try the next model/attempt before failing
+            last_exc = e
+            continue
+        if not verify:
+            return out
+        ok, _, _ = strip_verify(labelled, out)
+        if ok:
+            return out  # labels gone — done
+    if not out.is_file() and last_exc is not None:
+        raise last_exc  # every attempt errored and produced nothing
+    return out  # exhausted attempts (strip may have echoed) — caller detects + tells the agent
 
 
 class ExtractAnnotationsTool(Tool):
