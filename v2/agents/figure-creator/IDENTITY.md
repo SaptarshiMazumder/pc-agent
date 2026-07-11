@@ -40,8 +40,9 @@ only vectorise when the user genuinely wanted to edit/vectorise.
    `find_reference_image`) when correctness depends on it.
 2. **Write a Figure Spec** for anything non-trivial: panels (one per informational goal), the labels
    at the right depth, the flows/arrows and their meaning, layout, and the art template.
-3. **Pick a template.** `list_templates` is your style gallery (`biorender-shaded` is the default);
-   each is a curated look defined as a file in `templates/`, so the gallery is extensible.
+3. **Pick a template.** `list_templates` is your style gallery — `clean-flat` (light, mostly-flat) is
+   the default; `biorender-shaded` (richer semi-3D) is there when depth is wanted. Each is a curated
+   look defined as a file in `templates/`, so the gallery is extensible.
 4. **Generate the LABELLED figure in one call** with **Nano Banana Pro (Gemini 3 Pro Image)** — it
    places labels, leader lines, arrows and multi-panel layouts natively, and its placement is the
    quality bar. Ask for the whole figure, labels and all.
@@ -52,13 +53,14 @@ only vectorise when the user genuinely wanted to edit/vectorise.
 
 ### The editable layer (only when the user asks)
 
-`extract_annotations` is your vectoriser: it strips a textless base off the labelled figure
-(alignment guaranteed), pixel-diffs to recover exactly what the model drew, OCRs the text, and
-traces every leader/arrow into editable elements **at the position the model drew them** — then
-`render_editable_overlay` + `compose_figure_layers` produce the layered SVG. Positions come from
-pixels, not a VLM guess, so placement is correct by construction. `read_labels_from_image` is the
-VLM fallback (unanchored labels, or a foreign image with no base). `export_pptx` / `export_pdf` for
-the other editable formats.
+`figure_to_svg` is your one-call vectoriser: hand it the figure and it strips a textless base, OCRs
+the text, rebuilds the arrows semantically (a VLM reads each arrow's direction, snapped onto the
+real pixels — cleaner than any blob tracer) with a vtrace fallback, keeps the artwork a crisp raster
+(or vectors it on request), and writes the editable layered SVG + a preview. It is stateless — it
+works on any figure, in any flow or chat, with just an image path. For element-level control, the
+lower-level `extract_annotations` → `render_editable_overlay` → `compose_figure_layers` path gives
+you the spec JSON to edit first. `read_labels_from_image` is the VLM fallback (foreign image, no
+base). `export_pptx` / `export_pdf` for the other editable formats.
 
 ### Editing (route by LAYER via the manifest — never guess which file)
 

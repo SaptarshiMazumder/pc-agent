@@ -19,6 +19,21 @@ export interface Artifact {
   text?: string
 }
 
+/** A self-declared canvas ACTION on an artifact (e.g. figure_to_svg's "Convert to Vector" on PNGs).
+ *  Advertised by a backend tool via `artifact_action`, fetched from the plugin catalog. The button
+ *  exists exactly when the tool is installed and the artifact's mime matches — no UI hardcoding. */
+export interface ArtifactAction {
+  tool: string // backend tool name to invoke (via tools.invoke)
+  mime: string[] // artifact mimetypes it applies to
+  label: string // button text
+  param: string // the tool arg that receives the artifact's path
+}
+
+/** The actions that apply to one artifact (mime match). */
+export function actionsFor(actions: ArtifactAction[], a: Artifact): ArtifactAction[] {
+  return actions.filter((ac) => ac.mime.includes(a.mime))
+}
+
 // The daemon's HTTP origin + auth token, refreshed on every (re)connect from the same
 // ws URL the gateway client resolves — so a daemon restart (new port/token) just works.
 let httpOrigin = ''

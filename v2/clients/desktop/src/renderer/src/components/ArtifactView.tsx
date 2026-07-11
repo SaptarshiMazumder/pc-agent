@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { FileText, FolderOpen, Eye, Download, Check } from 'lucide-react'
+import { FileText, FolderOpen, Eye, Download, Check, Wand2, Loader2 } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
-import { fileUrl, humanSize } from '../lib/artifacts'
+import { fileUrl, humanSize, actionsFor } from '../lib/artifacts'
 import { useApp } from '../state/store'
+import FileName from './FileName'
 
 /** "Image · PNG" / "Deck · PPTX" style subtitle. */
 function subtitle(a: Artifact): string {
@@ -18,6 +19,9 @@ function subtitle(a: Artifact): string {
  *  stopPropagation so a button press doesn't also trigger the card's open-canvas click. */
 function Actions({ a }: { a: Artifact }): JSX.Element {
   const openCanvas = useApp((s) => s.openCanvas)
+  const actions = useApp((s) => s.artifactActions)
+  const runAction = useApp((s) => s.runArtifactAction)
+  const busy = useApp((s) => !!s.artifactActionBusy[a.path])
   const [saved, setSaved] = useState(false)
   async function download(e: React.MouseEvent): Promise<void> {
     e.stopPropagation()
@@ -27,8 +31,22 @@ function Actions({ a }: { a: Artifact }): JSX.Element {
       setTimeout(() => setSaved(false), 2000)
     }
   }
+  // self-declared tool actions that apply to this artifact's mime (e.g. Convert to Vector on a PNG).
+  // Present only when the owning tool is installed — the button is fully data-driven, not hardcoded.
+  const acts = actionsFor(actions, a)
   return (
     <span className="artifact-actions">
+      {acts.map((ac) => (
+        <button
+          key={ac.tool}
+          className="artifact-btn"
+          title={busy ? 'working…' : ac.label}
+          disabled={busy}
+          onClick={(e) => { e.stopPropagation(); runAction(ac, a).catch((err) => console.error(`${ac.label} failed`, err)) }}
+        >
+          {busy ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />} {busy ? 'Working…' : ac.label}
+        </button>
+      ))}
       <button className="artifact-btn" title="open in the canvas" onClick={(e) => { e.stopPropagation(); openCanvas(a) }}>
         <Eye size={14} /> View
       </button>
@@ -49,7 +67,7 @@ function Meta({ a }: { a: Artifact }): JSX.Element {
   return (
     <>
       <span className="artifact-meta">
-        <span className="artifact-name" title={a.path}>{a.name}</span>
+        <FileName name={a.name} className="artifact-name" title={a.path} />
         <span className="artifact-sub">{subtitle(a)}</span>
       </span>
       <Actions a={a} />

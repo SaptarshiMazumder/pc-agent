@@ -7,7 +7,9 @@
   "author": "agentd",
   "license": "UNLICENSED",
   "scripts": {
+    "predev": "node scripts/kill-daemon.mjs",
     "dev": "electron-vite dev",
+    "predev:studio": "node scripts/kill-daemon.mjs",
     "dev:studio": "cross-env AGENTD_FLAVOR=figure-creator-studio electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

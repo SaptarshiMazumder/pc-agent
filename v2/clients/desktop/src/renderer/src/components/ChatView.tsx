@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
-import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users, X } from 'lucide-react'
+import { FormEvent, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type ClipboardEvent as ReactClipboardEvent } from 'react'
+import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users, X, Upload } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
-import { agentColor, agentInitials, agentTag } from '../lib/agentPresentation'
+import { agentColor, agentInitials, agentLabel, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp, type OutgoingAttachment } from '../state/store'
+import FileName from './FileName'
 import MessageItem from './MessageItem'
 import TabBar from './TabBar'
 
@@ -15,6 +16,9 @@ const DEFAULT_SUGGESTIONS = [
   'Draft a short release note for the latest changes.'
 ]
 const SUGGESTION_ICONS = [<Terminal size={15} key="t" />, <Check size={15} key="c" />, <MessageSquare size={15} key="m" />]
+
+// how many attachments may ride a single message — enforced across picker, drop, and paste
+const MAX_ATTACHMENTS = 10
 
 function fileToAttachment(f: File): Promise<OutgoingAttachment> {
   return new Promise((resolve, reject) => {
@@ -40,15 +44,22 @@ export default function ChatView() {
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<OutgoingAttachment[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // dragenter/leave fire for every nested child; count depth so the overlay only clears
+  // when the cursor truly leaves the chat, not when it crosses an inner element.
+  const dragDepth = useRef(0)
   const items = session?.items || []
   const running = session?.running || false
   const empty = items.length === 0
 
   const currentAgent = agents.find((a) => a.id === currentAgentId)
-  const agentName = currentAgent?.name || hello?.agentName || currentAgentId || 'agent'
+  const agentName = agentLabel(currentAgent?.name, currentAgentId, hello?.agentName)
+  // inside a project the PROJECT is the identity you're addressing (the answering
+  // agent is plumbing, shown only in the project's "answers as" picker)
+  const chatName = projectName || agentName
   // status-strip data (Claude-style): the model that ACTUALLY ran the latest step + its token
   // usage, live while running, kept out of the scrollback. Falls back to the configured model.
   const usage = session?.usage
@@ -93,9 +104,66 @@ export default function ChatView() {
 
   async function pickFiles(list: FileList | null) {
     if (!list || list.length === 0) return
-    const atts = await Promise.all(Array.from(list).map(fileToAttachment))
-    setPending((p) => [...p, ...atts])
+    const room = MAX_ATTACHMENTS - pending.length
+    if (room <= 0) return // already at the cap — the "Max N files" hint explains why
+    const atts = await Promise.all(Array.from(list).slice(0, room).map(fileToAttachment))
+    setPending((p) => [...p, ...atts].slice(0, MAX_ATTACHMENTS)) // hard guard against races
   }
+
+  // --- drag & drop (drop files anywhere on the chat, ChatGPT/Gemini-style) --------------
+  function hasFiles(dt: DataTransfer | null | undefined): boolean {
+    // 'Files' in types means an OS file drag — ignore text/element drags (canvas, selection)
+    return !!dt && Array.from(dt.types).includes('Files')
+  }
+  function onDragEnter(e: ReactDragEvent<HTMLDivElement>) {
+    if (!hasFiles(e.dataTransfer)) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setDragging(true)
+  }
+  function onDragOver(e: ReactDragEvent<HTMLDivElement>) {
+    if (!hasFiles(e.dataTransfer)) return
+    e.preventDefault() // required for the drop to be accepted
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  function onDragLeave(e: ReactDragEvent<HTMLDivElement>) {
+    if (!hasFiles(e.dataTransfer)) return
+    dragDepth.current -= 1
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0
+      setDragging(false)
+    }
+  }
+  function onDrop(e: ReactDragEvent<HTMLDivElement>) {
+    if (!hasFiles(e.dataTransfer)) return
+    e.preventDefault()
+    dragDepth.current = 0
+    setDragging(false)
+    void pickFiles(e.dataTransfer.files)
+  }
+
+  // paste an image/file straight from the clipboard (Ctrl/Cmd+V) — text pastes unaffected
+  function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (e.clipboardData?.files?.length) {
+      e.preventDefault()
+      void pickFiles(e.clipboardData.files)
+    }
+  }
+
+  // Safety net: without this, dropping a file that MISSES the chat area makes Electron
+  // navigate the window to the file:// URL (whole UI replaced by the image). Swallow any
+  // file drop at the window level; the chat's own onDrop still handles real attaches.
+  useEffect(() => {
+    const swallow = (ev: globalThis.DragEvent) => {
+      if (hasFiles(ev.dataTransfer)) ev.preventDefault()
+    }
+    window.addEventListener('dragover', swallow)
+    window.addEventListener('drop', swallow)
+    return () => {
+      window.removeEventListener('dragover', swallow)
+      window.removeEventListener('drop', swallow)
+    }
+  }, [])
 
   function mentionAgent(name: string) {
     setMenuOpen(false)
@@ -118,14 +186,19 @@ export default function ChatView() {
       {pending.length > 0 && (
         <div className="composer-atts">
           {pending.map((a, i) => (
-            <span className="att-chip" key={`${a.name}-${i}`} title={a.name}>
-              <Paperclip size={12} />
-              <span className="att-name">{a.name}</span>
+            <span className={`att-chip ${a.mimeType.startsWith('image/') ? 'att-chip--img' : ''}`} key={`${a.name}-${i}`} title={a.name}>
+              {a.mimeType.startsWith('image/') ? (
+                <img className="att-thumb" src={`data:${a.mimeType};base64,${a.dataBase64}`} alt="" />
+              ) : (
+                <Paperclip size={12} />
+              )}
+              <FileName name={a.name} className="att-name" />
               <button type="button" className="att-remove" title="remove" onClick={() => setPending((p) => p.filter((_, j) => j !== i))}>
                 <X size={12} />
               </button>
             </span>
           ))}
+          {pending.length >= MAX_ATTACHMENTS && <span className="att-limit">Max {MAX_ATTACHMENTS} files</span>}
         </div>
       )}
       <div className="composer-box">
@@ -148,12 +221,17 @@ export default function ChatView() {
                 </button>
                 <div className="cmenu-sep" />
                 <div className="cmenu-label"><Users size={13} />Message an agent</div>
-                {agents.map((a) => (
-                  <button type="button" className="cmenu-item cmenu-agent" key={a.id} onClick={() => mentionAgent(a.name || a.id)}>
-                    <span className="avatar avatar--sm" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
-                    <span className="cmenu-main"><span className="cmenu-title">{a.name || a.id}</span><span className="cmenu-sub">{a.tagline || agentTag(a.id)}</span></span>
-                  </button>
-                ))}
+                {agents.map((a) => {
+                  // one label for display AND the inserted @mention — the gateway resolves
+                  // mentions by id OR display name, so what the user sees is what routes.
+                  const label = agentLabel(a.name, a.id, hello?.agentName)
+                  return (
+                    <button type="button" className="cmenu-item cmenu-agent" key={a.id} onClick={() => mentionAgent(label)}>
+                      <span className="avatar avatar--sm" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(label, a.id)}</span>
+                      <span className="cmenu-main"><span className="cmenu-title">{label}</span><span className="cmenu-sub">{a.tagline || agentTag(a.id)}</span></span>
+                    </button>
+                  )
+                })}
               </div>
             </>
           )}
@@ -162,10 +240,11 @@ export default function ChatView() {
         <textarea
           ref={taRef}
           value={draft}
-          placeholder={connection === 'open' ? `Message ${agentName}…` : 'connecting…'}
+          placeholder={connection === 'open' ? `Message ${chatName}…` : 'connecting…'}
           disabled={connection !== 'open'}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+          onPaste={onPaste}
           rows={1}
         />
         {running ? (
@@ -190,11 +269,11 @@ export default function ChatView() {
   const greeting = (
     <div className="empty-state">
       <img className="empty-logo" src={logo} alt="" />
-      <div className="empty-title">{agentName}</div>
+      <div className="empty-title">{chatName}</div>
       <div className="empty-sub">
         {projectName
-          ? `New chat in ${projectName} — ask anything.`
-          : currentAgentId === 'main' || !currentAgentId
+          ? 'New chat in this project — ask anything.'
+          : currentAgentId === MAIN_AGENT_ID || !currentAgentId
             ? 'Ask anything — tools, files, browsing and your installed agents are all here.'
             : `You’re talking to ${agentName}. ${currentAgent?.tagline || agentTag(currentAgentId)}.`}
       </div>
@@ -213,8 +292,22 @@ export default function ChatView() {
   )
 
   return (
-    <div className={`chat ${empty ? 'empty' : ''}`}>
+    <div
+      className={`chat ${empty ? 'empty' : ''}`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <TabBar />
+      {dragging && (
+        <div className="chat-dropzone" aria-hidden>
+          <div className="chat-dropzone-inner">
+            <Upload size={28} />
+            <span>Drop files to attach</span>
+          </div>
+        </div>
+      )}
 
       {empty ? (
         // ChatGPT/Gemini-style: greeting, then the input centered in the page, suggestions below

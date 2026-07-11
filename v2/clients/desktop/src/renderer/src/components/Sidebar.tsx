@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
-import { agentColor, agentInitials, agentTag } from '../lib/agentPresentation'
+import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
 import SearchBox from './SearchBox'
@@ -112,7 +112,7 @@ export default function Sidebar() {
   const chats = recents.filter((s) => !q || (s.title || s.sessionId).toLowerCase().includes(q))
   // 'main' is the DEFAULT agent (what a plain New chat talks to) — hide it from the roster so
   // the list shows only the named agents you created. It's still the default everywhere else.
-  const namedAgents = agents.filter((a) => a.id !== 'main')
+  const namedAgents = agents.filter((a) => a.id !== MAIN_AGENT_ID)
 
   const projectsActive = view === 'projects' || view === 'project'
 

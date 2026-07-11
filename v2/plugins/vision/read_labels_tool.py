@@ -45,9 +45,13 @@ All coordinates are integers 0-1000 (NOT pixels)."""
 
 # The strip prompt — used ONLY when no textless base is provided, to make one from the labelled image.
 _STRIP_PROMPT = (
-    "Reproduce this EXACT image, pixel-for-pixel, but REMOVE every text label, number, callout, legend and "
-    "leader / pointer line COMPLETELY. Keep ALL artwork, anatomy, colours and shading unchanged and sharp, "
-    "on a pure solid white background. There must be NO text and NO leader lines anywhere in the output."
+    "Reproduce this EXACT image, pixel-for-pixel, but REMOVE — completely and everywhere — every text "
+    "label, word, number, callout, legend, title and caption; every leader line, pointer line, arrow and "
+    "arrowhead; and every marker, dot, bracket, tick, measurement mark and scale bar. Also remove any "
+    "background, backdrop, scenery or colour fill behind the subject. Keep ALL artwork, anatomy, colours "
+    "and shading unchanged and sharp, on a pure solid white background. There must be NO text, NO leader "
+    "or pointer lines, NO arrows and NO markers anywhere in the output — only the clean illustration on "
+    "a pure white background."
 )
 
 

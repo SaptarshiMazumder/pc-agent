@@ -5,48 +5,46 @@ description: Make a figure editable ON DEMAND. For a figure this pipeline genera
 
 # Vectorize a figure
 
-Turn a **flat raster figure** into something editable. Three approaches — pick by what you have:
+Turn a **flat raster figure** into an editable SVG. Pick by what the user wants:
 
-| Have | Approach | Result |
+| Want | Tool | Result |
 | --- | --- | --- |
-| a figure WE generated (labelled PNG, manifest exists) | ★ `extract_annotations` | pixel-exact: OCR'd editable `<text>` + `arrow`/`leader` paths with the model's own curves, widths, colours, arrowheads |
-| any labelled raster (no base, extraction fails/unanchored) | `read_labels_from_image` | VLM-read labels + leader endpoints → `annotation` elements |
-| a logo / clean line-art, user wants the SHAPES as vectors | `trace_image` | regions → Bezier paths (NOT editable text; lossy; opt-in) |
+| "make this editable / convert to SVG / vectorize this figure" | ★ **`figure_to_svg`** | ONE call → editable layered SVG: OCR'd `<text>`, semantic vector arrows (VLM-read, pixel-snapped) + blob-trace fallback, crisp raster artwork (or vector). |
+| the SAME, but you want to hand-edit the element spec before composing | `extract_annotations` → `render_editable_overlay` → `compose_figure_layers` | the lower-level 3-step path; gives you the elements JSON to tweak |
+| a plain logo / line-art, user wants the SHAPES as vectors (no labels) | `trace_image` | regions → Bezier paths (NOT editable text; lossy; opt-in) |
 
-Most requests ("make this editable / let me fix the labels") mean the **first row that applies**.
+Most requests ("make this editable / let me fix the labels") are the **first row** — use
+`figure_to_svg`.
 
-## Workflow — extraction (the default)
+## Workflow — the one-call converter (the default)
 
-1. **Read the figure's manifest** if it exists (`<figure>_manifest.json`) — it names the labelled
-   image and any existing base. No manifest? The labelled image the user pointed at is the input.
-2. **`extract_annotations(labeled=L)`** (pass `base=` only if a pixel-aligned textless base already
-   exists — e.g. from the manifest). It strips a base `T'`, diffs, OCRs, traces, and writes the
-   spec JSON. **Heed its gates:**
-   - ALIGNMENT warning → LOOK at `T'`; if the strip altered artwork, re-run (a fresh strip).
-   - UNANCHORED labels → the model drew them with no leader: add those few via
-     `read_labels_from_image(image=L, base=T', structures=[…])`, or accept them as floating text.
-3. **LOOK at `T'`** — labels removed cleanly, art intact?
-4. **`render_editable_overlay(elements_path=<the spec JSON>, out_svg, out_png)`** — never retype
-   elements. LOOK at the PNG.
-5. **`compose_figure_layers(artwork=T', overlay_svg_path=…, out_svg, out_png)`** → the layered
-   editable SVG + flattened PNG. `validate_svg`. The composite must look like the ORIGINAL — that
-   is the WYSIWYG contract of extraction.
-6. **Update the manifest**: `state: "vectorized"`, record `base`/`elements`/`overlay`/`final_svg`,
-   bump `version`. `export_pptx(artwork=T', elements_path=…)` / `export_pdf` on request.
+1. **`figure_to_svg(image=<the figure PNG>)`** — that's it. It is self-contained and stateless:
+   strips a textless base, OCRs the text, rebuilds arrows semantically (with a blob-trace
+   fallback), keeps the artwork as a crisp raster, and writes the editable SVG + a preview PNG.
+   - Pass `base=` if you already have a pixel-aligned textless base (skips the strip).
+   - `artwork_mode="vector"` to vtrace the artwork into editable shapes too (fully editable,
+     figurelabs-style, softer look). Default `raster` = highest quality.
+   - `semantic_arrows=false` to skip the VLM and blob-trace all arrows (faster, figurelabs-parity).
+2. **LOOK** at the preview PNG — it must look like the original (WYSIWYG). If artwork was altered
+   (a bad strip), pass a better `base` or re-run.
+3. `validate_svg` the result; `export_pptx` / `export_pdf` on request.
 
-> Fixing one wrong label/pointer afterwards = edit that element in the spec JSON and re-run
-> render + compose — never paint over the raster, never re-bake text.
+## Workflow — element-level control (`extract_annotations`)
+
+When you need to inspect or edit the elements before composing (e.g. rename a label, restyle an
+arrow up front): `extract_annotations(labeled=L)` writes the spec JSON → edit it →
+`render_editable_overlay(elements_path=…)` → `compose_figure_layers(artwork=base, overlay_svg_path=…)`.
+Fixing one wrong label afterwards = edit that element and re-render — never paint over the raster.
 
 ## Workflow — VLM fallback (`read_labels_from_image`)
 
-For an arbitrary labelled image where extraction isn't usable end-to-end:
-1. `read_labels_from_image` with just the `image` — it strips a clean textless `base_png` and reads
-   every label → `annotation` elements (text + pointer + label position).
-2. LOOK at `base_png`, then the same render → compose → validate → export chain as above.
+If OCR/extraction can't read a figure end-to-end (unusual fonts, no clean base):
+`read_labels_from_image` with just the `image` strips a clean base and reads labels → `annotation`
+elements → render → compose → validate → export.
 
 ## Workflow — geometric tracing (shapes only) — OPT-IN
 
 **Only when the user explicitly asks to vectorize the shapes/artwork itself** ("vectorize the whole
-image", "make the shapes editable"). It is **lossy** (color-blob paths, big files) — never a
-default. `trace_image` (`mode` color|binary, `precision` 1-8); if the backend is missing it returns
-an install message — relay it, don't pretend it traced.
+image", "make the shapes editable"). Lossy (color-blob paths, big files) — never a default.
+`trace_image` (`mode` color|binary, `precision` 1-8); relay its install message if the backend is
+missing, don't pretend it traced.

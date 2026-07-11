@@ -73,6 +73,9 @@ def catalog_from_tools(config, tools) -> dict:
                 # self-described PROVIDER options so a client offers a picker, not a text box (empty => free text)
                 "provider_options": list(getattr(tool, "provider_options", None) or []),
                 "provider_chain": bool(getattr(tool, "provider_chain", False)),
+                # self-described canvas ARTIFACT ACTION (e.g. a "Convert to Vector" button on PNGs);
+                # {} => not a UI action. Lets a client render the button generically, gated on mime.
+                "artifact_action": dict(getattr(tool, "artifact_action", None) or {}),
                 "description": (tconf or {}).get("description")
                 or _first_line(getattr(tool, "description", "")),
                 # the FULL canonical description from the tool's code (the config `description` is a

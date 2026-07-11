@@ -840,7 +840,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* the name + subtitle + action row (used by audio/file rows; overlay reuses the pieces) */
 .artifact-bar { display: flex; align-items: center; gap: 10px; padding: 9px 11px; }
 .artifact-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.artifact-name { font-size: 13px; font-weight: var(--fw-strong); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-name { font-size: 13px; font-weight: var(--fw-strong); color: var(--text); }
 .artifact-sub { font: 11px var(--mono); color: var(--faint); }
 .artifact-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .artifact-btn {
@@ -927,9 +927,34 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .composer-atts { max-width: 788px; margin: 0 auto 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .att-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 5px 9px; border-radius: 999px; background: var(--bg3); border: 1px solid var(--border); font-size: 12px; color: var(--text); }
 .att-chip svg { color: var(--dim); flex: none; }
-.att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* shared MIDDLE truncation (keeps the extension): head shrinks + ellipsizes, tail is pinned.
+   Used by both composer attachment chips and inline artifact cards (see FileName.tsx). */
+.fname { display: flex; min-width: 0; overflow: hidden; }
+.fname-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fname-tail { flex: none; white-space: nowrap; }
 .att-remove { display: flex; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 0; border-radius: 50%; }
 .att-remove:hover { color: var(--text); }
+/* shown once the attachment cap is reached so the limit isn't silent */
+.att-limit { align-self: center; font-size: 11px; color: var(--faint); }
+/* image attachments preview as a thumbnail instead of the paperclip glyph */
+.att-chip--img { padding-left: 4px; }
+.att-thumb { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; flex: none; }
+
+/* drag & drop attach (ChatGPT/Gemini-style): drop anywhere on the chat. The overlay is
+   pointer-events:none so drag events keep reaching the .chat handlers underneath it.
+   Minimal by design — just the icon + label in the theme accent, no box or border. */
+.chat-dropzone {
+  position: absolute; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+}
+.chat-dropzone-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  color: var(--accent-text); font-weight: var(--fw-semi); font-size: 14px;
+}
+.chat-dropzone-inner svg { color: var(--accent-text); }
 
 /* the artifact card/chip opens the Canvas on click */
 .artifact-clickable { cursor: pointer; }

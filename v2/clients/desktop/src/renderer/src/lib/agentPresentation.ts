@@ -45,11 +45,32 @@ export function hashColor(seed: string): string {
 // main wears the brand lime (matches presentation.MAIN_COLOR); reserved for it.
 const MAIN_COLOR = '#a3e635'
 
+/** The INTERNAL id of the default/generalist agent. It's routing plumbing, not a name —
+ *  never render it; go through agentLabel() so users see the server-owned display name. */
+export const MAIN_AGENT_ID = 'main'
+
 /** An agent's avatar/dot colour: the server-assigned one, else the deterministic
  *  fallback so an avatar is never blank (main falls back to the brand lime). Tolerates an
  *  undefined/empty id (a session row from an older daemon may not carry agentId yet). */
 export function agentColor(serverColor: string | undefined, id: string | undefined): string {
-  return serverColor || ((id || '') === 'main' ? MAIN_COLOR : hashColor(id || ''))
+  return serverColor || ((id || '') === MAIN_AGENT_ID ? MAIN_COLOR : hashColor(id || ''))
+}
+
+/** The user-facing label for an agent. The server-owned name wins; the internal id
+ *  'main' is NEVER shown — for the default agent a missing/id-shaped name (older daemon,
+ *  roster not loaded yet) degrades to the hello's assistant name, then a neutral word.
+ *  Named agents keep their id as the fallback (those ids are user-authored and meaningful). */
+export function agentLabel(
+  name: string | undefined,
+  id: string | undefined,
+  assistantName?: string
+): string {
+  const aid = id || ''
+  const n = (name || '').trim()
+  if (aid === MAIN_AGENT_ID) {
+    return (n && n !== MAIN_AGENT_ID ? n : '') || assistantName || 'Assistant'
+  }
+  return n || aid || 'agent'
 }
 
 /** Fallback tagline only — the real one is server-owned (`AgentInfo.tagline`). */

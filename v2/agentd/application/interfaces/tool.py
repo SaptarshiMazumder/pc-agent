@@ -99,6 +99,13 @@ class Tool(ABC):
     # via resolve_tool_provider(config, …); this is purely the advertised option set.
     provider_options: list[str] = []
     provider_chain: bool = False
+    # ARTIFACT ACTION self-description — a tool that can act on a produced artifact (a canvas button)
+    # declares it here, so a client renders that button GENERICALLY, gated on the artifact's mime and
+    # on this tool being installed. No UI hardcoding: the button exists exactly when the tool does.
+    # Shape: {"mime": ["image/png", ...], "label": "Convert to Vector", "param": "image"} — `mime` is
+    # the artifact mimetypes it applies to, `label` the button text, `param` the tool arg that takes
+    # the artifact's path. Empty {} => not a UI action (the default). Invoked via the tools.invoke RPC.
+    artifact_action: dict[str, Any] = {}
 
     def resolve_model(self, config, per_call: str | None = None) -> str | None:
         """This tool's model, resolved uniformly so a tool author NEVER has to name a model: just

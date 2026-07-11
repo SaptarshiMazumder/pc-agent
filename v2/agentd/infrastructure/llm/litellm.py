@@ -74,24 +74,32 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
             # A plain text turn stays a plain string. When the user ATTACHED files, build a
             # multimodal parts array: the text, each IMAGE inlined as a data URL so a vision
             # model can SEE it (read from disk at send time — the transcript only holds the
-            # path), and a one-line mention for non-image files (which the agent can open with
-            # its own tools, since they live in the workspace).
+            # path), PLUS a one-line path note for EVERY attachment.
+            #
+            # Why the path note also covers images: a vision model can see an image's pixels,
+            # but any tool that must operate on the FILE itself (vectorize, OCR, edit, "convert
+            # this image to SVG") needs the on-disk PATH. Inlining pixels alone left the agent
+            # with the picture but no path, so it hunted the filesystem with ls/find — and could
+            # grab a coincidental name-match elsewhere instead of the file the user attached.
             if getattr(m, "attachments", None):
                 parts: list[dict[str, Any]] = []
                 if m.content:
                     parts.append({"type": "text", "text": m.content})
-                extra_notes: list[str] = []
+                notes: list[str] = []
                 for att in m.attachments:
                     url = image_data_url(att.path)
                     if url is not None:
                         parts.append({"type": "image_url", "image_url": {"url": url}})
-                    else:
-                        extra_notes.append(f"- {att.name} ({att.path})")
-                if extra_notes:
+                    # every attachment (image or not) contributes its path — see note above
+                    notes.append(f"- {att.name}: {att.path}")
+                if notes:
+                    # State WHERE each attachment lives on disk — plain fact, no behavioural
+                    # instruction. Same shape as a tool result reporting the path it wrote; the
+                    # model feeds it to a path-taking tool because it's the obvious input.
                     parts.append(
                         {
                             "type": "text",
-                            "text": "(attached files:\n" + "\n".join(extra_notes) + ")",
+                            "text": "Attached file(s), saved on disk at:\n" + "\n".join(notes),
                         }
                     )
                 out.append({"role": "user", "content": parts or m.content})

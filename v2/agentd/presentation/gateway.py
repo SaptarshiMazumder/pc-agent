@@ -1195,6 +1195,31 @@ class Gateway:
             raise RuntimeError(text or f"{name} failed")
         return text
 
+    async def _tools_invoke(self, params: dict) -> dict:
+        """Run ONE tool directly from a client (no agent/LLM turn) and return its text + rendered
+        artifacts — this powers self-declared canvas ACTIONS (e.g. the 'Convert to Vector' button on
+        a PNG). Only tools that opt in by declaring `artifact_action` are invokable this way, so the
+        RPC can't run arbitrary tools. Params: {name, params:{...}}."""
+        from agentd.infrastructure.files import resolve_artifacts
+        from agentd.infrastructure.plugins.catalog import _unwrap_tool
+
+        name = (params.get("name") or "").strip()
+        tool = self.service.find_tool(name)
+        if tool is None:
+            raise RuntimeError(f"tool not available: {name}")
+        # find_tool returns the reliability WRAPPER (GuardedTool, real tool in `_inner`); the
+        # self-declared `artifact_action` lives on the inner tool — unwrap to read it (same as the
+        # catalog does), or the gate would reject every UI action. We still RUN the wrapper.
+        if not getattr(_unwrap_tool(tool), "artifact_action", None):
+            raise RuntimeError(f"tool '{name}' is not invokable from the UI")
+        result = await tool.execute(
+            uuid.uuid4().hex[:8], dict(params.get("params") or {}), asyncio.Event()
+        )
+        text = "".join(getattr(b, "text", "") for b in (result.content or []))
+        if result.is_error:
+            raise RuntimeError(text or f"{name} failed")
+        return {"text": text, "artifacts": resolve_artifacts(result.artifacts)}
+
     async def _fire_channel(self, channel, msg) -> None:
         """An inbound message arrived -> run the bound agent on a conversation-bound
         session and reply on the SAME channel. Busy-guarded per peer."""
@@ -1639,6 +1664,8 @@ class Gateway:
                 payload = self._workspace_delete(req.params)
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
+            elif req.method == "tools.invoke":
+                payload = await self._tools_invoke(req.params)
             elif req.method == "plugins.catalog":
                 payload = self._plugins_catalog()
             elif req.method == "capabilities.list":
@@ -2420,6 +2447,8 @@ class Gateway:
                         # chain), never a free-text box; empty => open-ended provider => free text.
                         "providerOptions": t.get("provider_options") or [],
                         "providerChain": bool(t.get("provider_chain")),
+                        # self-declared canvas action (e.g. Convert to Vector on PNGs); null => none
+                        "artifactAction": t.get("artifact_action") or None,
                         "enabled": name not in disabled,
                     }
                 )
@@ -2525,7 +2554,9 @@ class Gateway:
         just yields an empty list)."""
         agent_id = (params.get("agentId") or "").strip() or "main"
         if self.registry is None:
-            return {"id": agent_id, "name": agent_id, "workspaceFiles": [], "skills": []}
+            # never surface the internal id "main" as a display name
+            name = self.config.agent_name if agent_id == "main" else agent_id
+            return {"id": agent_id, "name": name, "workspaceFiles": [], "skills": []}
         try:
             spec = self.registry.get(agent_id)
         except KeyError:
@@ -3205,7 +3236,9 @@ class Gateway:
         # user attachments (e.g. an edited image sent from the canvas): save each into the
         # target agent's workspace/uploads and carry them BY REFERENCE (Artifact). A message
         # may be attachments-only (no text), so the empty-check comes AFTER resolving them.
-        attachments = self._save_uploads(agent_id, params.get("attachments") or [])
+        attachments = self._save_uploads(
+            agent_id, params.get("attachments") or [], (params.get("projectId") or "").strip()
+        )
         if not message.strip() and not attachments:
             raise ValueError("message must not be empty")
 
@@ -3243,15 +3276,18 @@ class Gateway:
         self.runs[session_key] = handle
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
 
-    def _save_uploads(self, agent_id: str | None, raw: list) -> list[Artifact]:
-        """Persist client-supplied attachments into the target agent's ``workspace/uploads``
-        and return them as domain Artifacts (by reference). Each item is
-        ``{name, mimeType?, dataBase64}``. Oversized or malformed items are skipped rather
-        than failing the whole send. IO lives HERE (presentation) so the application service
-        stays free of infrastructure."""
+    def _save_uploads(
+        self, agent_id: str | None, raw: list, project_id: str = ""
+    ) -> list[Artifact]:
+        """Persist client-supplied attachments into ``<workspace>/uploads`` and return them as
+        domain Artifacts (by reference). A chat inside a PROJECT saves into the project's SHARED
+        workspace — the SAME folder the run's file/exec tools bind to (§11) — so an upload and any
+        tool output that lands next to it stay together; a standalone chat uses the agent's own
+        workspace (unchanged). Each item is ``{name, mimeType?, dataBase64}``; oversized/malformed
+        items are skipped rather than failing the whole send. IO lives HERE (presentation)."""
         if not raw:
             return []
-        workspace = self._resolve_workspace(agent_id)
+        workspace = self._upload_workspace(agent_id, project_id)
         dest = Path(workspace) / "uploads"
         out: list[Artifact] = []
         for item in raw:
@@ -3281,6 +3317,22 @@ class Gateway:
             except KeyError:
                 pass
         return str(self.config.workspace)
+
+    def _upload_workspace(self, agent_id: str | None, project_id: str = "") -> str:
+        """Where an upload lands: a PROJECT chat -> the project's SHARED workspace (§11 — the same
+        folder the run's tools use), else the target agent's own workspace. Mirrors the run's
+        _effective_workspace so uploads and tool outputs never diverge. A stale/unknown project
+        falls back to the agent workspace."""
+        pid = (project_id or "").strip()
+        if pid:
+            try:
+                from agentd.infrastructure.memory import projects_store
+
+                if projects_store.get_project(self.config.state_dir, pid) is not None:
+                    return str(projects_store.project_workspace_dir(self.config.state_dir, pid))
+            except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a send
+                pass
+        return self._resolve_workspace(agent_id)
 
     def _abort_handle(self, handle: RunHandle) -> bool:
         """Signal a run to stop: set its abort flag (cooperative — the loop/tools

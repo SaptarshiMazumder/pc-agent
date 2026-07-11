@@ -368,7 +368,18 @@ sidecar), not a tool. Daemon restart needed to pick up the new tools.*
 | **P2** ✅ | `extract_annotations` tool (diff→OCR→trace→semantic re-emit) + on-demand vectorize flow with manifest state machine | Label placement accuracy + NB arrow fidelity — the core gap |
 | **P3** ✅ | Manifest + edit router + `edit_artwork` | "Fix the nozzle" works; FigureLabs edit-op parity |
 | **P4** ✅ | Deterministic gates (alignment, leaders, white-bg) + mandatory verify + repair cycle | Consistency; kills the "sometimes it just ships broken" tail |
+| **P4.5** ✅ | **`figure_to_svg`** — standalone ONE-CALL converter (strip→OCR text→**semantic arrows**+blob fallback→raster/vector artwork→composed SVG), stateless (any agent/flow/chat, just an image path); + the **semantic arrow layer** (`arrow_reader.py`: VLM reads each arrow's direction, endpoints snapped to pixels + exact centre-line from `trace_stroke`, blob-trace fallback for misses) — the tier that BEATS figurelabs (they trace arrows to dumb blobs). Also: white-box regression fixed (blend to local bg / skip on textured artwork / filter OCR artwork-misreads), based on the user's figurelabs teardown (their vectorizer = whole-image blob trace + editable text with ghost artifacts on colour). Shared helpers factored to `vectorize_extract` (`snap_to_mask`, `blob_trace`, `strip_labels`). Tests: `test_figure_to_svg.py` (7) + `test_extract_annotations.py` (9). | The user-requested independent converter + the figurelabs-beating arrow reconstruction |
 | **P5** | `compose_panels` tool, model currency/alternates, de-collision, PPTX arrowhead fidelity, desktop Edit-as-SVG button on image artifacts | Polish + export parity |
+
+### Key competitive finding (user teardown, 2026-07-10)
+
+FigureLabs' "AI Vectorizer" is confirmed **whole-image tracing → colored blob paths + editable text
+redrawn on top, leaving a ghost artifact where text sat on colour** (the open question from §8,
+answered). So: (a) a perfectly clean strip is NOT required — even the leader leaves artifacts; (b)
+their arrows are dumb traced blobs, not semantic objects. Our `figure_to_svg` matches their robust
+baseline (blob-trace) AND adds semantic arrow reconstruction they don't have → cleaner artwork
+(raster default, no blob-soup) + real directional arrows. Design choices locked with the user:
+**semantic arrows + blob fallback**; **raster artwork default** (vector via `artwork_mode`).
 
 ---
 

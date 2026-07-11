@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Folder, SquarePen, FolderOpen, MessageSquare } from 'lucide-react'
 
-import { hashColor } from '../lib/agentPresentation'
+import { agentLabel, hashColor, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
@@ -15,6 +15,7 @@ export default function ProjectView() {
   const currentProjectId = useApp((s) => s.currentProjectId)
   const recents = useApp((s) => s.recents)
   const agents = useApp((s) => s.agents)
+  const hello = useApp((s) => s.hello)
   const newSession = useApp((s) => s.newSession)
   const resumeSession = useApp((s) => s.resumeSession)
   const currentSessionKey = useApp((s) => s.currentSessionKey)
@@ -50,7 +51,8 @@ export default function ProjectView() {
     )
   }
 
-  const leadName = agents.find((a) => a.id === (project.defaultAgentId || 'main'))?.name || 'main'
+  const leadId = project.defaultAgentId || MAIN_AGENT_ID
+  const leadName = agentLabel(agents.find((a) => a.id === leadId)?.name, leadId, hello?.agentName)
 
   return (
     <div className="entity-page">
@@ -69,13 +71,13 @@ export default function ProjectView() {
                 {chats.length} chat{chats.length === 1 ? '' : 's'} · answers as{' '}
                 <select
                   className="settings-select proj-answers-inline"
-                  value={project.defaultAgentId || 'main'}
-                  onChange={(e) => void setProjectLead(project.id, e.target.value === 'main' ? '' : e.target.value)}
+                  value={project.defaultAgentId || MAIN_AGENT_ID}
+                  onChange={(e) => void setProjectLead(project.id, e.target.value === MAIN_AGENT_ID ? '' : e.target.value)}
                   title="which agent answers new chats in this project (it can still bring in other agents)"
                 >
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.id === 'main' ? `${a.name || 'main'} (default)` : (a.name || a.id)}
+                      {agentLabel(a.name, a.id, hello?.agentName)}{a.id === MAIN_AGENT_ID ? ' (default)' : ''}
                     </option>
                   ))}
                 </select>

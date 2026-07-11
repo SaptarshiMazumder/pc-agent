@@ -21,7 +21,7 @@ import type {
   SessionRow
 } from '../gateway/protocol'
 import { resultText } from '../gateway/protocol'
-import type { Artifact } from '../lib/artifacts'
+import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 
@@ -288,6 +288,12 @@ interface AppState {
   /** the right-side Canvas: a file open for rich view/edit (null = closed) + its width */
   canvas: { artifact: Artifact | null; width: number }
 
+  /** self-declared canvas actions (e.g. Convert to Vector), fetched from the plugin catalog at
+   *  handshake — present only for tools that are actually installed. Rendered as artifact buttons. */
+  artifactActions: ArtifactAction[]
+  /** artifact path -> true while its action is running (spinner + disabled button) */
+  artifactActionBusy: Record<string, boolean>
+
   catalog: CatalogBundle[]
   catalogError: string
   installed: InstalledBundle[]
@@ -305,6 +311,10 @@ interface AppState {
   openCanvas(artifact: Artifact): void
   closeCanvas(): void
   setCanvasWidth(width: number): void
+  /** run a self-declared artifact action (e.g. Convert to Vector) on an artifact, then open the
+   *  primary produced artifact (the SVG) in the Canvas. Never throws — success OR failure is shown
+   *  in the Canvas (there is no toast system), so the click is never a silent no-op. */
+  runArtifactAction(action: ArtifactAction, a: Artifact): Promise<void>
   activateTab(tab: OpenTab): Promise<void>
   closeTab(sessionId: string): void
   closeOtherTabs(sessionId: string): void
@@ -529,6 +539,34 @@ export const useApp = create<AppState>((set, get) => {
     })
     await Promise.all([refreshSessions(), refreshRecents(), refreshProjects()])
     await preinstallBundles()
+    await refreshArtifactActions()
+  }
+
+  // Learn which canvas ACTIONS exist from the live plugin catalog: any enabled tool that
+  // self-declares an `artifactAction`. Present only for installed tools (e.g. figure_to_svg ships
+  // with figure-creator), so the button appears exactly when the capability is installed.
+  async function refreshArtifactActions(): Promise<void> {
+    try {
+      const { plugins } = await gateway.request<{
+        plugins: {
+          enabled: boolean
+          tools: { name: string; enabled: boolean; artifactAction?: ArtifactAction | null }[]
+        }[]
+      }>('plugins.catalog')
+      const actions: ArtifactAction[] = []
+      for (const p of plugins || []) {
+        if (p.enabled === false) continue
+        for (const t of p.tools || []) {
+          const a = t.artifactAction
+          if (t.enabled !== false && a && Array.isArray(a.mime) && a.mime.length && a.label) {
+            actions.push({ tool: t.name, mime: a.mime, label: a.label, param: a.param || 'image' })
+          }
+        }
+      }
+      set({ artifactActions: actions })
+    } catch {
+      /* older daemon / no catalog — just no action buttons */
+    }
   }
 
   async function refreshSessions(): Promise<void> {
@@ -695,6 +733,9 @@ export const useApp = create<AppState>((set, get) => {
     sidebarCollapsed: false,
     canvas: { artifact: null, width: 560 },
 
+    artifactActions: [],
+    artifactActionBusy: {},
+
     catalog: [],
     catalogError: '',
     installed: [],
@@ -745,6 +786,56 @@ export const useApp = create<AppState>((set, get) => {
 
     openCanvas(artifact) {
       set((s) => ({ canvas: { ...s.canvas, artifact } }))
+    },
+    async runArtifactAction(action, a) {
+      if (get().artifactActionBusy[a.path]) return
+      set((s) => ({ artifactActionBusy: { ...s.artifactActionBusy, [a.path]: true } }))
+      try {
+        const res = await gateway.request<{ text: string; artifacts: Artifact[] }>('tools.invoke', {
+          name: action.tool,
+          params: { [action.param]: a.path }
+        })
+        const arts = res.artifacts || []
+        // open the primary editable deliverable — prefer the SVG, else the first artifact. If the
+        // tool produced no file, show its text so the result is never silent.
+        const primary = arts.find((x) => x.name.toLowerCase().endsWith('.svg')) || arts[0]
+        if (primary) get().openCanvas(primary)
+        else
+          get().openCanvas({
+            // `.md` so the Canvas routes it to the text viewer and actually shows `text`
+            path: `result:${a.path}:${Date.now()}`,
+            name: `${action.label} — result.md`,
+            mime: 'text/markdown',
+            kind: 'file',
+            text: res.text || 'Done (no file produced).'
+          })
+      } catch (err) {
+        // surface the failure IN the canvas (there is no toast system) so it's never a silent no-op.
+        // NOTE: name it `.md` — the canvas picks the viewer by extension, so a bare name renders the
+        // "no preview" fallback and hides the message (that was the earlier bug).
+        get().openCanvas({
+          path: `error:${a.path}:${Date.now()}`,
+          name: `${action.label} failed.md`,
+          mime: 'text/markdown',
+          kind: 'file',
+          text:
+            `## ${action.label} failed\n\n` +
+            '```\n' +
+            String((err as Error)?.message || err) +
+            '\n```\n\n' +
+            `It ran \`${action.tool}\` directly on:\n\n\`${a.path}\`\n\n` +
+            `**Common causes**\n` +
+            `- the source file no longer exists at that path (an old/moved artifact) → "no such file"\n` +
+            `- the image model / OCR is unavailable (e.g. a Gemini spend cap) → "RESOURCE_EXHAUSTED"\n` +
+            `- the tool isn't installed / registered → "tool not available"`
+        })
+      } finally {
+        set((s) => {
+          const busy = { ...s.artifactActionBusy }
+          delete busy[a.path]
+          return { artifactActionBusy: busy }
+        })
+      }
     },
     closeCanvas() {
       set((s) => ({ canvas: { ...s.canvas, artifact: null } }))

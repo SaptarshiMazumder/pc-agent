@@ -91,6 +91,117 @@ def component_color(labeled_rgb, coords) -> str:
     return "#{:02x}{:02x}{:02x}".format(*(int(v) for v in med))
 
 
+def _border_ring(A, x0, y0, x1, y1, t: int = 4):
+    """Pixels in a thin ring just OUTSIDE a box's edges — the LOCAL BACKGROUND around a label.
+    Sampled outside (not inside) so a tight text box doesn't catch its own glyph pixels."""
+    import numpy as np
+
+    H, W = A.shape[:2]
+    ox0, oy0 = max(0, x0 - t), max(0, y0 - t)
+    ox1, oy1 = min(W, x1 + t), min(H, y1 + t)
+    parts = [
+        A[oy0:y0, ox0:ox1].reshape(-1, 3),
+        A[y1:oy1, ox0:ox1].reshape(-1, 3),
+        A[y0:y1, ox0:x0].reshape(-1, 3),
+        A[y0:y1, x1:ox1].reshape(-1, 3),
+    ]
+    parts = [p for p in parts if p.size]
+    return np.concatenate(parts) if parts else np.empty((0, 3), dtype=A.dtype)
+
+
+def clean_base(labeled_arr, base_arr, label_boxes):
+    """Remove BAKED label text from the base so it can't double under the new editable <text>.
+    For each OCR text box: if the LOCAL BACKGROUND around it is near-uniform (a margin / flat
+    region), fill the box with that background colour — this erases any label the strip left behind
+    (or the whole label if the strip failed entirely), invisibly on a margin. On TEXTURED artwork we
+    leave it: a faint ghost under the new text (what FigureLabs also does) beats a patch painted over
+    the drawing. Returns (cleaned_base_array, n_cleaned). Always safe to run — a box the strip
+    already cleared is uniform background, so filling it with that background is a no-op.
+    """
+    import numpy as np
+
+    H, W = base_arr.shape[:2]
+    clean = base_arr.copy()
+    n = 0
+    for x0, y0, x1, y1 in label_boxes:
+        pad = max(2, int((y1 - y0) * 0.25))
+        rx0, ry0 = max(0, int(x0) - pad), max(0, int(y0) - pad)
+        rx1, ry1 = min(W, int(x1) + pad), min(H, int(y1) + pad)
+        if rx1 <= rx0 or ry1 <= ry0:
+            continue
+        # ONLY touch a box where the baked label is actually STILL in the base (strip left it). If
+        # the strip already removed the text, the base here is untouched artwork — filling it would
+        # paint a solid rectangle whose straight edges show wherever they cross an artwork boundary
+        # (e.g. a label box overlapping the retina edge). No text to erase => leave it alone.
+        lb = labeled_arr[ry0:ry1, rx0:rx1].astype(np.int16)
+        bb = base_arr[ry0:ry1, rx0:rx1].astype(np.int16)
+        if np.abs(lb - bb).mean() >= 12:
+            continue  # strip already cleared this label; nothing to erase
+        ring = _border_ring(base_arr, rx0, ry0, rx1, ry1)
+        if ring.size == 0:
+            continue
+        bg = np.median(ring, axis=0)
+        uniform = float(np.mean(np.all(np.abs(ring.astype(np.int16) - bg) <= 25, axis=1)))
+        if uniform < 0.7:
+            continue
+        clean[ry0:ry1, rx0:rx1] = bg.astype(np.uint8)
+        n += 1
+    return clean, n
+
+
+def snap_to_mask(mask, x: float, y: float, win: int = 24):
+    """Move a point onto the nearest True pixel of `mask` within a ±win window (Chebyshev). Used to
+    refine a VLM's approximate arrow endpoint onto the real drawn ink. Returns (x, y) unchanged if
+    no ink is in range."""
+    import numpy as np
+
+    H, W = mask.shape[:2]
+    xi, yi = int(round(x)), int(round(y))
+    x0, x1 = max(0, xi - win), min(W, xi + win + 1)
+    y0, y1 = max(0, yi - win), min(H, yi + win + 1)
+    sub = mask[y0:y1, x0:x1]
+    ys, xs = np.nonzero(sub)
+    if len(xs) == 0:
+        return float(x), float(y)
+    dx, dy = (xs + x0) - xi, (ys + y0) - yi
+    j = int(np.argmin(dx * dx + dy * dy))
+    return float(xs[j] + x0), float(ys[j] + y0)
+
+
+def blob_trace(sub_mask, origin, color: str):
+    """vtracer a single-colour BLOB mask -> a `raw` overlay element carrying its filled paths,
+    translated to full-image coords. This is the ROBUST arrow/shape path: vtracer outlines whatever
+    ink is there (never a 'weird skeleton'), the FigureLabs approach. Returns None if vtracer is
+    absent or the trace yields nothing (caller treats it as dropped)."""
+    import re
+    import tempfile
+    from pathlib import Path
+
+    try:
+        import numpy as np
+        import vtracer
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.fromarray(np.where(sub_mask, 0, 255).astype("uint8")).convert("RGB")
+        with tempfile.TemporaryDirectory() as td:
+            src, out = Path(td) / "b.png", Path(td) / "b.svg"
+            img.save(src)
+            vtracer.convert_image_to_svg_py(
+                str(src), str(out), colormode="binary", mode="spline", filter_speckle=4
+            )
+            svg = out.read_text(encoding="utf-8")
+        ds = re.findall(r'<path[^>]*\bd="([^"]+)"', svg)
+        if not ds:
+            return None
+        ox, oy = origin
+        paths = "".join(f'<path d="{d}" fill="{color}" stroke="none"/>' for d in ds)
+        return {"kind": "raw", "svg": f'<g transform="translate({ox},{oy})">{paths}</g>'}
+    except BaseException:  # pyo3 panics are not Exception subclasses
+        return None
+
+
 # ===========================================================================
 # skeleton walking (bespoke — no numba/sknw; annotation density is tiny)
 # ===========================================================================

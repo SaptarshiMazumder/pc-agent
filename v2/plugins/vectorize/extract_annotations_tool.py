@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import re
 from pathlib import Path
 
 import vectorize_extract as vx
@@ -35,9 +34,13 @@ from agentd.application.tool_models import resolve_tool_model
 # Strip prompt — same wording the vision plugin uses (read_labels_from_image), duplicated here
 # because plugins are sys.path-isolated siblings; keep the two in step if you edit one.
 _STRIP_PROMPT = (
-    "Reproduce this EXACT image, pixel-for-pixel, but REMOVE every text label, number, callout, legend and "
-    "leader / pointer line COMPLETELY. Keep ALL artwork, anatomy, colours and shading unchanged and sharp, "
-    "on a pure solid white background. There must be NO text and NO leader lines anywhere in the output."
+    "Reproduce this EXACT image, pixel-for-pixel, but REMOVE — completely and everywhere — every text "
+    "label, word, number, callout, legend, title and caption; every leader line, pointer line, arrow and "
+    "arrowhead; and every marker, dot, bracket, tick, measurement mark and scale bar. Also remove any "
+    "background, backdrop, scenery or colour fill behind the subject. Keep ALL artwork, anatomy, colours "
+    "and shading unchanged and sharp, on a pure solid white background. There must be NO text, NO leader "
+    "or pointer lines, NO arrows and NO markers anywhere in the output — only the clean illustration on "
+    "a pure white background."
 )
 
 # Alignment gate thresholds on diff coverage (fraction of pixels changed L->T').
@@ -65,25 +68,6 @@ def _text_color(La, box) -> str:
     px = dark if len(dark) else crop
     med = np.median(px, axis=0).astype(int)
     return "#{:02x}{:02x}{:02x}".format(*(int(v) for v in med))
-
-
-def _border_ring(A, x0, y0, x1, y1, t: int = 4):
-    """Pixels in a thin ring just OUTSIDE a box's edges — the LOCAL BACKGROUND around a label,
-    used to fill (blend) a left-behind label instead of painting a flat white rectangle. Sampled
-    outside (not inside) so a tight text box doesn't catch its own glyph pixels."""
-    import numpy as np
-
-    H, W = A.shape[:2]
-    ox0, oy0 = max(0, x0 - t), max(0, y0 - t)
-    ox1, oy1 = min(W, x1 + t), min(H, y1 + t)
-    parts = [
-        A[oy0:y0, ox0:ox1].reshape(-1, 3),  # top strip (above the box)
-        A[y1:oy1, ox0:ox1].reshape(-1, 3),  # bottom strip
-        A[y0:y1, ox0:x0].reshape(-1, 3),  # left strip
-        A[y0:y1, x1:ox1].reshape(-1, 3),  # right strip
-    ]
-    parts = [p for p in parts if p.size]
-    return np.concatenate(parts) if parts else np.empty((0, 3), dtype=A.dtype)
 
 
 def _center_in_boxes(bbox, boxes, pad: float = 4.0) -> bool:
@@ -138,44 +122,22 @@ def _ocr_lines(png_path: Path):
     return lines
 
 
-def _trace_blob_raw(sub_mask, origin, color: str):
-    """Optional vtracer fallback for a NON-stroke blob (filled shape): binary-trace the blob and
-    return a `raw` overlay element carrying its paths, translated to full-image coords.
-    Returns None when vtracer isn't installed or the trace fails (caller just reports it)."""
-    try:
-        import tempfile
+def strip_labels(config, labelled: Path, api_key) -> Path:
+    """Strip the labels off a labelled figure via the image model (Nano Banana) -> a clean textless
+    base derived FROM the image, so pixel alignment is guaranteed. Shared by extract_annotations and
+    figure_to_svg (and mirrors what read_labels_from_image does standalone)."""
+    import sys as _sys
 
-        import numpy as np
-        import vtracer
-        from PIL import Image
-    except ImportError:
-        return None
-    try:
-        h, w = sub_mask.shape
-        img = Image.fromarray(np.where(sub_mask, 0, 255).astype("uint8")).convert("RGB")
-        with tempfile.TemporaryDirectory() as td:
-            src = Path(td) / "blob.png"
-            out = Path(td) / "blob.svg"
-            img.save(src)
-            vtracer.convert_image_to_svg_py(
-                str(src),
-                str(out),
-                colormode="binary",
-                mode="spline",
-                filter_speckle=4,
-            )
-            svg = out.read_text(encoding="utf-8")
-        ds = re.findall(r'<path[^>]*\bd="([^"]+)"', svg)
-        if not ds:
-            return None
-        paths = "".join(f'<path d="{d}" fill="{color}" stroke="none"/>' for d in ds)
-        ox, oy = origin
-        return {
-            "kind": "raw",
-            "svg": f'<g transform="translate({ox},{oy})">{paths}</g>',
-        }
-    except BaseException:  # pyo3 panics are not Exception subclasses
-        return None
+    igdir = str(Path(__file__).resolve().parent.parent / "figure-art")  # sibling plugin
+    if igdir not in _sys.path:
+        _sys.path.insert(0, igdir)
+    import figure_art_gemini as ig
+
+    model = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
+    key = ig.resolve_key(api_key, config)
+    out = labelled.with_name(labelled.stem + "_textless.png")
+    ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
+    return out
 
 
 class ExtractAnnotationsTool(Tool):
@@ -235,22 +197,7 @@ class ExtractAnnotationsTool(Tool):
         return Path(ws) / path
 
     def _strip_labels(self, labelled: Path, api_key) -> Path:
-        """No textless base given: strip via the image model (same route read_labels_from_image
-        uses) — the base derives FROM the labelled image, so pixel alignment is guaranteed."""
-        import sys as _sys
-
-        igdir = str(Path(__file__).resolve().parent.parent / "figure-art")
-        if igdir not in _sys.path:
-            _sys.path.insert(0, igdir)
-        import figure_art_gemini as ig
-
-        model = resolve_tool_model(
-            self.config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL
-        )
-        key = ig.resolve_key(api_key, self.config)
-        out = labelled.with_name(labelled.stem + "_textless.png")
-        ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
-        return out
+        return strip_labels(self.config, labelled, api_key)
 
     # ---------------------------------------------------------------- core
     def _run(self, params: dict) -> dict:
@@ -304,40 +251,10 @@ class ExtractAnnotationsTool(Tool):
         lines = kept
         label_boxes = [ln["_box"] for ln in lines]
 
-        # ---- CLEAN base: blend out every label the strip LEFT BEHIND ----------------------
-        # Wherever the base still matches L inside a label box, the strip didn't remove that label,
-        # so its baked text would show UNDER the new editable text. Fill that box with the LOCAL
-        # BACKGROUND colour (the ring just around it) — NOT flat white — so a label sitting on a
-        # margin vanishes invisibly AND a label sitting on the artwork doesn't leave a white square.
-        # If the surrounding is textured (not near-uniform), leave it: a faint doubled glyph under
-        # the new text is far less jarring than a coloured patch over the drawing.
-        base_clean = Ba.copy()
-        strip_left = 0
-        for x0, y0, x1, y1 in label_boxes:
-            pad = max(2, int((y1 - y0) * 0.25))
-            rx0, ry0 = max(0, int(x0) - pad), max(0, int(y0) - pad)
-            rx1, ry1 = min(W, int(x1) + pad), min(H, int(y1) + pad)
-            if rx1 <= rx0 or ry1 <= ry0:
-                continue
-            l_box = La[ry0:ry1, rx0:rx1].astype(np.int16)
-            b_box = Ba[ry0:ry1, rx0:rx1].astype(np.int16)
-            if np.abs(l_box - b_box).mean() >= 12:
-                continue  # strip already removed this label; base is clean here
-            ring = _border_ring(Ba, rx0, ry0, rx1, ry1)
-            if ring.size == 0:
-                continue
-            bg = np.median(ring, axis=0)
-            # Fill ONLY when the surrounding background is near-uniform (a margin / flat region),
-            # using an outlier-robust test so a leader line crossing the ring doesn't count as
-            # "texture". On genuinely textured artwork we DON'T patch — we leave the baked label as
-            # a faint artifact under the new text. (This is exactly what FigureLabs' vectorizer does
-            # too: text on a coloured region leaves a ghost. A subtle artifact beats a flat patch
-            # painted over the drawing — the white-box regression.)
-            uniform = float(np.mean(np.all(np.abs(ring.astype(np.int16) - bg) <= 25, axis=1)))
-            if uniform < 0.7:
-                continue
-            base_clean[ry0:ry1, rx0:rx1] = bg.astype(np.uint8)
-            strip_left += 1
+        # ---- CLEAN base: erase baked labels so they can't double under the editable <text> ----
+        # (shared with figure_to_svg: margins vanish invisibly, textured artwork is left as a faint
+        # ghost rather than patched — see vectorize_extract.clean_base.)
+        base_clean, strip_left = vx.clean_base(La, Ba, label_boxes)
         base_out = base_path
         if strip_left:
             base_out = labeled_path.with_name(labeled_path.stem + "_base_clean.png")
@@ -395,7 +312,7 @@ class ExtractAnnotationsTool(Tool):
                     continue
                 sub = np.zeros((by1 - by0, bx1 - bx0), dtype=bool)
                 sub[c["coords"][:, 0] - by0, c["coords"][:, 1] - bx0] = True
-                raw = _trace_blob_raw(sub, (bx0, by0), vx.component_color(La, c["coords"]))
+                raw = vx.blob_trace(sub, (bx0, by0), vx.component_color(La, c["coords"]))
                 if raw is not None:
                     elements.append(raw)
                     n_raw += 1

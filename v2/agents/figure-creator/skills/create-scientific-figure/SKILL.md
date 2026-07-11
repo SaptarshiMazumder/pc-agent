@@ -40,7 +40,8 @@ wording or a previous figure's labels.
 | `generate_artwork`           | raster illustration via **Nano Banana Pro**. `template=<id>` + `subject` (+ `palette`); `allow_text: true` for the labelled-first route. Returns PNG + palette. It also runs a CANVAS CHECK (border whiteness) — heed its warning. |
 | `edit_artwork`               | targeted "change ONLY this" edit of an existing image (optional `region` [x,y,w,h]) — the **fix path**. Never regenerate from scratch for a localized fix.        |
 | `find_reference_image`       | keyless web image search → download candidates to **look at & pick**, then feed to `generate_artwork` `reference_images` for accuracy grounding.                   |
-| `extract_annotations`        | ★ **the vectorizer.** Pixel-diffs the LABELLED figure against its textless base (auto-strips one if you don't pass `base`) → OCR'd editable `label`s + `arrow`/`leader` elements with the model's exact geometry (curves, widths, colours, arrowheads). Writes the spec JSON for `elements_path`. |
+| `figure_to_svg`              | ★ **the one-call vectorizer.** Any labelled figure PNG → editable layered SVG in a single call (strip → OCR text → semantic + blob arrows → raster/vector artwork → composed SVG). Stateless; the default "make it editable / convert to SVG" tool. |
+| `extract_annotations`        | the lower-level extractor: pixel-diff → OCR'd `label`s + skeleton `arrow`/`leader` elements + spec JSON. Use when you want to edit the element spec before composing. |
 | `read_labels_from_image`     | **fallback anchor source** (VLM route): reads drawn labels/leaders into `annotation` elements. Use when `extract_annotations` reports unanchored labels, or to ADD leaders the model never drew. |
 | `layout_flowchart`           | nodes + edges → node positions + routed connector waypoints (flowchart / pathway).                                                                                 |
 | `render_editable_overlay`    | high-level spec → **editable** SVG: labels, pills, leaders, premium arrows, `node` boxes, panels. Prefer `elements_path=<extract's JSON>` — never retype elements. |
@@ -103,14 +104,16 @@ The spec drives the generation prompt, `verify_figure`'s expected-structures lis
 
 ## Step 1 — Pick an ART TEMPLATE + route each panel
 
-**Always start with `list_templates`** (unless the user named one). **`biorender-shaded` is THE
-default** — reach for it unless the subject CLEARLY calls for a specialised template:
-`ghosted-anatomy` (see-through), `isometric-3d-stem` (physics/engineering/earth-science or an
-explicit 3D ask), `watercolor-atlas`, `flat-vector`, `cell-journal-cover`, `process-icon`.
+**Always start with `list_templates`** (unless the user named one). **`clean-flat` is THE default** —
+the light, mostly-flat BioRender look (flat fills + one soft gradient, crisp even outlines, room for
+labels). Reach for a different one only when the subject CLEARLY calls for it: `biorender-shaded`
+(richer volumetric semi-3D + dense detail, when the user wants depth/realism), `ghosted-anatomy`
+(see-through), `isometric-3d-stem` (physics/engineering/earth-science or an explicit 3D ask),
+`watercolor-atlas`, `flat-vector` (fully flat schematic), `cell-journal-cover`, `process-icon`.
 
-> **Match the style to the SUBJECT, not to "detailed".** Biology/anatomy/medical/botany (incl. a
-> cross-section) → a shaded **bio** template. "Journal-grade / professional" means a clean shaded
-> **illustration**, NOT a photoreal render or a diorama.
+> **Match the style to the SUBJECT, not to "detailed".** Default to the **clean, flatter** look;
+> choose `biorender-shaded` only when rich 3D shading is genuinely wanted. "Journal-grade /
+> professional" means a clean **illustration**, NOT a photoreal render or a diorama.
 > **Invariant: pure-white background — never grey/dark, never a photo, never a cast shadow.**
 > (`generate_artwork` measures this now — treat its CANVAS CHECK warning as a failed gate.)
 
@@ -141,6 +144,14 @@ generation. Its own placement is the quality bar; we keep it, not re-synthesize 
      by a thin leader line to its part"*,
    - the flow arrows with their meaning (*"bold curved arrows showing the fuel path from … to …"*),
    - *"generous white margins for the labels"*.
+
+   > **KEEP TEXT OFF THE ARTWORK (important for a clean figure AND for editability).** Always ask for
+   > **every label placed in the clean white margin AROUND the subject, connected by a leader line —
+   > NOT written over the drawn structures/artwork.** Say it in the prompt, e.g. *"place all label
+   > text OUTSIDE the illustration in the surrounding white space; never write text on top of the
+   > drawing; keep the artwork area clean, use leader lines to point in."* Reason: text sitting on
+   > coloured artwork clutters the figure and can't be cleanly re-vectorised later (it leaves a faint
+   > ghost), whereas margin labels lift off perfectly. Give the subject room — request wide margins.
 2. **GATES (mandatory, in order):**
    - the tool's **CANVAS CHECK** (white border) — on failure, LOOK and regenerate;
    - **LOOK** at the image yourself;
@@ -152,20 +163,17 @@ generation. Its own placement is the quality bar; we keep it, not re-synthesize 
 
 ### Step 2A′ — Vectorize ON DEMAND (user asks / Edit-as-SVG)
 
-4. **`extract_annotations(labeled=L)`** — it auto-strips a textless base `T'` (alignment
-   guaranteed), diffs, OCRs the text, traces every leader/arrow. Heed its gates: the ALIGNMENT
-   warning (LOOK at `T'` — artwork altered? re-run), and the UNANCHORED list (labels the model drew
-   with no leader → add those via `read_labels_from_image` with `base=T'`, or accept as floating).
-5. **LOOK at `T'`** (the stripped base) — clean art, no leftover text?
-6. **`render_editable_overlay(elements_path=<extract's JSON>, out_svg, out_png)`** — never retype
-   the elements. LOOK at the PNG: labels where the model drew them, arrows with heads.
-7. **`compose_figure_layers(artwork=T', overlay_svg_path=…, out_svg, out_png)`** → the layered
-   editable SVG (art `<image>` + live `<text>`/`<path>`). `validate_svg` it. Update the manifest
-   (state → vectorized). This SVG + PNG replace the deliverable, same look as the approved PNG.
-8. **Fallback (Route B):** if extraction fails or the figure has baked labels but no usable base
-   (e.g. a user-supplied image), use `read_labels_from_image` → `annotation` elements → same
-   render/compose chain. It reads positions with a VLM — good, but extraction's pixel-exact
-   geometry is better; prefer extraction whenever `L` came from this pipeline.
+4. **`figure_to_svg(image=L)`** — the ONE-call converter. It strips a textless base, OCRs the text,
+   rebuilds arrows semantically (VLM-read direction, snapped to pixels) with a blob-trace fallback,
+   keeps the artwork a crisp raster, and writes the layered editable SVG + a preview PNG. Options:
+   `base=` (skip the strip if you already have the textless art), `artwork_mode="vector"` (vtrace
+   the artwork too), `semantic_arrows=false` (blob-trace only, no VLM).
+5. **LOOK at the preview** — it must look like the approved PNG (WYSIWYG). `validate_svg` it, update
+   the manifest (state → vectorized). This SVG + PNG replace the deliverable.
+6. **Need to hand-edit elements first?** Use the lower-level path instead: `extract_annotations` →
+   edit the spec JSON → `render_editable_overlay(elements_path=…)` → `compose_figure_layers`.
+7. **Fallback:** if a figure has baked labels but no usable base and OCR struggles, use
+   `read_labels_from_image` → `annotation` elements → render/compose.
 
 ## The FIGURE MANIFEST (write it for every figure)
 
@@ -252,6 +260,11 @@ medical/published work, still get a human nod.
 
 ## Principles
 
+- **Labels in the margin, never on the artwork** — always place label text in the clean white space
+  around the subject with leader lines pointing in; keep the drawn structures uncluttered. It reads
+  cleaner AND vectorises cleanly (text on artwork leaves a ghost; margin text lifts off perfectly).
+- **Default to the clean, flatter look** (`clean-flat`) — reach for heavier `biorender-shaded`
+  shading only when depth/realism is genuinely wanted.
 - **The model's placement is the asset** — extract it; never re-synthesize what it already drew.
 - **Vectorize lazily** — PNG first, editable layer only when asked. WYSIWYG: extraction cannot
   change how the approved figure looks (beyond the label font).

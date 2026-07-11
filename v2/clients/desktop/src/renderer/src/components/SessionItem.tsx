@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 
 import type { SessionRow } from '../gateway/protocol'
-import { agentColor } from '../lib/agentPresentation'
+import { agentColor, agentLabel } from '../lib/agentPresentation'
 import { whenLabel, whenTimeLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
 import ChatMenu from './ChatMenu'
@@ -36,6 +36,7 @@ export default function SessionItem({
   const exportSessionMd = useApp((s) => s.exportSessionMd)
   const projects = useApp((s) => s.projects)
   const agents = useApp((s) => s.agents)
+  const hello = useApp((s) => s.hello)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [menu, setMenu] = useState<DOMRect | null>(null) // ⋯ menu anchor (open when set)
@@ -43,8 +44,9 @@ export default function SessionItem({
   const ref = useRef<HTMLInputElement>(null)
   const label = session.title || session.sessionId
   const agent = agents.find((a) => a.id === session.agentId)
+  const agentName = agentLabel(agent?.name, session.agentId, hello?.agentName)
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) : undefined
-  const meta = `${agent ? agent.name + ' · ' : ''}${session.messages} msgs · ${whenLabel(session.modified * 1000)}`
+  const meta = `${agent ? agentName + ' · ' : ''}${session.messages} msgs · ${whenLabel(session.modified * 1000)}`
 
   useEffect(() => {
     if (editing) ref.current?.select()
@@ -83,7 +85,7 @@ export default function SessionItem({
       {withAgentDot && (
         <span
           className="session-dot"
-          title={agent?.name || session.agentId}
+          title={agentName}
           style={{ background: agentColor(agent?.color, session.agentId) }}
         />
       )}

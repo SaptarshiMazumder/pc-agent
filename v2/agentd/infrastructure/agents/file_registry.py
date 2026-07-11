@@ -96,11 +96,16 @@ class FileAgentRegistry:
         log.info("agents: %d loaded (%s)", len(specs), ", ".join(sorted(specs)))
         return specs
 
+    def _main_display_name(self) -> str:
+        # main's USER-FACING name — the internal id "main" must never surface in a client.
+        # config.agent_name seeds it (AGENTD_AGENT_NAME-overridable); an authored
+        # agents/main/agent.toml `name` wins where present (_load_dir).
+        return getattr(self._config, "agent_name", "") or "the assistant"
+
     def _synthesize_main(self) -> AgentSpec:
         # main is a FIRST-CLASS agent rooted at agents/main/ (no agents/main/ dir on disk
         # yet -> use the same paths it WOULD load from, so behaviour is identical once the
         # dir exists). main's skills are the SHARED/global library every agent inherits.
-        c = self._config
         d = self._agents_dir / "main"
         workspace = d / "workspace"
         try:
@@ -109,7 +114,7 @@ class FileAgentRegistry:
             pass
         return AgentSpec(
             id="main",
-            name=getattr(c, "agent_name", "") or "the assistant",
+            name=self._main_display_name(),
             description="general · all tools",  # the generalist: no specialty to advertise
             tagline="general · all tools",  # honest default for the generalist
             color=MAIN_COLOR,  # the brand lime — reserved for main
@@ -197,7 +202,13 @@ class FileAgentRegistry:
 
         return AgentSpec(
             id=agent_id,
-            name=str(data.get("name") or agent_id),
+            # main's fallback is its display name, NOT the internal id — the moment
+            # agents/main/ materialises on disk (workspace/skills are auto-created) it
+            # loads through here, and "main" must never become the user-facing name.
+            name=str(
+                data.get("name")
+                or (self._main_display_name() if agent_id == "main" else agent_id)
+            ),
             description=_resolve_agent_description(d, data, tagline),
             tagline=tagline,
             suggestions=suggestions,
