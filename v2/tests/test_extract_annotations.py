@@ -181,11 +181,15 @@ def test_strip_verify_detects_echo(monkeypatch):
     ok, before, after = et.strip_verify(labelled, stripped)
     assert ok is False and before == 4 and after == 4
     # clean strip — no text left -> removed
-    monkeypatch.setattr(et, "_ocr_lines", lambda p: [] if "strip" in str(p) else ["a", "b", "c", "d"])
+    monkeypatch.setattr(
+        et, "_ocr_lines", lambda p: [] if "strip" in str(p) else ["a", "b", "c", "d"]
+    )
     ok2, _, after2 = et.strip_verify(labelled, stripped)
     assert ok2 is True and after2 == 0
     # partial (1 of 4 left, 25% <= 45% threshold) -> counts as removed
-    monkeypatch.setattr(et, "_ocr_lines", lambda p: ["a"] if "strip" in str(p) else ["a", "b", "c", "d"])
+    monkeypatch.setattr(
+        et, "_ocr_lines", lambda p: ["a"] if "strip" in str(p) else ["a", "b", "c", "d"]
+    )
     assert et.strip_verify(labelled, stripped)[0] is True
 
 

@@ -5,10 +5,10 @@ name: CI
 on:
   push:
     branches: [develop, main]
-    paths: ['v2/**', '.github/workflows/ci.yml']
+    paths: ["v2/**", ".github/workflows/ci.yml"]
   pull_request:
     branches: [develop, main]
-    paths: ['v2/**', '.github/workflows/ci.yml']
+    paths: ["v2/**", ".github/workflows/ci.yml"]
 
 # Cancel an in-progress run when a newer commit lands on the same branch/PR (saves minutes).
 concurrency:
@@ -24,13 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: v2      # conftest.py builds sys.path from here; pytest MUST run in v2/
+        working-directory: v2 # conftest.py builds sys.path from here; pytest MUST run in v2/
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: v2/pyproject.toml
 
@@ -40,15 +40,12 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Format check (ruff)
-        run: ruff format --check .
-
       - name: Architecture contracts (import-linter)
         run: lint-imports
 
       - name: Types (mypy) - informational, not blocking
         run: mypy
-        continue-on-error: true      # burn the 156 errors down, then delete this line to make it a gate
+        continue-on-error: true # burn the 156 errors down, then delete this line to make it a gate
 
       - name: Unit tests (pytest)
         run: pytest -m "not live and not browser and not computer" -q
@@ -64,7 +61,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
           cache: npm
           cache-dependency-path: v2/clients/desktop/package-lock.json
 

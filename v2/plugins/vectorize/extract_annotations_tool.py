@@ -156,7 +156,9 @@ def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
 
     key = ig.resolve_key(api_key, config)
     primary = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
-    extra = tool_config(config, "figure-art", "generate_artwork", "strip_models", default=None) or []
+    extra = (
+        tool_config(config, "figure-art", "generate_artwork", "strip_models", default=None) or []
+    )
     attempts = [primary] + [m for m in extra if m and m != primary]
     if len(attempts) == 1:
         attempts.append(primary)  # nothing to escalate to -> retry once (catches a transient echo)
@@ -165,7 +167,9 @@ def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
     last_exc = None
     for model in attempts:
         try:
-            ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
+            ig.generate_image(
+                _STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled]
+            )
         except Exception as e:  # noqa: BLE001 — try the next model/attempt before failing
             last_exc = e
             continue
