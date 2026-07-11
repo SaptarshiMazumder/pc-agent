@@ -7,25 +7,22 @@ brand-new chat, and it just works. The whole "make this editable" pipeline in a 
   1. strip the labels off with the image model  -> a clean textless base
   2. OCR the original                            -> crisp editable <text> at each label's position
   3. diff original vs base                        -> the annotations-only layer (arrows/lines)
-  4. arrows, two tiers stacked for robustness:
-       • SEMANTIC (default): a VLM reads each arrow's endpoints + DIRECTION + type; we snap the
-         endpoints onto the real ink and take the exact centre-line from the pixels -> clean,
-         correctly-pointed vector arrows (beats a blob tracer, which is all FigureLabs does)
-       • BLOB fallback: vtrace whatever the VLM missed -> clean traced shapes (never a "weird
-         skeleton")
-  5. artwork: keep it a crisp raster <image> (default, highest quality) OR vtrace it to vectors
+  4. lines/arrows: DETERMINISTIC (no LLM). Each diff component is traced into ONE clean line straight
+     from its own pixels — the skeleton diameter gives one start + one end, and the width profile
+     flags an arrowhead. The line lands EXACTLY on the ink. A filled shape (dot/marker) is blob-traced.
+  5. artwork: remove the background, split it into per-object <image> pieces (each selectable), OR
+     (`artwork_mode`='vector') vtrace the whole artwork
   6. compose everything -> one editable SVG (+ a flattened PNG to look at)
 
 Deterministic pixel work reuses vectorize_extract; text reuses the extract_annotations OCR; the
 overlay + compose reuse the figures plugin. Needs numpy+scikit-image+rapidocr+vtracer
-(pip install 'agentd[figures-vector]') and a Gemini key for the strip + semantic-arrow read.
+(pip install 'agentd[figures-vector]') and a Gemini key for the strip only (line tracing is local).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -34,7 +31,6 @@ from extract_annotations_tool import _ocr_lines, _quad_bbox, _text_color, strip_
 
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import resolve_tool_model
 from agentd.domain.messages import TextContent
 
 
@@ -46,14 +42,26 @@ def _sibling(plugin: str):
         sys.path.insert(0, d)
 
 
-def _seg_dist(px, py, ax, ay, bx, by) -> float:
-    """Distance from point (px,py) to segment (ax,ay)-(bx,by)."""
-    dx, dy = bx - ax, by - ay
-    L2 = dx * dx + dy * dy
-    if L2 == 0:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
-    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+def _stroke_to_line_element(tr, color):
+    """A trace_stroke result -> ONE clean overlay element: a leader, or an arrow if a head was
+    detected. route 'straight' with the RDP-simplified centerline = a faithful polyline that lands
+    exactly on the ink (2 points => a plain line; more => follows the curve). Thin, matched to the
+    traced stroke width — so it is never the engine's heavy default arrow."""
+    pts = vx.douglas_peucker(tr["points"], max(1.5, tr.get("width", 2.0) * 0.8))
+    if tr.get("head_start") and not tr.get("head_end"):
+        pts = list(reversed(pts))  # put the arrowhead at the END
+    pts = [[round(x, 1), round(y, 1)] for x, y in pts]
+    w = round(min(max(tr.get("width", 1.6), 1.0), 3.0), 1)
+    if tr.get("head_start") or tr.get("head_end"):
+        el = {
+            "kind": "arrow", "points": pts, "route": "straight", "color": color,
+            "body": "stroked", "head": "standard", "width": w,
+            "head_size": round(min(max(w * 3.0, 6.0), 11.0), 1),
+        }
+        if tr.get("head_start") and tr.get("head_end"):
+            el["start_head"] = "standard"
+        return el
+    return {"kind": "leader", "points": pts, "route": "straight", "color": color, "dot": False, "width": w}
 
 
 class FigureToSvgTool(Tool):
@@ -63,13 +71,13 @@ class FigureToSvgTool(Tool):
         "ONE CALL: convert a labelled figure PNG into an editable layered SVG. Self-contained and "
         "STATELESS — hand it any image, get back editable SVG + a preview PNG; works in any flow, "
         "new message, or new chat, no prior steps needed. Internally: strips the labels (image "
-        "model) -> textless base; OCRs the text -> editable <text>; diffs -> the arrows/lines; "
-        "rebuilds arrows SEMANTICALLY (a VLM reads each arrow's direction, snapped to the real "
-        "pixels) with a vtrace blob fallback for anything missed; keeps the artwork as a crisp "
-        "raster by default (`artwork_mode`='vector' to vtrace it too). Params: `image` (required), "
-        "`base` (optional textless base to skip the strip), `artwork_mode` raster|vector, "
-        "`semantic_arrows` (default true), `out_svg`, `out_png`. Use this for 'make it editable / "
-        "convert to SVG / vectorize this figure'. For a plain non-figure logo use trace_image. "
+        "model) -> textless base; OCRs the text -> editable <text>; diffs -> the arrows/lines and "
+        "traces each DETERMINISTICALLY from its pixels (skeleton diameter -> one start+one end, "
+        "arrowhead by width; a filled marker is blob-traced) so lines land exactly on the ink, no "
+        "LLM guessing; keeps the artwork as a crisp raster by default (`artwork_mode`='vector' to "
+        "vtrace it too). Params: `image` (required), `base` (optional textless base to skip the "
+        "strip), `artwork_mode` raster|vector, `out_svg`, `out_png`. Use this for 'make it editable "
+        "/ convert to SVG / vectorize this figure'. For a plain non-figure logo use trace_image. "
         "Needs numpy+scikit-image+rapidocr+vtracer (pip install 'agentd[figures-vector]')."
     )
     label = "Figure to SVG"
@@ -90,10 +98,6 @@ class FigureToSvgTool(Tool):
                 "type": "string",
                 "enum": ["raster", "vector"],
                 "description": "raster (default) = keep the artwork as a crisp embedded image (highest quality); vector = vtrace the artwork into editable shapes too (fully editable, larger, softer look).",
-            },
-            "semantic_arrows": {
-                "type": "boolean",
-                "description": "Rebuild arrows as clean semantic vectors via a VLM (default true). false = blob-trace all arrows/lines (faster, no VLM call, figurelabs-style shapes).",
             },
             "remove_bg": {
                 "type": "boolean",
@@ -128,72 +132,6 @@ class FigureToSvgTool(Tool):
             return path
         ws = current_workspace(str(getattr(self.config, "workspace", "."))) or "."
         return Path(ws) / path
-
-    # ---- the semantic arrow layer ----------------------------------------------------------
-    def _vlm(self, image_path: Path, api_key):
-        """A `prompt -> text` callable over the vision model (Gemini), for arrow_reader."""
-        _sibling("vision")
-        import vision_gemini as vg
-
-        model = resolve_tool_model(
-            self.config, "vision", "read_labels_from_image", default=vg.GROUNDING_MODEL
-        )
-        return (
-            lambda prompt: vg.analyze(
-                image_path, prompt, model=model, api_key=api_key, want_json=True
-            ),
-            vg.parse_json,
-        )
-
-    def _semantic_arrows(self, image_path, La, mask, comps, W, H, s, api_key):
-        """VLM-read arrows -> overlay elements (centre-line snapped to pixels). Returns
-        (elements, claimed_labels)."""
-        import arrow_reader as ar
-
-        vlm, parse_json = self._vlm(image_path, api_key)
-        reads = ar.read_arrows(vlm, parse_json, W, H)
-        elements, claimed = [], set()
-        for a in reads:
-            fx, fy = vx.snap_to_mask(mask, *a["frm"])
-            tx, ty = vx.snap_to_mask(mask, *a["to"])
-            # find the drawn stroke this arrow rides on -> exact centre-line; else a clean 2-pt line
-            comp = self._component_on_segment(comps, fx, fy, tx, ty)
-            points = None
-            if comp is not None:
-                tr = vx.trace_stroke(comp["coords"], comp["bbox"], (H, W))
-                if tr is not None:
-                    pts = tr["points"]
-                    if math.hypot(pts[0][0] - fx, pts[0][1] - fy) > math.hypot(
-                        pts[-1][0] - fx, pts[-1][1] - fy
-                    ):
-                        pts = list(reversed(pts))  # order tail(from)..head(to)
-                    points, _ = vx.simplify_waypoints(pts, tr["width"])
-                claimed.add(comp["label"])
-            if points is None:
-                points = [(fx, fy), (tx, ty)]
-            color = a["color"] or (
-                vx.component_color(La, comp["coords"]) if comp is not None else "#374151"
-            )
-            elements.append(ar.to_overlay_element(a, points, color))
-            # also claim any component the drawn segment passes through (avoid double-drawing it as a blob)
-            for c in comps:
-                cx, cy = (c["bbox"][0] + c["bbox"][2]) / 2, (c["bbox"][1] + c["bbox"][3]) / 2
-                if _seg_dist(cx, cy, fx, fy, tx, ty) <= 14:
-                    claimed.add(c["label"])
-        return elements, claimed
-
-    @staticmethod
-    def _component_on_segment(comps, ax, ay, bx, by):
-        """The annotation component nearest the segment's midpoint (the stroke the arrow rides)."""
-        mx, my = (ax + bx) / 2, (ay + by) / 2
-        best, best_d = None, 1e18
-        for c in comps:
-            x0, y0, x1, y1 = c["bbox"]
-            cx, cy = min(max(mx, x0), x1), min(max(my, y0), y1)
-            d = math.hypot(mx - cx, my - cy)
-            if d < best_d:
-                best_d, best = d, c
-        return best if best_d <= 40 else None
 
     # ---- the whole pipeline ----------------------------------------------------------------
     def _run(self, params: dict) -> dict:
@@ -232,7 +170,7 @@ class FigureToSvgTool(Tool):
                 "height": ch,
                 "diff_fraction": 0.0,
                 "labels": 0,
-                "semantic_arrows": 0,
+                "lines": 0,
                 "blob_shapes": 0,
                 "cleaned_labels": 0,
                 "strip_failed": False,
@@ -334,20 +272,18 @@ class FigureToSvgTool(Tool):
         base_path = image.with_name(stem + "_base_clean.png")
         Image.fromarray(art_arr).save(base_path)
 
-        # 3. arrows: semantic (VLM + pixel snap) + blob-trace fallback — ONLY on a good strip.
-        n_sem = n_blob = 0
-        claimed: set = set()
-        if comps and params.get("semantic_arrows", True):
-            try:
-                sem, claimed = self._semantic_arrows(
-                    image, La, arr_mask, comps, W, H, s, params.get("api_key")
-                )
-                elements.extend(sem)
-                n_sem = len(sem)
-            except Exception:
-                claimed = set()  # VLM failed -> blob-trace everything below
+        # 3. lines/arrows: DETERMINISTIC (no LLM). Trace each diff-mask component into ONE clean line
+        # straight from its own pixels — skeleton diameter gives ONE start + ONE end, arrowheads come
+        # from the width profile. So every line lands EXACTLY on the ink instead of a model's guess
+        # (that guessing was the 'lines drawn in random places' bug). A component that is a FILLED
+        # shape (dot/marker) traces to nothing -> blob-trace it instead. Only runs on a good strip; on
+        # a failed strip comps is empty and the lines stay baked in the raster artwork.
+        n_lines = n_blob = 0
         for c in comps:
-            if c["label"] in claimed:
+            tr = vx.trace_stroke(c["coords"], c["bbox"], (H, W))
+            if tr is not None:
+                elements.append(_stroke_to_line_element(tr, vx.component_color(La, c["coords"])))
+                n_lines += 1
                 continue
             x0, y0, x1, y1 = c["bbox"]
             sub = np.zeros((y1 - y0, x1 - x0), dtype=bool)
@@ -436,7 +372,7 @@ class FigureToSvgTool(Tool):
             "diff_fraction": round(frac, 4),
             "labels": len(label_boxes),
             "objects": n_objects,
-            "semantic_arrows": n_sem,
+            "lines": n_lines,
             "blob_shapes": n_blob,
             "cleaned_labels": n_cleaned,
             "strip_failed": strip_failed,
@@ -475,8 +411,8 @@ class FigureToSvgTool(Tool):
             TextContent(
                 text=(
                     f"Editable SVG -> {r['out_svg']} ({r['width']}x{r['height']}, {r['artwork_mode']} "
-                    f"artwork{bg}): {objs}{r['labels']} label(s), {r['semantic_arrows']} semantic "
-                    f"arrow(s), {r['blob_shapes']} traced shape(s){made}.{warn}{preview}"
+                    f"artwork{bg}): {objs}{r['labels']} label(s), {r['lines']} line(s), "
+                    f"{r['blob_shapes']} traced shape(s){made}.{warn}{preview}"
                 )
             )
         ]

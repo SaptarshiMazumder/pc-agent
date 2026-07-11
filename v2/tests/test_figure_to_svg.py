@@ -1,7 +1,6 @@
-"""figure_to_svg — the one-call labelled-figure -> editable SVG converter, and its new helpers
-(semantic arrow reader, snap-to-mask, blob-trace). Deterministic: the end-to-end runs with a
-supplied textless base (no image-model strip) and semantic_arrows off (no VLM), so no network.
-The semantic path is exercised separately with a stubbed VLM.
+"""figure_to_svg — the one-call labelled-figure -> editable SVG converter, and its helpers
+(deterministic stroke tracing, snap-to-mask, blob-trace). Fully deterministic: the end-to-end runs
+with a supplied textless base (no image-model strip) and traces lines from the pixels, so no network.
 """
 
 from __future__ import annotations
@@ -105,8 +104,7 @@ def test_figure_to_svg_end_to_end_raster(figure, tmp_path):
             "t",
             {
                 "image": str(figure.labeled_path),
-                "base": str(figure.base_path),  # supply base -> no strip / no network
-                "semantic_arrows": False,  # blob-trace only -> no VLM / no network
+                "base": str(figure.base_path),  # supply the textless base -> no strip / no network
             },
             None,
         )
@@ -116,8 +114,7 @@ def test_figure_to_svg_end_to_end_raster(figure, tmp_path):
     svg = Path(r["out_svg"]).read_text(encoding="utf-8")
     assert "<image" in svg  # raster artwork embedded
     assert "<text" in svg and "Cortex" in svg  # editable label
-    assert r["blob_shapes"] >= 1  # the leader/arrow traced as vector shapes
-    assert r["semantic_arrows"] == 0  # semantic disabled
+    assert r["lines"] >= 1  # the leader/arrow traced DETERMINISTICALLY into a clean line
     assert r["out_svg"] in res.artifacts
 
 
@@ -135,7 +132,6 @@ def test_figure_to_svg_no_double_text_on_failed_strip(figure, tmp_path):
             {
                 "image": str(figure.labeled_path),
                 "base": str(figure.labeled_path),  # strip "failed": base still has the labels
-                "semantic_arrows": False,
             },
             None,
         )
@@ -180,7 +176,6 @@ def test_force_reconverts_even_if_svg_exists(figure, tmp_path, monkeypatch):
             {
                 "image": str(figure.labeled_path),
                 "base": str(figure.base_path),
-                "semantic_arrows": False,
                 "force": True,
             },
             None,
@@ -207,9 +202,9 @@ def test_split_into_multiple_selectable_objects(tmp_path):
     p = tmp_path / "fruits.png"
     im.save(p)
     tool = FigureToSvgTool(SimpleNamespace(workspace=str(tmp_path)))
-    # base=itself (no strip/network), no semantic arrows -> pure artwork-splitting path
+    # base=itself (no strip/network) -> empty diff, pure artwork-splitting path
     res = asyncio.run(
-        tool.execute("t", {"image": str(p), "base": str(p), "semantic_arrows": False}, None)
+        tool.execute("t", {"image": str(p), "base": str(p)}, None)
     )
     assert not res.is_error, res.content[0].text
     r = res.details
@@ -219,9 +214,9 @@ def test_split_into_multiple_selectable_objects(tmp_path):
 
 
 def test_failed_strip_keeps_lines_as_artwork_no_double(figure, tmp_path):
-    """The lungs regression: when the strip 'fails' (base == labelled, lines intact), the tool must
-    detect it and NOT draw vector lines on top of the baked ones (that was the double-lines bug).
-    Lines stay as artwork; only text is editable."""
+    """When the strip 'fails' (base == labelled, lines intact) the tool detects it and draws NO
+    vector lines (that was the double-lines bug); the lines stay baked in the raster artwork and only
+    the text is editable."""
     pytest.importorskip("rapidocr")
     pytest.importorskip("vtracer")
     from figure_to_svg_tool import FigureToSvgTool
@@ -233,7 +228,6 @@ def test_failed_strip_keeps_lines_as_artwork_no_double(figure, tmp_path):
             {
                 "image": str(figure.labeled_path),
                 "base": str(figure.labeled_path),  # strip did nothing -> base has the lines
-                "semantic_arrows": True,  # even with it on, no vectors should be drawn on a failed strip
             },
             None,
         )
@@ -241,49 +235,41 @@ def test_failed_strip_keeps_lines_as_artwork_no_double(figure, tmp_path):
     assert not res.is_error, res.content[0].text
     r = res.details
     assert r["strip_failed"] is True
-    assert r["semantic_arrows"] == 0 and r["blob_shapes"] == 0  # NO vector lines -> no doubling
+    assert r["lines"] == 0 and r["blob_shapes"] == 0  # NO vector lines -> no doubling
     assert r["labels"] >= 1  # text is still editable
     svg = Path(r["out_svg"]).read_text(encoding="utf-8")
     assert "<image" in svg and "<text" in svg  # raster artwork (lines baked in) + editable text
 
 
-def test_figure_to_svg_semantic_arrows_stubbed(figure, tmp_path, monkeypatch):
-    """Exercise the semantic path deterministically: stub the VLM so no network is used, and assert
-    an arrow element is built with its centre-line snapped onto the drawn stroke."""
+def test_deterministic_line_lands_on_the_ink(tmp_path):
+    """DETERMINISTIC line, no LLM: a clean straight arrow (textless base supplied) is traced into ONE
+    line whose endpoints land ON the actual drawn stroke — not a model's guess in a random place."""
     pytest.importorskip("rapidocr")
+    from PIL import Image as _I
+    from PIL import ImageDraw as _D
+
     from figure_to_svg_tool import FigureToSvgTool
 
-    # the labelled figure's curved arrow runs ~ (620,470)->(447,330); point the stub at it (normalized)
-    def _stub_vlm(self, image_path, api_key):
-        raw = json.dumps(
-            [
-                {
-                    "kind": "arrow",
-                    "from": [int(470 / H * 1000), int(620 / W * 1000)],
-                    "to": [int(330 / H * 1000), int(447 / W * 1000)],
-                    "curved": True,
-                    "color": "#333333",
-                }
-            ]
-        )
-        return (lambda _p: raw, json.loads)
+    lab = _I.new("RGB", (500, 300), "white")
+    d = _D.Draw(lab)
+    d.line([(100, 150), (400, 150)], fill=(20, 20, 20), width=4)  # a horizontal shaft
+    d.polygon([(400, 150), (378, 141), (378, 159)], fill=(20, 20, 20))  # arrowhead -> right
+    base = _I.new("RGB", (500, 300), "white")  # textless base = the stroke removed
+    lp, bp = tmp_path / "arrow.png", tmp_path / "arrow_base.png"
+    lab.save(lp)
+    base.save(bp)
 
-    monkeypatch.setattr(FigureToSvgTool, "_vlm", _stub_vlm)
     tool = FigureToSvgTool(SimpleNamespace(workspace=str(tmp_path)))
-    res = asyncio.run(
-        tool.execute(
-            "t",
-            {
-                "image": str(figure.labeled_path),
-                "base": str(figure.base_path),
-                "semantic_arrows": True,
-            },
-            None,
-        )
-    )
+    res = asyncio.run(tool.execute("t", {"image": str(lp), "base": str(bp)}, None))
     assert not res.is_error, res.content[0].text
     r = res.details
-    assert r["semantic_arrows"] >= 1
-    # a real arrowhead was drawn (semantic arrow with a marker), not a blob fill
-    svg = Path(r["out_svg"]).read_text(encoding="utf-8")
-    assert "marker-end" in svg
+    assert r["lines"] >= 1  # the stroke traced into ONE clean line
+    spec = json.loads(Path(r["out_json"]).read_text(encoding="utf-8"))
+    lines = [e for e in spec["elements"] if e.get("kind") in ("arrow", "leader")]
+    assert lines, "no line element emitted"
+    xs = [p[0] for e in lines for p in e["points"]]
+    ys = [p[1] for e in lines for p in e["points"]]
+    # endpoints span the drawn stroke (~x100..400) at its real height (~y150) — accurate, not random
+    assert min(xs) < 140 and max(xs) > 360
+    assert 120 < min(ys) and max(ys) < 180
+    assert "marker-end" in Path(r["out_svg"]).read_text(encoding="utf-8")  # arrowhead detected
