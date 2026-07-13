@@ -179,6 +179,17 @@ class FileAgentRegistry:
         sts = data.get("safe_to_send") or {}
         audience = str(sts.get("audience") or "").strip().lower()
 
+        # [app] — this agent ships its own client UI (docs/PROTOCOL.md §9). Pure declaration:
+        # entry is a path RELATIVE to the agent dir (default ui/index.html); the gateway
+        # validates existence + serves it. Absent section => a plain chat agent (app=None).
+        app_raw = data.get("app")
+        app = None
+        if isinstance(app_raw, dict):
+            app = {
+                "entry": str(app_raw.get("entry") or "ui/index.html"),
+                "title": str(app_raw.get("title") or data.get("name") or agent_id),
+            }
+
         # Display presentation: authored agent.toml fields win; else the sidecar the
         # daemon generated once from the identity (presentation.json). main is the
         # generalist BY DEFINITION — it gets the standard line rather than a guess.
@@ -232,6 +243,7 @@ class FileAgentRegistry:
             heartbeat=str(heartbeat) if heartbeat else None,
             heartbeat_instructions=load_heartbeat(d),
             version=str(data.get("version") or "1"),
+            app=app,
         )
 
     @property

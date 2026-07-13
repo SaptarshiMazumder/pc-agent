@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import re
@@ -53,6 +54,54 @@ log = logging.getLogger("agentd")
 # 34 MiB raw attachment (see UPLOAD_MAX_BYTES); larger files should chunk (future work).
 MAX_WS_FRAME = 48 * 1024 * 1024
 UPLOAD_MAX_BYTES = 32 * 1024 * 1024
+
+# The wire-protocol generation this daemon speaks (see docs/PROTOCOL.md). Additive changes
+# (new methods, new payload fields) do NOT bump this; only a breaking change to an existing
+# frame/method would. Clients send their own number in `hello {protocol}` and get back
+# `compatible` — v1 semantics are advisory (advertise, don't reject), so old clients keep
+# working against newer daemons.
+PROTOCOL_VERSION = 1
+
+# The STABLE method tier (docs/PROTOCOL.md §4): everything an agent-app (a connection scoped
+# with `scope=agent:<id>`) may call. Everything else — config, installs, projects, automation —
+# is the HOST tier, denied on scoped connections. Apps INVOKE the backend; they never extend
+# or administer it.
+APP_SCOPED_METHODS = frozenset(
+    {
+        "hello",
+        "chat.send",
+        "chat.abort",
+        "sessions.list",
+        "sessions.history",
+        "sessions.rename",
+        "sessions.delete",
+        "agents.list",
+        "agents.detail",
+        "tools.list",
+        "tools.invoke",
+        "capabilities.list",
+        "plugins.catalog",
+        "workspace.list",
+        "workspace.mkdir",
+        "workspace.upload",
+        "workspace.delete",
+        "notifications.list",
+        "notifications.ack",
+    }
+)
+
+
+def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
+    """What an agent-scoped app connection may receive (docs/PROTOCOL.md §7): its OWN agent's
+    run/session events, roster changes, and its notifications. Everything else — other agents'
+    runs, marketplace progress, project admin — stays host-only. Pure policy, unit-testable."""
+    if name in ("chat.event", "sessions.changed"):
+        return payload.get("agentId") == agent_id
+    if name == "agents.changed":
+        return True
+    if name == "notification":
+        return payload.get("agentId") in (agent_id, "", None)
+    return False
 
 
 def _effective_model(config) -> str:
@@ -780,6 +829,9 @@ class Gateway:
     # (mirrors _ensure_mcp_provider), wired to broadcast progress + hot-reload.
     marketplace: object | None = None
     clients: set[ServerConnection] = field(default_factory=set)
+    # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
+    # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
+    client_scopes: dict = field(default_factory=dict)
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
 
@@ -1195,26 +1247,72 @@ class Gateway:
             raise RuntimeError(text or f"{name} failed")
         return text
 
-    async def _tools_invoke(self, params: dict) -> dict:
+    async def _tools_invoke(self, params: dict, scope: str | None = None) -> dict:
         """Run ONE tool directly from a client (no agent/LLM turn) and return its text + rendered
-        artifacts — this powers self-declared canvas ACTIONS (e.g. the 'Convert to Vector' button on
-        a PNG). Only tools that opt in by declaring `artifact_action` are invokable this way, so the
-        RPC can't run arbitrary tools. Params: {name, params:{...}}."""
+        artifacts. Params: {name, params:{...}}. Two gates (docs/PROTOCOL.md §6):
+
+        • HOST connections — only tools that self-declare `artifact_action` (canvas buttons),
+          so a general client can't run arbitrary tools.
+        • agent-SCOPED app connections — any tool the scoped AGENT itself is allowed
+          (its tools.allow/deny), executed in that agent's context (workspace + per-agent
+          model overrides). The app surface is exactly the agent's own capability surface.
+        """
         from agentd.infrastructure.files import resolve_artifacts
         from agentd.infrastructure.plugins.catalog import _unwrap_tool
 
         name = (params.get("name") or "").strip()
-        tool = self.service.find_tool(name)
+        tool = self.service.find_tool(name, scope)  # scoped: the agent's OWN tools win
         if tool is None:
             raise RuntimeError(f"tool not available: {name}")
+        run_ctx = None
+        if scope:
+            from agentd.application.run_context import RunContext
+            from agentd.domain.agent import select_private_tools, select_tools
+
+            try:
+                spec = self.registry.get(scope) if self.registry is not None else None
+            except KeyError:
+                spec = None
+            if spec is None:
+                raise RuntimeError(f"unknown agent: {scope}")
+            # an agent's own shipped tool is implicitly allowed (deny still wins); a shared
+            # tool goes through the agent's normal allow/deny scope.
+            own = getattr(_unwrap_tool(tool), "_agent_id", "") == scope
+            permitted = (
+                select_private_tools([tool], spec) if own else select_tools([tool], spec)
+            )
+            if not permitted:
+                raise RuntimeError(f"tool '{name}' is not available to agent '{scope}'")
+            run_ctx = RunContext(
+                agent_id=scope,
+                session_key=f"agent:{scope}:app",
+                mode=RunMode.INTERACTIVE,
+                workspace=str(getattr(spec, "workspace", "") or ""),
+                plugins=getattr(spec, "plugins", None),
+            )
         # find_tool returns the reliability WRAPPER (GuardedTool, real tool in `_inner`); the
         # self-declared `artifact_action` lives on the inner tool — unwrap to read it (same as the
         # catalog does), or the gate would reject every UI action. We still RUN the wrapper.
-        if not getattr(_unwrap_tool(tool), "artifact_action", None):
+        elif not getattr(_unwrap_tool(tool), "artifact_action", None):
             raise RuntimeError(f"tool '{name}' is not invokable from the UI")
-        result = await tool.execute(
-            uuid.uuid4().hex[:8], dict(params.get("params") or {}), asyncio.Event()
-        )
+
+        async def _execute():
+            return await tool.execute(
+                uuid.uuid4().hex[:8], dict(params.get("params") or {}), asyncio.Event()
+            )
+
+        if run_ctx is not None:
+            from agentd.application.run_context import set_run_context
+
+            # contextvars are task-local: run the tool in ITS OWN task so the scoped agent
+            # context can never leak into this connection's later requests.
+            async def _scoped():
+                set_run_context(run_ctx)
+                return await _execute()
+
+            result = await asyncio.create_task(_scoped())
+        else:
+            result = await _execute()
         text = "".join(getattr(b, "text", "") for b in (result.content or []))
         if result.is_error:
             raise RuntimeError(text or f"{name} failed")
@@ -1470,18 +1568,76 @@ class Gateway:
         return out
 
     def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
-        """websockets handshake hook: serve local artifact files over plain HTTP on the
-        SAME port as the gateway, so a client renders <img>/<video> straight from the
-        daemon. Returns a Response to short-circuit `GET /file`; None lets every other
-        request (including the WebSocket upgrade) proceed to the handshake."""
+        """websockets handshake hook: plain HTTP on the SAME port as the gateway —
+        `GET /file` serves one guarded artifact file (so a client renders <img>/<video>
+        straight from the daemon) and `GET /apps/<agentId>/…` serves an app agent's own
+        UI (same origin as the WS ⇒ no CORS, no second server; docs/PROTOCOL.md §9).
+        Returns a Response to short-circuit; None lets every other request (including
+        the WebSocket upgrade) proceed to the handshake."""
         try:
             split = urlsplit(getattr(request, "path", "") or "")
-            if split.path != "/file":
-                return None  # not ours — fall through to the WS handshake
-            return self._serve_file(split, getattr(request, "headers", {}))
+            if split.path == "/file":
+                return self._serve_file(split, getattr(request, "headers", {}))
+            if split.path == "/apps" or split.path.startswith("/apps/"):
+                return self._serve_app(split)
+            return None  # not ours — fall through to the WS handshake
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
-            log.exception("http /file failed")
+            log.exception("http %s failed", getattr(request, "path", ""))
             return HttpResponse(500, "Internal Server Error", Headers({"Content-Length": "0"}), b"")
+
+    def _serve_app(self, split) -> HttpResponse:
+        """Serve one file of an app agent's UI: `/apps/<agentId>/<path>` maps to the agent's
+        own `<dir>/ui/` (entry from its `[app]` declaration; docs/PROTOCOL.md §9).
+
+        The static files need NO token — they are the app's shipped code, not user data;
+        the WebSocket the page opens still requires the token (the opener put it in the
+        page URL). Guards: registered app agents only, path resolved under the ui root
+        (traversal-proof), extensionless paths fall back to the entry (SPA routing)."""
+
+        def deny(code: int, reason: str) -> HttpResponse:
+            return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
+
+        parts = [p for p in split.path.split("/") if p]  # ["apps", "<id>", ...rest]
+        if len(parts) < 2 or self.registry is None:
+            return deny(404, "Not Found")
+        agent_id = unquote(parts[1])
+        try:
+            spec = self.registry.get(agent_id)
+        except KeyError:
+            return deny(404, "Not Found")
+        app = getattr(spec, "app", None)
+        base = getattr(spec, "dir", None)
+        if not app or base is None:
+            return deny(404, "Not Found")
+        base = Path(base).resolve()
+        entry = (base / (app.get("entry") or "ui/index.html")).resolve()
+        if not is_under_roots(entry, [base]) or not entry.is_file():
+            return deny(404, "Not Found")
+        # `/apps/<id>` (no trailing slash) must redirect so the page's RELATIVE asset urls
+        # resolve under `/apps/<id>/…` instead of `/apps/…`.
+        if len(parts) == 2 and not split.path.endswith("/"):
+            q = f"?{split.query}" if split.query else ""
+            return HttpResponse(
+                307,
+                "Temporary Redirect",
+                Headers({"Location": f"/apps/{parts[1]}/{q}", "Content-Length": "0"}),
+                b"",
+            )
+        ui_root = entry.parent
+        rest = "/".join(unquote(p) for p in parts[2:])
+        target = (ui_root / rest).resolve() if rest else entry
+        if not is_under_roots(target, [ui_root]):
+            return deny(404, "Not Found")
+        if not target.is_file():
+            if target.suffix:  # a missing real asset is a 404; a route path falls back
+                return deny(404, "Not Found")
+            target = entry  # SPA fallback: extensionless path -> the app entry
+        body = target.read_bytes()
+        hdrs = Headers()
+        hdrs["Content-Type"] = guess_mime(target)
+        hdrs["Content-Length"] = str(len(body))
+        hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
+        return HttpResponse(200, "OK", hdrs, body)
 
     def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""
@@ -1585,15 +1741,64 @@ class Gateway:
                     presented = auth_header[len("Bearer ") :].strip()
         return hmac.compare_digest(presented, self.auth_token)
 
+    def _origin_allowed(self, ws: ServerConnection) -> bool:
+        """Browser-origin gate: native/origin-less clients (terminal, Electron file pages,
+        app shells) pass; an http(s) WEB PAGE must be same-host as the gateway (any port —
+        dev servers and the /apps pages use their own) or loopback. A cross-host web page
+        is refused so the bearer token is not the only wall against a hostile site."""
+        request = getattr(ws, "request", None)
+        origin = ""
+        if request is not None:
+            try:
+                origin = request.headers.get("Origin") or ""
+            except Exception:  # noqa: BLE001
+                origin = ""
+        if not origin or origin == "null" or "://" not in origin:
+            return True  # no browser origin — a native client, not a web page
+        scheme = origin.split("://", 1)[0].lower()
+        if scheme not in ("http", "https"):
+            return True  # file://, app://, custom shells
+        try:
+            host = urlsplit(origin).hostname or ""
+        except ValueError:
+            return False
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return True
+        served_host = ""
+        try:
+            served_host = urlsplit(f"//{request.headers.get('Host') or ''}").hostname or ""
+        except Exception:  # noqa: BLE001
+            served_host = ""
+        return bool(host) and host == served_host
+
+    def _connection_scope(self, ws: ServerConnection) -> str | None:
+        """An app connection declares `scope=agent:<id>` on its connect URL — it is then
+        limited to the stable method tier, forced onto that agent, and receives only that
+        agent's events. Until real auth lands this is a correctness seam, not security."""
+        request = getattr(ws, "request", None)
+        if request is None:
+            return None
+        query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+        raw = (query.get("scope") or [""])[0]
+        if raw.startswith("agent:"):
+            return raw[len("agent:") :].strip() or None
+        return None
+
     async def _handle_conn(self, ws: ServerConnection) -> None:
+        if not self._origin_allowed(ws):
+            await ws.close(code=4403, reason="forbidden origin")
+            return
         if not self._authorized(ws):
             await ws.close(code=4401, reason="unauthorized")
             return
-        # Each connection — terminal, desktop, mobile, a channel adapter, anything —
+        # Each connection — terminal, desktop, mobile, a channel adapter, an agent app —
         # gets a stable client id. Runs it starts are tagged with it, so when this
         # connection drops we can stop exactly that client's in-flight work.
         client_id = uuid.uuid4().hex
+        scope = self._connection_scope(ws)
         self.clients.add(ws)
+        if scope:
+            self.client_scopes[ws] = scope
         try:
             async for raw in ws:
                 try:
@@ -1602,24 +1807,40 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
-                    response = await self._dispatch(frame, client_id)
+                    response = await self._dispatch(frame, client_id, scope)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
             pass
         finally:
             self.clients.discard(ws)
+            self.client_scopes.pop(ws, None)
             await self._abort_client_runs(client_id)
 
     # --------------------------------------------------------------- dispatch
 
-    async def _dispatch(self, req: Request, client_id: str | None = None) -> Response:
+    async def _dispatch(
+        self, req: Request, client_id: str | None = None, scope: str | None = None
+    ) -> Response:
+        # Agent-scoped app connections (docs/PROTOCOL.md §1/§4): stable tier only, and the
+        # scoped agent is FORCED onto the params — an app can never act as another agent.
+        # (Methods that take no agentId simply ignore the extra key.)
+        if scope:
+            if req.method not in APP_SCOPED_METHODS:
+                return Response(
+                    id=req.id,
+                    ok=False,
+                    payload={
+                        "error": f"method '{req.method}' is not available to app connections"
+                    },
+                )
+            req.params["agentId"] = scope
         try:
             if req.method == "chat.send":
                 payload = await self._chat_send(req.params, client_id)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
             elif req.method == "hello":
-                payload = self._hello()
+                payload = self._hello(req.params)
             elif req.method == "config.get":
                 payload = self._config_get()
             elif req.method == "config.set":
@@ -1665,7 +1886,7 @@ class Gateway:
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "tools.invoke":
-                payload = await self._tools_invoke(req.params)
+                payload = await self._tools_invoke(req.params, scope)
             elif req.method == "plugins.catalog":
                 payload = self._plugins_catalog()
             elif req.method == "capabilities.list":
@@ -2521,6 +2742,20 @@ class Gateway:
             )
         return cards
 
+    @staticmethod
+    def _agent_app(aid: str, spec) -> dict | None:
+        """An agent's app surface for discovery (docs/PROTOCOL.md §9): a declared `[app]`
+        whose entry file actually EXISTS ⇒ `{title, url}` — a broken/missing UI never
+        advertises. The url is the path only; the OPENER appends its own token + scope."""
+        app = getattr(spec, "app", None)
+        base = getattr(spec, "dir", None)
+        if not app or base is None:
+            return None
+        entry = Path(base) / (app.get("entry") or "ui/index.html")
+        if not entry.is_file():
+            return None
+        return {"title": app.get("title") or getattr(spec, "name", aid), "url": f"/apps/{aid}/"}
+
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
         registry is the single source of truth; the session-key format stays internal.
@@ -2540,6 +2775,7 @@ class Gateway:
                     "tagline": getattr(spec, "tagline", ""),
                     "suggestions": list(getattr(spec, "suggestions", ()) or ()),
                     "color": getattr(spec, "color", ""),
+                    "app": self._agent_app(aid, spec),
                 }
             )
         return {
@@ -2633,6 +2869,7 @@ class Gateway:
             "workspace": str(ws),
             "workspaceFiles": files,
             "skills": list(skills_by_name.values()),
+            "app": self._agent_app(agent_id, spec),
         }
 
     # ------------------------------------------------------------- workspace browsing
@@ -3086,13 +3323,23 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
-    def _hello(self) -> dict:
+    def _hello(self, params: dict | None = None) -> dict:
         """Handshake: identity + status a client renders as its welcome banner.
 
         The agent NAME (and all these facts) are owned by the server's config — the
         single source of truth — so every front-end shows the same thing without
         hardcoding any of it.
+
+        A client MAY introduce itself: `{protocol: <int it speaks>, client: "name/ver"}`.
+        The reply then carries `compatible` (advisory in v1 — the server advertises,
+        it never rejects) so third-party clients built on the published protocol can
+        detect a mismatch and degrade gracefully instead of breaking silently.
         """
+        p = params or {}
+        client_protocol = p.get("protocol")
+        client_name = str(p.get("client") or "").strip()
+        if client_name:
+            log.info("hello from client %s (protocol %s)", client_name, client_protocol)
         distribution = getattr(self.config, "distribution", None)
         return {
             "agentName": self.config.agent_name,
@@ -3104,7 +3351,10 @@ class Gateway:
             "sessions": len(list_sessions(self.config.state_dir)),
             # M2 versioning: clients adapt to the daemon, never the reverse.
             "version": __version__,
-            "protocol": 1,
+            "protocol": PROTOCOL_VERSION,
+            "compatible": (
+                not isinstance(client_protocol, int) or client_protocol <= PROTOCOL_VERSION
+            ),
             # M6 flavor: what THIS INSTALL is (branding + whether the store shows).
             "product": getattr(distribution, "product_name", "agentd"),
             "productId": getattr(distribution, "product_id", "agentd"),
@@ -3385,7 +3635,7 @@ class Gateway:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
             self._enrich_artifacts(event)
-            await self._broadcast(handle.session_key, handle.run_id, event)
+            await self._broadcast(handle.session_key, handle.run_id, event, agent_id)
             # OBSERVABILITY: durably record EVERY event so a run is viewable even with no client
             # attached (cron/channel/heartbeat/sub-agent). Best-effort; never breaks the run.
             if self.event_log is not None:
@@ -3416,7 +3666,7 @@ class Gateway:
             err_msg = str(e)
             log.exception("run %s crashed", handle.run_id)
             crash = AgentEvent("agent_end", {"stopReason": "error", "error": str(e)})
-            await self._broadcast(handle.session_key, handle.run_id, crash)
+            await self._broadcast(handle.session_key, handle.run_id, crash, agent_id)
             if self.event_log is not None:
                 self.event_log.emit(handle.session_key, handle.run_id, crash)
         finally:
@@ -3476,9 +3726,26 @@ class Gateway:
                 except Exception:  # noqa: BLE001
                     pass
 
-    async def _broadcast(self, session_key: str, run_id: str, event: AgentEvent) -> None:
+    def _agent_for_key(self, session_key: str, agent_id: str | None = None) -> str:
+        """The agent a session belongs to: an explicit id wins; else the internal
+        `agent:<id>:...` key prefix; else the default agent. Lets every broadcast carry
+        `agentId` so clients filter events WITHOUT knowing the session-key format
+        (the format stays server-internal)."""
+        if agent_id:
+            return agent_id
+        if session_key.startswith("agent:"):
+            parts = session_key.split(":", 2)
+            if len(parts) >= 2 and parts[1]:
+                return parts[1]
+        return getattr(self.config, "agent_id", "main")
+
+    async def _broadcast(
+        self, session_key: str, run_id: str, event: AgentEvent, agent_id: str | None = None
+    ) -> None:
         # `ts` (epoch seconds) stamps every live event server-side, so all clients
         # show the same send time — and it matches the transcript's stored timestamps.
+        # `agentId` tags which agent the run belongs to (protocol v1 additive field),
+        # so any client — and a scoped app connection — can filter by agent.
         await self._send_all(
             dump_frame(
                 Event(
@@ -3486,6 +3753,7 @@ class Gateway:
                     payload={
                         "sessionKey": session_key,
                         "runId": run_id,
+                        "agentId": self._agent_for_key(session_key, agent_id),
                         "ts": time.time(),
                         "event": event.to_dict(),
                     },
@@ -3494,15 +3762,31 @@ class Gateway:
         )
 
     async def _send_all(self, frame: str) -> None:
-        """Send one frame to every connected client, pruning dead connections."""
+        """Send one frame to every connected client, pruning dead connections.
+
+        Agent-SCOPED app connections only receive what _scoped_event_allowed permits
+        (their own agent's events). The frame is parsed lazily, once, and only when a
+        scoped connection actually exists — host-only deployments pay nothing."""
         dead = []
+        scoped_meta: tuple[str, dict] | None = None
         for ws in self.clients:
+            scope = self.client_scopes.get(ws)
+            if scope is not None:
+                if scoped_meta is None:
+                    try:
+                        obj = json.loads(frame)
+                        scoped_meta = (str(obj.get("event") or ""), obj.get("payload") or {})
+                    except ValueError:
+                        scoped_meta = ("", {})
+                if not _scoped_event_allowed(scoped_meta[0], scoped_meta[1], scope):
+                    continue
             try:
                 await ws.send(frame)
             except Exception:  # noqa: BLE001
                 dead.append(ws)
         for ws in dead:
             self.clients.discard(ws)
+            self.client_scopes.pop(ws, None)
 
     # ---------------------------------------------------------- notifications
 

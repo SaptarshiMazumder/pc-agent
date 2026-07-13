@@ -3,6 +3,7 @@ command = adding a module + one entry in ALL (order = help order)."""
 
 from agentd.cli.commands import (
     agents,
+    app,
     bundle,
     chat,
     daemon,
@@ -21,6 +22,7 @@ ALL = [
     daemon,
     doctor,
     agents,
+    app,
     sessions,
     projects,
     plugins,

@@ -3,6 +3,7 @@ and contribute them to the catalog as ordinary Tools. See
 planning/platform/tools/plugin-catalog-architecture.md."""
 
 from agentd.infrastructure.plugins.discovery import (
+    discover_agent_plugins,
     discover_plugin_contributions,
     discover_plugin_tools,
 )
@@ -14,6 +15,7 @@ from agentd.infrastructure.plugins.entitlement import (
 from agentd.infrastructure.plugins.manifest import PluginManifest, load_manifest
 
 __all__ = [
+    "discover_agent_plugins",
     "discover_plugin_contributions",
     "discover_plugin_tools",
     "AllowAllEntitlement",

@@ -18,7 +18,6 @@ import os
 import platform
 import socket
 import sys
-from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger("agentd")
@@ -470,11 +469,15 @@ def build_system_prompt(
         "If a file isn't at the expected path, use the find tool to locate it by name."
     )
 
-    # 7. Current Date & Time
-    now = datetime.now().astimezone()
-    sections.append(
-        f"## Current Date & Time\n{now.strftime('%Y-%m-%d %H:%M %Z')} (time zone: {now.tzname()})"
-    )
+    # 7. Current Date & Time — INTENTIONALLY OMITTED (do not re-add a live clock here).
+    # The system prompt is the FIRST block of every request, so prefix/implicit caching
+    # (DeepSeek/Gemini and any prompt-cache provider) only hits while this whole string stays
+    # byte-identical turn to turn. A minute-precision clock changed it every minute, which
+    # invalidated the cache for the ENTIRE conversation history on every turn that crossed a
+    # minute boundary — re-billing the full (growing) context at miss price instead of cache-read.
+    # Keeping the prefix stable is what lets the history be cached. If a task needs the current
+    # date/time, fetch it LIVE (exec `date` / the clock) — consistent with the "mutable facts need
+    # live checks: ... clocks" rule in Execution Bias above.
 
     # 8. Project Context (AGENTS.md / SOUL.md / MEMORY.md if present)
     context_parts = []

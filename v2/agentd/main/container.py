@@ -108,7 +108,11 @@ def build_service(
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     from agentd.infrastructure.agents import FileAgentRegistry
-    from agentd.infrastructure.plugins import build_entitlement, discover_plugin_contributions
+    from agentd.infrastructure.plugins import (
+        build_entitlement,
+        discover_agent_plugins,
+        discover_plugin_contributions,
+    )
 
     registry = registry or FileAgentRegistry(config)
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
@@ -130,6 +134,28 @@ def build_service(
             out.append(gt)
         return out
 
+    def _gate_and_wrap(raw_tools: list) -> list:
+        """The ONE treatment every tool gets on its way into the live catalog, shared by the
+        boot path, hot-reload, and the agent-private tier: global on/off filter, per-tool
+        plugin-config filter, then the reliability wrapper + source tag."""
+        kept = apply_enablement(
+            list(raw_tools),
+            getattr(config, "tools_enabled", None),
+            getattr(config, "tools_disabled", ()),
+        )
+        return _wrap(apply_plugin_enablement(kept, getattr(config, "plugins", None)))
+
+    def _agent_private_tools() -> dict:
+        """Discover + gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
+        WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
+        idempotent — the service replaces its map instead of appending."""
+        return {
+            aid: _gate_and_wrap(tlist)
+            for aid, tlist in discover_agent_plugins(
+                getattr(registry, "agents_dir", None), config, plugin_deps, entitlement
+            ).items()
+        }
+
     def register_plugin_live() -> dict:
         service = _late.get("service")
         if service is None:
@@ -138,18 +164,16 @@ def build_service(
             config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids
         )
         if new_tools:
-            kept = apply_enablement(
-                list(new_tools),
-                getattr(config, "tools_enabled", None),
-                getattr(config, "tools_disabled", ()),
-            )
-            kept = apply_plugin_enablement(kept, getattr(config, "plugins", None))
-            service.add_tools(_wrap(kept))
+            service.add_tools(_gate_and_wrap(new_tools))
         if new_sections:
             plugin_sections.extend(new_sections)  # same list the prompt builder reads -> live
+        # agent-private tier: a marketplace install may have added an agent that SHIPS tools
+        agent_map = _agent_private_tools()
+        service.set_agent_tools(agent_map)
         return {
             "ok": True,
             "tools": [getattr(t, "name", "") for t in new_tools],
+            "agentTools": {aid: len(ts) for aid, ts in agent_map.items()},
             "sections": len(new_sections),
         }
 
@@ -175,16 +199,10 @@ def build_service(
     # (plugins/) + third-party plugins both flow through discover_plugin_contributions. The core
     # contributes no tool implementations (they all live outside agentd/). Global on/off filter,
     # then wrap EVERY tool in the reliability middleware + tag its source.
-    tools = _wrap(
-        apply_plugin_enablement(
-            apply_enablement(
-                list(plugin_tools),
-                getattr(config, "tools_enabled", None),
-                getattr(config, "tools_disabled", ()),
-            ),
-            getattr(config, "plugins", None),
-        )
-    )
+    tools = _gate_and_wrap(plugin_tools)
+    # AGENT-PRIVATE tier: tools an agent ships inside its OWN folder (agents/<id>/plugins/) —
+    # same gates/wrapper, but offered only to the owning agent (see AgentService.agent_tools).
+    agent_tools = _agent_private_tools()
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
     stream_fn = functools.partial(
@@ -359,6 +377,7 @@ def build_service(
         plugin_reloader=register_plugin_live,
         resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
+        agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
     )
     _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
     return service

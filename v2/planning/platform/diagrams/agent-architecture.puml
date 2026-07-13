@@ -1,0 +1,222 @@
+@startuml agent-anatomy
+title Anatomy of an agent — 100% data, zero code
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "agents/<id>/   (the DEFINITION — what you author / what ships in .agentpkg)" as DEF #F0FFF0 {
+  file "agent.toml\n--\nname · description · tagline · color\nsuggestions · version · model (brain override)\n[tools] allow / deny\nskills = [...] (allowlist)\n[plugins.P] model · [plugins.P.tools.T] model\n[subagents] allow\n[capabilities] autonomy · notify · channels\nheartbeat = \"15m\"\n[safe_to_send] audience\n[app] title · entry   «app agents»" as TOML
+  file "IDENTITY.md\n(who the agent IS —\ninjected as bootstrap\ninto every prompt)" as IDENT
+  file "HEARTBEAT.md\n(autonomy tick\ninstructions)" as HB
+  folder "skills/\nSKILL.md procedures\n(agent's OWN — override\nthe shared library)" as SKILLS
+  folder "templates/\n*.toml style presets\n(domain plugins read them,\ne.g. figure-art)" as TPL
+  folder "ui/\nindex.html + app.js + SDK\n«app agents only»" as UI
+}
+
+package "derived / runtime state (daemon-owned, NEVER packed)" as STATE #EAF3FF {
+  folder "agents/<id>/workspace/\nthe agent's files\n(tools read/write here)" as WS
+  folder "<state_dir>/agents/<id>/\nsessions/*.jsonl (transcripts)\nmemory (RAG notes)" as ST
+  file "presentation.json\n(auto-generated tagline/color\nsidecar — authored toml wins)" as SIDE
+}
+
+rectangle "AgentSpec  (frozen domain object)\n--\nthe daemon's in-memory read of ALL of the left:\nid · name · instructions · tools_allow/deny ·\nskills_allow/dir · model · plugins{} · app{} ·\nworkspace · state_dir · heartbeat · audience …" as SPEC #FFF5EE
+
+TOML -right-> SPEC : parsed by\nfile_registry
+IDENT -right-> SPEC : instructions
+SKILLS .right.> SPEC : skills_dir
+DEF -down-> STATE : daemon creates\non first use
+
+note bottom of DEF
+  Everything an agent IS lives in this one folder:
+  author it by hand, `agents.create`, or install an .agentpkg.
+  Delete the folder = the agent is gone. workspace/ + sessions
+  are excluded from packaging — definitions ship, data stays.
+end note
+@enduml
+
+@startuml agentd-layers
+title agentd layers — where an agent flows through the core
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "PRESENTATION  (transport only — no business logic)" as P #EAF3FF {
+  rectangle "Gateway :8787\nWS RPC dispatch + events\nHTTP /file + /apps/<id>/\nauth token · origin gate · scope" as GW
+  rectangle "CLI\nagentd chat/app/install…" as CLI
+}
+
+package "APPLICATION  (use-cases, orchestration)" as A #F0FFF0 {
+  rectangle "AgentService\nhandle_message():\nresolve agent → select tools →\nbuild prompt → run engine" as SVC
+  rectangle "RunContext (contextvar)\nagent_id · workspace · plugins\n— how shared tools know\nWHO is calling" as CTX
+  rectangle "tool_models\nresolve_tool_model():\nthe model-override chain" as TM
+}
+
+package "DOMAIN  (pure rules, no IO)" as D #FFF5EE {
+  rectangle "AgentSpec\n+ select_tools (allow/deny)\n+ apply_mode · merge_skills" as SPEC
+  rectangle "events · messages\nAgentEvent stream shapes" as EV
+}
+
+package "INFRASTRUCTURE  (IO, engines, stores)" as I #FDF6FF {
+  rectangle "file_registry\nagents/<id>/ → AgentSpec" as REG
+  rectangle "plugin discovery\nplugins/<id>/ → Tool objects\n(+ MCP servers → tools)" as PLUG
+  rectangle "engine/native\nthe agent LOOP:\nstream LLM ↔ run tools\nuntil done" as ENG
+  rectangle "LiteLLM\nany provider:\ngemini/deepseek/anthropic/…" as LLM
+  rectangle "session store\ntranscripts (.jsonl)\n+ semantic memory" as SESS
+}
+
+GW -down-> SVC : chat.send
+CLI -down-> GW : RPC
+SVC -down-> SPEC : select_tools(spec)
+SVC -down-> CTX : set per run
+SVC -right-> ENG : run(messages, prompt,\ntools, model)
+REG -up-> SVC : AgentSpec
+PLUG -up-> SVC : tool catalog
+ENG -down-> LLM : completions
+ENG -up-> GW : AgentEvents → chat.event\n(broadcast to every client)
+ENG -right-> SESS : persist turns
+TM .down.> CTX : reads agent's\n[plugins.*] overrides
+
+note right of D
+  Dependency rule: arrows point INWARD.
+  Domain imports nothing; application imports
+  domain; infrastructure implements interfaces.
+  An agent definition never contains code —
+  it only PARAMETERIZES these layers.
+end note
+@enduml
+
+@startuml agent-run-sequence
+title One chat turn — exact path through the core
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Client\n(JARVIS / app UI / terminal)" as C
+participant "Gateway" as GW
+participant "AgentService" as SVC
+participant "FileAgentRegistry" as REG
+participant "Engine (loop)" as ENG
+participant "LiteLLM" as LLM
+participant "Tools" as T
+participant "Session store" as S
+
+C -> GW : chat.send {sessionKey, message,\nagentId, attachments}
+GW -> GW : save attachments → workspace/uploads\nmint runId, RunHandle
+GW --> C : {runId}
+GW -> SVC : handle_message(...)
+SVC -> REG : resolve agent (explicit id |\nsession key | default)
+REG --> SVC : AgentSpec
+SVC -> SVC : set RunContext (agent_id, workspace\n[project workspace if project chat],\n[plugins.*] model overrides)
+SVC -> SVC : tools = apply_mode(select_tools(all, spec))\nprompt = identity + bootstrap + tools\n+ @mention directive + agent roster\n+ auto-recalled memories
+SVC -> S : load history, append user turn
+SVC -> ENG : run(messages, prompt, tools,\nmodel = spec.model override | brain)
+loop until agent_end
+  ENG -> LLM : stream completion\n(cost-efficiency router may pick\ntext_model vs vision_model)
+  LLM --> ENG : text deltas | tool calls
+  ENG -> GW : message_update {kind, delta}
+  GW --> C : chat.event {agentId, event}
+  opt tool call
+    ENG -> T : execute(params)\n(tool resolves ITS model via\nresolve_tool_model + RunContext)
+    T --> ENG : ToolResult (+ declared artifacts)
+    ENG -> GW : tool_execution_end {artifacts}
+    GW --> C : chat.event (client fetches\nartifacts via GET /file)
+  end
+  ENG -> S : persist assistant/tool turns
+end
+ENG -> GW : agent_end {stopReason}
+GW --> C : chat.event
+GW -> GW : auto-title the session (async)
+@enduml
+
+@startuml agent-extension-points
+title Extending an agent — every knob is data; precedence is first-hit-wins
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "ADD A TOOL  (capability)" as PT {
+  rectangle "plugins/<plugin-id>/\none class per tool, implementing the\nTool contract: name · description ·\nparameters · execute()\nself-describe: plugin · needs_model ·\ndefault_model · model_kind ·\nprovider_options · artifact_action ·\nconcurrency" as TOOL
+  rectangle "or: MCP server\n(mcp.add / config) —\nits tools join the same catalog" as MCP
+}
+
+package "ADD A SKILL  (procedure)" as PS {
+  rectangle "agents/main/skills/<name>/SKILL.md\n= the SHARED library (every agent)" as GS
+  rectangle "agents/<id>/skills/<name>/SKILL.md\n= the agent's OWN\n(same name OVERRIDES shared)" as OS
+}
+
+package "ADD AN APP UI" as PU {
+  rectangle "[app] in agent.toml + ui/ dir\n→ served at /apps/<id>/\n(vendored @agentd/client)" as APPUI
+}
+
+package "SCOPE THE AGENT" as SC {
+  rectangle "[tools] allow/deny (globs ok)\nskills = [...] allowlist\n[subagents] allow (delegation)\n[capabilities] autonomy/notify/channels\nheartbeat · [safe_to_send] audience" as GATES
+}
+
+note as MODELS
+  **MODEL OVERRIDES — the resolution chains**
+
+  BRAIN (the reasoning loop):
+   1. agent.toml  `model = "..."`      (per-agent)
+   2. config `cost_efficiency` router  (text vs vision, if enabled)
+   3. config.json `model`              (the global brain)
+
+  A TOOL's model (resolve_tool_model, first hit wins):
+   1. per-call `model` param           (the LLM asked for one)
+   2. agent.toml  [plugins.P.tools.T] model
+   3. agent.toml  [plugins.P] model
+   4. config.json plugins.P.tools.T.model
+   5. config.json plugins.P.model
+   6. the tool's own `default_model`   (config-overridable seed)
+
+  Discovery is automatic: drop the file → it's in the catalog.
+  Tool knobs render in Settings from self-description
+  (provider pickers, model kind) — no UI edits, ever.
+end note
+
+TOOL -[hidden]right- GS
+GS -[hidden]right- APPUI
+PT -[hidden]down- SC
+@enduml

@@ -63,6 +63,11 @@ class AgentSpec:
     heartbeat: str | None = None  # autonomy interval, e.g. "15m" (Phase 2)
     heartbeat_instructions: str = ""  # HEARTBEAT.md, injected only on a tick
     version: str = "1"  # agent-definition version (S18, from agent.toml)
+    # [app] — this agent ships its OWN client UI (an "app agent"): {entry, title}. The UI
+    # lives at <dir>/ui/ and the daemon serves it at /apps/<id>/ (see docs/PROTOCOL.md §9).
+    # None = a plain chat agent (rendered by the shared client). The definition stays pure
+    # data — the gateway does the serving; nothing here executes.
+    app: dict | None = None
 
 
 def agent_id_from_session_key(session_key: str) -> str:
@@ -111,6 +116,16 @@ def select_tools(tools: list, spec: AgentSpec) -> list:
             continue
         out.append(t)
     return out
+
+
+def select_private_tools(tools: list, spec: AgentSpec) -> list:
+    """Filter an agent's OWN (private, shipped-with-the-agent) tools: implicitly allowed —
+    they never need to appear in ``tools_allow`` (they arrived WITH the agent, naming them
+    again would be redundant) — but an explicit ``tools_deny`` still wins, so an operator
+    can switch one off. The sibling of ``select_tools`` (which governs the SHARED catalog,
+    where allow=None means all and an allowlist is a strict filter)."""
+    deny = tuple(spec.tools_deny or ())
+    return [t for t in tools if not any(_matches(getattr(t, "name", ""), d) for d in deny)]
 
 
 def apply_enablement(tools: list, enabled=None, disabled=()) -> list:

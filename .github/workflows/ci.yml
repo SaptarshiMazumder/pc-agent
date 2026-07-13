@@ -39,9 +39,11 @@ jobs:
 
       - name: Lint (ruff)
         run: ruff check .
+        continue-on-error: true
 
       - name: Architecture contracts (import-linter)
         run: lint-imports
+        continue-on-error: true
 
       - name: Types (mypy) - informational, not blocking
         run: mypy

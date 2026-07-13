@@ -83,6 +83,64 @@ def discover_plugin_tools(config) -> list:
     return discover_plugin_contributions(config)[0]
 
 
+def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitlement=None) -> dict:
+    """The AGENT-PRIVATE plugin tier: ``agents/<id>/plugins/<pid>/plugin.toml`` ->
+    ``{agent_id: [tools]}``.
+
+    A marketplace agent's highly-specialized tools ship INSIDE its own folder, so definition and
+    capability travel — and uninstall — together (the folder rides in the .agentpkg exactly like
+    ui/ does). The shared ``plugins/`` tier stays for capabilities every agent inherits. Same
+    manifest format, same entry loading, same config/compat/entitlement gates as the shared tier;
+    the differences are the ROOT (each agent's dir) and that every tool is tagged ``_agent_id``,
+    so it is offered ONLY to its owning agent — never to other agents or the global catalog.
+    A private plugin contributes TOOLS only (v1): prompt sections / mcp servers / skills belong
+    to the shared tier (an agent's own skills already live in ``agents/<id>/skills/``)."""
+    out: dict = {}
+    root = Path(agents_dir or "")
+    if not root.is_dir():
+        return out
+    for agent_dir in sorted(root.iterdir()):
+        pdir = agent_dir / "plugins"
+        if not (agent_dir.is_dir() and pdir.is_dir()):
+            continue
+        agent_id = agent_dir.name.lower()
+        tools: list = []
+        seen: set[str] = set()
+        for sub in sorted(pdir.iterdir()):
+            mf = sub / "plugin.toml"
+            if not (sub.is_dir() and mf.is_file()):
+                continue
+            m = load_manifest(mf)
+            if m is None or m.id in seen or not m.entry:
+                continue
+            if not _passes_gates(config, m, entitlement):
+                continue
+            seen.add(m.id)
+            native_tools, _sections = load_plugin_entry(m, config, deps)
+            plugin_desc = m.description or _module_doc(m.entry)
+            for t in native_tools:
+                for attr, val in (
+                    ("_plugin_id", m.id),
+                    ("_plugin_name", m.name),
+                    ("_plugin_desc", plugin_desc),
+                    ("_agent_id", agent_id),
+                ):
+                    try:
+                        setattr(t, attr, val)
+                    except (AttributeError, TypeError):
+                        pass
+            tools.extend(native_tools)
+        if tools:
+            out[agent_id] = tools
+            log.info(
+                "plugins: agent '%s' ships %d private tool(s): %s",
+                agent_id,
+                len(tools),
+                ", ".join(getattr(t, "name", "?") for t in tools),
+            )
+    return out
+
+
 def _module_doc(entry: str) -> str:
     """First meaningful line of a native plugin's module docstring — the fallback plugin
     description when its `plugin.toml` declares none. The module is already imported by

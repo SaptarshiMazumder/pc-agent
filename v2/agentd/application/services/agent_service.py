@@ -20,7 +20,13 @@ from agentd.application.interfaces.agents import AgentRegistry
 from agentd.application.interfaces.events import EventSink
 from agentd.application.interfaces.memory import SessionStore
 from agentd.application.run_context import RunContext, current_run_outcome, set_run_context
-from agentd.domain.agent import AgentSpec, RunMode, apply_mode, select_tools
+from agentd.domain.agent import (
+    AgentSpec,
+    RunMode,
+    apply_mode,
+    select_private_tools,
+    select_tools,
+)
 from agentd.domain.messages import Artifact, UserMessage
 
 
@@ -76,9 +82,14 @@ class AgentService:
         # (the mentioned agent answers the turn AS ITSELF, one-off) | "delegate" (this agent
         # orchestrates it via message_agent). Injected from Config; single unambiguous mentions
         # honor it, 2+ mentions always delegate. See handle_message's reroute.
+        agent_tools: dict | None = None,  # AGENT-PRIVATE tools shipped INSIDE an agent's own
+        # folder (agents/<id>/plugins/): {agent_id: [Tool]}. Offered ONLY to the owning agent —
+        # implicitly allowed for it (deny still wins), invisible to every other agent and to the
+        # global catalog. Composition root discovers + wraps them (discover_agent_plugins).
     ):
         self._engine = engine
         self._tools = tools
+        self._agent_tools = dict(agent_tools or {})
         self._registry = registry
         self._make_session = make_session
         self._build_prompt = build_prompt
@@ -190,9 +201,25 @@ class AgentService:
         the resolved agent's allow/deny."""
         self._tools.extend(tools)
 
-    def find_tool(self, name: str):
-        """Look up a registered tool by name (e.g. a namespaced MCP tool a channel
-        invokes outside the agent loop). Returns the Tool or None."""
+    def set_agent_tools(self, agent_tools: dict) -> None:
+        """Replace the AGENT-PRIVATE tool map wholesale (marketplace hot-reload: an installed
+        agent may ship its own plugins). Wholesale replacement keeps reloads idempotent —
+        no duplicate-tool bookkeeping."""
+        self._agent_tools = dict(agent_tools or {})
+
+    def agent_private_tools(self, agent_id: str | None) -> list:
+        """The tools shipped INSIDE one agent's own folder (empty for a plain agent)."""
+        return list(self._agent_tools.get((agent_id or "").lower(), []))
+
+    def find_tool(self, name: str, agent_id: str | None = None):
+        """Look up a registered tool by name (e.g. a namespaced MCP tool a channel invokes
+        outside the agent loop). With ``agent_id``, that agent's OWN (private) tools are
+        searched FIRST — an agent's shipped tool wins a name collision with the shared
+        catalog for its owner. Returns the Tool or None."""
+        if agent_id:
+            for t in self._agent_tools.get(agent_id.lower(), []):
+                if getattr(t, "name", None) == name:
+                    return t
         return next((t for t in self._tools if getattr(t, "name", None) == name), None)
 
     def remove_tools(self, prefix: str) -> int:
@@ -205,18 +232,27 @@ class AgentService:
     def _select_tools(self, agent_id: str | None = None) -> list:
         """The live tool objects behind a catalog query (read-only; safe to call any time).
 
-        No ``agent_id`` => the FULL active catalog (every tool currently loaded + enabled).
-        With ``agent_id`` => the subset THAT agent actually sees in an interactive turn — i.e.
-        ``apply_mode(select_tools(...), INTERACTIVE)``, exactly what ``handle_message`` would
-        pass the model. An unknown id falls back to the full catalog."""
+        No ``agent_id`` => the FULL active catalog (every tool currently loaded + enabled —
+        agent-PRIVATE tools deliberately excluded: they belong to one agent, not the catalog).
+        With ``agent_id`` => the subset THAT agent actually sees in an interactive turn:
+        the shared catalog through its allow/deny PLUS its own private tools (deny still wins) —
+        exactly what ``handle_message`` would pass the model. Unknown id => the full catalog."""
         tools = self._tools
         if agent_id:
             try:
                 agent = self._registry.get(agent_id)
-                tools = apply_mode(select_tools(self._tools, agent), RunMode.INTERACTIVE)
+                tools = apply_mode(self._tools_for(agent), RunMode.INTERACTIVE)
             except KeyError:
                 pass
         return list(tools)
+
+    def _tools_for(self, agent: AgentSpec) -> list:
+        """ONE rule for an agent's toolset, used by runs and catalog queries alike: the shared
+        catalog scoped by allow/deny + the agent's OWN shipped tools (implicitly allowed,
+        deny-only filtered)."""
+        return select_tools(self._tools, agent) + select_private_tools(
+            self._agent_tools.get(agent.id, []), agent
+        )
 
     def list_tools(self, agent_id: str | None = None) -> list:
         """Client-renderable SUMMARIES of the live tool catalog (name/label/summary/source). See
@@ -286,7 +322,7 @@ class AgentService:
                 plugins=getattr(agent, "plugins", None) or None,
             )
         )
-        tools = apply_mode(select_tools(self._tools, agent), mode)  # serving-agent scope + run mode
+        tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode
         session = self._make_session(session_id, owner)  # history stays in the OWNER's partition
         messages = session.load()  # prior history (read)
         # attachments (already saved to the workspace by the transport layer, carried by

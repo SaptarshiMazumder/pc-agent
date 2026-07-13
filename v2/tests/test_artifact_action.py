@@ -56,7 +56,7 @@ class _Gate:
 
     def __init__(self, tool):
         self.service = SimpleNamespace(
-            find_tool=lambda n: tool if tool and tool.name == n else None
+            find_tool=lambda n, a=None: tool if tool and tool.name == n else None
         )
 
     # bind the real method so we test the actual gating/return logic

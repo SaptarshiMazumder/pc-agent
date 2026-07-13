@@ -1,6 +1,16 @@
 # CI/CD Build-Out Plan — pc-agent (`v2/`)
 
-> **Status:** Phase 0 ✅ · Phase 1 ✅ · Phase 2 ✅ (`ci.yml` live+green) · **Phase 3 ✅ `integration.yml` written; the 4 browser tests' stale flat-config bug FIXED + verified (4 pass real Chromium); Stage-1 710 green** — push to activate · Next: Phase 4 (installers) · **Target:** GitHub Actions · **Scope:** Stages 1–4 · **Adds:** ruff + mypy
+> **Status:** Phase 0–3 ✅ · **Phase 4 ✅ `release-build.yml` written** (tag `v*` → version-check → wheel → Windows installers core+studio → GitHub Release; version-check + wheel validated locally, installer/publish need a real tag) · Next: cut a `v0.1.0` tag to test; then Phase 5/6 (signing, marketplace publish, hardening) · **Target:** GitHub Actions · **Scope:** Stages 1–4 · **Adds:** ruff + mypy
+
+## Phase 4 completion notes
+
+- **`release-build.yml`** (trigger `on: push: tags: ['v*']`, `concurrency cancel-in-progress: false`, `permissions: contents: write`). 4 chained jobs = the 5-step assembly line:
+  - `version-check` (ubuntu): tag `${GITHUB_REF_NAME#v}` must equal `agentd/__init__.py __version__` AND desktop `package.json version` — portable `grep|cut` (NOT `grep -P`, which dies on Git Bash's non-UTF-8 locale). ✅ validated locally.
+  - `wheel` (ubuntu): `pip install build` → `python -m build --wheel` → upload `wheel` artifact. ✅ built locally (640 KB, hatch hook staged 118 plugin files + data).
+  - `installers` (windows): download `wheel` → `build-runtime.ps1 -Wheel <path>` (embeds CPython 3.11.11 + wheel + mcp) → `npm run dist:core` + `dist:studio` → upload `installers`. NOT dry-runnable locally.
+  - `publish` (ubuntu): download all → `gh release create`/`upload --clobber` (idempotent; `find -print0 | xargs -0` handles spaces in `.exe` names).
+- **Release ritual:** bump both version files → commit to main → `git tag vX.Y.Z && git push origin vX.Y.Z`. Current = 0.1.0, so `v0.1.0` is the first test tag.
+- **First-run watchpoints:** build-runtime.ps1's python-build-standalone URL (3.11.11/20250115) must be live; installers unsigned (SmartScreen warns); release build does NOT re-run tests (trusts green main).
 
 ## Phase 3 completion notes
 
