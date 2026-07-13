@@ -22,6 +22,11 @@ keywords = ["agent", "llm", "assistant", "automation"]
 # the plugins that need them degrade to "disabled" when absent, by design.
 dependencies = [
     "litellm>=1.60",
+    # litellm's completion path imports litellm.proxy (its MCP handler) at call time,
+    # which needs fastapi + orjson. They're not in litellm's base deps, so declare them
+    # here or the packaged runtime (wheel install) can't make a single LLM call.
+    "fastapi>=0.110",
+    "orjson>=3.9",
     "websockets>=13",
     "rich>=13",
     "pygments>=2.17",
