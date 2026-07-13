@@ -1,0 +1,4 @@
+id = "skills"
+name = "Skill Workshop"
+kind = "native"
+entry = "skills_plugin:register"

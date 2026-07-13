@@ -1,0 +1,116 @@
+@startuml trust-boundary-ja
+' ============================================================================
+'  pc-agent Platform - TRUST BOUNDARIES & data flow per tier
+'  What data crosses which boundary, and where third parties are excluded.
+'  Render (from this folder):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng trust-boundary-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #777777
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent - 信頼境界とデータフロー\nティアごとに、どのデータがどの境界を越えるか。緑＝平文はユーザーの管理下に留まる。赤＝第三者へ流出。\nボールトストレージは常にエンドツーエンド暗号文。どのLLMティアを使うかで誰が平文を見るかが決まる。
+
+' ===========================================================================
+' BOUNDARY 1 - the user (fully trusted)
+' ===========================================================================
+package "境界1 : ユーザーのデバイス  (完全に信頼 - 平文と鍵がここに存在)" #E6F4EA {
+  rectangle "エージェントループ＋ツール＋スキル\n(平文: ファイル、プロンプト、メモリ、\nローカルのSKILL.mdプレイブック)\n＋ローカルメモリのキャッシュ／同期＋想起" as DEV #C8E6C9
+  rectangle "暗号鍵\n(パスワード由来。外部に出ない)" as KEY #C8E6C9
+  rectangle "ローカルLLM (Ollama)\n[ティア: local]" as TLOCAL #C8E6C9
+}
+
+' ===========================================================================
+' BOUNDARY 2 - your cloud (first-party, contractually trusted)
+' ===========================================================================
+package "境界2 : 自社クラウド  (ファーストパーティ - 自社のプライバシー規約の下)" #FDECEA {
+  rectangle "コントロールプレーン\n認証＋利用権限＋使用量\n(メタデータのみ)" as CP #FBD9D4
+  rectangle "メモリバンク（正本）\n暗号文＋ラップ済み鍵\n(自社は読めない)\n差し替え可能なバックエンド" as VLT #FBD9D4
+  rectangle "セキュアLLM（GPU VM）\nステートレス・非ログ；\n平文はRAM上のみ\n[ティア: managed secure]" as TVM #FFD699
+}
+
+' ===========================================================================
+' BOUNDARY 2b - the user's own infra (sovereign tier)
+' ===========================================================================
+package "境界2b : ユーザー自身のサーバー  (ソブリンティア - ユーザーがホスト)" #E8F0FE {
+  rectangle "セルフホストのモデル＋ボールト\nユーザー自身のインフラ上\n[ティア: sovereign]" as TSOV #DCEBFF
+}
+
+' ===========================================================================
+' BOUNDARY 3 - third parties (EXCLUDED except BYOK)
+' ===========================================================================
+package "境界3 : 第三者AIベンダー  (OpenAI / Google / Anthropic)" #FFEBEE {
+  rectangle "ベンダーAPI\nプロンプト全体を参照 = 自社のコンテンツ\n[ティア: BYOK only]" as TPV #FFCDD2
+}
+
+' ===========================================================================
+' DATA FLOWS (labelled with what crosses)
+' ===========================================================================
+' inside the device - plaintext, free
+DEV --> TLOCAL : 平文（デバイス上に留まる）
+KEY --> DEV : 復号／暗号化
+
+' device -> your cloud
+DEV ..> VLT : **暗号文のみ** (E2E)
+DEV ..> CP : メタデータ（使用量、認証）
+DEV --> TVM : TLS経由の平文\n(一時的。保存・記録なし)
+
+' device -> user's own server
+DEV --> TSOV : 平文（ユーザー自身のインフラ）
+
+' device -> third party (BYOK only)
+DEV --> TPV : 平文のプロンプト\n(ベンダーへ流出)
+
+note as N_OK #E8F5E9
+  プライベートティア (local / sovereign / managed secure):
+  第三者AIベンダーがデータを受け取ることは一切ない。
+  - local / sovereign : 平文はユーザーの管理下に留まる
+  - managed secure    : 自社のステートレスモデルは推論中の
+                        RAM上でのみ平文を参照；保存時のボールトはE2E
+end note
+N_OK .. TVM
+
+note as N_BAD #FFEBEE
+  BYOKティアはコンテンツが第三者へ流出する唯一の
+  ティア - 不可避: クラウドAPIは推論を実行するために
+  プロンプトを受け取る必要がある。ユーザーへ明確に表示すること。
+end note
+N_BAD .. TPV
+
+note as N_VAULT #FFF8DC
+  メモリバンク = プラガブルなサブシステム（履歴＋プロファイル＋
+  学習済みファクト＋想起インデックス）。正本はクラウド上、
+  デバイス上にローカル同期／キャッシュ。すべてのティアで同一:
+  エンドツーエンド暗号文；鍵を保持するのはデバイスのみ。
+  想起は復号済みメモリに対しクライアント側で実行。
+  差し替え可能なバックエンド（DB／ベクトル／ユーザーのサーバー／ローカル）。
+end note
+N_VAULT .. VLT
+
+legend left
+  | Marker | Meaning |
+  | green | 平文はユーザーの管理下 |
+  | amber | ファーストパーティ（自社）またはユーザー自身のサーバー |
+  | red   | 第三者ベンダーへ流出（BYOKのみ） |
+  | dotted arrow | 暗号文／メタデータのみ |
+  | solid arrow  | 平文がここを通過 |
+endlegend
+
+@enduml

@@ -1,0 +1,14 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nakama icon">
+  <rect width="256" height="256" rx="60" fill="#FFFFFF"/>
+
+  <!-- Ring A (left) -->
+  <circle cx="102" cy="128" r="40" fill="none" stroke="#84CC16" stroke-width="12"/>
+
+  <!-- Ring B (right): white halo cuts A at both crossings, then B drawn on top -->
+  <circle cx="154" cy="128" r="40" fill="none" stroke="#FFFFFF" stroke-width="22"/>
+  <circle cx="154" cy="128" r="40" fill="none" stroke="#84CC16" stroke-width="12"/>
+
+  <!-- corrective arc: bring A back OVER B at the top crossing -> woven, inseparable link -->
+  <path d="M115.7 90.4 A40 40 0 0 1 137.3 109.2" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round"/>
+  <path d="M115.7 90.4 A40 40 0 0 1 137.3 109.2" fill="none" stroke="#84CC16" stroke-width="12" stroke-linecap="round"/>
+</svg>

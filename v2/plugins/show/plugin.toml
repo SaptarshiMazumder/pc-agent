@@ -1,0 +1,4 @@
+id = "show"
+name = "Show Deliverables"
+kind = "native"
+entry = "show_plugin:register"

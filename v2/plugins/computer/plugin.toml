@@ -1,0 +1,4 @@
+id = "computer"
+name = "Computer Use"
+kind = "native"
+entry = "computer_plugin:register"

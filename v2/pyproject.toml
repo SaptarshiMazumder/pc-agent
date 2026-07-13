@@ -1,0 +1,129 @@
+# agentd packaging (M1). `pip install .` (or pipx/uv tool install) gives the `agentd`
+# and `jarvis` commands. The wheel carries the built-in plugin bundles + starter data
+# INSIDE the package (agentd/_builtin_plugins, agentd/_data — staged by the build hook,
+# never present in a checkout, which is exactly how runtime_paths detects the mode).
+# An editable install (`pip install -e .`) stays in repo mode on purpose.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentd"
+dynamic = ["version"]
+description = "agentd — a local agent daemon: one gateway, many agents, plugins, skills, and a marketplace."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "agentd" }]
+keywords = ["agent", "llm", "assistant", "automation"]
+
+# Mirrors requirements.txt (the dev file). Heavy OPTIONAL stacks are extras below —
+# the plugins that need them degrade to "disabled" when absent, by design.
+dependencies = [
+    "litellm>=1.60",
+    "websockets>=13",
+    "rich>=13",
+    "pygments>=2.17",
+    "httpx>=0.27",
+    "aiohttp>=3.10",
+    "trafilatura>=1.12",
+    "readability-lxml>=0.8",
+    "markdownify>=0.13",
+    "ddgs>=2.0",
+    "playwright>=1.49",
+    "jsonschema>=4.21",
+    "croniter>=2.0",
+    "python-docx>=1.1",
+    "pypdf>=4.0",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "google-genai>=0.3",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+computer = ["pyautogui>=0.9.54", "Pillow>=10"]   # computer-use tool (AGENTD_COMPUTER_ENABLED=1)
+mcp = ["mcp>=1.0"]                                # external MCP connectors
+# figure vectorization (extract_annotations + trace_image backends). The tools load without these
+# and return actionable install errors — install this extra to enable the extraction route.
+figures-vector = [
+    "numpy>=1.26",
+    "scikit-image>=0.24",
+    "rapidocr>=2.0",       # PP-OCRv5 via onnxruntime (no torch/paddle)
+    "onnxruntime>=1.17",
+    "vtracer>=0.6",        # binary trace of non-stroke blobs (fallback tier only)
+    "Pillow>=10",
+    # OPTIONAL: `rembg` enables neural background removal for NON-white backgrounds in figure_to_svg.
+    # For the strip's pure-white output the built-in deterministic cut is used (pixel-exact, no dep),
+    # so rembg is not required — add it only if you convert figures with complex backgrounds.
+]
+all = ["agentd[computer,mcp,figures-vector]"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "ruff>=0.6", "mypy>=1.11", "agentd[all]"]
+
+[project.scripts]
+agentd = "agentd.cli.main:main"
+jarvis = "agentd.cli.main:main"
+
+[tool.hatch.version]
+path = "agentd/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentd"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "scripts/hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "agentd",
+    "plugins",
+    "agents/main/skills",
+    "SOUL.md",
+    "scripts/hatch_build.py",
+    "config.example.json",
+    "README.md",
+]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo", "**/.agentd", "**/workspace"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: hits real network/provider APIs (needs secrets; excluded from Stage 1)",
+    "browser: needs Playwright + a real Chromium (excluded from Stage 1)",
+    "computer: needs the computer-use runtime (display + driver; excluded from Stage 1)",
+    "e2e: end-to-end smoke against a booted daemon",
+]
+
+# --- ruff: linter (bug-prone patterns) + formatter (consistent style) ---------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["misc", "clients", "reference", "v1"]
+
+[tool.ruff.lint]
+# E = pycodestyle, F = pyflakes (unused imports/vars — real bugs), I = isort (import order),
+# UP = pyupgrade (modernize syntax), B = flake8-bugbear (likely-bug patterns).
+select = ["E", "F", "I", "UP", "B"]
+# E501 (line-length) is owned by the formatter. The rest are a RATCHET: pre-existing style/best-
+# practice issues to burn down over time, then delete from this list. F-codes (real bugs) are
+# deliberately NOT ratcheted — they stay enabled everywhere (flagged in place with # noqa + TODO).
+ignore = [
+    "E501",
+    "B007", "B011", "B904", "B905", "E402", "E731", "E741", "UP007", "UP031",
+]
+
+# --- mypy: static type checking (start lenient, scoped to core; ratchet later) -
+[tool.mypy]
+python_version = "3.11"
+files = ["agentd"]
+ignore_missing_imports = true    # don't error on untyped 3rd-party libs (litellm, etc.)
+check_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+no_implicit_optional = true
+exclude = ['agentd/_builtin_plugins/', 'agentd/_data/']
+

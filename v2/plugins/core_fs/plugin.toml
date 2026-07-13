@@ -1,0 +1,4 @@
+id = "core_fs"
+name = "Filesystem"
+kind = "native"
+entry = "core_fs_plugin:register"

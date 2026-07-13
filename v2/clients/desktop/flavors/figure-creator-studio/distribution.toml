@@ -1,0 +1,27 @@
+# FIGURE CREATOR STUDIO — the specialized-SKU flavor (M6): same codebase, this one
+# file makes it a different product. The shell brands itself from [product]; the
+# daemon it spawns inherits this file (AGENTD_DISTRIBUTION) so provisioning, the
+# default agent, and store wiring all match the installer.
+#
+# The figure-creator bundle itself ships as flavors/figure-creator-studio/bundles/
+# figure-creator-<ver>.agentpkg (placed by the build script); the shell preinstalls
+# it on first run via the ordinary marketplace flow — one install path everywhere.
+
+[product]
+id = "figure-creator-studio"
+name = "Figure Creator Studio"
+default_agent = "figure-creator"
+preinstalled_bundles = ["figure-creator"]
+
+[provisioning]
+# Only what the Studio needs: the figure pipeline + the core capabilities it rides on.
+# Bundle installs UNION into this set automatically (acquired addons join the profile).
+plugins = [
+  "core_fs", "shell", "web", "skills", "memory", "planning", "resources", "authoring",
+  "html", "figures", "figure-art", "vision", "vectorize", "figexport",
+]
+
+[store]
+enabled = true            # a standalone SKU still upsells other agents
+# registry_url = "https://registry.agentd.example/index.json"
+# publisher_key = "<set when shipping signed bundles/licenses>"

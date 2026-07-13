@@ -1,0 +1,86 @@
+@startuml parity-build-map
+' ============================================================================
+'  The OpenClaw-parity build — every step S0.5..S18, by tier + layer + status.
+'  Render: java -jar ../../../plantuml.jar -tpng parity-build-map.puml
+'  green = built (full)   amber = built this pass   gray = seam / deferred
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 14
+skinparam ranksep 40
+skinparam ArrowColor #777777
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 8
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Parity build map — S0.5 .. S18\nlime/green = full build    amber = built (seam/partial noted)    gray = deferred (governance / breadth)
+
+package "Tier 0 — Harness / persona (the feel)" #E8F0FE {
+  rectangle "S1  Persona core\nbase-prompt disposition\n(infra/prompt.PERSONA)" as S1 #C8E6C9
+  rectangle "S0.5  SOUL.md (editable)\npersona_file -> file, constant fallback" as S05 #C8E6C9
+  rectangle "S2  Self-knowledge\nWhat-you-are section, built dynamically\nfrom tools + autonomy + channels" as S2 #C8E6C9
+  rectangle "S3  Honesty by default\ncompleteness_check ON +\nverify-before-send (required)" as S3 #C8E6C9
+}
+
+package "Tier 1 — Memory & context" #E8F5E9 {
+  rectangle "S4  Memory data layer\ndomain MemoryItem · MemoryBank port ·\nSqliteMemoryBank (FTS5 + LIKE)" as S4 #C8E6C9
+  rectangle "S5  Memory tools\nremember / memory_search / memory_get\n(AGENTD_MEMORY)" as S5 #C8E6C9
+  rectangle "S6  Consolidation\ndedup notes (memory_consolidate)" as S6 #C8E6C9
+  rectangle "S7  Context compaction\nContextPolicy port · WindowContextPolicy\n· engine hook (AGENTD_CONTEXT_MAX)" as S7 #C8E6C9
+}
+
+package "Tier 2 — Sub-agents & skills" #FFF3E0 {
+  rectangle "S8  Sub-agent spawn\nspawn_subagent tool +\ngateway._spawn_subagent (child Task,\ncap+depth)  (AGENTD_SUBAGENTS)" as S8 #C8E6C9
+  rectangle "S9  Delegation disposition\n+ parallel spawn" as S9 #C8E6C9
+  rectangle "S10  skill_workshop\nwrite SKILL.md at runtime\n(AGENTD_SKILL_WORKSHOP)" as S10 #C8E6C9
+}
+
+package "Tier 3 — Robustness & governance" #F3E5F5 {
+  rectangle "S11  Model failover\nfailover_stream — retry next model\non clean error (AGENTD_MODEL_FALLBACKS)" as S11 #C8E6C9
+  rectangle "S14  Autonomy depth\nfailure_alert: auto-pause + notify\nafter N consecutive failures" as S14 #C8E6C9
+  rectangle "S15  Commitments\nopen-loop tracker\n(commitment tool + store)" as S15 #C8E6C9
+  rectangle "S16  Auth-profiles\nLRU rotation + cooldown\n(store only; wiring later)" as S16 #FFE9C7
+  rectangle "S12  Tool-call-repair\nDEFERRED (low ROI w/ native models)" as S12 #DDDDDD
+  rectangle "S13  Approval / policy\nDEFERRED (governance, not power)" as S13 #DDDDDD
+}
+
+package "Tier 4 — Heavy / platform" #ECEFF1 {
+  rectangle "S17  Sandbox\nSEAM: Sandbox port + LocalSandbox\n(Docker/SSH deferred)" as S17 #FFE9C7
+  rectangle "S18  Platform\nSEAM: AgentSpec.version in agents.list\n(plugin-registry/MCP-server deferred)" as S18 #FFE9C7
+}
+
+package "Already built earlier (context)" #F2F2F2 {
+  rectangle "P1 agent-as-definition · P2 autonomy\n(heartbeat/cron/goals/outcomes) ·\n5a notify · 5b channels framework ·\nReliability (GuardedTool/idle/liveness)" as PRIOR #C8E6C9
+}
+
+S1 --> S2
+S2 --> S3
+S4 --> S5
+S5 --> S6
+S6 --> S7
+S8 --> S9
+S9 --> S10
+
+note bottom of S13
+  Deferred = the user's call: governance (approval, full sandbox),
+  tool-call-repair, and tool/channel breadth are "not power" and
+  wait. Everything else above is built + tested (298 tests, lint kept).
+end note
+
+note bottom of PRIOR
+  Every new feature is DEFAULT-OFF or non-mutating: the reactive
+  chat path is byte-identical unless a flag opts it in.
+end note
+
+@enduml

@@ -1,0 +1,4 @@
+id = "resources"
+name = "Resources"
+kind = "native"
+entry = "resources_plugin:register"

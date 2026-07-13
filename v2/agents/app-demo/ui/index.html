@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>App Demo Console</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="dot" id="statusDot" title="connection"></span>
+        <h1>App Demo Console</h1>
+        <span class="badge" id="scopeBadge">unscoped</span>
+      </div>
+      <div class="server" id="serverInfo">connecting…</div>
+    </header>
+
+    <main>
+      <section class="panel chat">
+        <div class="panel-head">
+          <h2>Chat (streamed over the protocol)</h2>
+          <div class="row">
+            <select id="sessionPick" title="resume a previous chat"></select>
+            <button id="newChat" title="start a fresh chat">New</button>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+        <form id="composer">
+          <input id="prompt" placeholder="Ask App Demo anything…" autocomplete="off" />
+          <button type="submit" id="send">Send</button>
+          <button type="button" id="abort" disabled>Stop</button>
+        </form>
+      </section>
+
+      <section class="panel side">
+        <div class="block">
+          <h2>Direct invoke — no LLM</h2>
+          <p class="hint">Runs ONE tool via <code>tools.invoke</code>, gated to what this agent may use.</p>
+          <div class="row">
+            <select id="toolPick"></select>
+            <button id="runTool">Run</button>
+          </div>
+          <textarea id="toolParams" rows="3" spellcheck="false">{}</textarea>
+          <pre id="toolOut" class="out"></pre>
+          <div id="toolArts" class="arts"></div>
+        </div>
+
+        <div class="block">
+          <h2>The invariant</h2>
+          <p class="hint">
+            This app can <b>invoke</b> the backend but never <b>administer</b> it — host-tier
+            methods are denied on this scoped connection. See for yourself:
+          </p>
+          <button id="tryConfig">Try config.get (host tier)</button>
+          <pre id="denied" class="out"></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="vendor/agentd-client.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

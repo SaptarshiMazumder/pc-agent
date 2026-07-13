@@ -1,0 +1,105 @@
+@startuml request-flow
+' ============================================================================
+'  pc-agent - Runtime flow of ONE user message through all layers
+'  (the dynamic view: time flows downward; the reason->act LOOP is the key part)
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng request-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 14
+skinparam BoxPadding 12
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent - Runtime Flow of One Message (time flows down; the loop is the heart)
+
+box "USER'S MACHINE  (local - plaintext + key live here)" #E6F4EA
+  actor User
+  participant "UI\n(web / desktop)" as UI
+  participant "Gateway\n(localhost WS,\ntoken-gated)" as GW
+  participant "Agent core\n(loop / engine)" as CORE
+  participant "Memory\n(local cache\n+ E2E vault)" as MEM
+  participant "Policy +\nApproval" as POL
+  participant "Tools\n(files/exec/browser)" as TOOL
+  participant "Skills\n(SKILL.md\nplaybooks)" as SKILL
+end box
+
+box "REMOTE  (your cloud / their key)" #FDECEA
+  participant "LLM endpoint\n(secure VM / BYOK / local)" as LLM
+  participant "Control plane\n(auth, usage, vault sync)" as CP
+end box
+
+note over User, CP
+  Precondition: user already registered/logged in. The Gateway validated the
+  per-launch local token; the user's entitlements (tier/quota) are available to Policy.
+end note
+
+User -> UI : type a message
+UI -> GW : chat.send {session, text}\n(127.0.0.1 WS + token)
+GW -> CORE : handle_message(session, text)
+
+== Load context (all local) ==
+CORE -> MEM : load_history(session)
+MEM --> CORE : prior messages (decrypted locally)
+CORE -> MEM : recall(query)  // relevant long-term memory
+MEM --> CORE : memories
+CORE -> MEM : append(user message)   // persist
+note over CORE : build the request = system prompt + history\n+ recalled memory + tool specs + SKILL one-liners (descriptions only)
+
+== Reason -> act LOOP ==
+loop until the LLM returns a final answer (no tool calls)
+  CORE -> LLM : stream(system_prompt, messages, tools)\n--- HTTPS, plaintext to YOUR secure model ---
+  LLM --> CORE : stream: thinking + text deltas + tool calls
+  CORE -> UI : forward deltas (live) via Gateway
+
+  opt request matches an advertised skill (e.g. browser-automation)
+    CORE -> SKILL : read(SKILL.md path)   // an ordinary read tool call
+    SKILL --> CORE : full playbook -> enters messages[]
+    note over CORE, SKILL : the agent now follows that skill's step-by-step\nguidance for the rest of the run (read once, stays in history)
+  end
+
+  alt LLM asked for tool call(s)
+    CORE -> POL : authorize(tool, args, entitlements)
+    alt sensitive / irreversible (e.g. send email, destructive exec)
+      POL -> UI : approval request
+      UI --> POL : user says Yes / No
+    end
+    POL --> CORE : allow / deny
+    CORE -> TOOL : execute(tool, args)   // runs on THIS PC
+    TOOL --> CORE : result
+    CORE -> MEM : append(tool result)    // persist
+    note over CORE, LLM : results are appended to messages ->\nthe loop sends them BACK to the LLM for the next step
+  else no tool calls -> this text is the final answer
+    note over CORE : exit the loop
+  end
+end
+
+== Finish ==
+CORE -> MEM : append(final answer) -> encrypt
+MEM -> CP : sync CIPHERTEXT (async)
+CORE -> CP : report usage (async, metadata only)
+CORE -> UI : final answer (already streamed)
+UI -> User : show answer
+
+note over LLM
+  The LLM is STATELESS: each call gets the full
+  messages[]; it remembers nothing between calls.
+  "Memory" is the agent feeding history back in,
+  not the model retaining anything.
+end note
+
+note over CORE, SKILL
+  SKILLS vs TOOLS: tools are callable ACTIONS; skills are
+  loadable KNOW-HOW (markdown playbooks). Only each skill's
+  one-line description is in the prompt; the body is pulled
+  in on demand via the read tool when the task matches —
+  so you can add many skills with no prompt bloat and no code.
+end note
+
+@enduml

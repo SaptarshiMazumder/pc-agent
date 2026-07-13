@@ -1,0 +1,9 @@
+# demo-kit — an AGENT-PRIVATE plugin: it lives INSIDE the app-demo agent's folder, ships inside
+# its .agentpkg, and its tools are offered ONLY to app-demo (never to other agents or the global
+# catalog). This is the reference for "my marketplace agent has specialized tools that only make
+# sense for it" — same plugin format as the shared tier, different home.
+id = "demo-kit"
+name = "Demo Kit"
+kind = "native"
+entry = "demo_kit:register"
+description = "app-demo's own specialized tools — proof that an agent's tools can travel with it."

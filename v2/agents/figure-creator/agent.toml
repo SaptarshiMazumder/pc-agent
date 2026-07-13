@@ -1,0 +1,36 @@
+# figure-creator — turns a subject (a concept explained in chat, a paper/PDF, a sketch, a reference
+# image, or a flat figure to re-edit) into a publication-grade scientific figure. It picks an ART
+# TEMPLATE from its style gallery (templates/*.toml — biorender-shaded, ghosted-anatomy,
+# isometric-3d-stem, watercolor-atlas, flat-vector, …), renders TEXTLESS artwork with Nano Banana Pro
+# (Gemini 3 Pro Image), then adds labels, leaders, arrows, and an illustrated flowchart (icon nodes,
+# not plain boxes) as an EDITABLE vector layer. Exports fully-editable SVG / PPTX and vector PDF.
+#
+# Full access on purpose: NO `skills` allowlist and NO `[tools] allow`, so it sees EVERY skill and
+# tool (including ones added later) with no edit here. Its playbooks are `create-scientific-figure`
+# and `vectorize-figure`; its tools are the figures / figure-art / vision / vectorize / figexport
+# plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
+
+name = "Figure Creator"
+# Advertised to the generalist when it decides how to delegate (agent.toml description WINS over
+# IDENTITY's first line). States the DELIVERY CONTRACT so a delegator relays the user's intent
+# instead of inventing an output format: the default deliverable is a PNG image; the editable
+# vector layer is produced ONLY on explicit request.
+description = "Creates scientific figures. DELIVERS A PNG image by default. Produces an editable vector SVG/PPTX/PDF ONLY when the user explicitly asks to make it editable/vector (or clicks Edit-as-SVG); an edit request edits the raster image. When delegating, pass the user's ask through faithfully — do NOT add an 'editable' or 'SVG' requirement the user did not state."
+
+# figure-creator NO LONGER overrides any MODEL. The image model (figure-art.generate_artwork) and the
+# reading/verify models (vision.read_labels_from_image / vision.verify_figure) are set ONCE in
+# agentd.config.json and used by EVERY agent — so "what model builds the picture" is answered in one
+# place, not hidden here. The only knobs that stay are agent-SPECIFIC art behavior that genuinely can't
+# live in global config, because they depend on THIS agent's own templates/ folder.
+[plugins.figure-art.tools.generate_artwork]
+# House DEFAULT art style: when generate_artwork gets a `subject` but names NO template (and no full
+# custom prompt), fall back to this — `clean-flat`, the light, mostly-flat BioRender look (flat fills +
+# one soft gradient, crisp outlines, room for labels). So "when in doubt" lands on the clean style even
+# if the routing skill never ran. `biorender-shaded` (richer semi-3D) stays available as an explicit
+# choice. An explicit `template=`/`prompt` wins.
+# Agent-local on purpose: templates/ is discoverable only from this agent's workspace, not global config.
+default_template = "clean-flat"
+# FOR NOW: cap every generation to ~1024px for cheap, fast iteration (overrides each template's own 2K).
+# Delete this one line to restore full-res per-template output. (1K | 2K | 4K)
+resolution = "1K"
+# templates_dir = "templates"   # optional override; default discovery finds <agent>/templates

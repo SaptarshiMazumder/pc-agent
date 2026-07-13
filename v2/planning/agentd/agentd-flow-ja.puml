@@ -1,0 +1,214 @@
+@startuml agentd-flow-ja
+' ============================================================================
+'  agentd (v2) — バックエンド全体フロー、ターミナル入力 -> 最終出力のストリーミング
+'  OpenClaw 忠実版を反映: 実システムプロンプト、思考、
+'  継続/検証リトライプロトコル、リッチなブラウザ知覚。
+'  描画 (このフォルダから): java -jar ../../plantuml.jar -charset UTF-8 -tpng agentd-flow-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd (v2) — エージェント実行フロー\nターミナルクエリ -> WebSocket ゲートウェイ -> LLM⇄ツールループ（継続/検証付き）-> 回答のストリーミング\n(OpenClaw の回答品質メカニズムの忠実な移植)
+
+' ===========================================================================
+' LAYER 1 — TERMINAL CLIENT
+' ===========================================================================
+package "LAYER 1 · ターミナルクライアント  ·  client/__main__.py" #E8F0FE {
+  rectangle "**REPL**\nasyncio.to_thread(input) で入力\nコマンド: /abort /new /quit\nsessionKey = term-<uuid> (または --session)" as REPL #DCEBFF
+  rectangle "**request('chat.send', {...})**\n{sessionKey, message, idempotencyKey}\n単一 WebSocket 経由; {runId} を待機" as SEND #DCEBFF
+  rectangle "**_render(event)**\ntext_delta -> ライブ表示\n⚙ ツール行 · ↻ 継続 · ✗ エラー" as RENDER #DCEBFF
+}
+
+' ===========================================================================
+' LAYER 2 — TRANSPORT
+' ===========================================================================
+package "LAYER 2 · トランスポート (WebSocket)  ·  protocol.py" #F3E8FF {
+  rectangle "**フレーム**: req / res / event\nchat.send · chat.abort · sessions.list\nイベントは 'chat.event' としてブロードキャスト" as WS #ECD9FF
+}
+
+' ===========================================================================
+' LAYER 3 — GATEWAY
+' ===========================================================================
+package "LAYER 3 · ゲートウェイ  ·  gateway.py" #FDECEA {
+  rectangle "**_chat_send()**\n— セッションに実行中の run があれば拒否\n— idempotencyKey で重複排除\n— {runId} を即返答し、非同期実行 (create_task)" as CHATSEND #FBD9D4
+  rectangle "**_run()**\nセッション JSONL を読込 -> messages[]\nユーザーメッセージを追加 -> システムプロンプト構築\nstream_fn = partial(litellm_stream, reasoning_effort)" as RUN #FBD9D4
+  rectangle "**_chat_abort()** -> abort Event + task.cancel\n**_broadcast()** -> 全クライアントへイベント (切断分を除去)" as ABORT #FBD9D4
+  rectangle "**セッション JSONL**  ·  session.py\n~/.agentd/sessions/<key>.jsonl\nヘッダ + 線形メッセージ連鎖 (読込時に再生)" as STORE #FFE0B2
+}
+
+' ===========================================================================
+' LAYER 4 — SYSTEM PROMPT
+' ===========================================================================
+package "LAYER 4 · システムプロンプト  ·  prompt.py (OpenClaw 原文そのまま)" #FFF4E5 {
+  rectangle "アイデンティティ · **## Tooling** · **## Skills**\n**## Tool Call Style** · **## Execution Bias** (7項目:\n'完了するまで継続', '弱い結果ではソースを変える')\n**## Safety** · ## Workspace · 日付 · **## Runtime** (thinking=medium)" as PROMPT #FFE3B3
+  rectangle "**## Skills** (告知のみ、インライン展開しない)\nskills/<name>/SKILL.md プレイブック\nFileSkillRegistry が毎ターン再スキャン ->\n各1行: 名前 + 使いどころ + パス\n(プロンプトには説明のみ = 段階的開示)" as SKILLS #FFE3B3
+  rectangle "プロジェクトコンテキスト\nAGENTS.md / SOUL.md / MEMORY.md (存在する場合)" as CTX #FFE3B3
+}
+
+' ===========================================================================
+' LAYER 5 — CORE LOOP + CONTINUATION PROTOCOL
+' ===========================================================================
+package "LAYER 5 · エージェントループ  ·  loop.py  (上限 = min(160, max(32, 24+8·profiles)) = 32)" #EDE7F6 {
+  rectangle "**① LLM ストリーム**  llm.py litellm_stream\nsystem + 履歴 + ツールスキーマ\nLiteLLM acompletion(stream, reasoning_effort)\nthinking_delta / text_delta / toolcall_end を発行" as L_STREAM #D8CCF0
+  rectangle "**② ツール呼び出しあり?**\n<diamond>" as L_DECIDE #C9B6F0
+  rectangle "**③ ツール呼び出し実行**  _execute_tool_calls\nread/web_* は並列 (gather);\nexec/edit/write/browser は逐次\ntool_result メッセージを元の順序で追加 -> ①" as L_EXEC #D8CCF0
+
+  package "ツール呼び出しなし -> ターンは本当に完了したか?  ·  incomplete_turn.py" #F3EFFc {
+    rectangle "**classify_incomplete_turn(assistant)**\n• planning_only (約束+動作動詞、<700c)  上限 1\n• reasoning_only (思考のみ、テキストなし)      上限 2\n• empty_response (何もなし、停止)              上限 1\n-> リトライ指示を原文のまま注入し、① を継続" as L_CLASSIFY #E0D4F5
+    rectangle "**get_follow_up_messages()** (フック)\nフォローアップを注入 -> 継続" as L_FOLLOW #E0D4F5
+    rectangle "**verify_answer(messages)** (フック、≤3)\n修正理由 -> 確定前プロンプトを注入 -> ①" as L_VERIFY #E0D4F5
+  }
+
+  rectangle "**FINAL** — 本物の回答\n(可視出力がなければフォールバックテキスト)\nstop_reason は stop/length/error/aborted" as L_FINAL #C8E6C9
+}
+
+note right of L_CLASSIFY
+  徹底性を生む修正:
+  ツール呼び出しなしのターンを自動で最終としない。
+  単なる計画 / 純粋な思考 /
+  空であれば、定型の指示を注入し
+  ループを継続する — リクエストを
+  本当に満たすまで進み続ける
+  (これが "5件見せて" -> 5件 となる理由)。
+end note
+
+note as SKILLNOTE #FFF3E0
+  **スキル = 読み込み可能なプレイブック、ツールではない。**
+  ツールは処理を行う (read, exec, browser); スキルは
+  エージェントが必要に応じて読む手順化されたノウハウ。
+  --
+  流れ: プロンプトには各スキルの1行説明のみを載せる
+  (低コスト)。リクエストが一致すると、
+  エージェントがその SKILL.md に対し **read** ツールを呼ぶ ->
+  完全なプレイブックがコンテキストに入る -> その後スキルに沿って
+  ツールを駆動する。一度読めば履歴に残る。
+  --
+  有用な理由: ワークフロー (ブラウザ手順、
+  "Photoshop からエクスポート"、"このフォームを記入") を
+  コードなし・プロンプト肥大なしで教えられる
+  — skills/ に SKILL.md を置くだけ。
+  現状提供: browser-automation (その説明が
+  Web タスクで発火する; だからブラウザループはもはや
+  プロンプトにハードコードされていない — このスキルになった)。
+end note
+SKILLNOTE .. SKILLS
+
+' ===========================================================================
+' LAYER 6 — TOOLS
+' ===========================================================================
+package "LAYER 6 · ツール  ·  tools/  (JSON スキーマで検証)" #E1F5FE {
+  rectangle "**files**  read · write · edit\n(edit: 完全一意マッチ + diff)" as T_FILES #B3E5FC
+  rectangle "**exec / process**  bash-tools\nシェル、タイムアウト、中央切り詰め、バックグラウンドセッション" as T_EXEC #B3E5FC
+  rectangle "**web_search**  Brave (キー) -> DuckDuckGo、TTL キャッシュ、count=10\n**web_fetch**  httpx -> readability/trafilatura -> markdown" as T_WEB #B3E5FC
+
+  package "browser  ·  tools/browser.py (Playwright)" #E8F8FF {
+    rectangle "**snapshot** ARIA ツリー -> [ref=eN]\nmode=efficient / interactive / compact / depth\n(40k 上限; role セットは原文そのまま移植)" as B_SNAP #CFF0FF
+    rectangle "**act**: click/type/fill/press/select/hover/\n**scrollIntoView**/drag/clickCoords/resize/**wait**/evaluate/**batch**\nwait: networkidle/text/selector/url/fn" as B_ACT #CFF0FF
+    rectangle "navigate · screenshot · tabs\nnetworkidle で安定化; 古い ref の回復" as B_NAV #CFF0FF
+  }
+}
+
+note bottom of B_ACT
+  リッチな知覚 = モデルはスクロールして
+  遅延読込項目 (求人ボード、フィード) を出現させ、
+  networkidle を待ってから再 snapshot できる —
+  浅い1ビューでなく多数の結果を収集。
+end note
+
+' ===========================================================================
+' LAYER 7 — OUTPUT
+' ===========================================================================
+package "LAYER 7 · 出力" #E0F2F1 {
+  rectangle "**on_event -> _broadcast**\n全ループイベント -> 'chat.event' フレーム -> 全クライアント" as OUT #B2DFDB
+  rectangle "**永続化**: 各メッセージをセッション JSONL に追記\n(再開時に全履歴を再生)" as PERSIST #B2DFDB
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+REPL --> SEND
+SEND --> WS
+RENDER <-- WS : chat.event ストリーム
+WS --> CHATSEND
+CHATSEND --> RUN
+CHATSEND <--> STORE : 読込 / 重複排除
+RUN --> PROMPT
+PROMPT .. CTX
+PROMPT .. SKILLS : 1行説明を告知
+RUN --> L_STREAM : run_agent_loop(...)
+
+L_STREAM --> L_DECIDE
+L_DECIDE --> L_EXEC : あり
+L_EXEC --> T_FILES
+L_EXEC --> T_EXEC
+L_EXEC --> T_WEB
+L_EXEC --> B_SNAP
+B_SNAP --> B_ACT
+B_ACT --> B_NAV
+L_EXEC --> L_STREAM : 結果 -> ループ
+
+' read ツールが必要に応じてスキルを読み込み、その後ブラウザツールを誘導する
+T_FILES ..> SKILLS : リクエスト一致時に read(SKILL.md)
+SKILLS ..> B_SNAP : browser-automation スキル\nsnapshot/scroll/wait ループを教える
+
+L_DECIDE --> L_CLASSIFY : ツール呼び出しなし
+L_CLASSIFY --> L_STREAM : 注入 + 継続
+L_CLASSIFY --> L_FOLLOW : 一致するリトライなし
+L_FOLLOW --> L_STREAM : フォローアップ -> 継続
+L_FOLLOW --> L_VERIFY : なし
+L_VERIFY --> L_STREAM : 修正 -> 継続
+L_VERIFY --> L_FINAL : 受理
+
+L_STREAM ..> OUT : 思考/テキストデルタ
+L_EXEC ..> OUT : ツール活動
+L_CLASSIFY ..> OUT : 継続イベント
+L_FINAL --> OUT : 最終回答
+L_FINAL --> PERSIST
+OUT --> WS
+
+' ===========================================================================
+' WORKED EXAMPLE
+' ===========================================================================
+note as EXAMPLE #E3F2FD
+  **実例 — "応募 URL 付きの LinkedIn 求人を5件見つけて"**
+  0. リクエストが browser-automation スキルに一致 -> エージェントが SKILL.md を読む (プレイブックがコンテキストに入る)
+  1. browser navigate -> 検索ページを snapshot(efficient)
+  2. 最後のカードを scrollIntoView -> networkidle を待つ -> 再 snapshot (さらに出現)
+  3. 各求人について: click -> snapshot -> web_search/navigate で本物の応募 URL へ
+  4. 誤リダイレクト時に自己回復 ("戻ってやり直す") — Execution Bias
+  5. 5件集まるまで継続 (継続プロトコルは短い回答を受理しない)
+  6. ツール呼び出しなし + 完了 -> FINAL、ターミナルへストリーミング、JSONL に保存
+end note
+EXAMPLE .. L_FINAL
+
+legend left
+  | レイヤ | 責務 |
+  | 1 クライアント | ターミナル REPL、ストリーム描画 |
+  | 2 トランスポート | WebSocket フレーム |
+  | 3 ゲートウェイ | セッション、中断、冪等性、run ライフサイクル |
+  | 4 プロンプト | OpenClaw 原文の指示 + スキル告知 (必要に応じて読込) |
+  | 5 ループ | LLM⇄ツール + 継続/検証リトライ |
+  | 6 ツール | files / exec / web / リッチブラウザ |
+  | 7 出力 | ブロードキャストストリーム + JSONL 永続化 |
+endlegend
+
+@enduml

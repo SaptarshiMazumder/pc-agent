@@ -1,0 +1,125 @@
+@startuml agent-quality-liveness
+' ============================================================================
+'  agentd - Answer QUALITY + LIVENESS  (decoupled, plug-in / plug-out)
+'  Two orthogonal concerns, two DIFFERENT seams:
+'    LIVENESS "is it stuck / looping / not moving?"  -> RunObserver port on the LOOP
+'    QUALITY  "is the answer good / complete / honest?" -> the verify_answer TOOL
+'  Liveness observers attach to the loop (default empty => unchanged). Quality is a
+'  normal agent-invoked TOOL: when AGENTD_VERIFY_TOOL is off it is not registered at
+'  all -- exactly as if the feature never existed. The loop knows NOTHING about it.
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng agent-quality-liveness.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Answer Quality + Liveness\nLIVENESS = RunObserver observers on the loop · QUALITY = the agent-invoked verify_answer TOOL (not a loop hook)\ngreen = exists in v2 today   amber = net-new (this plan)   gray = port   blue = tool
+
+' ===========================================================================
+' THE LOOP — gains ONLY the liveness observer hooks; knows nothing about quality
+' ===========================================================================
+package "AGENT LOOP  ·  infrastructure/engine/native.py" #EDE7F6 {
+  rectangle "run_agent_loop():\n  stream LLM -> tool calls -> results -> repeat -> FINAL\nLIVENESS HOOKS only (generic, feature-agnostic):\n  • before/after each tool call -> observers.on_tool(ev)\n  • each turn boundary          -> observers.on_turn(i)\nA halt reason injects a steering msg and continues; after STUCK_CAP halts, stop.\nThe loop has NO verifier hook -- quality is a tool the model calls itself." as LOOP #C7B8EA
+}
+
+' ===========================================================================
+' LIVENESS — observers on the loop (default [] => off)
+' ===========================================================================
+package "APPLICATION - interfaces/run_observer.py" #E8EAF6 {
+  rectangle "PORT: RunObserver\non_tool(ev: ToolEvent) -> str | None   # halt reason or None\non_turn(i) -> str | None     reset()" as P_OBS #E2E2E2
+}
+package "INFRASTRUCTURE - liveness/   (is it stuck?)" #E1F5FE {
+  rectangle "**CallRateBrake** [#3]\nsame tool > N times in the last M calls (ANY args) -> halt.\nCatches varying-arg flailing the per-tool guard can't." as O_RATE #FFE0B2
+  rectangle "**NoProgressDetector** [#4]\nK tool-using turns with no NEW result -> halt." as O_PROG #FFE0B2
+  rectangle "GuardedTool loop-detection [exists]\nper-tool identical-args repeat + consec-error (complementary)" as O_GUARD #C8E6C9
+}
+
+' ===========================================================================
+' QUALITY — a normal TOOL the agent invokes; OFF => not registered
+' ===========================================================================
+package "QUALITY  ·  the verify_answer TOOL (agent-invoked)" #E8F8FF {
+  rectangle "**verify_answer** tool  (tools/verify_tool.py) [net-new]\nthe agent calls it on its DRAFT before replying (a plan step);\nreads the verdict as a tool RESULT, fixes issues SILENTLY,\nthen sends ONE clean answer -- no second message, no apology." as T_VERIFY #CFF0FF
+  rectangle "PORT: Verifier  (interfaces/verifier.py)\nverify(VerifyContext{task, answer, evidence}) -> Verdict{ok, reasons}" as P_VER #E2E2E2
+  rectangle "**LlmJudgeVerifier** (verify/llm_judge.py) [net-new]\nout-of-band judge: completeness / evidence / no-fabrication.\nNeeds ONLY an injected judge-LLM fn + rubric. Fail-open." as V_JUDGE #FFE0B2
+}
+
+' ===========================================================================
+' PROMPT — completeness self-check (#1, in-band) + verify-step nudge
+' ===========================================================================
+package "PROMPT LAYER  ·  infrastructure/prompt.py" #FFF4E5 {
+  rectangle "**## Before You Finish** [#1] (opt-in)\nin-band self-check: every part addressed + evidence-backed before finalizing." as PROMPT_CK #FFE3B3
+  rectangle "**## Verify Before You Send** (auto, only when the tool is present)\ntells the agent to plan a verify step + fix silently, never apologize" as PROMPT_V #FFE3B3
+}
+
+' ===========================================================================
+' MAIN — composition root: liveness -> engine; tool -> registry; all default OFF
+' ===========================================================================
+package "MAIN - composition root" #FDECEA {
+  rectangle "build_observers(config) -> list[RunObserver]   ([] => off)\nNativeEngine(..., observers=)" as BUILD_OBS #FBD9D4
+  rectangle "build_tools(config): if config.verify_tool ->\n  register VerifyTool(LlmJudgeVerifier(build_judge_fn(config)))\nelse: the tool is simply not in the list (feature absent)" as BUILD_TOOL #FBD9D4
+  rectangle "config (default OFF):\nAGENTD_LIVENESS = callrate,noprogress\nAGENTD_VERIFY_TOOL = 1   (+ AGENTD_VERIFY_MODEL)\nAGENTD_COMPLETENESS_CHECK = 1" as CFG #FBD9D4
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+LOOP --> P_OBS : on_tool / on_turn
+O_RATE ..up.> P_OBS
+O_PROG ..up.> P_OBS
+O_GUARD ..up.> P_OBS : (related)
+
+LOOP ..> T_VERIFY : the model calls it like any tool
+T_VERIFY --> P_VER : verify(draft)
+V_JUDGE ..up.> P_VER
+PROMPT_CK ..> LOOP : steers in-band
+PROMPT_V ..> T_VERIFY : steers usage
+
+CFG --> BUILD_OBS
+CFG --> BUILD_TOOL
+BUILD_OBS --> LOOP : inject observers
+BUILD_TOOL ..> T_VERIFY : register (only if on)
+
+note right of T_VERIFY
+  WHY A TOOL, NOT A LOOP HOOK:
+  a loop-hook verifier ran AFTER the answer was already
+  streamed -> the user saw the answer, then a SECOND
+  "I apologize..." answer. As a tool the agent verifies
+  its DRAFT first, fixes silently, sends ONE answer.
+  Trade-off: agent-invoked (advisory), not loop-enforced.
+end note
+
+note bottom of CFG
+  PLUG-IN / PLUG-OUT:
+  * liveness OFF  => empty observer list => loop hooks are no-ops
+  * quality OFF   => verify_answer tool NOT registered => as if it never existed
+  * the loop depends on the RunObserver port only; it has ZERO knowledge of quality
+  Nothing is coupled: add/remove either via one config flag.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today |
+  | amber | net-new (this plan) |
+  | gray  | port = interface |
+  | blue  | tool |
+endlegend
+
+@enduml

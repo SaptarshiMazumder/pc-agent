@@ -1,0 +1,116 @@
+@startuml trust-boundary
+' ============================================================================
+'  pc-agent Platform - TRUST BOUNDARIES & data flow per tier
+'  What data crosses which boundary, and where third parties are excluded.
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng trust-boundary.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #777777
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent - Trust Boundaries & Data Flow\nWhat crosses each boundary, per tier. Green = plaintext stays in the user's control. Red = leaves to a third party.\nVault storage is ALWAYS end-to-end ciphertext; the LLM tier decides who sees plaintext.
+
+' ===========================================================================
+' BOUNDARY 1 - the user (fully trusted)
+' ===========================================================================
+package "BOUNDARY 1 : USER'S DEVICE  (fully trusted - plaintext + the key live here)" #E6F4EA {
+  rectangle "Agent loop + tools + skills\n(plaintext: files, prompts, memory,\nlocal SKILL.md playbooks)\n+ local Memory cache/sync + recall" as DEV #C8E6C9
+  rectangle "Encryption key\n(from password; never leaves)" as KEY #C8E6C9
+  rectangle "Local LLM (Ollama)\n[tier: local]" as TLOCAL #C8E6C9
+}
+
+' ===========================================================================
+' BOUNDARY 2 - your cloud (first-party, contractually trusted)
+' ===========================================================================
+package "BOUNDARY 2 : YOUR CLOUD  (first-party - you, under your privacy terms)" #FDECEA {
+  rectangle "Control plane\nauth + entitlements + usage\n(METADATA only)" as CP #FBD9D4
+  rectangle "Memory Bank (canonical)\nCIPHERTEXT + wrapped key\n(you CANNOT read it)\nswappable backend" as VLT #FBD9D4
+  rectangle "Secure LLM (GPU VM)\nstateless, non-logging;\nplaintext in RAM only\n[tier: managed secure]" as TVM #FFD699
+}
+
+' ===========================================================================
+' BOUNDARY 2b - the user's own infra (sovereign tier)
+' ===========================================================================
+package "BOUNDARY 2b : USER'S OWN SERVER  (sovereign tier - they host)" #E8F0FE {
+  rectangle "Self-hosted model + vault\non their infra\n[tier: sovereign]" as TSOV #DCEBFF
+}
+
+' ===========================================================================
+' BOUNDARY 3 - third parties (EXCLUDED except BYOK)
+' ===========================================================================
+package "BOUNDARY 3 : THIRD-PARTY AI VENDORS  (OpenAI / Google / Anthropic)" #FFEBEE {
+  rectangle "Vendor API\nsees the FULL prompt = your content\n[tier: BYOK only]" as TPV #FFCDD2
+}
+
+' ===========================================================================
+' DATA FLOWS (labelled with what crosses)
+' ===========================================================================
+' inside the device - plaintext, free
+DEV --> TLOCAL : plaintext (stays on device)
+KEY --> DEV : decrypt/encrypt
+
+' device -> your cloud
+DEV ..> VLT : **CIPHERTEXT only** (E2E)
+DEV ..> CP : metadata (usage, auth)
+DEV --> TVM : plaintext over TLS\n(transient; not stored/logged)
+
+' device -> user's own server
+DEV --> TSOV : plaintext (their infra)
+
+' device -> third party (BYOK only)
+DEV --> TPV : plaintext PROMPT\n(LEAVES to vendor)
+
+note as N_OK #E8F5E9
+  PRIVATE tiers (local / sovereign / managed secure):
+  no third-party AI vendor ever receives the data.
+  - local / sovereign : plaintext stays in the user's control
+  - managed secure    : your stateless model sees plaintext only
+                        in RAM during inference; vault at rest is E2E
+end note
+N_OK .. TVM
+
+note as N_BAD #FFEBEE
+  BYOK tier is the ONLY one where content leaves to a
+  third party - unavoidable: a cloud API must receive
+  the prompt to run inference. Label this clearly to users.
+end note
+N_BAD .. TPV
+
+note as N_VAULT #FFF8DC
+  MEMORY BANK = pluggable subsystem (history + profile +
+  learned facts + recall index), canonical in the cloud,
+  local sync/cache on the device. Same in every tier:
+  end-to-end ciphertext; only the device holds the key.
+  Recall runs CLIENT-SIDE on decrypted memory.
+  Swappable backend (DB / vector / their server / local).
+end note
+N_VAULT .. VLT
+
+legend left
+  | Marker | Meaning |
+  | green | plaintext stays in the user's control |
+  | amber | first-party (you) or the user's own server |
+  | red   | data leaves to a third-party vendor (BYOK only) |
+  | dotted arrow | ciphertext / metadata only |
+  | solid arrow  | plaintext crosses here |
+endlegend
+
+@enduml

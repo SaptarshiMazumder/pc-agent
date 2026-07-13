@@ -1,0 +1,109 @@
+@startuml mcp-architecture
+' ============================================================================
+'  agentd - MCP client layer (component view). Design only.
+'  Render: java -jar ../../../plantuml.jar -tpng mcp-architecture.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam componentStyle rectangle
+skinparam package {
+  BorderColor #9AA0B5
+  FontStyle bold
+}
+skinparam component {
+  BorderColor #6A6A6A
+  BackgroundColor #FFFFFF
+}
+
+title agentd - MCP Client Layer (clean/hexagonal, SOLID)\nExternal MCP servers -> discovered tools -> SAME guarded Tool pipeline
+
+actor "External MCP servers\n(Google Workspace, Slack, ...)" as EXT #E1F5FE
+
+package "domain  (pure value objects)" #E8F5E9 {
+  [McpToolSpec\nMcpCallResult] as DOM
+}
+
+package "application/interfaces  (contracts - DIP/ISP)" #EDE7F6 {
+  interface "McpSession\nlist_tools/call_tool/close" as ISESSION
+  interface "McpToolSource\ndiscover/aclose" as ISOURCE
+  interface "Tool\nexecute(...)" as ITOOL
+}
+
+package "infrastructure/tools/mcp  (implementations - SRP)" #E8F0FE {
+  [McpProvider\n(lifecycle + discovery)] as PROV
+  [SdkMcpSession\n(MCP protocol: initialize/list/call)] as SESS
+  [McpTool (implements Tool)\nadapter, never-raises] as MTOOL
+  [mapping\n(McpCallResult <-> ToolResult)] as MAP
+  package "transports (LSP)" #FFFFFF {
+    [StdioTransport] as STDIO
+    [HttpTransport] as HTTP
+  }
+  [build_mcp_provider()\n(factory; None if unconfigured)] as FAC
+}
+
+package "config" #FDECEA {
+  [mcp_servers (list of McpServerConfig)\nname / transport / cmd or url / env / auth] as CFG
+}
+
+package "main/container  (composition root)" #FFF3E0 {
+  [build_service / build_gateway] as CONT
+}
+
+package "existing tool pipeline  (UNCHANGED)" #E0F2F1 {
+  [build_tools()\nnative tools] as NATIVE
+  [GuardedTool\n(timeout/retry/error-norm/progress)] as GUARD
+  [system prompt\n## Tooling] as PROMPT
+  [engine loop\n(calls tools)] as ENGINE
+}
+
+' --- wiring ---
+EXT --> STDIO : stdio (local proc)
+EXT --> HTTP : streamable-HTTP / SSE
+STDIO ..|> SESS : injected (DIP)
+HTTP  ..|> SESS : injected (DIP)
+SESS ..|> ISESSION
+PROV ..|> ISOURCE
+MTOOL ..|> ITOOL
+PROV --> SESS : one per server
+PROV --> MTOOL : one per discovered tool
+MTOOL --> ISESSION : call_tool (depends on INTERFACE)
+MTOOL --> MAP
+MAP ..> DOM
+SESS ..> DOM
+
+CFG --> FAC
+FAC --> PROV
+CONT --> FAC : build_mcp_provider(config)
+CONT --> NATIVE : build_tools(...)
+NATIVE --> GUARD
+PROV --> GUARD : discovered McpTools merged in,\nthen guarded by the SAME comprehension
+GUARD --> ENGINE
+GUARD --> PROMPT : advertised identically
+
+note right of MTOOL
+  ONE McpTool class covers EVERY tool
+  from EVERY server (Gmail, Drive, ...).
+  No per-service code (OCP).
+  IS-A Tool -> guarded, validated,
+  prompted, executed identically (LSP).
+end note
+
+note bottom of GUARD
+  MCP tools are indistinguishable from native
+  tools here: same GuardedTool, same prompt,
+  same engine. The MCP-specific code stops at
+  the McpTool adapter boundary.
+end note
+
+legend left
+  | Layer | Rule |
+  | domain | pure data, no IO |
+  | application/interfaces | the contracts (DIP) - no MCP SDK import |
+  | infrastructure | concrete protocol/IO (wraps official `mcp` SDK) |
+  | main/container | only place concretes are injected |
+endlegend
+
+@enduml

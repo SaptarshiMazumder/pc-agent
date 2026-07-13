@@ -1,0 +1,119 @@
+# Stage 3/4 - Release. Fires ONLY when you push a version tag (vX.Y.Z).
+# The 5-step assembly line: version-check -> wheel -> installers -> publish.
+# See v2/planning/platform/ci-cd-plan.md (Phase 4).
+name: Release
+
+on:
+  push:
+    tags: ["v*"] # e.g. v0.1.0  (stamp main, push the tag, this runs)
+
+permissions:
+  contents: write # the publish job creates a GitHub Release + uploads assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a release mid-flight
+
+jobs:
+  # [2] SAFETY GATE: the tag must match the version in BOTH files, or we build nothing.
+  version-check:
+    name: Version check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match agentd/__init__.py and package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"                                          # v1.2.3 -> 1.2.3
+          PYVER=$(grep '__version__' agentd/__init__.py | head -1 | cut -d'"' -f2)
+          NPMVER=$(grep '"version"' clients/desktop/package.json | head -1 | cut -d'"' -f4)
+          echo "tag=$TAG  agentd=$PYVER  package.json=$NPMVER"
+          if [ "$TAG" != "$PYVER" ] || [ "$TAG" != "$NPMVER" ]; then
+            echo "::error::Version mismatch - tag v$TAG but agentd=$PYVER, package.json=$NPMVER. Bump BOTH files to $TAG, commit to main, then re-tag."
+            exit 1
+          fi
+
+  # [3] Build the pure-Python wheel (works on any OS). Runs your hatch hook.
+  wheel:
+    name: Build wheel
+    needs: version-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build --wheel --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: v2/dist/*.whl
+
+  # [4] Build the Windows installers (core + studio). Reuses the wheel from [3].
+  installers:
+    name: Build installers (Windows)
+    needs: wheel
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: v2/clients/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: v2/clients/desktop/package-lock.json
+      - name: Download the wheel from the wheel job
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: v2/dist
+      - name: Assemble the embedded runtime (CPython + wheel)
+        run: |
+          $wheel = (Get-ChildItem ../../dist -Filter "agentd-*.whl" | Select-Object -First 1).FullName
+          Write-Host "using wheel: $wheel"
+          powershell -File scripts/build-runtime.ps1 -Wheel $wheel
+      - name: Install desktop deps
+        run: npm ci
+      - name: Build core + studio installers
+        run: |
+          npm run dist:core
+          npm run dist:studio
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: |
+            v2/clients/desktop/dist/core/*.exe
+            v2/clients/desktop/dist/studio/*.exe
+
+  # [5] Publish the GitHub Release with the wheel + installers attached.
+  publish:
+    name: Publish release
+    needs: [wheel, installers]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create the Release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          # idempotent: create the release only if it doesn't already exist (safe to re-run)
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "agentd $TAG" --generate-notes
+          fi
+          # upload every wheel + exe; -print0/-0 handles the spaces in installer filenames
+          find artifacts \( -name '*.whl' -o -name '*.exe' \) -print0 \
+            | xargs -0 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber

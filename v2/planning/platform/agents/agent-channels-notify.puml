@@ -1,0 +1,87 @@
+@startuml agent-channels-notify
+' ============================================================================
+'  Phase 5a - Channels: Notify (outbound). The agent reaches the USER.
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-channels-notify.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 18
+skinparam ranksep 65
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam database {
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Phase 5a - Channels: Notify (outbound)\ngreen = exists today    amber = Phase 5a (this slice)    gray = later
+
+package "Triggers" #E8F0FE {
+  rectangle "cron / heartbeat run ENDS\nstatus = blocked | failed\n(run-outcome, already built)" as TRIG #C8E6C9
+  rectangle "agent asks to notify\n(heartbeat_respond.notify / notify_user)" as TRIG2 #C8E6C9
+}
+
+package "Gateway" #EDE7F6 {
+  rectangle "_run finally:\nif blocked/failed -> Notification(agent, kind, text, detail)\n-> notifier.notify(n)" as GW #FFE9C7
+  rectangle "notifications.list / notifications.ack\n(uniform method; any client)" as GWM #FFE9C7
+}
+
+package "Application (ports)" #F2F2F2 {
+  rectangle "PORT: Notifier\n notify(Notification)" as P_NOTIFY #FFE9C7
+  rectangle "PORT: NotifyStore\n save / unread / ack" as P_STORE #FFE9C7
+}
+
+package "Infrastructure (adapters)" #F2F2F2 {
+  rectangle "ClientPushNotifier\n broadcast a 'notification' event" as A_PUSH #FFE9C7
+  rectangle "StoreNotifier\n persist (survives offline)" as A_STORE #FFE9C7
+  rectangle "EmailNotifier\n send via Gmail MCP (reuse)" as A_MAIL #DDDDDD
+  rectangle "CompositeNotifier\n fan out to all" as A_COMP #FFE9C7
+  database "autonomy.sqlite\n+ notifications table" as DB #FFE9C7
+}
+
+package "Clients (any)" #F2F2F2 {
+  rectangle "terminal: render 'notification' live\n+ /notifications (list durable)" as CLI #FFE9C7
+}
+
+TRIG --> GW
+TRIG2 --> GW
+GW --> P_NOTIFY
+GWM --> P_STORE
+P_NOTIFY <|.. A_COMP
+A_COMP --> A_PUSH
+A_COMP --> A_STORE
+A_COMP ..> A_MAIL : 5a-ii
+A_STORE ..> P_STORE
+P_STORE <|.. DB
+A_PUSH --> CLI : push event
+DB --> GWM : unread on connect
+
+note bottom of A_COMP
+  Pluggable: add EmailNotifier (Gmail MCP) or
+  WhatsApp/Telegram later WITHOUT touching the
+  gateway - same Notifier port. Default OFF;
+  reactive chat path unchanged.
+end note
+
+note right of TRIG
+  This is the payoff of the run-outcome work:
+  blocked/failed is the notification trigger.
+end note
+
+@enduml

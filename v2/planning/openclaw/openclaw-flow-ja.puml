@@ -1,0 +1,275 @@
+@startuml openclaw-agentic-flow-ja
+' ============================================================================
+'  OpenClaw — エージェントフロー全体、ターミナル入力 -> 最終ターミナル出力
+'  スタイル: レイヤー化コンポーネント/フロー図（上 -> 下に読む）
+'  Render (from this folder):  java -jar ../../plantuml.jar -charset UTF-8 -tpng openclaw-flow-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #444444
+skinparam ArrowFontColor #666666
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 12
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title OpenClaw — エージェント実行フロー（ターミナルセッション）\nTUIのキー入力からストリーミングされる最終回答まで
+
+' ===========================================================================
+' LAYER 1 — CLIENT (terminal)
+' ===========================================================================
+package "レイヤー1 · ターミナルクライアント（ユーザのプロセス）" #E8F0FE {
+  rectangle "**entry.ts → runCli()**\n<i>src/cli/run-main.ts</i>\nargvを解析し、\n`tui` / `chat` サブコマンドを選択" as ENTRY #DCEBFF
+  rectangle "**runTui()**\n<i>src/tui/tui.ts</i>\nターミナルUIを描画、\n入力エディタを所有" as TUI #DCEBFF
+  rectangle "**createEditorSubmitHandler()**\n<i>src/tui/tui-submit.ts</i>\n1行の入力に対するルーター" as SUBMIT #DCEBFF
+  rectangle "**GatewayChatClient.sendChat()**\n<i>src/tui/gateway-chat.ts</i>\nテキストをRPCフレームにラップ\n{sessionKey, message, idempotencyKey}" as CHATCLIENT #DCEBFF
+}
+
+note right of SUBMIT
+  プレフィックスによるルーティング:
+  • "!cmd"  -> ローカルbash行（エージェントには届かない）
+  • "/cmd"  -> スラッシュコマンド（client/gatewayで処理）
+  • プレーンテキスト -> sendMessage()（エージェント経路）
+end note
+
+' ===========================================================================
+' LAYER 2 — TRANSPORT
+' ===========================================================================
+package "レイヤー2 · トランスポート（WebSocket RPC）" #F3E8FF {
+  rectangle "**WebSocketフレーム: \"chat.send\"**\n<i>packages/gateway-protocol</i>\n永続ソケット1本;\nDiscord/WAクライアントと同じパイプを使用" as WS #ECD9FF
+}
+
+note right of WS
+  ターミナルは**1クライアント**に過ぎない。
+  ゲートウェイ（次のレイヤー）が真の
+  ホスト — だから「すべてターミナル上」でも
+  ソケットを越える。
+end note
+
+' ===========================================================================
+' LAYER 3 — GATEWAY SERVER
+' ===========================================================================
+package "レイヤー3 · ゲートウェイサーバ（デーモン / ブレインホスト）" #FDECEA {
+  rectangle "**ws message-handler**\n<i>src/gateway/server/ws-connection/</i>\nフレームを検証しRPCをディスパッチ" as WSH #FBD9D4
+  rectangle "**chat.send ハンドラ**\n<i>src/gateway/server-methods/chat.ts</i>\n— メッセージをサニタイズ\n— loadSessionEntry() : sessionKey→agent\n— ChatAbortController登録（セッションあたり1実行）\n— 冪等性による重複排除\n— **即座に {runId} を返信、非同期で実行**" as CHATSEND #FBD9D4
+  rectangle "**セッションストア（JSONLトランスクリプト）**\n<i>…/state/sessions/<agent>/<id>.jsonl</i>\n追記専用: user / assistant /\ntool_call / tool_result 行" as SESSIONSTORE #FFE0B2
+}
+
+note right of CHATSEND
+  **並行性モデル**
+  • セッションあたりアクティブなエージェント実行は1つ（abort controller）
+  • idempotencyKey（runId）で再送/リトライを重複排除
+  • クライアントは今すぐrunIdを受け取り、回答はストリームで到着
+end note
+
+' ===========================================================================
+' LAYER 4 — DISPATCH / AUTO-REPLY
+' ===========================================================================
+package "レイヤー4 · ディスパッチ（自動返信パイプライン）" #E6F4EA {
+  rectangle "**dispatchInboundMessage()**\n<i>src/auto-reply/dispatch.ts</i>\n**ReplyDispatcher** を構築\n（クライアントへ戻すストリーミングパイプ）" as DISPATCH #D4EDD9
+  rectangle "**dispatchReplyFromConfig()**\n<i>src/auto-reply/reply/dispatch-from-config.ts</i>\nプラグインフック・組み込みコマンドを実行、\nそれ以外はエージェントへ引き渡し" as DFC #D4EDD9
+  rectangle "**selectAgentHarness()**\n<i>src/agents/harness/selection.ts</i>\n組み込みOpenClawエージェント（デフォルト）\nまたは外部CLIエージェント（Codex/Claude Code）" as HARNESS #D4EDD9
+}
+
+' ===========================================================================
+' LAYER 5 — AGENT RUN ORCHESTRATOR
+' ===========================================================================
+package "レイヤー5 · 組み込みエージェント実行（オーケストレータ + リトライループ）" #FFF4E5 {
+  rectangle "**runEmbeddedAgent()**\n<i>src/agents/embedded-agent-runner/run.ts</i>\n— セッション + グローバルレーンにキュー（直列化）\n— ワークスペース・プロバイダ・モデル + フォールバックを解決\n— while(true) ATTEMPTループに入る（line ~1508）" as RUNAGENT #FFE3B3
+
+  package "プロンプト組み立て（試行ごと）" #FFFBF0 {
+    rectangle "**buildSystemPrompt**\n<i>run/attempt-system-prompt.ts</i>\n基本ルール + ツール説明" as SYSPROMPT #FFF0CC
+    rectangle "**ワークスペースコンテキスト**\nAGENTS.md · SOUL.md ·\nTOOLS.md · MEMORY.md" as WSFILES #FFF0CC
+    rectangle "**スキルの注入**\n<i>src/skills/</i>\n対象となる各スキルの名前 + 説明\n（ツールではなく指示（インストラクション））" as SKILLS #FFF0CC
+    rectangle "**履歴の再構築**\nSessionManager.open(jsonl)\n-> messages[]（過去の全ターン、\nツール呼び出し + 結果）" as HISTORY #FFF0CC
+  }
+
+  rectangle "**runEmbeddedAttempt()**\n<i>run/attempt.ts</i>\nエージェントセッションを作成（packages/agent-core）、\nツールを登録し、\n**activeSession.prompt(userText)** を呼び出す" as ATTEMPT #FFE3B3
+}
+
+' ===========================================================================
+' LAYER 6 — THE CORE LLM <-> TOOL LOOP
+' ===========================================================================
+package "レイヤー6 · コアループ（LLM ⇄ ツール、ツール呼び出しが無くなるまで繰り返し）" #EDE7F6 {
+  rectangle "**① リクエスト構築**\nシステムプロンプト + messages[] + ツールスキーマ" as L_BUILD #D8CCF0
+  rectangle "**② LLMをストリーミング**\nprovider streamFn\n<i>packages/llm-runtime</i>\n（model-catalogのモデル）" as L_STREAM #D8CCF0
+  rectangle "**③ ツール呼び出しあり？**\n<diamond> 判定" as L_DECIDE #C9B6F0
+  rectangle "**④ beforeToolCallHook**\n<i>agent-tools.before-tool-call.ts</i>\nループ検出 · 承認ゲート · パラメータ補正" as L_HOOK #D8CCF0
+  rectangle "**⑤ tool.execute()**\n(toolCallId, params, signal, onUpdate)\n→ TOOLSレイヤーへ" as L_EXEC #D8CCF0
+  rectangle "**⑥ tool_result を追記**\nmessages[] へ → ①へループバック" as L_APPEND #D8CCF0
+  rectangle "**⑦ ツール呼び出しなし → 最終テキスト**\n蓄積されたassistantメッセージ" as L_FINAL #C8E6C9
+}
+
+note right of L_DECIDE
+  これが「エージェンシー（自律性）」のすべて:
+  モデルがターンごとに、ツールを呼び出すか、
+  どのツールを呼び出すかを決定する。
+  ハードコードされた計画はない。
+  レスポンスにtool_callsが含まれる限り
+  ループが継続する。
+end note
+
+' ===========================================================================
+' LAYER 7 — TOOLS (with internal flows)
+' ===========================================================================
+package "レイヤー7 · ツール（レジストリ + ツールごとの内部処理）" #E1F5FE {
+  rectangle "**ツールレジストリ**\n<i>agent-tools.ts + openclaw-tools.ts</i>\n**tool-policy.ts** でフィルタ\n（プロファイル: all / read-only / messages）" as REGISTRY #B3E5FC
+
+  package "browser  <i>extensions/browser/src/browser-tool.ts</i>" #E8F8FF {
+    rectangle "**action列挙**\nライフサイクル: start/stop/status/profiles\nナビ: navigate/open/focus/close/tabs\n知覚: **snapshot**/screenshot/console\n操作: **act**(click,type,fill,press,select,drag,\n      hover,wait,evaluate)/upload/dialog" as BR_ACTIONS #CFF0FF
+    rectangle "**ターゲット**: host（実際のChrome、\nログイン済みCookie）| sandbox（Docker+noVNC）\n| node（ペアリング済みデバイス）\n**CDP**（Chrome DevTools Protocol）経由" as BR_TARGET #CFF0FF
+    rectangle "**snapshot = ARIAツリーをテキスト化**\n安定した要素 `ref` → LLMがページを\n「見る」方法; act() はrefを対象とする。\nページテキストはUNTRUSTEDとしてラップ\n（プロンプトインジェクション対策）" as BR_SNAP #CFF0FF
+  }
+
+  package "exec / process  <i>bash-tools.exec.ts</i>" #FFF3E0 {
+    rectangle "ターゲット解決（host/sandbox/node）\n→ 承認ポリシー（loadExecApprovals）\n→ env サニタイズ → プリフライト → spawn\n→ フォアグラウンド結果 OR バックグラウンドセッション" as EX_FLOW #FFE6C7
+  }
+
+  package "web tools" #E8F5E9 {
+    rectangle "**web_search**\n<i>web-search/runtime.ts</i>\nプロバイダ（Brave/…）+キャッシュ+フィルタ" as WSEARCH #CDEBD0
+    rectangle "**web_fetch**\n<i>web-fetch/runtime.ts</i>\nHTTP→Readability→markdown、\nSSRF対策、~750KB上限、キャッシュ" as WFETCH #CDEBD0
+  }
+
+  package "files  <i>sessions/ createCodingTools()</i>" #F3E5F5 {
+    rectangle "**read / write / edit**\nワークスペースファイル（例: CVを読む）" as FILES #E6CCF0
+  }
+
+  package "orchestration" #FFFDE7 {
+    rectangle "**sessions_spawn / _send / _yield**\nサブエージェント（独自のループ+セッション）を生成、\nメッセージ送信、結果を待機" as SUBAGENT #FBF7C4
+    rectangle "**cron**  将来/繰り返し実行をスケジュール\n**memory_search/_store**  ベクトルDB（LanceDB）" as CRONMEM #FBF7C4
+  }
+
+  package "more" #ECEFF1 {
+    rectangle "message · tts · pdf · image/video/music\n· nodes（ペアリング済みデバイス）· gateway（自己設定）\n· skill_workshop · **MCPツール**（外部サーバ）" as MISC #D7DEE3
+  }
+}
+
+' ===========================================================================
+' LAYER 8 — RETRY / RECOVERY DECISIONS (outer loop)
+' ===========================================================================
+package "レイヤー8 · 外側のリトライロジック（各試行後）" #FCE4EC {
+  rectangle "**コンテキストオーバーフロー？**\n→ compact.ts が古いターンを要約 → 継続" as R_COMPACT #F8BBD0
+  rectangle "**プロバイダ/モデルエラー？**\n→ フォールバックモデルへフェイルオーバー → 継続" as R_FAILOVER #F8BBD0
+  rectangle "**ツールエラー（回復可能）？**\n→ エラーコンテキスト付きでリトライ → 継続" as R_TOOLERR #F8BBD0
+  rectangle "**それ以外 → 結果をRETURN**\nペイロード + meta(model,tokens,duration)" as R_RETURN #C8E6C9
+}
+
+' ===========================================================================
+' LAYER 9 — STREAM BACK + PERSIST
+' ===========================================================================
+package "レイヤー9 · 出力（ターミナルへストリーミングで返す）" #E0F2F1 {
+  rectangle "**ReplyDispatcher**\n<i>auto-reply/reply/reply-dispatcher.ts</i>\nテキスト + ツール活動をイベントとしてストリーミング" as REPLYD #B2DFDB
+  rectangle "**ゲートウェイがブロードキャスト → chat.event**\n同じWebSocket上で" as BROADCAST #B2DFDB
+  rectangle "**TUIがライブ描画**\n<i>tui-event-handlers.ts</i>\nテキスト、ツール実行、最終回答" as TUIOUT #B2DFDB
+}
+
+' ===========================================================================
+' FLOW EDGES
+' ===========================================================================
+ENTRY --> TUI
+TUI --> SUBMIT
+SUBMIT --> CHATCLIENT : プレーンテキスト
+CHATCLIENT --> WS
+WS --> WSH
+WSH --> CHATSEND
+CHATSEND <--> SESSIONSTORE : ロード / 追記
+CHATSEND --> DISPATCH : 非同期（runId返信後）
+
+DISPATCH --> DFC
+DFC --> HARNESS
+HARNESS --> RUNAGENT
+
+RUNAGENT --> SYSPROMPT
+SYSPROMPT .. WSFILES
+SYSPROMPT .. SKILLS
+RUNAGENT --> HISTORY
+SYSPROMPT --> ATTEMPT
+HISTORY --> ATTEMPT
+ATTEMPT --> L_BUILD
+
+L_BUILD --> L_STREAM
+L_STREAM --> L_DECIDE
+L_DECIDE --> L_HOOK : あり（tool_calls）
+L_HOOK --> L_EXEC
+L_EXEC --> REGISTRY
+L_EXEC --> L_APPEND
+L_APPEND --> L_BUILD : ループ
+L_DECIDE --> L_FINAL : ツール呼び出しなし
+
+' tool registry to tools
+REGISTRY ..> BR_ACTIONS
+REGISTRY ..> EX_FLOW
+REGISTRY ..> WSEARCH
+REGISTRY ..> WFETCH
+REGISTRY ..> FILES
+REGISTRY ..> SUBAGENT
+REGISTRY ..> CRONMEM
+REGISTRY ..> MISC
+BR_ACTIONS --> BR_TARGET
+BR_TARGET --> BR_SNAP
+
+' attempt outcome to outer retry
+L_FINAL --> R_COMPACT : 試行完了
+ATTEMPT --> R_COMPACT : （エラー/オーバーフロー）
+R_COMPACT --> ATTEMPT : 継続
+R_FAILOVER --> ATTEMPT : 継続
+R_TOOLERR --> ATTEMPT : 継続
+R_COMPACT --> R_FAILOVER
+R_FAILOVER --> R_TOOLERR
+R_TOOLERR --> R_RETURN
+
+' streaming (live during loop + final)
+L_STREAM ..> REPLYD : トークンをストリーミング
+L_EXEC ..> REPLYD : ツール活動
+R_RETURN --> REPLYD : 最終ペイロード
+REPLYD --> BROADCAST
+BROADCAST --> TUIOUT
+R_RETURN --> SESSIONSTORE : トランスクリプトを永続化
+
+' ===========================================================================
+' WORKED EXAMPLE (legend-style note)
+' ===========================================================================
+note as EXAMPLE #E3F2FD
+  **実例 — 「自分のCVに合うLinkedInの求人を探す」**
+  （あらゆるweb+fileタスクはこの形に従う）
+  1. read  → ワークスペースからCVをロード
+  2. browser navigate(host) → LinkedIn（ログイン済みChrome）
+  3. browser snapshot → 結果のARIAツリー、ref付き
+  4. モデルがツリーを思考、browser act(click/type) で絞り込み
+  5. snapshot → 求人を抽出; 詳細ページは web_fetch
+  6. （任意）memory_store で設定を保存; 求人ごとに sessions_spawn
+  7. あるターンにツール呼び出しが無くなった時点でループ終了 → そのテキストが
+     最終的なランキング済みマッチ、ターミナルへストリーミング
+  ----
+  **予約 / フォーム入力** = 同じループ、より多くの browser
+  act(fill/select/click) + dialog/upload 処理。
+end note
+EXAMPLE .. L_FINAL
+
+legend left
+  | レイヤー | 責務 |
+  | 1 クライアント | ターミナルUI、入力ルーティング |
+  | 2 トランスポート | WebSocket RPC (chat.send) |
+  | 3 ゲートウェイ | セッション、abort、冪等性、永続化 |
+  | 4 ディスパッチ | フック、ハーネス選択、返信パイプ |
+  | 5 実行 | プロンプト組み立て、直列化、試行ループ |
+  | 6 コアループ | LLM ⇄ ツール反復（「エージェンシー」） |
+  | 7 ツール | browser / exec / web / files / サブエージェント |
+  | 8 リトライ | 圧縮 · フェイルオーバー · ツールエラー回復 |
+  | 9 出力 | ストリーミング + 描画 + 永続化 |
+endlegend
+
+@enduml

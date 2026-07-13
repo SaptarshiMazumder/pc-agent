@@ -1,0 +1,27 @@
+{
+  "name": "@agentd/client",
+  "version": "0.1.0",
+  "description": "Official client SDK for the agentd gateway protocol — works in the browser (agent apps), Node, and Electron. Transport-agnostic: connect to a local daemon or a hosted one with the same code.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}

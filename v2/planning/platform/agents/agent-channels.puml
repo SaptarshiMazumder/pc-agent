@@ -1,0 +1,74 @@
+@startuml agent-channels
+' ============================================================================
+'  Phase 5b - Channels: bidirectional messaging (inbound + reply) + the
+'  no-duplication notify bridge. One transport, implemented ONCE.
+'  Render: java -jar ../../../plantuml.jar -tpng agent-channels.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 18
+skinparam ranksep 60
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Phase 5b - Channels (inbound + reply) + notify bridge\ngreen = exists  amber = 5b (this slice)  gray = add-an-adapter later
+
+actor "peer\n(customer)" as PEER
+
+package "Infrastructure: transports (Channel port)" #F2F2F2 {
+  rectangle "EmailChannel (Gmail MCP)\npoll() + send()" as EMAIL #FFE9C7
+  rectangle "MemoryChannel\n(reference / tests)" as MEM #C8E6C9
+  rectangle "WhatsApp / Slack / Telegram\n= one adapter each" as RICH #DDDDDD
+}
+
+package "Driver" #E8F0FE {
+  rectangle "ChannelPoller (ONE loop)\npoll all channels for new msgs" as POLL #FFE9C7
+}
+
+package "Gateway" #EDE7F6 {
+  rectangle "_fire_channel -> _run_channel\nsession = agent:<id>:<channel>:<peer>\n(conversation-bound) -> capture reply" as GW #FFE9C7
+  rectangle "AgentService.handle_message\nmode = CHANNEL (+ reply note)" as SVC #C8E6C9
+  rectangle "Notifier (5a) + ChannelNotifier" as NOTIF #FFE9C7
+}
+
+PEER --> EMAIL : message in
+POLL --> EMAIL : poll()
+POLL --> MEM
+EMAIL --> POLL : InboundMessage
+POLL --> GW : fire(channel, msg)
+GW --> SVC : run the agent
+SVC --> GW : final answer
+GW --> EMAIL : channel.send(peer, reply)
+EMAIL --> PEER : reply out
+
+NOTIF ..> EMAIL : notify -> SAME channel.send(owner, text)
+
+note bottom of EMAIL
+  ONE transport implemented ONCE. Its single send()
+  is reused by BOTH agent replies AND notifications
+  (via ChannelNotifier) - no WhatsApp/email written twice.
+end note
+
+note right of GW
+  Reply binding: the agent's last assistant message
+  is sent back on the originating channel, threaded by
+  the agent:<id>:<channel>:<peer> session key (Phase 1).
+end note
+
+@enduml

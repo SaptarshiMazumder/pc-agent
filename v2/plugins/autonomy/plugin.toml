@@ -1,0 +1,4 @@
+id = "autonomy"
+name = "Autonomy"
+kind = "native"
+entry = "autonomy_plugin:register"

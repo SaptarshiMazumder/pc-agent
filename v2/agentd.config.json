@@ -1,0 +1,410 @@
+{
+  "_comment": "KNOBS live here. KEYS/SECRETS live in v2/.env. NOTE: any AGENTD_* env var STILL OVERRIDES a value here, so keep knobs OUT of .env or they win. Keys are Config field names (config.py), not AGENTD_* names.",
+  "_comment_google": "Google moved to plugins/google/ (an MCP plugin) \u2014 no longer a hardcoded mcp_servers entry.",
+  "_section_models": "The agent BRAIN (reasoning). Every model-bearing TOOL/SUBSYSTEM model lives in `plugins` below, NOT here.",
+  "model": "gemini/gemini-3.1-pro-preview",
+  "reasoning_effort": "medium",
+  "_section_model_catalog": "The MENU of models the desktop Settings > Models dropdowns offer \u2014 the source of truth for the picker. Each entry: {value: litellm 'provider/model' id, label: display name}. The UI shows only entries whose provider API key is set in v2/.env (add a key to unlock its models); your currently-configured models always appear regardless. Edit freely \u2014 add, remove, relabel.",
+  "model_catalog": [
+    {
+      "value": "gemini/gemini-3.1-pro-preview",
+      "label": "Gemini 3.1 Pro"
+    },
+    {
+      "value": "gemini/gemini-2.5-pro",
+      "label": "Gemini 2.5 Pro"
+    },
+    {
+      "value": "gemini/gemini-2.5-flash",
+      "label": "Gemini 2.5 Flash"
+    },
+    {
+      "value": "gemini/gemini-2.0-flash",
+      "label": "Gemini 2.0 Flash"
+    },
+    {
+      "value": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro"
+    },
+    {
+      "value": "deepseek/deepseek-chat",
+      "label": "DeepSeek V3"
+    },
+    {
+      "value": "deepseek/deepseek-reasoner",
+      "label": "DeepSeek R1"
+    },
+    {
+      "value": "anthropic/claude-opus-4-8",
+      "label": "Claude Opus 4.8"
+    },
+    {
+      "value": "anthropic/claude-sonnet-5",
+      "label": "Claude Sonnet 5"
+    },
+    {
+      "value": "anthropic/claude-haiku-4-5",
+      "label": "Claude Haiku 4.5"
+    },
+    {
+      "value": "openai/gpt-5",
+      "label": "GPT-5"
+    },
+    {
+      "value": "openai/gpt-5-mini",
+      "label": "GPT-5 mini"
+    },
+    {
+      "value": "openai/gpt-5-nano",
+      "label": "GPT-5 nano"
+    },
+    {
+      "value": "openai/gpt-4.1",
+      "label": "GPT-4.1"
+    },
+    {
+      "value": "openai/gpt-4.1-mini",
+      "label": "GPT-4.1 mini"
+    },
+    {
+      "value": "openai/gpt-4o",
+      "label": "GPT-4o"
+    },
+    {
+      "value": "openai/gpt-4o-mini",
+      "label": "GPT-4o mini"
+    },
+    {
+      "value": "openai/o3",
+      "label": "o3"
+    },
+    {
+      "value": "openai/o4-mini",
+      "label": "o4-mini"
+    },
+    {
+      "value": "xai/grok-4",
+      "label": "Grok 4"
+    },
+    {
+      "value": "groq/llama-3.3-70b-versatile",
+      "label": "Llama 3.3 70B \u00b7 Groq"
+    },
+    {
+      "value": "mistral/mistral-large-latest",
+      "label": "Mistral Large"
+    }
+  ],
+  "_section_cost_efficiency": "Brain ROUTING by need (default off => the one `model` above does every turn). enabled=true => the cheap `text_model` runs ordinary turns; escalate to `vision_model` ONLY when the context carries an image the brain must SEE (an ImageContent block, e.g. a read_image/screenshot result). GENERATING an image needs NO escalation \u2014 that's a tool call the text brain makes with text args. Once an image enters history it stays, so this becomes 'cheap brain until the first image, vision brain onward'. REQUIRES DEEPSEEK_API_KEY in v2/.env for the deepseek text_model (no failover configured => a missing key breaks text turns; set enabled=false to revert).",
+  "cost_efficiency": {
+    "enabled": true,
+    "text_model": "deepseek/deepseek-v4-pro",
+    "vision_model": "gemini/gemini-3.1-pro-preview"
+  },
+  "_section_plugins": "THE control panel for every plugin + tool. A plugin is just a namespace + a set of tools; ALL knobs live on the tool (plugins.<plugin>.tools.<tool>.<knob>) \u2014 there is no plugin-level model/provider. enabled (plugin or tool level) toggles it off; model = the AI model a tool calls; provider = its backend/SDK/engine; plus any tool-specific knob. Resolves first-hit-wins: per-call > agent.toml tools[T].<knob> > this file's tools[T].<knob> > the tool's built-in default. `description` fields are ONLY for humans reading this file \u2014 the agent never sees them.",
+  "plugins": {
+    "figure-art": {
+      "tools": {
+        "generate_artwork": {
+          "description": "Textless scientific illustration for the hybrid figure-overlay flow. `provider` picks the backend SDK; `model` is that backend's model/endpoint. To switch, copy one of `_presets` into provider+model.",
+          "provider": "gemini",
+          "model": "gemini/gemini-3-pro-image",
+          "_presets": {
+            "gemini": {
+              "provider": "gemini",
+              "model": "gemini/gemini-3-pro-image"
+            },
+            "replicate_pro": {
+              "provider": "replicate",
+              "model": "black-forest-labs/flux-1.1-pro"
+            },
+            "replicate_fast": {
+              "provider": "replicate",
+              "model": "black-forest-labs/flux-schnell"
+            }
+          }
+        },
+        "find_reference_image": {
+          "description": "Find/download a public REFERENCE image to ground artwork accuracy, then pass its path to generate..."
+        }
+      }
+    },
+    "vision": {
+      "description": "Vision-language tools that read and evaluate images (the agent's 'eye', works even when the brain is text-only).",
+      "tools": {
+        "verify_figure": {
+          "description": "Judges whether a finished figure matches the spec (all labels present, nothing wrong/missing). A cheap flash judge is enough.",
+          "model": "gemini/gemini-2.5-flash"
+        }
+      }
+    },
+    "vectorize": {
+      "description": "Geometric tracing \u2014 turn a flat image's shapes into Bezier vector paths (logos/line-art).",
+      "tools": {
+        "trace_image": {
+          "description": "OPT-IN geometric vectorizer: trace a raster image's color regions -> Bezier `<path>` shapes in an..."
+        }
+      }
+    },
+    "web": {
+      "description": "Web search + page fetch.",
+      "tools": {
+        "web_search": {
+          "description": "Web search. `provider` is the backend CHAIN: a list like [\"gemini\",\"parallel\",\"duckduckgo\"] tried in order, a single name, or \"auto\" (detect from your keys). `model` is the grounding model (kept FAST; only the gemini provider uses it).",
+          "provider": [
+            "gemini",
+            "brave",
+            "duckduckgo"
+          ],
+          "model": "gemini/gemini-2.5-flash"
+        },
+        "web_fetch": {
+          "description": "Fetch a URL and return its readable content as markdown. Fetches the page ANONYMOUSLY (no login, ..."
+        }
+      }
+    },
+    "verify": {
+      "description": "The self-check judge (verify_answer tool + completeness check).",
+      "tools": {
+        "verify": {
+          "description": "Cheap judge model; falls back to the web_search model, then the brain.",
+          "model": "gemini/gemini-2.5-flash"
+        },
+        "verify_answer": {
+          "description": "Independently review YOUR OWN draft answer BEFORE you send it, to catch a missing part, an unsupp..."
+        }
+      }
+    },
+    "safe_to_send": {
+      "description": "Privacy egress gate \u2014 an independent judge that vets replies leaving on a public channel.",
+      "tools": {
+        "safe_to_send": {
+          "description": "Egress-gate judge; if unset, falls back to the verify -> web_search -> brain chain."
+        }
+      }
+    },
+    "resources": {
+      "description": "Background workspace-resource describers (never on the agent's reply path).",
+      "tools": {
+        "caption": {
+          "description": "Gemini vision model that captions image resources (google-genai; Gemini only). Optional knob: timeout_seconds (60.0).",
+          "model": "gemini/gemini-2.5-flash"
+        },
+        "summarize": {
+          "description": "Text-summary model for docs/scripts/data (litellm, any provider); falls back to the verify chain, then the brain."
+        }
+      }
+    },
+    "computer": {
+      "description": "PC GUI automation \u2014 the vision model that drives the see->click loop.",
+      "tools": {
+        "computer": {
+          "description": "Gemini computer-use model (google-genai). Point it at a trusted endpoint for sensitive screens. Behavioral knobs (optional; default in parens): max_steps (25), send_max (1440), capture (\"primary\" | \"virtual\"), pause (0.15), call_timeout_seconds (120.0), save_screenshots (false; DEV ONLY), corral_to_primary (true; Windows-only).",
+          "model": "gemini-2.5-computer-use-preview-10-2025",
+          "send_max": 1440,
+          "save_screenshots": true
+        }
+      }
+    },
+    "memory": {
+      "description": "Long-term memory RAG \u2014 the embedding model used on write + for cosine recall.",
+      "tools": {
+        "embed": {
+          "description": "Embedding model for semantic memory (provider-neutral via litellm; a local ollama model works too).",
+          "model": "gemini/text-embedding-004"
+        }
+      }
+    },
+    "browser": {
+      "description": "Web browser automation.",
+      "tools": {
+        "browser": {
+          "description": "Drive a browser. `provider` is the ENGINE: 'playwright' (our built-in Playwright/CDP engine, default) or 'agent_browser' (external Vercel agent-browser via its MCP server; install separately). No model. Behavioral knobs (all optional; built-in default in parens): headless (true), persistent (true), cdp_url (none \u2014 set e.g. \"http://localhost:9222\" to attach to a running Chrome), downloads (true), channel (\"chrome\" | \"\" for bundled Chromium), stealth (true), cursor_scan (true), chrome_profile (none), console_buffer (200), action_timeout_ms (12000), agent_browser_command (none).",
+          "provider": "playwright",
+          "headless": false
+        }
+      }
+    },
+    "skills": {
+      "description": "Relevance-filtered skills \u2014 optional embedding model for ranking skills by the current message.",
+      "tools": {
+        "relevance": {
+          "description": "Embedding model for skill relevance. Empty => the feature stays off.",
+          "model": ""
+        },
+        "skill_workshop": {
+          "description": "Capture a reusable procedure as a SKILL.md so you (and future sessions) can apply it later. actio..."
+        }
+      }
+    },
+    "autonomy": {
+      "description": "",
+      "tools": {
+        "heartbeat_respond": {
+          "description": "Record the outcome of THIS heartbeat tick. Call once at the end of an autonomous heartbeat run. I..."
+        },
+        "report_outcome": {
+          "description": "Record the result of THIS scheduled run. Call exactly once, at the very end. status='done' if you..."
+        }
+      }
+    },
+    "core_fs": {
+      "description": "",
+      "tools": {
+        "edit": {
+          "description": "Make precise, surgical changes to an existing file by exact text replacement. Pass one or more {o..."
+        },
+        "find": {
+          "description": "Find files by name/glob pattern anywhere on the machine. By default it searches the user's folder..."
+        },
+        "ls": {
+          "description": "List a directory's contents \u2014 directories first (with a trailing /), then files with their byte s..."
+        },
+        "read": {
+          "description": "Read a file's contents (text, code, .docx, .pdf, .xlsx, .pptx \u2014 documents are text-extracted; .pn..."
+        },
+        "write": {
+          "description": "Create a new file or completely overwrite an existing one with `content`; parent directories are ..."
+        }
+      }
+    },
+    "diagrams": {
+      "description": "",
+      "tools": {
+        "plantuml": {
+          "description": "Render a PlantUML diagram to a PNG. PlantUML covers many diagram types (sequence, class, componen..."
+        }
+      }
+    },
+    "figexport": {
+      "description": "",
+      "tools": {
+        "export_pdf": {
+          "description": "Render an SVG to a VECTOR PDF (selectable text, scalable paths) via headless Chromium \u2014 for publi..."
+        },
+        "export_pptx": {
+          "description": "Export an editable PowerPoint (.pptx) figure: the artwork as a picture, plus REAL editable text b..."
+        }
+      }
+    },
+    "figures": {
+      "description": "",
+      "tools": {
+        "compose_figure_layers": {
+          "description": "Composite artwork with a vector overlay into the final figure. Artwork is ONE of: `artwork` (rast..."
+        },
+        "render_editable_overlay": {
+          "description": "Build an EDITABLE annotation layer as SVG from a high-level spec \u2014 no hand-written path math. Ele..."
+        },
+        "render_svg": {
+          "description": "Rasterize an SVG to a PNG with a headless browser (so gradients, arrow markers, and blur/shadow f..."
+        },
+        "layout_flowchart": {
+          "description": "Compute layout and/or connector routing for a node-edge graph. Input: `nodes` [{id, x?, y?, w?, h..."
+        },
+        "validate_svg": {
+          "description": "Parse an SVG (string `svg` or `svg_path`) and report whether it is well-formed plus a full elemen..."
+        }
+      }
+    },
+    "html": {
+      "description": "",
+      "tools": {
+        "render_html": {
+          "description": "Render HTML to a PNG image or a PDF via a headless browser. Source is ONE of: `html` (raw string)..."
+        }
+      }
+    },
+    "planning": {
+      "description": "",
+      "tools": {
+        "update_plan": {
+          "description": "Update current run plan. Use for non-trivial multi-step work; keep the plan current while executi..."
+        }
+      }
+    },
+    "shell": {
+      "description": "",
+      "tools": {
+        "exec": {
+          "description": "Run a shell command and return its merged stdout+stderr with the exit code; long output is truncated. Optional knob: timeout_sec (1800; per-call timeout_sec still wins)."
+        },
+        "process": {
+          "description": "Manage background `exec` sessions (those started with background=true). action=list shows each se..."
+        }
+      }
+    },
+    "slides": {
+      "description": "",
+      "tools": {
+        "make_pptx": {
+          "description": "Build a PowerPoint (.pptx) from a list of `slides`. Each slide: `title`, `bullets` (list) or `sub..."
+        }
+      }
+    },
+    "tts": {
+      "description": "",
+      "tools": {
+        "tts": {
+          "description": "Synthesize speech from text into an audio file (edge-tts). Optional knob: voice (default \"en-US-AndrewMultilingualNeural\"; a per-call `voice` still wins)."
+        }
+      }
+    },
+    "video": {
+      "description": "",
+      "tools": {
+        "stitch_video": {
+          "description": "Assemble an mp4 from an ordered list of `segments`, each a visual + optional narration `audio`. F..."
+        }
+      }
+    }
+  },
+  "_section_quality": "Self-check + liveness + privacy egress gate.",
+  "liveness": [
+    "callrate",
+    "noprogress"
+  ],
+  "verify_tool": true,
+  "completeness_check": true,
+  "safe_to_send_check": true,
+  "persona_enabled": true,
+  "_section_memory": "Long-term memory + context window cap (0 = send everything).",
+  "memory_enabled": true,
+  "context_max_messages": 0,
+  "_section_subagents": "Delegation + runtime skill authoring. agent_messaging powers @mentions in chat: mentioning another agent makes the serving agent delegate via message_agent and weave the reply into its answer.",
+  "subagents_enabled": true,
+  "agent_messaging_enabled": true,
+  "skill_workshop": true,
+  "_section_autonomy": "Heartbeat/cron autonomy + notifications + run-outcome enforcement.",
+  "autonomy_enabled": true,
+  "notify_enabled": true,
+  "enforce_outcome": true,
+  "cron_failure_alert_default": 3,
+  "_section_observability": "Durable per-run event log to <state_dir>/events/.",
+  "event_log_enabled": true,
+  "_section_resources": "Described workspace-resource index + background vision captions + text summaries.",
+  "resource_manager_enabled": true,
+  "resource_vision_enabled": true,
+  "resource_summarize_enabled": true,
+  "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here \u2014 it gates whether the computer tool is registered at all.",
+  "computer_enabled": true,
+  "_section_channels": "MCP servers + messaging channels + webhook ingress.",
+  "mcp_servers": [],
+  "channels": [
+    {
+      "type": "line",
+      "agent": "sakana-sushi",
+      "policy": "allowlist",
+      "allow_from": [
+        "*"
+      ],
+      "webhook_path": "/line/webhook"
+    }
+  ],
+  "webhook_host": "0.0.0.0",
+  "webhook_port": 8788,
+  "model_fallbacks": [
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-2.5-pro"
+  ]
+}

@@ -1,0 +1,161 @@
+@startuml tool-hardening-policy
+' ============================================================================
+'  agentd - Tool Hardening / Policy Architecture
+'  How SSRF + navigation + act guards are added LAYER-WISE, never hardcoded in a
+'  tool or adapter. Policy logic lives in ONE place (Policy port + PolicyEngine);
+'  it is ENFORCED at two points (param-time decorator + runtime adapter hook).
+'  Both points only CALL the injected engine -- they hold no policy logic.
+'  Turn the whole layer off = ship an empty policy list (behaves exactly like today).
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng tool-hardening-policy.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Tool Hardening / Policy Architecture\nPolicy logic lives in ONE place (Policy port + PolicyEngine); enforced at TWO points (param-time decorator + runtime adapter hook)\ngreen = in v2 today   amber = net-new (this plan)   gray = port (interface)
+
+' ===========================================================================
+' CONSUMER - the agent loop (unchanged)
+' ===========================================================================
+package "AGENT LOOP (consumer)  ·  infrastructure/engine" #EDE7F6 {
+  rectangle "for each tool call:\n1. validate args vs JSON schema\n2. execute the (decorated) tool\n3. ToolResult -> messages -> LLM" as LOOP #C7B8EA
+}
+
+' ===========================================================================
+' APPLICATION - the policy contracts (PURE: no IO, no backend knowledge)
+' ===========================================================================
+package "APPLICATION - interfaces/policy.py   (contracts; pure, no IO)" #E8EAF6 {
+  rectangle "PORT: Policy\nevaluate(req: PolicyRequest) -> Verdict | None\nNone = ABSTAIN (this policy has no opinion on this kind)" as P_POLICY #E2E2E2
+  rectangle "PolicyRequest  (one small tagged value object)\nkind = tool_call | navigate | net_request | browser_act\nurl · host · resolved_ip · tool · act_kind · params" as P_REQ #E2E2E2
+  rectangle "Verdict\ndecision = ALLOW | DENY\nreason (string, shown to the model on DENY)\n(ASK / approval = LATER, deliberately out of scope now)" as P_VERD #E2E2E2
+}
+
+' ===========================================================================
+' INFRASTRUCTURE - the engine + concrete policies (all net-new)
+' ===========================================================================
+package "INFRASTRUCTURE - policy/   (the only place policy LOGIC lives)" #E1F5FE {
+
+  rectangle "**PolicyEngine**  (policy/engine.py)\nholds an ORDERED list[Policy]\nauthorize(req): run each -> first DENY wins;\nany abstain ignored; none deny => ALLOW\n** empty list => ALLOW everything = today's behavior **" as ENGINE #FFE0B2
+
+  package "Concrete policies  (each = one file, each ABSTAINS on kinds it ignores)" #FFF4E5 {
+    rectangle "**SsrfPolicy**  (policy/ssrf.py)\nkinds: net_request, navigate\nDNS-resolve host -> block loopback / private /\nlink-local / cloud-metadata IPs; pin resolved IP\nmirrors OC ssrf-policy-helpers.ts" as POL_SSRF #FFE0B2
+    rectangle "**NavigationPolicy**  (policy/navigation.py)\nkind: navigate\nscheme + host allow/deny for navigate / new tabs\nmirrors OC navigation-guard.ts" as POL_NAV #FFE0B2
+    rectangle "**ActPolicy**  (policy/act_policy.py)\nkind: browser_act\ngate dangerous act kinds (evaluate JS, clickCoords,\nupload) per config\nmirrors OC act-policy.ts" as POL_ACT #FFE0B2
+    rectangle "**RequestPolicy**  (policy/request_policy.py)\nkind: net_request\nper-request egress filtering during page loads\nmirrors OC request-policy.ts" as POL_REQ #FFE0B2
+    rectangle "**DomainPolicy**  (policy/domains.py)\nkinds: tool_call, navigate, net_request\nglobal allowlist / denylist of hosts" as POL_DOM #FFE0B2
+  }
+}
+
+' ===========================================================================
+' ENFORCEMENT POINT 1 - param-time, at the SAME chokepoint as GuardedTool
+' ===========================================================================
+package "ENFORCEMENT 1 : param-time decorator   ·  tools/  (decorator chain)" #E8F8FF {
+  rectangle "**PolicyGuard(Tool)**  (policy_guard.py)  [net-new]\nbuilds a PolicyRequest from the call params\n(tool_call; navigate/browser_act for the browser tool)\nengine.authorize -> DENY => return error ToolResult\n(never runs the tool); ALLOW => delegate inward" as PGUARD #FFE0B2
+  rectangle "GuardedTool(Tool)  [today]\ntimeout · retry · error-normalize" as GTOOL #C8E6C9
+  rectangle "the real Tool  (browser / web_fetch / web_search / ...)" as TOOL #C8E6C9
+}
+
+' ===========================================================================
+' ENFORCEMENT POINT 2 - runtime, INSIDE the adapters (catches redirects/subreqs)
+' ===========================================================================
+package "ENFORCEMENT 2 : runtime adapter hook   ·  tools/fetch + tools/browser" #E8F8FF {
+  rectangle "HttpxFetchProvider  [today]\n+ engine injected: authorize(net_request)\nBEFORE connect AND on EACH redirect [net-new hook]" as A_HTTPX #C8E6C9
+  rectangle "PlaywrightBrowserProvider  [today]\n+ page.route(\"**/*\"): authorize(net_request)\nper request/redirect; abort on DENY [net-new hook]" as A_PW #C8E6C9
+  rectangle "the adapter holds ONLY a reference to the engine\n-- NEVER the policy logic. No engine = pass-through." as A_NOTE #E2E2E2
+}
+
+' ===========================================================================
+' MAIN - composition root (the ONE place the policy SET is chosen)
+' ===========================================================================
+package "MAIN - composition root  ·  policy/factory.py + tools/__init__.py" #FDECEA {
+  rectangle "**build_policy_engine(config)**  [net-new]\nnames = config.policies or DEFAULT_POLICIES\nreturn PolicyEngine([REGISTRY[n](config) for n in names])\n( [] => no-op engine )" as BPE #FBD9D4
+  rectangle "build_tools(config, ..., engine)\n- wrap every tool: PolicyGuard(GuardedTool(tool))\n- inject `engine` into build_fetch_providers + browser\n  provider for runtime enforcement" as BUILD #FBD9D4
+  rectangle "config\nAGENTD_POLICIES = ssrf,navigation,act_policy\n(unset / empty => layer is OFF, zero behavior change)" as CFG #FBD9D4
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+' decorator stack (outermost first): PolicyGuard -> GuardedTool -> Tool
+LOOP --> PGUARD : execute
+PGUARD --> GTOOL : ALLOW => delegate
+GTOOL --> TOOL : timeout/retry => run
+
+' param-time authorization
+PGUARD --> ENGINE : authorize(tool_call / navigate / browser_act)
+
+' runtime authorization (the part a param decorator CANNOT see)
+A_HTTPX --> ENGINE : authorize(net_request) on connect + redirect
+A_PW --> ENGINE : authorize(net_request) per request
+TOOL ..> A_HTTPX : web_fetch runs the provider
+TOOL ..> A_PW : browser runs the provider
+
+' engine composes the policies; policies realize the port
+ENGINE --> POL_SSRF : evaluate (deny-overrides)
+ENGINE --> POL_NAV
+ENGINE --> POL_ACT
+ENGINE --> POL_REQ
+ENGINE --> POL_DOM
+POL_SSRF ..up.> P_POLICY
+POL_NAV ..up.> P_POLICY
+POL_ACT ..up.> P_POLICY
+POL_REQ ..up.> P_POLICY
+POL_DOM ..up.> P_POLICY
+P_POLICY ..> P_REQ : consumes
+P_POLICY ..> P_VERD : returns
+
+' composition root assembles + injects
+CFG --> BPE : which policies + order
+BPE --> ENGINE : build from config
+BUILD ..> PGUARD : wrap tools
+BUILD ..> A_HTTPX : inject engine
+BUILD ..> A_PW : inject engine
+
+note right of ENGINE
+  WHY TWO ENFORCEMENT POINTS (the core idea):
+  * PARAM-TIME (PolicyGuard) sees only what the model
+    explicitly asked for -- cheap, uniform, catches the
+    obvious "navigate to 169.254.169.254".
+  * RUNTIME (adapter hook) is the ONLY place that sees
+    302 redirects, JS-triggered navigations, and sub-
+    resource requests. A param decorator is blind to these.
+  Both call the SAME engine, so logic is written ONCE.
+end note
+
+note bottom of A_NOTE
+  CLEAN IN / OUT -- nothing is coupled:
+  * a tool never imports a policy
+  * an adapter never imports a policy (only the engine ref)
+  * the policy SET is one config list in the composition root
+  * empty list => no-op engine => byte-for-byte today's behavior
+  Add a guard = drop one file + one config entry. Remove a
+  guard = delete it from the list. Tools/adapters never change.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today (we hook into it) |
+  | amber | net-new (this plan) |
+  | gray  | port = interface (pure) |
+  | blue  | enforcement-point host (tool / adapter) |
+endlegend
+
+@enduml

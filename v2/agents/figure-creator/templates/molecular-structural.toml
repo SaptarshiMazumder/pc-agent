@@ -1,0 +1,20 @@
+id = "molecular-structural"
+name = "Molecular / Structural"
+description = "Clean molecular and structural-biology rendering — proteins, DNA, receptors, small molecules, ribbon/space-fill styling."
+when_to_use = "Molecules, proteins, nucleic acids, receptors, drug-binding, biochemistry mechanisms — anything at the molecular / structural scale."
+tags = ["molecular", "structural", "biochemistry", "protein", "dna", "shaded"]
+aspect = "4:3"
+resolution = "2K"
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+palette = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B3", "#F2F2F2"]
+palette_locked = false
+negative = "no photographic realism, no scientifically-wrong bonding, no baked-in atom labels or text, no cluttered background"
+prompt = """
+A clean molecular / structural-biology illustration of {subject}. Smooth, softly-shaded surfaces
+(ribbon, cartoon or space-filling representation as appropriate) with clear depth and a gentle single
+light source; distinct, well-separated domains/atoms in a cohesive, restrained palette. Subtle ambient
+occlusion for readability, on a clean white or softly-graded background. Structurally faithful,
+publication-grade. The whole structure sits within the frame with a margin.
+"""
+exemplars = []

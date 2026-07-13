@@ -1,0 +1,57 @@
+@startuml agent-authoring
+' ============================================================================
+'  How an agent persists a SKILL / SCRIPT / RESOURCE - always via a tool call.
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng agent-authoring.puml
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #888888
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam activityDiamondBackgroundColor #FFF8DC
+skinparam activityDiamondBorderColor #C9B458
+skinparam activityBorderColor #999999
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #C9B458
+
+title How an agent writes a skill / script / resource - it is ALWAYS a tool call
+
+start
+
+#E1F5FE:**Engine loop** - the model decides to persist something
+and EMITS A TOOL CALL (nothing is written by magic);
+#E8F5E9:**GuardedTool** chokepoint
+(timeout / retry / error-norm / policy + approval = seam);
+
+if (what is it persisting?) then (a reusable PROCEDURE = know-how)
+  #C8E6C9:**skill_workshop** (create / update);
+  #C8E6C9:writes  skills/NAME/SKILL.md  (immediately, no approval today);
+  #FFF8E1:advertised in the prompt NEXT turn,
+  read on demand with the read tool;
+elseif (a raw FILE / SCRIPT / OUTPUT) then (file)
+  #C8E6C9:**write**(path, content)   or   **edit**;
+  #C8E6C9:writes  workspace/PATH  (relative paths root at the workspace);
+  #FFF8E1:resource RECONCILE next turn scans the workspace,
+  basic-describes it + indexes into resources.sqlite;
+else (a managed RESOURCE = described + indexed)
+  #C8E6C9:**resource** create / edit / delete;
+  #C8E6C9:writes workspace/PATH
+  + updates resources.sqlite (cached, described)
+  + enqueue_enrich -> BACKGROUND (vision / LLM summary);
+  #FFF8E1:in the index immediately - manifest shows it next turn;
+endif
+
+stop
+
+legend bottom
+  EVERYTHING the agent persists is a TOOL CALL inside the engine loop: the model picks the tool,
+  the tool writes to disk, and the result is surfaced back next turn - a skill ADVERTISED, or a file /
+  resource listed in the workspace-resources MANIFEST. (write-tool files are indexed lazily by the next
+  reconcile; the resource tool indexes immediately + enriches in the background.)
+  --
+  Resource timing detail: resource-flow.puml.    The whole turn: agent-full-flow.puml.
+endlegend
+
+@enduml

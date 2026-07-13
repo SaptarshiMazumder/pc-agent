@@ -1,0 +1,167 @@
+@startuml plugin-catalog-architecture
+' ============================================================================
+'  agentd - Tool Catalog & Plugins (proposed)
+'  ONE Tool contract, ONE catalog. Two ORTHOGONAL axes:
+'    packaging:  internal (shipped in the app)  vs  plugin (downloaded on demand)
+'    impl:       native (a Tool we build)        vs  MCP (an external server/service)
+'  -> a 2x2: {internal, plugin} x {native, mcp}. All four normalize to a Tool and
+'     land in the SAME catalog; once installed a plugin behaves EXACTLY like an
+'     internal tool and is usable by any agent (subject to its allow/deny).
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng plugin-catalog-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Tool Catalog & Plugins (proposed)\nONE Tool contract, ONE catalog -- packaging (internal vs plugin) and impl (native vs MCP) are ORTHOGONAL\ngreen = exists in v2 today   amber = net-new   gray = port (interface)
+
+' ===========================================================================
+' CONSUMER - any agent, filtered view of the one catalog
+' ===========================================================================
+package "CONSUMER  ·  any agent (domain.select_tools)" #EDE7F6 {
+  rectangle "ANY AGENT sees the catalog filtered by its OWN tools_allow / tools_deny.\nA plugin tool, once installed, is usable by ANY agent with NO special-casing --\nit flows through the SAME select_tools as every internal tool. [now: filtering exists]" as AGENT #C7B8EA
+}
+
+' ===========================================================================
+' THE PORT + THE CATALOG - the single normalization point
+' ===========================================================================
+package "APPLICATION - contract" #E8EAF6 {
+  rectangle "PORT: Tool\nname · description · parameters (JSON schema)\nconcurrency · execute(call_id, params, abort, on_update) -> ToolResult\n** EVERY source below normalizes to THIS **" as P_TOOL #E2E2E2
+}
+
+package "THE TOOL CATALOG  ·  one merged list" #E3F2FD {
+  rectangle "TOOL CATALOG = [Tool]  (all wrapped in GuardedTool: timeout · retry · policy)\nThe loop only ever sees Tool.execute(...). It CANNOT tell internal from plugin,\nnor native from MCP -- they are identical once in the catalog. [now: list+GuardedTool]\n(opt) expose as a `tools.list` surface so clients see all installed tools + who can use them" as CATALOG #BBDEFB
+}
+
+' ===========================================================================
+' TOOL SOURCES - the 2x2  (internal/plugin  x  native/mcp)
+' ===========================================================================
+package "TOOL SOURCES  (2x2: packaging x impl)" #E1F5FE {
+
+  package "INTERNAL  -- shipped in the app (lightweight)" #EAF6FF {
+    rectangle "internal · NATIVE  [now]\nread · write · exec · browser · web_*\nTool classes in build_tools()" as IN_NATIVE #C8E6C9
+    rectangle "internal · MCP  [now, opt]\nMCP server(s) bundled by default\n(declared in config)" as IN_MCP #C8E6C9
+  }
+
+  package "PLUGINS  -- downloaded ON DEMAND (heavy / optional)" #FFF3E0 {
+    rectangle "plugin · NATIVE  [net-new]\na Python tool we BUILD + package separately\n(e.g. video-edit). Heavy deps in ITS OWN pyproject;\n** imported LAZILY ** only when activated" as PL_NATIVE #FFE0B2
+    rectangle "plugin · MCP  [net-new wrapper]\na downloaded MCP-server plugin (e.g. a video MCP /\nany existing service). Deps live in a SEPARATE\nPROCESS -- not in agentd's venv at all" as PL_MCP #FFE0B2
+  }
+}
+
+' ===========================================================================
+' PLUGIN SYSTEM - net-new: manifest + api + discovery/install
+' ===========================================================================
+package "PLUGIN SYSTEM  (net-new)" #FFF3E0 {
+  rectangle "plugin.toml  (manifest)\nid · name · kind = native | mcp\nentry = pkg:register   |   [mcp] command=... / url=...\nconfig_schema · enabled · activation" as MANIFEST #FFE0B2
+  rectangle "PORT: PluginApi\nregister_tool(tool)   (+ later: register_channel, ...)\nnative plugins call this inside register(api)" as PLUGINAPI #E2E2E2
+  rectangle "DISCOVERY + INSTALL\ndrop-in dir: ~/.agentd/plugins/<id>/\n+ pip entry-points: group = 'agentd.plugins'\ninstall on demand -> catalog rebuilds (or `agentd plugin add`)" as DISCOVERY #FFE0B2
+}
+
+' ===========================================================================
+' MCP MACHINERY - reused for BOTH internal and plugin MCP
+' ===========================================================================
+package "MCP MACHINERY  (reused)  ·  infrastructure/tools/mcp" #E8F8FF {
+  rectangle "MCP provider  [now]\nlaunch / connect a server -> discover its tools\n-> wrap each as a Tool (see mcp-architecture.puml)" as MCP_PROV #C8E6C9
+}
+
+' ===========================================================================
+' MAIN - composition root: assemble the one catalog
+' ===========================================================================
+package "MAIN - composition root  ·  main/container.py" #FDECEA {
+  rectangle "build_catalog(config, deps)   [generalize build_tools + _discover_mcp_tools]\n internal_native + internal_mcp + plugin_native + plugin_mcp\n -> wrap all in GuardedTool -> apply ENABLEMENT -> ONE [Tool] for the catalog" as BUILD #FBD9D4
+}
+
+' ===========================================================================
+' ENABLEMENT - config-driven on/off, uniform across ALL sources, decoupled
+' ===========================================================================
+package "ENABLEMENT  (config · uniform · decoupled)  [net-new]" #FFF3E0 {
+  rectangle "1) [plugins] <id> = on | off   (LOAD gate)\noff => plugin never discovered / imported -> its heavy deps never load" as TGL_PLUG #FFE0B2
+  rectangle "2) [tools] enabled / disabled   (GLOBAL, by name/glob)\nturns ANY tool on/off platform-wide -- applied IDENTICALLY to all 4 sources\n(internal+plugin, native+mcp). A pure DATA filter on the catalog." as TGL_TOOLS #FFE0B2
+  rectangle "3) agent.toml [tools] allow / deny   (PER-AGENT scope)  [now]\nwhich tools THIS agent sees (domain.select_tools)" as TGL_AGENT #C8E6C9
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+AGENT --> CATALOG : select_tools(catalog, agent)\n(per-agent allow / deny)
+CATALOG ..> P_TOOL : every entry implements
+BUILD --> CATALOG : assembles + GuardedTool
+
+' sources -> how each becomes a Tool
+IN_NATIVE --> BUILD : Tool classes
+IN_MCP --> MCP_PROV
+PL_NATIVE --> PLUGINAPI : register_tool(...)
+PL_MCP --> MCP_PROV
+MCP_PROV --> BUILD : wrapped Tool(s)
+PLUGINAPI --> BUILD : Tool(s)
+
+' plugin system wiring
+DISCOVERY --> BUILD : discovered plugins (active)
+PL_NATIVE ..> MANIFEST : kind=native
+PL_MCP ..> MANIFEST : kind=mcp
+MANIFEST ..> DISCOVERY : declares entry / server
+
+' enablement - three independent, config-driven layers (nothing coupled in code)
+TGL_PLUG ..> DISCOVERY : load / skip (dep isolation)
+TGL_TOOLS ..> BUILD : filter the catalog (uniform, by name)
+TGL_AGENT ..> AGENT : per-agent allow / deny
+
+note bottom of TGL_TOOLS
+  DECOUPLED: enable/disable is DATA applied at the
+  catalog filter -- adding/removing a tool is a
+  CONFIG line, never a code change. No tool is wired
+  to a feature `if`; all plug in/out independently.
+  (Dependency availability -- e.g. browser needs an
+  engine -- is orthogonal, not coupling.)
+end note
+
+note right of CATALOG
+  "Behaves exactly like an internal tool":
+  guaranteed by NORMALIZATION -- a plugin
+  yields Tool objects that join the same list
+  and pass through the same select_tools.
+  The ONLY differences vs internal:
+    * where the code lives (shipped vs downloaded)
+    * when it loads (eager vs on-demand / lazy)
+end note
+
+note bottom of PL_MCP
+  HEAVY DEPS STAY OUT OF CORE (both kinds):
+   * native plugin -> deps in its OWN package,
+     lazy `import` only when activated.
+   * mcp plugin    -> deps in a SEPARATE PROCESS,
+     never in agentd's venv.
+  Core ships only the lightweight INTERNAL set.
+  (Mirrors OpenClaw: a package per extension,
+   bundleRuntimeDependencies:false, lazy import.)
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today |
+  | amber | net-new (plugin system) |
+  | gray  | port = interface |
+  | blue  | the catalog / Tool port |
+  | 2x2   | rows = internal/plugin · cols = native/mcp |
+endlegend
+
+@enduml

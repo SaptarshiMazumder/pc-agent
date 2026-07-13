@@ -1,0 +1,106 @@
+@startuml agent-full-flow
+' ============================================================================
+'  ONE agent turn, end to end — every layer + every decision, top to bottom.
+'  Render:  java -jar ../../../plantuml.jar -charset UTF-8 -tpng agent-full-flow.puml
+'  Action colour = the layer it runs in.
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 13
+skinparam ArrowColor #888888
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam activityDiamondBackgroundColor #FFF8DC
+skinparam activityDiamondBorderColor #C9B458
+skinparam activityBorderColor #999999
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #C9B458
+
+title One agent turn — every layer, from trigger to finish\ncolour = layer    MODE = interactive · heartbeat · cron · channel
+
+start
+
+#E8F0FE:**1 · TRIGGER  (driving)**
+A turn arrives:
+• interactive message (terminal / UI)
+• channel inbound (email, …)
+• autonomous tick (cron job / heartbeat);
+
+#EDE7F6:**2 · GATEWAY  (presentation)**
+Resolve the agent — explicit agentId, else from the session-key prefix;
+#EDE7F6:Set RunContext = (agent_id, session_key, MODE);
+#EDE7F6:Create RunHandle; run as its own asyncio.Task;
+
+#ECEFF1:**3 · AGENTSERVICE  (application)**
+Load session transcript (SessionStore — memory of THIS thread);
+#ECEFF1:Resolve AgentSpec — persona · IDENTITY · tools/skills scope · model · version;
+#ECEFF1:Select tools = per-agent allow/deny  +  apply_mode
+(hide heartbeat_respond / report_outcome outside their mode);
+
+#FFF8E1:**4 · PROMPT ASSEMBLY  (infrastructure/prompt)** — built in priority order:
+1  Identity
+2  **SOUL / PERSONA** (editable SOUL.md): resourceful-then-ask-ONE-Q ·
+   propose+confirm on big/irreversible · NEVER fabricate · careful on external
+3  **IDENTITY.md** — who THIS agent is (refines the persona)
+4  mode note: HEARTBEAT.md / report_outcome / channel-reply-verbatim
+5  Language    6  Tooling (the available tools)
+7  **What you are** — organs present (schedule·wake·notify·channels·remember·
+   delegate)  ⇒  "PROPOSE an architecture, then confirm"
+8  **Skills** — advertised one-line; full SKILL.md read on demand
+9  Planning  ·  Verify-before-send (REQUIRED)
+10 Execution Bias  ·  **Honesty / no-fabrication**  ·  Safety
+11 Workspace · User folders · Date · Project Context · Runtime;
+
+#E1F5FE:**5 · ENGINE LOOP  (infrastructure/engine)** — start the reason → act loop;
+repeat
+  #E1F5FE:Compact context (ContextPolicy) — send a recent VIEW (transcript untouched);
+  #FCE4EC:**6 · MODEL  (infrastructure/llm)** — call the model
+  (FAILOVER across models · idle-timeout 120s · request-timeout);
+  #FFF8DC:The MODEL decides: emit tool calls, or a final answer?;
+  if (model output) then (TOOL CALLS)
+    #E8F5E9:**7 · TOOLS** — for each call: validate args → **GuardedTool**
+    (timeout · retry · error-normalize · policy [later]) → execute;
+    #E8F5E9:The tool does the real work — one of:
+    • files / shell:  read write edit ls find · exec process
+    • web / UI:  web_search web_fetch · browser · computer · MCP
+    • **memory**:  memory_search · remember · memory_get · consolidate
+    • **delegate**:  spawn_subagent → isolated child run → result
+    • autonomy:  cron · goal · commitment · report_outcome
+    • **skills**:  read a SKILL.md  ·  skill_workshop (author one)  ·  update_plan;
+    #E8F5E9:Append each result → loop again;
+  else (FINAL TEXT)
+    #E1F5FE:**verify_answer(draft)** if available
+    (NEEDS WORK → keep looping & fix · OK → accept);
+  endif
+repeat while (more tool work to do?) is (yes — loop) not (no — final answer)
+
+#ECEFF1:**3 · AGENTSERVICE** — persist the final AssistantMessage → session (durable memory);
+
+#FFF3E0:**2 · GATEWAY** — deliver + account, by run MODE;
+if (MODE) then (interactive)
+  #FFF3E0:Stream events live → connected clients;
+  stop
+elseif (channel) then (channel)
+  #FFF3E0:Last answer → **channel.send(peer, reply)** on the same channel;
+  stop
+else (cron / heartbeat)
+  #FFF3E0:Record the run outcome (done / blocked / failed + detail);
+  if (blocked or failed?) then (yes)
+    #FFE0B2:**Notify** the user (client-push + durable + email channel);
+    if (Nth consecutive failure?) then (yes)
+      #FFCDD2:**Auto-pause** the job (failure_alert);
+    endif
+  endif
+  stop
+endif
+
+legend bottom
+  The DECISIONS live in the model: which tools to call, in what order, whether to
+  delegate / remember / schedule, and when the answer is done. Everything around it —
+  persona, identity, skills, tools, memory, guards, outcome, delivery — is the scaffold
+  that shapes those decisions. Each coloured box is one swappable layer; default-off
+  features (memory, sub-agents, channels, failover…) simply don't appear until enabled.
+endlegend
+
+@enduml

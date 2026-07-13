@@ -1,0 +1,4 @@
+id = "html"
+name = "HTML Render"
+kind = "native"
+entry = "html_plugin:register"

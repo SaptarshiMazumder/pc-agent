@@ -11,18 +11,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.llm import (
-    _ToolCallAccumulator,
-    litellm_stream,
-    messages_to_litellm,
-)
-from agentd.types import (
+from agentd.domain.messages import (
     AssistantMessage,
     TextContent,
     ThinkingContent,
     ToolCallContent,
     ToolResultMessage,
     UserMessage,
+)
+from agentd.infrastructure.llm.litellm import (
+    _ToolCallAccumulator,
+    litellm_stream,
+    messages_to_litellm,
 )
 
 
@@ -59,15 +59,51 @@ def test_error_tool_result_marked():
     out = messages_to_litellm(
         "S",
         [
+            AssistantMessage(
+                content=[ToolCallContent(id="x", name="exec", arguments={})],
+                stop_reason="toolUse",
+            ),
             ToolResultMessage(
                 tool_call_id="x",
                 tool_name="exec",
                 content=[TextContent(text="boom")],
                 is_error=True,
-            )
+            ),
         ],
     )
-    assert out[1]["content"] == "ERROR: boom"
+    assert out[-1]["content"] == "ERROR: boom"
+
+
+def test_drops_placeholder_and_orphaned_tool_result():
+    # Regression: a "couldn't generate" placeholder persisted BETWEEN a tool call and its
+    # result, plus an orphaned tool result, must be sanitized out so strict providers
+    # (Gemini) don't reject the whole history with "missing corresponding tool call".
+    from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
+
+    history = [
+        AssistantMessage(
+            content=[ToolCallContent(id="c1", name="sheet", arguments={})],
+            stop_reason="toolUse",
+        ),
+        AssistantMessage(  # placeholder wedged between the call and its result
+            content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason="error"
+        ),
+        ToolResultMessage(tool_call_id="c1", tool_name="sheet", content=[TextContent(text="OK")]),
+        ToolResultMessage(
+            tool_call_id="ghost",
+            tool_name="x",  # no matching call -> orphan
+            content=[TextContent(text="orphan")],
+        ),
+    ]
+    out = messages_to_litellm("S", history)
+    # placeholder dropped -> exactly one assistant (the tool-call turn)
+    assert sum(1 for m in out if m["role"] == "assistant") == 1
+    # only the matching tool result survives; the orphan is gone
+    tools = [m for m in out if m["role"] == "tool"]
+    assert len(tools) == 1 and tools[0]["tool_call_id"] == "c1"
+    # and the tool-call assistant is IMMEDIATELY followed by its result (Gemini-valid)
+    ia = next(i for i, m in enumerate(out) if m["role"] == "assistant")
+    assert out[ia + 1]["role"] == "tool" and out[ia + 1]["tool_call_id"] == "c1"
 
 
 def frag(index=None, id=None, name=None, arguments=None):
@@ -110,7 +146,9 @@ def test_accumulator_bad_json_kept_raw():
 
 def make_chunk(delta=None, finish_reason=None, usage=None):
     return SimpleNamespace(
-        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)] if delta or finish_reason else [],
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)]
+        if delta or finish_reason
+        else [],
         usage=usage,
     )
 
@@ -173,7 +211,7 @@ async def test_litellm_stream_text_and_toolcall(monkeypatch):
     assert done["type"] == "done"
     msg = done["message"]
     assert msg.stop_reason == "toolUse"
-    assert msg.usage == {"input": 12, "output": 7}
+    assert msg.usage == {"input": 12, "output": 7, "cached": 0}
     assert msg.text == "I'll check. "
 
 
@@ -200,3 +238,93 @@ async def test_litellm_stream_provider_error_never_raises(monkeypatch):
     assert done["type"] == "done"
     assert done["message"].stop_reason == "error"
     assert "provider down" in done["message"].error_message
+
+
+class StallingStream:
+    """A stream whose chunks never arrive (simulates a hung/silent model)."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.Event().wait()  # blocks forever
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_emits_error_done(monkeypatch):
+    async def fake_acompletion(**kwargs):
+        return StallingStream()
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    events = []
+    async for ev in litellm_stream(
+        model="gemini/gemini-3.1-pro-preview",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
+        idle_timeout_sec=0.05,
+    ):
+        events.append(ev)
+
+    done = events[-1]
+    assert done["type"] == "done" and done["message"].stop_reason == "error"
+    assert "idle timeout" in done["message"].error_message
+
+
+@pytest.mark.asyncio
+async def test_request_timeout_passed_to_acompletion(monkeypatch):
+    captured = {}
+
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+        return FakeStream(
+            [
+                make_chunk(delta=make_delta(content="hi")),
+                make_chunk(delta=make_delta(), finish_reason="stop"),
+            ]
+        )
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    async for _ in litellm_stream(
+        model="gemini/x",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
+        request_timeout_sec=99,
+    ):
+        pass
+    assert captured.get("request_timeout") == 99
+
+
+@pytest.mark.asyncio
+async def test_local_provider_skips_idle(monkeypatch):
+    # local model + a stalling stream: idle is SKIPPED, so no idle error fires —
+    # the stream stays open. We prove it by timing the consumer out ourselves.
+    async def fake_acompletion(**kwargs):
+        return StallingStream()
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    async def consume():
+        async for _ in litellm_stream(
+            model="ollama/llama3",
+            system_prompt="S",
+            messages=[UserMessage(content="hi")],
+            tools=[],
+            abort=asyncio.Event(),
+            idle_timeout_sec=0.05,
+        ):
+            pass
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(consume(), timeout=0.3)  # never emits idle error -> we time out

@@ -1,0 +1,22 @@
+id = "watercolor-atlas"
+name = "Watercolor Medical Atlas (Netter)"
+description = "Classic hand-painted medical-atlas illustration in the Netter tradition — warm, layered, anatomically authoritative."
+when_to_use = "Anatomy and physiology figures wanting a warm, hand-painted, textbook-atlas feel rather than a clean vector look — organs, muscles, systems, dissections."
+tags = ["medical", "anatomy", "watercolor", "atlas", "netter", "painterly", "physiology"]
+aspect = "3:4"
+resolution = "2K"
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+palette = ["#B5453B", "#D98E5A", "#E9C48A", "#8A5A44", "#6E8B6E", "#F3E9D8"]
+palette_locked = false
+negative = "no digital flat-vector look, no neon colours, no photographic realism, no oversimplified or cartoonish look, no sparse empty plate, no background scenery, no baked-in text or leader lines"
+prompt = """
+A classic, richly DETAILED medical-atlas illustration of {subject} in the hand-painted Netter tradition.
+Resolve fine anatomical detail — every structure and sub-structure articulated with accurate proportions,
+the depth and rigour of a printed atlas plate, not a simplified sketch. Gradient watercolour/gouache
+shading with layered tones that model volume and form; warm anatomical palette (muscle reds, tissue
+ochres, connective creams); soft confident edges, delicate varied linework and subtle paper-like texture.
+Authoritative and precise like a printed anatomy atlas plate, on a clean white background. The whole
+subject is composed within the frame with a margin; nothing cropped.
+"""
+exemplars = []

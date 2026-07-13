@@ -1,0 +1,89 @@
+@startuml resource-manager
+' ============================================================================
+'  Resource Manager - architecture (ports + adapters, every piece decoupled).
+'  Render: java -jar ../../../plantuml.jar -charset UTF-8 -tpng resource-manager.puml
+'  green = built   amber = optional/opt-in   gray = port (interface)
+' ============================================================================
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 18
+skinparam ranksep 42
+skinparam ArrowColor #666666
+skinparam ArrowFontSize 10
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 8
+}
+skinparam database {
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title Resource Manager - ports & adapters\ngreen = built   amber = optional (opt-in)   gray = port
+
+package "Agent-facing" #EEF3FB {
+  rectangle "**resource** tool\nlist · read · create · edit · delete · describe\n(workspace-scoped via run-context)" as TOOL #C8E6C9
+  rectangle "Prompt: ## Your workspace resources\n(manifest injected every turn)" as PROMPT #C8E6C9
+}
+
+package "Domain (pure)" #F2F2F2 {
+  rectangle "Resource\n(rel_path, kind, size, sig, description)\n+ kind_for_path()" as DOM #C8E6C9
+}
+
+package "Ports (application)" #F2F2F2 {
+  rectangle "PORT WorkspaceIndex\nmanifest(ws, agent)" as P_WI #E2E2E2
+  rectangle "PORT ResourceStore\nget/put/list/delete/purge" as P_ST #E2E2E2
+  rectangle "PORT ResourceDescriber\ndescribe(kind, path, sample)" as P_DE #E2E2E2
+}
+
+package "Core service (infrastructure)" #F2F2F2 {
+  rectangle "**ResourceManager**\nreconcile (disk <-> index, prune)\nmanifest · create/edit/delete\n**enqueue_enrich -> background**" as MGR #C8E6C9
+}
+
+package "Adapters (infrastructure)" #F2F2F2 {
+  database "SqliteResourceStore\nresources.sqlite (per-agent, cached by sig)" as STORE #C8E6C9
+  rectangle "BasicDescriber\nfirst-line · image dims\n(sync, cheap, deterministic)" as BASIC #C8E6C9
+  rectangle "documents.extract_text\ndocx/pdf/xlsx/pptx\n(shared with the read tool)" as DOCS #C8E6C9
+  rectangle "rich_fn (Gemini) - BACKGROUND only\nimage CAPTIONS (vision) + text/doc SUMMARIES (LLM)\nAGENTD_RESOURCE_VISION / _SUMMARIZE (opt-in)" as VIS #FFE0B2
+}
+
+package "Composition root" #EDE7F6 {
+  rectangle "build_resource_manager(config)\nAGENTD_RESOURCES (default on)\n-> manifest source + the resource tool" as BUILD #C8E6C9
+}
+
+TOOL --> MGR
+MGR ..|> P_WI : implements
+MGR --> P_ST
+MGR --> P_DE
+MGR ..> DOM
+P_ST <|.. STORE
+P_DE <|.. BASIC
+BASIC ..> DOCS : extract documents
+MGR ..> VIS : enqueue_enrich (fire-and-forget,\nbounded, deduped) -- expensive, off-path
+MGR --> PROMPT : manifest(ws, agent)
+BUILD --> MGR
+BUILD --> STORE
+BUILD --> VIS
+
+note bottom of MGR
+  Composition over inheritance: handed a Store + Describer
+  (+ optional rich_fn). Swap any behind its port with no other
+  change. Whole layer cut-out-able: AGENTD_RESOURCES=0.
+end note
+
+note bottom of VIS
+  The ONLY expensive piece. Runs exclusively in the manager's
+  background enrichment, in a worker thread, capped by a semaphore.
+  Off => images stay at dimensions, text at first-line (nothing leaves).
+end note
+
+@enduml

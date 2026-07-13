@@ -1,0 +1,137 @@
+/**
+ * Wire protocol types — the TS mirror of agentd/presentation/protocol.py and the
+ * event payloads the daemon broadcasts (see the terminal client for the reference
+ * rendering of each event type).
+ */
+
+export interface RequestFrame {
+  type: 'req'
+  id: string
+  method: string
+  params: Record<string, unknown>
+}
+
+export interface ResponseFrame {
+  type: 'res'
+  id: string
+  ok: boolean
+  payload: Record<string, any>
+}
+
+export interface EventFrame {
+  type: 'event'
+  event: string
+  payload: Record<string, any>
+}
+
+export type Frame = ResponseFrame | EventFrame
+
+export interface AgentInfo {
+  id: string
+  name: string
+  version?: string
+  /** server-owned display line, authored in agent.toml or auto-generated once */
+  tagline?: string
+  /** up to 3 starter prompts for this agent's empty chat (server-owned) */
+  suggestions?: string[]
+  /** avatar/dot colour (hex) — server-assigned, unique across agents */
+  color?: string
+}
+
+export interface Hello {
+  agentName: string
+  agentId: string
+  model: string
+  version: string
+  protocol: number
+  product: string
+  productId: string
+  storeEnabled: boolean
+  registryConfigured: boolean
+  registryUrl: string
+  localRegistryDir: string
+  workspace: string
+  agents: AgentInfo[]
+}
+
+export interface SessionRow {
+  sessionId: string
+  title: string
+  titleManual: boolean
+  /** preview of the first user message (2nd line in wide chat tables); '' for untitled chats
+   *  where the title already IS the first message */
+  snippet?: string
+  projectId: string
+  messages: number
+  modified: number
+  /** Which agent's partition holds this transcript. Populated by sessions.list (single-agent =
+   *  the requested agent; cross-agent Recents/Project view = each row's owning agent). Cross-agent
+   *  lists mix agents, so resuming a row must switch currentAgentId to this value. */
+  agentId: string
+}
+
+export interface ProjectRow {
+  id: string
+  name: string
+  /** the project's LEAD agent — answers when you "message the project" ('' => main) */
+  defaultAgentId?: string
+  /** curated agent roster shown in the project UI (lead may still call any agent) */
+  members?: string[]
+  createdAt: number
+}
+
+/** chat.event payload: {sessionKey, runId, event: {type, ...}} */
+export interface AgentEvent {
+  type: string
+  [key: string]: any
+}
+
+export interface CatalogBundle {
+  id: string
+  name: string
+  version: string
+  description: string
+  price: string
+  size: number
+  compatible: boolean
+  installed: boolean
+  installedVersion: string
+  updateAvailable: boolean
+  entitlement: string
+  /** glyph name declared in the bundle manifest ('' => client default glyph) */
+  icon?: string
+}
+
+export interface InstalledBundle {
+  id: string
+  version: string
+  installedAt: string
+  pluginIds: string[]
+}
+
+/** capabilities.list — the ONE uniform shape for everything the runtime exposes (tools, plugins,
+ *  skills, agents). Core resolves every description once and serves it to every client equally. */
+export interface CapabilityDescriptor {
+  kind: 'tool' | 'plugin' | 'skill' | 'agent'
+  id: string
+  name: string
+  description: string
+  /** where it lives (a path or owning-plugin id) — lets a client open/inspect it */
+  source: string
+  extra: Record<string, unknown>
+}
+
+/** The full text of a tool result (a message dict with content blocks). */
+export function resultText(result: any): string {
+  if (result && typeof result === 'object') {
+    const content = result.content
+    if (Array.isArray(content)) {
+      return content
+        .map((block: any) => (block && typeof block === 'object' ? block.text || '' : ''))
+        .join('')
+        .trim()
+    }
+    return String(result.text || '').trim()
+  }
+  return String(result ?? '').trim()
+}

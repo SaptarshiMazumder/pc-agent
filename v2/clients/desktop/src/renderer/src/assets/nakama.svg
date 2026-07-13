@@ -1,0 +1,22 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agentd">
+  <!-- The nakama link — GREEN ONLY, transparent background. The weave (A over B at
+       the top crossing, B over A at the bottom) is done with masks instead of the
+       original white knockout strokes, so it works on any backdrop. -->
+  <defs>
+    <mask id="cut-b-halo">
+      <rect width="256" height="256" fill="#fff"/>
+      <circle cx="154" cy="128" r="40" fill="none" stroke="#000" stroke-width="22"/>
+    </mask>
+    <mask id="cut-a-top">
+      <rect width="256" height="256" fill="#fff"/>
+      <path d="M115.7 90.4 A40 40 0 0 1 137.3 109.2" fill="none" stroke="#000" stroke-width="22" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <!-- Ring A (left): gaps where B crosses -->
+  <circle cx="102" cy="128" r="40" fill="none" stroke="#84CC16" stroke-width="12" mask="url(#cut-b-halo)"/>
+  <!-- Ring B (right): gap at the top crossing where A comes back over -->
+  <circle cx="154" cy="128" r="40" fill="none" stroke="#84CC16" stroke-width="12" mask="url(#cut-a-top)"/>
+  <!-- A's corrective arc back OVER B -> woven, inseparable link -->
+  <path d="M115.7 90.4 A40 40 0 0 1 137.3 109.2" fill="none" stroke="#84CC16" stroke-width="12" stroke-linecap="round"/>
+</svg>

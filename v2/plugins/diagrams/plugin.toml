@@ -1,0 +1,7 @@
+id = "diagrams"
+name = "Diagrams"
+kind = "native"
+entry = "diagrams_plugin:register"
+
+[requires]
+bins = ["java"]

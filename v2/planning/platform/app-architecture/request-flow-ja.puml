@@ -1,0 +1,105 @@
+@startuml request-flow-ja
+' ============================================================================
+'  pc-agent - Runtime flow of ONE user message through all layers
+'  (the dynamic view: time flows downward; the reason->act LOOP is the key part)
+'  Render (from this folder):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng request-flow-ja.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 14
+skinparam BoxPadding 12
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title pc-agent - 1メッセージの実行フロー（時間は上から下へ／ループが中心）
+
+box "ユーザーのマシン（ローカル - 平文＋鍵はここに存在）" #E6F4EA
+  actor User
+  participant "UI\n(web / desktop)" as UI
+  participant "ゲートウェイ\n(localhost WS,\nトークンで保護)" as GW
+  participant "エージェントコア\n(ループ／エンジン)" as CORE
+  participant "メモリ\n(ローカルキャッシュ\n+ E2Eボールト)" as MEM
+  participant "ポリシー＋\n承認" as POL
+  participant "ツール\n(files/exec/browser)" as TOOL
+  participant "スキル\n(SKILL.md\nプレイブック)" as SKILL
+end box
+
+box "リモート（あなたのクラウド／相手の鍵）" #FDECEA
+  participant "LLMエンドポイント\n(secure VM / BYOK / local)" as LLM
+  participant "コントロールプレーン\n(認証, 使用量, ボールト同期)" as CP
+end box
+
+note over User, CP
+  前提条件: ユーザーは登録／ログイン済み。ゲートウェイは
+  起動ごとのローカルトークンを検証済みで、ユーザーのエンタイトルメント（ティア／クォータ）がポリシーから参照可能。
+end note
+
+User -> UI : メッセージを入力
+UI -> GW : chat.send {session, text}\n(127.0.0.1 WS + token)
+GW -> CORE : handle_message(session, text)
+
+== コンテキスト読み込み（すべてローカル） ==
+CORE -> MEM : load_history(session)
+MEM --> CORE : 過去のメッセージ（ローカルで復号）
+CORE -> MEM : recall(query)  // 関連する長期メモリ
+MEM --> CORE : メモリ
+CORE -> MEM : append(user message)   // 永続化
+note over CORE : リクエストを構築 = システムプロンプト + 履歴\n+ 想起したメモリ + ツール仕様 + SKILLの1行説明（説明のみ）
+
+== 推論→実行ループ ==
+loop LLMが最終回答を返すまで（ツール呼び出しなし）
+  CORE -> LLM : stream(system_prompt, messages, tools)\n--- HTTPS、あなたのセキュアなモデルへ平文 ---
+  LLM --> CORE : stream: 思考 + テキストデルタ + ツール呼び出し
+  CORE -> UI : デルタをゲートウェイ経由で転送（ライブ）
+
+  opt リクエストが提示済みスキルに該当（例: browser-automation）
+    CORE -> SKILL : read(SKILL.md path)   // 通常のread tool呼び出し
+    SKILL --> CORE : 完全なプレイブック -> messages[] に入る
+    note over CORE, SKILL : エージェントは以降の実行を通じて、そのスキルの\n手順ガイドに従う（一度読めば履歴に残る）
+  end
+
+  alt LLMがツール呼び出しを要求
+    CORE -> POL : authorize(tool, args, entitlements)
+    alt 機密／不可逆（例: メール送信, 破壊的なexec）
+      POL -> UI : 承認リクエスト
+      UI --> POL : ユーザーがYes / Noを回答
+    end
+    POL --> CORE : 許可 / 拒否
+    CORE -> TOOL : execute(tool, args)   // このPC上で実行
+    TOOL --> CORE : 結果
+    CORE -> MEM : append(tool result)    // 永続化
+    note over CORE, LLM : 結果はmessagesに追記され ->\nループは次のステップのためにそれらをLLMへ送り返す
+  else ツール呼び出しなし -> このテキストが最終回答
+    note over CORE : ループを抜ける
+  end
+end
+
+== 完了 ==
+CORE -> MEM : append(final answer) -> 暗号化
+MEM -> CP : 暗号文を同期（非同期）
+CORE -> CP : 使用量を報告（非同期, メタデータのみ）
+CORE -> UI : 最終回答（すでにストリーム済み）
+UI -> User : 回答を表示
+
+note over LLM
+  LLMはステートレス: 各呼び出しは完全な
+  messages[] を受け取り、呼び出し間で何も記憶しない。
+  「メモリ」とはエージェントが履歴を再投入していることであり、
+  モデルが何かを保持しているわけではない。
+end note
+
+note over CORE, SKILL
+  スキル vs ツール: ツールは呼び出し可能なアクション、スキルは
+  読み込み可能なノウハウ（markdownプレイブック）。プロンプトには各スキルの
+  1行説明のみが入り、本体はタスクが該当したときに
+  read toolで必要に応じて取り込まれる —
+  だからプロンプトの肥大化もコード追加もなく多くのスキルを追加できる。
+end note
+
+@enduml

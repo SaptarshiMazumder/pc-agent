@@ -1,0 +1,25 @@
+id = "clean-flat"
+name = "Clean Flat (soft-shaded)"
+description = "A clean, mostly-flat scientific illustration: flat colour fills with ONE soft gradient per shape, crisp even outlines, minimal shading. Lighter and tidier than biorender-shaded."
+when_to_use = "THE DEFAULT for most labelled figures — a clean, uncluttered, easy-to-read look with room around the subject for labels. Reach for `biorender-shaded` instead only when rich volumetric semi-3D shading and dense journal-plate detail are specifically wanted."
+tags = ["clean", "flat", "soft-shaded", "default", "biorender", "modern", "schematic", "cutaway"]
+aspect = "4:3"
+resolution = "2K"
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+palette = ["#3B7EA1", "#E4A24C", "#C65D57", "#6FB98F", "#8E7CC3", "#F2E8D5"]
+palette_locked = false
+negative = "no heavy 3D rendering, no glossy specular highlights, no strong rim light, no deep ambient occlusion, no photorealism, no photographic noise or grain, no drop shadows under the scene, no background scenery, no cluttered over-detailing, no cartoonish childish oversimplified shapes, no text or labels baked in"
+prompt = """
+A clean, mostly FLAT scientific illustration of {subject}, in a light modern BioRender style. Render
+each part as a flat solid-colour fill with at MOST ONE soft, subtle directional gradient to hint at
+volume — NOT full 3D modelling: no glossy highlights, no rim light, no heavy shadowing, no deep
+ambient occlusion. Define every part with crisp, confident, mostly-uniform dark outlines at an even,
+clean line weight. Depict the real, correct structure and its distinct named parts clearly and
+legibly with MODERATE detail — uncluttered and easy to read, neither a dense journal plate nor an
+oversimplified cartoon. Cohesive, lightly-saturated palette; pure white background; place the ENTIRE
+subject inside the frame and leave GENEROUS clean white space AROUND it so labels have room in the
+margins. Flat, tidy, professional — the look of a clean modern vector cutaway with just a touch of
+soft shading.
+"""
+exemplars = []

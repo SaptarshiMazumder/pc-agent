@@ -1,0 +1,51 @@
+# Stage 2 - Integrate. The heavier tests that need real infrastructure: a real Chromium today
+# (the `browser`-marked tests), and provider/API `live` tests later when they exist.
+# NOT run on every push - only on merges to develop/main and on-demand - because they're slower
+# and (in future) will need secrets.
+name: Integration
+
+on:
+  push:
+    branches: [develop, main]
+    paths: ['v2/**', '.github/workflows/integration.yml']
+  workflow_dispatch: {}          # run on-demand from the Actions tab
+  # schedule:
+  #   - cron: '0 6 * * *'        # (optional) nightly - uncomment to enable
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Browser + live tests
+    runs-on: ubuntu-latest
+    # Fork PRs can't read secrets and shouldn't run this. (No pull_request trigger today, so this
+    # is future-proofing for when live tests + secrets are added.)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    defaults:
+      run:
+        working-directory: v2
+    # Provider keys go here once real `live` tests exist (none today):
+    # env:
+    #   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: v2/pyproject.toml
+
+      - name: Install (editable + dev extras)
+        run: pip install -e ".[dev]"
+
+      - name: Install Chromium (with OS deps) for Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run integration tests (browser / live / computer)
+        run: pytest -m "browser or live or computer" -q

@@ -59,7 +59,8 @@ package "LAYER 3 · GATEWAY  ·  gateway.py" #FDECEA {
 ' LAYER 4 — SYSTEM PROMPT
 ' ===========================================================================
 package "LAYER 4 · SYSTEM PROMPT  ·  prompt.py (verbatim OpenClaw text)" #FFF4E5 {
-  rectangle "identity · **## Tooling** (+ browser operating-loop block)\n**## Tool Call Style** · **## Execution Bias** (7 bullets:\n'continue until done', 'vary source on weak result')\n**## Safety** · ## Workspace · Date · **## Runtime** (thinking=medium)" as PROMPT #FFE3B3
+  rectangle "identity · **## Tooling** · **## Skills**\n**## Tool Call Style** · **## Execution Bias** (7 bullets:\n'continue until done', 'vary source on weak result')\n**## Safety** · ## Workspace · Date · **## Runtime** (thinking=medium)" as PROMPT #FFE3B3
+  rectangle "**## Skills** (advertised, NOT inlined)\nskills/<name>/SKILL.md playbooks\nFileSkillRegistry scans fresh each turn ->\none line each: name + when-to-use + path\n(only descriptions in prompt = progressive disclosure)" as SKILLS #FFE3B3
   rectangle "Project Context\nAGENTS.md / SOUL.md / MEMORY.md (if present)" as CTX #FFE3B3
 }
 
@@ -67,7 +68,7 @@ package "LAYER 4 · SYSTEM PROMPT  ·  prompt.py (verbatim OpenClaw text)" #FFF4
 ' LAYER 5 — CORE LOOP + CONTINUATION PROTOCOL
 ' ===========================================================================
 package "LAYER 5 · AGENT LOOP  ·  loop.py  (cap = min(160, max(32, 24+8·profiles)) = 32)" #EDE7F6 {
-  rectangle "**① stream LLM**  llm.py litellm_stream\nsystem + history + tool schemas\nLiteLLM acompletion(stream, reasoning_effort)\nemits thinking_delta / text_delta / toolcall_end" as L_STREAM #D8CCF0
+  rectangle "**① stream LLM**  llm.py litellm_stream\nsystem + history + tool schemas\nLiteLLM acompletion(stream, reasoning_effort)\n**+ idle_timeout(120s) · request_timeout** -> error done = graceful end\nemits thinking_delta / text_delta / toolcall_end" as L_STREAM #D8CCF0
   rectangle "**② tool calls?**\n<diamond>" as L_DECIDE #C9B6F0
   rectangle "**③ execute tool calls**  _execute_tool_calls\nparallel (gather) for read/web_*;\nsequential for exec/edit/write/browser\nappend tool_result msgs in source order -> ①" as L_EXEC #D8CCF0
 
@@ -90,10 +91,31 @@ note right of L_CLASSIFY
   request (this is why "show me 5" -> 5).
 end note
 
+note as SKILLNOTE #FFF3E0
+  **Skills = loadable playbooks, NOT tools.**
+  Tools DO things (read, exec, browser); a skill is
+  step-by-step KNOW-HOW the agent reads on demand.
+  --
+  How it flows: the prompt carries only each skill's
+  one-line description (cheap). When a request matches,
+  the agent calls the **read** tool on that SKILL.md ->
+  the full playbook enters context -> it then drives the
+  tools the skilled way. Read once, stays in history.
+  --
+  Why it's useful: teach a workflow (browser steps,
+  "export from Photoshop", "fill this form") with NO code
+  and NO prompt bloat — drop a SKILL.md in skills/.
+  Ships today: browser-automation (its description fires
+  on web tasks; that is why the browser loop is no longer
+  hardcoded in the prompt — it became this skill).
+end note
+SKILLNOTE .. SKILLS
+
 ' ===========================================================================
 ' LAYER 6 — TOOLS
 ' ===========================================================================
 package "LAYER 6 · TOOLS  ·  tools/  (validated vs JSON schema)" #E1F5FE {
+  rectangle "**GuardedTool middleware**  tools/guard.py  (wraps EVERY tool)\nper-tool **timeout** (wait_for, inner-only) · **retry** (transient+backoff)\n**error-norm** · **on_update -> tool_progress**\npolicy resolved: override > tool default > global" as GUARD #FFE0B2
   rectangle "**files**  read · write · edit\n(edit: exact-unique match + diff)" as T_FILES #B3E5FC
   rectangle "**exec / process**  bash-tools\nshell, timeout, middle-truncate, background sessions" as T_EXEC #B3E5FC
   rectangle "**web_search**  Brave (key) -> DuckDuckGo, TTL cache, count=10\n**web_fetch**  httpx -> readability/trafilatura -> markdown" as T_WEB #B3E5FC
@@ -131,17 +153,23 @@ CHATSEND --> RUN
 CHATSEND <--> STORE : load / dedupe
 RUN --> PROMPT
 PROMPT .. CTX
+PROMPT .. SKILLS : advertises one-liners
 RUN --> L_STREAM : run_agent_loop(...)
 
 L_STREAM --> L_DECIDE
 L_DECIDE --> L_EXEC : yes
-L_EXEC --> T_FILES
-L_EXEC --> T_EXEC
-L_EXEC --> T_WEB
-L_EXEC --> B_SNAP
+L_EXEC --> GUARD : every tool call (timeout/retry/error-norm)
+GUARD --> T_FILES
+GUARD --> T_EXEC
+GUARD --> T_WEB
+GUARD --> B_SNAP
 B_SNAP --> B_ACT
 B_ACT --> B_NAV
 L_EXEC --> L_STREAM : results -> loop
+
+' skill loaded on demand by the read tool, then it guides the browser tool
+T_FILES ..> SKILLS : read(SKILL.md) when a request matches
+SKILLS ..> B_SNAP : browser-automation skill\nteaches the snapshot/scroll/wait loop
 
 L_DECIDE --> L_CLASSIFY : no tool calls
 L_CLASSIFY --> L_STREAM : inject + continue
@@ -153,6 +181,7 @@ L_VERIFY --> L_FINAL : accept
 
 L_STREAM ..> OUT : thinking/text deltas
 L_EXEC ..> OUT : tool activity
+GUARD ..> OUT : tool_progress (retries / timeouts / steps)
 L_CLASSIFY ..> OUT : continuation event
 L_FINAL --> OUT : final answer
 L_FINAL --> PERSIST
@@ -163,6 +192,7 @@ OUT --> WS
 ' ===========================================================================
 note as EXAMPLE #E3F2FD
   **Worked example — "find me 5 LinkedIn jobs with apply URLs"**
+  0. request matches the browser-automation skill -> agent reads its SKILL.md (the playbook now in context)
   1. browser navigate -> snapshot(efficient) the search page
   2. scrollIntoView last card -> wait networkidle -> snapshot again (reveal more)
   3. for each job: click -> snapshot -> web_search/navigate to the REAL apply URL
@@ -177,7 +207,7 @@ legend left
   | 1 Client | terminal REPL, render stream |
   | 2 Transport | WebSocket frames |
   | 3 Gateway | session, abort, idempotency, run lifecycle |
-  | 4 Prompt | verbatim OpenClaw operating instructions |
+  | 4 Prompt | verbatim OpenClaw instructions + Skills advertised (read on demand) |
   | 5 Loop | LLM⇄tools + continuation/verification retries |
   | 6 Tools | files / exec / web / rich browser |
   | 7 Output | broadcast stream + JSONL persist |

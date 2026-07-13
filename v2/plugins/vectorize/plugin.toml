@@ -1,0 +1,9 @@
+id = "vectorize"
+name = "Vectorize"
+kind = "native"
+entry = "vectorize_plugin:register"
+
+# Optional backends, no [requires] gate — every tool loads and errors with install guidance if a
+# backend is absent: extract_annotations needs numpy+scikit-image+rapidocr (pip install
+# 'agentd[figures-vector]'); trace_image needs vtracer (pip package or CLI).
+# (The VLM fallback for editable text/arrows = read_labels_from_image in the vision plugin.)

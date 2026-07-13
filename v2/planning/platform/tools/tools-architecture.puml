@@ -1,0 +1,143 @@
+@startuml tools-architecture
+' ============================================================================
+'  agentd - Tool Architecture (the ONE scalable pattern for ALL tools)
+'  Every tool sits behind the Tool port. Tools that talk to an external backend
+'  do so through a Provider port + swappable adapters chosen by config -- so the
+'  tool (the dispatcher) is NEVER coupled to a specific backend.
+'  Render (from this folder):  java -jar ../../../plantuml.jar -tpng tools-architecture.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Tool Architecture\nEvery tool implements the Tool port; backend-touching tools add a Provider port + a config-selected adapter chain\ngreen = in v2 today   amber = net-new   gray = port (interface)
+
+' ===========================================================================
+' CONSUMER - the agent loop
+' ===========================================================================
+package "AGENT LOOP (consumer)  ·  infrastructure/engine" #EDE7F6 {
+  rectangle "per tool call: validate args -> GuardedTool (timeout · retry · **loop-detection** [now])\n-> (PolicyGuard authorize [planned; tool-hardening-policy.puml]) -> execute (parallel default;\nsequential if declared) -> ToolResult -> messages -> LLM\n+ **liveness observers** (call-rate / no-progress) per call/turn, and a **Verifier** at finalize\n-- decoupled ports, default OFF (see agent-quality-liveness.puml)" as LOOP #C7B8EA
+}
+
+' ===========================================================================
+' APPLICATION - the contracts (no IO, no backend knowledge)
+' ===========================================================================
+package "APPLICATION - interfaces (contracts; no IO)" #E8EAF6 {
+  rectangle "PORT: Tool\nname · description · parameters (JSON schema)\nconcurrency = parallel | sequential\nexecute(call_id, params, abort, on_update) -> ToolResult" as P_TOOL #E2E2E2
+  rectangle "ToolResult\ntext  |  error  |  details (structured json)\non_update(...) streams progress events while running" as TRES #E2E2E2
+  rectangle "PORT: ToolRegistry\nall() -> [Tool]     get(name) -> Tool" as P_REG #E2E2E2
+  rectangle "PROVIDER PORTS  (one per backend-touching tool)\nSearchProvider.search(query, count, freshness)\nBrowserProvider.snapshot / act / navigate\nFetchProvider.fetch(url)" as P_PROV #E2E2E2
+}
+
+' ===========================================================================
+' INFRASTRUCTURE - the implementations (the only place IO lives)
+' ===========================================================================
+package "INFRASTRUCTURE - tools/ (adapters)" #E1F5FE {
+
+  package "Direct tools  (single implementation -- no provider needed)" #EAF6FF {
+    rectangle "read · write · edit · ls · find\n(filesystem)" as T_FS #B3E5FC
+    rectangle "exec · process\n(shell, background sessions)" as T_EXEC #B3E5FC
+  }
+
+  package "Dispatcher tools  (Tool port + Provider port + adapter chain)" #E8F8FF {
+    rectangle "**web_search**\nruns the configured SearchProvider chain:\ntry in order -> first non-empty wins -> normalize -> cache" as T_SEARCH #CFF0FF
+    rectangle "**web_fetch**\nFetchProvider; escalate to the\nbrowser for JS-heavy pages" as T_FETCH #CFF0FF
+    rectangle "**browser**\nruns a BrowserProvider\n(snapshot / act / navigate)" as T_BROW #CFF0FF
+  }
+
+  package "SearchProvider adapters  (ONLY these know a search backend)" #E8F8FF {
+    rectangle "LLM-native (reuse the LLM's key):\nGemini grounding [now] · OpenAI native\nKimi · MiniMax · xAI [later]" as A_SNATIVE #C8E6C9
+    rectangle "Agnostic (own key, any LLM):\nBrave [key set] · Tavily · Exa · SearXNG [later]\nDuckDuckGo [now, keyless]" as A_SAGN #C8E6C9
+  }
+
+  package "BrowserProvider adapters  (engine chosen once at startup, 2 toggles)" #E8F8FF {
+    rectangle "Playwright (local, own/persistent profile;\nstealth launch + Chrome-profile copy) [now, default]" as A_PW #C8E6C9
+    rectangle "CDP-attach (drive the user's LIVE Chrome,\nconnect_over_cdp) [now]" as A_CDP #C8E6C9
+    rectangle "**agent-browser** (Vercel) via its MCP server\n[now, opt-in: AGENTD_BROWSER_AGENT_BROWSER=1]" as A_AB #C8E6C9
+  }
+
+  package "browser capabilities  (BaseBrowserSession - shared by the launch adapters)" #E8F8FF {
+    rectangle "stable tab handles · console · pdf · dialog · upload(setInputFiles)\ndownloads · **cursor-scan refs (cN)** · auth-wall note · action-timeout + recovery hint [now]" as A_BCAP #C8E6C9
+  }
+}
+
+' ===========================================================================
+' MAIN - composition root (the ONLY place a backend is named)
+' ===========================================================================
+package "MAIN - composition root  ·  main/container.py" #FDECEA {
+  rectangle "build_tools(config, engine) + build_gateway\n- build each tool; wrap in GuardedTool (timeout/retry/loop-detection) [now]\n- select browser engine (playwright | cdp | agent-browser-MCP)\n- inject observers + verifier into the engine (default off)\n- (planned) PolicyGuard + PolicyEngine\n- return [Tool] for the registry" as BUILD #FBD9D4
+  rectangle "config\nAGENTD_SEARCH_PROVIDERS = gemini,brave,duckduckgo\nbrowser engine: AGENTD_BROWSER_PLAYWRIGHT / _AGENT_BROWSER (ours wins ties)\nbrowser: _CHROME_PROFILE · _CURSOR_SCAN · _ACTION_TIMEOUT · _CDP_URL · _CHANNEL\nAGENTD_LIVENESS / AGENTD_VERIFIER  (default off)\nAGENTD_POLICIES (planned)" as CFG #FBD9D4
+}
+
+' ===========================================================================
+' EDGES
+' ===========================================================================
+CFG --> BUILD : provider order + keys
+BUILD --> P_REG : register [Tool]
+LOOP --> P_REG : all() / get(name)
+LOOP --> P_TOOL : validate -> (authorize) -> execute
+P_TOOL ..> TRES : returns
+
+' dispatcher tools depend on a provider port (NOT on any concrete backend)
+T_SEARCH --> P_PROV : SearchProvider
+T_FETCH --> P_PROV : FetchProvider
+T_BROW --> P_PROV : BrowserProvider
+
+' each dispatcher tool runs its own adapters (which realize the provider port)
+T_SEARCH --> A_SNATIVE : runs the chain
+T_SEARCH --> A_SAGN
+T_BROW --> A_PW
+T_BROW --> A_CDP
+T_BROW --> A_AB : (opt-in engine)
+A_PW ..> A_BCAP : capabilities
+A_CDP ..> A_BCAP
+
+' composition root selects + orders the adapters per config
+BUILD ..> A_SNATIVE : select + order
+BUILD ..> A_SAGN
+
+note right of P_TOOL
+  ALL tools -- direct and dispatcher -- implement
+  this one Tool port. The loop only ever sees
+  Tool.execute(...); it has no idea whether a tool
+  is backed by one impl or a chain of providers.
+  Every adapter in INFRASTRUCTURE realizes either
+  the Tool port or a Provider port above.
+end note
+
+note bottom of A_SAGN
+  The scalable rule:
+  * a tool = a thin DISPATCHER (no backend knowledge)
+  * a backend = ONE adapter behind a Provider port
+  * which adapters, and in what order = CONFIG
+  Add Kimi/MiniMax/remote-browser = drop in one
+  adapter + a config entry. The tool never changes.
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | exists in v2 today |
+  | amber | net-new |
+  | gray  | port = interface |
+  | blue  | tool (dispatcher or direct) |
+endlegend
+
+@enduml

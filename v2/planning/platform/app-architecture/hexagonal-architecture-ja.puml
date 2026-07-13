@@ -1,0 +1,183 @@
+@startuml hexagonal-architecture-ja
+' ============================================================================
+'  v2 Agent - ヘキサゴナル / ポート＆アダプタ（クリーン）アーキテクチャ
+'  2つの側面: 駆動（プライマリ）アダプタは内側を呼び出す; 被駆動（セカンダリ）
+'  ポートは外側へ呼び出される。各被駆動ポートは自身のアダプタとグループ化し、
+'  線を短く交差させないようにする。
+'  Render (from this folder):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng hexagonal-architecture-ja.puml
+' ============================================================================
+
+left to right direction
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Yu Gothic UI"
+skinparam defaultFontSize 12
+skinparam nodesep 22
+skinparam ranksep 95
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 12
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title v2 Agent - ヘキサゴナル（ポート＆アダプタ／「クリーン」）アーキテクチャ\n駆動アダプタが内側を呼び出す（左） -> コア -> 被駆動ポート／アダプタが外側へ呼び出す（右）\n緑 = v2に現存   橙 = 新規   灰 = ポート（インターフェース）
+
+' ===========================================================================
+' 駆動（プライマリ）側  -  エージェントの内側を呼び出すもの
+' ===========================================================================
+package "駆動アダプタ（内側を呼び出す）" #E8F0FE {
+  rectangle "デスクトップシェル (Tauri/Electron)" as D_SHELL #DCEBFF
+  rectangle "Web UI" as D_WEB #DCEBFF
+  rectangle "ターミナル" as D_TERM #DCEBFF
+  rectangle "メッセージングチャネル" as D_MSG #DCEBFF
+}
+
+rectangle "PORT:\nAgentService\n(handle_message)" as P_DRV #E2E2E2
+
+' ===========================================================================
+' コア（ヘキサゴン）
+' ===========================================================================
+package "ヘキサゴナルコア（ドメイン - IOなし、フレームワークなし）" #EDE7F6 {
+  rectangle "**エージェントコア**\nオーケストレーション + メッセージ／イベント型。\nポートとのみ対話する。\n依存は内側を向く。" as CORE #C7B8EA
+}
+
+' ===========================================================================
+' 被駆動（セカンダリ）側  -  ポートごとに1ボックス + そのアダプタ
+' ===========================================================================
+package "エージェントエンジンポート" #F2F2F2 {
+  rectangle "PORT: AgentEngine" as P_ENG #E2E2E2
+  rectangle "ネイティブループ [loop.py]（デフォルト）" as A_ENG1 #C8E6C9
+  rectangle "Claude Agent SDK（Claude専用）" as A_ENG2 #FFE0B2
+  rectangle "LangGraph" as A_ENG3 #FFE0B2
+  P_ENG --> A_ENG1
+  P_ENG --> A_ENG2
+  P_ENG --> A_ENG3
+}
+
+package "推論ポート" #F2F2F2 {
+  rectangle "PORT: Inference" as P_INF #E2E2E2
+  rectangle "LiteLLM [llm.py]" as A_INF1 #C8E6C9
+  rectangle "ローカル / BYOK / セキュアVM 階層" as A_INF2 #C8E6C9
+  P_INF --> A_INF1
+  P_INF --> A_INF2
+}
+
+package "ツールポート" #F2F2F2 {
+  rectangle "PORT: Tools" as P_TOOL #E2E2E2
+  rectangle "read write edit ls find exec\nprocess web_search web_fetch browser" as A_TOOL1 #C8E6C9
+  P_TOOL --> A_TOOL1
+}
+
+package "スキルポート（読み込み可能なプレイブック、必要に応じて読み込む）" #F2F2F2 {
+  rectangle "PORT: SkillRegistry\nall() -> [name, description, path]" as P_SKILL #E2E2E2
+  rectangle "FileSkills [現状]\nskills/<name>/SKILL.md" as A_SKILL1 #C8E6C9
+  rectangle "クラウド / ユーザー別スキルボールト [将来]" as A_SKILL2 #FFE0B2
+  P_SKILL --> A_SKILL1
+  P_SKILL --> A_SKILL2
+}
+
+package "メモリポート" #F2F2F2 {
+  rectangle "PORT: Memory & History" as P_MEM #E2E2E2
+  rectangle "LocalStore (JSONL) [現状]" as A_MEM1 #C8E6C9
+  rectangle "クラウドメモリバンク (E2E) [将来]" as A_MEM2 #FFE0B2
+  rectangle "ベクトルストア / 外部サーバー" as A_MEM3 #FFE0B2
+  P_MEM --> A_MEM1
+  P_MEM --> A_MEM2
+  P_MEM --> A_MEM3
+}
+
+package "イベントポート" #F2F2F2 {
+  rectangle "PORT: EventSink" as P_EVT #E2E2E2
+  rectangle "WebSocket ゲートウェイ [gateway.py]" as A_EVT1 #C8E6C9
+  rectangle "SSE / その他のトランスポート" as A_EVT2 #FFE0B2
+  P_EVT --> A_EVT1
+  P_EVT --> A_EVT2
+}
+
+package "ポリシー／ガードレールポート（すべてのツール実行前にチェック）" #F2F2F2 {
+  rectangle "PORT: Policy\nauthorize(tool,args,ctx)\n= 許可 / 拒否 / 承認が必要" as P_POL #E2E2E2
+  rectangle "階層別ツール許可リスト" as A_POL1 #FFE0B2
+  rectangle "引数チェック\n（パス、宛先、SSRF/egress）" as A_POL2 #FFE0B2
+  rectangle "レート制限 / クォータ" as A_POL3 #FFE0B2
+  P_POL --> A_POL1
+  P_POL --> A_POL2
+  P_POL --> A_POL3
+}
+
+package "承認ポート（人間による確認）" #F2F2F2 {
+  rectangle "PORT: Approval" as P_APR #E2E2E2
+  rectangle "UI確認プロンプト\n（メール送信？ 破壊的なexec？）" as A_APR1 #FFE0B2
+  P_APR --> A_APR1
+}
+
+package "認証（アイデンティティ）ポート" #F2F2F2 {
+  rectangle "PORT: Auth\n（ログイン + 利用権限）" as P_AUTH #E2E2E2
+  rectangle "コントロールプレーン認証（トークン）" as A_AUTH1 #FFE0B2
+  P_AUTH --> A_AUTH1
+}
+
+package "計測（メータリング）ポート" #F2F2F2 {
+  rectangle "PORT: Metering" as P_MET #E2E2E2
+  rectangle "コントロールプレーン使用量" as A_MET1 #FFE0B2
+  P_MET --> A_MET1
+}
+
+' ===========================================================================
+' 依存関係（内側を向く: アダプタ -> ポート -> コア）
+' ===========================================================================
+D_SHELL --> D_WEB
+D_WEB --> P_DRV
+D_TERM --> P_DRV
+D_MSG --> P_DRV
+P_DRV --> CORE
+
+CORE --> P_ENG
+CORE --> P_INF
+CORE --> P_TOOL
+CORE --> P_SKILL
+CORE --> P_MEM
+CORE --> P_EVT
+CORE --> P_POL
+CORE --> P_APR
+CORE --> P_AUTH
+CORE --> P_MET
+
+note bottom of CORE
+  依存ルール: コアはアダプタをインポートしない - ポートのインターフェースのみを呼び出す。
+  どのアダプタ（エージェントエンジン: ネイティブループ / Claude SDK / LangGraph でも）も
+  コアに手を加えずに差し替えできる。
+  --
+  ガードレールの流れ（すべてのツール実行前）: Auth が利用権限を付与 -> Policy が
+  呼び出しを認可（許可 / 拒否 / 承認が必要）-> 承認が必要なら Approval ポートが人間に
+  確認する -> その後でのみ Tools ポートが実行する。
+end note
+
+note bottom of P_SKILL
+  スキルポート = 読み込み可能なノウハウ（markdownのSKILL.mdプレイブック）、
+  ツールポート（呼び出し可能なアクション）とは別物。コアはプロンプトで
+  1行の説明のみを受け取り、リクエストが一致したときにエージェントが
+  （readツール経由で）必要に応じてスキルの本文全体を読み込む。
+  スキルの追加 = このポートの背後にファイルを置くだけ — コア変更なし、
+  プロンプト肥大なし。差し替え可能: 現状はファイルフォルダ、将来はクラウド/ユーザー別ボールト。
+end note
+
+legend bottom
+  | 色 | 意味 |
+  | 緑 | v2に現存 |
+  | 橙 | 新規（プラットフォーム） |
+  | 灰  | ポート＝インターフェース／ソケット |
+endlegend
+
+@enduml

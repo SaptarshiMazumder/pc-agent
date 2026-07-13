@@ -1,0 +1,185 @@
+@startuml agent-apps-architecture
+title agentd App Platform — ONE backend, two kinds of agents, any number of clients
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam TitleFontSize 17
+skinparam rectangle {
+  BackgroundColor White
+  BorderColor #444444
+}
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+' ============================ THE ONE BACKEND ============================
+package "agentd daemon  —  THE only backend (owns loop, gateway, RPC surface)" as CORE #EAF3FF {
+  rectangle "Gateway  :8787\n--\nWS RPC  (req / res / event)\n• stable tier: hello, chat.*, sessions.*,\n  agents.list/detail, tools.invoke, capabilities…\n• host tier: config.*, marketplace.*, cron.*…\n--\nHTTP (same port!)\n• GET /file          (artifacts)\n• GET /apps/<id>/  (serves app UIs)  «new»" as GW
+  rectangle "Agent loop (brain)\nLLM orchestration,\nturns, tool calls, events" as LOOP
+  rectangle "Tools & Plugins\nuniform Tool contract\n(self-describing, discovered)" as TOOLS
+  rectangle "Skills\n(SKILL.md procedures)" as SKILLS
+  rectangle "Agents registry\nscans agents_dir/\nhot-reload on install" as REG
+}
+
+GW -down-> LOOP : chat.send → run
+LOOP -down-> TOOLS : tool calls
+LOOP -down-> SKILLS
+REG -up-> LOOP : agent definition\n(persona, allowed tools, model)
+
+' ============================ AGENTS = DATA ============================
+package "Agent definitions  —  PURE DATA  (agents_dir/<id>/ … no code in core, no backend of their own)" as DEFS #F0FFF0 {
+  folder "TYPE 1 · chat agent\n(e.g. figure-creator)" as T1 {
+    file "agent.toml\nIDENTITY.md\nskills/  templates/" as T1F
+  }
+  folder "TYPE 2 · app agent\n(e.g. hr-agent / app-demo)" as T2 {
+    file "agent.toml  «+ [app] section»\nIDENTITY.md\nskills/" as T2F
+    file "ui/\nindex.html + app.js\n(vendored @agentd/client SDK,\nvanilla JS — no build step)" as T2UI
+  }
+}
+
+REG .down.> T1F : reads
+REG .down.> T2F : reads
+GW .down.> T2UI : serves as static files\nat /apps/<id>/
+
+' ============================ CLIENTS ============================
+package "Clients  —  may INVOKE anything exposed, can NEVER extend the backend" as CLIENTS #FFF5EE {
+  rectangle "JARVIS desktop\n(the shared client)\nrenders ALL chat agents,\nsettings, store …\n«host tier»" as JARVIS
+  rectangle "App agent's OWN UI\nruns in ANY browser\n(no desktop app needed)\nscope=agent:<id>\n«stable tier only»" as APPUI
+  rectangle "Terminal / 3rd-party\nclients\nbuilt on @agentd/client\n(published protocol)" as OTHER
+}
+
+JARVIS -up-> GW : WS + token
+APPUI -up-> GW : WS + token (scoped)
+OTHER -up-> GW : WS + token
+GW .down.> APPUI : ① browser loads UI\nfrom /apps/<id>/
+
+note right of CLIENTS
+  **The invariant (enforced structurally)**
+  • a client is a separate page/process — it can
+    ONLY speak the WS protocol
+  • an agent extends ONLY via the Tool/plugin
+    contract — never new RPCs, never the loop
+  • scoped app connections: stable tier only,
+    forced to their own agentId, filtered events
+end note
+
+note bottom of CORE
+  **Every core improvement lifts every agent and every client at once.**
+  Auth today = connect token (~/.agentd/gateway.json); real user auth later
+  plugs into the same scope seam.
+end note
+@enduml
+
+@startuml agent-apps-lifecycle
+title Agent app lifecycle — create → pack → ship → install → run
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "Builder\n(anyone)" as B
+participant "Agent dir\n(pure data)" as DIR
+participant "Packager\nagentd bundle pack" as PACK
+participant "Registry /\nmarketplace" as REGY
+participant "User's agentd\ndaemon" as D
+participant "JARVIS\n(shared client)" as J
+participant "Browser\n(any)" as BR
+
+== 1 · Create (no core code, no backend) ==
+B -> DIR : write agent.toml + IDENTITY.md + skills/
+B -> DIR : app agent only:  add [app] + ui/\n(index.html + app.js + SDK)
+
+== 2 · Pack & ship ==
+B -> PACK : agentd bundle pack
+PACK -> REGY : <id>-<ver>.agentpkg\n(zip: agent/** incl. ui/**, plugins/**)\nsha256 + ed25519 sig
+
+== 3 · Install (hot, no restart) ==
+D -> REGY : marketplace.install {id | file}
+REGY --> D : verified package
+D -> D : unpack → agents_dir/<id>/\nreload agents + plugins\nbroadcast agents.changed
+
+== 4a · Run — TYPE 1 chat agent ==
+J -> D : agents.list → new agent appears
+J -> D : chat.send {agentId, message}
+D --> J : chat.event stream\n(message_update, tool_execution_*, artifacts)
+
+== 4b · Run — TYPE 2 app agent (its own client) ==
+B -> BR : agentd app open <id>\n(or JARVIS "Open app")
+BR -> D : GET /apps/<id>/?token=…\n(same port ⇒ same origin ⇒ no CORS)
+D --> BR : index.html + app.js + SDK
+BR -> D : WS connect (token, scope=agent:<id>)
+BR -> D : chat.send / tools.invoke /\nsessions.history / capabilities.list
+D --> BR : chat.event stream + artifacts (GET /file)
+note over BR, D : scoped: stable tier only, own agent only —\nconfig.* / marketplace.* are DENIED
+@enduml
+
+@startuml agent-apps-deployment
+title Deployment matrix — same packages, same protocol, core can live anywhere
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "TODAY · local-first" as LOCAL #EAF3FF {
+  rectangle "User's machine" as PC {
+    rectangle "agentd daemon\n(core, ws://127.0.0.1:8787)" as LD
+    rectangle "JARVIS desktop" as LJ
+    rectangle "Browser\n(app agent UIs from /apps/<id>/)" as LB
+  }
+}
+
+package "FUTURE · cloud core (paid)" as CLOUD #FFF0F5 {
+  rectangle "Cloud server" as SRV {
+    rectangle "agentd server\n(SAME code, wss://cloud-host)\n+ auth / multi-tenant / billing\n(deferred layer)" as CD
+  }
+  rectangle "Any user's devices" as DEV {
+    rectangle "Desktop client" as CJ
+    rectangle "Browser\n(app agent UIs, same route)" as CB
+  }
+}
+
+LJ -right-> LD : URL + token
+LB -right-> LD : URL + token
+CJ -right-> CD : URL + account token
+CB -right-> CD : URL + account token
+
+rectangle "<b>.agentpkg</b>\nagent def + ui/\n(ONE package)" as PKG #F0FFF0
+PKG .up.> LD : install
+PKG .down.> CD : install (same file)
+
+note bottom of PKG
+  **Clients bind to a URL + token, never to a location.**
+  The SDK has zero localhost assumptions; app bundles use only
+  same-origin relative paths — so every combination in the matrix
+  (local/cloud core × desktop/browser client) runs the SAME package
+  over the SAME protocol. Agent builders choose a TARGET platform,
+  not a different architecture.
+end note
+@enduml

@@ -1,0 +1,77 @@
+# Stage 1 - Validate. Runs on every push / PR to develop or main.
+# This mirrors `v2/scripts/verify.ps1` exactly: if verify.ps1 is green locally, this goes green too.
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+    paths: ["v2/**", ".github/workflows/ci.yml"]
+  pull_request:
+    branches: [develop, main]
+    paths: ["v2/**", ".github/workflows/ci.yml"]
+
+# Cancel an in-progress run when a newer commit lands on the same branch/PR (saves minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Python (agentd)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2 # conftest.py builds sys.path from here; pytest MUST run in v2/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: v2/pyproject.toml
+
+      - name: Install (editable + dev extras)
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+        continue-on-error: true
+
+      - name: Architecture contracts (import-linter)
+        run: lint-imports
+        continue-on-error: true
+
+      - name: Types (mypy) - informational, not blocking
+        run: mypy
+        continue-on-error: true # burn the 156 errors down, then delete this line to make it a gate
+
+      - name: Unit tests (pytest)
+        run: pytest -m "not live and not browser and not computer" -q
+
+  desktop:
+    name: Desktop (electron client)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/clients/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: v2/clients/desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build

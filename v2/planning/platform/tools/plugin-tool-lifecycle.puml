@@ -1,0 +1,210 @@
+@startuml plugin-tool-lifecycle
+' ============================================================================
+'  agentd - Plugins & Tools: lifecycle, control plane & clients (as-built)
+'  ONE question answered end to end:
+'    * what a plugin / tool IS and WHERE it lives on disk
+'    * how it is CREATED / MODIFIED
+'    * how it is DISCOVERED -> becomes a LIVE tool -> reaches an AGENT
+'    * which CONFIG LAYER controls what (enable/disable, model, provider, knobs)
+'    * how every CLIENT (terminal, desktop UI) sees + edits the same truth
+'  Reflects the CODE as it stands today (file refs in the boxes).
+'  Render (from this folder):  java -jar ../../../plantuml.jar -charset UTF-8 -tpng plugin-tool-lifecycle.puml
+'  (the -charset UTF-8 flag keeps the '·' separators from mojibaking on a CP1252 default)
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #5A5A5A
+skinparam ArrowFontSize 11
+skinparam package {
+  BorderColor #999999
+  FontStyle bold
+  FontSize 13
+}
+skinparam rectangle {
+  BorderColor #888888
+  roundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9B458
+}
+
+title agentd - Plugins & Tools: lifecycle, control plane & clients (as-built)\nA plugin is a FOLDER; a tool is a class. Discovery -> live catalog -> per-agent view. ONE config.json is the source of truth; every client reads + writes it through the SAME gateway.\ngreen = built today   blue = the Tool contract / catalog   gray = port (interface)   amber = known gap / caveat
+
+' ===========================================================================
+' 1) ON DISK -- where plugins & tools LIVE, and how you CREATE / MODIFY them
+' ===========================================================================
+package "1 · ON DISK  -- where they live / how to author  (no code edits to the core)" #E1F5FE {
+  rectangle "**A plugin = a FOLDER**  v2/plugins/<id>/\n----\n**plugin.toml** (manifest, REQUIRED): id · name · kind=native|mcp\n  entry = \"module:register\"  ·  enabled  ·  [requires] os/bins/env  ·  [distribution]\n**entry module**: register(api, ctx) -> calls api.register_tool(MyTool())\n**tool class(es)**: subclass Tool (name·description·parameters·execute\n  + plugin·needs_model·default_model·model_kind)\n**skills/** (optional): advertised like any skill folder\n----\nCREATE a tool  = drop this folder in.   MODIFY behaviour = edit config.json (box 4).\n(built-ins live in the SAME shape under the shipped builtin_plugins_dir)" as FOLDER #C8E6C9
+
+  rectangle "TWO more plugin roots (same manifest, zero core edits):\n · user drop-in dir  = config.plugins_dir  (AGENTD_PLUGINS_DIR)\n · pip packages      = entry_points(group=\"agentd.plugins\")\nMCP plugins: kind=mcp + [mcp] command/url -> an external server (box 6)" as ROOTS #C8E6C9
+
+  rectangle "PORT: PluginApi / PluginContext\nregister_tool(tool) · register_prompt_section(...)\n+ injected runtime handles (browser, task_store, ...)\ninfrastructure/plugins/loader.py" as PLUGINAPI #E2E2E2
+}
+
+' ===========================================================================
+' THE CONTRACT everything normalizes to
+' ===========================================================================
+package "THE CONTRACT  ·  application/interfaces/tool.py" #E8EAF6 {
+  rectangle "PORT: Tool\nname · description · parameters (JSON schema) · concurrency\nexecute(call_id, params, abort, on_update) -> ToolResult\n---- model-bearing metadata (self-describing) ----\nplugin · needs_model · default_model · model_kind\nresolve_model(config) -> the model this tool will use\n** native tools AND MCP tools normalize to THIS **" as P_TOOL #E2E2E2
+}
+
+' ===========================================================================
+' 2) DISCOVERY + LOAD  (backend, at daemon boot / on install)
+' ===========================================================================
+package "2 · DISCOVERY + LOAD  ·  infrastructure/plugins/discovery.py" #EAF6FF {
+  rectangle "_discover_manifests(config)\nscan builtin_plugins_dir + plugins_dir for <id>/plugin.toml\n+ pip entry-points  ->  [PluginManifest]  (no plugin code imported yet)" as DISC #C8E6C9
+  rectangle "_passes_gates(config, manifest)   -- 4 LOAD gates, in order:\n 1 PROVISIONED (distribution profile)\n 2 ENABLED     (config.plugins[id].enabled -> _gate)   <= main on/off\n 3 COMPATIBLE  ([requires] os/bins/env present)\n 4 ENTITLED    (injected license policy; fails OPEN)" as GATES #C8E6C9
+  rectangle "load_plugin_entry(manifest)  -> import module, call register(api,ctx)\n-> Tool objects, tagged with _plugin_id / _plugin_name / _plugin_desc\n(a DISABLED plugin is never imported -> its heavy deps never load)" as LOAD #C8E6C9
+}
+
+' ===========================================================================
+' 3) COMPOSITION -> the LIVE catalog, then the PER-AGENT view
+' ===========================================================================
+package "3 · COMPOSITION  ·  main/container.py  +  domain/agent.py" #EDE7F6 {
+  rectangle "build the toolset: discovered tools (+ DI-gated browser/computer)\n-> wrap EACH in **GuardedTool** (timeout · retry · loop-detect · marks is_error)" as BUILD #C7B8EA
+  rectangle "GLOBAL enablement filter  (domain.select_tools / _filter, by name or glob):\n · tools_disabled  -> drop      · tools_enabled=[] -> allow all\napply_plugin_enablement: drop where plugins[P].tools[T].enabled == false" as ENABLE #C7B8EA
+  rectangle "PER-AGENT view  (domain.select_tools):\nagent.toml tools_allow / tools_deny  ->  the tools THIS agent sees.\nOnce loaded a plugin tool is usable by ANY agent -- no special-casing." as AGENTSEL #C7B8EA
+}
+
+' ===========================================================================
+' 4) CONTROL PLANE -- ONE source of truth + its override layers
+' ===========================================================================
+package "4 · CONTROL PLANE  -- config is the SINGLE source of truth" #FFF3E0 {
+  rectangle "**agentd.config.json**  (loaded ONCE at boot -> in-memory Config; config.py)\n---- who controls what ----\n plugins[id].enabled ............ plugin LOAD on/off        (gate 2)\n tools_disabled / tools_enabled . GLOBAL tool on/off        (name/glob)\n plugins[P].tools[T].enabled .... single tool on/off\n model  ·  cost_efficiency ...... the BRAIN model(s)\n plugins[P].tools[T].model ...... that tool's model\n model_defaults[kind] ........... house default per KIND (vision/image/embed)\n plugins[P].tools[T].provider ... that tool's backend\n plugins[P].tools[T].<knob> ..... behavioural knobs (headless, max_steps, ...)\n reasoning_effort ............... brain thinking level (GLOBAL, not per-tool)" as CFG #FFE0B2
+
+  rectangle "OVERRIDE layers (optional, first hit wins):\n per-call arg  >  **agent.toml** [plugins.P.tools.T]  >  config.json  >  code seed\n · agent.toml = PER-AGENT override (not the plugin's own toml)\n · **.env** = provider API KEYS + AGENTD_* scalar overrides ONLY\n   (models/providers/knobs are CONFIG-ONLY -- never env)" as OVERRIDE #FFE0B2
+
+  rectangle "CODE holds only config-OVERRIDABLE fallback SEEDS:\n tool.default_model · KIND_DEFAULT_MODELS · COMPUTER/EMBED/RESOURCE defaults\n(application/tool_models.py -- every seed beaten by a config line)" as SEEDS #FFE0B2
+}
+
+' ===========================================================================
+' 5) RESOLVERS -- the ONE place any model/provider/knob is decided
+' ===========================================================================
+package "5 · RESOLVERS  ·  application/tool_models.py  (config-only)" #E3F2FD {
+  rectangle "brain_model(config, agent_model)          -> the reasoning model\nresolve_tool_model(config, plugin, tool)  -> per-call > agent.toml > config > default_model > kind default\nresolve_tool_provider(...)  ·  tool_config(...)  -> providers + behavioural knobs\nSAME functions the runtime AND the settings UI read -> the UI can never drift from what runs" as RESOLVE #BBDEFB
+}
+
+' ===========================================================================
+' 6) MCP MACHINERY (external servers) -- reused for kind=mcp plugins + data sources
+' ===========================================================================
+package "6 · MCP MACHINERY  ·  infrastructure/tools/mcp" #E8F8FF {
+  rectangle "connect an MCP server -> discover its tools -> wrap each as a Tool\n(server__tool). Data sources page adds these live (mcp.add), no restart.\nSee mcp-architecture.puml." as MCP #C8E6C9
+}
+
+' ===========================================================================
+' 7) GATEWAY -- the ONE RPC surface every client shares
+' ===========================================================================
+package "7 · GATEWAY (RPC)  ·  presentation/gateway.py" #FDECEA {
+  rectangle "READ (built from the SAME discovery + resolvers, so always truthful):\n plugins.catalog  -> every plugin+tool, on/off, model, provider   (_tool_catalog re-discovers each call)\n models.list      -> brain + every tool model, kind, configKey\n capabilities.list-> tools/plugins/skills/agents in one shape\n config.get       -> values + env presence + model catalogs" as GW_READ #FBD9D4
+  rectangle "WRITE:\n config.set { patch }  -> merge into config.json + hot-patch in-memory Config\n config.set { keys }   -> write provider secrets to .env (live)\n restartRecommended=true (most knobs bind at BOOT -> full effect needs restart)" as GW_WRITE #FBD9D4
+}
+
+' ===========================================================================
+' 8) CLIENTS -- terminal + desktop, both off the same gateway
+' ===========================================================================
+package "8 · CLIENTS  -- same daemon, same RPCs, same truth" #E1F5FE {
+  rectangle "**Desktop UI**  (Settings -> Tools & plugins)\nrenders plugins.catalog: per-plugin card, per-tool on/off + model dropdown.\nModels tab reads models.list/config; saving calls config.set then\nAUTO-RESTARTS the daemon so the change actually applies." as UI #C8E6C9
+  rectangle "**Terminal client** (+ any future client)\nreads the same hello / capabilities.list / plugins.catalog.\nPicks up changes on reconnect (the save-triggered restart reconnects all clients)." as TERM #C8E6C9
+}
+
+' ===========================================================================
+' 9) CONSUMER -- the agent loop
+' ===========================================================================
+package "9 · AGENT LOOP (consumer)  ·  infrastructure/engine" #EDE7F6 {
+  rectangle "per tool call: validate args -> GuardedTool -> Tool.execute(...) -> ToolResult -> LLM.\nThe loop only ever sees Tool.execute -- it cannot tell native from plugin from MCP." as LOOP #C7B8EA
+}
+
+' ===========================================================================
+' EDGES -- the lifecycle flow
+' ===========================================================================
+FOLDER --> DISC : plugin.toml discovered
+ROOTS --> DISC
+FOLDER ..> P_TOOL : tool classes implement
+PLUGINAPI ..> LOAD : register_tool(...)
+
+DISC --> GATES
+GATES --> LOAD : passes -> import + register
+LOAD --> BUILD : Tool objects
+MCP --> BUILD : wrapped MCP tools
+BUILD --> ENABLE
+ENABLE --> AGENTSEL
+AGENTSEL --> LOOP : the per-agent catalog
+LOOP ..> P_TOOL : executes
+
+' control plane governs each stage (dotted = "controls", labelled with the key)
+CFG ..> GATES : plugins[id].enabled
+CFG ..> ENABLE : tools_disabled / plugins[P].tools[T].enabled
+CFG ..> AGENTSEL : (agent.toml allow/deny)
+CFG --> RESOLVE : reads config
+OVERRIDE ..> RESOLVE : agent.toml / env / per-call
+SEEDS ..> RESOLVE : last-resort defaults
+RESOLVE ..> P_TOOL : tool.resolve_model()
+RESOLVE ..> LOOP : brain model + tool models
+
+' gateway reads the SAME backend; clients read+write the gateway
+DISC ..> GW_READ : re-discovered per request
+RESOLVE ..> GW_READ : same resolvers
+GW_READ --> UI
+GW_READ --> TERM
+UI --> GW_WRITE : config.set (+ auto-restart)
+TERM --> GW_WRITE
+GW_WRITE --> CFG : writes config.json
+GW_WRITE --> OVERRIDE : writes .env keys
+
+' ===========================================================================
+' NOTES -- the important truths & caveats
+' ===========================================================================
+note right of FOLDER
+  "Drop a folder, it appears":
+  a valid plugin.toml is the ONLY
+  requirement. plugins.catalog
+  RE-DISCOVERS on every call, so a
+  new plugin shows in the UI at once.
+  CAVEAT: to become CALLABLE live it
+  needs a toolset reload -- automatic
+  on store-install; a manual drop
+  needs a daemon restart (no fs watch).
+end note
+
+note bottom of RESOLVE
+  ONE resolver, used by BOTH the runtime and
+  every client view. Precedence for a model:
+   per-call > agent.toml > config.json
+            > tool.default_model > kind default
+  Models & providers are CONFIG-ONLY (never env);
+  only KEYS and AGENTD_* scalars come from .env.
+end note
+
+note bottom of ENABLE
+  amber CAVEAT: there are TWO tool-disable channels
+  -- tools_disabled (what the UI toggle writes) and
+  plugins[P].tools[T].enabled. The plugins.catalog
+  "enabled" flag reflects tools_disabled only, so a
+  tool disabled via the plugins block reads as ON in
+  the UI. (Fix: have the catalog honour both.)
+end note
+
+note right of CFG
+  reasoning_effort is a GLOBAL brain knob
+  (config-editable), NOT per-tool. "visibility"
+  is not a separate concept -- enable/disable
+  IS the visibility axis (a disabled tool still
+  shows in Settings so you can re-enable it).
+end note
+
+legend bottom
+  | Color | Meaning |
+  | green | built in v2 today |
+  | blue  | the Tool contract / catalog / resolvers |
+  | gray  | port = interface |
+  | amber | control-plane config / known caveat |
+  | dotted arrow | "controls / governs" (config -> stage) |
+  | solid arrow  | data / lifecycle flow |
+endlegend
+
+@enduml

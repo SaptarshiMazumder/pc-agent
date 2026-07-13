@@ -7,7 +7,7 @@ plus a thin terminal client. Any LLM via LiteLLM. Self-contained: keys come from
 ## Architecture
 
 ```
-terminal client (python -m client)
+terminal client (python -m clients.terminal)
     │  WebSocket: chat.send {sessionKey, message, idempotencyKey}
     ▼
 gateway (python -m agentd)            ← responds {runId} immediately, runs async
@@ -19,6 +19,38 @@ transcripts persisted as JSONL        ← v2/.agentd/sessions/<sessionKey>.jsonl
 ```
 
 Tools: `read` `write` `edit` `exec` `process` `web_search` `web_fetch` `browser`
+(+ `computer`, opt-in — see below)
+
+Skills: drop-in `SKILL.md` playbooks in [skills/](skills/) — know-how the agent
+reads on demand (not callable tools). Add your own; see [skills/README.md](skills/README.md).
+
+Plugins & tools: every tool is a drop-in plugin under [plugins/](plugins/). To create,
+configure, enable/disable, or override tools per agent — and to understand the whole
+`plugins → tools → model` config model — read **[plugins/README.md](plugins/README.md)**
+(the complete source of truth).
+
+### Computer use (`computer` tool — opt-in, OFF by default)
+
+Lets the agent operate the PC's GUI like a human — open and control **any** app
+(click, type, scroll, drag, upload). It runs its own screenshot → vision-model →
+mouse/keyboard loop using a **dedicated computer-use model**, decoupled from the
+main agent model.
+
+```
+AGENTD_COMPUTER_ENABLED=1                                  # enable it (off by default)
+AGENTD_COMPUTER_MODEL=gemini-2.5-computer-use-preview-10-2025   # default; needs GEMINI_API_KEY
+AGENTD_COMPUTER_MAX_STEPS=25       # loop step cap
+AGENTD_COMPUTER_CAPTURE=primary    # primary | virtual (multi-monitor, best-effort)
+```
+
+- **Kill switch:** slam the mouse into any screen corner to abort instantly
+  (pyautogui failsafe). The step cap and `/abort` also stop it.
+- **⚠️ Privacy:** every step sends a **full-screen screenshot** to the computer-use
+  model — it can capture passwords or any sensitive on-screen content. Keep it off
+  unless needed; for sensitive use, point `AGENTD_COMPUTER_MODEL` at a trusted/Vertex
+  endpoint. The model is decoupled, so this is independent of your main agent model.
+- **Deps:** `pyautogui`, `Pillow`, `google-genai` (in `requirements.txt`); the tool
+  silently stays disabled if they're missing.
 
 ## Setup (one time)
 
@@ -33,7 +65,7 @@ Then create `v2/.env` (copy `.env.example` and fill in a provider key):
 
 ```
 GEMINI_API_KEY=...            # or ANTHROPIC_API_KEY / OPENAI_API_KEY
-AGENTD_MODEL=gemini/gemini-2.5-pro    # any LiteLLM model id
+AGENTD_MODEL=gemini/gemini-3.1-pro-preview    # any LiteLLM model id (default)
 AGENTD_REASONING=medium               # off | low | medium | high (thinking)
 BRAVE_API_KEY=...                      # optional; web_search falls back to DuckDuckGo
 ```
@@ -47,7 +79,7 @@ Use the local venv's python so it stays isolated:
 .\.venv\Scripts\python.exe -X utf8 -m agentd
 
 # Terminal 2 (client)
-.\.venv\Scripts\python.exe -X utf8 -m client      # --session <id> to resume
+.\.venv\Scripts\python.exe -X utf8 -m clients.terminal      # --session <id> to resume
 ```
 
 Client commands: `/abort` `/new` `/quit`

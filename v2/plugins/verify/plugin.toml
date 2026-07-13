@@ -1,0 +1,4 @@
+id = "verify"
+name = "Answer Verify"
+kind = "native"
+entry = "verify_plugin:register"

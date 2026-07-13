@@ -1,0 +1,7 @@
+id = "video"
+name = "Video"
+kind = "native"
+entry = "video_plugin:register"
+
+[requires]
+bins = ["ffmpeg"]

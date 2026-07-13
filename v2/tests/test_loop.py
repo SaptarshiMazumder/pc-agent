@@ -6,15 +6,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.events import AgentEvent
-from agentd.loop import run_agent_loop
-from agentd.tools import Tool, ToolResult
-from agentd.types import (
+from agentd.domain.events import AgentEvent
+from agentd.domain.messages import (
     AssistantMessage,
     TextContent,
     ToolCallContent,
     UserMessage,
 )
+from agentd.infrastructure.engine.native import run_agent_loop
+from agentd.infrastructure.tools import Tool, ToolResult
 
 
 class EchoTool(Tool):
@@ -76,9 +76,7 @@ def text_turn(text, stop_reason="stop"):
         {"type": "text_delta", "delta": text},
         {
             "type": "done",
-            "message": AssistantMessage(
-                content=[TextContent(text=text)], stop_reason=stop_reason
-            ),
+            "message": AssistantMessage(content=[TextContent(text=text)], stop_reason=stop_reason),
         },
     ]
 
@@ -95,7 +93,7 @@ def tool_turn(calls):
     return evs
 
 
-async def collect_run(script, tools, messages=None):
+async def collect_run(script, tools, messages=None, model="fake", execution_contract=""):
     events = []
 
     async def on_event(ev: AgentEvent):
@@ -107,9 +105,10 @@ async def collect_run(script, tools, messages=None):
         system_prompt="sys",
         tools=tools,
         stream_fn=make_stream_fn(script),
-        model="fake",
+        model=model,
         on_event=on_event,
         abort=asyncio.Event(),
+        execution_contract=execution_contract,
     )
     return events, new, msgs
 
@@ -143,11 +142,11 @@ async def test_tool_call_then_answer():
         "agent_start",
         "turn_start",
         "message_start",
-        "message_update",       # toolcall block
-        "message_end",          # assistant w/ tool call
+        "message_update",  # toolcall block
+        "message_end",  # assistant w/ tool call
         "tool_execution_start",
         "tool_execution_end",
-        "message_end",          # toolResult
+        "message_end",  # toolResult
         "turn_end",
         "turn_start",
         "message_start",
@@ -228,15 +227,23 @@ async def test_unknown_tool():
 
 @pytest.mark.asyncio
 async def test_planning_only_triggers_continuation():
-    from agentd.incomplete_turn import PLANNING_ONLY_RETRY_INSTRUCTION
+    from agentd.infrastructure.engine.incomplete_turn import PLANNING_ONLY_RETRY_INSTRUCTION
 
     script = [
         text_turn("I'll search for the files and read them to find the answer."),
         text_turn("Found them: alpha and beta."),
     ]
-    events, new, msgs = await collect_run(script, [])
+    # planning_only is now GATED: an agentic task-runner (strict-agentic) on an actionable prompt.
+    events, new, msgs = await collect_run(
+        script,
+        [],
+        messages=[UserMessage(content="can you find the files?")],
+        execution_contract="strict-agentic",
+    )
     # the planning-only instruction was injected as a user message
-    injected = [m for m in msgs if m.role == "user" and m.content == PLANNING_ONLY_RETRY_INSTRUCTION]
+    injected = [
+        m for m in msgs if m.role == "user" and m.content == PLANNING_ONLY_RETRY_INSTRUCTION
+    ]
     assert len(injected) == 1
     # a continuation event was emitted
     cont = [e for e in events if e.type == "continuation"]
@@ -252,21 +259,28 @@ async def test_planning_only_retry_capped_at_one():
         text_turn("I'll inspect the repo and run the build."),
         text_turn("Let me check the logs and fix the error."),
     ]
-    events, new, msgs = await collect_run(script, [])
+    events, new, msgs = await collect_run(
+        script,
+        [],
+        messages=[UserMessage(content="can you build the repo?")],
+        execution_contract="strict-agentic",
+    )
     cont = [e for e in events if e.type == "continuation"]
     assert len(cont) == 1  # capped
 
 
 @pytest.mark.asyncio
 async def test_empty_response_triggers_continuation():
-    from agentd.incomplete_turn import EMPTY_RESPONSE_RETRY_INSTRUCTION
+    from agentd.infrastructure.engine.incomplete_turn import EMPTY_RESPONSE_RETRY_INSTRUCTION
 
     script = [
         [{"type": "done", "message": AssistantMessage(content=[], stop_reason="stop")}],
         text_turn("Here is the actual answer."),
     ]
     events, new, msgs = await collect_run(script, [])
-    injected = [m for m in msgs if m.role == "user" and m.content == EMPTY_RESPONSE_RETRY_INSTRUCTION]
+    injected = [
+        m for m in msgs if m.role == "user" and m.content == EMPTY_RESPONSE_RETRY_INSTRUCTION
+    ]
     assert len(injected) == 1
     assert msgs[-1].text == "Here is the actual answer."
 
@@ -343,3 +357,27 @@ async def test_stream_error_ends_run():
     ]
     events, new, msgs = await collect_run(script, [])
     assert events[-1].payload["stopReason"] == "error"
+    assert events[-1].payload.get("error") == "provider down"  # exact reason surfaced
+
+
+class ProgressTool(Tool):
+    name = "prog"
+    description = "emits progress"
+    label = "Prog"
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        if on_update:
+            on_update("working...")
+        return ToolResult.text("done")
+
+
+@pytest.mark.asyncio
+async def test_on_update_forwarded_as_tool_progress():
+    script = [tool_turn([("t1", "prog", {})]), text_turn("ok")]
+    events, new, msgs = await collect_run(script, [ProgressTool()])
+    await asyncio.sleep(0.05)  # let the fire-and-forget tool_progress emit flush
+    prog = [e for e in events if e.type == "tool_progress"]
+    assert (
+        prog and prog[0].payload["text"] == "working..." and prog[0].payload["toolName"] == "prog"
+    )
