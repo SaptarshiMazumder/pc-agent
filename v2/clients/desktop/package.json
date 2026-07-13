@@ -1,7 +1,7 @@
 {
   "name": "agentd-desktop",
   "productName": "agentd",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "agentd desktop shell — chat, agents, and the marketplace over the local agentd daemon",
   "main": "./out/main/index.js",
   "author": "agentd",
