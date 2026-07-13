@@ -1,8 +1,8 @@
 # CORE flavor installer. Build: npm run dist:core
-# Prereq (packaged daemon): scripts/build-runtime.ps1 assembles runtime/agentd-env
-# (embedded CPython + the agentd wheel in a REAL venv — pip stays alive for
-# marketplace pip-plugins). Without it the installer still works and falls back to
-# an `agentd` on PATH (see supervisor.ts command resolution).
+# Prereq (packaged daemon): scripts/build-runtime.ps1 assembles runtime/cpython
+# (a RELOCATABLE python-build-standalone CPython with the agentd wheel installed into
+# its own site-packages — pip stays alive for marketplace pip-plugins). Without it the
+# installer still works and falls back to an `agentd` on PATH (see supervisor.ts).
 appId: dev.agentd.desktop
 productName: agentd
 directories:
@@ -12,12 +12,13 @@ files:
 extraResources:
   - from: flavors/core/distribution.toml
     to: distribution.toml
-  - from: runtime/agentd-env
-    to: agentd-env
+  - from: runtime/cpython
+    to: python
     filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico
 nsis:
   oneClick: false
+  perMachine: false # per-user install: runtime pip-plugins can write, no admin, avoids the Program Files cache-permission errors
   allowToChangeInstallationDirectory: true

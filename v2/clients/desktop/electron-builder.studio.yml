@@ -15,12 +15,13 @@ extraResources:
   - from: flavors/figure-creator-studio/bundles
     to: bundles
     filter: ['*.agentpkg']
-  - from: runtime/agentd-env
-    to: agentd-env
+  - from: runtime/cpython
+    to: python
     filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico
 nsis:
   oneClick: false
+  perMachine: false # per-user install: runtime pip-plugins can write, no admin, avoids the Program Files cache-permission errors
   allowToChangeInstallationDirectory: true

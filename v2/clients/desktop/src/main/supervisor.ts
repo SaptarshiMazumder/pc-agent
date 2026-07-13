@@ -5,8 +5,10 @@
  * rendezvous file, else spawn one DETACHED and wait for the file + an open port.
  * The daemon command resolves (first hit wins):
  *   1. AGENTD_DAEMON_CMD                      (explicit override, also what dev uses)
- *   2. <resources>/agentd-env python -m agentd (packaged: the embedded runtime — a real
- *      venv, NOT a frozen exe, so marketplace pip-plugins can install into it)
+ *   2. <resources>/python python -m agentd    (packaged: the embedded runtime — a
+ *      RELOCATABLE python-build-standalone CPython, NOT a venv (venvs bake in an
+ *      absolute base-interpreter path and don't survive being moved to the user's
+ *      machine) and NOT a frozen exe, so marketplace pip-plugins can still install)
  *   3. `agentd` on PATH                        (a pipx/uv install on this machine)
  *   4. `python -m agentd`                      (last resort, dev checkouts)
  *
@@ -48,8 +50,8 @@ function commandCandidates(): string[][] {
   if (app.isPackaged) {
     const embedded =
       process.platform === 'win32'
-        ? path.join(process.resourcesPath, 'agentd-env', 'Scripts', 'python.exe')
-        : path.join(process.resourcesPath, 'agentd-env', 'bin', 'python')
+        ? path.join(process.resourcesPath, 'python', 'python.exe')
+        : path.join(process.resourcesPath, 'python', 'bin', 'python')
     if (fsSync.existsSync(embedded)) candidates.push([embedded, '-m', 'agentd'])
   }
   candidates.push(['agentd', 'serve'])
@@ -60,6 +62,13 @@ function commandCandidates(): string[][] {
 export class Supervisor {
   private listeners: StatusListener[] = []
   private status: SupervisorStatus = { phase: 'looking', message: 'looking for agentd…', info: null }
+
+  // Circuit-breaker. The renderer reconnects on a backoff and calls ensure() forever;
+  // without a ceiling a broken build re-spawns doomed processes on every cycle — a
+  // storm that can wedge the whole machine. After maxSpawnFailures failed cycles we
+  // stop spawning and fail fast. Reset when a live daemon is found or on restart().
+  private consecutiveFailures = 0
+  private readonly maxSpawnFailures = 3
 
   /** getFlavorPath: injected by the composition root (index.ts) — the flavored
    *  distribution.toml the spawned daemon must inherit ('' => open build). */
@@ -98,6 +107,7 @@ export class Supervisor {
    *  (kill by the pid in the rendezvous file), clear the file, then spawn a fresh daemon —
    *  which reloads agentd.config.json from scratch. The renderer's gateway auto-reconnects. */
   async restart(): Promise<GatewayInfo> {
+    this.consecutiveFailures = 0 // an explicit restart re-arms the circuit-breaker
     this.set('starting', 'restarting agentd to apply changes…')
     try {
       const info = await readGatewayFile()
@@ -122,8 +132,19 @@ export class Supervisor {
     this.set('looking', 'looking for a running agentd…')
     const existing = await findRunning()
     if (existing) {
+      this.consecutiveFailures = 0 // a live daemon means we've recovered — re-arm the breaker
       this.set('running', `agentd ${existing.version} (pid ${existing.pid})`, existing)
       return existing
+    }
+    if (this.consecutiveFailures >= this.maxSpawnFailures) {
+      // Breaker open: STOP re-spawning. We still re-checked findRunning() above, so a
+      // daemon started some other way is picked up — but we will not keep spawning
+      // doomed processes on every reconnect. An explicit restart() re-arms us.
+      this.set(
+        'failed',
+        `agentd failed to start ${this.consecutiveFailures} times — not retrying automatically. See the daemon log, then use restart to try again.`
+      )
+      throw new Error('agentd could not start (circuit-breaker open)')
     }
     return this.spawnDaemon()
   }
@@ -167,12 +188,14 @@ export class Supervisor {
           })
         })
         const info = await Promise.race([this.waitForDaemon(), spawnFailed])
+        this.consecutiveFailures = 0 // it came up — re-arm the breaker
         this.set('running', `agentd ${info.version} (pid ${info.pid})`, info)
         return info
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error)
       }
     }
+    this.consecutiveFailures++ // trips the breaker once it reaches maxSpawnFailures
     this.set('failed', `could not start agentd: ${lastError} — see ${logPath}`)
     throw new Error(lastError || 'could not start agentd')
   }

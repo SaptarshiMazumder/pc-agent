@@ -53,7 +53,7 @@ Two artifacts, chained:
 | **`agentd` Python daemon** (gateway + agents + plugins + CLI) | `v2/` | Python 3.11+, hatchling, pytest | a wheel → `agentd`/`jarvis` CLI |
 | **Electron desktop client** | `v2/clients/desktop/` | Node/npm, electron-vite, electron-builder | Windows NSIS installer (`.exe`) |
 
-The desktop installer **embeds** the Python daemon: `build-runtime.ps1` assembles embedded CPython + the agentd wheel into `runtime/agentd-env`, which electron-builder bundles. So a full release build is: **build wheel → embed runtime → build Electron → package installer → per flavor** (`core`, `figure-creator-studio`).
+The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs the agentd wheel into a relocatable python-build-standalone CPython at `runtime/cpython` (no venv — venvs bake in an absolute base path and don't survive being moved to the user's machine), which electron-builder bundles. So a full release build is: **build wheel → embed runtime → build Electron → package installer → per flavor** (`core`, `figure-creator-studio`).
 
 **Current state:** zero CI in the real project (all `.github/workflows` hits are under `reference/` or `node_modules/`). Greenfield.
 
@@ -154,7 +154,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` assemble
 - [ ] **4.3** Job `wheel` (`ubuntu-latest`): `pip install build` → `python -m build --wheel` from `v2/`. Runs the custom hatch hook [scripts/hatch_build.py](../../scripts/hatch_build.py) (stages `_builtin_plugins` + `_data` into the wheel). Upload the `.whl` artifact.
 - [ ] **4.4** Job `installer` (`windows-latest`, `needs: [wheel]`), matrix over flavor (`core`, `figure-creator-studio`):
   1. Download the wheel artifact.
-  2. Run [scripts/build-runtime.ps1](../../clients/desktop/scripts/build-runtime.ps1) → embedded CPython + wheel installed into a real venv at `runtime/agentd-env` (per the header in [electron-builder.yml](../../clients/desktop/electron-builder.yml)). Cache the CPython download.
+  2. Run [scripts/build-runtime.ps1](../../clients/desktop/scripts/build-runtime.ps1) → agentd wheel installed into a relocatable python-build-standalone CPython at `runtime/cpython` (per the header in [electron-builder.yml](../../clients/desktop/electron-builder.yml)). Cache the CPython download.
   3. `npm ci`
   4. `npm run dist:core` **and** `npm run dist:studio` (each = `electron-vite build && electron-builder --config <flavor yml>`). Configs exist: `electron-builder.yml` + `electron-builder.studio.yml`.
   5. Upload NSIS installers (`dist/core/*.exe`, `dist/studio/*.exe`).

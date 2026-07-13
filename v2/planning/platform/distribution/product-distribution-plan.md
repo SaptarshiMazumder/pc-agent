@@ -209,16 +209,21 @@ become real UI). No protocol rewrite.
 
 ### 4.2 The hard part: bundling the Python daemon
 
-Recommendation: **embed a `python-build-standalone` runtime + a prebuilt venv of the agentd
-wheel**, assembled by the installer — *not* PyInstaller. Two reasons:
+Recommendation: **embed a `python-build-standalone` runtime with the agentd wheel installed
+into its own site-packages**, assembled by the installer — *not* PyInstaller, and *not* a venv.
+Three reasons:
 
 1. PyInstaller with this dep tree (playwright, litellm, lxml, PIL, google-genai…) is a
    hidden-imports whack-a-mole and breaks on every dep bump.
 2. **Strategic:** marketplace plugins can arrive as pip packages (`agentd.plugins` entry points
    — already supported by discovery). A frozen binary cannot `pip install` into itself; an
-   embedded CPython + venv can. This one choice keeps the pip half of the plugin story alive.
+   embedded CPython can. This one choice keeps the pip half of the plugin story alive.
+3. **No venv:** a venv records the *absolute* path of its base interpreter (`pyvenv.cfg`) and is
+   not relocatable — one built on the CI runner points at a `D:\a\...` base that doesn't exist on
+   the user's machine, so the daemon can't start. A `python-build-standalone` `install_only` build
+   *is* relocatable, so it survives being packaged and installed to any path.
 
-Layout: `<app>/resources/runtime/` (CPython) + `<app>/resources/agentd-env/` (venv). The shell
+Layout: `<app>/resources/python/` (the relocatable CPython, agentd installed into it). The shell
 spawns `agentd serve` from there, health-checks, restarts on crash, and pipes logs to
 `~/.agentd/logs/`. Auto-update: electron-updater for the shell; the daemon env updates as a
 versioned artifact the shell downloads and swaps (keep N−1 for rollback).
