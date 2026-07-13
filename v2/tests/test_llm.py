@@ -211,7 +211,7 @@ async def test_litellm_stream_text_and_toolcall(monkeypatch):
     assert done["type"] == "done"
     msg = done["message"]
     assert msg.stop_reason == "toolUse"
-    assert msg.usage == {"input": 12, "output": 7}
+    assert msg.usage == {"input": 12, "output": 7, "cached": 0}
     assert msg.text == "I'll check. "
 
 
