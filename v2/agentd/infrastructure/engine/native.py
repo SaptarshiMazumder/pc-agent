@@ -231,6 +231,8 @@ async def run_agent_loop(
                             "model": active_model,
                             "tokensIn": int(u.get("input") or 0),
                             "tokensOut": int(u.get("output") or 0),
+                            # cache-read subset of tokensIn; tokensCached/tokensIn = cache hit rate
+                            "tokensCached": int(u.get("cached") or 0),
                         },
                     )
                 )

@@ -245,6 +245,30 @@ def _is_local_provider(model: str) -> bool:
     )
 
 
+def _cache_read_tokens(chunk_usage) -> int:
+    """Prompt-cache HIT tokens — the cached subset of the input the provider billed at the
+    (much cheaper) cache-read rate instead of full price. This is what tells you whether prompt
+    caching is actually firing; ``cached / input`` is the hit rate.
+
+    Providers report it in different shapes and LiteLLM only partly normalizes them, so try each
+    known shape and take the first that carries a value:
+      * OpenAI / Gemini (and LiteLLM's normalized form): ``prompt_tokens_details.cached_tokens``
+      * Anthropic:                                       ``cache_read_input_tokens``
+      * DeepSeek:                                        ``prompt_cache_hit_tokens``
+    Returns 0 on a full miss / a provider that doesn't cache."""
+    details = getattr(chunk_usage, "prompt_tokens_details", None)
+    cached = None
+    if details is not None:
+        cached = getattr(details, "cached_tokens", None)
+        if cached is None and isinstance(details, dict):
+            cached = details.get("cached_tokens")
+    if not cached:
+        cached = getattr(chunk_usage, "cache_read_input_tokens", None)
+    if not cached:
+        cached = getattr(chunk_usage, "prompt_cache_hit_tokens", None)
+    return int(cached or 0)
+
+
 async def litellm_stream(
     *,
     model: str,
@@ -323,6 +347,10 @@ async def litellm_stream(
                 usage = {
                     "input": getattr(chunk_usage, "prompt_tokens", 0) or 0,
                     "output": getattr(chunk_usage, "completion_tokens", 0) or 0,
+                    # cache-READ (hit) tokens: the cached subset of `input`. cached/input = hit
+                    # rate — how much of the re-sent context the provider served from cache
+                    # instead of re-billing at full price. 0 => caching isn't firing this turn.
+                    "cached": _cache_read_tokens(chunk_usage),
                 }
 
             choices = getattr(chunk, "choices", None) or []

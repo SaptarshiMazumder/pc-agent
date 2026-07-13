@@ -1,0 +1,195 @@
+@startuml gateway-internals
+title The Gateway — one process, one port, every client
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+rectangle "JARVIS desktop" as D
+rectangle "terminal\n(agentd chat)" as T
+rectangle "agent app UI\n(browser page)" as B
+rectangle "3rd-party client\n(anything speaking the protocol)" as X
+
+package "Gateway  :8787   (presentation/gateway.py — TRANSPORT only, no business logic)" as GW #EAF3FF {
+
+  rectangle "connection gates (in order)\n--\n1. _origin_allowed — a browser page must be\n    loopback / same-host, else close 4403\n2. _authorized — ?token= or Bearer header,\n    else close 4401\n3. _connection_scope — ?scope=agent:<id>\n    marks the socket as an APP connection" as GATES
+
+  rectangle "protocol.py — the wire format\n--\nreq   {id, method, params}\nres   {id, ok, payload}\nevent {event, payload}\n(3 JSON text frames — NOT JSON-RPC)" as PROTO
+
+  rectangle "_dispatch — THE method table\n--\nscoped conn? → stable tier only +\nparams.agentId FORCED to the scope\n~45 methods, one handler each:\nchat.* · sessions.* · agents.* · projects.*\ntools.* · workspace.* · config.* · mcp.*\ncron.* · marketplace.* · notifications.*" as DISP
+
+  rectangle "run management\n--\nRunHandle {runId, abort event, client_id}\nchat.send → mint handle → asyncio task\nsocket drops → abort THAT client's runs" as RUN
+
+  rectangle "_broadcast → _send_all\n--\nevery AgentEvent → one chat.event frame\n→ EVERY authorized socket (fan-out)\nscoped sockets get only their own\nagent's events (_scoped_event_allowed)" as CAST
+
+  rectangle "HTTP on the SAME port\n(websockets process_request hook)\n--\nGET /file?path&token → bytes (ranges ok)\nGET /apps/<id>/ → app agent's static ui/" as HTTP
+
+  rectangle "background subsystems the gateway owns\n--\nscheduler (cron + heartbeat ticks)\nchannel poller (Telegram, …)\nwebhook server (:8788 — the ONE separate port)\nasync MCP discovery · notifier (push + store)" as BG
+}
+
+rectangle "AgentService\n(application layer —\nthe ONLY way inward)" as SVC #F0FFF0
+rectangle "~/.agentd/gateway.json\n{host, port, pid, token} · 0600\nrendezvous: how CLI / desktop / app-opener\nFIND the daemon + get the token" as RDV #FFF5EE
+
+D -down-> GATES : ws://…?token
+T -down-> GATES : ws://…?token
+B -down-> GATES : ws://…?token\n&scope=agent:<id>
+X -down-> GATES : ws://…?token
+GATES -down-> PROTO : parse_frame
+PROTO -down-> DISP : Request
+DISP -right-> RUN : chat.send only
+DISP -down-> SVC : every handler calls\ninto the service
+RUN -down-> SVC : handle_message(on_event)
+SVC .up.> CAST : AgentEvents stream back
+BG .up.> RUN : cron / heartbeat / channel /\nwebhook runs use the SAME path
+GW -right-> RDV : written at bind
+
+note bottom of GW
+  The gateway is the daemon's front door — and its ONLY one. Every client
+  (desktop, CLI, app UI, a future cloud browser) speaks the same frames to
+  the same port. It adapts transport (sockets, HTTP, auth, fan-out) and
+  delegates ALL real work inward. Nothing behind it knows what a socket is.
+end note
+@enduml
+
+@startuml rpc-mechanics
+title RPC mechanics — one connection's life, frame by frame
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Client A\n(the caller)" as C
+participant "Gateway\n_handle_conn" as GW
+participant "_dispatch\n(method table)" as DISP
+participant "handler\n(_sessions_list, …)" as H
+participant "AgentService\n+ engine loop" as SVC
+participant "Client B\n(another connected client)" as C2
+
+== connect ==
+C -> GW : WebSocket CONNECT\nws://127.0.0.1:8787/?token=T (&scope=agent:demo)
+GW -> GW : origin gate → token gate → scope tag\nclient_id = uuid4 (tags every run this socket starts)
+
+== handshake ==
+C -> GW : req {id:"1", method:"hello",\nparams:{protocol:1, client:"my-app/0.2"}}
+GW -> DISP : parse_frame → Request
+DISP --> C : res {id:"1", ok:true, payload:{protocol,\ncompatible, agents[…], model, sessions, …}}
+
+== any plain method (sync request/response) ==
+C -> GW : req {id:"2", method:"sessions.list", params:{…}}
+DISP -> DISP : scoped? → stable-tier check\n+ params.agentId = scope (forced)
+DISP -> H : _sessions_list(params)
+H --> DISP : payload dict
+DISP --> C : res {id:"2", ok:true, payload}
+note right of DISP
+  A handler exception NEVER kills the socket:
+  it becomes res {ok:false, payload:{error:"…"}}.
+  ids are client-chosen; the reply echoes yours —
+  that's how the SDK matches responses to calls.
+end note
+
+== chat.send — the ONE async method ==
+C -> GW : req {id:"3", method:"chat.send",\nparams:{sessionKey, message, attachments?}}
+GW -> GW : save attachments → uploads/\nmint RunHandle(runId, abort, client_id)
+GW --> C : res {id:"3", ok:true, {runId}}  — returns IMMEDIATELY
+GW -> SVC : asyncio.create_task(_run)\n→ handle_message(…, on_event=_broadcast)
+loop while the run streams
+  SVC --> GW : AgentEvent (text delta | tool start |\ntool end + artifacts | …)
+  GW --> C : event {"chat.event", {sessionKey, runId,\nagentId, ts, event}}
+  GW --> C2 : SAME frame (fan-out to all;\nscoped sockets filtered by agentId)
+end
+SVC --> GW : agent_end {stopReason}
+GW --> C : chat.event: agent_end
+note right of GW
+  Events are fire-and-forget: no sequence numbers,
+  no replay. A client that connects mid-run rebuilds
+  from sessions.history. chat.abort {sessionKey}
+  cancels via the RunHandle's abort event.
+end note
+
+== disconnect ==
+C -> GW : socket closes (tab closed, crash, network)
+GW -> GW : discard socket + scope\n_abort_client_runs(client_id) —\nruns THIS socket started are aborted
+@enduml
+
+@startuml capability-loading
+title Tools, plugins, skills, agents — what loads at BOOT vs what is read EVERY TURN
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "BOOT — main/container.py (the composition root: the ONLY place things get wired)" as BOOT #FDF6FF {
+  folder "plugins/<id>/\nplugin.toml + entry" as PDIR
+  folder "agents/<id>/plugins/\n(agent-PRIVATE plugins)" as APDIR
+  folder "agents/<id>/\nagent.toml + IDENTITY.md" as ADIR
+  rectangle "discover_plugin_contributions\n→ tools + prompt sections\n+ MCP servers + plugin skills" as DISC
+  rectangle "discover_agent_plugins\n→ {agent_id: [private tools]}\n(tagged _agent_id)" as ADISC
+  rectangle "_gate_and_wrap — EVERY tool's entry treatment\napply_enablement (global on/off)\n→ apply_plugin_enablement (per-tool config)\n→ GuardedTool (timeout · retry · error-norm)\n→ source tag (plugin:<id> / mcp:<srv>)" as GATE
+  rectangle "FileAgentRegistry\nagent.toml → frozen AgentSpec\n(allow/deny · skills · model ·\n[plugins.*] overrides · [app])" as REG
+  rectangle "NativeEngine\nLiteLLM stream + brain model\n+ failover + compaction + router" as ENG
+}
+
+rectangle "AgentService (application)\nholds: shared catalog · private map ·\nregistry · engine · build_prompt" as SVC #F0FFF0
+
+PDIR -down-> DISC
+APDIR -down-> ADISC
+DISC -down-> GATE
+ADISC -down-> GATE
+ADIR -down-> REG
+GATE -down-> SVC : tools=… / agent_tools={…}
+REG -down-> SVC
+ENG -down-> SVC
+
+package "EVERY TURN — AgentService.handle_message (nothing cached that shouldn't be)" as TURN #F0FFF0 {
+  rectangle "1. resolve the agent\nexplicit agentId | session key | default" as S1
+  rectangle "2. set RunContext (contextvar)\nagent_id · workspace (project ws if\nproject chat) · [plugins.*] overrides\n— how a SHARED tool knows who's calling" as S2
+  rectangle "3. select tools\nselect_tools(shared, spec)  «allow/deny»\n+ select_private_tools(own)  «deny only»\n→ apply_mode (interactive/cron/heartbeat)" as S3
+  rectangle "4. read skills FRESH from disk\nmain/skills (global) + plugin skills\n+ agent's OWN (same name overrides)\n→ eligibility + optional relevance top-K" as S4
+  rectangle "5. build the system prompt\nidentity + skills listing + tool guidance\n+ workspace manifest + plugin sections\n+ @mention directive + roster + recall" as S5
+  rectangle "6. engine.run(…)\nstream LLM ↔ execute tools until agent_end\nmodel = agent.toml override | brain\n(each TOOL resolves ITS model separately\nvia resolve_tool_model + RunContext)" as S6
+}
+
+SVC -down-> S1
+S1 -right-> S2
+S2 -right-> S3
+S3 -down-> S6
+S4 -right-> S5
+S5 -right-> S6
+
+note bottom of TURN
+  HOT-RELOAD: a marketplace install (or the create_tool tool) calls
+  register_plugin_live → new shared tools join the LIVE catalog and the
+  private map is replaced wholesale — no restart. SKILLS need no reload
+  at all: they are read from disk on every turn, so edit → next message.
+end note
+@enduml
