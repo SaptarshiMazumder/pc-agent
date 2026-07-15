@@ -58,3 +58,7 @@ reference/
 
 # Agent scratch workspaces — never committed
 v2/agents/*/workspace/
+
+# Agent BUILT PRODUCTS (installer exes delivered by the app factory) — derived from the
+# .agentpkg, hundreds of MB; live with their agent but never in git or in the package
+v2/agents/*/clients/

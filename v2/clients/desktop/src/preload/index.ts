@@ -34,7 +34,10 @@ const api = {
   saveAs: (defaultName: string, content: string, base64?: boolean): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> =>
     ipcRenderer.invoke('file:saveAs', defaultName, content, base64),
   pickFiles: (): Promise<Array<{ name: string; size: number; dataBase64: string }>> =>
-    ipcRenderer.invoke('file:pick')
+    ipcRenderer.invoke('file:pick'),
+  /** open an AGENT APP's daemon-served UI (/apps/<id>/) in its own desktop window */
+  openAppWindow: (url: string, title?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:openWindow', url, title)
 }
 
 contextBridge.exposeInMainWorld('agentd', api)

@@ -141,8 +141,31 @@ def test_agent_toml_app_section_parsed(tmp_path):
     )
     reg = FileAgentRegistry(cfg)
     spec = reg.get("consoleapp")
-    assert spec.app == {"entry": "ui/index.html", "title": "Console App"}
+    # no mode declared -> browser (the default presentation)
+    assert spec.app == {"entry": "ui/index.html", "title": "Console App", "mode": "browser"}
     assert reg.get("main").app is None  # no [app] -> a plain chat agent
+
+
+def test_agent_toml_app_mode_declared_and_normalized(tmp_path):
+    """[app] mode: the AUTHOR declares how openers present the app — "window" (its own
+    chromeless window) or "browser" (a tab, the default); junk falls back to browser."""
+    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+
+    agents = tmp_path / "agents"
+    for aid, mode_line in (("winapp", 'mode = "window"'), ("junkapp", 'mode = "kiosk"')):
+        d = agents / aid
+        (d / "ui").mkdir(parents=True)
+        (d / "ui" / "index.html").write_text("<html/>", encoding="utf-8")
+        (d / "agent.toml").write_text(f'name = "X"\n[app]\n{mode_line}\n', encoding="utf-8")
+    cfg = SimpleNamespace(
+        state_dir=str(tmp_path / "state"),
+        agents_dir=str(agents),
+        agent_name="jarvis",
+        workspace=str(tmp_path),
+    )
+    reg = FileAgentRegistry(cfg)
+    assert reg.get("winapp").app["mode"] == "window"
+    assert reg.get("junkapp").app["mode"] == "browser"  # unknown value -> safe default
 
 
 # ---- static /apps/<id>/ serving --------------------------------------------------------------
@@ -183,7 +206,7 @@ def test_agents_list_carries_app_surface(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     agents = {a["id"]: a for a in gw._agents_list()["agents"]}
-    assert agents["demo"]["app"] == {"title": "Demo Console", "url": "/apps/demo/"}
+    assert agents["demo"]["app"] == {"title": "Demo Console", "url": "/apps/demo/", "mode": "browser"}
     # a declared [app] whose entry file is MISSING must not advertise
     broken = SimpleNamespace(
         id="broken", name="B", app={"entry": "ui/gone.html", "title": "B"}, dir=spec.dir
@@ -314,9 +337,10 @@ def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
             "agents": [{"id": "demo", "app": {"url": "/apps/demo/", "title": "Demo"}}]
         },
     )
-    url = app_cmd._mint_url("demo")
+    url, app = app_cmd._mint_url("demo")
     assert ensured["called"] is True  # opening an app STARTS the daemon when needed
     assert url == "http://127.0.0.1:8787/apps/demo/?token=TOK&scope=agent:demo"
+    assert app == {"url": "/apps/demo/", "title": "Demo"}  # descriptor rides along (mode etc.)
     # unknown agent -> a helpful error, not a broken URL
     try:
         app_cmd._mint_url("nope")
@@ -325,11 +349,91 @@ def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
         assert "no app UI" in str(e)
 
 
-# =============================== P3: the app-demo agent ships whole =============================
-def test_app_demo_bundle_roundtrip_carries_ui(tmp_path):
-    """The end-to-end shipping proof: pack the real v2/agents/app-demo (definition + ui/) into an
+def test_app_open_window_prefers_app_window_and_falls_back(monkeypatch):
+    """`agentd app open`: flags force a presentation; else the AGENT's declared [app] mode
+    decides. A chromeless --app= window needs a Chromium-family browser; otherwise it falls
+    back to a plain tab (never a hard failure). AGENTD_APP_BROWSER overrides discovery."""
+    import argparse
+    import subprocess
+    import webbrowser
+
+    from agentd.cli.commands import app as app_cmd
+
+    URL = "http://127.0.0.1:8787/apps/demo/?x=1"
+    real_find = app_cmd._find_chromium  # keep the real one for the env-override check
+    monkeypatch.setattr(app_cmd, "_mint_url", lambda _a: (URL, {"mode": "browser"}))
+    calls = {"popen": None, "webbrowser": None}
+
+    class _FakePopen:
+        def __init__(self, argv):
+            calls["popen"] = argv
+
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(webbrowser, "open", lambda url: calls.__setitem__("webbrowser", url))
+
+    # --window forces the app window even for a browser-mode agent
+    monkeypatch.setattr(app_cmd, "_find_chromium", lambda: r"C:\fake\msedge.exe")
+    args = argparse.Namespace(agent_id="demo", window=True, browser=False)
+    assert app_cmd.run_open(args) == 0
+    assert calls["popen"] == [r"C:\fake\msedge.exe", f"--app={URL}"]
+    assert calls["webbrowser"] is None
+
+    # NO browser found -> graceful fallback to the default browser
+    calls["popen"] = None
+    monkeypatch.setattr(app_cmd, "_find_chromium", lambda: "")
+    assert app_cmd.run_open(args) == 0
+    assert calls["popen"] is None
+    assert calls["webbrowser"] == URL
+
+    # the agent DECLARED mode = "window": no flags needed, the app window opens
+    monkeypatch.setattr(app_cmd, "_mint_url", lambda _a: (URL, {"mode": "window"}))
+    monkeypatch.setattr(app_cmd, "_find_chromium", lambda: r"C:\fake\msedge.exe")
+    calls["popen"] = calls["webbrowser"] = None
+    assert app_cmd.run_open(argparse.Namespace(agent_id="demo", window=False, browser=False)) == 0
+    assert calls["popen"] == [r"C:\fake\msedge.exe", f"--app={URL}"]
+
+    # --browser overrides the declared window mode
+    calls["popen"] = calls["webbrowser"] = None
+    assert app_cmd.run_open(argparse.Namespace(agent_id="demo", window=False, browser=True)) == 0
+    assert calls["popen"] is None and calls["webbrowser"] == URL
+
+    # the env override wins discovery (an existing path is used as-is)
+    monkeypatch.setenv("AGENTD_APP_BROWSER", __file__)
+    assert real_find() == __file__
+
+
+def test_agents_create_scaffolds_app_agent(tmp_path):
+    """registry.create(app="window"): the new agent ships [app] mode="window" + a starter
+    ui/ page — an OPENABLE app agent the moment it exists, advertised with its mode."""
+    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+
+    cfg = SimpleNamespace(
+        state_dir=str(tmp_path / "state"),
+        agents_dir=str(tmp_path / "agents"),
+        agent_name="jarvis",
+        workspace=str(tmp_path),
+    )
+    reg = FileAgentRegistry(cfg)
+    spec = reg.create("hr-desk", name="HR Desk", app="window")
+    assert spec.app == {"entry": "ui/index.html", "title": "HR Desk", "mode": "window"}
+    entry = Path(cfg.agents_dir) / "hr-desk" / "ui" / "index.html"
+    assert entry.is_file() and "HR Desk" in entry.read_text(encoding="utf-8")
+    # advertised WITH the mode (entry exists), so every opener knows how to present it
+    assert Gateway._agent_app("hr-desk", spec) == {
+        "title": "HR Desk",
+        "url": "/apps/hr-desk/",
+        "mode": "window",
+    }
+    # a plain create stays a chat agent (no [app], no ui/)
+    assert reg.create("plain", name="Plain").app is None
+
+
+# =============================== P3: an app agent ships whole ===================================
+def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
+    """The end-to-end shipping proof on a SYNTHETIC app agent: pack a definition + ui/ into an
     .agentpkg, unpack it into a fresh agents_dir (= install), and the app agent works from there —
-    [app] parsed, ui served. 'Anyone can ship a child client' as one file."""
+    [app] parsed (mode included), ui served. Built products (clients/) and user data never ride
+    inside the package. 'Anyone can ship a child client' as one file."""
     from agentd.domain.bundle import BundleManifest
     from agentd.infrastructure.marketplace.bundle_io import (
         pack_bundle,
@@ -337,21 +441,29 @@ def test_app_demo_bundle_roundtrip_carries_ui(tmp_path):
         unpack_bundle,
     )
 
-    src = Path(__file__).resolve().parents[1] / "agents" / "app-demo"
-    assert (src / "ui" / "index.html").is_file(), "the reference app agent must ship a ui/"
-
-    manifest = BundleManifest(
-        id="app-demo", name="App Demo", version="1.0.0", description="reference agent app"
+    src = tmp_path / "src" / "kiosk"
+    (src / "ui").mkdir(parents=True)
+    (src / "ui" / "index.html").write_text("<html>Kiosk Console</html>", encoding="utf-8")
+    (src / "ui" / "app.js").write_text("console.log('kiosk')", encoding="utf-8")
+    (src / "agent.toml").write_text(
+        'name = "Kiosk"\n[app]\ntitle = "Kiosk Console"\nmode = "window"\n', encoding="utf-8"
     )
+    # a delivered BUILT PRODUCT sitting in the agent's folder — must NOT pack (it is
+    # derived from this very package; nesting it would be product-inside-source)
+    (src / "clients" / "desktop").mkdir(parents=True)
+    (src / "clients" / "desktop" / "Kiosk Setup.exe").write_bytes(b"MZ fake installer")
+
+    manifest = BundleManifest(id="kiosk", name="Kiosk", version="1.0.0", description="app agent")
     pkg = pack_bundle(src, tmp_path / "out", manifest)
-    assert read_manifest(pkg).id == "app-demo"
+    assert read_manifest(pkg).id == "kiosk"
 
     agents_dir = tmp_path / "agents"
     unpack_bundle(pkg, manifest, agents_dir, tmp_path / "plugins")
-    installed = agents_dir / "app-demo"
+    installed = agents_dir / "kiosk"
     assert (installed / "agent.toml").is_file()
     assert (installed / "ui" / "index.html").is_file()  # the UI travelled inside the package
-    assert (installed / "ui" / "vendor" / "agentd-client.js").is_file()  # SDK too
+    assert (installed / "ui" / "app.js").is_file()
+    assert not (installed / "clients").exists()  # built products never ship in the source artifact
 
     # the installed copy is a working app agent: registry parses [app], the gateway serves it
     from agentd.infrastructure.agents.file_registry import FileAgentRegistry
@@ -362,12 +474,13 @@ def test_app_demo_bundle_roundtrip_carries_ui(tmp_path):
         agent_name="jarvis",
         workspace=str(tmp_path),
     )
-    spec = FileAgentRegistry(cfg).get("app-demo")
-    assert spec.app == {"entry": "ui/index.html", "title": "App Demo Console"}
+    spec = FileAgentRegistry(cfg).get("kiosk")
+    assert spec.app == {"entry": "ui/index.html", "title": "Kiosk Console", "mode": "window"}
     gw = _gw_with_agent(tmp_path, spec)
-    assert gw._agent_app("app-demo", spec) == {
-        "title": "App Demo Console",
-        "url": "/apps/app-demo/",
+    assert gw._agent_app("kiosk", spec) == {
+        "title": "Kiosk Console",
+        "url": "/apps/kiosk/",
+        "mode": "window",
     }
-    r = gw._serve_app(urlsplit("/apps/app-demo/"))
-    assert r.status_code == 200 and b"App Demo Console" in r.body
+    r = gw._serve_app(urlsplit("/apps/kiosk/"))
+    assert r.status_code == 200 and b"Kiosk Console" in r.body

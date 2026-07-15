@@ -6,8 +6,13 @@ SDK dogfooding) remains.** Delivered: docs/PROTOCOL.md; hello negotiation + chat
 `GET /apps/<id>/` static serving (traversal-proof, SPA fallback, 307 redirect); scoped
 connections (`scope=agent:<id>` → stable tier only, forced agentId, filtered events, agent-allowed
 tools.invoke in agent context); browser-origin gate; `app` in agents.list/detail/hello;
-`agentd app list|url|open` CLI; the `v2/agents/app-demo` reference app agent (vanilla JS + vendored
-SDK); bundle round-trip proof. Tests: 756 pass (15 new in tests/test_platform_protocol.py).
+`agentd app list|url|open` CLI; bundle round-trip proof (synthetic app agent in tests).
+
+**NOTE 2026-07-15: the `app-demo` reference agent (P3) was REMOVED at the user's request** —
+its coverage was rewritten onto synthetic fixtures (tests/test_platform_protocol.py,
+tests/test_agent_private_plugins.py). A new reference app agent will be built later under the
+self-contained layout rules (everything an agent owns — source AND built products — lives in
+agents/<id>/; installers delivered to agents/<id>/clients/desktop/, excluded from packing + git).
 
 ## 0. The idea (user's framing, verified against the code)
 

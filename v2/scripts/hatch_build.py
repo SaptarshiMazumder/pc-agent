@@ -52,6 +52,13 @@ class BuiltinsStagingHook(BuildHookInterface):
         if soul.is_file():
             data_dst.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(soul, data_dst / "SOUL.md")
+        # Ship the default config template (full model_catalog + neutral knobs) so first_run
+        # seeds a REAL config on a fresh install — not a bare {model} stub with an empty
+        # model picker. Read back by runtime_paths.packaged_default_config().
+        default_cfg = root / "config.example.json"
+        if default_cfg.is_file():
+            data_dst.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(default_cfg, data_dst / "config.default.json")
         starter_skills = root / "agents" / "main" / "skills"
         if starter_skills.is_dir():
             _copy_filtered(starter_skills, data_dst / "agents" / "main" / "skills")

@@ -334,7 +334,13 @@ interface AppState {
    *  which agent you were last on (the flavor's default_agent can be a specialist like
    *  figure-creator; a plain New chat should still be the generalist) */
   newChat(): void
-  createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
+  createAgent(fields: {
+    name: string
+    description?: string
+    identity?: string
+    /** '' = chat only; 'browser' | 'window' scaffolds an app UI declaring that presentation */
+    app?: '' | 'browser' | 'window'
+  }): Promise<string>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
   renameSession(sessionId: string, title: string): Promise<void>
@@ -936,7 +942,12 @@ export const useApp = create<AppState>((set, get) => {
       // refreshes the list. Throws on a server error so the modal can show it.
       const res = await gateway.request<{ created: boolean; agentId?: string; error?: string }>(
         'agents.create',
-        { name: fields.name, description: fields.description || '', identity: fields.identity || '' }
+        {
+          name: fields.name,
+          description: fields.description || '',
+          identity: fields.identity || '',
+          app: fields.app || ''
+        }
       )
       if (!res.created) throw new Error(res.error || 'could not create the agent')
       if (res.agentId) await get().selectAgent(res.agentId)

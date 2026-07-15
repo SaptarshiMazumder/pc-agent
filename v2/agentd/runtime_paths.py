@@ -142,6 +142,13 @@ def packaged_soul_file() -> Path:
     return PACKAGED_DATA_DIR / "SOUL.md"
 
 
+def packaged_default_config() -> Path:
+    """The default config.json template shipped in the wheel (full model_catalog + neutral
+    knobs). first_run seeds the user config from this so a fresh install has a real model
+    menu instead of a bare stub. In a checkout the repo's config.example.json is the source."""
+    return PACKAGED_DATA_DIR / "config.default.json" if is_packaged() else REPO_ROOT / "config.example.json"
+
+
 def packaged_starter_agents_dir() -> Path:
     """Starter agent content shipped in the wheel (main's shared skills library)."""
     return PACKAGED_DATA_DIR / "agents"

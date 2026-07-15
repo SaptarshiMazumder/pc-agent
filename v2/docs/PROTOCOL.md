@@ -133,8 +133,15 @@ daemon serves its UI statically at `/apps/<agentId>/` on the gateway port (same 
 no CORS). The static files themselves need no token (they are shipped code, not data); the page is
 OPENED with `?token=…&scope=agent:<id>` in its URL and passes both to its WebSocket connection.
 SPA fallback: extensionless paths serve the app's `entry`. Discovery: `agents.list` /
-`agents.detail` / `hello.agents[]` carry `app: {title, url}` (URL without token — the opener
-appends its own). Locally, `agentd app open <id>` mints the full URL and opens the browser.
+`agents.detail` / `hello.agents[]` carry `app: {title, url, mode}` (URL without token — the
+opener appends its own).
+
+The AUTHOR declares the presentation in `[app]`: `mode = "browser"` (a normal tab, the default)
+or `mode = "window"` (the app's own chromeless window — the "program" feel). Every opener honors
+it: `agentd app open <id>` follows the declared mode (`--window` / `--browser` force one), and the
+desktop client's **Open app** button opens a dedicated window for `"window"` apps or the system
+browser for `"browser"` apps. `agents.create` accepts `app: "" | "browser" | "window"` — the
+non-empty values scaffold a starter `ui/` + `[app]` so a new app agent is openable immediately.
 
 ## 10. Versioning policy
 

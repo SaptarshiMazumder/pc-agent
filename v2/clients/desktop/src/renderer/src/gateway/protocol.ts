@@ -26,6 +26,17 @@ export interface EventFrame {
 
 export type Frame = ResponseFrame | EventFrame
 
+/** An APP AGENT's own UI, served by the daemon at /apps/<id>/ (docs/PROTOCOL.md §9).
+ *  Present only when the agent ships a ui/ + [app] in its agent.toml. `url` is
+ *  origin-relative and tokenless — the opener appends the live token + scope. */
+export interface AgentApp {
+  title: string
+  url: string
+  /** the author's declared presentation: the app's own chromeless window ("program"
+   *  feel) or a normal browser tab. Openers honor it; absent = browser. */
+  mode?: 'window' | 'browser'
+}
+
 export interface AgentInfo {
   id: string
   name: string
@@ -36,6 +47,8 @@ export interface AgentInfo {
   suggestions?: string[]
   /** avatar/dot colour (hex) — server-assigned, unique across agents */
   color?: string
+  /** the agent's own app UI, when it ships one (null/absent for plain chat agents) */
+  app?: AgentApp | null
 }
 
 export interface Hello {

@@ -18,6 +18,10 @@ export interface Flavor {
   productId: string
   productName: string
   defaultAgent: string
+  /** AGENT-APP shell mode: the id of the agent this build IS. Set => the shell never
+   *  loads the JARVIS renderer — it boots the daemon and opens the agent's own UI
+   *  (/apps/<id>/) as the product window. '' => the normal desktop client. */
+  appAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
   /** absolute path of the loaded file; '' => open default (nothing to pass on) */
@@ -30,6 +34,7 @@ const OPEN: Flavor = {
   productId: 'agentd',
   productName: 'agentd',
   defaultAgent: '',
+  appAgent: '',
   storeEnabled: true,
   preinstalledBundles: [],
   sourcePath: '',
@@ -39,7 +44,12 @@ const OPEN: Flavor = {
 function candidatePaths(): string[] {
   if (app.isPackaged) return [path.join(process.resourcesPath, 'distribution.toml')]
   const flavorName = (process.env.AGENTD_FLAVOR || 'core').trim()
-  return [path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml')]
+  return [
+    // authored flavors (core, studio, …)
+    path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml'),
+    // GENERATED per-agent product flavors (gen-app-flavor.mjs) — build output, not authored
+    path.join(app.getAppPath(), 'dist', 'app-flavors', flavorName, 'distribution.toml')
+  ]
 }
 
 async function bundledPackages(): Promise<string[]> {
@@ -65,6 +75,7 @@ export async function loadFlavor(): Promise<Flavor> {
         productId: String(product.id || 'agentd'),
         productName: String(product.name || 'agentd'),
         defaultAgent: String(product.default_agent || ''),
+        appAgent: String(product.app_agent || ''),
         storeEnabled: store.enabled !== false,
         preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
         sourcePath: candidate,

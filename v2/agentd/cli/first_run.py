@@ -58,8 +58,17 @@ def seed_user_layout() -> None:
 
 
 def _write_config(model: str) -> Path:
+    """Write the user's config.json, SEEDED from the shipped default template (full
+    model_catalog + neutral knobs) so a fresh install has a real model picker — not a bare
+    {model} stub. The onboarded model (wizard pick / default) overrides the template's."""
     path = runtime_paths.user_config_file()
-    config = {"model": model, "memory_enabled": True}
+    template = runtime_paths.packaged_default_config()
+    try:
+        config = json.loads(template.read_text(encoding="utf-8")) if template.is_file() else {}
+    except (OSError, ValueError):
+        config = {}  # unreadable/corrupt template — fall back to a minimal but valid config
+    config.setdefault("memory_enabled", True)
+    config["model"] = model  # the onboarded choice wins over the template default
     path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     return path
 

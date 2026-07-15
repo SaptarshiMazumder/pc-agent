@@ -38,7 +38,7 @@ package "Agent definitions  —  PURE DATA  (agents_dir/<id>/ … no code in cor
   folder "TYPE 1 · chat agent\n(e.g. figure-creator)" as T1 {
     file "agent.toml\nIDENTITY.md\nskills/  templates/" as T1F
   }
-  folder "TYPE 2 · app agent\n(e.g. hr-agent / app-demo)" as T2 {
+  folder "TYPE 2 · app agent\n(e.g. hr-agent / kiosk)" as T2 {
     file "agent.toml  «+ [app] section»\nIDENTITY.md\nskills/" as T2F
     file "ui/\nindex.html + app.js\n(vendored @agentd/client SDK,\nvanilla JS — no build step)" as T2UI
   }

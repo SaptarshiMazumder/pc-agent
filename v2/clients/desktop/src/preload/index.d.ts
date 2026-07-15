@@ -2,6 +2,8 @@ export interface FlavorInfo {
   productId: string
   productName: string
   defaultAgent: string
+  /** set when this build is an AGENT-APP shell (the product IS one agent); '' otherwise */
+  appAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
   bundledPackages: string[]
@@ -34,6 +36,7 @@ export interface DesktopApi {
   savePath(path: string, content: string, base64?: boolean): Promise<{ ok: boolean; error?: string }>
   saveAs(defaultName: string, content: string, base64?: boolean): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   pickFiles(): Promise<PickedFile[]>
+  openAppWindow(url: string, title?: string): Promise<{ ok: boolean; error?: string }>
 }
 
 declare global {

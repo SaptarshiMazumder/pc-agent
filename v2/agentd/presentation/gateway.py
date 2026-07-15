@@ -2754,7 +2754,13 @@ class Gateway:
         entry = Path(base) / (app.get("entry") or "ui/index.html")
         if not entry.is_file():
             return None
-        return {"title": app.get("title") or getattr(spec, "name", aid), "url": f"/apps/{aid}/"}
+        return {
+            "title": app.get("title") or getattr(spec, "name", aid),
+            "url": f"/apps/{aid}/",
+            # the author's declared presentation — a normal "browser" tab or the app's
+            # own chromeless "window"; every opener (CLI, desktop button) honors it
+            "mode": app.get("mode") or "browser",
+        }
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
@@ -3152,6 +3158,9 @@ class Gateway:
                 name=name,
                 description=str(params.get("description") or "").strip(),
                 identity=str(params.get("identity") or params.get("instructions") or "").strip(),
+                # optional APP AGENT scaffold: "" = chat only, "browser"/"window" = ship a
+                # ui/ + [app] declaring how openers present it (docs/PROTOCOL.md §9)
+                app=str(params.get("app") or "").strip().lower(),
             )
         except ValueError as e:
             return {"created": False, "error": str(e)}

@@ -31,6 +31,35 @@ def _valid_id(s: str) -> bool:
     return bool(s) and all(c.isalnum() or c in "-_" for c in s)
 
 
+# The starter page create() scaffolds for a NEW app agent — self-contained (no SDK, no
+# build step) so /apps/<id>/ renders the moment the agent exists; the author replaces it.
+_APP_UI_STARTER = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>__TITLE__</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; display: grid; place-items: center;
+           min-height: 100vh; background: #fafaf7; color: #1a1a1a; }
+    main { max-width: 560px; padding: 32px; line-height: 1.55; }
+    code { background: #ececec; border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>__TITLE__</h1>
+    <p>This is <strong>__ID__</strong>'s app, served by the agentd daemon at
+       <code>/apps/__ID__/</code>.</p>
+    <p>Build it by editing <code>agents/__ID__/ui/index.html</code>. Talk to the daemon with
+       <code>@agentd/client</code> (chat streaming, direct tool invocation, artifacts —
+       see docs/PROTOCOL.md).</p>
+  </main>
+</body>
+</html>
+"""
+
+
 def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -> str:
     """An agent's one-line description, self-sourced with a fallback chain (never empty for a
     real agent). `agent.toml [description]` wins; else the first prose line of `IDENTITY.md`
@@ -185,9 +214,14 @@ class FileAgentRegistry:
         app_raw = data.get("app")
         app = None
         if isinstance(app_raw, dict):
+            mode = str(app_raw.get("mode") or "browser").strip().lower()
             app = {
                 "entry": str(app_raw.get("entry") or "ui/index.html"),
                 "title": str(app_raw.get("title") or data.get("name") or agent_id),
+                # how openers PRESENT the app — its own chromeless "window" (program
+                # feel) or a normal "browser" tab. The AUTHOR declares it; every opener
+                # honors it. Unknown values fall back to browser.
+                "mode": mode if mode in ("window", "browser") else "browser",
             }
 
         # Display presentation: authored agent.toml fields win; else the sidecar the
@@ -270,13 +304,21 @@ class FileAgentRegistry:
         return spec
 
     def create(
-        self, agent_id: str, name: str = "", description: str = "", identity: str = ""
+        self,
+        agent_id: str,
+        name: str = "",
+        description: str = "",
+        identity: str = "",
+        app: str = "",
     ) -> AgentSpec:
         """Scaffold a NEW agent definition and load it live (no restart) — the inverse
         of remove(). Writes agents/<id>/agent.toml (name + description) and, if given,
-        IDENTITY.md (who the agent is, read into its bootstrap). Refuses an invalid id
-        or one that already exists. Colour + tagline are filled in afterwards by the
-        daemon's presentation pass. Returns the loaded spec."""
+        IDENTITY.md (who the agent is, read into its bootstrap). ``app`` makes it an
+        APP AGENT (docs/PROTOCOL.md §9): "browser" or "window" declares how openers
+        present its UI, and a self-contained starter page is scaffolded into ui/ so the
+        app is openable the moment it exists. Refuses an invalid id or one that already
+        exists. Colour + tagline are filled in afterwards by the daemon's presentation
+        pass. Returns the loaded spec."""
         agent_id = (agent_id or "").strip().lower()
         if not _valid_id(agent_id):
             raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
@@ -291,6 +333,17 @@ class FileAgentRegistry:
         lines = [f"name = {json.dumps(name or agent_id)}"]
         if description.strip():
             lines.append(f"description = {json.dumps(description.strip())}")
+        app = (app or "").strip().lower()
+        if app:
+            mode = app if app in ("browser", "window") else "browser"
+            title = name or agent_id
+            lines += ["", "[app]", f"title = {json.dumps(title)}", f"mode = {json.dumps(mode)}"]
+            ui = d / "ui"
+            ui.mkdir(exist_ok=True)
+            (ui / "index.html").write_text(
+                _APP_UI_STARTER.replace("__TITLE__", title).replace("__ID__", agent_id),
+                encoding="utf-8",
+            )
         (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
         if identity.strip():
             (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")

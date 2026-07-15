@@ -26,6 +26,10 @@ EXCLUDED_DIRS = {
     "workspace",
     "sessions",
     ".agentd",
+    # BUILT PRODUCTS delivered into the agent's own folder (agents/<id>/clients/…, e.g. its
+    # desktop installer exe). Derived FROM the package — packing them back would nest the
+    # product inside its own source artifact.
+    "clients",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
