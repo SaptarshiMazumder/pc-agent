@@ -1,0 +1,4 @@
+id = "weather-kit"
+name = "Weather Kit"
+kind = "native"
+entry = "weather_kit:register"

@@ -27,12 +27,8 @@ GROUNDING_MODEL = "gemini-3.1-pro-preview"
 
 
 def resolve_key(param_key: str | None, config) -> str:
-    for cand in (
-        param_key,
-        os.environ.get("GEMINI_API_KEY"),
-        os.environ.get("GOOGLE_API_KEY"),
-        getattr(config, "gemini_api_key", None),
-    ):
+    for cand in (param_key, os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY"),
+                 getattr(config, "gemini_api_key", None)):
         if cand:
             return str(cand)
     raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
@@ -42,72 +38,27 @@ def _mime(path: Path) -> str:
     return "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
 
 
-def analyze(
-    image_path: Path, prompt: str, *, model: str, api_key: str | None = None, want_json: bool
-) -> str:
+def analyze(image_path: Path, prompt: str, *, model: str, api_key: str | None = None,
+            want_json: bool) -> str:
     """Return the model's text (or JSON string) for an image + prompt, via the provider-agnostic
     one-shot (LiteLLM). `model` is a litellm id (bare id => gemini); `api_key` is optional (gemini
     falls back to GEMINI_API_KEY/GOOGLE_API_KEY, other providers read their own env key)."""
     from agentd.infrastructure.llm.oneshot import vision_complete
 
-    return vision_complete(
-        model=model, prompt=prompt, image_paths=[image_path], want_json=want_json, api_key=api_key
-    )
+    return vision_complete(model=model, prompt=prompt, image_paths=[image_path],
+                           want_json=want_json, api_key=api_key)
 
 
 def parse_json(text: str):
-    """Tolerant JSON parse — strip ``` fences the model sometimes adds even in JSON mode, and
-    SALVAGE a truncated array. A long label list can exceed the model's output budget and come back
-    cut off mid-object (`Expecting ',' delimiter…`); rather than lose every label, we recover the
-    complete objects that did arrive by scanning balanced top-level `{...}` blocks."""
+    """Tolerant JSON parse — strip ``` fences the model sometimes adds even in JSON mode."""
     t = text.strip()
     if t.startswith("```"):
         t = t.split("```", 2)[1] if "```" in t[3:] else t.strip("`")
         t = t[4:].strip() if t.lower().startswith("json") else t
-    try:
-        return json.loads(t)
-    except json.JSONDecodeError:
-        if "[" not in t:
-            raise
-        return _salvage_array(t[t.index("[") + 1 :])
-
-
-def _salvage_array(body: str):
-    """Recover the complete top-level {...} objects from a truncated JSON array body. Returns the
-    list of objects that parsed (possibly empty); ignores the trailing cut-off fragment."""
-    out = []
-    depth = 0
-    start = -1
-    in_str = False
-    esc = False
-    for i, ch in enumerate(body):
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start >= 0:
-                try:
-                    out.append(json.loads(body[start : i + 1]))
-                except json.JSONDecodeError:
-                    pass
-                start = -1
-    return out
+    return json.loads(t)
 
 
 def image_dims(image_path: Path) -> tuple[int, int]:
     from PIL import Image
-
     with Image.open(image_path) as im:
         return im.size

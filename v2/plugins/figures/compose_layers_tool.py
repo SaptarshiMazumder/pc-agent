@@ -21,10 +21,9 @@ import asyncio
 import base64
 from pathlib import Path
 
-from figures_common import png_block, render_svg_to_png, resolve_path, svg_size
-
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.domain.messages import TextContent
+from figures_common import resolve_path, render_svg_to_png, png_block, svg_size
 
 _MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
@@ -32,7 +31,7 @@ _MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".web
 def _strip_decl(svg: str) -> str:
     s = svg.strip()
     if s.startswith("<?xml"):
-        s = s[s.index("?>") + 2 :].strip()
+        s = s[s.index("?>") + 2:].strip()
     return s
 
 
@@ -46,7 +45,7 @@ def _inner_svg(svg: str) -> str:
     close = s.rfind("</svg>")
     if open_end == -1 or close == -1:
         return s
-    return s[open_end + 1 : close]
+    return s[open_end + 1:close]
 
 
 class ComposeLayersTool(Tool):
@@ -64,64 +63,26 @@ class ComposeLayersTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "artwork": {
-                "type": "string",
-                "description": "Raster artwork path (PNG/JPG). Provide ONE artwork source.",
-            },
-            "artwork_svg": {
-                "type": "string",
-                "description": "Raw vector artwork SVG (e.g. trace_image output) for an all-vector figure.",
-            },
+            "artwork": {"type": "string", "description": "Raster artwork path (PNG/JPG). Provide ONE artwork source."},
+            "artwork_svg": {"type": "string", "description": "Raw vector artwork SVG (e.g. trace_image output) for an all-vector figure."},
             "artwork_svg_path": {"type": "string", "description": "Path to a vector artwork .svg."},
-            "overlay_svg": {
-                "type": "string",
-                "description": "Raw overlay SVG. Provide this OR overlay_svg_path.",
-            },
+            "overlay_svg": {"type": "string", "description": "Raw overlay SVG. Provide this OR overlay_svg_path."},
             "overlay_svg_path": {"type": "string", "description": "Path to the overlay .svg."},
             "out_png": {"type": "string", "description": "Flattened composite output .png."},
-            "out_svg": {
-                "type": "string",
-                "description": "Editable output .svg (layered raster+overlay, or all-vector).",
-            },
-            "scale": {
-                "type": "number",
-                "description": "Hi-res factor for out_png (1 = native size). Default 1.",
-            },
+            "out_svg": {"type": "string", "description": "Editable output .svg (layered raster+overlay, or all-vector)."},
+            "scale": {"type": "number", "description": "Hi-res factor for out_png (1 = native size). Default 1."},
         },
     }
 
     def __init__(self, config):
         self.config = config
 
-    def _svg_content(self, value: str, *, field: str, path_field: str) -> str:
-        """Raw SVG markup for a `*_svg` field, hardened. A `*_svg` field takes SVG *markup*; the
-        matching `*_svg_path` field takes a file path. Callers routinely confuse the two and pass a
-        FILENAME into the markup field — which used to be embedded verbatim, silently producing a
-        figure with the base artwork and a stray text node but NO overlay. So: real markup passes
-        through; a value that resolves to an existing .svg file is loaded (forgiving auto-recover);
-        anything else raises, instead of emitting a broken figure."""
-        s = (value or "").strip()
-        if "<svg" in s:
-            return value
-        try:
-            candidate = resolve_path(self.config, s)
-            if candidate.suffix.lower() == ".svg" and candidate.is_file():
-                return candidate.read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            pass
-        raise ValueError(
-            f"`{field}` must be raw SVG markup (containing '<svg'), not a file path — got "
-            f"{s[:60]!r}. To pass a file, use `{path_field}` instead."
-        )
-
     def _overlay_text(self, params) -> str:
         if bool(params.get("overlay_svg")) == bool(params.get("overlay_svg_path")):
             raise ValueError("provide exactly ONE of: overlay_svg, overlay_svg_path")
         if params.get("overlay_svg_path"):
             return resolve_path(self.config, params["overlay_svg_path"]).read_text(encoding="utf-8")
-        return self._svg_content(
-            params["overlay_svg"], field="overlay_svg", path_field="overlay_svg_path"
-        )
+        return params["overlay_svg"]
 
     def _artwork(self, params):
         """Return ('raster', Path) or ('vector', svg_text). Exactly one source allowed."""
@@ -131,12 +92,8 @@ class ComposeLayersTool(Tool):
         if params.get("artwork"):
             return "raster", resolve_path(self.config, params["artwork"])
         if params.get("artwork_svg_path"):
-            return "vector", resolve_path(self.config, params["artwork_svg_path"]).read_text(
-                encoding="utf-8"
-            )
-        return "vector", self._svg_content(
-            params["artwork_svg"], field="artwork_svg", path_field="artwork_svg_path"
-        )
+            return "vector", resolve_path(self.config, params["artwork_svg_path"]).read_text(encoding="utf-8")
+        return "vector", params["artwork_svg"]
 
     def _run(self, params: dict) -> dict:
         if not params.get("out_png") and not params.get("out_svg"):
@@ -155,8 +112,7 @@ class ComposeLayersTool(Tool):
         combined = (
             f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
-            f"{_strip_decl(artwork_text)}{_strip_decl(overlay_text)}</svg>"
-        )
+            f'{_strip_decl(artwork_text)}{_strip_decl(overlay_text)}</svg>')
         result = {"width": W, "height": H, "out_png": None, "out_svg": None, "vector": True}
         if params.get("out_svg"):
             out_svg = resolve_path(self.config, params["out_svg"])
@@ -173,7 +129,6 @@ class ComposeLayersTool(Tool):
     # -- raster: embed artwork as <image>, composite the overlay on top --
     def _run_raster(self, params, art_path, overlay_text, scale) -> dict:
         from PIL import Image
-
         art = Image.open(art_path).convert("RGBA")
         W, H = art.size
         result = {"width": W, "height": H, "out_png": None, "out_svg": None, "vector": False}
@@ -200,8 +155,7 @@ class ComposeLayersTool(Tool):
                 f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
                 f'width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
                 f'<image x="0" y="0" width="{W}" height="{H}" preserveAspectRatio="none" '
-                f'xlink:href="data:{mime};base64,{b64}"/>{_inner_svg(overlay_text)}</svg>'
-            )
+                f'xlink:href="data:{mime};base64,{b64}"/>{_inner_svg(overlay_text)}</svg>')
             out_svg = resolve_path(self.config, params["out_svg"])
             out_svg.parent.mkdir(parents=True, exist_ok=True)
             out_svg.write_text(layered, encoding="utf-8")
@@ -222,9 +176,6 @@ class ComposeLayersTool(Tool):
         # deliverable: the composed figure (SVG and/or PNG)
         deliverables = [p for p in (r.get("out_svg"), r.get("out_png")) if p]
         if r["out_png"]:
-            return ToolResult(
-                content=[TextContent(text=msg), png_block(Path(r["out_png"]))],
-                details=r,
-                artifacts=deliverables,
-            )
+            return ToolResult(content=[TextContent(text=msg), png_block(Path(r["out_png"]))],
+                              details=r, artifacts=deliverables)
         return ToolResult.text(msg, details=r, artifacts=deliverables)

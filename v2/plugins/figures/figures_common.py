@@ -11,9 +11,9 @@ import base64
 import re
 from pathlib import Path
 
-from agentd.application.interfaces.tool import ToolResult
 from agentd.application.run_context import current_workspace
 from agentd.domain.messages import ImageContent, TextContent
+from agentd.application.interfaces.tool import ToolResult
 
 
 def resolve_path(config, p: str) -> Path:
@@ -57,14 +57,10 @@ def svg_size(svg_text: str) -> tuple[int, int]:
     to the viewBox's w/h, default 1920x1080. Used so render_svg can size its viewport without the
     caller having to repeat dimensions already declared in the markup."""
     head = svg_text[:2000]
-    w = _num(
-        re.search(r'\bwidth\s*=\s*["\']([^"\']+)', head)
-        and re.search(r'\bwidth\s*=\s*["\']([^"\']+)', head).group(1)
-    )
-    h = _num(
-        re.search(r'\bheight\s*=\s*["\']([^"\']+)', head)
-        and re.search(r'\bheight\s*=\s*["\']([^"\']+)', head).group(1)
-    )
+    w = _num(re.search(r'\bwidth\s*=\s*["\']([^"\']+)', head) and
+             re.search(r'\bwidth\s*=\s*["\']([^"\']+)', head).group(1))
+    h = _num(re.search(r'\bheight\s*=\s*["\']([^"\']+)', head) and
+             re.search(r'\bheight\s*=\s*["\']([^"\']+)', head).group(1))
     if not (w and h):
         vb = re.search(r'viewBox\s*=\s*["\']([^"\']+)', head)
         if vb:
@@ -76,14 +72,8 @@ def svg_size(svg_text: str) -> tuple[int, int]:
 
 
 # --- Playwright SVG -> PNG --------------------------------------------------
-def render_svg_to_png(
-    svg_text: str,
-    out_png: Path,
-    width: int,
-    height: int,
-    scale: float = 2.0,
-    background: str | None = None,
-) -> None:
+def render_svg_to_png(svg_text: str, out_png: Path, width: int, height: int,
+                      scale: float = 2.0, background: str | None = None) -> None:
     """Rasterize an SVG string to a PNG via headless Chromium (msedge fallback), exactly the
     renderer the html plugin / build.py use — so gradients, <marker>s, and feDropShadow/feGaussianBlur
     filters come out pixel-identical to a real browser (cairosvg would drop several of those).
@@ -94,8 +84,8 @@ def render_svg_to_png(
     bg = background or "transparent"
     html = (
         '<!doctype html><html><head><meta charset="utf-8">'
-        f"<style>*{{margin:0;padding:0;box-sizing:border-box}}html,body{{background:{bg}}}</style>"
-        f"</head><body>{svg_text}</body></html>"
+        f'<style>*{{margin:0;padding:0;box-sizing:border-box}}html,body{{background:{bg}}}</style>'
+        f'</head><body>{svg_text}</body></html>'
     )
     from playwright.sync_api import sync_playwright
 
@@ -105,15 +95,11 @@ def render_svg_to_png(
         except Exception:
             br = pw.chromium.launch(channel="msedge")
         try:
-            page = br.new_page(
-                viewport={"width": width, "height": height}, device_scale_factor=scale
-            )
+            page = br.new_page(viewport={"width": width, "height": height},
+                               device_scale_factor=scale)
             page.set_content(html, wait_until="networkidle")
             page.wait_for_timeout(150)
-            page.screenshot(
-                path=str(out_png),
-                omit_background=(background is None),
-                clip={"x": 0, "y": 0, "width": width, "height": height},
-            )
+            page.screenshot(path=str(out_png), omit_background=(background is None),
+                            clip={"x": 0, "y": 0, "width": width, "height": height})
         finally:
             br.close()

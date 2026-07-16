@@ -20,7 +20,7 @@ id = "figures"
 source = "vendored"
 
 [[bundle.plugins]]
-id = "figure-art"
+id = "imagegen"
 source = "vendored"
 
 [[bundle.plugins]]

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import re
-
-from figexport_common import resolve_path
+from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
+from figexport_common import resolve_path
 
 _LEN = re.compile(r"[-+]?[0-9]*\.?[0-9]+")
 
@@ -21,10 +21,8 @@ def _svg_size(svg: str):
     head = svg[:2000]
     mw = re.search(r'\bwidth\s*=\s*["\']([^"\']+)', head)
     mh = re.search(r'\bheight\s*=\s*["\']([^"\']+)', head)
-
     def num(m):
         return float(_LEN.search(m.group(1)).group()) if m and _LEN.search(m.group(1)) else None
-
     w, h = num(mw), num(mh)
     if not (w and h):
         vb = re.search(r'viewBox\s*=\s*["\']([^"\']+)', head)
@@ -60,21 +58,15 @@ class ExportPdfTool(Tool):
     def _run(self, params: dict) -> dict:
         if bool(params.get("svg")) == bool(params.get("svg_path")):
             raise ValueError("provide exactly ONE of: svg, svg_path")
-        svg = (
-            resolve_path(self.config, params["svg_path"]).read_text(encoding="utf-8")
-            if params.get("svg_path")
-            else params["svg"]
-        )
+        svg = (resolve_path(self.config, params["svg_path"]).read_text(encoding="utf-8")
+               if params.get("svg_path") else params["svg"])
         w, h = _svg_size(svg)
         out = resolve_path(self.config, params["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
-        html = (
-            f'<!doctype html><meta charset="utf-8">'
-            f"<style>@page{{size:{w}px {h}px;margin:0}}*{{margin:0;padding:0}}"
-            f"html,body{{width:{w}px;height:{h}px}}</style>{svg}"
-        )
+        html = (f'<!doctype html><meta charset="utf-8">'
+                f'<style>@page{{size:{w}px {h}px;margin:0}}*{{margin:0;padding:0}}'
+                f'html,body{{width:{w}px;height:{h}px}}</style>{svg}')
         from playwright.sync_api import sync_playwright
-
         with sync_playwright() as pw:
             try:
                 br = pw.chromium.launch()
@@ -84,13 +76,8 @@ class ExportPdfTool(Tool):
                 page = br.new_page()
                 page.set_content(html, wait_until="networkidle")
                 page.wait_for_timeout(150)
-                page.pdf(
-                    path=str(out),
-                    width=f"{w}px",
-                    height=f"{h}px",
-                    print_background=True,
-                    margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
-                )
+                page.pdf(path=str(out), width=f"{w}px", height=f"{h}px",
+                         print_background=True, margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
             finally:
                 br.close()
         return {"out_path": str(out), "width": w, "height": h}
@@ -100,8 +87,5 @@ class ExportPdfTool(Tool):
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"export_pdf failed: {e}", is_error=True)
-        return ToolResult.text(
-            f"Vector PDF -> {r['out_path']} ({r['width']}x{r['height']}px, 1 page).",
-            details=r,
-            artifacts=[r["out_path"]],
-        )  # deliverable: the PDF
+        return ToolResult.text(f"Vector PDF -> {r['out_path']} ({r['width']}x{r['height']}px, 1 page).",
+                               details=r, artifacts=[r["out_path"]])  # deliverable: the PDF

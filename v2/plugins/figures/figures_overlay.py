@@ -40,13 +40,8 @@ from xml.sax.saxutils import escape
 
 DEFAULT_FONT = "Inter, 'Helvetica Neue', Arial, 'Segoe UI', sans-serif"
 
-_IMG_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".svg": "image/svg+xml",
-}
+_IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".svg": "image/svg+xml"}
 
 
 # ===========================================================================
@@ -133,7 +128,7 @@ def _centerline_d(pts, route, corner_radius):
         return _catmull_rom_to_bezier(pts)
     if route == "elbow":
         return _rounded_polyline_d(pts, corner_radius)
-    return "M " + " L ".join(_pt(p) for p in pts)  # straight
+    return "M " + " L ".join(_pt(p) for p in pts)   # straight
 
 
 # ===========================================================================
@@ -198,10 +193,8 @@ def _flatten_catmull(pts, samples_per_seg=18):
 def _cubic(p0, p1, p2, p3, t):
     mt = 1 - t
     a, b, c, d = mt * mt * mt, 3 * mt * mt * t, 3 * mt * t * t, t * t * t
-    return (
-        a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
-        a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
-    )
+    return (a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+            a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1])
 
 
 def tapered_arrow_d(pts, route, w_tail, w_head, head_len, head_w):
@@ -221,7 +214,7 @@ def tapered_arrow_d(pts, route, w_tail, w_head, head_len, head_w):
     base = samples[base_i]
     bx, by, btx, bty = base
     bnx, bny = -bty, btx
-    body = samples[: base_i + 1] or [samples[0]]
+    body = samples[:base_i + 1] or [samples[0]]
     total_n = len(body) - 1 or 1
     top, bot = [], []
     for i, (x, y, tx, ty) in enumerate(body):
@@ -252,16 +245,12 @@ class _Defs:
         return key
 
     def gradient(self, c0, c1, p0, p1):
-        key = f"grad_{abs(hash((c0, c1, round(p0[0]), round(p0[1]), round(p1[0]), round(p1[1])))) & 0xFFFFFF:06x}"
-        self.add(
-            key,
-            (
-                f'<linearGradient id="{key}" gradientUnits="userSpaceOnUse" '
-                f'x1="{_f(p0[0])}" y1="{_f(p0[1])}" x2="{_f(p1[0])}" y2="{_f(p1[1])}">'
-                f'<stop offset="0" stop-color="{escape(c0)}"/>'
-                f'<stop offset="1" stop-color="{escape(c1)}"/></linearGradient>'
-            ),
-        )
+        key = f"grad_{abs(hash((c0, c1, round(p0[0]), round(p0[1]), round(p1[0]), round(p1[1])))) & 0xffffff:06x}"
+        self.add(key, (
+            f'<linearGradient id="{key}" gradientUnits="userSpaceOnUse" '
+            f'x1="{_f(p0[0])}" y1="{_f(p0[1])}" x2="{_f(p1[0])}" y2="{_f(p1[1])}">'
+            f'<stop offset="0" stop-color="{escape(c0)}"/>'
+            f'<stop offset="1" stop-color="{escape(c1)}"/></linearGradient>'))
         return key
 
     def marker(self, color, kind, size, reverse=False):
@@ -271,62 +260,50 @@ class _Defs:
         kind = kind if kind in ("triangle", "soft", "bar", "circle", "diamond") else "triangle"
         c = escape(color)
         key = f"mk_{kind}{int(size)}{'r' if reverse else ''}_{color.lstrip('#')}"
-        if kind == "soft":  # gentle curved BioRender head
+        if kind == "soft":                      # gentle curved BioRender head
             w, h = size, size * 0.85
-            path = f'<path d="M0,0 C{_f(w * 0.45)},{_f(h * 0.22)} {_f(w * 0.45)},{_f(h * 0.78)} 0,{_f(h)} L{_f(w)},{_f(h / 2)} Z" fill="{c}"/>'
+            path = f'<path d="M0,0 C{_f(w*0.45)},{_f(h*0.22)} {_f(w*0.45)},{_f(h*0.78)} 0,{_f(h)} L{_f(w)},{_f(h/2)} Z" fill="{c}"/>'
             refX, refY, mw, mh = w * 0.92, h / 2, w, h
-        elif kind == "bar":  # blunt perpendicular bar — the inhibition symbol ⊣
+        elif kind == "bar":                     # blunt perpendicular bar — the inhibition symbol ⊣
             w, h = size * 0.55, size * 1.35
             x0, x1 = w * 0.34, w * 0.62
             path = f'<path d="M{_f(x0)},0 L{_f(x1)},0 L{_f(x1)},{_f(h)} L{_f(x0)},{_f(h)} Z" fill="{c}"/>'
             refX, refY, mw, mh = (x0 + x1) / 2, h / 2, w, h
-        elif kind == "circle":  # round cap / node marker
+        elif kind == "circle":                  # round cap / node marker
             d = size * 0.85
-            path = f'<circle cx="{_f(d / 2)}" cy="{_f(d / 2)}" r="{_f(d / 2)}" fill="{c}"/>'
+            path = f'<circle cx="{_f(d/2)}" cy="{_f(d/2)}" r="{_f(d/2)}" fill="{c}"/>'
             refX, refY, mw, mh = d / 2, d / 2, d, d
         elif kind == "diamond":
             w, h = size, size * 0.9
-            path = f'<path d="M0,{_f(h / 2)} L{_f(w / 2)},0 L{_f(w)},{_f(h / 2)} L{_f(w / 2)},{_f(h)} Z" fill="{c}"/>'
+            path = f'<path d="M0,{_f(h/2)} L{_f(w/2)},0 L{_f(w)},{_f(h/2)} L{_f(w/2)},{_f(h)} Z" fill="{c}"/>'
             refX, refY, mw, mh = w * 0.9, h / 2, w, h
-        else:  # crisp triangle
+        else:                                   # crisp triangle
             w, h = size, size * 0.85
-            path = f'<path d="M0,0 L{_f(w)},{_f(h / 2)} L0,{_f(h)} Z" fill="{c}"/>'
+            path = f'<path d="M0,0 L{_f(w)},{_f(h/2)} L0,{_f(h)} Z" fill="{c}"/>'
             refX, refY, mw, mh = w * 0.92, h / 2, w, h
-        if reverse:  # mirror so a start-head points outward under orient="auto"
+        if reverse:                              # mirror so a start-head points outward under orient="auto"
             path = f'<g transform="translate({_f(mw)},0) scale(-1,1)">{path}</g>'
             refX = mw - refX
-        self.add(
-            key,
-            (
-                f'<marker id="{key}" markerWidth="{_f(mw)}" markerHeight="{_f(mh)}" '
-                f'refX="{_f(refX)}" refY="{_f(refY)}" orient="auto" markerUnits="userSpaceOnUse">'
-                f"{path}</marker>"
-            ),
-        )
+        self.add(key, (
+            f'<marker id="{key}" markerWidth="{_f(mw)}" markerHeight="{_f(mh)}" '
+            f'refX="{_f(refX)}" refY="{_f(refY)}" orient="auto" markerUnits="userSpaceOnUse">'
+            f'{path}</marker>'))
         return key
 
     def glow(self, std=2.5):
-        key = f"glow{int(std * 10)}"
-        self.add(
-            key,
-            (
-                f'<filter id="{key}" x="-60%" y="-60%" width="220%" height="220%">'
-                f'<feGaussianBlur stdDeviation="{_f(std)}" result="b"/>'
-                f'<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
-            ),
-        )
+        key = f"glow{int(std*10)}"
+        self.add(key, (
+            f'<filter id="{key}" x="-60%" y="-60%" width="220%" height="220%">'
+            f'<feGaussianBlur stdDeviation="{_f(std)}" result="b"/>'
+            f'<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'))
         return key
 
     def shadow(self):
         key = "softshadow"
-        self.add(
-            key,
-            (
-                f'<filter id="{key}" x="-30%" y="-30%" width="160%" height="160%">'
-                f'<feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#000" flood-opacity="0.25"/>'
-                f"</filter>"
-            ),
-        )
+        self.add(key, (
+            f'<filter id="{key}" x="-30%" y="-30%" width="160%" height="160%">'
+            f'<feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#000" flood-opacity="0.25"/>'
+            f'</filter>'))
         return key
 
     def render(self):
@@ -354,48 +331,25 @@ def _points_of(el):
 # Every preset is still a fully editable vector path.
 _ARROW_STYLES = {
     # --- generic looks ---
-    "plain": {"body": "stroked", "head": "standard", "width": 3.0, "head_size": 12},
-    "clean": {"body": "stroked", "head": "soft", "width": 4.0, "head_size": 16},
-    "biorender": {
-        "body": "tapered",
-        "head": "soft",
-        "w_tail": 12.0,
-        "w_head": 3.5,
-        "head_size": 18,
-    },
-    "subtle": {"body": "stroked", "head": "soft", "width": 2.5, "head_size": 12},
+    "plain":      {"body": "stroked", "head": "standard", "width": 3.0, "head_size": 12},
+    "clean":      {"body": "stroked", "head": "soft", "width": 4.0, "head_size": 16},
+    "biorender":  {"body": "tapered", "head": "soft", "w_tail": 12.0, "w_head": 3.5, "head_size": 18},
+    "subtle":     {"body": "stroked", "head": "soft", "width": 2.5, "head_size": 12},
     # --- semantic scientific arrows (the pathway grammar) ---
-    "flow": {"body": "stroked", "head": "soft", "width": 4.0, "head_size": 16},
+    "flow":       {"body": "stroked", "head": "soft", "width": 4.0, "head_size": 16},
     "activation": {"body": "stroked", "head": "standard", "width": 3.5, "head_size": 14},
-    "inhibition": {"body": "stroked", "head": "bar", "width": 3.5, "head_size": 15},  # ⊣ blunt bar
-    "reversible": {
-        "body": "stroked",
-        "head": "standard",
-        "start_head": "standard",
-        "width": 3.0,
-        "head_size": 12,
-    },  # ↔ double head
-    "transport": {"body": "stroked", "head": "soft", "width": 3.0, "head_size": 14, "dash": "2 7"},
-    "catalysis": {
-        "body": "stroked",
-        "head": "circle",
-        "width": 2.5,
-        "head_size": 12,
-        "dash": "1 5",
-    },
-    "emphasis": {"body": "tapered", "head": "soft", "w_tail": 14.0, "w_head": 4.0, "head_size": 20},
+    "inhibition": {"body": "stroked", "head": "bar", "width": 3.5, "head_size": 15},        # ⊣ blunt bar
+    "reversible": {"body": "stroked", "head": "standard", "start_head": "standard",
+                   "width": 3.0, "head_size": 12},                                          # ↔ double head
+    "transport":  {"body": "stroked", "head": "soft", "width": 3.0, "head_size": 14, "dash": "2 7"},
+    "catalysis":  {"body": "stroked", "head": "circle", "width": 2.5, "head_size": 12, "dash": "1 5"},
+    "emphasis":   {"body": "tapered", "head": "soft", "w_tail": 14.0, "w_head": 4.0, "head_size": 20},
 }
 DEFAULT_ARROW_STYLE = "clean"
 
 # arrow/leader `head` names -> marker kind. "standard" == a crisp triangle; "none" draws nothing.
-_HEAD_KIND = {
-    "standard": "triangle",
-    "triangle": "triangle",
-    "soft": "soft",
-    "bar": "bar",
-    "circle": "circle",
-    "diamond": "diamond",
-}
+_HEAD_KIND = {"standard": "triangle", "triangle": "triangle", "soft": "soft",
+              "bar": "bar", "circle": "circle", "diamond": "diamond"}
 
 
 def _head_marker(pos, head, color, size, defs):
@@ -410,21 +364,19 @@ def _head_marker(pos, head, color, size, defs):
 
 def _arrow(el, defs, s=1.0):
     pts = _points_of(el)
-    preset = _ARROW_STYLES.get(
-        el.get("style", DEFAULT_ARROW_STYLE), _ARROW_STYLES[DEFAULT_ARROW_STYLE]
-    )
+    preset = _ARROW_STYLES.get(el.get("style", DEFAULT_ARROW_STYLE), _ARROW_STYLES[DEFAULT_ARROW_STYLE])
 
     def g(key, default):
         return el.get(key, preset.get(key, default))
 
     route = el.get("route", "straight")
     color = el.get("color", "#374151")
-    head = g("head", "standard")  # noqa: F841  # TODO: head style is read but never used (soft/none unimplemented)
+    head = g("head", "standard")             # standard | soft | none
     head_size = float(g("head_size", 12)) * s
     opacity = el.get("opacity", 1.0)
-    filt = el.get("filter")  # None | glow | shadow
+    filt = el.get("filter")                   # None | glow | shadow
     cr = float(el.get("corner_radius", 10)) * s
-    grad = el.get("gradient")  # {"from": c0, "to": c1}
+    grad = el.get("gradient")                 # {"from": c0, "to": c1}
     stroke_ref = color
     if grad:
         gid = defs.gradient(grad.get("from", color), grad.get("to", color), pts[0], pts[-1])
@@ -439,14 +391,11 @@ def _arrow(el, defs, s=1.0):
     extra = (" " + " ".join(attrs)) if attrs else ""
 
     if g("body", "stroked") == "tapered":
-        d = tapered_arrow_d(
-            pts,
-            route,
-            w_tail=float(g("w_tail", 13)) * s,
-            w_head=float(g("w_head", 3.5)) * s,
-            head_len=float(el["head_len"]) * s if "head_len" in el else head_size * 1.4,
-            head_w=float(el["head_w"]) * s if "head_w" in el else head_size * 1.7,
-        )
+        d = tapered_arrow_d(pts, route,
+                            w_tail=float(g("w_tail", 13)) * s,
+                            w_head=float(g("w_head", 3.5)) * s,
+                            head_len=float(el["head_len"]) * s if "head_len" in el else head_size * 1.4,
+                            head_w=float(el["head_w"]) * s if "head_w" in el else head_size * 1.7)
         return f'<path d="{d}" fill="{stroke_ref}"{extra}/>'
 
     # stroked body (optionally with marker heads at the end and/or the start)
@@ -456,10 +405,8 @@ def _arrow(el, defs, s=1.0):
     dash = f' stroke-dasharray="{dash_v}"' if dash_v else ""
     marker = _head_marker("end", g("head", "standard"), color, head_size, defs)
     marker += _head_marker("start", g("start_head", "none"), color, head_size, defs)
-    return (
-        f'<path d="{d}" fill="none" stroke="{stroke_ref}" stroke-width="{_f(sw)}" '
-        f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}{extra}/>'
-    )
+    return (f'<path d="{d}" fill="none" stroke="{stroke_ref}" stroke-width="{_f(sw)}" '
+            f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}{extra}/>')
 
 
 def _leader(el, defs, s=1.0):
@@ -467,13 +414,11 @@ def _leader(el, defs, s=1.0):
     color = el.get("color", "#6b7280")
     sw = float(el.get("width", 1.2)) * s
     dash = f' stroke-dasharray="{el.get("dash", "")}"' if el.get("dash") else ""
-    head = el.get("head", "none")  # none | standard | soft | bar | circle — head at target end
+    head = el.get("head", "none")             # none | standard | soft | bar | circle — head at target end
     marker = _head_marker("end", head, color, float(el.get("head_size", 9)) * s, defs)
     d = _centerline_d(pts, el.get("route", "elbow"), float(el.get("corner_radius", 6)) * s)
-    out = (
-        f'<path d="{d}" fill="none" stroke="{escape(color)}" stroke-width="{_f(sw)}" '
-        f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}/>'
-    )
+    out = (f'<path d="{d}" fill="none" stroke="{escape(color)}" stroke-width="{_f(sw)}" '
+           f'stroke-linecap="round" stroke-linejoin="round"{dash}{marker}/>')
     # a target dot OR an arrowhead, not both (the head already marks the endpoint)
     if el.get("dot", head == "none"):
         r = float(el.get("dot_r", 2.6)) * s
@@ -485,7 +430,7 @@ def _label(el, defs, font_family, s=1.0):
     text = str(el.get("text", ""))
     x, y = float(el["x"]), float(el["y"])
     fs = float(el.get("font_size", 14)) * s
-    anchor = el.get("anchor", "start")  # start | middle | end
+    anchor = el.get("anchor", "start")        # start | middle | end
     color = el.get("color", "#1f2937")
     weight = str(el.get("weight", "600"))
     ff = el.get("font_family", font_family)
@@ -510,22 +455,18 @@ def _label(el, defs, font_family, s=1.0):
         stroke = box.get("stroke", "#d1d5db")
         sw = float(box.get("stroke_width", 1)) * s
         filt = f' filter="url(#{defs.shadow()})"' if box.get("shadow") else ""
-        out.append(
-            f'<rect x="{_f(bx)}" y="{_f(by)}" width="{_f(bw)}" height="{_f(bh)}" '
-            f'rx="{_f(rad)}" ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" '
-            f'stroke-width="{_f(sw)}"{filt}/>'
-        )
+        out.append(f'<rect x="{_f(bx)}" y="{_f(by)}" width="{_f(bw)}" height="{_f(bh)}" '
+                   f'rx="{_f(rad)}" ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" '
+                   f'stroke-width="{_f(sw)}"{filt}/>')
         tx = bx + bw / 2
         anchor = "middle"
         y_text = by + bh / 2
     else:
         y_text = y
-    dy = fs * 0.35  # vertical centering for dominant-baseline-less renderers
-    out.append(
-        f'<text x="{_f(tx if box else x)}" y="{_f(y_text + dy)}" '
-        f'font-family="{ff}" font-size="{_f(fs)}" font-weight="{weight}" '
-        f'fill="{escape(color)}" text-anchor="{anchor}">{escape(text)}</text>'
-    )
+    dy = fs * 0.35   # vertical centering for dominant-baseline-less renderers
+    out.append(f'<text x="{_f(tx if box else x)}" y="{_f(y_text + dy)}" '
+               f'font-family="{ff}" font-size="{_f(fs)}" font-weight="{weight}" '
+               f'fill="{escape(color)}" text-anchor="{anchor}">{escape(text)}</text>')
     return "".join(out)
 
 
@@ -536,7 +477,7 @@ def _annotation(el, defs, font_family, s=1.0):
     target = tuple(el["target"])
     at = tuple(el["at"])
     side = el.get("side", "left" if at[0] < target[0] else "right")
-    fs = float(el.get("font_size", 14)) * s  # scaled — for THIS function's geometry only
+    fs = float(el.get("font_size", 14)) * s          # scaled — for THIS function's geometry only
     text = str(el.get("text", ""))
     weight = str(el.get("weight", "600"))
     pad_x = 9.0 * s
@@ -545,48 +486,19 @@ def _annotation(el, defs, font_family, s=1.0):
     edge_x = at[0] + (bw / 2 if side == "left" else -bw / 2)
     start = (edge_x, at[1])
     body = []
-    body.append(
-        _label(
-            {
-                "text": text,
-                "x": at[0],
-                "y": at[1],
-                "anchor": "middle",
-                "font_size": el.get("font_size", 14),
-                "weight": weight,
-                "color": el.get("color", "#1f2937"),
-                "box": el.get(
-                    "box",
-                    {
-                        "fill": "#ffffff",
-                        "stroke": "#d1d5db",
-                        "radius": 6,
-                        "shadow": el.get("shadow", False),
-                    },
-                ),
-            },
-            defs,
-            font_family,
-            s,
-        )
-    )
-    body.insert(
-        0,
-        _leader(
-            {
-                "from": list(start),
-                "to": list(target),
-                "route": el.get("route", "elbow"),
-                "color": el.get("leader_color", "#9ca3af"),
-                "width": el.get("leader_width", 1.2),
-                "dash": el.get("leader_dash", ""),
-                "dot": el.get("dot", True),
-                "dot_color": el.get("dot_color", "#4b5563"),
-            },
-            defs,
-            s,
-        ),
-    )
+    body.append(_label({"text": text, "x": at[0], "y": at[1], "anchor": "middle",
+                        "font_size": el.get("font_size", 14), "weight": weight,
+                        "color": el.get("color", "#1f2937"),
+                        "box": el.get("box", {"fill": "#ffffff", "stroke": "#d1d5db",
+                                              "radius": 6, "shadow": el.get("shadow", False)})},
+                       defs, font_family, s))
+    body.insert(0, _leader({"from": list(start), "to": list(target),
+                            "route": el.get("route", "elbow"),
+                            "color": el.get("leader_color", "#9ca3af"),
+                            "width": el.get("leader_width", 1.2),
+                            "dash": el.get("leader_dash", ""),
+                            "dot": el.get("dot", True),
+                            "dot_color": el.get("dot_color", "#4b5563")}, defs, s))
     return "".join(body)
 
 
@@ -597,40 +509,20 @@ def _panel(el, defs, s=1.0):
     stroke = el.get("stroke", "#9ca3af")
     sw = float(el.get("stroke_width", 1.4)) * s
     dash = f' stroke-dasharray="{el.get("dash", "")}"' if el.get("dash") else ""
-    out = (
-        f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" '
-        f'ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{dash}/>'
-    )
+    out = (f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" '
+           f'ry="{_f(rad)}" fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{dash}/>')
     if el.get("title"):
-        out += _label(
-            {
-                "text": el["title"],
-                "x": x + w / 2,
-                "y": y,
-                "anchor": "middle",
-                "font_size": el.get("title_size", 13),
-                "weight": "700",
-                "color": el.get("title_color", "#374151"),
-                "box": {
-                    "fill": el.get("title_bg", "#ffffff"),
-                    "stroke": "none",
-                    "pad_x": 8,
-                    "pad_y": 2,
-                    "radius": 4,
-                },
-            },
-            defs,
-            DEFAULT_FONT,
-            s,
-        )
+        out += _label({"text": el["title"], "x": x + w / 2, "y": y, "anchor": "middle",
+                       "font_size": el.get("title_size", 13), "weight": "700",
+                       "color": el.get("title_color", "#374151"),
+                       "box": {"fill": el.get("title_bg", "#ffffff"), "stroke": "none",
+                               "pad_x": 8, "pad_y": 2, "radius": 4}}, defs, DEFAULT_FONT, s)
     return out
 
 
 def _dot(el, defs, s=1.0):
-    return (
-        f'<circle cx="{_f(el["x"])}" cy="{_f(el["y"])}" r="{_f(float(el.get("r", 3)) * s)}" '
-        f'fill="{escape(el.get("fill", "#374151"))}"/>'
-    )
+    return (f'<circle cx="{_f(el["x"])}" cy="{_f(el["y"])}" r="{_f(float(el.get("r", 3)) * s)}" '
+            f'fill="{escape(el.get("fill", "#374151"))}"/>')
 
 
 # ===========================================================================
@@ -661,10 +553,8 @@ def _multiline_text(lines, cx, cy, fs, weight, color, ff, line_h) -> str:
     out = []
     for i, ln in enumerate(lines):
         y = y0 + i * line_h + fs * 0.35
-        out.append(
-            f'<text x="{_f(cx)}" y="{_f(y)}" font-family="{ff}" font-size="{_f(fs)}" '
-            f'font-weight="{weight}" fill="{escape(color)}" text-anchor="middle">{escape(ln)}</text>'
-        )
+        out.append(f'<text x="{_f(cx)}" y="{_f(y)}" font-family="{ff}" font-size="{_f(fs)}" '
+                   f'font-weight="{weight}" fill="{escape(color)}" text-anchor="middle">{escape(ln)}</text>')
     return "".join(out)
 
 
@@ -676,32 +566,8 @@ def _icon_image(path, x, y, w, h) -> str:
         return ""
     mime = _IMG_MIME.get(Path(path).suffix.lower(), "image/png")
     b64 = base64.b64encode(data).decode()
-    return (
-        f'<image x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" '
-        f'preserveAspectRatio="xMidYMid meet" xlink:href="data:{mime};base64,{b64}"/>'
-    )
-
-
-def _image(el, defs, s=1.0) -> str:
-    """A standalone raster image placed at (x, y) with (width, height), base64-embedded so the SVG
-    stays self-contained. `preserveAspectRatio="none"` = exact pixel placement (no letterboxing).
-    This is how each ARTWORK OBJECT (after background removal + connected-component split) becomes its
-    OWN wholly-selectable element in the SVG — apple, mango, banana each a separate object."""
-    path = el.get("path")
-    if not path:
-        return str(el.get("svg", ""))
-    try:
-        data = Path(path).read_bytes()
-    except Exception:
-        return ""
-    mime = _IMG_MIME.get(Path(path).suffix.lower(), "image/png")
-    b64 = base64.b64encode(data).decode()
-    x, y = float(el.get("x", 0)), float(el.get("y", 0))
-    w, h = float(el["width"]), float(el["height"])
-    return (
-        f'<image x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" '
-        f'preserveAspectRatio="none" xlink:href="data:{mime};base64,{b64}"/>'
-    )
+    return (f'<image x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" '
+            f'preserveAspectRatio="xMidYMid meet" xlink:href="data:{mime};base64,{b64}"/>')
 
 
 def _node(el, defs, font_family, s=1.0) -> str:
@@ -715,10 +581,8 @@ def _node(el, defs, font_family, s=1.0) -> str:
     sw = float(el.get("stroke_width", 1.6)) * s
     ff = el.get("font_family", font_family)
     filt = f' filter="url(#{defs.shadow()})"' if el.get("shadow", True) else ""
-    out = [
-        f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" ry="{_f(rad)}" '
-        f'fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{filt}/>'
-    ]
+    out = [f'<rect x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" rx="{_f(rad)}" ry="{_f(rad)}" '
+           f'fill="{escape(fill)}" stroke="{escape(stroke)}" stroke-width="{_f(sw)}"{filt}/>']
     pad = float(el.get("pad", 10)) * s
     fs = float(el.get("font_size", 13)) * s
     weight = str(el.get("weight", "600"))
@@ -741,14 +605,10 @@ def _node(el, defs, font_family, s=1.0) -> str:
     if el.get("step") is not None:
         r = fs * 0.9
         cx, cy = x + r + 3 * s, y + r + 3 * s
-        out.append(
-            f'<circle cx="{_f(cx)}" cy="{_f(cy)}" r="{_f(r)}" fill="{escape(el.get("step_bg", stroke))}"/>'
-        )
-        out.append(
-            f'<text x="{_f(cx)}" y="{_f(cy + r * 0.35)}" font-family="{ff}" font-size="{_f(r * 1.05)}" '
-            f'font-weight="700" fill="{escape(el.get("step_color", "#ffffff"))}" '
-            f'text-anchor="middle">{escape(str(el["step"]))}</text>'
-        )
+        out.append(f'<circle cx="{_f(cx)}" cy="{_f(cy)}" r="{_f(r)}" fill="{escape(el.get("step_bg", stroke))}"/>')
+        out.append(f'<text x="{_f(cx)}" y="{_f(cy + r * 0.35)}" font-family="{ff}" font-size="{_f(r * 1.05)}" '
+                   f'font-weight="700" fill="{escape(el.get("step_color", "#ffffff"))}" '
+                   f'text-anchor="middle">{escape(str(el["step"]))}</text>')
     return "".join(out)
 
 
@@ -760,7 +620,6 @@ _RENDERERS = {
     "panel": lambda el, defs, ff, s: _panel(el, defs, s),
     "node": lambda el, defs, ff, s: _node(el, defs, ff, s),
     "dot": lambda el, defs, ff, s: _dot(el, defs, s),
-    "image": lambda el, defs, ff, s: _image(el, defs, s),
     "raw": lambda el, defs, ff, s: str(el.get("svg", "")),
 }
 
@@ -794,8 +653,6 @@ def build_svg(spec) -> str:
     """Return a complete standalone <svg> string for the overlay spec."""
     defs, body, w, h = build_inner(spec)
     bg = spec.get("background")
-    rect = f'<rect width="{w}" height="{h}" fill="{escape(bg)}"/>' if bg else ""
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{w}" height="{h}" viewBox="0 0 {w} {h}">{defs}{rect}{body}</svg>'
-    )
+    rect = (f'<rect width="{w}" height="{h}" fill="{escape(bg)}"/>' if bg else "")
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+            f'width="{w}" height="{h}" viewBox="0 0 {w} {h}">{defs}{rect}{body}</svg>')

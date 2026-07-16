@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import asyncio
 
-import figures_routing as routing
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+import figures_routing as routing
 
 
 class RouteGraphTool(Tool):
@@ -42,10 +41,8 @@ class RouteGraphTool(Tool):
                     "required": ["id"],
                     "properties": {
                         "id": {"type": "string"},
-                        "x": {"type": "number"},
-                        "y": {"type": "number"},
-                        "w": {"type": "number"},
-                        "h": {"type": "number"},
+                        "x": {"type": "number"}, "y": {"type": "number"},
+                        "w": {"type": "number"}, "h": {"type": "number"},
                     },
                 },
             },
@@ -56,27 +53,17 @@ class RouteGraphTool(Tool):
                     "type": "object",
                     "required": ["from", "to"],
                     "properties": {
-                        "from": {"type": "string"},
-                        "to": {"type": "string"},
+                        "from": {"type": "string"}, "to": {"type": "string"},
                         "route": {"type": "string", "enum": ["straight", "orthogonal", "curved"]},
                         "label": {"type": "string"},
                     },
                 },
             },
-            "direction": {
-                "type": "string",
-                "enum": ["RIGHT", "LEFT", "DOWN", "UP"],
-                "description": "Layout flow direction (only used when placing). Default RIGHT.",
-            },
-            "router": {
-                "type": "string",
-                "enum": ["straight", "orthogonal", "curved"],
-                "description": "Default routing for edges without their own `route`. Default orthogonal.",
-            },
-            "node_gap": {
-                "type": "number",
-                "description": "Cross-axis gap between nodes in a layer. Default 40.",
-            },
+            "direction": {"type": "string", "enum": ["RIGHT", "LEFT", "DOWN", "UP"],
+                          "description": "Layout flow direction (only used when placing). Default RIGHT."},
+            "router": {"type": "string", "enum": ["straight", "orthogonal", "curved"],
+                       "description": "Default routing for edges without their own `route`. Default orthogonal."},
+            "node_gap": {"type": "number", "description": "Cross-axis gap between nodes in a layer. Default 40."},
             "layer_gap": {"type": "number", "description": "Gap between layers. Default 120."},
         },
     }
@@ -88,8 +75,7 @@ class RouteGraphTool(Tool):
         try:
             r = await asyncio.to_thread(
                 routing.route,
-                params["nodes"],
-                params["edges"],
+                params["nodes"], params["edges"],
                 direction=params.get("direction", "RIGHT"),
                 router=params.get("router", "orthogonal"),
                 node_gap=float(params.get("node_gap", 40)),
@@ -100,5 +86,4 @@ class RouteGraphTool(Tool):
         return ToolResult.text(
             f"Routed {len(r['nodes'])} node(s), {len(r['edges'])} edge(s); "
             f"canvas {r['width']}x{r['height']}. Feed edges[].points into render_editable_overlay arrows.",
-            details=r,
-        )
+            details=r)
