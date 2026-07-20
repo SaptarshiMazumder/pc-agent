@@ -1,0 +1,163 @@
+@startuml backend-clean-architecture-rings
+title agentd backend — clean architecture: every dependency points INWARD
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "PRESENTATION — transport / adapters (outer ring)" as PRES #EAF3FF {
+  rectangle "gateway.py\n--\nWebSocket frames, auth + origin/scope gates,\nmethod dispatch, broadcast events out" as GW
+}
+
+package "APPLICATION — use cases (the recipe)" as APP #F0FFF0 {
+  rectangle "AgentService.handle_message\n--\norchestration ONLY, imports no I/O libraries\n(the conductor: decides the order of work)" as SVC
+  rectangle "interfaces/  (Protocols = promises)\n--\nAgentEngine · AgentRegistry\nSessionStore · EventSink" as PORTS
+}
+
+package "DOMAIN — pure rules + value objects (center)" as DOM #FFF7E6 {
+  rectangle "agent.py: AgentSpec · select_tools · apply_mode\nmessages.py: UserMessage · Message\n--\nno disk, no network, no framework imports\n(same answer on a machine with no I/O)" as D
+}
+
+package "INFRASTRUCTURE — the machinery" as INF #FFF0F0 {
+  rectangle "NativeEngine (the reason->act loop, native.py)\nFileAgentRegistry (reads agents/<id>/ off disk)\nJSON SessionStore (transcript on disk)\nLiteLLM adapter (the model call)" as I
+}
+
+rectangle "main/container.py — COMPOSITION ROOT\n--\nthe ONE place allowed to know every concrete class.\nConstructs the infra objects and INJECTS them into\nAgentService at boot. Swap an impl here, nothing else moves." as CR #F5F0FF
+
+' ---- dependency arrows: which file KNOWS ABOUT which (imports/calls) ----
+GW --> SVC   : uses the use case
+GW ..>  D    : reads AgentSpec / RunMode
+SVC --> D    : applies domain rules
+SVC --> PORTS: depends on PROMISES,\nnot on concrete infra
+I ..|> PORTS : implements\n(dependency INVERSION)
+I -->  D     : builds / uses domain objects
+CR ..> I     : constructs the impls
+CR ..> SVC   : injects them
+
+note right of INF
+  Read the arrows: EVERY one points toward the center (Domain).
+  Infrastructure's arrow into the ports is a dashed "implements":
+  it FULFILLS a promise the application defines. So the *code
+  dependency* points inward even though *data* flows outward at
+  run time. That inversion is the whole trick — it lets you
+  replace NativeEngine, the registry, or the store without the
+  application or domain changing a single line.
+end note
+
+note bottom of DOM
+  Why the center is "scary but safe": it holds the most RULES
+  (the valuable part), but the LEAST machinery. A pure function
+  can only return a wrong list — a unit test catches that in a
+  millisecond. It can't corrupt a file or hang a socket.
+end note
+@enduml
+
+
+@startuml backend-clean-architecture-flow
+title A message from the desktop app, end to end — the trip IN and the trip OUT
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+  DividerBackgroundColor #EEEEEE
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Desktop app\n(agentd-client.js)" as C
+
+box "PRESENTATION — transport only" #EAF3FF
+  participant "gateway.py\n_handle_conn / _dispatch\n_chat_send / _run" as GW
+end box
+
+box "APPLICATION — the recipe" #F0FFF0
+  participant "AgentService\nhandle_message" as SVC
+end box
+
+box "DOMAIN — pure rules (no I/O)" #FFF7E6
+  participant "agent.py\nselect_tools\napply_mode" as DOM
+end box
+
+box "INFRASTRUCTURE — the machinery" #FFF0F0
+  participant "Infra adapters\n(registry · session\n· prompt)" as ADP
+  participant "NativeEngine\nrun_agent_loop" as ENG
+  participant "LiteLLM\n+ tools" as LLM
+end box
+
+== TRIP IN : the request falls inward, ring by ring ==
+
+C -> GW : chat.send frame (WebSocket)\n{sessionKey, message, agentId}
+activate GW
+GW -> GW : _handle_conn: parse_frame,\nauth + origin/scope gate
+GW -> GW : _chat_send: validate,\nspawn _run background task
+GW --> C : {runId} — returns IMMEDIATELY\n(the turn keeps running in the background)
+
+note over GW: _run defines on_event (the EventSink),\nthen HANDS OFF. It knows nothing of tools or the LLM.
+GW -> SVC : handle_message(message, on_event, abort)
+activate SVC
+note over GW, SVC #FFFBE6: BOUNDARY presentation -> application.\non_event is passed DOWN as a callback (the EventSink interface) —\nthat callback is how the answer will climb back out later.
+
+SVC -> DOM : select_tools(catalog, spec)\napply_mode(tools, mode)
+activate DOM
+DOM --> SVC : the tools THIS agent may use
+deactivate DOM
+note over DOM #FFFBE6: PURE. No disk, no network. The center of the onion —\nthe valuable, unit-testable core. Request has reached the middle.
+
+SVC -> ADP : registry.get(id) · session.load()\nbuild_prompt(...)
+activate ADP
+ADP --> SVC : AgentSpec · prior history · system prompt
+deactivate ADP
+note over SVC, ADP #FFFBE6: These are INTERFACE calls (promises). The concrete\nimpls (file registry, JSON store) were injected by the\ncomposition root at boot — the service never named them.
+
+SVC -> ENG : engine.run(messages, prompt, tools, on_event)
+activate ENG
+
+== THE LOOP : infrastructure does the real work ==
+
+loop until the model stops asking for tools
+  ENG -> LLM : stream completion
+  LLM --> ENG : assistant text + tool calls
+  ENG ->> GW : on_event(message_end)
+  note right of GW: streamed to the client live (below)
+  opt tool calls present
+    ENG -> LLM : execute the tool(s)
+    LLM --> ENG : tool result
+    ENG ->> GW : on_event(tool_result)
+    ENG -> ENG : feed result back,\nloop again
+  end
+end
+
+== TRIP OUT : events stream outward via the callback ==
+
+note over ENG, GW #FFFBE6: The inner loop never RETURNS the answer. It calls on_event —\na callback the OUTER layer handed in. Infrastructure stays\nblind to the WebSocket; presentation owns "how to reach the client."
+ENG ->> GW : on_event(agent_end)
+deactivate ENG
+deactivate SVC
+GW -> GW : _broadcast -> _send_all\n(wrap each event as a chat.event frame)
+GW ->> C : chat.event frames (streamed)
+deactivate GW
+note over C: the desktop renders tokens as they arrive,\nfiltering by runId / agentId. Swap it for a phone\nor a Slack bot and nothing inside the rings changes.
+
+note across #F5F0FF
+  Who decided ADP = FileAgentRegistry, ENG = NativeEngine, LLM = LiteLLM?
+  main/container.py (the COMPOSITION ROOT) — the single place that knows
+  every concrete class and injects them behind the interfaces above.
+end note
+@enduml

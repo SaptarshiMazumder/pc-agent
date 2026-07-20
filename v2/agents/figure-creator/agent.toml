@@ -7,7 +7,7 @@
 #
 # Full access on purpose: NO `skills` allowlist and NO `[tools] allow`, so it sees EVERY skill and
 # tool (including ones added later) with no edit here. Its playbooks are `create-scientific-figure`
-# and `vectorize-figure`; its tools are the figures / imagegen / vision / vectorize / figexport
+# and `vectorize-figure`; its tools are the figures / figure-art / vision / vectorize / figexport
 # plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
@@ -23,7 +23,7 @@ name = "Figure Creator"
 # that to Gemini 3 Pro Image — class-leading on legible text, factual/structured figures, 4K, and
 # reference conditioning. `provider` picks the backend SDK, `model` the endpoint. Per-call args and
 # the chosen art TEMPLATE (templates/*.toml -> provider/model) still win over these defaults.
-[plugins.imagegen.tools.generate_artwork]
+[plugins.figure-art.tools.generate_artwork]
 provider = "gemini"
 model = "gemini/gemini-3-pro-image"
 # The house DEFAULT art style: when the agent calls generate_artwork with a `subject` but names NO

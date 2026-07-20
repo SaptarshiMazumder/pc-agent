@@ -141,8 +141,14 @@ def test_agent_toml_app_section_parsed(tmp_path):
     )
     reg = FileAgentRegistry(cfg)
     spec = reg.get("consoleapp")
-    # no mode declared -> browser (the default presentation)
-    assert spec.app == {"entry": "ui/index.html", "title": "Console App", "mode": "browser"}
+    # no mode declared -> browser (the default presentation); no public opt-in -> private
+    assert spec.app == {
+        "entry": "ui/index.html",
+        "title": "Console App",
+        "mode": "browser",
+        "public": False,
+        "public_tools": (),
+    }
     assert reg.get("main").app is None  # no [app] -> a plain chat agent
 
 
@@ -415,7 +421,13 @@ def test_agents_create_scaffolds_app_agent(tmp_path):
     )
     reg = FileAgentRegistry(cfg)
     spec = reg.create("hr-desk", name="HR Desk", app="window")
-    assert spec.app == {"entry": "ui/index.html", "title": "HR Desk", "mode": "window"}
+    assert spec.app == {
+        "entry": "ui/index.html",
+        "title": "HR Desk",
+        "mode": "window",
+        "public": False,  # scaffolded agents are always private until the author opts in
+        "public_tools": (),
+    }
     entry = Path(cfg.agents_dir) / "hr-desk" / "ui" / "index.html"
     assert entry.is_file() and "HR Desk" in entry.read_text(encoding="utf-8")
     # advertised WITH the mode (entry exists), so every opener knows how to present it
@@ -475,7 +487,13 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
         workspace=str(tmp_path),
     )
     spec = FileAgentRegistry(cfg).get("kiosk")
-    assert spec.app == {"entry": "ui/index.html", "title": "Kiosk Console", "mode": "window"}
+    assert spec.app == {
+        "entry": "ui/index.html",
+        "title": "Kiosk Console",
+        "mode": "window",
+        "public": False,
+        "public_tools": (),
+    }
     gw = _gw_with_agent(tmp_path, spec)
     assert gw._agent_app("kiosk", spec) == {
         "title": "Kiosk Console",
@@ -484,3 +502,168 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
     }
     r = gw._serve_app(urlsplit("/apps/kiosk/"))
     assert r.status_code == 200 and b"Kiosk Console" in r.body
+
+
+# =========================== P3: public app access + host aliases =============================
+# Hosted deployments: an agent whose [app] declares `public = true` admits UNAUTHENTICATED
+# connections scoped to it, limited to PUBLIC_APP_METHODS and the author-declared
+# `public_tools` subset. config.app_hosts maps a vanity hostname to an agent so each curated
+# agent lives at its own URL. Both are fully dormant by default (no opt-in, empty map).
+from agentd.presentation.gateway import PUBLIC_APP_METHODS  # noqa: E402
+
+
+def test_agent_toml_app_public_parsed(tmp_path):
+    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+
+    d = tmp_path / "agents" / "pubapp"
+    (d / "ui").mkdir(parents=True)
+    (d / "ui" / "index.html").write_text("<html/>", encoding="utf-8")
+    (d / "agent.toml").write_text(
+        'name = "Pub"\n[app]\npublic = true\npublic_tools = ["get_weather", " ", ""]\n',
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        state_dir=str(tmp_path / "state"),
+        agents_dir=str(tmp_path / "agents"),
+        agent_name="jarvis",
+        workspace=str(tmp_path),
+    )
+    spec = FileAgentRegistry(cfg).get("pubapp")
+    assert spec.app["public"] is True
+    assert spec.app["public_tools"] == ("get_weather",)  # blanks dropped
+
+
+def _public_app_spec(tmp_path, public_tools=("echo_tool",)):
+    spec = _app_agent_dir(tmp_path)
+    spec.app["public"] = True
+    spec.app["public_tools"] = tuple(public_tools)
+    return spec
+
+
+def test_public_scope_ok_requires_app_opt_in(tmp_path):
+    spec = _public_app_spec(tmp_path)
+    gw = _gw_with_agent(tmp_path, spec)
+    assert gw._public_scope_ok("demo") is True
+    spec.app["public"] = False
+    assert gw._public_scope_ok("demo") is False  # not opted in
+    assert gw._public_scope_ok("nope") is False  # unknown agent
+    assert gw._public_scope_ok(None) is False  # unscoped never public
+    gw.registry = None
+    assert gw._public_scope_ok("demo") is False  # no registry (bare gateway)
+
+
+class _ConnWs:
+    """Just enough of a ServerConnection for _handle_conn: a request, a close(), an
+    async iterator that ends immediately (the connection opens then hangs up)."""
+
+    def __init__(self, path="/", host="127.0.0.1:8787"):
+        self.request = SimpleNamespace(path=path, headers={"Host": host})
+        self.closed: tuple | None = None
+
+    async def close(self, code=1000, reason=""):
+        self.closed = (code, reason)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+def test_unauthenticated_conn_admitted_only_for_public_scope(tmp_path):
+    spec = _public_app_spec(tmp_path)
+    gw = _gw_with_agent(tmp_path, spec)
+    gw.auth_token = "secret"  # hosted daemon: auth ON, none of these present a token
+
+    ws = _ConnWs(path="/?scope=agent:demo")
+    asyncio.run(gw._handle_conn(ws))
+    assert ws.closed is None  # admitted (public tier), then hung up normally
+    assert ws not in gw.client_public  # and cleaned up on disconnect
+
+    bare = _ConnWs(path="/")
+    asyncio.run(gw._handle_conn(bare))
+    assert bare.closed is not None and bare.closed[0] == 4401  # unscoped -> refused
+
+    spec.app["public"] = False
+    private = _ConnWs(path="/?scope=agent:demo")
+    asyncio.run(gw._handle_conn(private))
+    assert private.closed is not None and private.closed[0] == 4401  # no opt-in -> refused
+
+
+def test_public_dispatch_is_a_strict_subset_of_the_scoped_tier(tmp_path):
+    gw = _gw(tmp_path)
+    assert PUBLIC_APP_METHODS < APP_SCOPED_METHODS  # subset by construction
+    for method in ("chat.send", "sessions.list", "workspace.list", "config.get"):
+        r = asyncio.run(gw._dispatch(Request(id="1", method=method, params={}), None, "demo", True))
+        assert r.ok is False and "public" in r.payload["error"]
+    # the same scoped connection WITH auth (public=False) still reaches the stable tier
+    ok = asyncio.run(
+        gw._dispatch(Request(id="2", method="sessions.list", params={}), None, "demo", False)
+    )
+    assert ok.ok is True
+
+
+def test_tools_invoke_public_filter(tmp_path):
+    spec = _public_app_spec(tmp_path, public_tools=("echo_tool",))
+    gw = _gw_with_agent(tmp_path, spec)
+
+    class _MailTool(_FakeTool):
+        name = "send_email"
+
+    tools = {"echo_tool": _FakeTool(), "send_email": _MailTool()}
+    setattr(gw, "service", SimpleNamespace(find_tool=lambda n, a=None: tools.get(n)))
+
+    # public: the declared tool runs AS the agent…
+    out = asyncio.run(gw._tools_invoke({"name": "echo_tool"}, "demo", True))
+    assert out["text"] == "ran-as:demo"
+    # …but anything OUTSIDE public_tools is refused, even though the AGENT is allowed it
+    try:
+        asyncio.run(gw._tools_invoke({"name": "send_email"}, "demo", True))
+        raise AssertionError("public invoke of a non-public tool should have been refused")
+    except RuntimeError as e:
+        assert "not publicly invokable" in str(e)
+    # an authenticated scoped connection is untouched by the public filter
+    out = asyncio.run(gw._tools_invoke({"name": "send_email"}, "demo", False))
+    assert out["text"] == "ran-as:demo"
+
+
+def test_host_alias_serving_scope_and_dormancy(tmp_path):
+    spec = _app_agent_dir(tmp_path)
+    gw = _gw_with_agent(tmp_path, spec)
+    gw.config.app_hosts = {"demo.example.com": "demo"}
+
+    # aliased host serves the agent's ui at "/" (and assets by path)
+    r = gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    assert r is not None and r.status_code == 200 and b"demo app" in r.body
+    r = gw._http_request(
+        None, SimpleNamespace(path="/app.js", headers={"Host": "demo.example.com"})
+    )
+    assert r is not None and r.status_code == 200 and b"console.log" in r.body
+
+    # a WebSocket upgrade on the aliased host must NOT be short-circuited
+    ws_req = SimpleNamespace(
+        path="/", headers={"Host": "demo.example.com", "Upgrade": "websocket"}
+    )
+    assert gw._http_request(None, ws_req) is None
+
+    # …and the connection it becomes is scoped to the aliased agent server-side
+    ws = SimpleNamespace(request=ws_req)
+    assert gw._connection_scope(ws) == "demo"
+    # explicit scope always wins over the alias
+    explicit = SimpleNamespace(
+        request=SimpleNamespace(
+            path="/?scope=agent:other", headers={"Host": "demo.example.com"}
+        )
+    )
+    assert gw._connection_scope(explicit) == "other"
+
+    # unaliased host: nothing changes (falls through to the normal handshake / no scope)
+    plain = SimpleNamespace(path="/", headers={"Host": "127.0.0.1:8787"})
+    assert gw._http_request(None, plain) is None
+    assert gw._connection_scope(SimpleNamespace(request=plain)) is None
+
+    # dormant by default: empty map == today's behavior everywhere
+    gw.config.app_hosts = {}
+    assert gw._http_request(
+        None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"})
+    ) is None

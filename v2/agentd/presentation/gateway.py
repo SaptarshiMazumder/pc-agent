@@ -90,6 +90,25 @@ APP_SCOPED_METHODS = frozenset(
     }
 )
 
+# The PUBLIC tier (hosted deployments): what an UNAUTHENTICATED connection scoped to an
+# agent whose [app] declares `public = true` may call. A strict subset of the scoped tier —
+# deliberately excludes chat.* (burns LLM tokens), sessions.* and workspace.* (state): a
+# public visitor can render the app and invoke the author-declared `public_tools`, nothing
+# else. Private/local daemons never see this tier (auth passes or the conn is refused).
+PUBLIC_APP_METHODS = frozenset(
+    {
+        "hello",
+        "agents.list",
+        "agents.detail",
+        "tools.list",
+        "tools.invoke",
+    }
+)
+# Abuse guards for the public tier — coarse by design (real rate limiting belongs to the
+# CDN/WAF in front of a hosted daemon, not here).
+MAX_PUBLIC_CONNECTIONS = 256  # FD-exhaustion guard
+PUBLIC_INVOKE_CONCURRENCY = 8  # global in-flight cap for public tools.invoke
+
 
 def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
     """What an agent-scoped app connection may receive (docs/PROTOCOL.md §7): its OWN agent's
@@ -461,6 +480,7 @@ EXPOSED_CONFIG_KEYS = (
     "webhook_port",
     "skills_relevance_enabled",
     "plugins",
+    "app_hosts",
 )
 WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
 PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})
@@ -518,6 +538,7 @@ EXPOSED_KEY_ENV = {
     "webhook_host": "AGENTD_WEBHOOK_HOST",
     "webhook_port": "AGENTD_WEBHOOK_PORT",
     "skills_relevance_enabled": "AGENTD_SKILLS_RELEVANCE_ENABLED",
+    "app_hosts": "AGENTD_APP_HOSTS",
 }
 
 # Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
@@ -832,6 +853,12 @@ class Gateway:
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
     # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
     client_scopes: dict = field(default_factory=dict)
+    # PUBLIC connections (hosted): unauthenticated, admitted only because their scope's
+    # [app] declares public = true. Always ALSO in client_scopes; further limited to
+    # PUBLIC_APP_METHODS + the agent's [app] public_tools.
+    client_public: set = field(default_factory=set)
+    # global in-flight cap for public tools.invoke (created lazily on the running loop)
+    _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
 
@@ -1247,15 +1274,19 @@ class Gateway:
             raise RuntimeError(text or f"{name} failed")
         return text
 
-    async def _tools_invoke(self, params: dict, scope: str | None = None) -> dict:
+    async def _tools_invoke(
+        self, params: dict, scope: str | None = None, public: bool = False
+    ) -> dict:
         """Run ONE tool directly from a client (no agent/LLM turn) and return its text + rendered
-        artifacts. Params: {name, params:{...}}. Two gates (docs/PROTOCOL.md §6):
+        artifacts. Params: {name, params:{...}}. Three gates (docs/PROTOCOL.md §6):
 
         • HOST connections — only tools that self-declare `artifact_action` (canvas buttons),
           so a general client can't run arbitrary tools.
         • agent-SCOPED app connections — any tool the scoped AGENT itself is allowed
           (its tools.allow/deny), executed in that agent's context (workspace + per-agent
           model overrides). The app surface is exactly the agent's own capability surface.
+        • PUBLIC connections — the author-declared `[app] public_tools` subset ONLY,
+          checked ON TOP of the agent's own allow/deny (the gates stack, never replace).
         """
         from agentd.infrastructure.files import resolve_artifacts
         from agentd.infrastructure.plugins.catalog import _unwrap_tool
@@ -1275,6 +1306,10 @@ class Gateway:
                 spec = None
             if spec is None:
                 raise RuntimeError(f"unknown agent: {scope}")
+            if public:
+                allowed = ((getattr(spec, "app", None) or {}).get("public_tools")) or ()
+                if name not in allowed:
+                    raise RuntimeError(f"tool '{name}' is not publicly invokable")
             # an agent's own shipped tool is implicitly allowed (deny still wins); a shared
             # tool goes through the agent's normal allow/deny scope.
             own = getattr(_unwrap_tool(tool), "_agent_id", "") == scope
@@ -1301,18 +1336,28 @@ class Gateway:
                 uuid.uuid4().hex[:8], dict(params.get("params") or {}), asyncio.Event()
             )
 
-        if run_ctx is not None:
-            from agentd.application.run_context import set_run_context
+        # public tier: one GLOBAL in-flight cap across all visitors (per-connection requests
+        # are already serialized by _handle_conn's inline await) — a flood queues, not forks.
+        if public:
+            if self._public_invoke_sem is None:
+                self._public_invoke_sem = asyncio.Semaphore(PUBLIC_INVOKE_CONCURRENCY)
+            await self._public_invoke_sem.acquire()
+        try:
+            if run_ctx is not None:
+                from agentd.application.run_context import set_run_context
 
-            # contextvars are task-local: run the tool in ITS OWN task so the scoped agent
-            # context can never leak into this connection's later requests.
-            async def _scoped():
-                set_run_context(run_ctx)
-                return await _execute()
+                # contextvars are task-local: run the tool in ITS OWN task so the scoped agent
+                # context can never leak into this connection's later requests.
+                async def _scoped():
+                    set_run_context(run_ctx)
+                    return await _execute()
 
-            result = await asyncio.create_task(_scoped())
-        else:
-            result = await _execute()
+                result = await asyncio.create_task(_scoped())
+            else:
+                result = await _execute()
+        finally:
+            if public and self._public_invoke_sem is not None:
+                self._public_invoke_sem.release()
         text = "".join(getattr(b, "text", "") for b in (result.content or []))
         if result.is_error:
             raise RuntimeError(text or f"{name} failed")
@@ -1576,10 +1621,28 @@ class Gateway:
         the WebSocket upgrade) proceed to the handshake."""
         try:
             split = urlsplit(getattr(request, "path", "") or "")
+            if split.path == "/healthz":
+                # liveness for containers/load balancers: a real 200 (the WS root answers
+                # 426, and probing any /apps/<id>/ would hardcode an agent). No auth — it
+                # reveals nothing but "the process serves HTTP".
+                return HttpResponse(
+                    200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
+                )
             if split.path == "/file":
                 return self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return self._serve_app(split)
+            # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
+            # short-circuit a WebSocket upgrade, or no WS could ever connect on the alias.
+            headers = getattr(request, "headers", {})
+            try:
+                upgrade = (headers.get("Upgrade") or "").lower()
+            except Exception:  # noqa: BLE001
+                upgrade = ""
+            if upgrade != "websocket":
+                alias = self._host_alias(headers)
+                if alias:
+                    return self._serve_app(urlsplit(f"/apps/{alias}{split.path}"))
             return None  # not ours — fall through to the WS handshake
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
             log.exception("http %s failed", getattr(request, "path", ""))
@@ -1771,10 +1834,26 @@ class Gateway:
             served_host = ""
         return bool(host) and host == served_host
 
+    def _host_alias(self, headers) -> str | None:
+        """Hosted deployments: config.app_hosts maps a vanity hostname to an agent id
+        ({"weather.example.com": "weather"}) so each curated agent lives at its OWN URL
+        on the shared daemon. Empty map (the default, and every local install) => fully
+        dormant. Pure lookup — serving/scoping callers decide what to do with the id."""
+        hosts = getattr(self.config, "app_hosts", None) or {}
+        if not hosts or headers is None:
+            return None
+        try:
+            host = urlsplit(f"//{headers.get('Host') or ''}").hostname or ""
+        except Exception:  # noqa: BLE001 — a malformed Host header is just "no alias"
+            return None
+        return hosts.get(host.lower())
+
     def _connection_scope(self, ws: ServerConnection) -> str | None:
         """An app connection declares `scope=agent:<id>` on its connect URL — it is then
         limited to the stable method tier, forced onto that agent, and receives only that
-        agent's events. Until real auth lands this is a correctness seam, not security."""
+        agent's events. Until real auth lands this is a correctness seam, not security.
+        Fallback: a connection arriving on an aliased app host (config.app_hosts) is
+        scoped to that host's agent server-side — the page never has to know."""
         request = getattr(ws, "request", None)
         if request is None:
             return None
@@ -1782,23 +1861,44 @@ class Gateway:
         raw = (query.get("scope") or [""])[0]
         if raw.startswith("agent:"):
             return raw[len("agent:") :].strip() or None
-        return None
+        return self._host_alias(getattr(request, "headers", None))
+
+    def _public_scope_ok(self, scope: str | None) -> bool:
+        """May an UNAUTHENTICATED connection proceed? Only when scoped to an agent whose
+        [app] declares `public = true` — the author's opt-in, config/data-driven (core
+        never names an agent). Everything else without a valid token stays refused."""
+        if not scope or self.registry is None:
+            return False
+        try:
+            spec = self.registry.get(scope)
+        except KeyError:
+            return False
+        app = getattr(spec, "app", None) or {}
+        return bool(app.get("public"))
 
     async def _handle_conn(self, ws: ServerConnection) -> None:
         if not self._origin_allowed(ws):
             await ws.close(code=4403, reason="forbidden origin")
             return
+        # Scope is read BEFORE auth so an unauthenticated connection can be DOWNGRADED to
+        # the public tier (when its agent's [app] opted in) instead of refused outright.
+        scope = self._connection_scope(ws)
+        public = False
         if not self._authorized(ws):
-            await ws.close(code=4401, reason="unauthorized")
-            return
+            if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
+                public = True
+            else:
+                await ws.close(code=4401, reason="unauthorized")
+                return
         # Each connection — terminal, desktop, mobile, a channel adapter, an agent app —
         # gets a stable client id. Runs it starts are tagged with it, so when this
         # connection drops we can stop exactly that client's in-flight work.
         client_id = uuid.uuid4().hex
-        scope = self._connection_scope(ws)
         self.clients.add(ws)
         if scope:
             self.client_scopes[ws] = scope
+        if public:
+            self.client_public.add(ws)
         try:
             async for raw in ws:
                 try:
@@ -1807,20 +1907,33 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
-                    response = await self._dispatch(frame, client_id, scope)
+                    response = await self._dispatch(frame, client_id, scope, public)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
             pass
         finally:
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
+            self.client_public.discard(ws)
             await self._abort_client_runs(client_id)
 
     # --------------------------------------------------------------- dispatch
 
     async def _dispatch(
-        self, req: Request, client_id: str | None = None, scope: str | None = None
+        self,
+        req: Request,
+        client_id: str | None = None,
+        scope: str | None = None,
+        public: bool = False,
     ) -> Response:
+        # PUBLIC connections (unauthenticated, [app] public opt-in): the public tier is a
+        # strict subset of the scoped tier — checked FIRST, then the scoped gate applies too.
+        if public and req.method not in PUBLIC_APP_METHODS:
+            return Response(
+                id=req.id,
+                ok=False,
+                payload={"error": f"method '{req.method}' is not available to public connections"},
+            )
         # Agent-scoped app connections (docs/PROTOCOL.md §1/§4): stable tier only, and the
         # scoped agent is FORCED onto the params — an app can never act as another agent.
         # (Methods that take no agentId simply ignore the extra key.)
@@ -1886,7 +1999,7 @@ class Gateway:
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "tools.invoke":
-                payload = await self._tools_invoke(req.params, scope)
+                payload = await self._tools_invoke(req.params, scope, public)
             elif req.method == "plugins.catalog":
                 payload = self._plugins_catalog()
             elif req.method == "capabilities.list":

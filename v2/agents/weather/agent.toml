@@ -6,9 +6,13 @@ version = "0.1.0"
 
 # Its own UI (ui/), served by the daemon at /apps/weather/ — opens in its OWN window
 # (a desktop-independent app; the exe later just wraps this same page).
+# public: on a HOSTED daemon, visitors without a token may connect scoped to this agent —
+# but they can ONLY invoke public_tools (send_email stays private; chat is never public).
 [app]
 title = "Tokyo Weather"
 mode = "window"
+public = true
+public_tools = ["get_weather"]
 
 # Tight scope: this agent needs almost nothing from the shared catalog. Its OWN tools
 # (get_weather, send_email — shipped in plugins/weather-kit) are implicitly allowed and

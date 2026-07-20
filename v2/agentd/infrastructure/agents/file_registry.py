@@ -222,6 +222,16 @@ class FileAgentRegistry:
                 # feel) or a normal "browser" tab. The AUTHOR declares it; every opener
                 # honors it. Unknown values fall back to browser.
                 "mode": mode if mode in ("window", "browser") else "browser",
+                # PUBLIC access (hosted deployments): public = true lets UNAUTHENTICATED
+                # connections scoped to this agent in; public_tools is the ONLY tool
+                # subset such visitors may invoke (the agent's own allow/deny still
+                # applies on top). Absent => private, () => public app with no tools.
+                "public": bool(app_raw.get("public", False)),
+                "public_tools": tuple(
+                    str(t).strip()
+                    for t in (app_raw.get("public_tools") or [])
+                    if str(t).strip()
+                ),
             }
 
         # Display presentation: authored agent.toml fields win; else the sidecar the

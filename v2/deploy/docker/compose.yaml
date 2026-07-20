@@ -1,0 +1,19 @@
+# The ONE compose file, local and EC2 alike.
+#   local:  docker compose up  (named volume, image built locally)
+#   EC2:    .env sets AGENTD_IMAGE=<ecr-url>:latest and AGENTD_DATA_DIR=/opt/agentd/data
+#           (the EBS-backed bind mount; user_data chowns it to uid 1000)
+# .env must also pin AGENTD_TOKEN — the owner's host-tier bearer token. Public visitors
+# never need it: agents opt into tokenless access per-app via [app] public.
+services:
+  agentd:
+    image: ${AGENTD_IMAGE:-agentd-web:latest}
+    restart: unless-stopped
+    ports:
+      - "80:8787" # CloudFront custom-origin default HTTP port
+    env_file:
+      - .env
+    volumes:
+      - ${AGENTD_DATA_DIR:-agentd-data}:/data
+
+volumes:
+  agentd-data:

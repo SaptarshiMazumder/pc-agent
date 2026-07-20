@@ -22,7 +22,7 @@ def _normalize_model(model: str) -> str:
     """The google-genai SDK wants a BARE id (e.g. 'gemini-2.5-flash'), but the model knob is shared with the
     litellm-based vision tools and often carries a 'gemini/' (or 'google/'/'models/') prefix. Passing that
     straight through makes the SDK request 'models/gemini/…' -> 404. Strip it so one config value works for
-    both worlds. (Same fix as imagegen_gemini._normalize_model.)"""
+    both worlds. (Same fix as figure_art_gemini._normalize_model.)"""
     m = str(model or "").strip()
     changed = True
     while changed:                              # strip repeatedly so 'models/gemini/…' fully unwraps
