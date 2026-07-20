@@ -4,6 +4,7 @@ import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDo
 import { gateway } from '../gateway/client'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 import { appLaunchUrl } from '../lib/artifacts'
+import { platform } from '../lib/platform'
 import { useApp } from '../state/store'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
@@ -97,7 +98,7 @@ export default function AgentView() {
     // window; "browser" (the default) = the system browser. window.open is routed to
     // the OS browser by the main process, and doubles as the no-IPC fallback.
     if (appInfo.mode === 'window') {
-      const res = await window.agentd.openAppWindow?.(url, appInfo.title)
+      const res = await platform.openAppWindow?.(url, appInfo.title)
       if (res?.ok) return
     }
     window.open(url)

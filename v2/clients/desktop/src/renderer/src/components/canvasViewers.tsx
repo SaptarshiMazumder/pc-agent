@@ -3,6 +3,7 @@ import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Dow
 
 import type { Artifact } from '../lib/artifacts'
 import { fileUrl, actionsFor } from '../lib/artifacts'
+import { platform } from '../lib/platform'
 import { EDITABLE, ext, viewerKind } from '../lib/canvasFile'
 import { useApp } from '../state/store'
 import FabricEditor, { rasterMode, svgMode } from './FabricEditor'
@@ -190,7 +191,7 @@ function TextViewer({ a }: { a: Artifact }): JSX.Element {
     let alive = true
     setText(null); setError(''); setDirty(false)
     // read via IPC (main's fs) — the file is local, and a cross-origin fetch would be blocked
-    window.agentd.readText(a.path).then((res) => {
+    platform.readText(a.path).then((res) => {
       if (!alive) return
       if (res.ok && res.text != null) setText(res.text)
       else setError(res.error || 'read failed')
@@ -201,7 +202,7 @@ function TextViewer({ a }: { a: Artifact }): JSX.Element {
   async function save(): Promise<void> {
     if (text == null) return
     setSaving(true)
-    const res = await window.agentd.savePath(a.path, text)
+    const res = await platform.savePath(a.path, text)
     setSaving(false)
     if (res?.ok) setDirty(false)
   }
@@ -297,10 +298,10 @@ function Fallback({ a }: { a: Artifact }): JSX.Element {
     <div className="cv-empty">
       <p>No in-app preview for this file type yet.</p>
       <div className="cv-empty-actions">
-        <button className="cv-btn wide" onClick={() => void window.agentd.openPath(a.path)}>
+        <button className="cv-btn wide" onClick={() => void platform.openPath(a.path)}>
           <ExternalLink size={15} /> Open in default app
         </button>
-        <button className="cv-btn wide" onClick={() => void window.agentd.downloadPath(a.path)}>
+        <button className="cv-btn wide" onClick={() => void platform.downloadPath(a.path)}>
           <Download size={15} /> Download
         </button>
       </div>

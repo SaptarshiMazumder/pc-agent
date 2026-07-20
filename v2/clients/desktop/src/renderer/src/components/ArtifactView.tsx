@@ -3,6 +3,7 @@ import { FileText, FolderOpen, Eye, Download, Check } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
 import { fileUrl, humanSize } from '../lib/artifacts'
+import { platform } from '../lib/platform'
 import { useApp } from '../state/store'
 import FileName from './FileName'
 
@@ -22,7 +23,7 @@ function Actions({ a }: { a: Artifact }): JSX.Element {
   const [saved, setSaved] = useState(false)
   async function download(e: React.MouseEvent): Promise<void> {
     e.stopPropagation()
-    const res = await window.agentd.downloadPath(a.path)
+    const res = await platform.downloadPath(a.path)
     if (res?.ok) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -39,7 +40,7 @@ function Actions({ a }: { a: Artifact }): JSX.Element {
         {saved ? <Check size={14} /> : <Download size={14} />} {saved ? 'Saved' : 'Download'}
       </button>
       {a.kind === 'file' && (
-        <button className="artifact-icon-btn" title="show in folder" onClick={(e) => { e.stopPropagation(); void window.agentd.revealPath(a.path) }}>
+        <button className="artifact-icon-btn" title="show in folder" onClick={(e) => { e.stopPropagation(); void platform.revealPath(a.path) }}>
           <FolderOpen size={14} />
         </button>
       )}

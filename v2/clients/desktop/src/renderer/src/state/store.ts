@@ -24,6 +24,7 @@ import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
+import { platform } from '../lib/platform'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -751,17 +752,17 @@ export const useApp = create<AppState>((set, get) => {
 
     async bootstrap() {
       applyTheme(get().theme)   // a persisted 'dark' shows from the first paint
-      const flavor = (await window.agentd.flavor()) as FlavorInfo
+      const flavor = (await platform.flavor()) as unknown as FlavorInfo
       set({ flavor })
-      window.agentd.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
-      set({ supervisor: (await window.agentd.supervisorStatus()) as SupervisorStatus })
+      platform.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
+      set({ supervisor: (await platform.supervisorStatus()) as SupervisorStatus })
       wireEvents()
       set({ connection: 'connecting' })
       // Re-resolve host/port/token on every (re)connect: ensureDaemon finds the live
       // daemon (or starts one) and returns its CURRENT url+token — so a daemon restart
       // (which rotates the token) reconnects cleanly instead of looping on a stale one.
       gateway.connect(async () => {
-        const { url } = await window.agentd.ensureDaemon()
+        const { url } = await platform.ensureDaemon()
         setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
         return url
       })

@@ -4,6 +4,7 @@ import { X, ExternalLink, Download } from 'lucide-react'
 import { kindLabel } from '../lib/canvasFile'
 import { useApp } from '../state/store'
 import { CanvasBody } from './canvasViewers'
+import { platform } from '../lib/platform'
 
 /** The Claude-style right-side Canvas: a resizable panel that opens a produced file for
  *  rich in-app view/edit. The viewer is chosen per file type (see canvasViewers). */
@@ -49,10 +50,10 @@ export default function Canvas(): JSX.Element | null {
           {/* open-in-app / download act on a real file — hide for synthetic in-memory docs */}
           {artifact.text == null && (
             <>
-              <button className="cv-btn" title="open in default app" onClick={() => void window.agentd.openPath(artifact.path)}>
+              <button className="cv-btn" title="open in default app" onClick={() => void platform.openPath(artifact.path)}>
                 <ExternalLink size={15} />
               </button>
-              <button className="cv-btn" title="download a copy" onClick={() => void window.agentd.downloadPath(artifact.path)}>
+              <button className="cv-btn" title="download a copy" onClick={() => void platform.downloadPath(artifact.path)}>
                 <Download size={15} />
               </button>
             </>

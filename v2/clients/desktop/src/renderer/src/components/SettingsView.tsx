@@ -12,6 +12,7 @@ import {
 import { useApp } from '../state/store'
 import PageShell from './PageShell'
 import SearchBox from './SearchBox'
+import { platform } from '../lib/platform'
 
 /** does a field match a search query (matched on its label + bare key) */
 function fieldMatches(f: FieldDef, ql: string): boolean {
@@ -214,13 +215,13 @@ export default function SettingsView() {
       // restart. If the save touched any such key, restart the daemon so the change actually
       // applies (API keys + the LIVE_KEYS below are already live and skip the restart).
       const needsRestart = Object.keys(patch).some((k) => !LIVE_KEYS.has(k))
-      if (needsRestart && window.agentd?.restartDaemon) {
+      if (needsRestart && platform?.restartDaemon) {
         setData((d) => (d ? { ...d, values: { ...d.values, ...patch } } : d)) // optimistically clean
         setKeysDraft({})
         setListBuf({})
         setNote('Saved — restarting the agent to apply…')
         try {
-          await window.agentd.restartDaemon()
+          await platform.restartDaemon()
           setNote('Applied — agent restarted.')
         } catch {
           setNote('Saved, but the restart failed — restart the daemon manually to apply.')
