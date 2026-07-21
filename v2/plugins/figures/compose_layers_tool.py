@@ -77,12 +77,33 @@ class ComposeLayersTool(Tool):
     def __init__(self, config):
         self.config = config
 
+    def _svg_content(self, value: str, *, field: str, path_field: str) -> str:
+        """Raw SVG markup for a `*_svg` field, hardened. A `*_svg` field takes SVG *markup*; the
+        matching `*_svg_path` field takes a file path. Callers routinely confuse the two and pass a
+        FILENAME into the markup field — which used to be embedded verbatim, silently producing a
+        figure with the base artwork and a stray text node but NO overlay. So: real markup passes
+        through; a value that resolves to an existing .svg file is loaded (forgiving auto-recover);
+        anything else raises, instead of emitting a broken figure."""
+        s = (value or "").strip()
+        if "<svg" in s:
+            return value
+        try:
+            candidate = resolve_path(self.config, s)
+            if candidate.suffix.lower() == ".svg" and candidate.is_file():
+                return candidate.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+        raise ValueError(
+            f"`{field}` must be raw SVG markup (containing '<svg'), not a file path — got "
+            f"{s[:60]!r}. To pass a file, use `{path_field}` instead."
+        )
+
     def _overlay_text(self, params) -> str:
         if bool(params.get("overlay_svg")) == bool(params.get("overlay_svg_path")):
             raise ValueError("provide exactly ONE of: overlay_svg, overlay_svg_path")
         if params.get("overlay_svg_path"):
             return resolve_path(self.config, params["overlay_svg_path"]).read_text(encoding="utf-8")
-        return params["overlay_svg"]
+        return self._svg_content(params["overlay_svg"], field="overlay_svg", path_field="overlay_svg_path")
 
     def _artwork(self, params):
         """Return ('raster', Path) or ('vector', svg_text). Exactly one source allowed."""
@@ -93,7 +114,7 @@ class ComposeLayersTool(Tool):
             return "raster", resolve_path(self.config, params["artwork"])
         if params.get("artwork_svg_path"):
             return "vector", resolve_path(self.config, params["artwork_svg_path"]).read_text(encoding="utf-8")
-        return "vector", params["artwork_svg"]
+        return "vector", self._svg_content(params["artwork_svg"], field="artwork_svg", path_field="artwork_svg_path")
 
     def _run(self, params: dict) -> dict:
         if not params.get("out_png") and not params.get("out_svg"):

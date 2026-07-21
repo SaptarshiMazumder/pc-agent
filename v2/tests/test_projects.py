@@ -102,7 +102,7 @@ def test_chat_send_tags_session_with_project(tmp_path):
     the ONE place project membership lives, shared by every client."""
     gw, _events = _gateway(tmp_path)
 
-    async def fake_run(handle, message, mode="interactive", agent_id=None, attachments=None):
+    async def fake_run(handle, message, mode="interactive", agent_id=None, attachments=None, account=None):
         return None
 
     gw._run = fake_run  # the run itself is not under test

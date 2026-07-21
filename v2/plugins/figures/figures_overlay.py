@@ -570,6 +570,26 @@ def _icon_image(path, x, y, w, h) -> str:
             f'preserveAspectRatio="xMidYMid meet" xlink:href="data:{mime};base64,{b64}"/>')
 
 
+def _image(el, defs, s=1.0) -> str:
+    """A standalone raster image placed at (x, y) with (width, height), base64-embedded so the SVG
+    stays self-contained. `preserveAspectRatio="none"` = exact pixel placement (no letterboxing).
+    This is how each ARTWORK OBJECT (after background removal + connected-component split) becomes its
+    OWN wholly-selectable element in the SVG — apple, mango, banana each a separate object."""
+    path = el.get("path")
+    if not path:
+        return str(el.get("svg", ""))
+    try:
+        data = Path(path).read_bytes()
+    except Exception:
+        return ""
+    mime = _IMG_MIME.get(Path(path).suffix.lower(), "image/png")
+    b64 = base64.b64encode(data).decode()
+    x, y = float(el.get("x", 0)), float(el.get("y", 0))
+    w, h = float(el["width"]), float(el["height"])
+    return (f'<image x="{_f(x)}" y="{_f(y)}" width="{_f(w)}" height="{_f(h)}" '
+            f'preserveAspectRatio="none" xlink:href="data:{mime};base64,{b64}"/>')
+
+
 def _node(el, defs, font_family, s=1.0) -> str:
     """A flowchart node = rounded box + optional icon (top) + wrapped label, plus an optional step
     badge. Everything is editable vector; the icon is an embedded <image>. Coords/size (x,y,w,h) are in
@@ -620,6 +640,7 @@ _RENDERERS = {
     "panel": lambda el, defs, ff, s: _panel(el, defs, s),
     "node": lambda el, defs, ff, s: _node(el, defs, ff, s),
     "dot": lambda el, defs, ff, s: _dot(el, defs, s),
+    "image": lambda el, defs, ff, s: _image(el, defs, s),
     "raw": lambda el, defs, ff, s: str(el.get("svg", "")),
 }
 
