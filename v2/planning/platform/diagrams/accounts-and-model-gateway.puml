@@ -1,0 +1,100 @@
+@startuml accounts-and-gateway-components
+!pragma layout smetana
+' ^ use PlantUML's built-in layout engine so this component diagram needs NO
+'   external Graphviz/dot install (otherwise strict previewers error here).
+' ============================================================================
+'  M1 — Accounts + Model Gateway : COMPONENT & DATA-FLOW view
+'  Two NEW services sit beside the daemon. Both DEFAULT OFF (desktop unchanged).
+'  Read this first, then the sequence diagram (2nd @startuml block below).
+' ============================================================================
+title M1 — Accounts + Model Gateway (what runs where, and why)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultTextAlignment left
+
+actor "User" as user
+
+rectangle "BROWSER — web client\n----\nHOLDS: session token ONLY (never a model key)\nfiles: lib/auth.ts, components/SignIn.tsx,\n       App.tsx (sign-in gate), lib/platform.ts" as browser
+
+rectangle "agentd DAEMON  :8790\n----\nThe ENGINE. Holds NO provider keys, NO account data.\ngateway.py:  _handle_conn -> _dispatch -> _chat_send -> _run\ninfrastructure/accounts.py:  resolve / check_budget /\n       report_usage  +  current_account / current_usage (contextvars)\ninfrastructure/llm/model_gateway.py:  apply() retargets calls" as daemon
+
+rectangle "ACCOUNTS SERVICE  :4100\n----\nOUR identity + tab ledger (the 'State plane').\nSQLite tables: accounts / sessions / usage\nfile: deploy/accounts/app.py" as accounts
+
+rectangle "MODEL GATEWAY  :4000  (LiteLLM proxy)\n----\nHOLDS: the REAL provider keys + a master key.\nEvery model call flows through here = metering chokepoint.\nfiles: deploy/gateway/litellm.config.yaml, run-local.py" as gateway
+
+cloud "PROVIDERS\nGemini / DeepSeek / Anthropic / ..." as prov
+
+user   --> browser
+browser --> accounts : (1) POST /login  =>  session token
+browser --> daemon   : (2) WS connect  ?token=<session>\n     then chat.send
+daemon  --> accounts : (3) GET /resolve  token -> account\n     GET /budget  (pre-check)\n     POST /usage  (report spend)
+daemon  --> gateway  : (4) model call\n     model=litellm_proxy/<m>, api_key=master key
+gateway --> prov     : (5) real provider key
+prov    --> gateway  : text + token usage
+gateway --> daemon   : answer
+daemon  --> browser  : streamed reply
+
+note bottom of gateway
+  WHY a proxy: the real keys live in ONE place, never in the
+  daemon or the browser. One chokepoint => every call is counted.
+  DEFAULT OFF (no AGENTD_MODEL_GATEWAY_URL) => the daemon calls
+  providers DIRECTLY with your .env key, exactly like desktop today.
+end note
+
+note bottom of accounts
+  WHY a separate service: a FLEET of daemons shares ONE identity +
+  tab. The session token is NOT a model key -- if stolen it can only
+  spend that one account's budget, never touch a key or another user.
+  DEFAULT OFF => no accounts; the single machine token gates instead.
+end note
+@enduml
+
+
+@startuml accounts-and-gateway-sequence
+' ============================================================================
+'  M1 — ONE MESSAGE, END TO END : follows both WHO (identity) and MONEY.
+'  Each step is tagged with the file/function where it happens.
+' ============================================================================
+title M1 — one message end-to-end (identity + metering)
+
+skinparam shadowing false
+actor User
+participant "Browser\nauth.ts / platform.ts" as B
+participant "Daemon\ngateway.py" as D
+participant "Accounts :4100\napp.py" as A
+participant "Gateway :4000\nLiteLLM proxy" as G
+participant "Provider\nGemini/DeepSeek" as P
+
+== sign in (once) ==
+User -> B : email + password
+B -> A : POST /login
+A -> A : verify password, create a sessions row
+A --> B : session token  (sess_...)
+note over B : stored in localStorage (lib/auth.ts)
+
+== connect (once per browser session) ==
+B -> D : WS connect  ?token=sess_...
+D -> A : GET /resolve  (Bearer sess_...)      << _handle_conn
+A --> D : { account_id, email, budget_usd }
+note over D : admitted AS that account.\nbad / missing token => 4401 REFUSED
+
+== each chat turn ==
+User -> B : "hello"
+B -> D : chat.send
+D -> A : GET /budget/<account>                << _chat_send pre-check
+A --> D : over ?
+alt tab is maxed
+  D --> B : refused: "monthly budget reached"
+else within budget
+  note over D : _run pins account + a fresh empty tab\non contextvars (infrastructure/accounts.py)
+  D -> G : model call, api_key = master key     << model_gateway.apply()
+  G -> P : real provider key
+  P --> G : text + token usage
+  G --> D : answer + usage
+  note over D : add_usage(): tab += $cost\nread from the contextvar   << litellm.py
+  D --> B : streamed reply
+  D -> A : POST /usage  (this turn's total)      << _run finally
+  A --> D : new month-to-date spend, over = true/false
+end
+@enduml

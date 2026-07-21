@@ -13,6 +13,7 @@
  */
 
 import { fileUrl } from './artifacts'
+import { getSession, isAccountsMode } from './auth'
 
 /** The host surface (mirrors the desktop preload bridge, src/preload/index.ts). */
 export interface AgentdPlatform {
@@ -90,6 +91,14 @@ async function devDaemonUrl(): Promise<string> {
   }
 }
 
+/** Base ws url from ?url= / VITE_AGENTD_URL, else defaultBase() — WITHOUT any token appended
+ *  (in accounts mode the token is the session token, added by ensureDaemon). */
+function configuredBase(): string {
+  const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+  const env = (import.meta as { env?: Record<string, string> }).env || {}
+  return q.get('url') || env.VITE_AGENTD_URL || defaultBase()
+}
+
 function defaultBase(): string {
   const loc = typeof location !== 'undefined' ? location : null
   // served from a real host (production) -> dial that same host over wss (token comes from
@@ -156,6 +165,20 @@ const webPlatform: AgentdPlatform = {
     return { phase: 'running', message: 'connected' } // the daemon is remote & already up
   },
   async ensureDaemon() {
+    // ACCOUNTS MODE: the daemon token is the signed-in account's SESSION token (never a machine
+    // token). No session yet => return the base tokenless; the app renders the sign-in gate.
+    if (isAccountsMode()) {
+      const base = configuredBase()
+      const s = getSession()
+      if (!s) return { url: base, version: 'web', pid: 0 }
+      try {
+        const u = new URL(base)
+        u.searchParams.set('token', s.token)
+        return { url: u.toString(), version: 'web', pid: 0 }
+      } catch {
+        return { url: base, version: 'web', pid: 0 }
+      }
+    }
     // 1) explicit override always wins; 2) on localhost, the dev middleware supplies the live
     // token (no juggling, survives restarts); 3) production = same-origin wss (token from login).
     const explicit = explicitDaemonUrl()

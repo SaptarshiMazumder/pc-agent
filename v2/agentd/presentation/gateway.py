@@ -36,6 +36,7 @@ from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
+from agentd.infrastructure import accounts, user_state
 from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import (
@@ -1788,21 +1789,26 @@ class Gateway:
         if arts:
             event.payload["artifacts"] = arts
 
+    def _presented_token(self, ws: ServerConnection) -> str:
+        """The client's bearer credential: `?token=` on the connect URL (the only slot a browser
+        WebSocket has) or an `Authorization: Bearer` header. Empty when neither is present."""
+        request = getattr(ws, "request", None)
+        if request is None:
+            return ""
+        query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+        presented = (query.get("token") or [""])[0]
+        if not presented:
+            auth_header = request.headers.get("Authorization") or ""
+            if auth_header.startswith("Bearer "):
+                presented = auth_header[len("Bearer ") :].strip()
+        return presented
+
     def _authorized(self, ws: ServerConnection) -> bool:
         """M2 auth: the client's token — `?token=` on the URL (the only slot browser
         WebSockets have) or an `Authorization: Bearer` header — must match ours."""
         if not self.auth_token:
             return True
-        request = getattr(ws, "request", None)
-        presented = ""
-        if request is not None:
-            query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
-            presented = (query.get("token") or [""])[0]
-            if not presented:
-                auth_header = request.headers.get("Authorization") or ""
-                if auth_header.startswith("Bearer "):
-                    presented = auth_header[len("Bearer ") :].strip()
-        return hmac.compare_digest(presented, self.auth_token)
+        return hmac.compare_digest(self._presented_token(ws), self.auth_token)
 
     def _origin_allowed(self, ws: ServerConnection) -> bool:
         """Browser-origin gate: native/origin-less clients (terminal, Electron file pages,
@@ -1884,7 +1890,16 @@ class Gateway:
         # the public tier (when its agent's [app] opted in) instead of refused outright.
         scope = self._connection_scope(ws)
         public = False
-        if not self._authorized(ws):
+        # HOSTED identity: when accounts are on, the session token IS the auth authority — it
+        # resolves to an account (State plane). When off (every desktop/local install), the
+        # single machine token gates exactly as before and `account` stays None.
+        account: dict | None = None
+        if accounts.enabled():
+            account = await accounts.resolve(self._presented_token(ws))
+            authed = account is not None
+        else:
+            authed = self._authorized(ws)
+        if not authed:
             if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
                 public = True
             else:
@@ -1899,6 +1914,18 @@ class Gateway:
             self.client_scopes[ws] = scope
         if public:
             self.client_public.add(ws)
+        if account is not None:
+            log.info(
+                "connection %s authorized: account=%s <%s>",
+                client_id[:8],
+                account.get("account_id"),
+                account.get("email"),
+            )
+        # Pin the account on the contextvar for the WHOLE connection so the read-side state
+        # resolvers (_resolve_state_dir / _resolve_workspace / enumerators) route to this
+        # account's subtree — the same account a run already sees. None (desktop/no-account)
+        # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
+        _conn_acct_tok = accounts.set_account(account)
         try:
             async for raw in ws:
                 try:
@@ -1907,11 +1934,12 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
-                    response = await self._dispatch(frame, client_id, scope, public)
+                    response = await self._dispatch(frame, client_id, scope, public, account)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
             pass
         finally:
+            accounts.reset_account(_conn_acct_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
@@ -1925,6 +1953,7 @@ class Gateway:
         client_id: str | None = None,
         scope: str | None = None,
         public: bool = False,
+        account: dict | None = None,
     ) -> Response:
         # PUBLIC connections (unauthenticated, [app] public opt-in): the public tier is a
         # strict subset of the scoped tier — checked FIRST, then the scoped gate applies too.
@@ -1949,7 +1978,7 @@ class Gateway:
             req.params["agentId"] = scope
         try:
             if req.method == "chat.send":
-                payload = await self._chat_send(req.params, client_id)
+                payload = await self._chat_send(req.params, client_id, account)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
             elif req.method == "hello":
@@ -2066,6 +2095,11 @@ class Gateway:
         list/history come back EMPTY. (Bug: it used to fall back to main and show
         main's whole history under the wrong agent.)"""
         agent_id = (agent_id or "").strip() or "main"
+        # HOSTED: an account's transcripts live in ITS OWN subtree, keyed by agent id — so two
+        # users never see each other's threads. No account (desktop) => shared/agent dirs below.
+        acct = accounts.account_id()
+        if acct:
+            return agent_id, user_state.account_state_dir(self.config.state_dir, acct, agent_id)
         if self.registry is None:
             return agent_id, self.config.state_dir
         try:
@@ -2224,6 +2258,14 @@ class Gateway:
     def _all_state_dirs(self) -> list:
         """Every place session transcripts live: the default state dir + each agent's
         partition — for project-wide session operations."""
+        acct = accounts.account_id()
+        if acct:  # HOSTED: only THIS account's per-agent subtrees (never another user's)
+            ids = list(self.registry.list_ids()) if self.registry is not None else ["main"]
+            dirs = {}
+            for aid in ids:
+                sd = user_state.account_state_dir(self.config.state_dir, acct, aid)
+                dirs[str(sd)] = sd
+            return list(dirs.values())
         dirs = {str(self.config.state_dir): self.config.state_dir}
         if self.registry is not None:
             for aid in self.registry.list_ids():
@@ -2240,6 +2282,18 @@ class Gateway:
         Deduped by path; the daemon-root state_dir (legacy/global sessions) is tagged `main`."""
         pairs: list = []
         seen: set = set()
+        acct = accounts.account_id()
+        if acct:  # HOSTED: enumerate ONLY this account's per-agent subtrees
+            ids = list(self.registry.list_ids()) if self.registry is not None else []
+            if "main" not in ids:
+                ids.append("main")
+            for aid in ids:
+                sd = user_state.account_state_dir(self.config.state_dir, acct, aid)
+                key = str(sd)
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append((aid, sd))
+            return pairs
         if self.registry is not None:
             for aid in self.registry.list_ids():
                 try:
@@ -3008,6 +3062,9 @@ class Gateway:
                 return None, "unknown project"
             return projects_store.project_workspace_dir(self.config.state_dir, project_id), ""
         agent_id = (params.get("agentId") or "").strip() or "main"
+        acct = accounts.account_id()
+        if acct:  # HOSTED: browse THIS account's own per-agent workspace
+            return user_state.account_workspace(self.config.state_dir, acct, agent_id), ""
         if self.registry is not None:
             try:
                 return Path(self.registry.get(agent_id).workspace), ""
@@ -3595,7 +3652,9 @@ class Gateway:
             result["saved"] = True  # nothing to change is not a failure
         return result
 
-    async def _chat_send(self, params: dict, client_id: str | None = None) -> dict:
+    async def _chat_send(
+        self, params: dict, client_id: str | None = None, account: dict | None = None
+    ) -> dict:
         session_key = params.get("sessionKey") or "default"
         message = params.get("message") or ""
 
@@ -3613,6 +3672,18 @@ class Gateway:
         )
         if not message.strip() and not attachments:
             raise ValueError("message must not be empty")
+
+        # HOSTED metering gate: an account with a budget that has already reached this month's cap
+        # cannot start a new turn. A fresh check (not the cached connect-time view) so spend that
+        # accrued this session counts. No budget / accounts off => never blocks.
+        if account is not None and account.get("budget_usd") is not None:
+            view = await accounts.check_budget(account.get("account_id"))
+            if view and view.get("over"):
+                raise RuntimeError(
+                    f"monthly budget reached — this account has spent "
+                    f"${view.get('spent_usd')} of its ${view.get('budget_usd')} limit. "
+                    f"Usage resets next month."
+                )
 
         # project membership: a chat started "inside a project" carries projectId; the
         # link lives on the session's meta sidecar (server data — every client sees it).
@@ -3643,7 +3714,7 @@ class Gateway:
             run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
         )
         handle.task = asyncio.create_task(
-            self._run(handle, message, agent_id=agent_id, attachments=attachments)
+            self._run(handle, message, agent_id=agent_id, attachments=attachments, account=account)
         )
         self.runs[session_key] = handle
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
@@ -3683,6 +3754,9 @@ class Gateway:
         """The workspace dir uploads land in — the named agent's own, else the default.
         Mirrors _resolve_state_dir's resolution so files sit where that agent's tools look."""
         aid = (agent_id or "").strip()
+        acct = accounts.account_id()
+        if acct:  # HOSTED: uploads land in this account's own per-agent workspace
+            return str(user_state.account_workspace(self.config.state_dir, acct, aid or "main"))
         if aid and self.registry is not None:
             try:
                 return str(self.registry.get(aid).workspace)
@@ -3748,11 +3822,20 @@ class Gateway:
         mode: str = RunMode.INTERACTIVE,
         agent_id: str | None = None,
         attachments: list[Artifact] | None = None,
+        account: dict | None = None,
     ) -> None:
         # The gateway (presentation) now only adapts transport: it provides the event
         # sink (broadcast) and delegates the actual work to the AgentService use-case.
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
         # `agent_id` is an explicit client agent selection (else resolved from the key).
+        # HOSTED: pin the connection's account on the context for the whole turn so model
+        # calls (model_gateway) and spend reporting downstream see WHO this run bills to.
+        # No-op when accounts are off (account is None). create_task snapshotted this
+        # context, so the pin is isolated to this run's task.
+        _acct_token = accounts.set_account(account)
+        # Start a per-turn spend accumulator ONLY for account-scoped turns (so desktop/local pays
+        # zero overhead — add_usage becomes a single contextvar read). Reported once when done.
+        _usage_token = accounts.start_usage() if account is not None else None
         async def on_event(event: AgentEvent) -> None:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
@@ -3847,6 +3930,33 @@ class Gateway:
                         )
                 except Exception:  # noqa: BLE001
                     pass
+            # HOSTED metering: report this turn's total model spend to the account's ledger, once.
+            if account is not None:
+                u = accounts.read_usage()
+                if u and (u.get("cost_usd") or u.get("in_tokens") or u.get("out_tokens")):
+                    try:
+                        report = await accounts.report_usage(
+                            account.get("account_id"),
+                            u.get("model") or "",
+                            u.get("in_tokens", 0),
+                            u.get("out_tokens", 0),
+                            u.get("cost_usd", 0.0),
+                        )
+                        if report is not None:
+                            log.info(
+                                "metered account=%s +$%.6f (%d/%d tok) -> spent $%.6f%s",
+                                account.get("account_id"),
+                                u.get("cost_usd", 0.0),
+                                u.get("in_tokens", 0),
+                                u.get("out_tokens", 0),
+                                report.get("spent_usd", 0.0),
+                                " [OVER BUDGET]" if report.get("over") else "",
+                            )
+                    except Exception:  # noqa: BLE001 — metering must never break a run
+                        log.exception("usage report failed")
+            # unpin the account + accumulator (best-effort; the task's context is discarded anyway)
+            accounts.reset_usage(_usage_token)
+            accounts.reset_account(_acct_token)
 
     def _agent_for_key(self, session_key: str, agent_id: str | None = None) -> str:
         """The agent a session belongs to: an explicit id wins; else the internal

@@ -323,6 +323,9 @@ async def litellm_stream(
         effective_idle = None if _is_local_provider(model) else idle_timeout_sec
 
         # --- Consume the stream chunk by chunk (idle-guarded) ---
+        from agentd.infrastructure.llm import model_gateway
+
+        model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
         response = await litellm.acompletion(**kwargs)
         it = response.__aiter__()
         while True:
@@ -385,6 +388,13 @@ async def litellm_stream(
     except Exception as e:
         # NEVER propagate provider failures — turn them into an error result instead
         error_message = f"{type(e).__name__}: {e}"
+
+    # HOSTED metering: fold this call's tokens+cost into the turn's per-account accumulator.
+    # No-op outside an account-scoped turn (desktop/local), so the hot path is unaffected.
+    if usage:
+        from agentd.infrastructure import accounts as _accts
+
+        _accts.add_usage(model, usage.get("input", 0), usage.get("output", 0))
 
     # --- Assemble the final AssistantMessage from everything we collected ---
     tool_calls = acc.finish()

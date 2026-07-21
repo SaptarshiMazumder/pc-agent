@@ -229,7 +229,14 @@ def build_service(
 
         context_policy = WindowContextPolicy(config.context_max_messages)
     from agentd.application.tool_models import brain_model
+    from agentd.infrastructure import accounts
+    from agentd.infrastructure.llm import model_gateway
     from agentd.infrastructure.llm.model_router import build_model_router
+
+    # platform-keys mode: route ALL model calls through our metering proxy (default off => direct)
+    model_gateway.configure(config)
+    # hosted identity + per-account metering (default off => the daemon has no notion of accounts)
+    accounts.configure(config)
 
     engine = NativeEngine(  # swap here for Claude SDK / LangGraph
         stream_fn,
@@ -350,26 +357,47 @@ def build_service(
             "before relying on them:\n" + lines
         )
 
+    from agentd.infrastructure import accounts as _accounts
+    from agentd.infrastructure import user_state as _user_state
+
+    def _acct_state_dir(agent):
+        """HOSTED: this agent's transcripts under the CURRENT account's own subtree (the account
+        is pinned per-connection/per-run); no account (desktop) => the agent's own dir, unchanged."""
+        acct = _accounts.account_id()
+        if acct:
+            return _user_state.account_state_dir(config.state_dir, acct, agent.id)
+        return agent.state_dir
+
+    def _acct_workspace(agent):
+        """HOSTED: this agent's file/exec workspace under the CURRENT account's subtree; else own."""
+        acct = _accounts.account_id()
+        if acct:
+            return str(_user_state.account_workspace(config.state_dir, acct, agent.id))
+        return str(agent.workspace)
+
     def _effective_workspace(agent, session_id: str) -> str:
         """Plan §11 — file ownership follows CONTEXT, not identity: a chat tagged into a project
         binds this run's file/exec tools to the project's SHARED workspace
-        (<state_dir>/projects/<id>/workspace); a standalone chat stays on the agent's own folder
-        (unchanged behavior). A stale tag (project deleted) falls back to the agent's own."""
+        (<state_dir>/projects/<id>/workspace); a standalone chat stays on the agent's own folder.
+        HOSTED: "the agent's own folder" becomes the CURRENT account's per-agent workspace, so two
+        users' files never mix. (Projects stay daemon-global for now — a later pass.)"""
         from agentd.infrastructure.memory import projects_store
         from agentd.infrastructure.memory.local_store import read_session_meta
 
-        pid = (read_session_meta(agent.state_dir, session_id).get("projectId") or "").strip()
+        # read the project tag from the SAME (per-account) partition the transcript lives in
+        pid = (read_session_meta(_acct_state_dir(agent), session_id).get("projectId") or "").strip()
         if not pid or projects_store.get_project(config.state_dir, pid) is None:
-            return str(agent.workspace)
+            return _acct_workspace(agent)
         return str(projects_store.project_workspace_dir(config.state_dir, pid))
 
     service = AgentService(
         engine=engine,
         tools=tools,
         registry=registry,
-        # per-agent session store: agent.state_dir partitions sessions (all under agents/<id>/)
+        # per-agent session store: agent.state_dir partitions sessions (all under agents/<id>/);
+        # HOSTED: routed under the CURRENT account's subtree so users' transcripts stay separate
         make_session=lambda sid, agent: SessionStore(
-            agent.state_dir, sid, cwd=str(agent.workspace)
+            _acct_state_dir(agent), sid, cwd=_acct_workspace(agent)
         ),
         build_prompt=_build_prompt,
         recall=_recall,

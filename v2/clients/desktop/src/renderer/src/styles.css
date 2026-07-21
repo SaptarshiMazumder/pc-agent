@@ -1384,3 +1384,61 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   background: var(--danger-soft); border-radius: 8px; padding: 8px 11px;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 2px; }
+
+/* ---- sign-in gate (accounts mode) ------------------------------------------ */
+.signin-wrap {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); padding: 24px;
+}
+.signin-card {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 340px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px 26px; box-shadow: var(--shadow);
+}
+.signin-brand {
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.signin-sub { color: var(--dim); font-size: 13.5px; margin-bottom: 8px; }
+.signin-label {
+  font-size: 12px; font-weight: var(--fw-semi); color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px;
+}
+.signin-input {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg4); border: 1px solid var(--border2); border-radius: 9px;
+  padding: 10px 12px; outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.signin-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.signin-error {
+  font-size: 12.5px; color: var(--danger);
+  background: var(--danger-soft); border-radius: 8px; padding: 8px 11px;
+}
+.signin-btn {
+  margin-top: 8px; font: inherit; font-weight: var(--fw-on-accent); font-size: 14px;
+  color: var(--prim-ink); background: var(--prim-bg); border: none; border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: background .12s;
+}
+.signin-btn:hover:not(:disabled) { background: var(--prim-bg-h); }
+.signin-btn:disabled { opacity: .6; cursor: default; }
+.signin-toggle {
+  font: inherit; font-size: 13px; color: var(--accent-text);
+  background: none; border: none; cursor: pointer; padding: 4px; align-self: center;
+}
+.signin-toggle:hover { text-decoration: underline; }
+
+/* signed-in account chip (top-right, accounts mode) */
+.acct-chip {
+  position: absolute; top: 10px; right: 14px; z-index: 30;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 6px 4px 12px; box-shadow: var(--shadow-sm); font-size: 12.5px;
+}
+.acct-email { color: var(--dim); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-signout {
+  font: inherit; font-size: 12px; color: var(--text);
+  background: var(--bg3); border: 1px solid var(--border2); border-radius: 999px;
+  padding: 3px 10px; cursor: pointer;
+}
+.acct-signout:hover { background: var(--bg4); border-color: var(--accent); }

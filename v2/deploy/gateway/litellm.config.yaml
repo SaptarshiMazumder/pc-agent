@@ -1,0 +1,28 @@
+# Platform Model Gateway — LiteLLM proxy holding OUR provider keys, the metering chokepoint
+# every agentd model call flows through in platform-keys mode. Run locally now; containerized
+# for AWS (the "Model Gateway" ECS service) later.
+#
+#   Local run (keys + master key from env; reuse v2/.env for the provider keys):
+#     set -a; . ../../.env; set +a
+#     export LITELLM_MASTER_KEY=sk-agentd-local
+#     litellm --config litellm.config.yaml --port 4000
+#
+# Point agentd at it:
+#     AGENTD_MODEL_GATEWAY_URL=http://127.0.0.1:4000
+#     AGENTD_MODEL_GATEWAY_KEY=sk-agentd-local
+
+model_list:
+  # "*" passthrough: any model agentd asks for (gemini/*, deepseek/*, anthropic/*, …) is routed
+  # to its provider using the provider key in THIS proxy's environment. Agents never see a key.
+  - model_name: "*"
+    litellm_params:
+      model: "*"
+
+litellm_settings:
+  drop_params: true # tolerate provider-specific params agents pass (reasoning_effort, etc.)
+  set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY # agentd presents this as its api_key
+  # Per-account virtual keys + budgets need a Postgres DATABASE_URL (added with accounts, M1b).
+  # Without it the proxy still holds our keys and METERS every call (cost logged per request).
