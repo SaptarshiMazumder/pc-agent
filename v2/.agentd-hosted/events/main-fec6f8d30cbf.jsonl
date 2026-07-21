@@ -1,0 +1,84 @@
+{"ts": 1784620600.0078278, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "agent_start"}}
+{"ts": 1784620600.0088272, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "turn_start"}}
+{"ts": 1784620600.0088272, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_start", "role": "assistant"}}
+{"ts": 1784620601.5208738, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "The"}}
+{"ts": 1784620601.7044115, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " user"}}
+{"ts": 1784620601.750036, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " wants"}}
+{"ts": 1784620601.7510364, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " me"}}
+{"ts": 1784620601.7516284, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " to"}}
+{"ts": 1784620601.7516284, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " use"}}
+{"ts": 1784620601.800733, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " the"}}
+{"ts": 1784620601.801597, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " remember"}}
+{"ts": 1784620601.8021019, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " tool"}}
+{"ts": 1784620601.8021019, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " to"}}
+{"ts": 1784620601.8031075, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " store"}}
+{"ts": 1784620601.8469272, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " the"}}
+{"ts": 1784620601.8479254, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " exact"}}
+{"ts": 1784620601.848927, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " text"}}
+{"ts": 1784620601.9093843, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " \""}}
+{"ts": 1784620601.9103844, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "BO"}}
+{"ts": 1784620601.9489772, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "B"}}
+{"ts": 1784620601.9489772, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "-M"}}
+{"ts": 1784620601.9499772, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "EM"}}
+{"ts": 1784620601.9509768, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "-"}}
+{"ts": 1784620601.9509768, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "178"}}
+{"ts": 1784620601.9509768, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "462"}}
+{"ts": 1784620601.9880037, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "059"}}
+{"ts": 1784620601.9880037, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "3"}}
+{"ts": 1784620601.9890044, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "\"."}}
+{"ts": 1784620602.4319055, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "toolcall", "toolCall": {"id": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "name": "remember", "arguments": {"text": "BOB-MEM-1784620593"}}}}
+{"ts": 1784620602.432906, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "The user wants me to use the remember tool to store the exact text \"BOB-MEM-1784620593\"."}, {"type": "toolCall", "id": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "name": "remember", "arguments": {"text": "BOB-MEM-1784620593"}}], "stopReason": "toolUse", "usage": {"input": 43519, "output": 76, "cached": 43392}, "model": "deepseek/deepseek-v4-pro", "errorMessage": null, "timestamp": 1784620602431}}}
+{"ts": 1784620602.432906, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "model_trace", "step": 1, "model": "deepseek/deepseek-v4-pro", "tokensIn": 43519, "tokensOut": 76, "tokensCached": 43392}}
+{"ts": 1784620602.432906, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "tool_execution_start", "toolCallId": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "toolName": "remember", "args": {"text": "BOB-MEM-1784620593"}}}
+{"ts": 1784620602.4390614, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "tool_execution_end", "toolCallId": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "toolName": "remember", "isError": false, "result": {"role": "toolResult", "toolCallId": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "toolName": "remember", "content": [{"type": "text", "text": "remembered [f416008eaec5]: BOB-MEM-1784620593"}], "isError": false, "timestamp": 1784620602438}}}
+{"ts": 1784620602.440061, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "call_00_kE3qUYdpXYqqhXfF3I1t6188", "toolName": "remember", "content": [{"type": "text", "text": "remembered [f416008eaec5]: BOB-MEM-1784620593"}], "isError": false, "timestamp": 1784620602438}}}
+{"ts": 1784620602.440061, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "turn_end"}}
+{"ts": 1784620602.440061, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "turn_start"}}
+{"ts": 1784620602.440061, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_start", "role": "assistant"}}
+{"ts": 1784620604.1040225, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "Done"}}
+{"ts": 1784620604.3414075, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "."}}
+{"ts": 1784620604.3865955, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " The"}}
+{"ts": 1784620604.3871188, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " user"}}
+{"ts": 1784620604.3881247, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " asked"}}
+{"ts": 1784620604.43941, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " me"}}
+{"ts": 1784620604.43941, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " to"}}
+{"ts": 1784620604.44041, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " store"}}
+{"ts": 1784620604.4864647, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " \""}}
+{"ts": 1784620604.5298429, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "BO"}}
+{"ts": 1784620604.5298429, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "B"}}
+{"ts": 1784620604.530842, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "-M"}}
+{"ts": 1784620604.530842, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "EM"}}
+{"ts": 1784620604.5318434, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "-"}}
+{"ts": 1784620604.5318434, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "178"}}
+{"ts": 1784620604.5797899, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "462"}}
+{"ts": 1784620604.5797899, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "059"}}
+{"ts": 1784620604.580789, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "3"}}
+{"ts": 1784620604.580789, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "\""}}
+{"ts": 1784620604.5817902, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " using"}}
+{"ts": 1784620604.6278772, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " the"}}
+{"ts": 1784620604.6278772, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " remember"}}
+{"ts": 1784620604.6288776, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " tool"}}
+{"ts": 1784620604.6288776, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": ","}}
+{"ts": 1784620604.6298764, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " and"}}
+{"ts": 1784620604.6298764, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " it"}}
+{"ts": 1784620604.6713192, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "'s"}}
+{"ts": 1784620604.6723192, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " been"}}
+{"ts": 1784620604.6733184, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": " saved"}}
+{"ts": 1784620604.7219245, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "thinking_delta", "delta": "."}}
+{"ts": 1784620604.7219245, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "Done"}}
+{"ts": 1784620604.7669573, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": " —"}}
+{"ts": 1784620604.817046, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": " saved"}}
+{"ts": 1784620604.8180454, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": " as"}}
+{"ts": 1784620604.8180454, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": " memory"}}
+{"ts": 1784620604.9178283, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": " `"}}
+{"ts": 1784620604.9188273, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "f"}}
+{"ts": 1784620604.9188273, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "416"}}
+{"ts": 1784620604.919826, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "008"}}
+{"ts": 1784620604.9208298, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "ea"}}
+{"ts": 1784620604.9208298, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "ec"}}
+{"ts": 1784620604.9218352, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "5"}}
+{"ts": 1784620604.9218352, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_update", "kind": "text_delta", "delta": "`."}}
+{"ts": 1784620604.9288354, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "Done. The user asked me to store \"BOB-MEM-1784620593\" using the remember tool, and it's been saved."}, {"type": "text", "text": "Done — saved as memory `f416008eaec5`."}], "stopReason": "stop", "usage": {"input": 43626, "output": 44, "cached": 43520}, "model": "deepseek/deepseek-v4-pro", "errorMessage": null, "timestamp": 1784620604927}}}
+{"ts": 1784620604.9288354, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "model_trace", "step": 2, "model": "deepseek/deepseek-v4-pro", "tokensIn": 43626, "tokensOut": 44, "tokensCached": 43520}}
+{"ts": 1784620604.9288354, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "turn_end"}}
+{"ts": 1784620604.9288354, "sessionKey": "m22", "runId": "fec6f8d30cbf", "event": {"type": "agent_end", "stopReason": "stop"}}

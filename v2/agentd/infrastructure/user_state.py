@@ -25,9 +25,15 @@ def _safe(part: str) -> str:
     return cleaned or "unknown"
 
 
+def account_root(state_dir, account_id: str) -> Path:
+    """One account's root: ``<state_dir>/accounts/<acct>``. Per-agent data, projects.json, and
+    project workspaces all hang under here (the whole single-user world, one level down)."""
+    return Path(state_dir) / "accounts" / _safe(account_id)
+
+
 def account_agent_dir(state_dir, account_id: str, agent_id: str | None) -> Path:
     """The per-account root for one agent's data: ``<state_dir>/accounts/<acct>/agents/<agent>``."""
-    return Path(state_dir) / "accounts" / _safe(account_id) / "agents" / _safe(agent_id or "main")
+    return account_root(state_dir, account_id) / "agents" / _safe(agent_id or "main")
 
 
 def account_state_dir(state_dir, account_id: str, agent_id: str | None) -> Path:

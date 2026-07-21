@@ -341,8 +341,10 @@ def build_service(
         # is wired, else keyword — either way the bank records the recall to feed dreaming.
         if not (getattr(config, "memory_auto_recall", False) and memory_bank is not None):
             return ""
+        from agentd.infrastructure import accounts as _a
+
         hits = memory_bank.search(
-            agent.id,
+            _a.memory_partition(agent.id),  # HOSTED: recall only THIS account's memories
             query,
             limit=getattr(config, "memory_auto_recall_limit", 5),
             min_score=getattr(config, "memory_recall_min_score", 0.0),
@@ -375,6 +377,12 @@ def build_service(
             return str(_user_state.account_workspace(config.state_dir, acct, agent.id))
         return str(agent.workspace)
 
+    def _acct_projects_root():
+        """HOSTED: this account's projects root (projects.json + project workspaces live here);
+        else the daemon state_dir. Must match gateway._projects_root so reads/writes agree."""
+        acct = _accounts.account_id()
+        return _user_state.account_root(config.state_dir, acct) if acct else config.state_dir
+
     def _effective_workspace(agent, session_id: str) -> str:
         """Plan §11 — file ownership follows CONTEXT, not identity: a chat tagged into a project
         binds this run's file/exec tools to the project's SHARED workspace
@@ -386,9 +394,10 @@ def build_service(
 
         # read the project tag from the SAME (per-account) partition the transcript lives in
         pid = (read_session_meta(_acct_state_dir(agent), session_id).get("projectId") or "").strip()
-        if not pid or projects_store.get_project(config.state_dir, pid) is None:
+        proot = _acct_projects_root()
+        if not pid or projects_store.get_project(proot, pid) is None:
             return _acct_workspace(agent)
-        return str(projects_store.project_workspace_dir(config.state_dir, pid))
+        return str(projects_store.project_workspace_dir(proot, pid))
 
     service = AgentService(
         engine=engine,

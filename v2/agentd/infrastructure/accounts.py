@@ -134,6 +134,16 @@ def account_id() -> str | None:
     return acc.get("account_id") if acc else None
 
 
+def memory_partition(agent_id: str) -> str:
+    """Namespace an agent's long-term memory by the CURRENT account, so two users' notes never mix.
+    The memory bank isolates by an ``agent_id`` string column, so folding the account into that key
+    (`<account>::<agent>`) partitions memory per-account with NO schema change. Bare ``agent_id``
+    when there's no account (desktop/local) — unchanged."""
+    acct = account_id()
+    base = agent_id or "main"
+    return f"{acct}::{base}" if acct else base
+
+
 def set_account(account: dict | None):
     """Pin the account for the current context; returns the contextvar token to reset with."""
     return current_account.set(account)

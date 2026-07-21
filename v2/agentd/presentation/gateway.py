@@ -2309,16 +2309,25 @@ class Gateway:
             pairs.append(("main", self.config.state_dir))
         return pairs
 
+    def _projects_root(self):
+        """Where a user's projects (+ their shared workspaces) live: the CURRENT account's root
+        when signed in, else the daemon state_dir. Mirrors the per-account session/workspace
+        routing (M2) so one user's projects never appear for another."""
+        acct = accounts.account_id()
+        if acct:
+            return user_state.account_root(self.config.state_dir, acct)
+        return self.config.state_dir
+
     def _projects_list(self) -> dict:
         from agentd.infrastructure.memory import projects_store
 
-        return {"projects": projects_store.list_projects(self.config.state_dir)}
+        return {"projects": projects_store.list_projects(self._projects_root())}
 
     async def _projects_create(self, params: dict) -> dict:
         from agentd.infrastructure.memory import projects_store
 
         project = projects_store.create_project(
-            self.config.state_dir, str(params.get("name") or "")
+            self._projects_root(), str(params.get("name") or "")
         )
         await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": True, "project": project}
@@ -2327,7 +2336,7 @@ class Gateway:
         from agentd.infrastructure.memory import projects_store
 
         ok = projects_store.rename_project(
-            self.config.state_dir, (params.get("id") or "").strip(), str(params.get("name") or "")
+            self._projects_root(), (params.get("id") or "").strip(), str(params.get("name") or "")
         )
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
@@ -2346,7 +2355,7 @@ class Gateway:
         project_id = (params.get("id") or "").strip()
         if not project_id:
             return {"ok": False, "error": "id required"}
-        removed = projects_store.delete_project(self.config.state_dir, project_id)
+        removed = projects_store.delete_project(self._projects_root(), project_id)
         sessions_deleted = 0
         for state_dir in self._all_state_dirs():
             for sid in sessions_in_project(state_dir, project_id):
@@ -2370,7 +2379,7 @@ class Gateway:
             return {"ok": False, "error": "id required"}
         if agent_id and self.registry is not None and agent_id not in self.registry.list_ids():
             return {"ok": False, "error": f"unknown agent: {agent_id}"}
-        ok = projects_store.set_lead(self.config.state_dir, project_id, agent_id)
+        ok = projects_store.set_lead(self._projects_root(), project_id, agent_id)
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": ok, "id": project_id, "defaultAgentId": agent_id}
@@ -2386,12 +2395,12 @@ class Gateway:
             return {"ok": False, "error": "id and agentId required"}
         if add and self.registry is not None and agent_id not in self.registry.list_ids():
             return {"ok": False, "error": f"unknown agent: {agent_id}"}
-        project = projects_store.get_project(self.config.state_dir, project_id)
+        project = projects_store.get_project(self._projects_root(), project_id)
         if project is None:
             return {"ok": False, "error": "unknown project"}
         members = list(project.get("members") or [])
         members = (members + [agent_id]) if add else [m for m in members if m != agent_id]
-        ok = projects_store.set_members(self.config.state_dir, project_id, members)
+        ok = projects_store.set_members(self._projects_root(), project_id, members)
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": ok, "id": project_id, "members": members}
@@ -3058,9 +3067,9 @@ class Gateway:
         if project_id:
             from agentd.infrastructure.memory import projects_store
 
-            if projects_store.get_project(self.config.state_dir, project_id) is None:
+            if projects_store.get_project(self._projects_root(), project_id) is None:
                 return None, "unknown project"
-            return projects_store.project_workspace_dir(self.config.state_dir, project_id), ""
+            return projects_store.project_workspace_dir(self._projects_root(), project_id), ""
         agent_id = (params.get("agentId") or "").strip() or "main"
         acct = accounts.account_id()
         if acct:  # HOSTED: browse THIS account's own per-agent workspace
@@ -3774,8 +3783,8 @@ class Gateway:
             try:
                 from agentd.infrastructure.memory import projects_store
 
-                if projects_store.get_project(self.config.state_dir, pid) is not None:
-                    return str(projects_store.project_workspace_dir(self.config.state_dir, pid))
+                if projects_store.get_project(self._projects_root(), pid) is not None:
+                    return str(projects_store.project_workspace_dir(self._projects_root(), pid))
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a send
                 pass
         return self._resolve_workspace(agent_id)
