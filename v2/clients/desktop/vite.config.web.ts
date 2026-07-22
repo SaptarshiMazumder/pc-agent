@@ -32,6 +32,42 @@ function devDaemonToken(): Plugin {
 }
 
 /**
+ * Widen the index.html CSP for a HOSTED build. The source CSP only allows localhost (great for
+ * desktop + local dev), so a browser served from a real host would REFUSE to connect to the
+ * accounts/daemon origins. We derive those origins from the SAME env the client bakes in
+ * (VITE_AGENTD_ACCOUNTS_URL, VITE_AGENTD_URL) and append them to the fetch/media directives —
+ * nothing hardcoded, so any host (ALB now, a domain later) is allowed automatically. Build-only,
+ * so the dev server and its localhost CSP are untouched.
+ */
+function cspAllowApiOrigins(): Plugin {
+  const origins = new Set<string>()
+  const add = (u?: string): void => {
+    if (!u) return
+    try {
+      const url = new URL(u)
+      origins.add(`${url.protocol}//${url.host}`) // as given (ws:// or http://)
+      // http(s) equivalent of a ws(s):// url, for <img>/<video>/file fetches off the daemon
+      const httpish = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol
+      origins.add(`${httpish}//${url.host}`)
+    } catch {
+      /* ignore malformed urls */
+    }
+  }
+  add(process.env.VITE_AGENTD_ACCOUNTS_URL)
+  add(process.env.VITE_AGENTD_URL)
+  const hosts = Array.from(origins).join(' ')
+  return {
+    name: 'agentd-csp-allow-api-origins',
+    apply: 'build',
+    transformIndexHtml(html) {
+      if (!hosts) return html
+      // stop each directive at ; OR the closing " (the last directive has no trailing ;)
+      return html.replace(/(connect-src|img-src|media-src|frame-src)([^;"]*)/g, `$1$2 ${hosts}`)
+    }
+  }
+}
+
+/**
  * Standalone WEB build of the JARVIS renderer — the SAME React app the desktop shell runs,
  * served as a plain browser client with no Electron. Host capabilities (supervisor, files)
  * come from src/renderer/src/lib/platform.ts, which falls back to browser equivalents when
@@ -47,7 +83,7 @@ function devDaemonToken(): Plugin {
 export default defineConfig({
   root: fileURLToPath(new URL('./src/renderer', import.meta.url)),
   base: './',
-  plugins: [react(), devDaemonToken()],
+  plugins: [react(), devDaemonToken(), cspAllowApiOrigins()],
   build: {
     outDir: fileURLToPath(new URL('./dist-web', import.meta.url)),
     emptyOutDir: true

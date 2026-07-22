@@ -1,7 +1,7 @@
 # agentd Platform Plan
 
 **Status:** design, under review — no infra provisioned, no cloud code written.
-**Last updated:** 2026-07-18.
+**Last updated:** 2026-07-21.
 **Diagrams (source of truth, render on demand):** `diagrams/platform-architecture.puml`
 (components, planes, run×pay, request flow, share flow), `diagrams/aws-deployment.puml`
 (AWS topology + phases), `diagrams/isolation-model.puml` (tenancy walls + cross-turn
@@ -167,6 +167,45 @@ the VM vanishes; the workspace persists.
 Tool code is identical because two conventions already hold in agentd: tools get their model
 through the seam (never a raw key), and tools write to `current_workspace()` (never a fixed
 path). **Desktop today already IS the local executor.**
+
+### 6.1 File access in practice — how a tool actually reads a user's files
+
+A concrete walk-through of the question "the `ls`/`find`/`read` tools live inside the daemon
+container — how do they reach a given user's files?", because the mechanic is where the
+guarantee is easy to get wrong.
+
+- **The tools ARE in the container, and that's fine.** `ls`, `find`, `read_file`, `write_file`
+  work on *paths* — ordinary "list this folder / open this file" OS calls. When **EFS is mounted
+  at `/data`**, that folder *is* the network drive; to the tool it looks like a local directory
+  and it cannot tell the bytes come over the network. So the tools need **zero changes** to run
+  on EFS — EFS is transparent. (This is the same reason desktop tools already read a local disk.)
+- **How the tool is pointed at the right user's folder.** Before a turn runs, the engine pins
+  this run's workspace/state root to that user's per-account dir (A1, threaded via `RunContext`;
+  `current_workspace()` → `/data/accounts/<uid>/agents/<agent>/workspace/`). So `ls`/`find` with
+  no argument, and every relative path, resolve **inside that user's subtree** on EFS. A read is
+  then just a normal filesystem call the OS routes to EFS.
+- **Why the folder split alone is NOT the wall.** A shared engine has *every* user's folder under
+  the same `/data` mount. A tool that takes an **absolute path** (`find /data`, or worse `exec`,
+  which reads anything the process can) could step outside the user's subtree. So per-account
+  **folders are a correctness boundary, not a security guarantee** — exactly the point of §6:
+  a path-string check can't be the wall.
+- **Where the real guarantee comes from (§6, walls 3–4).** For trusted built-in tools on a
+  curated shared engine we add **defense-in-depth path-scoping** (root reads at `/users/<uid>/`)
+  AND exclude `exec`/custom plugins. For anything that runs arbitrary code, the run goes to a
+  **sandbox whose EFS mount is scoped by an Access Point to just that user's subtree** — a
+  neighbour's path is *physically absent from the filesystem*, so even `find /` sees only their
+  own files. The wall is **what we mount into the box**, never trust in the tool.
+
+**Rollout consequence:** curated first-party agents (safe tool allow-lists, no `exec`) can run on
+the shared engine with path-scoping now; opening the doors to third-party/custom-code agents is
+gated on the sandbox + access-point work (M5). This is why the milestone order is curated-first.
+
+**Desktop is unaffected.** Web confinement is a **mode knob (A3)**, off on desktop: the desktop
+PC-agent keeps deliberate **whole-machine** file access (that's the product — "find that file on
+my D: drive"). There is no EFS, no shared multi-user mount, and no sandbox on desktop; the
+per-account path routing is a no-op when accounts are off. **Rule #5 restated for files:** the
+engine box holds no durable user data — on the hosted side it lives on EFS/S3; on desktop the
+user's own machine *is* their state plane.
 
 ---
 

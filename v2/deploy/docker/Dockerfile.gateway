@@ -1,0 +1,16 @@
+# Model Gateway image (LiteLLM proxy holding OUR provider keys, the metering chokepoint).
+# We build our own (rather than pull the upstream image) so the invocation is deterministic and
+# the image is ours to push to ECR. Build context = v2/.
+#   docker build -t agentd-gateway -f deploy/docker/Dockerfile.gateway .
+#
+# Provider keys come from the ENV at runtime (compose env_file / Secrets Manager on AWS) — never
+# baked. The master key (what agentd presents) is LITELLM_MASTER_KEY.
+FROM python:3.11-slim
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "litellm[proxy]"
+COPY deploy/gateway/litellm.config.yaml /app/config.yaml
+WORKDIR /app
+# force utf-8 so litellm's Unicode startup banner doesn't crash a non-utf8 console
+ENV PYTHONUTF8=1 PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
+EXPOSE 4000
+CMD ["litellm", "--config", "/app/config.yaml", "--port", "4000"]
