@@ -5,9 +5,14 @@ never agentd), sets a dev master key, and starts the proxy on :4000 with litellm
 
     python deploy/gateway/run-local.py        # from v2/, or anywhere — paths are resolved
 
+Per-user auth (custom_auth.py, loaded from this directory because it sits next to the yaml):
+set ACCOUNTS_URL (e.g. http://127.0.0.1:4100) to accept accounts session tokens as bearer
+credentials, and ACCOUNTS_INTERNAL_KEY to enable proxy-side usage posting to the ledger —
+both optional locally; without them only the master key authenticates.
+
 Then point agentd at it:
     AGENTD_MODEL_GATEWAY_URL=http://127.0.0.1:4000
-    AGENTD_MODEL_GATEWAY_KEY=sk-agentd-local
+    AGENTD_MODEL_GATEWAY_KEY=sk-agentd-local   # or a user's sess_ token (custom auth)
 """
 
 import os

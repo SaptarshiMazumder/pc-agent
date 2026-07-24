@@ -150,13 +150,16 @@ function baseName(p: string): string {
 
 const webPlatform: AgentdPlatform = {
   async flavor() {
-    // hosted web has no installer flavor; sensible defaults (store on, no bundled agent)
+    // hosted web has no installer flavor; sensible defaults (store on, no bundled agent).
+    // accountsUrl stays '' — web accounts mode is driven by ?accounts=/VITE env in auth.ts.
     return {
       productId: 'agentd-web',
       productName: 'agentd',
       defaultAgent: '',
       storeEnabled: true,
       preinstalledBundles: [],
+      accountsUrl: '',
+      modelGatewayUrl: '',
       bundledPackages: [],
       version: 'web'
     }

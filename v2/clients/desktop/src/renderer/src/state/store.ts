@@ -23,8 +23,9 @@ import type {
 import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
+import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
-import { platform } from '../lib/platform'
+import { isDesktop, platform } from '../lib/platform'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -107,6 +108,9 @@ interface FlavorInfo {
   defaultAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
+  /** hosted platform ([platform] in distribution.toml); '' => BYOK-only install */
+  accountsUrl?: string
+  modelGatewayUrl?: string
   bundledPackages: string[]
   version: string
 }
@@ -519,6 +523,17 @@ export const useApp = create<AppState>((set, get) => {
           if (session.pendingArtifacts?.length) attachToLastAssistant(items, session.pendingArtifacts, ts)
           return { items, running: false, pendingArtifacts: [] }
         })
+        // Hosted mode: an auth-shaped run failure may mean the session token expired at the
+        // model gateway. Re-check against the accounts service and only sign out on a
+        // DEFINITIVE rejection (never on a flaky network) — the sign-in gate then takes over.
+        if (error && isAccountsMode() && /\b401\b|sign in required|authentication/i.test(error)) {
+          void resolveSession().then((verdict) => {
+            if (verdict === 'invalid') {
+              signOut()
+              if (!isDesktop) location.reload() // web: drop the account-scoped connection too
+            }
+          })
+        }
         // desktop notification for a watched chat (an open tab / the current chat) finishing —
         // NOT for background sub-agent / cron / heartbeat runs, and only when tabbed away
         if (!error) {
@@ -536,6 +551,7 @@ export const useApp = create<AppState>((set, get) => {
 
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
+    await connectPlatform()
     const flavor = get().flavor
     const preferred = get().currentAgentId || flavor?.defaultAgent || hello.agentId
     const agentIds = new Set(hello.agents.map((agent) => agent.id))
@@ -547,6 +563,21 @@ export const useApp = create<AppState>((set, get) => {
     await Promise.all([refreshSessions(), refreshRecents(), refreshProjects()])
     await preinstallBundles()
     await refreshArtifactActions()
+  }
+
+  /** DESKTOP hosted mode: hand the signed-in session token to the LOCAL daemon on every
+   *  (re)connect — platform.connect persists it as the model-gateway credential, so hosted
+   *  keys survive daemon restarts and any .env drift heals itself. Web builds skip this:
+   *  their daemon is remote and already account-scoped by the connection token. */
+  async function connectPlatform(): Promise<void> {
+    if (!isDesktop || !isAccountsMode()) return
+    const session = getSession()
+    if (!session) return
+    try {
+      await gateway.request('platform.connect', { token: session.token })
+    } catch {
+      /* older daemon without platform.* — BYOK keeps working; nothing to surface */
+    }
   }
 
   // Learn which canvas ACTIONS exist from the live plugin catalog: any enabled tool that

@@ -1,9 +1,0 @@
-id = "figures"
-name = "Figures"
-kind = "native"
-entry = "figures_plugin:register"
-
-# Pure-Python + Playwright fidelity core for scientific figures. No external binaries:
-# rendering uses the same headless Chromium the `html` plugin already relies on, validation
-# uses lxml, compositing uses Pillow, and the overlay/routing engines are pure stdlib.
-# (No [requires] gate — these deps ship in the venv; Playwright falls back to msedge.)

@@ -65,6 +65,12 @@ export interface Hello {
   localRegistryDir: string
   workspace: string
   agents: AgentInfo[]
+  /** hosted-platform state (absent on older daemons): sign-in endpoint + whether model
+   *  calls currently run on platform keys vs the user's own (BYOK) */
+  platform?: {
+    accountsUrl: string
+    modelGateway: { enabled: boolean; api_base: string; source: string; has_key: boolean }
+  }
 }
 
 export interface SessionRow {

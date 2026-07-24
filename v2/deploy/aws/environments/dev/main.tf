@@ -83,6 +83,15 @@ module "alb" {
   alb_sg_id   = module.security.alb_sg_id
 }
 
+# The public marketplace registry — a static S3 bucket publish.py uploads signed
+# index.json + .agentpkg files to; desktop Stores download from it directly.
+module "registry" {
+  source      = "../../modules/registry"
+  project     = local.project
+  environment = local.environment
+  region      = local.region
+}
+
 # ─────────────────────────── The 4 containers (Phase 4) ───────────────────────────
 # A small local so we don't repeat the shared infra references in every service call.
 locals {
@@ -100,7 +109,10 @@ locals {
   }
 }
 
-# gateway — LiteLLM model proxy. INTERNAL only (reached by the daemon via gateway.agentd.local).
+# gateway — LiteLLM model proxy. PUBLIC (platform-keys mode): signed-in desktop daemons call
+# it with their accounts session token; custom_auth.py resolves the token via the accounts
+# service, and the usage callback writes each call's cost to the ledger. The cloud daemon
+# still reaches it internally (gateway.agentd.local) with the master key.
 module "svc_gateway" {
   source = "../../modules/service"
 
@@ -108,11 +120,18 @@ module "svc_gateway" {
   image          = "${module.ecr.repository_urls["gateway"]}:${local.image_tag}"
   container_port = 4000
 
-  secrets = {
-    LITELLM_MASTER_KEY = "${module.data.app_secret_arn}:LITELLM_MASTER_KEY::"
-    GEMINI_API_KEY     = "${module.data.app_secret_arn}:GEMINI_API_KEY::"
-    DEEPSEEK_API_KEY   = "${module.data.app_secret_arn}:DEEPSEEK_API_KEY::"
+  environment_vars = {
+    ACCOUNTS_URL = "http://accounts.agentd.local:4100"
   }
+  secrets = {
+    LITELLM_MASTER_KEY    = "${module.data.app_secret_arn}:LITELLM_MASTER_KEY::"
+    ACCOUNTS_INTERNAL_KEY = "${module.data.app_secret_arn}:ACCOUNTS_INTERNAL_KEY::"
+    GEMINI_API_KEY        = "${module.data.app_secret_arn}:GEMINI_API_KEY::"
+    DEEPSEEK_API_KEY      = "${module.data.app_secret_arn}:DEEPSEEK_API_KEY::"
+  }
+
+  exposed          = true
+  target_group_arn = module.alb.target_group_arns["gateway"]
 
   project            = local.svc_shared.project
   environment        = local.svc_shared.environment
@@ -137,6 +156,15 @@ module "svc_accounts" {
 
   environment_vars = {
     AGENTD_ACCOUNTS_DB = "/data/accounts.db"
+    # public-exposure hardening (see deploy/accounts/app.py header for the contract)
+    ACCOUNTS_SESSION_TTL_DAYS = "30"
+    ACCOUNTS_RATE_LIMIT       = "10/60"
+    # CORS: the web client's origin. "*" until the web origin is stable (browser clients
+    # only; the desktop app and the model gateway are not subject to CORS).
+    ACCOUNTS_CORS_ORIGINS = "*"
+  }
+  secrets = {
+    ACCOUNTS_INTERNAL_KEY = "${module.data.app_secret_arn}:ACCOUNTS_INTERNAL_KEY::"
   }
 
   exposed          = true
@@ -244,4 +272,26 @@ output "repository_urls" {
 output "app_url" {
   description = "The public URL of the app (serves once the containers are healthy)."
   value       = "http://${module.alb.alb_dns_name}"
+}
+
+# ── Desktop-flavor wiring: these three values go into the flavors' distribution.toml ──
+
+output "accounts_url" {
+  description = "[platform] accounts_url for the desktop flavors (sign-in endpoint)."
+  value       = "http://${module.alb.alb_dns_name}:4100"
+}
+
+output "model_gateway_url" {
+  description = "[platform] model_gateway_url for the desktop flavors (platform keys)."
+  value       = "http://${module.alb.alb_dns_name}:4000"
+}
+
+output "registry_url" {
+  description = "[store] registry_url for the desktop flavors (public marketplace index)."
+  value       = module.registry.registry_url
+}
+
+output "registry_bucket" {
+  description = "Upload target for deploy/registry/publish.py (aws s3 sync)."
+  value       = module.registry.bucket_name
 }

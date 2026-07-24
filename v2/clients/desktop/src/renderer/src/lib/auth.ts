@@ -1,14 +1,17 @@
 /**
- * Web sign-in state — the browser half of platform accounts (M1b).
+ * Sign-in state — the client half of platform accounts (M1b).
  *
- * "Accounts mode" is ON when an accounts-service URL is configured (VITE_AGENTD_ACCOUNTS_URL,
- * or ?accounts=<url> for local testing). In that mode the app shows a sign-in gate and connects
- * the daemon with the signed-in account's SESSION TOKEN (never a machine token). Off (the desktop
- * app, and any web build without an accounts URL) => this module is inert and the app connects as
- * it did before.
+ * "Accounts mode" is ON when an accounts-service URL is configured: ?accounts=<url> (local
+ * testing) > VITE_AGENTD_ACCOUNTS_URL (web builds) > configureAccounts() (DESKTOP hosted
+ * flavors — main.tsx feeds it the flavor's [platform] accounts_url before first render). In
+ * that mode the app shows a sign-in gate. On the WEB the daemon connection presents the
+ * session token; on DESKTOP the local daemon keeps its machine token and the session token
+ * becomes the MODEL-GATEWAY credential instead (store.ts calls platform.connect after each
+ * handshake). No URL from any source => this module is inert and everything works as before.
  *
- * The session token is the browser's only credential; the model key stays server-side. We keep the
- * session in localStorage and expose a tiny external store so React re-renders on sign-in/out.
+ * The session token is the client's only credential; the model key stays server-side. We keep
+ * the session in localStorage and expose a tiny external store so React re-renders on
+ * sign-in/out.
  */
 
 import { useSyncExternalStore } from 'react'
@@ -44,11 +47,20 @@ function setSession(s: Session | null): void {
   listeners.forEach((l) => l())
 }
 
+// Runtime-configured accounts URL (desktop hosted flavors; set from the flavor before render).
+let configured = ''
+
+/** Point accounts mode at a service at RUNTIME — the desktop path, where the URL comes from
+ *  the build's distribution.toml rather than a query param or a build-time env. */
+export function configureAccounts(url: string): void {
+  configured = (url || '').replace(/\/$/, '')
+}
+
 /** The accounts-service base URL (no trailing slash), or '' when accounts mode is off. */
 export function accountsUrl(): string {
   const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
   const env = (import.meta as { env?: Record<string, string> }).env || {}
-  const raw = q.get('accounts') || env.VITE_AGENTD_ACCOUNTS_URL || ''
+  const raw = q.get('accounts') || env.VITE_AGENTD_ACCOUNTS_URL || configured
   return raw.replace(/\/$/, '')
 }
 
@@ -85,6 +97,26 @@ export async function login(email: string, password: string): Promise<Session> {
 export async function signup(email: string, password: string): Promise<Session> {
   await post('/signup', { email: email.trim().toLowerCase(), password })
   return login(email, password)
+}
+
+/**
+ * Re-check the stored session against the accounts service. Returns:
+ *   'valid'   — token still resolves
+ *   'invalid' — the service DEFINITIVELY rejected it (401/403) => sign the user out
+ *   'unknown' — network/service trouble; do NOT sign out on a flaky connection
+ */
+export async function resolveSession(): Promise<'valid' | 'invalid' | 'unknown'> {
+  const s = getSession()
+  if (!s || !isAccountsMode()) return 'invalid'
+  try {
+    const r = await fetch(accountsUrl() + '/resolve', {
+      headers: { Authorization: `Bearer ${s.token}` }
+    })
+    if (r.ok) return 'valid'
+    return r.status === 401 || r.status === 403 ? 'invalid' : 'unknown'
+  } catch {
+    return 'unknown'
+  }
 }
 
 /** React hook: the current session (re-renders on sign-in/out). */

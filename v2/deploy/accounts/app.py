@@ -21,6 +21,15 @@ Contract (what agentd depends on):
 A session token is the browser's credential; it is NOT a model key. agentd resolves the token
 to an account and meters that account's spend — the model key (the gateway master key, or a
 per-account virtual key later) never leaves the server side.
+
+Public-exposure hardening (all env-driven; unset = today's open local-dev behavior):
+    ACCOUNTS_SESSION_TTL_DAYS  sessions expire after N days (default 30; 0 = never)
+    ACCOUNTS_INTERNAL_KEY      when set: /usage requires X-Internal-Key (the ledger is written
+                               by trusted infra — the model gateway's callback — only), and
+                               /budget/{id} requires the key OR the account's own session token
+    ACCOUNTS_CORS_ORIGINS      comma-separated allowed origins (default "*", local dev)
+    ACCOUNTS_RATE_LIMIT        per-IP fixed window "count/seconds" on /signup + /login
+                               (default "10/60"; "0/0" disables)
 """
 
 from __future__ import annotations
@@ -34,13 +43,27 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import Body, FastAPI, Header, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- storage -----------------------------------------------------------------
 
 DB_PATH = Path(os.environ.get("AGENTD_ACCOUNTS_DB", str(Path(__file__).parent / "data" / "accounts.db")))
 _PBKDF2_ROUNDS = 200_000
+_MIN_PASSWORD_LEN = 8
+
+
+def _session_ttl_s() -> float:
+    """Session lifetime in seconds; 0 = never expire (read per-call so tests can flip it)."""
+    try:
+        days = float(os.environ.get("ACCOUNTS_SESSION_TTL_DAYS", "30") or 30)
+    except ValueError:
+        days = 30.0
+    return days * 86_400
+
+
+def _internal_key() -> str:
+    return os.environ.get("ACCOUNTS_INTERNAL_KEY", "").strip()
 
 
 def _now() -> float:
@@ -150,13 +173,55 @@ def _budget_view(c: sqlite3.Connection, account_id: str) -> dict:
 # --- app ---------------------------------------------------------------------
 
 app = FastAPI(title="agentd accounts", version="0.1.0")
-# Local dev: the web client (a different origin, e.g. :5273) signs in via fetch.
+# Browsers (the web client, a different origin) sign in via fetch. Local dev default is open;
+# the hosted deploy sets ACCOUNTS_CORS_ORIGINS to the real web origin(s).
+_cors = [o.strip() for o in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tightened to the real web origin in the hosted deploy
+    allow_origins=_cors or ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- per-IP rate limiting (signup/login only) --------------------------------
+# Fixed window, in-process: one container serves the whole free tier, so a dict is enough.
+# Behind the ALB the client IP is the first X-Forwarded-For hop.
+
+_rate_hits: dict[str, tuple[int, float]] = {}  # ip -> (count, window_start)
+
+
+def _rate_limit_cfg() -> tuple[int, float]:
+    raw = os.environ.get("ACCOUNTS_RATE_LIMIT", "10/60")
+    try:
+        count_s, per_s = raw.split("/", 1)
+        return int(count_s), float(per_s)
+    except (ValueError, AttributeError):
+        return 10, 60.0
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _check_rate(request: Request) -> None:
+    count, per = _rate_limit_cfg()
+    if count <= 0 or per <= 0:
+        return
+    ip = _client_ip(request)
+    now = _now()
+    hits, start = _rate_hits.get(ip, (0, now))
+    if now - start >= per:
+        hits, start = 0, now
+    hits += 1
+    _rate_hits[ip] = (hits, start)
+    if len(_rate_hits) > 10_000:  # bound memory under address churn
+        _rate_hits.clear()
+    if hits > count:
+        raise HTTPException(status_code=429, detail="too many attempts; try again later")
 
 
 @app.on_event("startup")
@@ -170,13 +235,16 @@ def health() -> dict:
 
 
 @app.post("/signup")
-def signup(payload: dict = Body(...)) -> dict:
+def signup(request: Request, payload: dict = Body(...)) -> dict:
+    _check_rate(request)
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="valid email required")
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="password must be at least 6 characters")
+    if len(password) < _MIN_PASSWORD_LEN:
+        raise HTTPException(
+            status_code=400, detail=f"password must be at least {_MIN_PASSWORD_LEN} characters"
+        )
     budget = payload.get("budget_usd")
     budget_val = None if budget in (None, "") else float(budget)
     salt, pw_hash = _make_pw(password)
@@ -194,7 +262,8 @@ def signup(payload: dict = Body(...)) -> dict:
 
 
 @app.post("/login")
-def login(payload: dict = Body(...)) -> dict:
+def login(request: Request, payload: dict = Body(...)) -> dict:
+    _check_rate(request)
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
     with _db() as c:
@@ -213,11 +282,16 @@ def login(payload: dict = Body(...)) -> dict:
 
 def _account_for_token(c: sqlite3.Connection, token: str) -> sqlite3.Row:
     row = c.execute(
-        "SELECT a.id AS id, a.email AS email, a.budget_usd AS budget_usd, a.active AS active "
+        "SELECT a.id AS id, a.email AS email, a.budget_usd AS budget_usd, a.active AS active, "
+        "s.created_at AS session_created_at "
         "FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token=?",
         (token,),
     ).fetchone()
     if row is None or not row["active"]:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    ttl = _session_ttl_s()
+    if ttl > 0 and _now() - float(row["session_created_at"] or 0) > ttl:
+        c.execute("DELETE FROM sessions WHERE token=?", (token,))
         raise HTTPException(status_code=401, detail="invalid or expired token")
     return row
 
@@ -245,16 +319,41 @@ def resolve(authorization: str | None = Header(default=None)) -> dict:
     }
 
 
+def _require_internal(x_internal_key: str | None) -> bool:
+    """True when the caller presented the internal service key. No key configured (local
+    dev) => everything is trusted, today's behavior."""
+    configured = _internal_key()
+    if not configured:
+        return True
+    return bool(x_internal_key) and secrets.compare_digest(x_internal_key, configured)
+
+
 @app.get("/budget/{account_id}")
-def budget(account_id: str) -> dict:
+def budget(
+    account_id: str,
+    authorization: str | None = Header(default=None),
+    x_internal_key: str | None = Header(default=None),
+) -> dict:
+    """Trusted infra (internal key) or the account's OWN session token may read its budget."""
+    if not _require_internal(x_internal_key):
+        token = _bearer(authorization)
+        with _db() as c:
+            row = _account_for_token(c, token)
+            if row["id"] != account_id:
+                raise HTTPException(status_code=403, detail="not your account")
+            return _budget_view(c, account_id)
     with _db() as c:
         return _budget_view(c, account_id)
 
 
 @app.post("/usage")
-def usage(payload: dict = Body(...)) -> dict:
-    """agentd reports a completed model call's cost here (the spend ledger). Returns the new
-    month-to-date spend and whether the account is now over its cap."""
+def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """A completed model call's cost lands here (the spend ledger). TRUSTED WRITERS ONLY —
+    in the platform topology that is the model gateway's success callback, which sees every
+    call server-side; clients (desktop daemons) cannot write their own ledger. Returns the
+    new month-to-date spend and whether the account is now over its cap."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
     account_id = (payload.get("account_id") or "").strip()
     if not account_id:
         raise HTTPException(status_code=400, detail="account_id required")

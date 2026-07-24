@@ -177,6 +177,7 @@ def run_keygen(args: argparse.Namespace) -> int:
     if out.exists():
         print(f"refusing to overwrite existing keyfile: {out}")
         return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(
             {

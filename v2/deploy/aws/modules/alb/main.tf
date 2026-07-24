@@ -2,8 +2,13 @@
 # service) a target group (the pool of containers to forward to) and a listener (which
 # incoming port forwards to which target group).
 #
-# Exposed: web (:80 UI), accounts (:4100 sign-in), daemon (:8787 WebSocket).
-# NOT exposed: gateway — internal only, reached by the daemon via service discovery.
+# Exposed: web (:80 UI), accounts (:4100 sign-in), daemon (:8787 WebSocket), and gateway
+# (:4000 model proxy — public for desktop platform-keys mode; per-user custom auth guards it.
+# The cloud daemon still reaches it internally via service discovery).
+#
+# TLS note: listeners are HTTP-only for the private-testing phase. When a domain + ACM cert
+# land, add a :443 listener with host-based rules to these same target groups — the port
+# listeners here can then become redirects. (Deliberately structured so that lands additively.)
 
 locals {
   name_prefix = "${var.project}-${var.environment}"

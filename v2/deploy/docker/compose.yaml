@@ -10,18 +10,25 @@
 name: agentd-stack
 
 services:
-  gateway: # LiteLLM proxy: holds provider keys, meters every model call
+  gateway: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
+    # custom_auth.py accepts the master key (infra) OR an accounts session token (desktop
+    # platform-keys mode), and its success callback writes usage to the accounts ledger.
     build: { context: ../.., dockerfile: deploy/docker/Dockerfile.gateway }
     image: agentd-gateway:local
     env_file: [../../.env] # provider keys (GEMINI_API_KEY, ...) at runtime, never baked
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
+      - ACCOUNTS_URL=http://accounts:4100
+      - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal}
     ports: ["4000:4000"]
+    depends_on: [accounts]
     restart: unless-stopped
 
   accounts: # identity + per-account budget/tab (State plane)
     build: { context: ../.., dockerfile: deploy/docker/Dockerfile.accounts }
     image: agentd-accounts:local
+    environment:
+      - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes
     volumes: ["accounts-data:/data"]
     ports: ["4100:4100"]
     restart: unless-stopped

@@ -1,0 +1,48 @@
+# presentation-creator as a MARKETPLACE BUNDLE — `agentd bundle pack agents/presentation-creator`
+# reads this for the bundle's identity + dependencies (same shape as figure-creator: the agent
+# definition packs as-is; the media-domain plugins it drives ship INSIDE the artifact, vendored,
+# so a bare Core install renders decks and videos; always-shipped core capabilities are declared
+# builtin — asserted at install, never shipped twice). NOTE the agent deliberately has no tool
+# allowlist (agent.toml): it sees every installed tool, so nothing here restricts it.
+
+[bundle]
+id = "presentation-creator"
+name = "Presentation Creator"
+version = "1.0.0"
+description = "Turns any subject — a chat topic, codebase, document, or dataset — into a finished narrated presentation: slide decks or full videos, any language, one or more voices."
+agentd_compat = ">=0.1,<1"
+entitlement = ""            # free while we build; set a SKU to license-gate later
+publisher = "agentd"
+icon = "presentation"       # store-card glyph (see the client's glyph registry)
+
+[[bundle.plugins]]
+id = "slides"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "diagrams"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "video"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "tts"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "core_fs"
+source = "builtin"
+
+[[bundle.plugins]]
+id = "html"
+source = "builtin"
+
+[[bundle.plugins]]
+id = "shell"
+source = "builtin"
+
+[[bundle.plugins]]
+id = "skills"
+source = "builtin"

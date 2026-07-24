@@ -38,6 +38,7 @@ from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
 from agentd.infrastructure import accounts, user_state
 from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
+from agentd.infrastructure.llm import model_gateway
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import (
     Event,
@@ -2076,6 +2077,12 @@ class Gateway:
                 payload = await self._marketplace().uninstall(
                     (req.params.get("id") or "").strip(), purge_state=bool(req.params.get("purge"))
                 )
+            elif req.method == "platform.connect":
+                payload = self._platform_connect(req.params)
+            elif req.method == "platform.disconnect":
+                payload = self._platform_disconnect()
+            elif req.method == "platform.status":
+                payload = self._platform_status()
             else:
                 return Response(
                     id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"}
@@ -3511,6 +3518,38 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
+    def _platform_status(self) -> dict:
+        """Non-secret hosted-platform view: is this install a hosted flavor, is the model
+        gateway live (signed in), and where a client should send sign-in requests. Everything
+        comes from the distribution profile / seam state — nothing hardcoded."""
+        distribution = getattr(self.config, "distribution", None)
+        return {
+            "accountsUrl": str(getattr(distribution, "accounts_url", "") or ""),
+            "modelGateway": model_gateway.status(),
+        }
+
+    def _platform_connect(self, params: dict) -> dict:
+        """Bind this install to a platform account: persist the caller's accounts session token
+        as the model-gateway credential (AGENTD_MODEL_GATEWAY_KEY in the user .env — the same
+        secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
+        model_gateway.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
+        the desktop shell calls it on every handshake to heal .env drift."""
+        token = str(params.get("token") or "").strip()
+        if not token:
+            raise ValueError("platform.connect requires a token")
+        env_path = _config_file_path().parent / ".env"
+        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": token})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
+    def _platform_disconnect(self) -> dict:
+        """Sign out of platform keys: drop the persisted credential and reconfigure — BYOK
+        (local provider keys) resumes live."""
+        env_path = _config_file_path().parent / ".env"
+        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": ""})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
     def _hello(self, params: dict | None = None) -> dict:
         """Handshake: identity + status a client renders as its welcome banner.
 
@@ -3553,6 +3592,9 @@ class Gateway:
             # instructions instead of a bare error (local-first store).
             "localRegistryDir": str(Path(self.config.state_dir) / "registry"),
             "agents": self._agents_list()["agents"],  # so any client can show/pick agents
+            # hosted platform: where sign-in lives + whether platform keys are active — so a
+            # client can gate on sign-in / render the keys indicator from the handshake alone.
+            "platform": self._platform_status(),
         }
 
     def _config_get(self) -> dict:
@@ -3599,6 +3641,8 @@ class Gateway:
             "raw": raw,
             "effectiveModel": _effective_model(cfg),
             "version": __version__,
+            # read-only hosted-platform state for the Settings indicator (platform keys vs BYOK)
+            "platform": self._platform_status(),
         }
 
     def _config_set(self, params: dict) -> dict:

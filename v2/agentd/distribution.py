@@ -26,6 +26,10 @@ File shape (all keys optional):
     enabled = true
     registry_url = "https://registry.example.com/index.json"
     publisher_key = "<base64 ed25519 public key>"           # verifies bundles+licenses
+
+    [platform]
+    accounts_url = "https://accounts.example.com"           # sign-in service (client-side)
+    model_gateway_url = "https://gateway.example.com"       # hosted LiteLLM proxy (platform keys)
 """
 
 from __future__ import annotations
@@ -52,6 +56,8 @@ class DistributionProfile:
     store_enabled: bool = True
     registry_url: str = ""  # "" => no registry configured
     publisher_key: str = ""  # base64 ed25519 pubkey ("" => unsigned mode)
+    accounts_url: str = ""  # "" => no hosted accounts (BYOK-only install)
+    model_gateway_url: str = ""  # "" => no platform model gateway
     source_path: str = ""  # where this profile was loaded from ("" => open)
 
     @property
@@ -72,6 +78,7 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
     product = data.get("product") if isinstance(data.get("product"), dict) else {}
     provisioning = data.get("provisioning") if isinstance(data.get("provisioning"), dict) else {}
     store = data.get("store") if isinstance(data.get("store"), dict) else {}
+    platform = data.get("platform") if isinstance(data.get("platform"), dict) else {}
     plugins = provisioning.get("plugins")
     return DistributionProfile(
         product_id=str(product.get("id") or "agentd"),
@@ -82,6 +89,8 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
         store_enabled=bool(store.get("enabled", True)),
         registry_url=str(store.get("registry_url") or ""),
         publisher_key=str(store.get("publisher_key") or ""),
+        accounts_url=str(platform.get("accounts_url") or "").rstrip("/"),
+        model_gateway_url=str(platform.get("model_gateway_url") or "").rstrip("/"),
         source_path=source_path,
     )
 

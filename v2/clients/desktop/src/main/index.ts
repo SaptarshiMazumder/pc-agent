@@ -19,7 +19,7 @@ import { Supervisor } from './supervisor'
 
 let flavor: Flavor = {
   productId: 'agentd', productName: 'agentd', defaultAgent: '', appAgent: '', storeEnabled: true,
-  preinstalledBundles: [], sourcePath: '', bundledPackages: []
+  preinstalledBundles: [], accountsUrl: '', modelGatewayUrl: '', sourcePath: '', bundledPackages: []
 }
 const supervisor = new Supervisor(() => flavor.sourcePath)
 let mainWindow: BrowserWindow | null = null
@@ -83,6 +83,8 @@ function registerIpc(): void {
     appAgent: flavor.appAgent,
     storeEnabled: flavor.storeEnabled,
     preinstalledBundles: flavor.preinstalledBundles,
+    accountsUrl: flavor.accountsUrl,
+    modelGatewayUrl: flavor.modelGatewayUrl,
     bundledPackages: flavor.bundledPackages,
     version: app.getVersion()
   }))

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import os
 import time
 
 import httpx
@@ -29,6 +30,7 @@ log = logging.getLogger("agentd.accounts")
 _enabled = False
 _api_base = ""
 _client: httpx.AsyncClient | None = None
+_reported_no_internal_key = False  # one-time log guard for the usage-report no-op path
 
 # token -> (account dict, expiry epoch). A short TTL absorbs reconnect storms without letting a
 # revoked token linger. Cleared on configure().
@@ -110,8 +112,6 @@ def configure(config) -> None:
     """Read the accounts settings once, at boot. Env overrides config; disabled unless a URL is
     present. Safe to call again (resets the client + cache)."""
     global _enabled, _api_base, _client
-    import os
-
     acc = getattr(config, "accounts", None) or {}
     url = (os.environ.get("AGENTD_ACCOUNTS_URL") or str(acc.get("api_base") or "")).strip()
     _api_base = url.rstrip("/")
@@ -176,8 +176,23 @@ async def resolve(token: str) -> dict | None:
         acc = r.json()
     except ValueError:
         return None
+    # retain the raw token: it is the account's own credential for authenticated reads
+    # (e.g. GET /budget) — never persisted, lives only in this process's cache/contextvar.
+    acc.setdefault("session_token", token)
     _resolve_cache[token] = (acc, now + _RESOLVE_TTL)
     return acc
+
+
+def _auth_headers() -> dict:
+    """Credential for authenticated accounts-service calls: the internal service key when this
+    daemon is trusted infra (AGENTD_ACCOUNTS_INTERNAL_KEY set), else the CURRENT account's own
+    session token (the hardened /budget accepts either)."""
+    internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
+    if internal:
+        return {"X-Internal-Key": internal}
+    acc = current_account.get()
+    token = (acc or {}).get("session_token") or ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 async def check_budget(acct_id: str) -> dict | None:
@@ -186,7 +201,7 @@ async def check_budget(acct_id: str) -> dict | None:
     if not _enabled or not acct_id or _client is None:
         return None
     try:
-        r = await _client.get(f"/budget/{acct_id}")
+        r = await _client.get(f"/budget/{acct_id}", headers=_auth_headers())
         if r.status_code == 200:
             return r.json()
     except httpx.HTTPError as e:
@@ -198,12 +213,26 @@ async def report_usage(
     acct_id: str, model: str, in_tokens: int, out_tokens: int, cost_usd: float
 ) -> dict | None:
     """Append one model call's cost to the account's ledger. Best-effort — a reporting failure
-    is logged but never breaks the run."""
+    is logged but never breaks the run.
+
+    Requires AGENTD_ACCOUNTS_INTERNAL_KEY: the ledger is written by TRUSTED infra only. In the
+    platform-keys topology the model gateway's own success callback is the single ledger writer
+    (it sees every call server-side, tamper-proof), so a daemon without the internal key — every
+    desktop, and the default cloud deploy — no-ops here instead of double-counting (or 401ing)
+    against the hardened /usage endpoint. The in-memory per-turn accumulator is unaffected."""
+    global _reported_no_internal_key
     if not _enabled or not acct_id or _client is None:
+        return None
+    internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
+    if not internal:
+        if not _reported_no_internal_key:
+            _reported_no_internal_key = True
+            log.debug("accounts: no AGENTD_ACCOUNTS_INTERNAL_KEY — usage ledger is proxy-side")
         return None
     try:
         r = await _client.post(
             "/usage",
+            headers={"X-Internal-Key": internal},
             json={
                 "account_id": acct_id,
                 "model": model,

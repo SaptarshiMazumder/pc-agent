@@ -49,6 +49,17 @@ resource "aws_vpc_security_group_ingress_rule" "alb_daemon" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# The model gateway is PUBLIC now: signed-in desktop daemons call it directly with their
+# accounts session token (validated by the proxy's custom auth) — platform-keys mode.
+resource "aws_vpc_security_group_ingress_rule" "alb_gateway" {
+  security_group_id = aws_security_group.alb.id
+  description       = "model gateway (platform keys for desktop users) from anywhere"
+  ip_protocol       = "tcp"
+  from_port         = 4000
+  to_port           = 4000
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
 resource "aws_vpc_security_group_egress_rule" "alb_all" {
   security_group_id = aws_security_group.alb.id
   ip_protocol       = "-1"
@@ -87,6 +98,15 @@ resource "aws_vpc_security_group_ingress_rule" "svc_accounts_from_alb" {
   ip_protocol                  = "tcp"
   from_port                    = 4100
   to_port                      = 4100
+  referenced_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "svc_gateway_from_alb" {
+  security_group_id            = aws_security_group.service.id
+  description                  = "model gateway from ALB (public platform-keys endpoint)"
+  ip_protocol                  = "tcp"
+  from_port                    = 4000
+  to_port                      = 4000
   referenced_security_group_id = aws_security_group.alb.id
 }
 

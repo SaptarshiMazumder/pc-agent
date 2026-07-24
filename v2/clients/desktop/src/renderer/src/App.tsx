@@ -12,7 +12,9 @@ import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
 import StoreView from './components/StoreView'
 import SubscriptionView from './components/SubscriptionView'
+import { gateway } from './gateway/client'
 import { isAccountsMode, signOut, useAuthSession } from './lib/auth'
+import { isDesktop } from './lib/platform'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
 
@@ -47,7 +49,16 @@ export default function App() {
               className="acct-signout"
               type="button"
               title="Sign out"
-              onClick={() => {
+              onClick={async () => {
+                if (isDesktop) {
+                  // hosted desktop: tell the LOCAL daemon to drop the platform credential
+                  // (BYOK resumes live) before forgetting the session client-side
+                  try {
+                    await gateway.request('platform.disconnect')
+                  } catch {
+                    /* older daemon / not connected — nothing persisted to clear */
+                  }
+                }
                 signOut()
                 location.reload() // drop the account-scoped connection cleanly
               }}

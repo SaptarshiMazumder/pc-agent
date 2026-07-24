@@ -30,6 +30,13 @@ resource "random_password" "master_key" {
   special = false
 }
 
+# The accounts service's INTERNAL key: authorizes trusted-infra writes to the spend ledger
+# (the model gateway's usage callback). Never given to clients/desktops.
+resource "random_password" "accounts_internal_key" {
+  length  = 32
+  special = false
+}
+
 # App secrets: the generated master key + provider API keys. The keys start as placeholders;
 # you set the REAL values later via the AWS CLI, so they never touch git or Terraform state.
 resource "aws_secretsmanager_secret" "app" {
@@ -42,9 +49,10 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
-    LITELLM_MASTER_KEY = "sk-${random_password.master_key.result}"
-    GEMINI_API_KEY     = "REPLACE_ME"
-    DEEPSEEK_API_KEY   = "REPLACE_ME"
+    LITELLM_MASTER_KEY    = "sk-${random_password.master_key.result}"
+    ACCOUNTS_INTERNAL_KEY = random_password.accounts_internal_key.result
+    GEMINI_API_KEY        = "REPLACE_ME"
+    DEEPSEEK_API_KEY      = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

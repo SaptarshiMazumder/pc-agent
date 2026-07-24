@@ -25,7 +25,6 @@
 !include <awslib/Containers/ElasticContainerRegistry>
 !include <awslib/Storage/EFS>
 !include <awslib/SecurityIdentityCompliance/SecretsManager>
-!include <awslib/SecurityIdentityCompliance/IdentityAndAccessManagement>
 !include <awslib/ManagementGovernance/CloudWatch>
 
 title agentd — dev environment on AWS (ap-northeast-1)
@@ -41,7 +40,6 @@ AWSCloudGroup(aws) {
     ElasticContainerRegistry(ecr, "ECR", "4 image repos: gateway/accounts/daemon/web")
     SecretsManager(secrets, "Secrets Manager", "agentd/dev/app: master key + provider keys")
     CloudWatch(logs, "CloudWatch Logs", "/agentd/dev : all container output")
-    IdentityAndAccessManagement(roles, "IAM roles", "execution (pull/secret/logs) + task (mount EFS)")
 
     VPCGroup(vpc, "VPC  10.0.0.0/16") {
 
@@ -87,7 +85,6 @@ gateway .[#879196].> secrets : inject keys
 daemon .[#879196].> secrets : master key
 web .[#879196].> logs
 daemon .[#879196].> logs
-fargate .[#879196].> roles : assumes
 
 legend right
   |= line |= meaning |

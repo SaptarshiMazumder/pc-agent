@@ -1,7 +1,0 @@
-id = "figexport"
-name = "Figure Export"
-kind = "native"
-entry = "figexport_plugin:register"
-
-# export_pptx uses python-pptx (already installed); export_pdf uses the headless browser the html
-# plugin already relies on. No new dependency, no [requires] gate.

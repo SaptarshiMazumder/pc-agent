@@ -24,6 +24,12 @@ export interface Flavor {
   appAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
+  /** HOSTED PLATFORM ([platform] in distribution.toml): where sign-in lives. '' => BYOK-only
+   *  install, no sign-in gate — exactly the pre-platform behavior. */
+  accountsUrl: string
+  /** the hosted LiteLLM model gateway; the daemon reads the same file itself — the shell only
+   *  needs this for display/diagnostics. */
+  modelGatewayUrl: string
   /** absolute path of the loaded file; '' => open default (nothing to pass on) */
   sourcePath: string
   /** absolute paths of .agentpkg files shipped with this build (resources/bundles) */
@@ -37,6 +43,8 @@ const OPEN: Flavor = {
   appAgent: '',
   storeEnabled: true,
   preinstalledBundles: [],
+  accountsUrl: '',
+  modelGatewayUrl: '',
   sourcePath: '',
   bundledPackages: []
 }
@@ -71,6 +79,7 @@ export async function loadFlavor(): Promise<Flavor> {
       const parsed = TOML.parse(await fs.readFile(candidate, 'utf-8')) as Record<string, any>
       const product = (parsed.product as Record<string, any>) || {}
       const store = (parsed.store as Record<string, any>) || {}
+      const platform = (parsed.platform as Record<string, any>) || {}
       return {
         productId: String(product.id || 'agentd'),
         productName: String(product.name || 'agentd'),
@@ -78,6 +87,8 @@ export async function loadFlavor(): Promise<Flavor> {
         appAgent: String(product.app_agent || ''),
         storeEnabled: store.enabled !== false,
         preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
+        accountsUrl: String(platform.accounts_url || '').replace(/\/$/, ''),
+        modelGatewayUrl: String(platform.model_gateway_url || '').replace(/\/$/, ''),
         sourcePath: candidate,
         bundledPackages: packages
       }

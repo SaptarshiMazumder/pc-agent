@@ -61,7 +61,7 @@ export default function SignIn(): JSX.Element {
           autoComplete={mode === 'up' ? 'new-password' : 'current-password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder={mode === 'up' ? 'at least 6 characters' : '••••••••'}
+          placeholder={mode === 'up' ? 'at least 8 characters' : '••••••••'}
           required
         />
 

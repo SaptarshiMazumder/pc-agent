@@ -23,5 +23,10 @@ plugins = [
 
 [store]
 enabled = true            # a standalone SKU still upsells other agents
-# registry_url = "https://registry.agentd.example/index.json"
-# publisher_key = "<set when shipping signed bundles/licenses>"
+# registry_url = "https://<registry-bucket>.s3.ap-northeast-1.amazonaws.com/index.json"
+# publisher_key = "<base64 public key from `agentd bundle keygen`>"
+
+# [platform] — hosted accounts + platform model keys (see flavors/core for the full note).
+# [platform]
+# accounts_url = "http://<alb-dns>:4100"
+# model_gateway_url = "http://<alb-dns>:4000"

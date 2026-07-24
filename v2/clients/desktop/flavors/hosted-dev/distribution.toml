@@ -1,0 +1,23 @@
+# HOSTED-DEV flavor — the full hosted-platform product wired to LOCALHOST services, for
+# end-to-end testing before (and without) AWS:
+#   accounts:  python v2/deploy/accounts/run-local.py      (:4100)
+#   gateway:   python v2/deploy/gateway/run-local.py       (:4000, custom auth; set
+#              ACCOUNTS_URL=http://127.0.0.1:4100 and ACCOUNTS_INTERNAL_KEY=devinternal)
+#   registry:  python v2/deploy/registry/publish.py --serve  (:8877, signed local index)
+#
+# Run the desktop shell against it:   AGENTD_FLAVOR=hosted-dev npm run dev
+# Expected flow: sign-in gate on first launch -> signup -> Store lists the published agents
+# -> install -> chat runs with NO local provider keys (watch the gateway/accounts logs).
+
+[product]
+id = "agentd-hosted-dev"
+name = "agentd (hosted dev)"
+
+[store]
+enabled = true
+registry_url = "http://127.0.0.1:8877/index.json"
+# publisher_key = "<paste the base64 public key from `agentd bundle keygen` to test signing>"
+
+[platform]
+accounts_url = "http://127.0.0.1:4100"
+model_gateway_url = "http://127.0.0.1:4000"
