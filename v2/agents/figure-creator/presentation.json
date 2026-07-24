@@ -1,4 +1,10 @@
 {
+  "tagline": "scientific figure studio",
+  "suggestions": [
+    "Turn this sketch into an editable figure",
+    "Make a biorender-style cell signaling pathway",
+    "Create a labeled anatomy illustration from my notes"
+  ],
   "color": "#d651a0",
   "hue": 324.5
 }

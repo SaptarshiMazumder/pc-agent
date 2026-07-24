@@ -123,16 +123,16 @@ environments/staging  same recipe, one word changed                         → 
   (the `name_prefix`/`common_tags` pattern in every module); `.tfvars` files,
   `TF_VAR_` env vars, and the full precedence order. Lab: add a `validation` block to
   a module variable and trigger it on purpose.
-- [ ] **3.4 Outputs.** Module outputs as the *public API* (every `outputs.tf` here);
+- [x] **3.4 Outputs.** Module outputs as the *public API* (every `outputs.tf` here);
   root outputs as the human/CI interface (`app_url`); `sensitive = true`.
-- [ ] **3.5 `count` vs `for_each` — the classic exam question.** Repo has both:
+- [x] **3.5 `count` vs `for_each` — the classic exam question.** Repo has both:
   [subnets use count](modules/network/main.tf#L25-L32) (ordered, index-keyed) vs
   [ECR uses for_each](modules/ecr/main.tf#L13-L14) (name-keyed). THE pitfall: removing
   item 0 of a `count` list renumbers-and-destroys everything after it; `for_each` keys
   are stable. `toset()`, `each.key`/`each.value`, for_each over maps
   ([alb target groups](modules/alb/main.tf#L30-L48)). Mastery: predict a plan's blast
   radius for removing one subnet vs one ECR repo.
-- [ ] **3.6 Expressions & functions.** `for` expressions
+- [x] **3.6 Expressions & functions.** `for` expressions
   ([env/secrets maps → lists](modules/service/main.tf#L52-L53)), conditionals
   (`local.mount_efs ? [...] : []`), `merge()` (tag layering), `jsonencode()`
   (container defs, IAM policies), splats, `length()`, string templates. Lab: predict

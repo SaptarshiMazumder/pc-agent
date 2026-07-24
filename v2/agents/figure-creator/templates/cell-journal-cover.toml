@@ -1,0 +1,20 @@
+id = "cell-journal-cover"
+name = "Cell / Nature Journal Cover"
+description = "Dramatic, cinematic editorial render for a journal cover or hero figure — rich depth, refined lighting, high production value."
+when_to_use = "Hero / cover / graphical-abstract figures that should look striking and cinematic — a single subject rendered with dramatic depth and mood."
+tags = ["cover", "editorial", "cinematic", "hero", "graphical-abstract", "shaded", "dramatic"]
+aspect = "1:1"
+resolution = "2K"
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+palette = ["#1B3A5B", "#2E86AB", "#E8833A", "#D64550", "#A8DADC", "#0E1B2A"]
+palette_locked = false
+negative = "no flat schematic look, no clutter, no baked-in text or logos, no stocky lens flare, no busy background"
+prompt = """
+A cinematic editorial scientific illustration of {subject}, in the style of a Cell or Nature journal
+cover. Dimensional, gradient-shaded structures with dramatic but clean directional lighting, rich
+depth of field, refined material detail and a strong focal subject. Elegant, restrained palette with
+a moody backdrop that recedes behind the subject. High production value, gallery-grade. The subject
+is composed as a clear hero within the frame; nothing important cropped.
+"""
+exemplars = []

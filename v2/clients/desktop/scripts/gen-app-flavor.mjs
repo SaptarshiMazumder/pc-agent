@@ -92,6 +92,30 @@ if (declaredIcon && fs.existsSync(path.join(agentDir, declaredIcon))) {
 }
 if (iconSrc) fs.copyFileSync(iconSrc, path.join(flavorDir, 'icon.ico'))
 
+// ---- hosted platform: inherit [platform] from the CORE flavor (one source of truth) --------
+// An app-agent product is a full desktop client: if the core build is a HOSTED product (its
+// distribution.toml declares [platform] accounts_url/model_gateway_url), the app inherits the
+// SAME backend, so its exe signs in and runs on our keys too. No core [platform] => a BYOK
+// app-agent (local keys), unchanged. Overridable with --accounts-url / --model-gateway-url.
+let platformBlock = ''
+const coreDistPath = path.join(desktopDir, 'flavors', 'core', 'distribution.toml')
+let corePlatform = {}
+try {
+  corePlatform = (TOML.parse(fs.readFileSync(coreDistPath, 'utf-8')).platform) || {}
+} catch {
+  /* no core flavor / unreadable — app-agent stays BYOK */
+}
+const accountsUrl = opt('accounts-url') || String(corePlatform.accounts_url || '')
+const gatewayUrl = opt('model-gateway-url') || String(corePlatform.model_gateway_url || '')
+if (accountsUrl && gatewayUrl) {
+  platformBlock = `
+[platform]
+accounts_url = ${JSON.stringify(accountsUrl)}
+model_gateway_url = ${JSON.stringify(gatewayUrl)}
+`
+  console.log(`  hosted: sign-in ${accountsUrl}, gateway ${gatewayUrl}`)
+}
+
 // ---- distribution.toml: the ONE knob that makes the shell this agent's product ----------
 const dist = `# ${name} — generated app-shell flavor (gen-app-flavor.mjs). [product] app_agent
 # switches the shared shell into AGENT-APP mode: daemon find-or-start, first-run bundle
@@ -106,7 +130,7 @@ preinstalled_bundles = [${JSON.stringify(agentId)}]
 
 [store]
 enabled = false
-`
+${platformBlock}`
 fs.writeFileSync(path.join(flavorDir, 'distribution.toml'), dist)
 
 // ---- electron-builder config (per-agent file > env-macro tricks: deterministic) ---------

@@ -1,0 +1,44 @@
+# figure-creator as a MARKETPLACE BUNDLE (M4) — `agentd bundle pack agents/figure-creator`
+# reads this for the bundle's identity + dependencies, so packing is one command with no
+# flags. The agent definition itself (agent.toml, IDENTITY.md, skills/, templates/) is
+# packed as-is; the five figure-domain plugins ship INSIDE the artifact (vendored) so a
+# bare Core install gets everything it needs; core capabilities the wheel always carries
+# are declared as builtin requirements (asserted at install, never shipped twice).
+
+[bundle]
+id = "figure-creator"
+name = "Figure Creator"
+version = "1.1.0" # b4: HTTP sign-in + rose app UI
+description = "Publication-grade scientific figures: templated artwork (Nano Banana Pro), grounded labels/leaders as an editable vector overlay, SVG/PPTX/PDF export."
+agentd_compat = ">=0.1,<1"
+entitlement = ""            # free while we build; set a SKU (e.g. "figure-creator-pro") to license-gate
+publisher = "agentd"
+icon = "sparkles"           # store-card glyph (see the client's glyph registry)
+
+[[bundle.plugins]]
+id = "figures"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "figure-art"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "vision"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "vectorize"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "figexport"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "core_fs"
+source = "builtin"
+
+[[bundle.plugins]]
+id = "html"
+source = "builtin"

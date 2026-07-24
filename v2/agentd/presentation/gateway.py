@@ -89,6 +89,14 @@ APP_SCOPED_METHODS = frozenset(
         "workspace.delete",
         "notifications.list",
         "notifications.ack",
+        # An APP-AGENT product (its own exe/window) is a first-party desktop client: it signs
+        # the user in so the LOCAL daemon runs on platform keys. Safe for a scoped app because
+        # (a) these are absent from PUBLIC_APP_METHODS, so tokenless/cloud visitors are refused
+        # at the public gate, and (b) the handlers no-op on a hosted (accounts-mode) daemon —
+        # sign-in only manages the LOCAL model-key credential. Not administration of the backend.
+        "platform.connect",
+        "platform.disconnect",
+        "platform.status",
     }
 )
 
@@ -1632,6 +1640,8 @@ class Gateway:
                 )
             if split.path == "/file":
                 return self._serve_file(split, getattr(request, "headers", {}))
+            if split.path == "/platform/connect" or split.path == "/platform/status":
+                return self._serve_platform(split, getattr(request, "headers", {}))
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return self._serve_app(split)
             # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
@@ -1775,6 +1785,53 @@ class Gateway:
         if status == 206:
             hdrs["Content-Range"] = f"bytes {start}-{end}/{size}"
         return HttpResponse(status, reason, hdrs, body)
+
+    def _serve_platform(self, split, headers) -> HttpResponse:
+        """Sign-in over plain HTTP on the gateway port — the RELIABLE transport for an
+        app-agent page (same origin as the served UI, so `fetch` just works; no dependence
+        on a WS request/response round-trip surviving the live model-gateway reconfigure
+        that `platform.connect` triggers).
+
+        `GET /platform/status`                    → current hosted-platform view (JSON).
+        `GET /platform/connect?session=<sess_…>`  → bind this LOCAL install to that account
+                                                     token (persists it + reconfigures live),
+                                                     then return the fresh status.
+
+        Auth mirrors `/file`: the daemon's bearer token (page URL `?token=` or Authorization)
+        must match when one is set. The accounts session token rides in `?session=` — localhost
+        only, never logged."""
+
+        def send(code: int, reason: str, obj: dict) -> HttpResponse:
+            body = json.dumps(obj).encode("utf-8")
+            hdrs = Headers()
+            hdrs["Content-Type"] = "application/json"
+            hdrs["Content-Length"] = str(len(body))
+            hdrs["Cache-Control"] = "no-store"
+            return HttpResponse(code, reason, hdrs, body)
+
+        q = parse_qs(split.query)
+        if self.auth_token:  # same bearer token as the WebSocket / /file
+            tok = (q.get("token") or [""])[0]
+            if not tok:
+                auth = ""
+                try:
+                    auth = headers.get("Authorization") or ""
+                except Exception:  # noqa: BLE001
+                    auth = ""
+                if auth.startswith("Bearer "):
+                    tok = auth[len("Bearer ") :].strip()
+            if not hmac.compare_digest(tok, self.auth_token):
+                return send(401, "Unauthorized", {"error": "unauthorized"})
+
+        if split.path == "/platform/status":
+            return send(200, "OK", self._platform_status())
+
+        session = (q.get("session") or [""])[0]
+        try:
+            status = self._platform_connect({"token": session})
+        except ValueError as e:
+            return send(400, "Bad Request", {"error": str(e)})
+        return send(200, "OK", status)
 
     # --------------------------------------------------------- artifact detection
 
@@ -3534,6 +3591,11 @@ class Gateway:
         secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
         model_gateway.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
         the desktop shell calls it on every handshake to heal .env drift."""
+        # DESKTOP-ONLY: platform.connect manages the LOCAL daemon's model-key credential. On a
+        # hosted (accounts-mode) daemon the model key is server-owned (master key / accounts
+        # seam), so a per-connection sign-in must NOT rewrite it — refuse cleanly.
+        if accounts.enabled():
+            raise ValueError("this deployment manages platform keys server-side")
         token = str(params.get("token") or "").strip()
         if not token:
             raise ValueError("platform.connect requires a token")
@@ -3544,7 +3606,9 @@ class Gateway:
 
     def _platform_disconnect(self) -> dict:
         """Sign out of platform keys: drop the persisted credential and reconfigure — BYOK
-        (local provider keys) resumes live."""
+        (local provider keys) resumes live. No-op on a hosted daemon (nothing local to clear)."""
+        if accounts.enabled():
+            return self._platform_status()
         env_path = _config_file_path().parent / ".env"
         _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": ""})
         model_gateway.configure(self.config)

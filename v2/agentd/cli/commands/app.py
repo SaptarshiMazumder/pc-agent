@@ -72,6 +72,12 @@ def _mint_url(agent_id: str) -> tuple[str, dict]:
     query = f"scope=agent:{agent_id}"
     if info.token:
         query = f"token={info.token}&{query}"
+    # freshness marker: a per-launch value makes every open a UNIQUE navigation, so a
+    # Chromium --app window can never silently re-focus/reuse a stale instance of the page
+    # (the page ignores it; it reads only token + scope).
+    import time as _time
+
+    query = f"{query}&fresh={int(_time.time())}"
     return f"{url}?{query}", dict(agent["app"])
 
 

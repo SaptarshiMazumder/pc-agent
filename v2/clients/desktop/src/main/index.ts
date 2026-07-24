@@ -244,6 +244,32 @@ function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
     event.preventDefault()
     if (/^https?:/i.test(u)) void shell.openExternal(u)
   })
+  // Diagnosability: the app page's console is invisible in a packaged build — mirror it to
+  // the shell's stdout so a stuck page can always be traced (`"...exe" > log` or dev run).
+  win.webContents.on('console-message', (_e, _level, message) => {
+    console.log(`[app-page] ${message}`)
+  })
+  // E2E hook (env-gated, dev diagnosis only): auto-drive the sign-in form so the exact
+  // packaged environment can be exercised without a human at the keyboard.
+  const e2e = String(process.env.AGENTD_E2E_LOGIN || '')
+  if (e2e.includes(':')) {
+    win.webContents.on('did-finish-load', () => {
+      const [email, pass] = [e2e.slice(0, e2e.indexOf(':')), e2e.slice(e2e.indexOf(':') + 1)]
+      // fill + submit (values injected as JSON literals — no interpolation surprises)
+      void win.webContents.executeJavaScript(
+        `setTimeout(() => {
+           const g = document.getElementById('gate')
+           console.log('[e2e] gate hidden =', g ? g.hidden : 'no-gate')
+           if (g && !g.hidden) {
+             document.getElementById('gateEmail').value = ${JSON.stringify(email)}
+             document.getElementById('gatePass').value = ${JSON.stringify(pass)}
+             document.getElementById('gateForm').requestSubmit()
+             console.log('[e2e] submitted sign-in for', ${JSON.stringify(email)})
+           }
+         }, 1500)`
+      ).catch(() => {})
+    })
+  }
   void win.loadURL(url.toString())
   return win
 }

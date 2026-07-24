@@ -23,10 +23,12 @@ plugins = [
 
 [store]
 enabled = true            # a standalone SKU still upsells other agents
-# registry_url = "https://<registry-bucket>.s3.ap-northeast-1.amazonaws.com/index.json"
-# publisher_key = "<base64 public key from `agentd bundle keygen`>"
+registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
+publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 
-# [platform] — hosted accounts + platform model keys (see flavors/core for the full note).
-# [platform]
-# accounts_url = "http://<alb-dns>:4100"
-# model_gateway_url = "http://<alb-dns>:4000"
+# [platform] — hosted accounts + platform model keys: this build signs in and runs
+# figure-creator on OUR keys (HTTP for the private-testing phase; switch to https + rebuild
+# once TLS lands). Same endpoints as the core flavor.
+[platform]
+accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
+model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"
