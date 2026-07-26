@@ -22,3 +22,8 @@ publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 
 accounts_url = "http://agentd-dev-14694105.ap-northeast-1.elb.amazonaws.com:4100"
 model_proxy_url = "http://agentd-dev-14694105.ap-northeast-1.elb.amazonaws.com:4000"
+
+# LOCAL DEV: accounts mode disabled — sign-in gate off, local daemon + your own .env keys.
+# Restore the two URLs below to re-enable the hosted sign-in product (AWS dev stack).
+# accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
+# model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"
