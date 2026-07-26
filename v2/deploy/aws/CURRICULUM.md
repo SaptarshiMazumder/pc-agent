@@ -137,12 +137,12 @@ environments/staging  same recipe, one word changed                         → 
   (`local.mount_efs ? [...] : []`), `merge()` (tag layering), `jsonencode()`
   (container defs, IAM policies), splats, `length()`, string templates. Lab: predict
   outputs in `terraform console`, then verify.
-- [ ] **3.7 `dynamic` blocks — conditional structure.** Both specimens in
+- [x] **3.7 `dynamic` blocks — conditional structure.** Both specimens in
   [modules/service/main.tf](modules/service/main.tf): the EFS `volume` (only if an
   access point was passed) and the ALB `load_balancer` (only if `exposed`). The
   `for_each = condition ? [1] : []` idiom. Mastery: explain why a plain `count` on the
   resource couldn't express this.
-- [ ] **3.8 `lifecycle` meta-arguments.** The repo's crown jewel:
+- [x] **3.8 `lifecycle` meta-arguments.** The repo's crown jewel:
   [ignore_changes on the secret version](modules/data/main.tf#L52-L54) — Terraform
   creates placeholder secrets, you set real values out-of-band, Terraform never reverts
   them (keys stay out of git AND state churn). Also `prevent_destroy`,

@@ -24,6 +24,7 @@ import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
 import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
+import { getMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform } from '../lib/platform'
 
@@ -307,6 +308,9 @@ interface AppState {
   notifications: NotificationRow[]
 
   bootstrap(): Promise<void>
+  /** Re-assert the desktop Local/Cloud run mode on the live daemon (connect/disconnect) and
+   *  refresh platform status. Called by the launcher and when the session changes. */
+  applyMode(): Promise<void>
   setView(view: View): void
   /** open Settings on a specific tab, filtered to a tool (a tool's gear icon uses this) */
   openToolConfig(toolName: string): void
@@ -565,12 +569,22 @@ export const useApp = create<AppState>((set, get) => {
     await refreshArtifactActions()
   }
 
-  /** DESKTOP hosted mode: hand the signed-in session token to the LOCAL daemon on every
-   *  (re)connect — platform.connect persists it as the model-gateway credential, so hosted
-   *  keys survive daemon restarts and any .env drift heals itself. Web builds skip this:
-   *  their daemon is remote and already account-scoped by the connection token. */
+  /** DESKTOP: re-assert the chosen run mode on the LOCAL daemon on every (re)connect.
+   *   • Cloud — hand the signed-in session token to the daemon (platform.connect persists it as
+   *     the model-gateway credential, so hosted keys survive restarts and .env drift self-heals).
+   *   • Local (or no mode yet) — clear any platform credential (platform.disconnect) so the daemon
+   *     runs BYOK with the user's own keys.
+   *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
   async function connectPlatform(): Promise<void> {
-    if (!isDesktop || !isAccountsMode()) return
+    if (!isDesktop) return
+    if (getMode() !== 'cloud') {
+      try {
+        await gateway.request('platform.disconnect')
+      } catch {
+        /* older daemon without platform.* — BYOK is already the default */
+      }
+      return
+    }
     const session = getSession()
     if (!session) return
     try {
@@ -797,6 +811,19 @@ export const useApp = create<AppState>((set, get) => {
         setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
         return url
       })
+    },
+
+    async applyMode() {
+      // Re-assert Local/Cloud on the live daemon and refresh the platform status the UI reads
+      // (hello.platform.modelGateway). No-op until the connection is open.
+      if (get().connection !== 'open') return
+      await connectPlatform()
+      try {
+        const hello = (await gateway.request<Hello>('hello')) as Hello
+        set({ hello })
+      } catch {
+        /* transient — leave the last known status in place */
+      }
     },
 
     setView(view) {

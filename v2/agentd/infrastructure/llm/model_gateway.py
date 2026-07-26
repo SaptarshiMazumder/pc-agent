@@ -49,13 +49,16 @@ def configure(config) -> None:
     )
     _api_base = url.rstrip("/")
     _api_key = os.environ.get("AGENTD_MODEL_GATEWAY_KEY", "").strip()
-    # on when a URL is given AND its source opts in: env url is explicit, config needs the
-    # enabled flag, a distribution (hosted flavor) url activates only once a key exists
-    # (i.e. the user signed in) — signed-out hosted desktops stay BYOK.
+    # on when a URL is given AND its source opts in:
+    #   • env url        — explicit hosted/server override, always on (can't be toggled off)
+    #   • config enabled — an explicit `model_gateway.enabled = true` forces it on
+    #   • config/dist url + KEY — the desktop Local/Cloud switch: a config-override or baked
+    #     distribution url activates only once a key exists (Cloud = platform.connect wrote the
+    #     session token; Local = platform.disconnect cleared it). Signed-out stays BYOK.
     _enabled = bool(_api_base) and (
         bool(env_url)
         or bool(mg.get("enabled"))
-        or (_source == "distribution" and bool(_api_key))
+        or (_source in ("config", "distribution") and bool(_api_key))
     )
 
 

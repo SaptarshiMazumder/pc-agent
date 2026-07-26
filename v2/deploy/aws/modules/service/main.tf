@@ -113,5 +113,11 @@ resource "aws_ecs_service" "this" {
     }
   }
 
+  # Terraform sets the INITIAL count, then stops managing it — so down.ps1/up.ps1 can scale
+  # tasks to 0 (pause the compute bill) and back to 1 without `apply` reverting them.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+
   tags = local.common_tags
 }

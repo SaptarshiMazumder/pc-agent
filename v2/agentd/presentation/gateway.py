@@ -97,6 +97,7 @@ APP_SCOPED_METHODS = frozenset(
         "platform.connect",
         "platform.disconnect",
         "platform.status",
+        "platform.setGatewayUrl",
     }
 )
 
@@ -2140,6 +2141,8 @@ class Gateway:
                 payload = self._platform_disconnect()
             elif req.method == "platform.status":
                 payload = self._platform_status()
+            elif req.method == "platform.setGatewayUrl":
+                payload = self._platform_set_gateway_url(req.params)
             else:
                 return Response(
                     id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"}
@@ -3611,6 +3614,28 @@ class Gateway:
             return self._platform_status()
         env_path = _config_file_path().parent / ".env"
         _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": ""})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
+    def _platform_set_gateway_url(self, params: dict) -> dict:
+        """Set (or clear) the desktop Cloud-mode gateway URL OVERRIDE. Persists
+        model_gateway.api_base to agentd.config.json, updates the live config, and re-runs
+        model_gateway.configure() so it applies immediately (a currently-connected session
+        retargets live). An empty url clears the override, falling back to the baked
+        distribution default. No-op on a hosted (accounts-mode) daemon."""
+        if accounts.enabled():
+            raise ValueError("this deployment manages the gateway server-side")
+        url = str(params.get("url") or "").strip().rstrip("/")
+        mg = dict(getattr(self.config, "model_gateway", None) or {})
+        if url:
+            mg["api_base"] = url
+        else:
+            mg.pop("api_base", None)
+        try:
+            self.config.model_gateway = mg  # live config for this process
+        except Exception:  # noqa: BLE001 — persistence below is the durable path
+            pass
+        _persist_config_patch({"model_gateway": mg})
         model_gateway.configure(self.config)
         return self._platform_status()
 
