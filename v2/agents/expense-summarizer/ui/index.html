@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Expense Summarizer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="shell">
+    <!-- ============ history sidebar ============ -->
+    <aside id="sidebar">
+      <div id="brand">
+        <span id="brandDot"></span>
+        <span>Expense Summarizer</span>
+      </div>
+      <button id="newChat" type="button">+ New chat</button>
+      <div id="histTitle">History</div>
+      <ul id="sessionList"></ul>
+    </aside>
+
+    <!-- ============ main pane ============ -->
+    <main id="main">
+      <header id="topbar">
+        <span id="status" class="status"><span id="statusDot"></span><span id="statusText">starting…</span></span>
+      </header>
+
+      <section id="log">
+        <div id="welcome">
+          <h1>Your month, totaled.</h1>
+          <p>I read the expense files in my workspace, categorize every transaction, and chart it.</p>
+          <ul id="chips"></ul>
+        </div>
+      </section>
+
+      <form id="composer" autocomplete="off">
+        <select id="chartKind" title="Chart type">
+          <option value="">Chart: auto</option>
+          <option value="bar">Chart: bar</option>
+          <option value="pie">Chart: pie</option>
+          <option value="trend">Chart: trend</option>
+        </select>
+        <textarea id="prompt" rows="1" placeholder="Ask about your spending…"></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="vendor/agentd-client.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

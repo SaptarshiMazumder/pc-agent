@@ -1,0 +1,119 @@
+@startuml build-expense-agent
+title Building "expense-summarizer" — an agent is a FOLDER of data, consumed by steps that already exist
+' Color code (same as before): application=green  domain=yellow  infrastructure=red
+' NEW ring: YOUR AGENT FOLDER = orange. Arrows leaving a ring carry its color.
+' Orange arrows answer: "which pipeline step eats this file?"
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+' ===================== YOUR AGENT (orange) — pure data, zero Python =====================
+package "agents/expense-summarizer/   (what YOU write)" #FFF3E0 {
+  class "agent.toml" as Toml <<config>> {
+    name = "Expense Summarizer"
+    tools_allow = [read, exec, write, find]
+    model = "gemini/..."  (optional)
+  }
+  class "IDENTITY.md" as Identity <<prose>> {
+    "You are the Expense Summarizer...
+    reads expense files, totals the month,
+    categorizes, produces a chart"
+  }
+  class "AGENTS.md" as Rules <<prose>> {
+    file locations, CSV formats,
+    categories, report layout,
+    "never fabricate a transaction"
+  }
+  class "skills/monthly-report/SKILL.md" as Skill <<playbook>> {
+    1. find this month's files
+    2. parse  3. aggregate
+    4. chart (matplotlib)  5. report
+  }
+  class "workspace/" as Workspace <<folder>> {
+    your expense CSVs live here;
+    tools run with this as cwd
+  }
+}
+
+note bottom of Toml #FFF8DC
+  NOT injected. NOT code. NO interface.
+  The contract is FILE NAMES in a folder.
+  Injection is for platform organs (engine,
+  stores) — an agent is CONTENT, discovered
+  at boot / registry.refresh().
+end note
+
+' ===================== domain (yellow) =====================
+package "domain" #FEF7E0 {
+  class AgentSpec {
+    id = "expense-summarizer"
+    instructions  <- IDENTITY+AGENTS text
+    tools_allow / model / workspace
+  }
+}
+
+' ===================== infrastructure (red) =====================
+package "infrastructure" #FCE8E6 {
+  class FileAgentRegistry {
+    scans agents/<id>/ at boot/refresh
+  }
+  class SkillLoader {
+    scans skills/ folders -> index
+  }
+  class "read / exec / write tools" as Tools {
+    exec runs python: parse CSVs,
+    matplotlib -> chart.png (artifact)
+  }
+}
+
+' ===================== application (green) — the 7 steps you know =====================
+package "application — AgentService.handle_message" #E6F4EA {
+  class "step 1  resolve agent" as S1
+  class "step 2  pick toolset" as S2
+  class "step 3  make session" as S3
+  class "step 5  build prompt" as S5
+  class "step 6  recall" as S6
+  class "step 7  engine.run (the loop)" as S7
+}
+
+' ---------- discovery (red: the platform reads your folder) ----------
+FileAgentRegistry -[#D93025]-> Toml : reads
+FileAgentRegistry -[#D93025]-> Identity : reads
+FileAgentRegistry -[#D93025]-> Rules : reads
+FileAgentRegistry -[#D93025]-> AgentSpec : builds ONE spec\nfrom the folder
+SkillLoader -[#D93025]-> Skill : indexes (one line)
+
+' ---------- consumption (orange: which step eats which file) ----------
+AgentSpec -[#E8710A]-> S1 : folder name = the id\nresolved per session key
+Toml -[#E8710A]-> S2 : tools_allow filters\nthe shared catalog
+Toml -[#E8710A]-> S7 : model override rides\ninto engine.run(model=...)
+Identity -[#E8710A]-> S5 : prompt section 3\n(via AgentSpec.instructions)
+Rules -[#E8710A]-> S5 : prompt section 3
+Skill -[#E8710A]-> S5 : one-line INDEX in prompt
+Skill -[#E8710A]-> S7 : full playbook read ON DEMAND\n(an ordinary `read` tool call)
+Workspace -[#E8710A]-> S7 : cwd for read/exec/write\n(parse files, save chart.png)
+Workspace -[#E8710A]-> S3 : sessions partition under\nthe agent's state dir
+
+' ---------- the run itself ----------
+S7 -[#1E8E3E]-> Tools : the model calls them\nagainst YOUR files
+
+note right of S7 #F0FFF0
+  A turn: "summarize my June spending"
+  model reads SKILL.md -> finds CSVs (find/read)
+  -> exec python: totals + categories
+  -> exec matplotlib -> chart.png artifact
+  -> writes the report. Same spine as "hi" —
+  only the CONTENT differs.
+end note
+
+note bottom of S5 #F0FFF0
+  GOING LIVE: restart daemon (or any
+  registry.refresh trigger) -> chat at
+  session key agent:expense-summarizer:...
+  Zero changes to container.py, zero
+  new interfaces — the platform already
+  had every step; you only fed it files.
+end note
+
+@enduml
