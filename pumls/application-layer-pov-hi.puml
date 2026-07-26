@@ -1,0 +1,151 @@
+@startuml application-layer-pov-hi
+title The "hi" turn — seen from INSIDE the application layer
+' Same color code as before: arrows leaving a ring carry that ring's color.
+'   application=green  domain=yellow  infrastructure=red  presentation=blue  main=purple
+' READ IT LIKE THIS: AgentService only ever touches GREEN interfaces + YELLOW domain.
+' Every red/blue box is plugged in from behind an interface — it never names one.
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+' ===================== application (green) — THE POV =====================
+package "application  (what AgentService KNOWS)" #E6F4EA {
+  class AgentService {
+    handle_message("hi"):
+    (1) resolve agent
+    (2) pick toolset
+    (3) make session
+    (4) load history + save "hi"
+    (5) build prompt
+    (6) recall memories
+    (7) engine.run(...)  ... then done
+  }
+  interface AgentRegistry <<interface>> {
+    +resolve(session_id) : AgentSpec
+  }
+  interface SessionStore <<interface>> {
+    +load() / +append(m)
+  }
+  interface AgentEngine <<interface>> {
+    +run(messages, prompt, tools, on_event)
+  }
+  interface EventSink <<interface>> {
+    +__call__(event)
+  }
+  class "build_prompt()" as BuildPrompt <<injected fn>>
+  class "recall()" as Recall <<injected fn>>
+
+  note as InjectionNote #F0FFF0
+    WHAT WAS INJECTED HERE (the concretes behind each contract)
+    ----------------------------------------------------------
+    AgentEngine   <- NativeEngine        (the only engine today;
+                     container.py:241: "# swap here for Claude SDK / LangGraph")
+    AgentRegistry <- FileAgentRegistry   (only impl; tests may pass a fake:
+                     "registry = registry or FileAgentRegistry(config)")
+    SessionStore  <- LocalSessionStore   (JSONL on disk)
+    build_prompt  <- build_system_prompt (infrastructure/prompt.py)
+    recall        <- memory bank recall  (SQLite+embeddings; None if memory off)
+    EventSink     <- Gateway.broadcast   (presentation)
+
+    WHO DECIDED + WHEN: container.build_gateway(config) — the
+    composition root — reading Config (.env + agentd.config.json).
+    Runs ONCE at boot: main() -> load_config() -> build_gateway()
+    -> gateway.serve(). All wiring is FINISHED before the first
+    message can arrive — injection always precedes execution.
+
+    WHERE REAL CHOICES EXIST TODAY:
+    * browser engine: playwright (built-in) OR agent_browser (MCP)
+      — picked by resolve_browser_engine(config)
+    * LLM stream: litellm_stream, WRAPPED by make_failover_stream
+      when config.model_fallbacks is set (decorator, not swap)
+    * computer/memory/cron stores: built only if enabled, else None
+    Everything else is a single impl behind a ready seam — adding
+    a second engine = write it + change ONE line in the container.
+  end note
+  InjectionNote .. AgentService
+}
+
+' ===================== domain (yellow) =====================
+package "domain" #FEF7E0 {
+  class AgentSpec {
+    id, tools_allow, workspace
+  }
+  class UserMessage {
+    content = "hi"
+  }
+  class "select_tools()" as SelectTools <<pure fn>>
+}
+
+' ---------- the numbered flow: ALL green (application acting) ----------
+AgentService -[#1E8E3E]-> AgentRegistry : (1) resolve("session-x")
+AgentService -[#1E8E3E]-> SelectTools : (2) filter tools by agent
+AgentService -[#1E8E3E]-> SessionStore : (3)(4) make + load + append "hi"
+AgentService -[#1E8E3E]-> BuildPrompt : (5) system prompt
+AgentService -[#1E8E3E]-> Recall : (6) memories for "hi" -> ""
+AgentService -[#1E8E3E]-> AgentEngine : (7) run(...)  << and waits >>
+AgentService .[#1E8E3E].> AgentSpec : reads
+AgentService .[#1E8E3E].> UserMessage : creates
+
+' ===================== infrastructure (red) — what's REALLY behind =====================
+package "infrastructure  (injected — AgentService can't name these)" #FCE8E6 {
+  class FileAgentRegistry {
+    scans agents/<id>/ folders
+  }
+  class LocalSessionStore {
+    JSONL transcript on disk
+  }
+  class NativeEngine {
+    the LLM<->tool loop:
+    sends "hi" + ALL tool schemas to the model;
+    model returns text, tool_calls = []
+    -> empty list = no tools -> done in 1 lap
+  }
+  class build_system_prompt {
+    identity + tools + skills text
+  }
+  class MemoryRecall {
+    SQLite + embeddings
+  }
+}
+
+' realizations: red impls point INWARD at green contracts
+FileAgentRegistry .[#D93025].|> AgentRegistry
+LocalSessionStore .[#D93025].|> SessionStore
+NativeEngine .[#D93025].|> AgentEngine
+build_system_prompt .[#D93025].|> BuildPrompt
+MemoryRecall .[#D93025].|> Recall
+
+' ===================== presentation (blue) =====================
+package "presentation" #E8F0FE {
+  class Gateway {
+    broadcast(event) -> chat.event frames
+  }
+}
+Gateway .[#1A73E8].|> EventSink : its broadcast fn IS the sink
+' the engine streams the answer out through the green EventSink contract:
+NativeEngine -[#D93025]-> EventSink : "Hello!" deltas flow back
+
+' ===================== main (purple) — who plugged it all in =====================
+package "main" #F3E8FD {
+  class Container
+}
+Container .[#9334E6].> AgentService : injects ALL of the red + blue\ninto the green constructor at startup
+
+note bottom of NativeEngine #FFF8DC
+  WHO DECIDES "no tools"?  The MODEL.
+  Tools are always offered (as JSON schemas).
+  For "hi" the model simply calls none ->
+  the engine sees tool_calls == [] and a real
+  text answer -> loop ends. The application
+  layer never knows tools were even considered.
+end note
+
+note right of AgentService #F0FFF0
+  COMPILE TIME: imports only green + yellow.
+  RUNTIME: execution flows into red and blue —
+  but only through the interfaces above.
+  That gap IS clean architecture.
+end note
+
+@enduml

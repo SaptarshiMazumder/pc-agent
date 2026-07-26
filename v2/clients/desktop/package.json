@@ -8,7 +8,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "predev": "node scripts/kill-daemon.mjs",
-    "dev": "electron-vite dev",
+    "dev": "cross-env \"AGENTD_DAEMON_CMD=runtime/cpython/python.exe -X utf8 -m agentd\" electron-vite dev",
     "predev:studio": "node scripts/kill-daemon.mjs",
     "dev:studio": "cross-env AGENTD_FLAVOR=figure-creator-studio electron-vite dev",
     "build": "electron-vite build",
