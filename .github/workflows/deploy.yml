@@ -1,9 +1,23 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Deploy (ECS Fargate) — build the 4 images, push to ECR, roll the services.
 #
-# ONE workflow, BOTH environments. Environment is a PARAMETER, never a separate file:
-#   • Manual:  Actions ▸ Deploy ▸ Run workflow ▸ pick `dev` or `staging`.
-#   • Auto:    push to `develop` → deploys dev;  push to `staging` → deploys staging.
+# ONE workflow, ALL environments. Environment is a PARAMETER, never a separate file:
+#   • Manual:  Actions ▸ Deploy ▸ Run workflow ▸ pick `dev` / `staging` / `production`.
+#   • Auto:    push to `develop`     → deploys dev
+#              push to `staging`     → deploys staging
+#              push to `release/**`  → deploys production
+#
+# GATES (enforced by GitHub Environments, configured in repo Settings ▸ Environments):
+#   • dev         — no reviewers, deploys immediately.
+#   • staging     — required reviewers must approve before the deploy job runs.
+#   • production  — required reviewers + deployment-branch policy `release/*`
+#                   (a manual dispatch of `production` from any non-release branch is
+#                    BLOCKED by that policy, so the gate holds regardless of trigger).
+#
+# WHY TWO JOBS: a job's `environment:` gate is evaluated BEFORE its steps run, so it
+# cannot read a value computed in a step. `resolve` computes the env name and exposes it
+# as a job OUTPUT; `deploy` reads it via `needs.resolve.outputs.environment`, which the
+# environment key CAN see — that's what makes the reviewer/branch protection actually fire.
 #
 # This does DEPLOYMENT only (code → running containers). It does NOT run Terraform and needs
 # NO Terraform state — the environment must already be PROVISIONED (you run `terraform apply`
@@ -22,10 +36,10 @@ on:
       environment:
         description: "Which environment to deploy"
         type: choice
-        options: [dev, staging]
+        options: [dev, staging, production]
         default: dev
   push:
-    branches: [develop, staging] # develop → dev, staging → staging (mapped below)
+    branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
     paths: # only rebuild when something that ships actually changed
       - "v2/agentd/**"
       - "v2/deploy/accounts/**"
@@ -42,12 +56,13 @@ env:
   SERVICES: "gateway accounts daemon web"
 
 jobs:
-  deploy:
+  # ── Job 1: decide which environment. No AWS, no gate — its ONLY purpose is to produce
+  # the env name in the `needs.*` context so Job 2's `environment:` key can read it.
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
     steps:
-      - uses: actions/checkout@v4
-
-      # dev/staging in ONE place: manual input wins; otherwise map the pushed branch.
       - name: Resolve environment
         id: env
         run: |
@@ -55,13 +70,26 @@ jobs:
             ENV="${{ inputs.environment }}"
           else
             case "${{ github.ref_name }}" in
-              develop) ENV=dev ;;
-              staging) ENV=staging ;;
+              develop)    ENV=dev ;;
+              staging)    ENV=staging ;;
+              release/*)  ENV=production ;;
               *) echo "::error::no environment mapping for branch ${{ github.ref_name }}"; exit 1 ;;
             esac
           fi
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
-          echo "Deploying environment: **$ENV**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Resolved environment: **$ENV**" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 2: the actual deploy. `environment:` binds it to the matching GitHub Environment,
+  # so its protection rules (reviewers for staging/production, branch policy for production)
+  # pause/authorize THIS job before any step runs.
+  deploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
+    env:
+      ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -76,13 +104,12 @@ jobs:
       - name: Resolve registry + ALB url
         id: aws
         run: |
-          ENV="${{ steps.env.outputs.environment }}"
           ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          ALB_DNS=$(aws elbv2 describe-load-balancers --names "agentd-${ENV}" \
+          ALB_DNS=$(aws elbv2 describe-load-balancers --names "agentd-${ENVIRONMENT}" \
             --query 'LoadBalancers[0].DNSName' --output text)
           if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
-            echo "::error::no ALB named agentd-${ENV} — provision the environment first (terraform apply)"; exit 1
+            echo "::error::no ALB named agentd-${ENVIRONMENT} — provision the environment first (terraform apply)"; exit 1
           fi
           echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
           echo "alb=$ALB_DNS"       >> "$GITHUB_OUTPUT"
@@ -91,13 +118,12 @@ jobs:
       # `web` bakes the ALB url in at build time; the other three don't.
       - name: Build and push images
         run: |
-          ENV="${{ steps.env.outputs.environment }}"
           REG="${{ steps.aws.outputs.registry }}"
           ALB="${{ steps.aws.outputs.alb }}"
           SHA="${{ github.sha }}"
           build() { # name  context  dockerfile  [extra build args...]
             local name="$1" ctx="$2" df="$3"; shift 3
-            local uri="${REG}/agentd-${ENV}/${name}"
+            local uri="${REG}/agentd-${ENVIRONMENT}/${name}"
             echo "::group::build $name"
             docker build -t "${uri}:${SHA}" -t "${uri}:latest" -f "$df" "$@" "$ctx"
             docker push "${uri}:${SHA}"
@@ -113,16 +139,14 @@ jobs:
 
       - name: Roll ECS services
         run: |
-          ENV="${{ steps.env.outputs.environment }}"
           for svc in $SERVICES; do
-            aws ecs update-service --cluster "agentd-${ENV}" --service "agentd-${ENV}-${svc}" \
+            aws ecs update-service --cluster "agentd-${ENVIRONMENT}" --service "agentd-${ENVIRONMENT}-${svc}" \
               --force-new-deployment --region "$AWS_REGION" >/dev/null
-            echo "rolled agentd-${ENV}-${svc}"
+            echo "rolled agentd-${ENVIRONMENT}-${svc}"
           done
 
       - name: Wait for services to stabilize
         run: |
-          ENV="${{ steps.env.outputs.environment }}"
-          aws ecs wait services-stable --cluster "agentd-${ENV}" \
-            --services $(for s in $SERVICES; do echo "agentd-${ENV}-$s"; done) --region "$AWS_REGION"
-          echo "All services stable for **$ENV** ✅" >> "$GITHUB_STEP_SUMMARY"
+          aws ecs wait services-stable --cluster "agentd-${ENVIRONMENT}" \
+            --services $(for s in $SERVICES; do echo "agentd-${ENVIRONMENT}-$s"; done) --region "$AWS_REGION"
+          echo "All services stable for **$ENVIRONMENT** ✅" >> "$GITHUB_STEP_SUMMARY"
