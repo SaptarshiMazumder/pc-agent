@@ -10,8 +10,8 @@
 # locally). Everything it needs it reads from the AWS API via the naming convention
 # `agentd-<env>` / `agentd-<env>/<svc>`, so local Terraform state is irrelevant here.
 #
-# One-time setup (see v2/deploy/aws/github-oidc/):
-#   • apply v2/deploy/aws/github-oidc  → creates the OIDC role
+# One-time setup (see v2/infra/github-oidc/):
+#   • apply v2/infra/github-oidc  → creates the OIDC role
 #   • add repo secret AWS_DEPLOY_ROLE_ARN = that role's ARN
 # ─────────────────────────────────────────────────────────────────────────────
 name: Deploy

@@ -89,7 +89,7 @@ it depends on**.
 ## File layout this produces
 
 ```
-v2/deploy/aws/
+v2/infra/
 ├── README.md              ← this plan
 ├── bootstrap/             ← S3 state bucket (deferred)
 ├── modules/               ← reusable building blocks (each = ONE concern)

@@ -11,9 +11,9 @@
 # TF secret + your env file and it flows through automatically (no list to maintain here).
 #
 #   USAGE:
-#     ./set-keys.ps1                       # dev,     reads v2/.env
-#     ./set-keys.ps1 -Environment staging  # staging, reads v2/.env.staging
-#     ./set-keys.ps1 -Environment prod     # prod,    reads v2/.env.prod
+#     ./set-keys.ps1                          # dev,        reads v2/.env
+#     ./set-keys.ps1 -Environment staging     # staging,    reads v2/.env.staging
+#     ./set-keys.ps1 -Environment production  # production, reads v2/.env.production
 #     ./set-keys.ps1 -EnvFile C:\path\to\some.env   # explicit override
 # =============================================================================
 param(
@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$v2 = (Resolve-Path "$PSScriptRoot/../../..").Path   # stack -> aws -> deploy -> v2
+$v2 = (Resolve-Path "$PSScriptRoot/../..").Path   # deploy/scripts -> deploy -> v2
 
 # Default env file per environment: dev -> v2/.env, others -> v2/.env.<environment>
 if (-not $EnvFile) {

@@ -1,18 +1,18 @@
 # Stage 1 - Validate. Runs on every push / PR to develop or main.
 # This mirrors `v2/scripts/verify.ps1` exactly: if verify.ps1 is green locally, this goes green too.
-name: CI
+name: CI fast tests
 
 on:
   push:
     branches: [develop, main]
-    paths: ["v2/**", ".github/workflows/ci.yml"]
+    paths: ["v2/**", ".github/workflows/ci-fast-tests.yml"]
   pull_request:
     branches: [develop, main]
-    paths: ["v2/**", ".github/workflows/ci.yml"]
+    paths: ["v2/**", ".github/workflows/ci-fast-tests.yml"]
 
 # Cancel an in-progress run when a newer commit lands on the same branch/PR (saves minutes).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-fast-tests-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

@@ -1,8 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# THE STACK — the whole agentd cloud environment as one flat Terraform root.
-# One directory, one state. Each concern lives in its own FILE (network.tf,
-# security.tf, …) and every reference is a direct resource reference — no
-# module plumbing. What runs is data: the `services` map in variables.tf.
+# modules/ — the whole agentd cloud environment, flat: every concern in its own
+# FILE (network.tf, security.tf, …), every reference a direct resource reference.
+# What runs is data: the `services` map in variables.tf.
+#
+# This directory is ONE shared child module — parameterized resource declarations,
+# not applied directly. Each folder under ../environments/ (dev, staging, prod)
+# is a root module that instantiates it (as module "stack") with its own variable
+# values and its own state file. Run terraform THERE, not here.
 #
 # Sibling roots (separate lifecycles, applied rarely, with admin credentials):
 #   ../bootstrap     — the S3 state bucket
@@ -22,8 +26,4 @@ terraform {
       version = "~> 3.0"
     }
   }
-}
-
-provider "aws" {
-  region = var.region
 }

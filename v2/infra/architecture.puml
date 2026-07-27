@@ -1,6 +1,6 @@
 @startuml agentd-dev-aws-architecture
 ' =============================================================================
-'  agentd — dev environment on AWS (Terraform: v2/deploy/aws/environments/dev)
+'  agentd — dev environment on AWS (Terraform: v2/infra/environments/dev)
 '  Real AWS service icons via aws-icons-for-plantuml (bundled in plantuml.jar as
 '  awslib v14). Source-only by convention; render on demand:
 '     java -jar ../../plantuml.jar -tpng architecture.puml     (-> architecture.png)
