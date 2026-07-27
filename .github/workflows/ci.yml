@@ -50,7 +50,13 @@ jobs:
         continue-on-error: true # burn the 156 errors down, then delete this line to make it a gate
 
       - name: Unit tests (pytest)
-        run: pytest -m "not live and not browser and not computer" -q
+        run: pytest tests/unit -q
+
+      - name: Integration tests (pytest)
+        run: pytest tests/integration -m "not live and not browser and not computer" -q
+
+      # tests/e2e (booted-daemon smoke) is intentionally NOT run here yet — it gets its
+      # own job (non-blocking at first) once the first daemon smoke test lands.
 
   desktop:
     name: Desktop (electron client)
