@@ -349,8 +349,8 @@ def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
     )
     url, app = app_cmd._mint_url("demo")
     assert ensured["called"] is True  # opening an app STARTS the daemon when needed
-    # exact prefix + a per-launch fresh= cache-buster (value varies, so match it loosely)
-    assert url.startswith("http://127.0.0.1:8787/apps/demo/?token=TOK&scope=agent:demo&fresh=")
+    assert url.startswith("http://127.0.0.1:8787/apps/demo/?token=TOK&scope=agent:demo")
+    assert "&fresh=" in url  # per-launch freshness marker (see app.py _mint_url)
     assert app == {"url": "/apps/demo/", "title": "Demo"}  # descriptor rides along (mode etc.)
     # unknown agent -> a helpful error, not a broken URL
     try:
