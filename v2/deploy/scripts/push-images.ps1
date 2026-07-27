@@ -1,36 +1,37 @@
 # =============================================================================
-# push-images.ps1 - GO LIVE: build the 4 Docker images, push them to ECR, and roll
-# the ECS services so they pull the fresh images. Run from anywhere; all paths are
-# anchored to this script's location.
+# push-images.ps1 - build the 4 Docker images, push them to ECR, and roll the ECS
+# services so they pull the fresh images. (Local alternative to the CI Deploy pipeline.)
 #
-#   PREREQUISITES (once):
+#   PREREQUISITES:
 #     - Docker Desktop running
 #     - AWS CLI logged in (same creds Terraform uses)
-#     - You've set the REAL provider keys in the app secret (./set-keys.ps1)
+#     - The environment is provisioned (terraform apply) + real keys set (./set-keys.ps1)
 #
-#   USAGE:   ./push-images.ps1              # build + push all 4, then roll the services
-#            ./push-images.ps1 -Only web    # just one image (fast re-push after a UI change)
+#   USAGE:
+#     ./push-images.ps1                              # dev, all 4 images
+#     ./push-images.ps1 -Environment staging         # another environment
+#     ./push-images.ps1 -Only web                    # just one image (fast UI re-push)
 # =============================================================================
 param(
-  [string]$Only = ""   # optional: gateway | accounts | daemon | web
+  [string]$Environment = "dev",
+  [string]$Only        = ""   # optional: gateway | accounts | daemon | web
 )
 
 $ErrorActionPreference = "Stop"
-
-$stackDir = $PSScriptRoot
-$v2       = (Resolve-Path "$stackDir/../../..").Path   # stack -> aws -> deploy -> v2
 $region  = "ap-northeast-1"
-$cluster = "agentd-dev"
+$v2      = (Resolve-Path "$PSScriptRoot/../..").Path            # deploy/scripts -> deploy -> v2
+$envDir  = Join-Path $v2 "infra/environments/$Environment"
+$chdir   = "-chdir=$envDir"                                     # quoted so PowerShell expands it
+$cluster = "agentd-$Environment"
+
+if (-not (Test-Path $envDir)) { throw "No such environment: $envDir" }
 
 # --- 1. Read what Terraform built (image repos + the public ALB hostname) ---
-# NOTE: build the -chdir arg as a quoted string; PowerShell won't expand $stackDir
-# inside the bare token `-chdir=$stackDir` when passing it to a native command.
-Write-Host "Reading Terraform outputs..." -ForegroundColor Cyan
-$chdir  = "-chdir=$stackDir"
-$repos  = terraform $chdir output -json repository_urls | ConvertFrom-Json
-$appUrl = terraform $chdir output -raw app_url                 # http://<alb-dns>
-$albHost = ([Uri]$appUrl).Host
-$registry = ($repos.gateway -split '/')[0]                      # <acct>.dkr.ecr.<region>.amazonaws.com
+Write-Host "Reading Terraform outputs ($Environment)..." -ForegroundColor Cyan
+$repos    = terraform $chdir output -json repository_urls | ConvertFrom-Json
+$appUrl   = terraform $chdir output -raw app_url               # http://<alb-dns>
+$albHost  = ([Uri]$appUrl).Host
+$registry = ($repos.gateway -split '/')[0]                     # <acct>.dkr.ecr.<region>.amazonaws.com
 
 Write-Host "  registry : $registry"
 Write-Host "  ALB host : $albHost"
@@ -78,12 +79,12 @@ foreach ($name in $targets) {
 }
 
 # --- 4. Roll the services so Fargate pulls the new :latest ---
-Write-Host "`nRolling ECS services..." -ForegroundColor Cyan
+Write-Host "`nRolling ECS services ($cluster)..." -ForegroundColor Cyan
 foreach ($name in $targets) {
-  aws ecs update-service --cluster $cluster --service "agentd-dev-$name" --force-new-deployment --region $region | Out-Null
-  Write-Host "  rolled agentd-dev-$name"
+  aws ecs update-service --cluster $cluster --service "$cluster-$name" --force-new-deployment --region $region | Out-Null
+  Write-Host "  rolled $cluster-$name"
 }
 
 Write-Host "`nDone. Watch them come up:" -ForegroundColor Cyan
-Write-Host "  aws ecs describe-services --cluster $cluster --services agentd-dev-web agentd-dev-daemon agentd-dev-accounts agentd-dev-gateway --region $region --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'"
+Write-Host "  aws ecs describe-services --cluster $cluster --services $cluster-web $cluster-daemon $cluster-accounts $cluster-gateway --region $region --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'"
 Write-Host "`nThen open:  $appUrl" -ForegroundColor Green

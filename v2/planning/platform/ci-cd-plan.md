@@ -16,7 +16,7 @@
 
 - **Reality vs plan:** triage found **0 `live` (API) tests** (all hermetic) → no secrets needed yet; `computer` tests are hermetic and run in Stage 1. So Stage 2's real payload = the **4 `browser` tests**.
 - **Fixed the deferred Stage-2 config bug:** the 3 browser test helpers (`_cfg`/`_provider`) fed flat `browser_*` attrs the provider reads via `browser_knob` (`plugins.browser.tools.browser.*`) → converted to the knob shape; also the cursor-scan runtime toggle. Verified: **4 browser tests pass under real Chromium** locally.
-- **`integration.yml`** (Stage 2): push to `develop`/`main` + `workflow_dispatch` (not every push); `playwright install --with-deps chromium`; `pytest -m "browser or live or computer"`; fork-guard + secrets env stubbed for future `live` tests.
+- **`ci-slow-tests.yml`** (Stage 2; earlier names: `ci-heavy-tests.yml`, before that `integration.yml` — renamed to avoid colliding with the `tests/integration` TIER, which runs in Stage 1): push to `develop`/`main` + `workflow_dispatch` (not every push); `playwright install --with-deps chromium`; `pytest -m "browser or live or computer"`; fork-guard + secrets env stubbed for future `live` tests.
 - **CI caught a real WIP regression:** user's uncommitted plan-tool change (empty content → rendered `render_plan` checklist, deliberate: empty showed as "(no output)") broke the committed `test_plan_tool` empty-content assertion. Resolution = **update the stale test** (not revert the code). Lesson logged: a red test can mean the test is stale, not the code wrong.
 
 ## Phase 1 completion notes (what actually shipped)
@@ -60,11 +60,11 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
 ### Pipeline shape
 
 ```
- PR opened ──────▶  [1] VALIDATE (fast, every push)          → ci.yml
-                      ├─ Python: pytest (unit), import-linter, ruff, mypy
+ PR opened ──────▶  [1] FAST TESTS (every push)              → ci-fast-tests.yml
+                      ├─ Python: pytest (unit + integration tiers), import-linter, ruff, mypy
                       └─ Desktop: npm ci, tsc typecheck, eslint, build
                               │
- merge → develop ──▶  [2] INTEGRATE (slower, gated)           → integration.yml
+ merge → develop ──▶  [2] SLOW TESTS (gated)                  → ci-slow-tests.yml
                       └─ live/e2e tests (browser, llm, google) — needs API-key secrets
                               │
  tag v* on main ──▶  [3] BUILD & PACKAGE (matrix)             → release-build.yml
@@ -111,7 +111,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
 
 ---
 
-## Phase 2 — Stage 1 workflow: **Validate** (`.github/workflows/ci.yml`)
+## Phase 2 — Stage 1 workflow: **CI fast tests** (`.github/workflows/ci-fast-tests.yml`, formerly `ci.yml`)
 
 *The 20% that catches 80% of regressions. No secrets. Every PR + push to develop/main.*
 
@@ -134,7 +134,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
 
 ---
 
-## Phase 3 — Stage 2 workflow: **Integrate / live tests** (`.github/workflows/integration.yml`)
+## Phase 3 — Stage 2 workflow: **CI slow tests** (`.github/workflows/ci-slow-tests.yml`, formerly `ci-heavy-tests.yml` / `integration.yml`)
 
 *Tests that cost money & need the network. Never runs on fork PRs (secret-leak protection).*
 
@@ -201,7 +201,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
 ## Suggested build order (smallest valuable increment first)
 
 1. **Phase 1** (config: pytest/ruff/mypy + test markers) → get local `verify` green.
-2. **Phase 2** (`ci.yml`) + **6.1** branch protection → regression safety net, zero secrets.
-3. **Phase 3** (`integration.yml`) once key secrets are added.
+2. **Phase 2** (`ci-fast-tests.yml`) + **6.1** branch protection → regression safety net, zero secrets.
+3. **Phase 3** (`ci-slow-tests.yml`) once key secrets are added.
 4. **Phase 4** (`release-build.yml`) → real installers on tags.
 5. **Phase 5–6** → publishing + hardening.

@@ -19,7 +19,8 @@ pytest tests/e2e -m e2e            # requires nothing external; boots its own da
 ```
 
 `v2/scripts/verify.ps1` runs the first two as blocking gates and mirrors
-`.github/workflows/ci.yml` exactly.
+`.github/workflows/ci-fast-tests.yml` exactly. The browser/live/computer-marked tests run
+in `.github/workflows/ci-slow-tests.yml` (on merge to develop/main, or on demand).
 
 ## Where does a new test go?
 

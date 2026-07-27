@@ -1,26 +1,28 @@
-# Stage 2 - Integrate. The heavier tests that need real infrastructure: a real Chromium today
-# (the `browser`-marked tests), and provider/API `live` tests later when they exist.
-# NOT run on every push - only on merges to develop/main and on-demand - because they're slower
-# and (in future) will need secrets.
-name: Integration
+# Stage 2 - Slow tests: the ones that need real infrastructure, selected by ENVIRONMENT
+# markers (browser = real Chromium, live = provider APIs + secrets, computer = display/driver).
+# Not to be confused with the tests/integration TIER (in-process, runs in ci-fast-tests.yml
+# on every push) — the 3 browser-marked files live there but are excluded from the fast run
+# and picked up here. NOT run on every push - only on merges to develop/main and on-demand -
+# because they're slower and (in future) will need secrets.
+name: CI slow tests
 
 on:
   push:
     branches: [develop, main]
-    paths: ['v2/**', '.github/workflows/integration.yml']
+    paths: ['v2/**', '.github/workflows/ci-slow-tests.yml']
   workflow_dispatch: {}          # run on-demand from the Actions tab
   # schedule:
   #   - cron: '0 6 * * *'        # (optional) nightly - uncomment to enable
 
 concurrency:
-  group: integration-${{ github.ref }}
+  group: ci-slow-tests-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  integration:
+  slow:
     name: Browser + live tests
     runs-on: ubuntu-latest
     # Fork PRs can't read secrets and shouldn't run this. (No pull_request trigger today, so this

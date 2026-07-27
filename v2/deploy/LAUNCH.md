@@ -46,7 +46,7 @@ Success: prints the base64 PUBLIC key → paste it as `publisher_key` in the fla
 (`v2/clients/desktop/flavors/*/distribution.toml`) at step 5. The JSON file itself is the
 PRIVATE half — never commit it.
 
-## 2. Terraform (from v2/deploy/aws/environments/dev)
+## 2. Terraform (from v2/infra/environments/dev)
 
 ```powershell
 terraform init

@@ -1,4 +1,4 @@
-# Stage-1 gate - run locally; mirrors exactly what ci.yml runs in the cloud.
+# Stage-1 gate - run locally; mirrors exactly what .github/workflows/ci-fast-tests.yml runs in the cloud.
 # Auto-uses the repo's root .venv (no need to activate it first).
 # Blocking gates stop the script on the first failure. mypy is informational (not a gate yet).
 #

@@ -1,7 +1,7 @@
 # Terraform × AWS — Zero → Expert Curriculum
 
 **The goal:** you become flawless at Terraform on AWS. **The vehicle:** this repo's real
-infrastructure (`v2/deploy/aws/`) — every concept is taught through the actual files that
+infrastructure (`v2/infra/`) — every concept is taught through the actual files that
 deploy agentd, not toy examples.
 
 **How we work (the contract):**
