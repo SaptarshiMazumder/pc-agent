@@ -8,7 +8,7 @@
 [bundle]
 id = "figure-creator"
 name = "Figure Creator"
-version = "1.0.0"
+version = "1.1.0" # b4: HTTP sign-in + rose app UI
 description = "Publication-grade scientific figures: templated artwork (Nano Banana Pro), grounded labels/leaders as an editable vector overlay, SVG/PPTX/PDF export."
 agentd_compat = ">=0.1,<1"
 entitlement = ""            # free while we build; set a SKU (e.g. "figure-creator-pro") to license-gate

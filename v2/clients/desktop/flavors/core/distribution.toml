@@ -9,4 +9,17 @@ name = "agentd"
 
 [store]
 enabled = true
-# registry_url = "https://registry.agentd.example/index.json"   # set at launch time
+# The public marketplace (S3 registry from terraform: agentd-dev-registry-910828b2).
+# publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
+registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
+publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+
+# [platform] — hosted accounts + platform model keys: this build is a SIGN-IN product. The
+# app gates on account sign-in and the local daemon runs model calls through our gateway on
+# platform keys (BYOK still works after sign-out). HTTP for the private-testing phase —
+# switch to https + rebuild the installer once TLS lands (REQUIRED before public launch).
+[platform]
+# LOCAL DEV: accounts mode disabled — sign-in gate off, local daemon + your own .env keys.
+# Restore the two URLs below to re-enable the hosted sign-in product (AWS dev stack).
+# accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
+# model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"

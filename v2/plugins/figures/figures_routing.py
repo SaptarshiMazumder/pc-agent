@@ -77,11 +77,9 @@ def _order_within_layers(layers, edges):
         if not prev_index:
             ordered[li] = nodes
         else:
-
             def bary(n):
                 ps = [prev_index[p] for p in pred[n] if p in prev_index]
                 return sum(ps) / len(ps) if ps else 0.0
-
             ordered[li] = sorted(nodes, key=bary)
         for idx, n in enumerate(ordered[li]):
             prev_index[n] = idx
@@ -177,7 +175,8 @@ def _orthogonal(src, tgt, direction):
         return [p0, (s[0], midy), (t[0], midy), p3]
 
 
-def route(nodes, edges, direction="RIGHT", router="orthogonal", node_gap=40.0, layer_gap=120.0):
+def route(nodes, edges, direction="RIGHT", router="orthogonal",
+          node_gap=40.0, layer_gap=120.0):
     """Lay out (if needed) and route. See module docstring for the return shape."""
     direction = direction.upper()
     nodes = [_as_node(n) for n in nodes]
@@ -197,33 +196,15 @@ def route(nodes, edges, direction="RIGHT", router="orthogonal", node_gap=40.0, l
             pts = [_border_point(s, (t["cx"], t["cy"])), _border_point(t, (s["cx"], s["cy"]))]
         else:  # straight
             pts = [_border_point(s, (t["cx"], t["cy"])), _border_point(t, (s["cx"], s["cy"]))]
-        routed.append(
-            {
-                "from": e["from"],
-                "to": e["to"],
-                "points": [[round(x, 2), round(y, 2)] for x, y in pts],
-                "route": "elbow" if r == "orthogonal" else r,
-                **{k: e[k] for k in ("label", "color", "style") if k in e},
-            }
-        )
+        routed.append({"from": e["from"], "to": e["to"],
+                       "points": [[round(x, 2), round(y, 2)] for x, y in pts],
+                       "route": "elbow" if r == "orthogonal" else r,
+                       **{k: e[k] for k in ("label", "color", "style") if k in e}})
 
-    out_nodes = [
-        {
-            "id": n["id"],
-            "x": round(n["x"], 2),
-            "y": round(n["y"], 2),
-            "w": n["w"],
-            "h": n["h"],
-            "cx": round(n["cx"], 2),
-            "cy": round(n["cy"], 2),
-        }
-        for n in nodes
-    ]
+    out_nodes = [{"id": n["id"], "x": round(n["x"], 2), "y": round(n["y"], 2),
+                  "w": n["w"], "h": n["h"],
+                  "cx": round(n["cx"], 2), "cy": round(n["cy"], 2)} for n in nodes]
     maxx = max((n["x"] + n["w"] for n in nodes), default=0) + 60
     maxy = max((n["y"] + n["h"] for n in nodes), default=0) + 60
-    return {
-        "nodes": out_nodes,
-        "edges": routed,
-        "width": int(round(maxx)),
-        "height": int(round(maxy)),
-    }
+    return {"nodes": out_nodes, "edges": routed,
+            "width": int(round(maxx)), "height": int(round(maxy))}

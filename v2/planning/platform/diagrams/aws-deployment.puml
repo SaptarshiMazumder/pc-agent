@@ -1,0 +1,119 @@
+@startuml aws-deployment
+' ============================================================================
+' agentd platform — AWS deployment topology (COMPLETE target; 2026-07-18)
+' Boxes are labeled with the real AWS service («type») + its role. Colour = the
+' PHASE it is built in (see legend), so this doubles as the build order. No AWS
+' sprite icons: the bundled plantuml.jar has no offline icon lib and the online
+' sprite URLs are version-fragile — names keep this diagram rendering forever.
+' PUML only; do not render PNG unless asked.
+' ============================================================================
+title agentd platform on AWS — what runs where, why, and in which phase
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BorderColor #888888
+  BackgroundColor #FCFCFC
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+' ---- clients (NOT on AWS) --------------------------------------------------
+actor "Desktop app / exe user\n(engine on THEIR machine)" as DESK
+actor "Browser user\n(engine on OUR fleet)" as WEB
+actor "Creator\n(publishes an agent)" as PUB
+
+' ---- edge -------------------------------------------------------------------
+package "EDGE (entry into AWS)" as EDGE {
+  rectangle "**Route 53**\n<<DNS>>\napp.domain + *.agents.domain\n(per-agent vanity URLs)" as R53 #EAF3FF
+  rectangle "**CloudFront**\n<<CDN / TLS>>\nHTTPS + WebSocket proxy;\nforwards viewer Host header" as CF #EAF3FF
+  rectangle "**Application Load Balancer**\n<<ALB>>\nWS-aware; spreads users across\nthe engine fleet, sticky per conn" as ALB #EAF3FF
+}
+
+' ---- identity ---------------------------------------------------------------
+package "IDENTITY" as IDENT {
+  rectangle "**Amazon Cognito**\n<<managed auth>>\nsign-in for users + creators;\nissues the ACCOUNT TOKEN" as COG #F0FFF0
+}
+
+' ---- compute plane (cattle — runs the image, holds NO durable data) --------
+package "COMPUTE plane  (disposable — kill/replace/scale freely)" as COMPUTE {
+  rectangle "**Amazon ECR**\n<<image registry>>\nengine image · gateway image ·\nsandbox-runner image" as ECR #F0FFF0
+  rectangle "**Model Gateway**\n<<ECS Fargate service>>\nLiteLLM proxy: holds OUR keys,\nmeters per account, enforces plan.\nServes desktop AND web. BYOK skips it." as GW #F0FFF0
+  rectangle "**Platform / Registry API**\n<<ECS Fargate service>>\nsign-in glue, publish, entitlements,\nagent provisioning" as API #F0FFF0
+  rectangle "**Hosted Runtime — engine fleet**\n<<ECS Fargate service>>\nthe agentd image, multi-user;\nper-connection user_id -> that user's state" as FLEET #EAF3FF
+  rectangle "**Sandbox runner**\n<<ECS Fargate task, on-demand>>\nruns an agent's CUSTOM plugin code\nin isolation; mounts only that user's\nagent dir; dies after the run" as SBX #FFF0F0
+}
+
+' ---- state plane (crown jewels — durable, isolated, backed up) --------------
+package "STATE plane  (durable — the ONLY place user data lives)" as STATE {
+  database "**Amazon RDS (PostgreSQL)**\n<<database>>\naccounts · subscriptions ·\nmarketplace listings · entitlements ·\nusage / metering rows" as RDS #FFF0F0
+  database "**Amazon EFS**\n<<shared filesystem>>\nper-user state roots:\n/users/<uid>/agents · sessions · memory\n(mounted by the engine fleet)" as EFS #FFF0F0
+  database "**Amazon S3**\n<<object store>>\n.agentpkg blobs · uploaded files ·\nbuilt .exe installers" as S3 #FFF0F0
+  rectangle "**AWS Secrets Manager**\n<<secrets>>\nOUR provider API keys —\nreadable ONLY by the Model Gateway" as SEC #FFF0F0
+}
+
+' ---- distribution + external ------------------------------------------------
+rectangle "**Marketplace Registry**\n= Registry API + S3 + RDS\n(the listing IS the share link)" as MKT #F5F0FF
+rectangle "LLM / VLM providers\n(Anthropic, Google, ...) — we RENT" as LLM #FCFCFC
+rectangle "**CloudWatch**\n<<logs / metrics / alarms>>" as CW #EFEFEF
+
+' ---- flows: why + how -------------------------------------------------------
+' desktop: engine is local; ONLY identity + models touch AWS; DATA STAYS LOCAL
+DESK --> COG : sign in\n(account token)
+DESK --> GW : model calls + token\n(subscription) — or direct\nto provider (BYOK)
+
+' browser: engine runs on our fleet
+WEB --> R53 : open agent URL
+R53 --> CF
+CF --> ALB
+ALB --> FLEET : wss
+FLEET ..> COG : validate token -> user_id
+FLEET --> EFS : read agent + history, write back
+FLEET --> S3 : pull .agentpkg / files on demand
+FLEET --> GW : model calls (always via gateway)
+FLEET --> SBX : dispatch custom-plugin exec
+SBX --> EFS : mount ONLY this user's agent dir
+
+' model gateway internals
+GW ..> SEC : read provider keys
+GW --> RDS : write usage / check plan
+GW --> LLM : forward with our key
+
+' image pulls
+ECR ..> GW
+ECR ..> FLEET
+ECR ..> SBX
+
+' publish + marketplace
+PUB --> API : publish agent folder
+API --> S3 : store .agentpkg + built exe
+API --> RDS : listing + entitlement rows
+MKT ..> S3
+MKT ..> RDS
+
+' ops
+FLEET ..> CW
+GW ..> CW
+
+legend right
+  == Build phase (colour) ==
+  <back:#F0FFF0>  Phase 1</back>  Platform Server: Cognito, Model Gateway,
+      Registry API, RDS, S3, Secrets, ECR — serves DESKTOP first
+  <back:#EAF3FF>  Phase 2</back>  Hosted Runtime: engine fleet, EFS,
+      ALB, CloudFront, Route 53 — browser users
+  <back:#FFF0F0>  Phase 4</back>  Sandbox runner — unlocks CUSTOM-plugin
+      agents on the web (desktop runs them day one)
+endlegend
+
+note bottom of STATE
+  RULE #5: nothing in the COMPUTE plane stores user data. A Fargate task can die
+  and be replaced with zero loss because everything durable lives HERE. Desktop
+  is the extreme case: the user's own machine is their state plane (data never
+  reaches AWS at all — only identity + model calls do).
+end note
+@enduml

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tokyo Weather</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="card">
+    <header>
+      <h1>Tokyo</h1>
+      <span id="status" class="status" title="connection to the agentd daemon">connecting…</span>
+    </header>
+
+    <section class="now">
+      <div class="temp"><span id="temp">–</span><span class="unit">°C</span></div>
+      <div class="sky" id="sky">–</div>
+      <div class="feels" id="feels"></div>
+    </section>
+
+    <section class="grid">
+      <div class="cell"><span class="k">High / Low</span><span class="v" id="hilo">–</span></div>
+      <div class="cell"><span class="k">Rain chance</span><span class="v" id="rain">–</span></div>
+      <div class="cell"><span class="k">Wind</span><span class="v" id="wind">–</span></div>
+      <div class="cell"><span class="k">Humidity</span><span class="v" id="hum">–</span></div>
+      <div class="cell"><span class="k">Sunrise</span><span class="v" id="sunrise">–</span></div>
+      <div class="cell"><span class="k">Sunset</span><span class="v" id="sunset">–</span></div>
+    </section>
+
+    <footer>
+      <span id="updated"></span>
+      <button id="refresh" title="fetch the latest conditions now">↻ Refresh</button>
+    </footer>
+  </main>
+
+  <script src="vendor/agentd-client.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

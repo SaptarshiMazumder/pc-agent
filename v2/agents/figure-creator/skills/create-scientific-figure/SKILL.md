@@ -1,274 +1,241 @@
 ---
 name: create-scientific-figure
-description: Create a publication-grade scientific figure from a prompt, paper/PDF, sketch, or reference image. Write a Figure Spec (panels, entities, labels, flows), render the LABELLED figure with Nano Banana Pro (it composes multi-panel layouts, labels, leaders and arrows natively), verify, and deliver the PNG. Vectorize ONLY on request: extract_annotations pixel-diffs the labelled figure against its stripped base and rebuilds every label/arrow as an EDITABLE vector layer (the BioRender / FigureLabs look). Produces PNG first; editable SVG / PPTX / vector PDF on demand.
+description: Create a publication-grade scientific figure from a prompt, paper/PDF, sketch, or reference image. Pick an ART TEMPLATE (the style gallery — biorender-shaded, ghosted-anatomy, isometric-3d-stem, flat-vector, watercolor-atlas, …), render textless artwork with Nano Banana Pro, then add labels, leaders, arrows, and an illustrated flowchart as an EDITABLE vector layer (the BioRender / FigureLabs look). Produces editable SVG / PPTX / vector PDF / PNG.
 ---
 
 # Create a scientific figure
 
-## FIRST — what did the user actually ask for? (the delivery contract)
-
-Decide the deliverable from the user's own words. The default is a **PNG image** — editability is
-always opt-in, never assumed:
-
-| The user's ask | Do | Deliver |
-| --- | --- | --- |
-| "**make / create / draw / show** a figure/diagram/illustration of X" | generate the figure (§0–§2), verify | the **PNG**. **STOP — do NOT vectorize, do NOT make an SVG.** |
-| "**edit / fix / change / adjust** \<the figure\>" | `edit_artwork` on the current image (raster) — targeted change, keep the rest identical | the **edited PNG** |
-| "make it **editable / vector / an SVG**", "**vectorize** it", "let me **edit the labels**", or the **Edit-as-SVG** button | run the extraction chain (§2A′) | the layered **SVG** (+ PPTX/PDF if asked) |
-| ambiguous | make the **PNG**; mention an editable version is available on request | the **PNG** |
-
-**If this task was delegated to you with an over-specified brief, still honour the USER's real
-intent — only vectorize when the user genuinely wanted to edit/vectorize.** A verbose brief that
-says "output an SVG" when the user only asked to "create a diagram" is over-specification: deliver
-the PNG.
-
-Turn a subject into a finished figure. The craft: **(1) write a Figure Spec** (what panels, what
-labels, what flows), **(2) render the LABELLED figure in ONE generation** — Nano Banana Pro places
-labels, leader lines, arrows, and multi-panel layouts natively, and its placement is the best
-available — then **(3) verify and deliver the PNG**. Vectorizing is a **separate, on-demand step**
-(the contract above): only when the user asks does `extract_annotations` recover everything the
-model drew as an editable vector layer, exactly where it was drawn.
+Turn a subject into a finished figure. The craft is: **(1) pick the right art template**, **(2)
+render clean TEXTLESS artwork from it with Nano Banana Pro**, and **(3) add every label, arrow, and
+flowchart node as an EDITABLE vector layer** — not baked into pixels. That separation is what gives
+both the look _and_ correctness/editability. It is how we match (and beat) FigureLabs.
 
 Generate all content from the subject **and the user's intent** every time — never reuse example
 wording or a previous figure's labels.
 
 ## The tools (each does ONE job)
 
-| tool                         | does                                                                                                                                                                |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `list_templates`             | browse the ART-TEMPLATE gallery (styles + when to use). Pick an `id`. User-extensible (files in `templates/`).                                                     |
-| `generate_artwork`           | raster illustration via **Nano Banana Pro**. `template=<id>` + `subject` (+ `palette`); `allow_text: true` for the labelled-first route. Returns PNG + palette. It also runs a CANVAS CHECK (border whiteness) — heed its warning. |
-| `edit_artwork`               | targeted "change ONLY this" edit of an existing image (optional `region` [x,y,w,h]) — the **fix path**. Never regenerate from scratch for a localized fix.        |
-| `find_reference_image`       | keyless web image search → download candidates to **look at & pick**, then feed to `generate_artwork` `reference_images` for accuracy grounding.                   |
-| `figure_to_svg`              | ★ **the one-call vectorizer.** Any labelled figure PNG → editable layered SVG in a single call (strip → OCR text → semantic + blob arrows → raster/vector artwork → composed SVG). Stateless; the default "make it editable / convert to SVG" tool. |
-| `extract_annotations`        | the lower-level extractor: pixel-diff → OCR'd `label`s + skeleton `arrow`/`leader` elements + spec JSON. Use when you want to edit the element spec before composing. |
-| `read_labels_from_image`     | **fallback anchor source** (VLM route): reads drawn labels/leaders into `annotation` elements. Use when `extract_annotations` reports unanchored labels, or to ADD leaders the model never drew. |
-| `layout_flowchart`           | nodes + edges → node positions + routed connector waypoints (flowchart / pathway).                                                                                 |
-| `render_editable_overlay`    | high-level spec → **editable** SVG: labels, pills, leaders, premium arrows, `node` boxes, panels. Prefer `elements_path=<extract's JSON>` — never retype elements. |
-| `compose_figure_layers`      | artwork + overlay → flattened PNG **and** layered editable SVG (artwork `<image>` + live `<text>`/`<path>`).                                                       |
-| `verify_figure`              | image + expected structures → `{ok, missing, extra, wrong, notes}` — the correctness gate, MANDATORY before delivering.                                            |
-| `validate_svg`               | parse + inventory an SVG (labels/arrows/nodes/embedded images) — run on every SVG deliverable.                                                                     |
-| `plantuml`                   | diagram code → PNG, for a purely logical/structured diagram. See **create-diagram**.                                                                               |
-| `export_pptx` / `export_pdf` | fully-editable PowerPoint / vector PDF. `export_pptx` accepts `elements_path` too.                                                                                 |
-| `trace_image`                | ⚠️ geometric whole-image tracing — ONLY when the user explicitly asks for the painted artwork itself as vector shapes. Lossy; never a default.                     |
+| tool                              | does                                                                                                                                                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_templates`                  | browse the ART-TEMPLATE gallery (styles + when to use). Pick an `id`. The gallery is user-extensible (files in `templates/`).                                                                                                                                       |
+| `generate_artwork`                | textless raster illustration via **Nano Banana Pro (Gemini 3 Pro Image)**. Pass `template=<id>` + `subject` (+ optional `palette`); the template supplies style/palette/aspect/model and conditions on its exemplars. Returns the PNG **and the palette to reuse**. |
+| `find_reference_image`            | keyless web image search → download candidate reference images to **look at & pick**, then feed to `generate_artwork` `reference_images` for accuracy grounding.                                                                                                    |
+| `read_labels_from_image`                     | ★ **native-label anchor source.** A LABELLED oracle (an EDIT of your textless art) → ready-to-draw `annotation` elements by READING its drawn labels: text + pointer tip + label position (`at`). Pass `base`=the textless art (coords come back in its space, pointer snapped to its ink). Reliable — traces drawn lines, not anatomy. |
+| `layout_flowchart`                     | nodes + edges → node positions + routed connector waypoints (for a flowchart or a pathway).                                                                                                                                                                         |
+| `render_editable_overlay`                  | high-level spec → **editable** SVG: labels, pill labels, leader callouts, premium arrows, **`node` flowchart boxes with embedded icons + step badges**, panels.                                                                                                     |
+| `compose_figure_layers`                  | artwork + overlay → flattened PNG **and** layered editable SVG (artwork `<image>` + live `<text>`/`<path>`/`<image>` icons).                                                                                                                                        |
+| `verify_figure`                   | image + expected structures → `{ok, missing, extra, wrong, notes}` (the correctness gate; a TEXT verdict you can always read).                                                                                                                                      |
+| `validate_svg`                    | parse + inventory an SVG (labels/arrows/nodes/embedded images).                                                                                                                                                                                                     |
+| `plantuml`                        | diagram code → PNG, for a purely logical/structured diagram. See **create-diagram**.                                                                                                                                                                                |
+| `export_pptx` / `export_pdf`      | fully-editable PowerPoint (text boxes, pills, connectors, node boxes + icon pictures, arrowheads) / vector PDF.                                                                                                                                                     |
+| `trace_image`                     | ⚠️ **NOT part of creating a figure** — geometric shape-tracing for the separate **vectorize-figure** job (only when the user explicitly asks to trace artwork into vector shapes). Lossy; never a default.                                                                                                                                                                  |
 
-**Coordinate rule:** the overlay is authored in the **artwork's pixel space** (origin top-left) —
-exactly what `extract_annotations`, `read_labels_from_image` and `layout_flowchart` return. Keep the
-overlay `width`/`height` equal to the artwork's. Font/stroke sizes auto-scale (~1024px reference).
+**One rule that makes everything line up:** the overlay is authored in the **artwork's pixel
+coordinate space** (origin top-left) — exactly what `read_labels_from_image` and `layout_flowchart` return. Keep
+the overlay `width`/`height` equal to the artwork's. **Font/stroke/dot sizes auto-scale to the
+resolution** (authored in ~1024px reference units), so you do NOT hand-tune font sizes for a 2K/4K
+artwork — labels come out proportionate automatically. `export_pptx` uses the same rule. (Override the
+multiplier with `scale` on `render_editable_overlay`/`export_pptx` only if you want chunkier or finer labels.)
 
 ## Step 0 — Understand, RESEARCH, and refine the brief
 
-- **Read the source** (prompt, paper/PDF, or reference image). Pull out the entities, their
-  relationships, the labels, the intended style, and — crucially — **the user's GOAL**.
+- **Read the source** (prompt, and ingest a paper/PDF or reference image if given). Pull out the
+  entities, their relationships, the labels, the intended style, and — crucially — **the user's GOAL**.
 
 ### NEVER guess anatomy or structure — ground it first (mandatory)
 
-- **If the figure's correctness depends on real-world structure you are not 100% certain of, you
-  MUST research it before generating — do NOT invent it.** Anatomy, apparatus, molecules,
-  organisms, processes: free text-to-image _hallucinates_ structure. A confident-but-wrong figure
-  is worse than no figure.
-- **The grounding loop (whenever structure matters):**
-  1. `web_search` the subject (in ENGLISH) to learn the correct parts, arrangement, and process.
-  2. `find_reference_image` for a clean labelled diagram; **LOOK at the candidates and judge them**.
-     Reject cluttered photos, watermarked stock, anything you can't verify. Pick the best 1–2.
-  3. Condition generation on the chosen reference (`reference_images` + `conditioning:
-     layout`/`sketch`) so the model copies the _structure_ and only restyles it.
+- **If the figure's correctness depends on real-world structure you are not 100% certain of, you MUST
+  research it before generating — do NOT invent it.** Anatomy, apparatus, molecules, organisms,
+  processes: free text-to-image _hallucinates_ structure (wrong parts, wrong counts, wrong layout — a
+  "corn kernel" that is anatomically nonsense). A confident-but-wrong figure is worse than no figure.
+- **The grounding loop (do this whenever structure matters):**
+  1. `web_search` the subject (in ENGLISH) to learn the correct parts, their arrangement, and the real
+     process — so you know what a _correct_ figure must contain.
+  2. `find_reference_image` for a clean labelled diagram/schematic; **LOOK at the candidates and judge
+     them** — is this the right organism/organ/apparatus? are the parts correct and clearly drawn? Reject
+     cluttered photos, watermarked stock, or anything you can't verify. Pick the best 1–2.
+  3. Condition generation on the chosen reference (`reference_images` + `conditioning: layout`/`sketch`)
+     so the model copies the _structure_ and only restyles it. Say you used a web reference.
   4. After rendering, `verify_figure` against the parts you confirmed in step 1.
-- **Only skip grounding** for a subject you genuinely know cold with no single "correct" anatomy.
-- High-stakes/medical: still prefer a **user sketch or reference** — the human owns ground truth.
+- **Only skip grounding** for a subject whose structure you genuinely know cold and that has no single
+  "correct" anatomy (e.g. "a phospholipid bilayer", "three boxes in a row"). When unsure, ground.
+- If it's high-stakes/medical, still prefer a **user sketch or reference** — the human owns ground truth.
 
-### Match the DEPTH to the intent
+### Match the DEPTH to the intent — don't under- or over-explain
 
-- "**Label the parts of** X" / a dense anatomical plate → **concise NAME labels**.
-- "**Explain how / show the process of** …" → richer labels welcome (name + short descriptor where
-  it genuinely aids the goal), and cover the real steps — this is the FigureLabs explanatory style.
-- Don't bloat a labelling task; don't truncate an explanation. Mirror the user's level of detail.
+- **Read what the user actually wants and scale to it.** There is no fixed rule; judge per request:
+  - "**Label the parts of** a chloroplast" / a densely-labelled anatomical plate → **concise NAME
+    labels** ("Thylakoid", "Stroma"). Many structures = keep each label short so they all fit and read
+    cleanly. Descriptors here would crowd the figure and force you to drop labels — don't.
+  - "**Explain how / show the process of** …" (an explanatory or teaching figure) → **richer labels are
+    welcome** — a name plus a short descriptor where it genuinely aids understanding ("Cotyledon —
+    oil-rich storage tissue"), and cover the real steps/sub-steps of the process rather than a truncated
+    list. This is where FigureLabs' descriptive style fits.
+  - Add a descriptor to an **individual** label only when the term is non-obvious or the descriptor
+    carries real information for THIS figure's goal — never as a blanket default on every part.
+- So: a parts-diagram gets clean names; an explanatory figure gets depth. Don't bloat a labelling task,
+  and don't truncate an explanation. When unsure, mirror the user's own level of detail.
+- **Gate the effort by complexity:** trivial one-object prompt → generate. Multi-entity / "publication"
+  → write a short **Figure Spec** (entities, relations, labels at the right depth, layout, style).
 - **Ask 1–3 questions ONLY when the science genuinely forks.** Otherwise pick a sensible default.
 
-## Step 0.5 — Write the FIGURE SPEC (the planning step)
+## Step 1 — Pick an ART TEMPLATE + route to a machine
 
-For anything beyond a trivial one-object prompt, write a short **Figure Spec** before generating —
-it is the difference between "one panel, labels only" and the figure the user actually asked for:
+**Always start with `list_templates`** (unless the user named a template). **`biorender-shaded` is THE
+default** — the clean shaded BioRender / *Cell*-journal look (soft gradient volume, white background) that
+most scientific figures should use. **Reach for it unless the subject CLEARLY calls for a specialised
+template:** `ghosted-anatomy` (see *through* an outer layer — surgical/procedural), `isometric-3d-stem`
+(physics / engineering / earth-science, or an explicit 3D/isometric ask), `watercolor-atlas` (hand-painted
+Netter atlas feel), `flat-vector` (a deliberately flat schematic, no shading), `cell-journal-cover` (a hero
+cover). The template decides the whole art direction; you never hand-write style words. When in doubt,
+`biorender-shaded`.
 
-- **Panels** — does the request contain MORE THAN ONE informational goal? "A cross-section of a jet
-  engine and how fuel flows" = **two panels** (A: labelled cross-section; B: fuel-path flow with
-  directional arrows). Give each panel a letter, a one-line content brief, and a route from Step 1.
-  A single goal = a single panel — never bolt on a panel that wasn't asked for.
-- **Entities + labels** per panel, at the right depth (Step 0).
-- **Flows/arrows** per panel, with semantics: flow, activation, inhibition (⊣), reversible (↔),
-  transport, catalysis — these map 1:1 to overlay arrow styles at vectorize time.
-- **Layout** — panels side-by-side or stacked; where the label margins go.
-- **Template + palette** (Step 1).
+> **Match the style to the SUBJECT, not to "detailed".** Biology / anatomy / medical / botany (incl. a
+> plant or organ **cross-section**) → a shaded **bio** template (`biorender-shaded`, `ghosted-anatomy`,
+> `watercolor-atlas`). Reserve `isometric-3d-stem` for physics / engineering / earth-science, or when the
+> user explicitly asks for a 3D / isometric view. "Journal-grade / professional / highly detailed" means
+> a clean shaded **illustration**, NOT a photoreal 3D render or a museum diorama.
+> **Invariant: the artwork ALWAYS renders on a pure-white background — never grey/dark, never a photo,
+> never a cast/ground shadow.** (The tool enforces this too, but request it, don't fight it.)
 
-The spec drives the generation prompt, `verify_figure`'s expected-structures list, and the manifest.
+Then route by what the figure IS:
 
-## Step 1 — Pick an ART TEMPLATE + route each panel
+| If the figure is…                                                         | Route            | Why                                                      |
+| ------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------- |
+| a rich labelled scene: anatomy, cell, apparatus (most scientific figures) | **Native-label** | Nano Banana places the labels (correct); we re-draw them as an editable overlay over textless art |
+| a scene **plus a process flowchart** (e.g. anatomy + how-it's-made)       | **Composite**    | one template/palette across art + illustrated flowchart  |
+| purely logical: flow, hierarchy, ER, network, no illustration             | **Structured**   | a layout algorithm makes it exact                        |
+| a rich painted scene with **no/few labels**                               | **Illustrated**  | one generation, fast                                     |
 
-**Always start with `list_templates`** (unless the user named one). **`clean-flat` is THE default** —
-the light, mostly-flat BioRender look (flat fills + one soft gradient, crisp even outlines, room for
-labels). Reach for a different one only when the subject CLEARLY calls for it: `biorender-shaded`
-(richer volumetric semi-3D + dense detail, when the user wants depth/realism), `ghosted-anatomy`
-(see-through), `isometric-3d-stem` (physics/engineering/earth-science or an explicit 3D ask),
-`watercolor-atlas`, `flat-vector` (fully flat schematic), `cell-journal-cover`, `process-icon`.
+> **Pick exactly ONE route — a flowchart and its icons are NOT default.** Build a flowchart only when
+> the request genuinely involves a **process / sequence of steps** ("how X is made", "the pathway
+> of…", "the steps to…"). A parts diagram, a single labelled anatomy/structure, or a static scene is
+> **Hybrid** — no flowchart, no icons. Never bolt a process panel onto a figure that doesn't ask for one.
 
-> **Match the style to the SUBJECT, not to "detailed".** Default to the **clean, flatter** look;
-> choose `biorender-shaded` only when rich 3D shading is genuinely wanted. "Journal-grade /
-> professional" means a clean **illustration**, NOT a photoreal render or a diorama.
-> **Invariant: pure-white background — never grey/dark, never a photo, never a cast shadow.**
-> (`generate_artwork` measures this now — treat its CANVAS CHECK warning as a failed gate.)
+## Step 2A — Native-label (the ONE route for labelled figures)
 
-Route **each panel** of the spec by what it IS:
+The labels are placed by **Nano Banana** (it drew the anatomy, so it knows where everything is), then
+**re-drawn as our editable vector text/arrows over a clean TEXTLESS base**. No text is ever baked into the
+base we keep, so nothing is erased and nothing can be destroyed. Do NOT try to GUESS structure positions from
+the artwork, and NEVER erase / paint white over a labelled image to remove text (that whites-out the art). The flow:
 
-| If the panel is…                                                     | Route            |
-| -------------------------------------------------------------------- | ---------------- |
-| a labelled scene: anatomy, cell, apparatus (most scientific figures) | **Labelled-first** (2A) |
-| an illustrated process flowchart with icon nodes                     | **Composite** (2B) |
-| purely logical: flow, hierarchy, ER, network, no illustration        | **Structured** (2C) |
-| a rich painted scene with no/few labels                              | **Illustrated** (2D) |
+1. **Textless base `T` (one call):** `generate_artwork` with `template=<id>` + `subject`, **`allow_text:
+   false`**. The subject names every part AND its fine sub-structures (Step-0 grounding) so the art is dense,
+   not cartoonish, and says *"centred with WIDE white margins for labels."* This crisp textless image is the
+   base you keep.
+2. **Labelled ORACLE `L` — an EDIT of `T` (not a fresh generation!):** `generate_artwork` with
+   **`reference_images=[T]`, `conditioning: "layout"`, `allow_text: true`**, and a prompt like
+   *"Reproduce this EXACT image unchanged, and ADD a clean text label in the white margin outside the subject
+   for each of these parts: <list> — each connected by a thin straight leader line to the part. Do not alter
+   the artwork; only add labels + leaders."* Because `L` is `T` + annotations, the anatomy is pixel-aligned.
+   > **This MUST be an edit of `T`. A fresh `generate_artwork` (no `reference_images`) is a DIFFERENT
+   > picture — its coordinates won't line up with `T`, and labels land at random. This is the #1 failure.**
+3. **Read the placements** (`read_labels_from_image`, `image=L`, `base=T`, `structures=<list>`): reads each drawn label
+   → its text, the pointer `target` (leader tip on the structure, snapped onto `T`'s ink), and `at` (where
+   the label sits — kept in the margin where the model put it). Returns ready-to-draw `annotation`
+   `elements`. (It reads DRAWN leaders, so positions are correct by construction.) Discard `L`.
+4. **Draw the editable layer** (`render_editable_overlay`, `width`/`height` = `T`'s size, the `elements` from
+   read_labels_from_image, `out_svg` + `out_png`) → editable `<text>` + leader/arrow per label, positioned by Nano
+   Banana, over transparent.
+5. **Composite → the deliverable** (`compose_figure_layers` with **`artwork=T`** (the textless PNG), **`overlay_svg_path`**
+   = the `out_svg` render_editable_overlay just wrote, plus your `out_svg` + `out_png`) → **a layered editable SVG**
+   (the textless art as `<image>` + live editable `<text>`/`<path>` labels/arrows) plus a flattened PNG to
+   LOOK at. **This SVG is the agent's final figure.** For PowerPoint, `export_pptx(artwork=T,
+   elements=<the read_labels_from_image elements>)`; for vector PDF, `export_pdf`.
+6. **LOOK** at the flattened PNG. If a leader is mis-aimed or a label overlaps, re-run read_labels_from_image/render
+   (or, if the art/labels themselves are wrong, replace `T` and its oracle) — never hand-edit coordinates.
 
-> One route per PANEL — but the whole multi-panel figure is still usually **ONE generation** (2A):
-> Nano Banana composes panels natively when the prompt states the layout explicitly. Generate
-> panels separately only when they need different templates/routes, and then compose them onto one
-> canvas with shared style and vector panel letters.
-
-## Step 2A — Labelled-first (THE default route)
-
-Nano Banana draws the WHOLE figure — artwork, labels, leader lines, flow arrows, panels — in one
-generation. Its own placement is the quality bar; we keep it, not re-synthesize it.
-
-1. **Generate the labelled figure `L` (one call):** `generate_artwork` with `template=<id>`,
-   **`allow_text: true`**, and a `subject` built from the spec that EXPLICITLY asks for:
-   - the panel layout (*"two panels side by side: LEFT (A) a labelled cross-section of …; RIGHT (B)
-     a 4-step flow of … with directional arrows"*),
-   - *"a clean, correctly-spelled text label in the white margin for each of: <list>, each connected
-     by a thin leader line to its part"*,
-   - the flow arrows with their meaning (*"bold curved arrows showing the fuel path from … to …"*),
-   - *"generous white margins for the labels"*.
-
-   > **KEEP TEXT OFF THE ARTWORK (important for a clean figure AND for editability).** Always ask for
-   > **every label placed in the clean white margin AROUND the subject, connected by a leader line —
-   > NOT written over the drawn structures/artwork.** Say it in the prompt, e.g. *"place all label
-   > text OUTSIDE the illustration in the surrounding white space; never write text on top of the
-   > drawing; keep the artwork area clean, use leader lines to point in."* Reason: text sitting on
-   > coloured artwork clutters the figure and can't be cleanly re-vectorised later (it leaves a faint
-   > ghost), whereas margin labels lift off perfectly. Give the subject room — request wide margins.
-2. **GATES (mandatory, in order):**
-   - the tool's **CANVAS CHECK** (white border) — on failure, LOOK and regenerate;
-   - **LOOK** at the image yourself;
-   - **`verify_figure`** with the spec's expected structures/labels/panels. Missing panel, wrong
-     part, garbled label → ONE repair cycle: fix the prompt (or `edit_artwork` a localized flaw)
-     and re-verify. Then be honest about anything still wrong.
-3. **Deliver the PNG** + write the **manifest** (below). **STOP HERE — do NOT vectorize.**
-   The labelled PNG is the default deliverable; the editable layer is on-demand.
-
-### Step 2A′ — Vectorize ON DEMAND (user asks / Edit-as-SVG)
-
-4. **`figure_to_svg(image=L)`** — the ONE-call converter. It strips a textless base, OCRs the text,
-   rebuilds arrows semantically (VLM-read direction, snapped to pixels) with a blob-trace fallback,
-   keeps the artwork a crisp raster, and writes the layered editable SVG + a preview PNG. Options:
-   `base=` (skip the strip if you already have the textless art), `artwork_mode="vector"` (vtrace
-   the artwork too), `semantic_arrows=false` (blob-trace only, no VLM).
-5. **LOOK at the preview** — it must look like the approved PNG (WYSIWYG). `validate_svg` it, update
-   the manifest (state → vectorized). This SVG + PNG replace the deliverable.
-6. **Need to hand-edit elements first?** Use the lower-level path instead: `extract_annotations` →
-   edit the spec JSON → `render_editable_overlay(elements_path=…)` → `compose_figure_layers`.
-7. **Fallback:** if a figure has baked labels but no usable base and OCR struggles, use
-   `read_labels_from_image` → `annotation` elements → render/compose.
-
-## The FIGURE MANIFEST (write it for every figure)
-
-One JSON sidecar per figure, `<figure>_manifest.json`, written with the `write` tool at delivery
-and UPDATED on every change — this is how "fix X" later knows what to touch (no filename
-archaeology, no `_final_v4` guessing):
-
-```json
-{
-  "figure": "jet_engine",  "version": 2,  "state": "raster" | "vectorized",
-  "request": "<the user's ask>",
-  "spec": { "panels": [...], "labels": [...], "flows": [...], "template": "biorender-shaded" },
-  "files": { "labeled": "jet_engine.png", "base": "jet_engine_textless.png",
-             "elements": "jet_engine_elements.json", "overlay": "jet_engine_overlay.svg",
-             "final_svg": "jet_engine.svg", "final_png": "jet_engine.png" },
-  "history": ["v1 generated", "v2 edit_artwork: nozzle reshaped"]
-}
-```
-
-## Edits — route by LAYER via the manifest (never guess which file)
-
-Read the figure's manifest first. Classify the ask, then touch ONLY that layer:
-
-| Ask                                            | state=raster (PNG only)                                   | state=vectorized                                                                 |
-| ---------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| change the ART ("fix the nozzle")              | `edit_artwork(image=L, instruction, region?)` → re-verify | `edit_artwork` on the **base `T'`** → re-compose; re-extract ONLY if structures under annotations moved |
-| change label TEXT / size / colour              | `edit_artwork` text edit works, but OFFER to vectorize first (element edits are free + drift-proof) | edit the element in the **elements JSON** → re-render + re-compose. NO image call. |
-| change arrows (colour/route/thickness)         | vectorize first, then →                                    | element edit in the elements JSON → re-render + re-compose                        |
-| add/remove a label                             | `edit_artwork` (add/remove drawn label) → re-verify        | add/remove the element; for a NEW anchor use `read_labels_from_image(base=T')` for that one label |
-| restyle everything ("make it watercolor")      | regenerate `L` with the new template, SAME spec            | same — then re-extract on demand                                                  |
-
-Always bump `version`, append to `history`, and re-run the gates of the route you used. The user
-never says "PNG or SVG" — the manifest's `state` decides, and you re-emit the figure's current
-deliverable(s) from the same source of truth.
+> Labels sit in the margin because the ORACLE put them there and we keep `at`. The base `T` is textless, so
+> the final SVG's `<image>` is always the full clean artwork — the image can never go missing.
 
 ## Step 2B — Composite (illustrated scene + illustrated flowchart)
 
-For an icon-node flowchart panel that 2A's native arrows can't give you (editable node boxes):
-1. **Icons in ONE call:** `generate_artwork` with `template="process-icon"`, all step icons as a
-   single grid/contact-sheet on white, shared `palette`. Crop cells (PIL via `exec`), or generate
-   the whole textless flowchart strip in one call and place node boxes over its cells **by
-   GEOMETRY** (you laid it out — never locate by vision).
-2. **Layout:** `layout_flowchart` (nodes + edges → positions + routed `edges[].points`).
-3. **Draw:** `render_editable_overlay` with `node` elements + an `arrow` per edge (+ `panel` frame).
-4. **Compose** panels onto one canvas: ONE palette, ONE line weight, ONE icon style.
+The FigureLabs "anatomy + process, with icons not boxes" figure. Do 2A for the scene, and for the
+flowchart:
+
+1. **Icons — generate them in ONE call, not one-per-step (cost + cohesion):** call `generate_artwork`
+   once with `template="process-icon"` and a `subject` that describes **all the step icons as a single
+   clean grid/contact-sheet on white** (e.g. "a row of N simple flat icons, evenly spaced, one per cell:
+   (1) …, (2) …, (3) …", with the shared `palette`). One Nano Banana image holds the whole set, so they
+   come out perfectly consistent AND you pay for one generation, not N. Then crop the cells (the `read`
+   tool can show you the sheet; use a quick `exec` PIL crop, or place the whole sheet and position node
+   boxes over its cells). Only fall back to per-step calls if a step needs a wildly different icon.
+   **Alternative (fewest calls, most cohesive):** generate the **entire flowchart strip as one textless
+   illustrated panel** (all boxes + icons + connector arrows, NO text) in a single call, then place the
+   editable `node` boxes / labels over its cells **by GEOMETRY** (you laid the strip out, so you know the
+   cell positions) — do not try to locate them by vision.
+2. **Layout:** `layout_flowchart` with one node per step (give `w`/`h`; omit `x`/`y` to auto-layer, or
+   place them) + the edges between steps → node boxes + routed `edges[].points`.
+3. **Draw:** `render_editable_overlay` with a **`node`** element per step (`x/y/w/h` from layout_flowchart, `text`
+   = the step label, `icon` = that step's icon PNG, `step` = the number, `stroke` = a palette colour)
+   and an **`arrow`** per edge (`points` from layout_flowchart). Add a `panel` frame + title if it helps.
+4. **Composite** the scene-overlay and the flowchart-overlay over the artwork canvas (or compose each
+   panel and place side by side). Keep ONE palette, ONE line weight, ONE icon style across both — that
+   cohesion is what makes it read as a single professional figure.
 
 ## Step 2C — Structured (purely logical)
 
-PlantUML (follow **create-diagram**) → `plantuml` → PNG → LOOK and fix the source. Only for a
-non-illustrated logical diagram; an illustrated flowchart is 2B.
+Write the diagram as PlantUML (follow **create-diagram**) → `plantuml` → PNG → **LOOK** and fix the
+source. Use this only for a _non-illustrated_ logical diagram; for an illustrated flowchart prefer the
+`node`-based editable flowchart in 2B (it's editable and style-matched, unlike a PlantUML raster).
 
 ## Step 2D — Illustrated (standalone, few/no labels)
 
-`generate_artwork` (a few labels are fine — they extract later if needed) → gates → deliver.
+`generate_artwork` with a template (set `allow_text: true` only if you truly want baked text) →
+`verify_figure` → regenerate/refine if wrong. Ship PNG or run it through export.
 
-### Accuracy path — condition on a sketch, reference, or exemplars (highest trust)
+### Accuracy path — condition on a sketch, reference, or template exemplars (highest trust)
 
-- Ask for a **user sketch/reference** for high-stakes work; else `find_reference_image` (search in
-  ENGLISH, pick the cleanest). Condition with `reference_images` + `conditioning: sketch` (rough
-  layout to clean up) / `layout` (preserve structure exactly) / `style` (look only).
-- **Template exemplars** pin style automatically (drop gold images in the template's folder).
+Free text-to-image _invents_ structure. To get **correct** artwork, supply the structure and let the
+model only paint it:
 
-## Step 3 — Verify (gates, not suggestions)
+- Ask the user for a **rough sketch** or a **verified reference figure** for high-stakes/medical work.
+- **No user reference? Find one:** `find_reference_image` (keyless web search) → **look at the
+  candidates and pick the cleanest, most accurate** (prefer a clear labelled schematic over a
+  cluttered/watermarked photo). **Always search in ENGLISH.** Then condition on it.
+- Call `generate_artwork` with `reference_images: [<sketch/ref>]` and `conditioning`: `sketch`
+  (rough layout to clean up — highest accuracy) / `layout` (preserve structure/connectivity exactly) /
+  `style` (match look only).
+- **Template exemplars** do the same for _style_: if a template has exemplar images, they're passed
+  automatically as `conditioning: style`, so the look is repeatable. To pin a style, drop 1–2 gold
+  images in the template's folder and list them under `exemplars` (see `templates/README.md`).
 
-Every delivery passes, in order: **CANVAS CHECK** (automatic in `generate_artwork`) → **LOOK** →
-**`verify_figure`** against the spec (+ `validate_svg` on any SVG). One automatic repair cycle on
-failure, then report honestly. It's a visual/structural check, not domain fact-checking — for
-medical/published work, still get a human nod.
+## Step 3 — Verify (the correctness gate)
 
-## Step 4 — Export (on demand)
+- **Always run `verify_figure`** — don't trust your own eyes alone (some brains can't see the images
+  tools return). It returns a TEXT verdict you can always read. Treat `{ok, missing, extra, wrong}` as
+  ground truth and fix accordingly.
+- `validate_svg` on the final SVG to confirm every label, arrow, and node is present and editable.
+- It's a **visual/structural** check, not domain fact-checking — for medical/published work, still get
+  a human nod.
 
-- The layered SVG from `compose_figure_layers` is the editable deliverable.
-- `export_pptx(artwork=T', elements_path=<extract's JSON>, out_path)` → editable text boxes,
-  pills, connectors with real arrowheads, node boxes. `export_pdf` → vector PDF.
+## Step 4 — Export (the editable deliverables)
 
-## Editability — set expectations
+- The layered SVG from `compose_figure_layers` is already the editable, "vectorized" deliverable.
+- `export_pptx` → artwork picture + **editable text boxes, rounded pill labels, connector arrows with
+  real arrowheads, flowchart node boxes with icon pictures + step badges** — all retypable /
+  recolourable / resizable in PowerPoint. Pass the same overlay `elements`.
+- `export_pdf` → vector PDF (selectable text) for publication.
 
-| Output                                | Labels / leaders / arrows                          | The painted artwork                        |
-| ------------------------------------- | -------------------------------------------------- | ------------------------------------------ |
-| **Labelled PNG (default deliverable)** | baked (the model's own, high quality)              | raster                                     |
-| **Extracted layered SVG/PPTX**         | ✅ each an editable vector object, model-placed    | ⚠️ one embedded raster `<image>`           |
-| **Fully-traced SVG** (`trace_image`)   | ✅ vector                                          | ✅ traced blobs — lossy, opt-in only       |
-| **Structured / code route**            | ✅ vector                                          | ✅ clean named shapes, flatter look        |
+## Editability — set expectations, then pick the route
 
-## Principles
+| Output                                   | Labels / leaders / arrows / flowchart nodes                                | The painted artwork                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Native-label layered SVG/PPTX (default)** | ✅ each is its own vector object — move, resize, retype, recolour, reshape | ⚠️ one embedded **raster** image: scale/crop/replace as a whole, but individual structures are pixels |
+| **Fully-vectorized SVG** (`trace_image`) | ✅ vector                                                                  | ✅ vector paths too — but **traced**, so many anonymous fill-paths, not clean named organelles        |
+| **Structured / code route**              | ✅ vector                                                                  | ✅ born as clean, named vector shapes — but a flatter schematic look                                  |
 
-- **Labels in the margin, never on the artwork** — always place label text in the clean white space
-  around the subject with leader lines pointing in; keep the drawn structures uncluttered. It reads
-  cleaner AND vectorises cleanly (text on artwork leaves a ghost; margin text lifts off perfectly).
-- **Default to the clean, flatter look** (`clean-flat`) — reach for heavier `biorender-shaded`
-  shading only when depth/realism is genuinely wanted.
-- **The model's placement is the asset** — extract it; never re-synthesize what it already drew.
-- **Vectorize lazily** — PNG first, editable layer only when asked. WYSIWYG: extraction cannot
-  change how the approved figure looks (beyond the label font).
-- **One spec, one palette, one line weight** across panels — cohesion is what reads professional.
+> **Default = the layered SVG/PPTX.** It is already "vectorized enough" (editable labels/arrows/nodes
+> over the raster). Only reach for `trace_image` when the user explicitly asks for the **painted
+> artwork itself** to be editable shapes (see **vectorize-figure**) — tracing is lossy.
+
+## Accuracy & cohesion principles (keep these in front of you)
+
+- **Textless artwork + vector labels/nodes** removes the entire garbled-label error class. Never bake text.
+- **One template, one palette, one line weight** across the scene, the icons, the flowchart, and the
+  overlay — that single style system is what makes it read as a professional figure, not a collage.
 - **Supply structure** for correctness: sketch/reference/exemplar beats free generation.
-- **Gates over vibes:** canvas check → look → verify_figure, every time. One repair cycle, then honesty.
-- **Edit the layer, not the figure** — manifest first, smallest possible change, version bump.
+- **Labels at the right depth** — concise names for a parts/anatomy diagram; a short descriptor only
+  where it aids an explanatory figure's goal (Step 0). Don't bloat, don't truncate — match the ask.
+- **Draft → verify → human.** Position the figure as a first draft to check, not an oracle.
+- **Look before you ship.** Preview artwork and composite; never export a figure you haven't viewed.

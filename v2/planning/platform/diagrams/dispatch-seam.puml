@@ -1,0 +1,99 @@
+@startuml dispatch-seam
+' ============================================================================
+' agentd platform — the DISPATCH SEAM (2026-07-18). ONE Tool.execute() written
+' by the author; the engine picks the executor by provenance + runtime. Same
+' code on desktop and web because keys and paths were always behind a seam.
+' Two blocks: (1) the seam, (2) who-does-what for a sandboxed model-using call.
+' PUML only; do not render PNG unless asked.
+' ============================================================================
+title The dispatch seam — one execute(), two executors
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BorderColor #888888
+  BackgroundColor #FCFCFC
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+rectangle "Tool author writes ONE\nasync execute(params) -> ToolResult\n(no keys; writes to workspace; declares artifacts)" as TOOL #F5F0FF
+
+rectangle "agentd dispatch\ndecides by PROVENANCE (built-in vs user-authored)\n+ RUNTIME (desktop vs web)" as DISP
+
+package "LOCAL executor  (desktop, and trusted built-ins on web)" as LOC #F0FFF0 {
+  rectangle "run in-process / local subprocess\nfs = whole machine (desktop) or user root (web)\nmodel seam -> user's key (BYOK) OR gateway" as LE
+}
+
+package "SANDBOX executor  (web: custom plugins, exec, heavy)" as SBX #FFF0F0 {
+  rectangle "dispatch to a per-run sandbox\nfs = mounted user dir ONLY\nmodel seam -> gateway VIRTUAL KEY" as SE
+}
+
+TOOL --> DISP
+DISP --> LE : trusted / local
+DISP --> SE : untrusted / web
+
+note bottom of DISP
+  The tool NEVER changes. Two conventions that already hold in agentd make this work:
+  (1) tools get their model through the seam (resolve_tool_model -> litellm), never a raw key;
+  (2) tools write to current_workspace(), never a fixed path. So swapping the credential and
+  the mount BEHIND the seam is invisible to the tool. Desktop today already IS the local executor.
+end note
+@enduml
+
+
+@startuml sandbox-call-sequence
+title Who does what — a sandboxed, model-using tool call (web)
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 16
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Agent loop +\nSandbox Executor\n(agentd core)" as E
+participant "Model Gateway\n(our LiteLLM svc)" as G
+participant "Orchestrator\n(ECS/Fargate ctl)" as O
+participant "Runner\n(inside the sandbox)" as R
+database "User dir\n/users/uid (EFS)" as D
+participant "LLM provider" as P
+
+E -> E : agent calls tool T\nprovenance = user-authored -> sandbox path
+E -> G : mint VIRTUAL KEY\n(user_id, run_id, allowed models, budget, ~min TTL)
+G --> E : virtual key
+E -> O : start runner: mount EFS access point (/users/uid/agents/id),\nzero-perm IAM, net policy, cpu/mem/time caps,\ninject gateway_url + virtual key, pass params
+O -> R : launch microVM (Firecracker)
+activate R
+R -> D : load plugin from mounted plugins/
+R -> R : await execute(params)  (the SAME code as desktop)
+R -> G : model call with virtual key
+G -> P : forward with OUR real provider key
+P --> G : completion
+G -> G : meter usage -> RDS
+G --> R : completion
+R -> D : write durable output to workspace/
+R --> E : ToolResult + artifact refs
+deactivate R
+E -> O : kill task
+E -> G : revoke virtual key
+E -> E : resume loop with the result
+
+note over E, P
+  DESKTOP path = the LOCAL executor: steps to the Gateway/Orchestrator vanish
+  (model call uses the user's own key or the gateway directly; execute() runs
+  in-process on their machine). The execute() body is byte-for-byte identical.
+end note
+@enduml

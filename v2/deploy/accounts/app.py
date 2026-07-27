@@ -1,0 +1,374 @@
+"""Platform Accounts service — the State plane's first brick.
+
+This is OUR crown-jewel identity + metering store, deliberately SEPARATE from the daemon
+(one accounts store is shared by the whole daemon fleet) and SEPARATE from the Model Gateway
+(LiteLLM meters model calls; WE own accounts, budgets, and the spend ledger — the billing
+source of truth, so it never becomes LiteLLM's internal DB).
+
+Local now (SQLite, one file), the SAME shape graduates to a hosted service backed by Postgres
+(and, later, Cognito/JWT for sign-in) — the daemon only ever sees the /resolve + /budget + /usage
+contract, so swapping the backing store never touches agentd.
+
+Contract (what agentd depends on):
+    POST /signup   {email, password, budget_usd?}        -> {account_id}
+    POST /login    {email, password}                     -> {token, account_id, email}
+    GET  /resolve  (Authorization: Bearer <token>)       -> {account_id, email, budget_usd}
+    GET  /budget/{account_id}                            -> {budget_usd, spent_usd, remaining, over}
+    POST /usage    {account_id, model, in_tokens, out_tokens, cost_usd}
+                                                         -> {ok, spent_usd, over}
+    GET  /health                                         -> {ok: true}
+
+A session token is the browser's credential; it is NOT a model key. agentd resolves the token
+to an account and meters that account's spend — the model key (the gateway master key, or a
+per-account virtual key later) never leaves the server side.
+
+Public-exposure hardening (all env-driven; unset = today's open local-dev behavior):
+    ACCOUNTS_SESSION_TTL_DAYS  sessions expire after N days (default 30; 0 = never)
+    ACCOUNTS_INTERNAL_KEY      when set: /usage requires X-Internal-Key (the ledger is written
+                               by trusted infra — the model gateway's callback — only), and
+                               /budget/{id} requires the key OR the account's own session token
+    ACCOUNTS_CORS_ORIGINS      comma-separated allowed origins (default "*", local dev)
+    ACCOUNTS_RATE_LIMIT        per-IP fixed window "count/seconds" on /signup + /login
+                               (default "10/60"; "0/0" disables)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import secrets
+import sqlite3
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+from fastapi import Body, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+# --- storage -----------------------------------------------------------------
+
+DB_PATH = Path(os.environ.get("AGENTD_ACCOUNTS_DB", str(Path(__file__).parent / "data" / "accounts.db")))
+_PBKDF2_ROUNDS = 200_000
+_MIN_PASSWORD_LEN = 8
+
+
+def _session_ttl_s() -> float:
+    """Session lifetime in seconds; 0 = never expire (read per-call so tests can flip it)."""
+    try:
+        days = float(os.environ.get("ACCOUNTS_SESSION_TTL_DAYS", "30") or 30)
+    except ValueError:
+        days = 30.0
+    return days * 86_400
+
+
+def _internal_key() -> str:
+    return os.environ.get("ACCOUNTS_INTERNAL_KEY", "").strip()
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _month_key(ts: float) -> str:
+    """Billing period bucket 'YYYY-MM' (UTC) — budgets are per calendar month."""
+    return time.strftime("%Y-%m", time.gmtime(ts))
+
+
+@contextmanager
+def _db() -> Iterator[sqlite3.Connection]:
+    """One short-lived connection per call (SQLite connect is cheap; endpoints run in a
+    threadpool so this never blocks the event loop). WAL keeps readers off writers."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _init_db() -> None:
+    with _db() as c:
+        c.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS accounts (
+                id           TEXT PRIMARY KEY,
+                email        TEXT UNIQUE NOT NULL,
+                pw_salt      TEXT NOT NULL,
+                pw_hash      TEXT NOT NULL,
+                budget_usd   REAL,               -- NULL = unlimited
+                active       INTEGER NOT NULL DEFAULT 1,
+                created_at   REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                token        TEXT PRIMARY KEY,
+                account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                created_at   REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS usage (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                ts           REAL NOT NULL,
+                month        TEXT NOT NULL,       -- 'YYYY-MM' bucket for fast period sums
+                model        TEXT NOT NULL DEFAULT '',
+                in_tokens    INTEGER NOT NULL DEFAULT 0,
+                out_tokens   INTEGER NOT NULL DEFAULT 0,
+                cost_usd     REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS ix_usage_acct_month ON usage(account_id, month);
+            """
+        )
+
+
+# --- password hashing (stdlib, no bcrypt dependency) -------------------------
+
+
+def _hash_pw(password: str, salt: str) -> str:
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), _PBKDF2_ROUNDS)
+    return dk.hex()
+
+
+def _make_pw(password: str) -> tuple[str, str]:
+    salt = secrets.token_bytes(16).hex()
+    return salt, _hash_pw(password, salt)
+
+
+def _verify_pw(password: str, salt: str, expected: str) -> bool:
+    return secrets.compare_digest(_hash_pw(password, salt), expected)
+
+
+# --- spend ledger ------------------------------------------------------------
+
+
+def _spent_this_month(c: sqlite3.Connection, account_id: str) -> float:
+    row = c.execute(
+        "SELECT COALESCE(SUM(cost_usd), 0.0) AS s FROM usage WHERE account_id=? AND month=?",
+        (account_id, _month_key(_now())),
+    ).fetchone()
+    return float(row["s"] or 0.0)
+
+
+def _budget_view(c: sqlite3.Connection, account_id: str) -> dict:
+    row = c.execute("SELECT budget_usd FROM accounts WHERE id=?", (account_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="unknown account")
+    budget = row["budget_usd"]
+    spent = _spent_this_month(c, account_id)
+    remaining = None if budget is None else max(0.0, budget - spent)
+    over = bool(budget is not None and spent >= budget)
+    return {
+        "account_id": account_id,
+        "budget_usd": budget,
+        "spent_usd": round(spent, 6),
+        "remaining_usd": None if remaining is None else round(remaining, 6),
+        "over": over,
+        "period": _month_key(_now()),
+    }
+
+
+# --- app ---------------------------------------------------------------------
+
+app = FastAPI(title="agentd accounts", version="0.1.0")
+# Browsers (the web client, a different origin) sign in via fetch. Local dev default is open;
+# the hosted deploy sets ACCOUNTS_CORS_ORIGINS to the real web origin(s).
+_cors = [o.strip() for o in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors or ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# --- per-IP rate limiting (signup/login only) --------------------------------
+# Fixed window, in-process: one container serves the whole free tier, so a dict is enough.
+# Behind the ALB the client IP is the first X-Forwarded-For hop.
+
+_rate_hits: dict[str, tuple[int, float]] = {}  # ip -> (count, window_start)
+
+
+def _rate_limit_cfg() -> tuple[int, float]:
+    raw = os.environ.get("ACCOUNTS_RATE_LIMIT", "10/60")
+    try:
+        count_s, per_s = raw.split("/", 1)
+        return int(count_s), float(per_s)
+    except (ValueError, AttributeError):
+        return 10, 60.0
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _check_rate(request: Request) -> None:
+    count, per = _rate_limit_cfg()
+    if count <= 0 or per <= 0:
+        return
+    ip = _client_ip(request)
+    now = _now()
+    hits, start = _rate_hits.get(ip, (0, now))
+    if now - start >= per:
+        hits, start = 0, now
+    hits += 1
+    _rate_hits[ip] = (hits, start)
+    if len(_rate_hits) > 10_000:  # bound memory under address churn
+        _rate_hits.clear()
+    if hits > count:
+        raise HTTPException(status_code=429, detail="too many attempts; try again later")
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    _init_db()
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True, "service": "accounts"}
+
+
+@app.post("/signup")
+def signup(request: Request, payload: dict = Body(...)) -> dict:
+    _check_rate(request)
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="valid email required")
+    if len(password) < _MIN_PASSWORD_LEN:
+        raise HTTPException(
+            status_code=400, detail=f"password must be at least {_MIN_PASSWORD_LEN} characters"
+        )
+    budget = payload.get("budget_usd")
+    budget_val = None if budget in (None, "") else float(budget)
+    salt, pw_hash = _make_pw(password)
+    account_id = "acct_" + secrets.token_hex(8)
+    with _db() as c:
+        exists = c.execute("SELECT 1 FROM accounts WHERE email=?", (email,)).fetchone()
+        if exists:
+            raise HTTPException(status_code=409, detail="email already registered")
+        c.execute(
+            "INSERT INTO accounts (id, email, pw_salt, pw_hash, budget_usd, active, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (account_id, email, salt, pw_hash, budget_val, _now()),
+        )
+    return {"account_id": account_id, "email": email, "budget_usd": budget_val}
+
+
+@app.post("/login")
+def login(request: Request, payload: dict = Body(...)) -> dict:
+    _check_rate(request)
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    with _db() as c:
+        row = c.execute(
+            "SELECT id, pw_salt, pw_hash, active FROM accounts WHERE email=?", (email,)
+        ).fetchone()
+        if row is None or not row["active"] or not _verify_pw(password, row["pw_salt"], row["pw_hash"]):
+            raise HTTPException(status_code=401, detail="invalid email or password")
+        token = "sess_" + secrets.token_urlsafe(32)
+        c.execute(
+            "INSERT INTO sessions (token, account_id, created_at) VALUES (?, ?, ?)",
+            (token, row["id"], _now()),
+        )
+    return {"token": token, "account_id": row["id"], "email": email}
+
+
+def _account_for_token(c: sqlite3.Connection, token: str) -> sqlite3.Row:
+    row = c.execute(
+        "SELECT a.id AS id, a.email AS email, a.budget_usd AS budget_usd, a.active AS active, "
+        "s.created_at AS session_created_at "
+        "FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token=?",
+        (token,),
+    ).fetchone()
+    if row is None or not row["active"]:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    ttl = _session_ttl_s()
+    if ttl > 0 and _now() - float(row["session_created_at"] or 0) > ttl:
+        c.execute("DELETE FROM sessions WHERE token=?", (token,))
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    return row
+
+
+def _bearer(authorization: str | None) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    return authorization[len("Bearer ") :].strip()
+
+
+@app.get("/resolve")
+def resolve(authorization: str | None = Header(default=None)) -> dict:
+    """agentd calls this at the connection gate: a session token -> the account behind it.
+    Returns identity + the account's budget (so agentd can pre-check before a turn)."""
+    token = _bearer(authorization)
+    with _db() as c:
+        row = _account_for_token(c, token)
+        view = _budget_view(c, row["id"])
+    return {
+        "account_id": row["id"],
+        "email": row["email"],
+        "budget_usd": row["budget_usd"],
+        "spent_usd": view["spent_usd"],
+        "over": view["over"],
+    }
+
+
+def _require_internal(x_internal_key: str | None) -> bool:
+    """True when the caller presented the internal service key. No key configured (local
+    dev) => everything is trusted, today's behavior."""
+    configured = _internal_key()
+    if not configured:
+        return True
+    return bool(x_internal_key) and secrets.compare_digest(x_internal_key, configured)
+
+
+@app.get("/budget/{account_id}")
+def budget(
+    account_id: str,
+    authorization: str | None = Header(default=None),
+    x_internal_key: str | None = Header(default=None),
+) -> dict:
+    """Trusted infra (internal key) or the account's OWN session token may read its budget."""
+    if not _require_internal(x_internal_key):
+        token = _bearer(authorization)
+        with _db() as c:
+            row = _account_for_token(c, token)
+            if row["id"] != account_id:
+                raise HTTPException(status_code=403, detail="not your account")
+            return _budget_view(c, account_id)
+    with _db() as c:
+        return _budget_view(c, account_id)
+
+
+@app.post("/usage")
+def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """A completed model call's cost lands here (the spend ledger). TRUSTED WRITERS ONLY —
+    in the platform topology that is the model gateway's success callback, which sees every
+    call server-side; clients (desktop daemons) cannot write their own ledger. Returns the
+    new month-to-date spend and whether the account is now over its cap."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    account_id = (payload.get("account_id") or "").strip()
+    if not account_id:
+        raise HTTPException(status_code=400, detail="account_id required")
+    cost = float(payload.get("cost_usd") or 0.0)
+    in_tok = int(payload.get("in_tokens") or 0)
+    out_tok = int(payload.get("out_tokens") or 0)
+    model = (payload.get("model") or "").strip()
+    ts = _now()
+    with _db() as c:
+        if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="unknown account")
+        c.execute(
+            "INSERT INTO usage (account_id, ts, month, model, in_tokens, out_tokens, cost_usd) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (account_id, ts, _month_key(ts), model, in_tok, out_tok, cost),
+        )
+        view = _budget_view(c, account_id)
+    return {"ok": True, "spent_usd": view["spent_usd"], "over": view["over"], "remaining_usd": view["remaining_usd"]}

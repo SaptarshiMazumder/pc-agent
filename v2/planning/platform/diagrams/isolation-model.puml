@@ -1,0 +1,98 @@
+@startuml isolation-tenancy
+' ============================================================================
+' agentd platform — ISOLATION model (2026-07-18). How one user's agent NEVER
+' touches another's, and why the guarantee is the KERNEL/MOUNT boundary, not a
+' path-string check. Two blocks: (1) tenancy walls, (2) cross-turn continuity.
+' PUML only; do not render PNG unless asked.
+' ============================================================================
+title Isolation — two users on one fleet, four independent walls
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BorderColor #888888
+  BackgroundColor #FCFCFC
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "User A" as A
+actor "User B" as B
+
+package "COMPUTE (shared, holds no data)" as CMP #EAF3FF {
+  rectangle "Hosted Runtime engine fleet\nONE service serves everyone;\neach CONNECTION resolves its own\nuser_id from the verified token" as FLEET
+  rectangle "Sandbox for A's run\nmounts ONLY /users/A/agents/*\nzero-perm role - no internal VPC" as SBXA #FFF0F0
+}
+
+package "STATE plane (durable, per-user)" as ST #FFF0F0 {
+  database "/users/A/\nagents - sessions - memory" as RA
+  database "/users/B/\nagents - sessions - memory" as RB
+}
+
+A --> FLEET : conn A (token -> user_id=A)
+B --> FLEET : conn B (token -> user_id=B)
+FLEET --> RA : A's turn: rooted at /users/A only
+FLEET --> RB : B's turn: rooted at /users/B only
+FLEET --> SBXA : dispatch A's custom/exec tool
+SBXA --> RA : mount ONLY A's agent dir\n(EFS Access Point)
+SBXA ..> RB : B NOT mounted -> does not exist to it
+
+note bottom of CMP
+  WALL 1 IDENTITY: user_id comes from the verified account token, never the client.
+  WALL 2 PATHS (defense-in-depth): the shared engine roots every read at /users/<uid>/
+     AND never exposes exec / custom-plugin tools (a path check alone can't contain a shell).
+  WALL 3 KERNEL/MOUNT (the guarantee): arbitrary code runs ONLY in a sandbox that
+     mounts just that user's dir — a neighbour's path is physically absent, not merely blocked.
+  WALL 4 IDENTITY/NET (IAM): the sandbox role reaches only that user's storage; no provider
+     keys, no DB creds, no internal VPC.
+end note
+@enduml
+
+
+@startuml cross-turn-continuity
+title Cross-turn continuity — results persist because STATE does, not the process
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 16
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Agent loop\n(engine)" as L
+participant "Sandbox\n(ephemeral)" as S
+database "User's durable state\n/users/uid (EFS/S3)" as D
+participant "Session transcript\n(also durable)" as T
+
+== Turn 1 — produce a result ==
+L -> S : dispatch tool (mounts /users/uid/agents/id)
+S -> D : write output to workspace/ (durable)
+S -> S : scratch in VM /tmp (will vanish)
+S --> L : ToolResult + artifact REFERENCE (a path/id)
+L -> T : record the reference in history
+note right of S : sandbox DIES — its scratch is gone,\nbut the workspace file remains in D
+
+== Turn 5 — refer back, later ==
+L -> T : load history (still has the reference)
+L -> S : dispatch a FRESH sandbox\n(mounts the SAME /users/uid/agents/id)
+S -> D : read the earlier artifact back
+S --> L : uses it — seamless
+
+note over L, D
+  Continuity = durable per-user STATE, not a long-lived process. Nothing stays
+  running between turns; the next sandbox re-reads the same folder. Discipline:
+  tools write durable outputs to the mounted workspace, never to VM-local /tmp.
+end note
+@enduml

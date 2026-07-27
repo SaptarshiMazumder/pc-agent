@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-
-from figures_common import resolve_path, svg_size
+from pathlib import Path
 
 from agentd.application.interfaces.tool import Tool, ToolResult
+from figures_common import resolve_path, svg_size
 
 
 def _localname(tag) -> str:
@@ -36,10 +36,7 @@ class ValidateSvgTool(Tool):
         "type": "object",
         "properties": {
             "svg": {"type": "string", "description": "Raw SVG markup. Provide this OR svg_path."},
-            "svg_path": {
-                "type": "string",
-                "description": "Path to a .svg file (absolute or workspace-relative).",
-            },
+            "svg_path": {"type": "string", "description": "Path to a .svg file (absolute or workspace-relative)."},
         },
     }
 
@@ -79,8 +76,7 @@ class ValidateSvgTool(Tool):
         w, h = svg_size(text)
         return {
             "well_formed": True,
-            "width": w,
-            "height": h,
+            "width": w, "height": h,
             "has_viewbox": "viewBox" in root.attrib,
             "labels_text": counts.get("text", 0),
             "labels_nonempty": n_text_nonempty,
@@ -101,14 +97,10 @@ class ValidateSvgTool(Tool):
         except Exception as e:
             return ToolResult.text(f"validate_svg failed: {e}", is_error=True)
         if not r.get("well_formed"):
-            return ToolResult.text(
-                f"SVG is NOT well-formed: {r.get('error')}", details=r, is_error=True
-            )
-        msg = (
-            f"SVG OK — {r['width']}x{r['height']}px"
-            f"{'' if r['has_viewbox'] else ' (no viewBox!)'}. "
-            f"{r['labels_nonempty']} text label(s), {r['paths']} path(s), "
-            f"{r['images_embedded']} embedded image(s), {r['markers']} marker(s), "
-            f"{r['gradients']} gradient(s), {r['filters']} filter(s)."
-        )
+            return ToolResult.text(f"SVG is NOT well-formed: {r.get('error')}", details=r, is_error=True)
+        msg = (f"SVG OK — {r['width']}x{r['height']}px"
+               f"{'' if r['has_viewbox'] else ' (no viewBox!)'}. "
+               f"{r['labels_nonempty']} text label(s), {r['paths']} path(s), "
+               f"{r['images_embedded']} embedded image(s), {r['markers']} marker(s), "
+               f"{r['gradients']} gradient(s), {r['filters']} filter(s).")
         return ToolResult.text(msg, details=r)

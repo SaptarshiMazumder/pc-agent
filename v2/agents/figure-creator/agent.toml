@@ -11,26 +11,43 @@
 # plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
-# Advertised to the generalist when it decides how to delegate (agent.toml description WINS over
-# IDENTITY's first line). States the DELIVERY CONTRACT so a delegator relays the user's intent
-# instead of inventing an output format: the default deliverable is a PNG image; the editable
-# vector layer is produced ONLY on explicit request.
-description = "Creates scientific figures. DELIVERS A PNG image by default. Produces an editable vector SVG/PPTX/PDF ONLY when the user explicitly asks to make it editable/vector (or clicks Edit-as-SVG); an edit request edits the raster image. When delegating, pass the user's ask through faithfully — do NOT add an 'editable' or 'SVG' requirement the user did not state."
+version = "1.1.0" # b4: HTTP sign-in + rose UI — bump so installs supersede any older copy
 
-# figure-creator NO LONGER overrides any MODEL. The image model (figure-art.generate_artwork) and the
-# reading/verify models (vision.read_labels_from_image / vision.verify_figure) are set ONCE in
-# agentd.config.json and used by EVERY agent — so "what model builds the picture" is answered in one
-# place, not hidden here. The only knobs that stay are agent-SPECIFIC art behavior that genuinely can't
-# live in global config, because they depend on THIS agent's own templates/ folder.
+# Its OWN app UI (ui/), served by the daemon at /apps/figure-creator/ and opened as its own
+# window — no agentd shell. `mode = "window"` = a chromeless product window (the exe wraps this
+# same page). NOT public: figure-creator's value is the chat/generation pipeline, which is never
+# exposed tokenless — this app requires a real (signed-in) connection.
+[app]
+title = "Figure Creator"
+mode = "window"
+
+# Per-agent model overrides, decoupled from the global config (agent.toml ALWAYS wins over
+# agentd.config.json — see application/tool_models.py). Every knob below lives on a TOOL, in the
+# plugins -> tools -> <knob> shape. This is where figure-creator's whole "engine" is wired WITHOUT
+# touching global config or agentd core.
+
+# --- The image engine: Nano Banana Pro (Gemini 3 Pro Image) --------------------------------------
+# THE decisive quality lever. Global config points generate_artwork at FLUX 1.1 Pro (a photoreal
+# model that invents anatomy and can't render diagram-grade structure); figure-creator overrides
+# that to Gemini 3 Pro Image — class-leading on legible text, factual/structured figures, 4K, and
+# reference conditioning. `provider` picks the backend SDK, `model` the endpoint. Per-call args and
+# the chosen art TEMPLATE (templates/*.toml -> provider/model) still win over these defaults.
 [plugins.figure-art.tools.generate_artwork]
-# House DEFAULT art style: when generate_artwork gets a `subject` but names NO template (and no full
-# custom prompt), fall back to this — `clean-flat`, the light, mostly-flat BioRender look (flat fills +
-# one soft gradient, crisp outlines, room for labels). So "when in doubt" lands on the clean style even
-# if the routing skill never ran. `biorender-shaded` (richer semi-3D) stays available as an explicit
-# choice. An explicit `template=`/`prompt` wins.
-# Agent-local on purpose: templates/ is discoverable only from this agent's workspace, not global config.
-default_template = "clean-flat"
-# FOR NOW: cap every generation to ~1024px for cheap, fast iteration (overrides each template's own 2K).
-# Delete this one line to restore full-res per-template output. (1K | 2K | 4K)
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+# The house DEFAULT art style: when the agent calls generate_artwork with a `subject` but names NO
+# template (and writes no full custom prompt), fall back to this template — the clean shaded BioRender /
+# Cell-journal look. So "when in doubt" ALWAYS lands on the right style, even if the routing skill never
+# ran. An explicit `template=` or a full `prompt` still wins. (Agent-local on purpose: templates/ is
+# discoverable only from this agent's workspace, so this default must NOT live in global config.)
+default_template = "biorender-shaded"
+# FOR NOW: cap every generation to ~1024px for cheap, fast iteration. This overrides each template's
+# own resolution (2K). Delete this one line to restore full-res per-template output. (1K | 2K | 4K)
 resolution = "1K"
 # templates_dir = "templates"   # optional override; default discovery finds <agent>/templates
+
+# --- Reading + verification (Gemini; restated here so the agent is self-describing) --------------
+[plugins.vision.tools.read_labels_from_image]
+model = "gemini/gemini-3.1-pro-preview"                 # reading drawn labels — Gemini is strongest here
+[plugins.vision.tools.verify_figure]
+model = "gemini/gemini-2.5-flash"                       # a cheap judge is enough for the gate

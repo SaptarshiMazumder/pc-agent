@@ -45,7 +45,7 @@ export interface ConnectTarget {
 export type ConnectInput = ConnectTarget | (() => Promise<ConnectTarget>)
 
 export interface AgentdClientOptions {
-  /** identifies this client in hello (e.g. "app-demo/1.0"); helps server-side observability */
+  /** identifies this client in hello (e.g. "my-app/1.0"); helps server-side observability */
   clientName?: string
 }
 

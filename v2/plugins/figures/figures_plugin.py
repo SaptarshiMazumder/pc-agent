@@ -15,11 +15,11 @@ All pure-Python + Playwright + Pillow — no new binaries, so the plugin loads a
 
 from __future__ import annotations
 
-from compose_layers_tool import ComposeLayersTool
-from render_overlay_tool import RenderOverlayTool
 from render_svg_tool import RenderSvgTool
-from route_graph_tool import RouteGraphTool
 from validate_svg_tool import ValidateSvgTool
+from route_graph_tool import RouteGraphTool
+from render_overlay_tool import RenderOverlayTool
+from compose_layers_tool import ComposeLayersTool
 
 
 def register(api, ctx):

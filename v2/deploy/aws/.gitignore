@@ -1,0 +1,20 @@
+# --- Terraform: what must NEVER be committed ---
+
+# Downloaded provider plugins: large, OS-specific. `terraform init` re-fetches them.
+.terraform/
+
+# State: a JSON map of your REAL infrastructure. Can contain secrets in plaintext.
+# Local state stays on your machine; rung 4 moves it to encrypted S3 (remote state).
+*.tfstate
+*.tfstate.*
+
+# Terraform crash logs.
+crash.log
+crash.*.log
+
+# Any tfvars that might carry secrets. We'll commit a  *.tfvars.example  instead.
+*.tfvars
+*.tfvars.json
+
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored — we DO commit it. It pins
+# the exact provider versions so every machine/CI resolves the identical plugins.

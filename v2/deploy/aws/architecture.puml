@@ -1,0 +1,98 @@
+@startuml agentd-dev-aws-architecture
+' =============================================================================
+'  agentd — dev environment on AWS (Terraform: v2/deploy/aws/environments/dev)
+'  Real AWS service icons via aws-icons-for-plantuml (bundled in plantuml.jar as
+'  awslib v14). Source-only by convention; render on demand:
+'     java -jar ../../plantuml.jar -tpng architecture.puml     (-> architecture.png)
+'     java -jar ../../plantuml.jar -tsvg architecture.puml     (-> architecture.svg)
+' =============================================================================
+!include <awslib/AWSCommon>
+
+' -- groups (containers) --
+!include <awslib/Groups/AWSCloud>
+!include <awslib/Groups/Region>
+!include <awslib/Groups/VPC>
+!include <awslib/Groups/PublicSubnet>
+!include <awslib/Groups/SecurityGroup>
+
+' -- service icons --
+!include <awslib/General/Users>
+!include <awslib/General/Internet>
+!include <awslib/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer>
+!include <awslib/NetworkingContentDelivery/CloudMap>
+!include <awslib/Containers/ElasticContainerService>
+!include <awslib/Containers/Fargate>
+!include <awslib/Containers/ElasticContainerRegistry>
+!include <awslib/Storage/EFS>
+!include <awslib/SecurityIdentityCompliance/SecretsManager>
+!include <awslib/ManagementGovernance/CloudWatch>
+
+title agentd — dev environment on AWS (ap-northeast-1)
+
+' ---- outside AWS ----
+Users(browser, "User's browser", "web client")
+Internet(providers, "Model providers", "Gemini / DeepSeek APIs")
+
+AWSCloudGroup(aws) {
+  RegionGroup(region, "ap-northeast-1 (Tokyo)") {
+
+    ' ---- registry + shared services (region scope) ----
+    ElasticContainerRegistry(ecr, "ECR", "4 image repos: gateway/accounts/daemon/web")
+    SecretsManager(secrets, "Secrets Manager", "agentd/dev/app: master key + provider keys")
+    CloudWatch(logs, "CloudWatch Logs", "/agentd/dev : all container output")
+
+    VPCGroup(vpc, "VPC  10.0.0.0/16") {
+
+      ElasticLoadBalancingApplicationLoadBalancer(alb, "Application Load Balancer", "public : 80 web / 4100 accounts / 8787 daemon")
+
+      PublicSubnetGroup(subnet, "public subnets x2 (AZ-a, AZ-c)") {
+        SecurityGroupGroup(sg_svc, "service SG (in: only from ALB + self)") {
+          ElasticContainerService(web, "web", "nginx UI  :80")
+          ElasticContainerService(accounts, "accounts", "sign-in / metering  :4100")
+          ElasticContainerService(daemon, "daemon", "agent engine + WebSocket  :8787")
+          ElasticContainerService(gateway, "gateway", "LiteLLM proxy  :4000 (internal)")
+          Fargate(fargate, "Fargate", "serverless compute for all 4 tasks")
+        }
+      }
+
+      CloudMap(dns, "Cloud Map", "private DNS  agentd.local")
+
+      SecurityGroupGroup(sg_efs, "efs SG (in: only from service SG)") {
+        EFS(efs, "EFS", "shared /data : accounts.db + daemon files")
+      }
+    }
+  }
+}
+
+' ================= traffic (solid) =================
+browser -[#232F3E,bold]-> alb : **HTTP** :80 / :4100 / :8787
+alb -[#232F3E]-> web : :80
+alb -[#232F3E]-> accounts : :4100
+alb -[#232F3E]-> daemon : :8787 (WebSocket)
+
+' internal service-to-service via Cloud Map names
+daemon -[#1BA672]-> gateway : gateway.agentd.local:4000
+daemon -[#1BA672]-> accounts : accounts.agentd.local:4100
+gateway -[#DD344C]-> providers : provider keys
+
+' ================= state (dashed, green) =================
+accounts .[#7AA116].> efs : /data/accounts.db
+daemon .[#7AA116].> efs : /data (per-user files)
+
+' ================= plumbing (dotted, grey) =================
+fargate .[#879196].> ecr : pull images
+gateway .[#879196].> secrets : inject keys
+daemon .[#879196].> secrets : master key
+web .[#879196].> logs
+daemon .[#879196].> logs
+
+legend right
+  |= line |= meaning |
+  |<#232F3E>   | public request traffic (via ALB) |
+  |<#1BA672>   | internal service-to-service (Cloud Map) |
+  |<#DD344C>   | outbound to model providers |
+  |<#7AA116>   | durable state (EFS) |
+  |<#879196>   | plumbing (images, secrets, logs, IAM) |
+endlegend
+
+@enduml

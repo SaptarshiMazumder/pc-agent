@@ -12,9 +12,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from figures_common import image_result, render_svg_to_png, resolve_path, svg_size
-
 from agentd.application.interfaces.tool import Tool, ToolResult
+from figures_common import resolve_path, svg_size, render_svg_to_png, image_result
 
 
 class RenderSvgTool(Tool):
@@ -34,23 +33,11 @@ class RenderSvgTool(Tool):
         "properties": {
             "svg": {"type": "string", "description": "Raw SVG markup. Provide this OR svg_path."},
             "svg_path": {"type": "string", "description": "Path to a .svg file."},
-            "out_path": {
-                "type": "string",
-                "description": "Output .png path (absolute or workspace-relative).",
-            },
+            "out_path": {"type": "string", "description": "Output .png path (absolute or workspace-relative)."},
             "width": {"type": "integer", "description": "Render width px (default: SVG's width)."},
-            "height": {
-                "type": "integer",
-                "description": "Render height px (default: SVG's height).",
-            },
-            "scale": {
-                "type": "number",
-                "description": "Device scale factor for crispness. Default 2.",
-            },
-            "background": {
-                "type": "string",
-                "description": "CSS colour for an opaque PNG. Omit for transparent.",
-            },
+            "height": {"type": "integer", "description": "Render height px (default: SVG's height)."},
+            "scale": {"type": "number", "description": "Device scale factor for crispness. Default 2."},
+            "background": {"type": "string", "description": "CSS colour for an opaque PNG. Omit for transparent."},
         },
     }
 
@@ -60,38 +47,23 @@ class RenderSvgTool(Tool):
     def _run(self, params: dict) -> dict:
         if bool(params.get("svg")) == bool(params.get("svg_path")):
             raise ValueError("provide exactly ONE of: svg, svg_path")
-        text = (
-            resolve_path(self.config, params["svg_path"]).read_text(encoding="utf-8")
-            if params.get("svg_path")
-            else params["svg"]
-        )
+        text = (resolve_path(self.config, params["svg_path"]).read_text(encoding="utf-8")
+                if params.get("svg_path") else params["svg"])
         w0, h0 = svg_size(text)
         width = int(params.get("width") or w0)
         height = int(params.get("height") or h0)
         out = resolve_path(self.config, params["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
-        render_svg_to_png(
-            text,
-            out,
-            width,
-            height,
-            scale=float(params.get("scale", 2)),
-            background=params.get("background"),
-        )
-        return {
-            "path": str(out),
-            "width": width,
-            "height": height,
-            "scale": float(params.get("scale", 2)),
-        }
+        render_svg_to_png(text, out, width, height,
+                          scale=float(params.get("scale", 2)),
+                          background=params.get("background"))
+        return {"path": str(out), "width": width, "height": height,
+                "scale": float(params.get("scale", 2))}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             r = await asyncio.to_thread(self._run, params)
         except Exception as e:
             return ToolResult.text(f"render_svg failed: {e}", is_error=True)
-        return image_result(
-            f"Rendered SVG -> {r['path']} ({r['width']}x{r['height']} @ {r['scale']}x).",
-            Path(r["path"]),
-            r,
-        )
+        return image_result(f"Rendered SVG -> {r['path']} ({r['width']}x{r['height']} @ {r['scale']}x).",
+                            Path(r["path"]), r)

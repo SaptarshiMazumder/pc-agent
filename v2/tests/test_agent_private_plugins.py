@@ -15,9 +15,6 @@ from agentd.application.services.agent_service import AgentService
 from agentd.domain.agent import select_private_tools
 from agentd.infrastructure.plugins import discover_agent_plugins
 
-V2 = Path(__file__).resolve().parents[1]
-
-
 def _write_private_plugin(agents_dir: Path, agent_id: str, tool_name: str, module: str) -> None:
     pdir = agents_dir / agent_id / "plugins" / f"{tool_name}-kit"
     pdir.mkdir(parents=True)
@@ -48,13 +45,6 @@ def test_discover_agent_plugins_tags_owner(tmp_path):
     (tool,) = out["spec-agent"]
     assert tool.name == "spec_tool"
     assert tool._agent_id == "spec-agent" and tool._plugin_id == "spec_tool-kit"
-
-
-def test_real_app_demo_ships_demo_stamp():
-    """The reference agent's demo-kit actually loads — the living example works."""
-    out = discover_agent_plugins(V2 / "agents", SimpleNamespace(plugins={}))
-    names = [t.name for t in out.get("app-demo", [])]
-    assert "demo_stamp" in names
 
 
 # ---- service isolation ---------------------------------------------------------------------------
@@ -171,11 +161,15 @@ def test_private_plugin_ships_inside_agentpkg(tmp_path):
     from agentd.domain.bundle import BundleManifest
     from agentd.infrastructure.marketplace.bundle_io import pack_bundle, unpack_bundle
 
-    manifest = BundleManifest(id="app-demo", name="App Demo", version="1.0.0", description="x")
-    pkg = pack_bundle(V2 / "agents" / "app-demo", tmp_path / "out", manifest)
+    src_agents = tmp_path / "src"
+    _write_private_plugin(src_agents, "kiosk", "kiosk_tool", "tkit_priv_pack_mod")
+    (src_agents / "kiosk" / "agent.toml").write_text('name = "Kiosk"\n', encoding="utf-8")
+
+    manifest = BundleManifest(id="kiosk", name="Kiosk", version="1.0.0", description="x")
+    pkg = pack_bundle(src_agents / "kiosk", tmp_path / "out", manifest)
     agents_dir = tmp_path / "agents"
     unpack_bundle(pkg, manifest, agents_dir, tmp_path / "plugins")
-    assert (agents_dir / "app-demo" / "plugins" / "demo-kit" / "plugin.toml").is_file()
+    assert (agents_dir / "kiosk" / "plugins" / "kiosk_tool-kit" / "plugin.toml").is_file()
     # and the INSTALLED copy's private tools discover cleanly (fresh root, no repo paths)
     out = discover_agent_plugins(agents_dir, SimpleNamespace(plugins={}))
-    assert "demo_stamp" in [t.name for t in out.get("app-demo", [])]
+    assert "kiosk_tool" in [t.name for t in out.get("kiosk", [])]

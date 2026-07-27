@@ -1,0 +1,150 @@
+@startuml agent-exe-anatomy
+title The agent AS the product — what "HR Desk Setup.exe" installs
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "Installed product: «HR Desk»   (the user never sees the word agentd)" as PROD #F0FFF0 {
+
+  rectangle "HR Desk.exe — the SHELL\n--\nONE shared Electron shell codebase,\nbranded per agent by FLAVOR (config, not forks).\nIts only jobs:\n1. find-or-start the daemon (supervisor)\n2. first run: install the bundled .agentpkg\n3. open ONE window → /apps/hr-desk/\n\nNO JARVIS renderer in this experience —\nthe agent's own ui/ IS the product" as SHELL
+
+  file "distribution.toml\n--\n[product]\nid · name · icon\napp_agent = 'hr-desk'   «the knob»\npreinstalled_bundles = [...]" as DIST
+
+  folder "resources/python\n--\nrelocatable CPython + agentd\nTHE full engine: gateway, tools,\nplugins, marketplace — SAME bytes\nthe agentd desktop app ships" as RT
+
+  file "bundles/hr-desk.agentpkg\n--\nthe AGENT, whole:\nagent.toml ([app] title/mode) · IDENTITY.md\nui/ (the custom app UI, by its author)\nplugins/ (agent-private tools)\nskills/ · templates/" as PKG
+}
+
+package "shared per-user machine state  (owned by the DAEMON, not by any product)" as STATE #EAF3FF {
+  file "~/.agentd/gateway.json\nrendezvous: {host, port, pid, token}\n= how every product finds\nthe ONE daemon" as RDV
+  folder "agents/<id>/…  +  <state_dir>/…\ninstalled agents · sessions ·\nmemory · workspaces" as ROOT
+}
+
+SHELL -down-> DIST : reads at boot
+SHELL -down-> RT : spawns the daemon from\n(only if none is running)
+SHELL -down-> PKG : installs on first run\n(marketplace.install RPC)
+SHELL -right-> RDV : find-or-start
+PKG .down.> ROOT : unpacked into\nagents/hr-desk/
+
+note bottom of PROD
+  ZERO backend changes: the shell only CONSUMES the daemon's published
+  protocol (supervisor + marketplace.install + /apps serving + scope).
+  The invariant holds even for an exe: an agent app may INVOKE the
+  backend in new ways, never extend it.
+end note
+@enduml
+
+@startuml agent-exe-launch
+title Double-click → using the agent — all four install cases in one flow
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "User A\n(knows only «HR Desk»)" as U
+participant "HR Desk.exe\n(shell main process)" as SH
+participant "Supervisor" as SUP
+participant "~/.agentd/gateway.json\n(rendezvous)" as RDV
+participant "agentd daemon\n(the engine)" as D
+participant "App window\n/apps/hr-desk/" as W
+
+U -> SH : double-click
+SH -> SH : load flavor: distribution.toml\n→ app_agent = "hr-desk"
+SH -> SUP : ensure()
+SUP -> RDV : read + liveness check
+alt a daemon is ALREADY running   (case 4: agentd desktop or another agent exe put it there)
+  RDV --> SUP : {host, port, token} — reuse it
+else no daemon on this machine   (cases 1–3: this exe is the ONLY thing installed)
+  SUP -> D : spawn from the EMBEDDED runtime\n(resources/python — ships in this exe)
+  D -> RDV : write {host, port, pid, token}
+end
+SH -> D : marketplace.installed   (WS, stable protocol)
+alt "hr-desk" not installed yet   (first launch of this product)
+  SH -> D : marketplace.install {file: bundles/hr-desk.agentpkg}
+  D -> D : unpack → agents/hr-desk/\nhot-load its private plugins\n(no restart)
+end
+SH -> W : BrowserWindow →\nhttp://host:port/apps/hr-desk/?token=…&scope=agent:hr-desk
+W -> D : WebSocket (scoped to agent:hr-desk)\nchat.send · tools.invoke · events
+D --> W : chat.event stream · artifacts via /file
+U -> W : works with HR Desk —\nnever saw agentd, never opened another app
+
+note over SH, D
+  Splash while the daemon cold-starts (seconds, first time only).
+  Later launches: rendezvous hits a live daemon → window is instant.
+end note
+@enduml
+
+@startuml agent-exe-pipeline
+title From an agent folder to an installed product — and how products COEXIST
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "AUTHOR side — build pipeline (per agent = one build parameter, zero new code)" as BUILD #FDF6FF {
+  folder "agents/hr-desk/\nagent.toml ([app] mode) · ui/ ·\nplugins/ · skills/" as SRC
+  rectangle "agentd bundle pack\n→ hr-desk.agentpkg" as PACK
+  rectangle "flavor generator (script)\n→ flavors/hr-desk/\ndistribution.toml (app_agent) ·\nbundles/ · icon" as GEN
+  rectangle "electron-builder\n(ONE generic app-shell config)\n+ embedded runtime" as EB
+  rectangle "«HR Desk Setup.exe»\n(NSIS, per-user install)\nDELIVERED INTO the agent's own\nagents/hr-desk/clients/desktop/\n(excluded from packing + git —\nderived, never source)" as EXE
+  rectangle "marketplace (web)\n[ Install ] ← what User A clicks\n(cloud registry — later phase)" as MKT
+}
+
+SRC -right-> PACK
+PACK -right-> GEN
+GEN -right-> EB
+EB -right-> EXE
+EXE -down-> MKT : uploaded / served
+
+package "USER machine — many products, ONE engine" as MACH #F0FFF0 {
+  rectangle "HR Desk.exe\n(window → /apps/hr-desk/)" as P1
+  rectangle "Figure Studio.exe\n(window → /apps/figure-creator/)" as P2
+  rectangle "agentd desktop (JARVIS)\n(the full generalist UI —\noptional, NOT required)" as P3
+  rectangle "ONE agentd daemon  :8787\nfound via ~/.agentd/gateway.json\nfirst product to launch starts it;\nevery later one reuses it" as ONE #EAF3FF
+  folder "one shared state root\nagents/ · sessions/ · memory/\n(HR Desk shows up in JARVIS's\nagent list — same agent!)" as SR
+}
+
+MKT .down.> P1 : User A installs
+P1 -down-> ONE
+P2 -down-> ONE
+P3 -down-> ONE
+ONE -right-> SR
+
+note bottom of MACH
+  Uninstalling a product removes ITS shell only; the daemon + state stay
+  while anything else uses them. Installing the full agentd desktop later
+  reveals every agent-exe's agent already there — products COMPOSE,
+  because there is exactly one engine and one state root per machine.
+end note
+@enduml

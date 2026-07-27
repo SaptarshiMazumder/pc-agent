@@ -3,9 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <title>agentd</title>
+    <!--
+      connect-src also allows https:/http: so the renderer can reach the HOSTED accounts
+      service, whose host is per-deployment (from the flavor's [platform] accounts_url) and
+      therefore not knowable here. http: is only needed for the pre-TLS testing phase; drop it
+      once endpoints are https. Only connect-src is broadened — scripts, images, media and
+      frames stay pinned to 'self'/localhost, so this stays a real defense-in-depth boundary.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*; img-src 'self' data: http://127.0.0.1:* http://localhost:*; media-src 'self' http://127.0.0.1:* http://localhost:*; frame-src 'self' data: http://127.0.0.1:* http://localhost:*"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http: ws://127.0.0.1:* ws://localhost:* wss:; img-src 'self' data: http://127.0.0.1:* http://localhost:*; media-src 'self' http://127.0.0.1:* http://localhost:*; frame-src 'self' data: http://127.0.0.1:* http://localhost:*"
     />
   </head>
   <body>

@@ -154,6 +154,12 @@ class Config:
     # AGENTD_TOKEN pins a fixed token instead of a per-start mint.
     gateway_auth: bool = True
     gateway_token: str = ""
+    # Hosted deployments: vanity hostname -> agent id ({"weather.example.com": "weather"})
+    # so each curated agent lives at its OWN URL on the shared daemon — the gateway serves
+    # that agent's ui/ at "/" for the aliased Host and derives the connection scope from it.
+    # Empty (the default, every local install) => fully dormant. Override AGENTD_APP_HOSTS
+    # with a JSON object string.
+    app_hosts: dict = field(default_factory=dict)
 
     # --- distribution (what THIS INSTALL is) + marketplace ------------------------
     # The parsed distribution.toml (product name/flavor, provisioned plugin set, store
@@ -322,6 +328,22 @@ class Config:
     #                       "vision_model": "gemini/gemini-3.1-pro-preview"}   # omit => keep normal brain
     # OFF (or both models unset) => no router => the agent's normal brain runs every turn, unchanged.
     cost_efficiency: dict = field(default_factory=dict)
+    # PLATFORM MODEL GATEWAY (platform-keys mode). Default OFF => every model call goes DIRECT to
+    # the provider with the local/BYOK key, unchanged. When on, ALL model calls route through OUR
+    # LiteLLM proxy (which holds our provider keys + meters per account). Shape:
+    #   "model_gateway": {"enabled": true, "api_base": "http://localhost:4000"}
+    # The gateway KEY is a SECRET from the env (AGENTD_MODEL_GATEWAY_KEY), never here. The URL may
+    # also come from AGENTD_MODEL_GATEWAY_URL (env wins). Resolved by
+    # infrastructure/llm/model_gateway.configure at boot.
+    model_gateway: dict = field(default_factory=dict)
+    # PLATFORM ACCOUNTS (hosted identity + per-account metering). Default OFF => the daemon has no
+    # notion of accounts; connections authenticate with the single machine token and no spend is
+    # metered per user. When on, the connection gate resolves each client's session token to an
+    # account (State plane) and the run meters that account's model spend. Shape:
+    #   "accounts": {"enabled": true, "api_base": "http://localhost:4100"}
+    # The URL may also come from AGENTD_ACCOUNTS_URL (env wins). No secret here — the session token
+    # is the client's credential. Resolved by infrastructure/llm/accounts.configure at boot.
+    accounts: dict = field(default_factory=dict)
     # OBSERVABILITY (display-only): emit a per-step `model_trace` event — which brain model ran each
     # loop iteration + its token usage — so a client can show "step 1 deepseek 1.2k/0.5k → step 2
     # gemini …". Default ON; AGENTD_MODEL_TRACE=0 turns it off. No effect on the run itself.
@@ -782,6 +804,19 @@ def load_config(path: Path | None = None) -> Config:
         cfg.gateway_auth = os.environ["AGENTD_GATEWAY_AUTH"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TOKEN"):
         cfg.gateway_token = os.environ["AGENTD_TOKEN"].strip()
+    if os.environ.get("AGENTD_APP_HOSTS"):
+        # JSON object string: {"weather.example.com": "weather"}. A typo must not kill
+        # the daemon — warn and keep the config value instead.
+        try:
+            parsed = json.loads(os.environ["AGENTD_APP_HOSTS"])
+            if isinstance(parsed, dict):
+                cfg.app_hosts = {
+                    str(k).strip().lower(): str(v).strip() for k, v in parsed.items()
+                }
+            else:
+                logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: not a JSON object")
+        except (ValueError, TypeError):
+            logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: invalid JSON")
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [

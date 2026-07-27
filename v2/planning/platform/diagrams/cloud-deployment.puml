@@ -1,0 +1,273 @@
+@startuml aws-phase1-demo
+title agentd hosted on AWS — Phase 1: public demo (curated agents, no accounts)
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "Visitor" as USER
+actor "Owner (you)" as OWNER
+
+package "Browser" as BROWSER #F0FFF0 {
+  rectangle "Weather dashboard\n/apps/weather/ (agent's own ui/)\nNO token in the URL —\nscope derived from the path,\nadmitted via [app] public = true" as APPUI
+}
+
+cloud "AWS account" as AWS {
+
+  rectangle "CloudFront\n--\nTLS on *.cloudfront.net (no domain needed)\nproxies WebSockets - CachingDisabled\nManaged-AllViewer: forwards the VIEWER's\nHost header (origin gate depends on it)" as CF
+
+  package "EC2 t3a.small (AL2023) - docker compose - no SSH, SSM only" as EC2 #EAF3FF {
+    rectangle "agentd container\n--\nSAME code as desktop, env knobs only:\nAGENTD_HOME=/data - HOST=0.0.0.0 - TOKEN\n\ngateway tiers on ONE port:\n- HOST (owner, token) = everything\n- app-SCOPED (token+scope) = stable tier\n- PUBLIC (no token, [app] public) =\n  hello/agents/tools.list +\n  tools.invoke of public_tools ONLY\n\nboot: install baked .agentpkg bundles\n(version-checked) then agentd serve" as DAEMON
+  }
+
+  database "EBS gp3 (/opt/agentd/data -> /data)\n--\nthe whole ~/.agentd world:\nconfig - agents/ (installed bundles)\nstate/ (sessions, memory, ledger)" as EBS
+
+  rectangle "ECR\nagentd-web image\n(wheel + baked weather.agentpkg)" as ECR
+  rectangle "SSM\n--\nSession Manager (admin shell)\nRunShellScript: agentd-deploy\nSecureString: owner gateway token" as SSM
+}
+
+rectangle "Open-Meteo API\n(public; called by get_weather\nIN-PROCESS - no LLM key needed)" as METEO
+
+USER --> APPUI
+APPUI --> CF : https + wss\n(public scoped conn)
+OWNER --> CF : wss + ?token=...\n(full host tier)
+CF --> DAEMON : http :80\n(SG admits CloudFront\nprefix-list ONLY)
+DAEMON --> EBS : /data
+DAEMON --> METEO : tools.invoke get_weather
+ECR ..> DAEMON : docker pull\n(agentd-deploy via SSM)
+SSM ..> EC2 : admin + deploys\n(no port 22 anywhere)
+
+note bottom of DAEMON
+  Security model of the public tier: send_email exists on this agent but is NOT in
+  [app] public_tools, so no visitor can ever invoke it. chat.* is not public at all
+  (nobody burns LLM tokens anonymously). The agent AUTHOR declares the public
+  surface in agent.toml — core code names no agents, no tools (config/data only).
+end note
+
+note bottom of CF
+  When a real domain arrives: alias + ACM cert here, plus
+  AGENTD_APP_HOSTS={"weather.example.com":"weather"} on the daemon —
+  the gateway then serves the agent at "/" and scopes connections
+  by Host. Ships in this build, dormant until configured.
+end note
+@enduml
+
+@startuml hosted-target-architecture
+title Phase 2/3 target (NOT built yet) — accounts, per-user state, metered LLM, sandboxes
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "Signed-in user" as USER
+
+cloud "AWS account" as AWS {
+  rectangle "CloudFront + per-agent domains\n(ACM certs, host->agent aliases)" as CF
+  rectangle "Cognito\naccounts - the user token replaces\nthe machine token; connection =\n(user_id, agent scope)" as COGNITO
+  package "ECS Fargate service: agentd daemon fleet" as FLEET #EAF3FF {
+    rectangle "agentd (same image)\nper-connection state-root\nby user_id - authoring RPCs\ndisabled by config" as DAEMON2
+  }
+  database "EFS\n/users/<user_id>/...\nper-user state-roots" as EFS
+  rectangle "LiteLLM metering gateway\nplatform keys (Secrets Manager)\nper-user virtual keys, budgets\n-> Stripe billing" as METER
+  package "Sandbox per risky action (customer plugins, exec)" as SBX #FFF0F0 {
+    rectangle "Fargate task / Firecracker\nzero-perm role - empty env\nonly that user's agent dir" as RUNNER
+  }
+  rectangle "Marketplace\nS3 (.agentpkg) + registry DB\npublishing opens to customers" as MARKET
+}
+
+rectangle "LLM providers" as LLM
+
+USER --> CF
+CF --> DAEMON2
+DAEMON2 ..> COGNITO : verify -> user_id
+DAEMON2 --> EFS
+DAEMON2 --> METER : LLM calls tagged user_id
+METER --> LLM
+DAEMON2 --> RUNNER : untrusted/heavy tool exec
+DAEMON2 --> MARKET : install into user's root
+
+note bottom of FLEET
+  Phase 1 already laid the seams this build needs: the PUBLIC connection tier
+  (generalizes to per-user auth at the same _handle_conn gate), config.app_hosts
+  (per-agent domains), and the .agentpkg-on-boot supply chain (becomes the
+  registry). The per-user state-root refactor is the one big remaining lift.
+end note
+@enduml
+
+@startuml aws-phase1-request-flow
+title A public visitor's request, end to end — every gate it passes
+
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor "Visitor" as V
+participant "CloudFront" as CF
+participant "gateway\n(agentd container, EC2)" as GW
+participant "GetWeatherTool\n(weather-kit, IN-PROCESS)" as TOOL
+participant "Open-Meteo" as API
+
+== 1. the page (static, token-free) ==
+V -> CF : GET https://xxxx.cloudfront.net/apps/weather/
+CF -> GW : http :80 (SG: CloudFront ranges only)\nHost header = the VIEWER's (Managed-AllViewer)
+GW -> GW : _serve_app: registry.get("weather")\nentry ui/index.html, traversal-checked
+GW --> V : 200 HTML + app.js (Cache-Control: no-store)
+
+== 2. the connection (public tier) ==
+V -> V : app.js: no ?token in URL ->\nderive scope from path:\n/apps/weather/ => agent:weather
+V -> CF : wss connect /?scope=agent:weather
+CF -> GW : WS upgrade (proxied)
+GW -> GW : GATE 1 origin: page Origin host ==\nforwarded viewer Host? ok
+GW -> GW : GATE 2 auth: no token ->\n_public_scope_ok? [app] public = true\n+ under MAX_PUBLIC_CONNECTIONS\n=> admit as PUBLIC (downgraded, not refused)
+GW --> V : open (scoped to weather, public)
+
+== 3. the data (filtered invoke) ==
+V -> GW : tools.invoke {name: get_weather}
+GW -> GW : GATE 3 method: tools.invoke\nin PUBLIC_APP_METHODS? yes
+GW -> GW : GATE 4 tool: get_weather in\n[app] public_tools? yes\nGATE 5 agent's own allow/deny: yes\n(+ global public invoke semaphore)
+GW -> TOOL : execute (RunContext = weather)
+TOOL -> API : GET /v1/forecast (Tokyo)
+API --> TOOL : forecast JSON
+TOOL --> GW : ToolResult
+GW --> V : {ok, text: forecast JSON} -> dashboard renders
+
+== what CANNOT happen ==
+V -> GW : tools.invoke {name: send_email}
+GW --> V : REFUSED — not in [app] public_tools
+V -> GW : chat.send {message}
+GW --> V : REFUSED — chat is never public\n(nobody burns LLM tokens anonymously)
+
+note over GW
+  Every gate is data-driven: the agent AUTHOR declared public + public_tools
+  in agent.toml. Core code names no agents and no tools.
+end note
+@enduml
+
+@startuml aws-phase1-conn-tiers
+title The three connection tiers — one gateway port, three trust levels
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "HOST tier — ?token=<the one owner token>" as HOST #EAF3FF {
+  rectangle "everything (~45 methods)\nconfig.get/set - agents.create/remove\nmcp.* - marketplace.* - cron.* - projects.*\nchat with ANY agent - all events\ntools.invoke: artifact_action tools only" as H
+}
+
+package "app-SCOPED tier — ?token=...&scope=agent:<id>" as SCOPED #F0FFF0 {
+  rectangle "APP_SCOPED_METHODS (stable tier)\nhello - chat.send/abort - sessions.*\nagents.list/detail - tools.list/invoke\ncapabilities - workspace.* - notifications.*\nagentId FORCED = the scope\nevents filtered to own agent\ntools.invoke: the agent's allow/deny" as S
+}
+
+package "PUBLIC tier — NO token + [app] public = true" as PUB #FFF0F0 {
+  rectangle "PUBLIC_APP_METHODS only\nhello - agents.list/detail - tools.list\ntools.invoke: [app] public_tools ONLY\n(stacked ON TOP of the agent's allow/deny)\nNO chat - NO sessions - NO workspace\ncaps: MAX_PUBLIC_CONNECTIONS=256,\ninvoke concurrency=8" as P
+}
+
+H -[hidden]down-> S
+S -[hidden]down-> P
+
+note right of HOST
+  desktop owner / admin.
+  Hosted: token lives in SSM,
+  never in the page.
+end note
+note right of SCOPED
+  desktop agent apps
+  (exe, agentd app open):
+  the opener minted the URL.
+end note
+note right of PUB
+  web visitors. Exists ONLY
+  when an agent's author
+  opted in via agent.toml.
+  PUBLIC < SCOPED < HOST
+  (each a strict subset).
+end note
+@enduml
+
+@startuml aws-phase1-supply-chain
+title Supply chain — how code and agents reach production
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "Desktop (the factory)" as DEV #F0FFF0 {
+  rectangle "author the agent\nagents/weather/\n(agent.toml + IDENTITY.md\n+ ui/ + plugins/weather-kit)" as AUTHOR
+  rectangle "docker build (v2/ context)\nstage 1: wheel (plugins baked in)\n+ agentd bundle pack agents/weather\nstage 2: slim python:3.11 runtime\n+ /opt/agentd/bundles/*.agentpkg" as BUILD
+}
+
+package "GitHub" as GH #F5F0FF {
+  rectangle "deploy-web.yml\nmanual dispatch - OIDC role\n(no long-lived AWS keys)" as CI
+}
+
+package "AWS" as AWS #EAF3FF {
+  rectangle "ECR\nagentd-web:latest + :sha" as ECR
+  rectangle "EC2: agentd-deploy (via SSM)\necr login - compose pull - up -d" as DEPLOY
+  rectangle "container boot (entrypoint)\n1. rm stale gateway.json\n2. for each baked .agentpkg:\n   ledger version-check ->\n   agentd install (offline, in-process)\n3. exec agentd serve" as BOOT
+  database "EBS /data\nconfig - agents/ - state/\n(survives image swaps)" as DATA
+}
+
+AUTHOR --> BUILD
+BUILD --> CI : or push locally
+CI --> ECR : docker push
+ECR --> DEPLOY : pull
+DEPLOY --> BOOT : restart
+BOOT --> DATA : install/upgrade bundles,\nthen serve from here
+
+note bottom of BOOT
+  Agent update WITHOUT a daemon release: bump the agent version, rebuild
+  (only the bundle layer changes), push, agentd-deploy — the entrypoint sees
+  a newer version in the ledger comparison and upgrades just that agent.
+  State (sessions/memory) lives in state/, untouched by reinstalls.
+end note
+@enduml

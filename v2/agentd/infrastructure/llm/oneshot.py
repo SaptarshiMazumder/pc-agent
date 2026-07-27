@@ -35,6 +35,23 @@ def _image_part(path: Path) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
 
 
+def _meter(resp, model: str) -> None:
+    """HOSTED metering: fold a one-shot call's tokens+cost into the current turn's per-account
+    accumulator. No-op outside an account-scoped turn (contextvars propagate through to_thread)."""
+    try:
+        u = getattr(resp, "usage", None)
+        if u is not None:
+            from agentd.infrastructure import accounts as _accts
+
+            _accts.add_usage(
+                model,
+                getattr(u, "prompt_tokens", 0) or 0,
+                getattr(u, "completion_tokens", 0) or 0,
+            )
+    except Exception:  # noqa: BLE001 — metering must never break a tool call
+        pass
+
+
 def text_complete(
     *,
     model: str,
@@ -61,7 +78,11 @@ def text_complete(
     if timeout:
         kwargs["request_timeout"] = timeout
 
+    from agentd.infrastructure.llm import model_gateway
+
+    model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
     resp = litellm.completion(**kwargs)
+    _meter(resp, model)
     return (resp.choices[0].message.content or "") if resp.choices else ""
 
 
@@ -102,5 +123,9 @@ def vision_complete(
     if timeout:
         kwargs["request_timeout"] = timeout
 
+    from agentd.infrastructure.llm import model_gateway
+
+    model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
     resp = litellm.completion(**kwargs)
+    _meter(resp, model)
     return (resp.choices[0].message.content or "") if resp.choices else ""

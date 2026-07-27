@@ -57,6 +57,14 @@ export function fileUrl(path: string): string {
   return `${httpOrigin}/file?${q.toString()}`
 }
 
+/** Absolute, tokenized launch URL for an AGENT APP's UI (daemon-served /apps/<id>/) —
+ *  same live origin+token as /file; the scope pins the page's connection to its agent. */
+export function appLaunchUrl(app: { url: string }, agentId: string): string {
+  const q = new URLSearchParams({ scope: `agent:${agentId}` })
+  if (authToken) q.set('token', authToken)
+  return `${httpOrigin}${app.url}?${q.toString()}`
+}
+
 export function humanSize(bytes?: number): string {
   if (!bytes || bytes < 0) return ''
   const units = ['B', 'KB', 'MB', 'GB']

@@ -7,7 +7,6 @@ import {
   History,
   PanelLeft,
   ShoppingBag,
-  Monitor,
   Sun,
   Moon,
   SquarePen,
@@ -20,6 +19,7 @@ import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
+import ProfileMenu from './ProfileMenu'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
 import SettingsMenu from './SettingsMenu'
@@ -138,7 +138,7 @@ export default function Sidebar() {
           </button>
         ))}
         <div className="rail-spacer" />
-        <button className="rail-btn" title="local profile"><Monitor size={18} /></button>
+        <ProfileMenu variant="rail" />
         <button className="rail-btn" title="Store" onClick={() => setView('store')}><ShoppingBag size={18} /></button>
         <SettingsMenu variant="rail" />
         <button className="rail-btn" title="toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
@@ -237,7 +237,7 @@ export default function Sidebar() {
       </div>
 
       <div className="footer-nav">
-        <button className="icon-btn footer-icon" title="local profile"><Monitor size={17} /></button>
+        <ProfileMenu variant="footer" />
         <button className={`icon-btn footer-icon push-end ${view === 'store' ? 'active' : ''}`} title="Store" onClick={() => setView('store')}>
           <ShoppingBag size={17} />
         </button>

@@ -23,7 +23,10 @@ import type {
 import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
+import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
+import { getMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
+import { isDesktop, platform } from '../lib/platform'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -106,6 +109,9 @@ interface FlavorInfo {
   defaultAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
+  /** hosted platform ([platform] in distribution.toml); '' => BYOK-only install */
+  accountsUrl?: string
+  modelGatewayUrl?: string
   bundledPackages: string[]
   version: string
 }
@@ -302,6 +308,9 @@ interface AppState {
   notifications: NotificationRow[]
 
   bootstrap(): Promise<void>
+  /** Re-assert the desktop Local/Cloud run mode on the live daemon (connect/disconnect) and
+   *  refresh platform status. Called by the launcher and when the session changes. */
+  applyMode(): Promise<void>
   setView(view: View): void
   /** open Settings on a specific tab, filtered to a tool (a tool's gear icon uses this) */
   openToolConfig(toolName: string): void
@@ -334,7 +343,13 @@ interface AppState {
    *  which agent you were last on (the flavor's default_agent can be a specialist like
    *  figure-creator; a plain New chat should still be the generalist) */
   newChat(): void
-  createAgent(fields: { name: string; description?: string; identity?: string }): Promise<string>
+  createAgent(fields: {
+    name: string
+    description?: string
+    identity?: string
+    /** '' = chat only; 'browser' | 'window' scaffolds an app UI declaring that presentation */
+    app?: '' | 'browser' | 'window'
+  }): Promise<string>
   newSession(projectId?: string): void
   resumeSession(sessionId: string): Promise<void>
   renameSession(sessionId: string, title: string): Promise<void>
@@ -512,6 +527,17 @@ export const useApp = create<AppState>((set, get) => {
           if (session.pendingArtifacts?.length) attachToLastAssistant(items, session.pendingArtifacts, ts)
           return { items, running: false, pendingArtifacts: [] }
         })
+        // Hosted mode: an auth-shaped run failure may mean the session token expired at the
+        // model gateway. Re-check against the accounts service and only sign out on a
+        // DEFINITIVE rejection (never on a flaky network) — the sign-in gate then takes over.
+        if (error && isAccountsMode() && /\b401\b|sign in required|authentication/i.test(error)) {
+          void resolveSession().then((verdict) => {
+            if (verdict === 'invalid') {
+              signOut()
+              if (!isDesktop) location.reload() // web: drop the account-scoped connection too
+            }
+          })
+        }
         // desktop notification for a watched chat (an open tab / the current chat) finishing —
         // NOT for background sub-agent / cron / heartbeat runs, and only when tabbed away
         if (!error) {
@@ -529,6 +555,7 @@ export const useApp = create<AppState>((set, get) => {
 
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
+    await connectPlatform()
     const flavor = get().flavor
     const preferred = get().currentAgentId || flavor?.defaultAgent || hello.agentId
     const agentIds = new Set(hello.agents.map((agent) => agent.id))
@@ -540,6 +567,31 @@ export const useApp = create<AppState>((set, get) => {
     await Promise.all([refreshSessions(), refreshRecents(), refreshProjects()])
     await preinstallBundles()
     await refreshArtifactActions()
+  }
+
+  /** DESKTOP: re-assert the chosen run mode on the LOCAL daemon on every (re)connect.
+   *   • Cloud — hand the signed-in session token to the daemon (platform.connect persists it as
+   *     the model-gateway credential, so hosted keys survive restarts and .env drift self-heals).
+   *   • Local (or no mode yet) — clear any platform credential (platform.disconnect) so the daemon
+   *     runs BYOK with the user's own keys.
+   *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
+  async function connectPlatform(): Promise<void> {
+    if (!isDesktop) return
+    if (getMode() !== 'cloud') {
+      try {
+        await gateway.request('platform.disconnect')
+      } catch {
+        /* older daemon without platform.* — BYOK is already the default */
+      }
+      return
+    }
+    const session = getSession()
+    if (!session) return
+    try {
+      await gateway.request('platform.connect', { token: session.token })
+    } catch {
+      /* older daemon without platform.* — BYOK keeps working; nothing to surface */
+    }
   }
 
   // Learn which canvas ACTIONS exist from the live plugin catalog: any enabled tool that
@@ -745,20 +797,33 @@ export const useApp = create<AppState>((set, get) => {
 
     async bootstrap() {
       applyTheme(get().theme)   // a persisted 'dark' shows from the first paint
-      const flavor = (await window.agentd.flavor()) as FlavorInfo
+      const flavor = (await platform.flavor()) as unknown as FlavorInfo
       set({ flavor })
-      window.agentd.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
-      set({ supervisor: (await window.agentd.supervisorStatus()) as SupervisorStatus })
+      platform.onSupervisorStatus((status) => set({ supervisor: status as SupervisorStatus }))
+      set({ supervisor: (await platform.supervisorStatus()) as SupervisorStatus })
       wireEvents()
       set({ connection: 'connecting' })
       // Re-resolve host/port/token on every (re)connect: ensureDaemon finds the live
       // daemon (or starts one) and returns its CURRENT url+token — so a daemon restart
       // (which rotates the token) reconnects cleanly instead of looping on a stale one.
       gateway.connect(async () => {
-        const { url } = await window.agentd.ensureDaemon()
+        const { url } = await platform.ensureDaemon()
         setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
         return url
       })
+    },
+
+    async applyMode() {
+      // Re-assert Local/Cloud on the live daemon and refresh the platform status the UI reads
+      // (hello.platform.modelGateway). No-op until the connection is open.
+      if (get().connection !== 'open') return
+      await connectPlatform()
+      try {
+        const hello = (await gateway.request<Hello>('hello')) as Hello
+        set({ hello })
+      } catch {
+        /* transient — leave the last known status in place */
+      }
     },
 
     setView(view) {
@@ -936,7 +1001,12 @@ export const useApp = create<AppState>((set, get) => {
       // refreshes the list. Throws on a server error so the modal can show it.
       const res = await gateway.request<{ created: boolean; agentId?: string; error?: string }>(
         'agents.create',
-        { name: fields.name, description: fields.description || '', identity: fields.identity || '' }
+        {
+          name: fields.name,
+          description: fields.description || '',
+          identity: fields.identity || '',
+          app: fields.app || ''
+        }
       )
       if (!res.created) throw new Error(res.error || 'could not create the agent')
       if (res.agentId) await get().selectAgent(res.agentId)

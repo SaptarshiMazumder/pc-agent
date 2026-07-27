@@ -1,0 +1,5 @@
+name = "Test Weather"
+
+[app]
+title = "Test Weather"
+mode = "window"

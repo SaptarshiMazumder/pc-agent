@@ -1,0 +1,74 @@
+# Full HOSTED stack, local (docker compose) — mirrors the AWS Fargate topology, one box down.
+# Four services + volumes; the SAME images graduate to ECR/Fargate later (Stage 3).
+#
+#   1) put provider keys in v2/.env   (GEMINI_API_KEY, DEEPSEEK_API_KEY, ...)
+#   2) from v2/:  docker compose -f deploy/docker/compose.yaml up --build
+#   3) open  http://localhost:8080  -> sign in, chat  (per-account isolated)
+#
+# Stage 1 = accounts on SQLite (a named volume). Stage 2 adds a `postgres` service and points the
+# accounts DB at it (crown-jewel data on a real DB, matching AWS RDS).
+name: agentd-stack
+
+services:
+  gateway: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
+    # custom_auth.py accepts the master key (infra) OR an accounts session token (desktop
+    # platform-keys mode), and its success callback writes usage to the accounts ledger.
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.gateway }
+    image: agentd-gateway:local
+    env_file: [../../.env] # provider keys (GEMINI_API_KEY, ...) at runtime, never baked
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
+      - ACCOUNTS_URL=http://accounts:4100
+      - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal}
+    ports: ["4000:4000"]
+    depends_on: [accounts]
+    restart: unless-stopped
+
+  accounts: # identity + per-account budget/tab (State plane)
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.accounts }
+    image: agentd-accounts:local
+    environment:
+      - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes
+    volumes: ["accounts-data:/data"]
+    ports: ["4100:4100"]
+    restart: unless-stopped
+
+  daemon: # the engine (accounts ON; routes model calls through the gateway)
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile }
+    image: agentd-daemon:local
+    environment:
+      - AGENTD_HOST=0.0.0.0
+      - AGENTD_PORT=8787
+      - AGENTD_HOME=/data
+      - AGENTD_STATE_DIR=/data/state # per-user data on the volume, deterministic (NOT cwd-relative)
+      - AGENTD_WORKSPACE=/data/workspace
+      - AGENTD_TOKEN=${AGENTD_TOKEN:-devtoken}
+      - AGENTD_ACCOUNTS_URL=http://accounts:4100 # reach sibling services by compose name
+      - AGENTD_MODEL_GATEWAY_URL=http://gateway:4000
+      - AGENTD_MODEL_GATEWAY_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
+    volumes:
+      - daemon-data:/data
+      # Track the checkout's config so host edits (models, cost-efficiency, plugins) are the
+      # source of truth — the /data volume otherwise keeps a stale default seed across rebuilds.
+      # user-home config filename is config.json (NOT agentd.config.json). RW so in-app Settings
+      # saves persist back to the host file (the daemon overwrites in place, safe for a file mount).
+      - ../../agentd.config.json:/data/config.json
+    ports: ["8790:8787"] # host 8790 -> container 8787 (matches dev.py, avoids the desktop's 8787)
+    depends_on: [accounts, gateway]
+    restart: unless-stopped
+
+  web: # the browser UI (static build, nginx). API URLs baked for the local ports.
+    build:
+      context: ../../clients/desktop
+      dockerfile: Dockerfile.web
+      args:
+        VITE_AGENTD_ACCOUNTS_URL: http://localhost:4100
+        VITE_AGENTD_URL: ws://localhost:8790
+    image: agentd-webui:local
+    ports: ["8080:80"]
+    depends_on: [accounts, daemon]
+    restart: unless-stopped
+
+volumes:
+  accounts-data:
+  daemon-data:

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
+import { platform } from '../lib/platform'
 import { useApp } from '../state/store'
 
 type Tool = 'select' | 'pen' | 'marker' | 'rect' | 'ellipse' | 'arrow' | 'text' | 'crop'
@@ -514,7 +515,7 @@ export const svgMode: EditorMode = {
   enableCrop: false,
   editableText: true,
   load: async (canvas, a) => {
-    const res = await window.agentd.readText(a.path)
+    const res = await platform.readText(a.path)
     if (!res.ok || res.text == null) throw new Error(res.error || 'read failed')
     const parsed = await fabric.loadSVGFromString(res.text)
     const objs = (parsed.objects || []).filter(Boolean) as fabric.FabricObject[]
@@ -528,7 +529,7 @@ export const svgMode: EditorMode = {
   },
   save: async (_canvas, copy, exporters, a) => {
     const svg = exporters.svg()  // logical-size toSVG + text round-trip fix (see foldTextOffsets)
-    return copy ? window.agentd.saveAs(a.name, svg, false) : window.agentd.savePath(a.path, svg)
+    return copy ? platform.saveAs(a.name, svg, false) : platform.savePath(a.path, svg)
   },
 }
 
@@ -537,7 +538,7 @@ export const rasterMode: EditorMode = {
   enableCrop: true,
   editableText: false,
   load: async (canvas, a) => {
-    const res = await window.agentd.readBytes(a.path)
+    const res = await platform.readBytes(a.path)
     if (!res.ok || !res.base64) throw new Error(res.error || 'read failed')
     const img = await fabric.FabricImage.fromURL(`data:${mimeOf(a.name)};base64,${res.base64}`)
     img.set({ selectable: false, evented: false, left: 0, top: 0, originX: 'left', originY: 'top' })
@@ -546,6 +547,6 @@ export const rasterMode: EditorMode = {
   },
   save: async (_canvas, copy, exporters, a) => {
     const b64 = exporters.png().split(',')[1] || ''
-    return copy ? window.agentd.saveAs(a.name, b64, true) : window.agentd.savePath(a.path, b64, true)
+    return copy ? platform.saveAs(a.name, b64, true) : platform.savePath(a.path, b64, true)
   },
 }

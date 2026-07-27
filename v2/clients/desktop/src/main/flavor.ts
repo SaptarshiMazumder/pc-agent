@@ -18,8 +18,18 @@ export interface Flavor {
   productId: string
   productName: string
   defaultAgent: string
+  /** AGENT-APP shell mode: the id of the agent this build IS. Set => the shell never
+   *  loads the JARVIS renderer — it boots the daemon and opens the agent's own UI
+   *  (/apps/<id>/) as the product window. '' => the normal desktop client. */
+  appAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
+  /** HOSTED PLATFORM ([platform] in distribution.toml): where sign-in lives. '' => BYOK-only
+   *  install, no sign-in gate — exactly the pre-platform behavior. */
+  accountsUrl: string
+  /** the hosted LiteLLM model gateway; the daemon reads the same file itself — the shell only
+   *  needs this for display/diagnostics. */
+  modelGatewayUrl: string
   /** absolute path of the loaded file; '' => open default (nothing to pass on) */
   sourcePath: string
   /** absolute paths of .agentpkg files shipped with this build (resources/bundles) */
@@ -30,8 +40,11 @@ const OPEN: Flavor = {
   productId: 'agentd',
   productName: 'agentd',
   defaultAgent: '',
+  appAgent: '',
   storeEnabled: true,
   preinstalledBundles: [],
+  accountsUrl: '',
+  modelGatewayUrl: '',
   sourcePath: '',
   bundledPackages: []
 }
@@ -39,7 +52,12 @@ const OPEN: Flavor = {
 function candidatePaths(): string[] {
   if (app.isPackaged) return [path.join(process.resourcesPath, 'distribution.toml')]
   const flavorName = (process.env.AGENTD_FLAVOR || 'core').trim()
-  return [path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml')]
+  return [
+    // authored flavors (core, studio, …)
+    path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml'),
+    // GENERATED per-agent product flavors (gen-app-flavor.mjs) — build output, not authored
+    path.join(app.getAppPath(), 'dist', 'app-flavors', flavorName, 'distribution.toml')
+  ]
 }
 
 async function bundledPackages(): Promise<string[]> {
@@ -61,12 +79,16 @@ export async function loadFlavor(): Promise<Flavor> {
       const parsed = TOML.parse(await fs.readFile(candidate, 'utf-8')) as Record<string, any>
       const product = (parsed.product as Record<string, any>) || {}
       const store = (parsed.store as Record<string, any>) || {}
+      const platform = (parsed.platform as Record<string, any>) || {}
       return {
         productId: String(product.id || 'agentd'),
         productName: String(product.name || 'agentd'),
         defaultAgent: String(product.default_agent || ''),
+        appAgent: String(product.app_agent || ''),
         storeEnabled: store.enabled !== false,
         preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
+        accountsUrl: String(platform.accounts_url || '').replace(/\/$/, ''),
+        modelGatewayUrl: String(platform.model_gateway_url || '').replace(/\/$/, ''),
         sourcePath: candidate,
         bundledPackages: packages
       }

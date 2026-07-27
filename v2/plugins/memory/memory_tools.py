@@ -12,11 +12,16 @@ import time
 from agentd.application.interfaces.tool import Tool, ToolResult
 from agentd.application.run_context import current_run_context
 from agentd.domain.memory import MemoryItem
+from agentd.infrastructure import accounts
 
 
 def _agent_id() -> str:
+    """The memory partition for this run: the calling agent, namespaced by the CURRENT account
+    (hosted) so users' notes stay separate. Bare agent id on desktop/local. One place, so every
+    memory tool (remember/search/consolidate) is isolated together."""
     ctx = current_run_context()
-    return (ctx.agent_id if ctx else None) or "main"
+    base = (ctx.agent_id if ctx else None) or "main"
+    return accounts.memory_partition(base)
 
 
 class RememberTool(Tool):

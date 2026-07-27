@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDown } from 'lucide-react'
+import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDown, AppWindow } from 'lucide-react'
 
 import { gateway } from '../gateway/client'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
+import { appLaunchUrl } from '../lib/artifacts'
+import { platform } from '../lib/platform'
 import { useApp } from '../state/store'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
@@ -24,6 +26,8 @@ interface AgentDetail {
   color?: string
   workspace?: string
   skills: SkillRow[]
+  /** the agent's own app UI (daemon-served /apps/<id>/), when it ships one */
+  app?: { title: string; url: string; mode?: 'window' | 'browser' } | null
 }
 
 type Tab = 'chats' | 'workspace' | 'skills'
@@ -85,6 +89,20 @@ export default function AgentView() {
   }
 
   const skills = detail?.skills || []
+  // the agent's own app UI — the hello roster carries it, agents.detail confirms it
+  const appInfo = detail?.app ?? agent.app ?? null
+  const openApp = async (): Promise<void> => {
+    if (!appInfo) return
+    const url = appLaunchUrl(appInfo, agent.id)
+    // honor the AUTHOR's declared presentation: mode "window" = a dedicated desktop
+    // window; "browser" (the default) = the system browser. window.open is routed to
+    // the OS browser by the main process, and doubles as the no-IPC fallback.
+    if (appInfo.mode === 'window') {
+      const res = await platform.openAppWindow?.(url, appInfo.title)
+      if (res?.ok) return
+    }
+    window.open(url)
+  }
 
   return (
     <div className="entity-page">
@@ -108,6 +126,15 @@ export default function AgentView() {
               </div>
             </div>
             <div className="settings-head-actions">
+              {appInfo && (
+                <button
+                  className="btn"
+                  title={`open ${appInfo.title} ${appInfo.mode === 'window' ? 'in its own window' : 'in the browser'}`}
+                  onClick={() => void openApp()}
+                >
+                  <AppWindow size={14} />Open app
+                </button>
+              )}
               <button className="btn primary" onClick={() => newChatWithAgent(agent.id)}>
                 <SquarePen size={14} />New chat with {agent.name || agent.id}
               </button>

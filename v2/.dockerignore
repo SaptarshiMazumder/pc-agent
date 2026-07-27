@@ -1,0 +1,32 @@
+# Build context = v2/. Keep it lean: the image needs agentd/ + plugins/ + agents/ +
+# pyproject.toml + scripts/ (wheel build) + deploy/docker/. Everything else stays out.
+
+# secrets — NEVER bake into an image
+.env
+**/.env
+
+# desktop/terminal clients (incl. the ~1GB bundled CPython runtime) and their builds
+clients/
+
+# delivered per-agent products (installers) — never part of the source image
+agents/*/clients/
+
+# dev state, tests, docs, planning
+.agentd/
+tests/
+planning/
+docs/
+misc/
+workshops/
+
+# build/junk
+dist/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+# agent workspace DATA only — never a bare **/workspace/, which would also swallow
+# the agentd.infrastructure.workspace source package (it did, once)
+agents/*/workspace/
+.agentd/workspace/
+*.agentpkg
+plantuml.jar

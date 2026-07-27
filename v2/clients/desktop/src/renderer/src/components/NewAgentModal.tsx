@@ -14,6 +14,9 @@ export default function NewAgentModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [identity, setIdentity] = useState('')
+  // '' = a plain chat agent; 'browser'/'window' also scaffold an app UI (agents/<id>/ui/)
+  // declaring how it opens — a browser tab or its own window (like a program)
+  const [appMode, setAppMode] = useState<'' | 'browser' | 'window'>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -23,7 +26,12 @@ export default function NewAgentModal({ onClose }: { onClose: () => void }) {
     setBusy(true)
     setError('')
     try {
-      await createAgent({ name: name.trim(), description: description.trim(), identity: identity.trim() })
+      await createAgent({
+        name: name.trim(),
+        description: description.trim(),
+        identity: identity.trim(),
+        app: appMode
+      })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -72,6 +80,36 @@ export default function NewAgentModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setIdentity(e.target.value)}
           />
         </label>
+
+        <div className="field">
+          <span className="field-label">App UI <span className="field-opt">optional</span></span>
+          <div className="seg">
+            <button
+              type="button"
+              className={appMode === '' ? 'on' : ''}
+              title="no app UI — the agent lives in this client's chat"
+              onClick={() => setAppMode('')}
+            >
+              Chat only
+            </button>
+            <button
+              type="button"
+              className={appMode === 'browser' ? 'on' : ''}
+              title="ships its own UI (agents/<id>/ui/), opened as a browser tab"
+              onClick={() => setAppMode('browser')}
+            >
+              Browser app
+            </button>
+            <button
+              type="button"
+              className={appMode === 'window' ? 'on' : ''}
+              title="ships its own UI (agents/<id>/ui/), opened in its own window like a program"
+              onClick={() => setAppMode('window')}
+            >
+              Window app
+            </button>
+          </div>
+        </div>
 
         {error && <div className="field-error">{error}</div>}
 

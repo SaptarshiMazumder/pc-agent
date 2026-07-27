@@ -1,14 +1,14 @@
-"""vectorize plugin — turning raster figures into vector.
+"""vectorize plugin — turn flat figure images into editable vectors.
 
-  • figure_to_svg — ★ ONE-CALL, self-contained labelled-figure -> editable layered SVG (strip ->
-    OCR text -> semantic+blob arrows -> raster/vector artwork -> composed SVG). Stateless: any
-    agent can call it in any flow/chat with just an image path. The "make this editable" tool.
-  • extract_annotations — the lower-level SEMANTIC extractor (diff -> OCR labels + skeleton
-    arrows as overlay elements); use it when you want the elements spec to edit before composing.
-  • trace_image — GEOMETRIC: color regions -> Bezier paths (logos / clean line-art). Lossy; opt-in.
+  • figure_to_svg        — ONE-CALL: any labelled figure PNG -> editable layered SVG (text +
+                           arrows as real vector elements over clean artwork). The canvas
+                           "Convert to vector" button invokes exactly this.
+  • extract_annotations  — the annotation-extraction stage alone (labels/arrows -> overlay JSON).
+  • trace_image          — GEOMETRIC: color regions -> Bezier paths (logos / clean line-art).
+                           Needs a vtracer backend; errors actionably if absent.
 
-The VLM fallback for labelled figures (unanchored labels, or no usable base) is
-`read_labels_from_image` in the vision plugin.
+NOTE: the old semantic "reconstruct_svg" vectorizer was removed: it painted white over detected
+text to avoid double labels, which white-outs artwork when labels aren't purely on a white margin.
 """
 
 from __future__ import annotations

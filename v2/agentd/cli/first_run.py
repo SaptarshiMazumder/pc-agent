@@ -19,6 +19,9 @@ from pathlib import Path
 
 from agentd import runtime_paths
 
+# fallback model when onboarding can't ask (no TTY / hosted flavor); config-overridable seed
+_DEFAULT_MODEL = "gemini/gemini-2.5-flash"
+
 # provider menu: id -> (env var LiteLLM reads, default model, key URL)
 PROVIDERS: dict[str, tuple[str, str, str]] = {
     "gemini": ("GEMINI_API_KEY", "gemini/gemini-2.5-flash", "https://aistudio.google.com/apikey"),
@@ -58,8 +61,17 @@ def seed_user_layout() -> None:
 
 
 def _write_config(model: str) -> Path:
+    """Write the user's config.json, SEEDED from the shipped default template (full
+    model_catalog + neutral knobs) so a fresh install has a real model picker — not a bare
+    {model} stub. The onboarded model (wizard pick / default) overrides the template's."""
     path = runtime_paths.user_config_file()
-    config = {"model": model, "memory_enabled": True}
+    template = runtime_paths.packaged_default_config()
+    try:
+        config = json.loads(template.read_text(encoding="utf-8")) if template.is_file() else {}
+    except (OSError, ValueError):
+        config = {}  # unreadable/corrupt template — fall back to a minimal but valid config
+    config.setdefault("memory_enabled", True)
+    config["model"] = model  # the onboarded choice wins over the template default
     path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     return path
 
@@ -114,7 +126,7 @@ def _wizard() -> bool:
         model = input("LiteLLM model id (e.g. groq/llama-3.3-70b): ").strip()
         if not model:
             print("No model given — writing default config; edit ~/.agentd/config.json.")
-            model = "gemini/gemini-2.5-flash"
+            model = _DEFAULT_MODEL
     config_path = _write_config(model)
     print(f"\nWrote {config_path}")
     ok, detail = _verify_key(model)
@@ -134,9 +146,18 @@ def ensure_onboarded() -> bool:
         # dev configs are project files, not ~/.agentd files.
         print("No agentd.config.json found in the checkout; copy config.example.json to start.")
         return False
+    # Hosted flavor (distribution declares a platform model gateway): model calls run on
+    # PLATFORM keys once the user signs in through the app — the BYOK provider/key wizard
+    # would only mislead. Seed the default config and skip it entirely.
+    from agentd.distribution import load_profile
+
+    if load_profile().model_gateway_url:
+        _write_config(_DEFAULT_MODEL)
+        print("Hosted install — sign in from the app; model access uses platform keys.")
+        return True
     if sys.stdin.isatty() and sys.stdout.isatty():
         return _wizard()
-    _write_config("gemini/gemini-2.5-flash")
+    _write_config(_DEFAULT_MODEL)
     print(
         "No TTY for setup — wrote ~/.agentd/config.json with defaults. "
         "Set your API key in ~/.agentd/.env (e.g. GEMINI_API_KEY=...), then run `agentd doctor`."

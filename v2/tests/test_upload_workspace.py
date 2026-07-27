@@ -21,6 +21,7 @@ class _G:
 
     _upload_workspace = Gateway._upload_workspace
     _resolve_workspace = Gateway._resolve_workspace
+    _projects_root = Gateway._projects_root
 
 
 def test_project_chat_uploads_go_to_project_workspace(tmp_path):

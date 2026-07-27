@@ -36,7 +36,9 @@ from agentd.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agentd.domain.events import AgentEvent
 from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
+from agentd.infrastructure import accounts, user_state
 from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
+from agentd.infrastructure.llm import model_gateway
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import (
     Event,
@@ -87,8 +89,36 @@ APP_SCOPED_METHODS = frozenset(
         "workspace.delete",
         "notifications.list",
         "notifications.ack",
+        # An APP-AGENT product (its own exe/window) is a first-party desktop client: it signs
+        # the user in so the LOCAL daemon runs on platform keys. Safe for a scoped app because
+        # (a) these are absent from PUBLIC_APP_METHODS, so tokenless/cloud visitors are refused
+        # at the public gate, and (b) the handlers no-op on a hosted (accounts-mode) daemon —
+        # sign-in only manages the LOCAL model-key credential. Not administration of the backend.
+        "platform.connect",
+        "platform.disconnect",
+        "platform.status",
+        "platform.setGatewayUrl",
     }
 )
+
+# The PUBLIC tier (hosted deployments): what an UNAUTHENTICATED connection scoped to an
+# agent whose [app] declares `public = true` may call. A strict subset of the scoped tier —
+# deliberately excludes chat.* (burns LLM tokens), sessions.* and workspace.* (state): a
+# public visitor can render the app and invoke the author-declared `public_tools`, nothing
+# else. Private/local daemons never see this tier (auth passes or the conn is refused).
+PUBLIC_APP_METHODS = frozenset(
+    {
+        "hello",
+        "agents.list",
+        "agents.detail",
+        "tools.list",
+        "tools.invoke",
+    }
+)
+# Abuse guards for the public tier — coarse by design (real rate limiting belongs to the
+# CDN/WAF in front of a hosted daemon, not here).
+MAX_PUBLIC_CONNECTIONS = 256  # FD-exhaustion guard
+PUBLIC_INVOKE_CONCURRENCY = 8  # global in-flight cap for public tools.invoke
 
 
 def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
@@ -461,6 +491,7 @@ EXPOSED_CONFIG_KEYS = (
     "webhook_port",
     "skills_relevance_enabled",
     "plugins",
+    "app_hosts",
 )
 WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
 PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})
@@ -518,6 +549,7 @@ EXPOSED_KEY_ENV = {
     "webhook_host": "AGENTD_WEBHOOK_HOST",
     "webhook_port": "AGENTD_WEBHOOK_PORT",
     "skills_relevance_enabled": "AGENTD_SKILLS_RELEVANCE_ENABLED",
+    "app_hosts": "AGENTD_APP_HOSTS",
 }
 
 # Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
@@ -832,6 +864,12 @@ class Gateway:
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
     # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
     client_scopes: dict = field(default_factory=dict)
+    # PUBLIC connections (hosted): unauthenticated, admitted only because their scope's
+    # [app] declares public = true. Always ALSO in client_scopes; further limited to
+    # PUBLIC_APP_METHODS + the agent's [app] public_tools.
+    client_public: set = field(default_factory=set)
+    # global in-flight cap for public tools.invoke (created lazily on the running loop)
+    _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
 
@@ -1247,15 +1285,19 @@ class Gateway:
             raise RuntimeError(text or f"{name} failed")
         return text
 
-    async def _tools_invoke(self, params: dict, scope: str | None = None) -> dict:
+    async def _tools_invoke(
+        self, params: dict, scope: str | None = None, public: bool = False
+    ) -> dict:
         """Run ONE tool directly from a client (no agent/LLM turn) and return its text + rendered
-        artifacts. Params: {name, params:{...}}. Two gates (docs/PROTOCOL.md §6):
+        artifacts. Params: {name, params:{...}}. Three gates (docs/PROTOCOL.md §6):
 
         • HOST connections — only tools that self-declare `artifact_action` (canvas buttons),
           so a general client can't run arbitrary tools.
         • agent-SCOPED app connections — any tool the scoped AGENT itself is allowed
           (its tools.allow/deny), executed in that agent's context (workspace + per-agent
           model overrides). The app surface is exactly the agent's own capability surface.
+        • PUBLIC connections — the author-declared `[app] public_tools` subset ONLY,
+          checked ON TOP of the agent's own allow/deny (the gates stack, never replace).
         """
         from agentd.infrastructure.files import resolve_artifacts
         from agentd.infrastructure.plugins.catalog import _unwrap_tool
@@ -1275,6 +1317,10 @@ class Gateway:
                 spec = None
             if spec is None:
                 raise RuntimeError(f"unknown agent: {scope}")
+            if public:
+                allowed = ((getattr(spec, "app", None) or {}).get("public_tools")) or ()
+                if name not in allowed:
+                    raise RuntimeError(f"tool '{name}' is not publicly invokable")
             # an agent's own shipped tool is implicitly allowed (deny still wins); a shared
             # tool goes through the agent's normal allow/deny scope.
             own = getattr(_unwrap_tool(tool), "_agent_id", "") == scope
@@ -1301,18 +1347,28 @@ class Gateway:
                 uuid.uuid4().hex[:8], dict(params.get("params") or {}), asyncio.Event()
             )
 
-        if run_ctx is not None:
-            from agentd.application.run_context import set_run_context
+        # public tier: one GLOBAL in-flight cap across all visitors (per-connection requests
+        # are already serialized by _handle_conn's inline await) — a flood queues, not forks.
+        if public:
+            if self._public_invoke_sem is None:
+                self._public_invoke_sem = asyncio.Semaphore(PUBLIC_INVOKE_CONCURRENCY)
+            await self._public_invoke_sem.acquire()
+        try:
+            if run_ctx is not None:
+                from agentd.application.run_context import set_run_context
 
-            # contextvars are task-local: run the tool in ITS OWN task so the scoped agent
-            # context can never leak into this connection's later requests.
-            async def _scoped():
-                set_run_context(run_ctx)
-                return await _execute()
+                # contextvars are task-local: run the tool in ITS OWN task so the scoped agent
+                # context can never leak into this connection's later requests.
+                async def _scoped():
+                    set_run_context(run_ctx)
+                    return await _execute()
 
-            result = await asyncio.create_task(_scoped())
-        else:
-            result = await _execute()
+                result = await asyncio.create_task(_scoped())
+            else:
+                result = await _execute()
+        finally:
+            if public and self._public_invoke_sem is not None:
+                self._public_invoke_sem.release()
         text = "".join(getattr(b, "text", "") for b in (result.content or []))
         if result.is_error:
             raise RuntimeError(text or f"{name} failed")
@@ -1576,10 +1632,30 @@ class Gateway:
         the WebSocket upgrade) proceed to the handshake."""
         try:
             split = urlsplit(getattr(request, "path", "") or "")
+            if split.path == "/healthz":
+                # liveness for containers/load balancers: a real 200 (the WS root answers
+                # 426, and probing any /apps/<id>/ would hardcode an agent). No auth — it
+                # reveals nothing but "the process serves HTTP".
+                return HttpResponse(
+                    200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
+                )
             if split.path == "/file":
                 return self._serve_file(split, getattr(request, "headers", {}))
+            if split.path == "/platform/connect" or split.path == "/platform/status":
+                return self._serve_platform(split, getattr(request, "headers", {}))
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return self._serve_app(split)
+            # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
+            # short-circuit a WebSocket upgrade, or no WS could ever connect on the alias.
+            headers = getattr(request, "headers", {})
+            try:
+                upgrade = (headers.get("Upgrade") or "").lower()
+            except Exception:  # noqa: BLE001
+                upgrade = ""
+            if upgrade != "websocket":
+                alias = self._host_alias(headers)
+                if alias:
+                    return self._serve_app(urlsplit(f"/apps/{alias}{split.path}"))
             return None  # not ours — fall through to the WS handshake
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
             log.exception("http %s failed", getattr(request, "path", ""))
@@ -1711,6 +1787,53 @@ class Gateway:
             hdrs["Content-Range"] = f"bytes {start}-{end}/{size}"
         return HttpResponse(status, reason, hdrs, body)
 
+    def _serve_platform(self, split, headers) -> HttpResponse:
+        """Sign-in over plain HTTP on the gateway port — the RELIABLE transport for an
+        app-agent page (same origin as the served UI, so `fetch` just works; no dependence
+        on a WS request/response round-trip surviving the live model-gateway reconfigure
+        that `platform.connect` triggers).
+
+        `GET /platform/status`                    → current hosted-platform view (JSON).
+        `GET /platform/connect?session=<sess_…>`  → bind this LOCAL install to that account
+                                                     token (persists it + reconfigures live),
+                                                     then return the fresh status.
+
+        Auth mirrors `/file`: the daemon's bearer token (page URL `?token=` or Authorization)
+        must match when one is set. The accounts session token rides in `?session=` — localhost
+        only, never logged."""
+
+        def send(code: int, reason: str, obj: dict) -> HttpResponse:
+            body = json.dumps(obj).encode("utf-8")
+            hdrs = Headers()
+            hdrs["Content-Type"] = "application/json"
+            hdrs["Content-Length"] = str(len(body))
+            hdrs["Cache-Control"] = "no-store"
+            return HttpResponse(code, reason, hdrs, body)
+
+        q = parse_qs(split.query)
+        if self.auth_token:  # same bearer token as the WebSocket / /file
+            tok = (q.get("token") or [""])[0]
+            if not tok:
+                auth = ""
+                try:
+                    auth = headers.get("Authorization") or ""
+                except Exception:  # noqa: BLE001
+                    auth = ""
+                if auth.startswith("Bearer "):
+                    tok = auth[len("Bearer ") :].strip()
+            if not hmac.compare_digest(tok, self.auth_token):
+                return send(401, "Unauthorized", {"error": "unauthorized"})
+
+        if split.path == "/platform/status":
+            return send(200, "OK", self._platform_status())
+
+        session = (q.get("session") or [""])[0]
+        try:
+            status = self._platform_connect({"token": session})
+        except ValueError as e:
+            return send(400, "Bad Request", {"error": str(e)})
+        return send(200, "OK", status)
+
     # --------------------------------------------------------- artifact detection
 
     def _enrich_artifacts(self, event: AgentEvent) -> None:
@@ -1725,21 +1848,26 @@ class Gateway:
         if arts:
             event.payload["artifacts"] = arts
 
+    def _presented_token(self, ws: ServerConnection) -> str:
+        """The client's bearer credential: `?token=` on the connect URL (the only slot a browser
+        WebSocket has) or an `Authorization: Bearer` header. Empty when neither is present."""
+        request = getattr(ws, "request", None)
+        if request is None:
+            return ""
+        query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+        presented = (query.get("token") or [""])[0]
+        if not presented:
+            auth_header = request.headers.get("Authorization") or ""
+            if auth_header.startswith("Bearer "):
+                presented = auth_header[len("Bearer ") :].strip()
+        return presented
+
     def _authorized(self, ws: ServerConnection) -> bool:
         """M2 auth: the client's token — `?token=` on the URL (the only slot browser
         WebSockets have) or an `Authorization: Bearer` header — must match ours."""
         if not self.auth_token:
             return True
-        request = getattr(ws, "request", None)
-        presented = ""
-        if request is not None:
-            query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
-            presented = (query.get("token") or [""])[0]
-            if not presented:
-                auth_header = request.headers.get("Authorization") or ""
-                if auth_header.startswith("Bearer "):
-                    presented = auth_header[len("Bearer ") :].strip()
-        return hmac.compare_digest(presented, self.auth_token)
+        return hmac.compare_digest(self._presented_token(ws), self.auth_token)
 
     def _origin_allowed(self, ws: ServerConnection) -> bool:
         """Browser-origin gate: native/origin-less clients (terminal, Electron file pages,
@@ -1771,10 +1899,26 @@ class Gateway:
             served_host = ""
         return bool(host) and host == served_host
 
+    def _host_alias(self, headers) -> str | None:
+        """Hosted deployments: config.app_hosts maps a vanity hostname to an agent id
+        ({"weather.example.com": "weather"}) so each curated agent lives at its OWN URL
+        on the shared daemon. Empty map (the default, and every local install) => fully
+        dormant. Pure lookup — serving/scoping callers decide what to do with the id."""
+        hosts = getattr(self.config, "app_hosts", None) or {}
+        if not hosts or headers is None:
+            return None
+        try:
+            host = urlsplit(f"//{headers.get('Host') or ''}").hostname or ""
+        except Exception:  # noqa: BLE001 — a malformed Host header is just "no alias"
+            return None
+        return hosts.get(host.lower())
+
     def _connection_scope(self, ws: ServerConnection) -> str | None:
         """An app connection declares `scope=agent:<id>` on its connect URL — it is then
         limited to the stable method tier, forced onto that agent, and receives only that
-        agent's events. Until real auth lands this is a correctness seam, not security."""
+        agent's events. Until real auth lands this is a correctness seam, not security.
+        Fallback: a connection arriving on an aliased app host (config.app_hosts) is
+        scoped to that host's agent server-side — the page never has to know."""
         request = getattr(ws, "request", None)
         if request is None:
             return None
@@ -1782,23 +1926,65 @@ class Gateway:
         raw = (query.get("scope") or [""])[0]
         if raw.startswith("agent:"):
             return raw[len("agent:") :].strip() or None
-        return None
+        return self._host_alias(getattr(request, "headers", None))
+
+    def _public_scope_ok(self, scope: str | None) -> bool:
+        """May an UNAUTHENTICATED connection proceed? Only when scoped to an agent whose
+        [app] declares `public = true` — the author's opt-in, config/data-driven (core
+        never names an agent). Everything else without a valid token stays refused."""
+        if not scope or self.registry is None:
+            return False
+        try:
+            spec = self.registry.get(scope)
+        except KeyError:
+            return False
+        app = getattr(spec, "app", None) or {}
+        return bool(app.get("public"))
 
     async def _handle_conn(self, ws: ServerConnection) -> None:
         if not self._origin_allowed(ws):
             await ws.close(code=4403, reason="forbidden origin")
             return
-        if not self._authorized(ws):
-            await ws.close(code=4401, reason="unauthorized")
-            return
+        # Scope is read BEFORE auth so an unauthenticated connection can be DOWNGRADED to
+        # the public tier (when its agent's [app] opted in) instead of refused outright.
+        scope = self._connection_scope(ws)
+        public = False
+        # HOSTED identity: when accounts are on, the session token IS the auth authority — it
+        # resolves to an account (State plane). When off (every desktop/local install), the
+        # single machine token gates exactly as before and `account` stays None.
+        account: dict | None = None
+        if accounts.enabled():
+            account = await accounts.resolve(self._presented_token(ws))
+            authed = account is not None
+        else:
+            authed = self._authorized(ws)
+        if not authed:
+            if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
+                public = True
+            else:
+                await ws.close(code=4401, reason="unauthorized")
+                return
         # Each connection — terminal, desktop, mobile, a channel adapter, an agent app —
         # gets a stable client id. Runs it starts are tagged with it, so when this
         # connection drops we can stop exactly that client's in-flight work.
         client_id = uuid.uuid4().hex
-        scope = self._connection_scope(ws)
         self.clients.add(ws)
         if scope:
             self.client_scopes[ws] = scope
+        if public:
+            self.client_public.add(ws)
+        if account is not None:
+            log.info(
+                "connection %s authorized: account=%s <%s>",
+                client_id[:8],
+                account.get("account_id"),
+                account.get("email"),
+            )
+        # Pin the account on the contextvar for the WHOLE connection so the read-side state
+        # resolvers (_resolve_state_dir / _resolve_workspace / enumerators) route to this
+        # account's subtree — the same account a run already sees. None (desktop/no-account)
+        # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
+        _conn_acct_tok = accounts.set_account(account)
         try:
             async for raw in ws:
                 try:
@@ -1807,20 +1993,35 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
-                    response = await self._dispatch(frame, client_id, scope)
+                    response = await self._dispatch(frame, client_id, scope, public, account)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
             pass
         finally:
+            accounts.reset_account(_conn_acct_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
+            self.client_public.discard(ws)
             await self._abort_client_runs(client_id)
 
     # --------------------------------------------------------------- dispatch
 
     async def _dispatch(
-        self, req: Request, client_id: str | None = None, scope: str | None = None
+        self,
+        req: Request,
+        client_id: str | None = None,
+        scope: str | None = None,
+        public: bool = False,
+        account: dict | None = None,
     ) -> Response:
+        # PUBLIC connections (unauthenticated, [app] public opt-in): the public tier is a
+        # strict subset of the scoped tier — checked FIRST, then the scoped gate applies too.
+        if public and req.method not in PUBLIC_APP_METHODS:
+            return Response(
+                id=req.id,
+                ok=False,
+                payload={"error": f"method '{req.method}' is not available to public connections"},
+            )
         # Agent-scoped app connections (docs/PROTOCOL.md §1/§4): stable tier only, and the
         # scoped agent is FORCED onto the params — an app can never act as another agent.
         # (Methods that take no agentId simply ignore the extra key.)
@@ -1836,7 +2037,7 @@ class Gateway:
             req.params["agentId"] = scope
         try:
             if req.method == "chat.send":
-                payload = await self._chat_send(req.params, client_id)
+                payload = await self._chat_send(req.params, client_id, account)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
             elif req.method == "hello":
@@ -1886,7 +2087,7 @@ class Gateway:
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "tools.invoke":
-                payload = await self._tools_invoke(req.params, scope)
+                payload = await self._tools_invoke(req.params, scope, public)
             elif req.method == "plugins.catalog":
                 payload = self._plugins_catalog()
             elif req.method == "capabilities.list":
@@ -1934,6 +2135,14 @@ class Gateway:
                 payload = await self._marketplace().uninstall(
                     (req.params.get("id") or "").strip(), purge_state=bool(req.params.get("purge"))
                 )
+            elif req.method == "platform.connect":
+                payload = self._platform_connect(req.params)
+            elif req.method == "platform.disconnect":
+                payload = self._platform_disconnect()
+            elif req.method == "platform.status":
+                payload = self._platform_status()
+            elif req.method == "platform.setGatewayUrl":
+                payload = self._platform_set_gateway_url(req.params)
             else:
                 return Response(
                     id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"}
@@ -1953,6 +2162,11 @@ class Gateway:
         list/history come back EMPTY. (Bug: it used to fall back to main and show
         main's whole history under the wrong agent.)"""
         agent_id = (agent_id or "").strip() or "main"
+        # HOSTED: an account's transcripts live in ITS OWN subtree, keyed by agent id — so two
+        # users never see each other's threads. No account (desktop) => shared/agent dirs below.
+        acct = accounts.account_id()
+        if acct:
+            return agent_id, user_state.account_state_dir(self.config.state_dir, acct, agent_id)
         if self.registry is None:
             return agent_id, self.config.state_dir
         try:
@@ -2111,6 +2325,14 @@ class Gateway:
     def _all_state_dirs(self) -> list:
         """Every place session transcripts live: the default state dir + each agent's
         partition — for project-wide session operations."""
+        acct = accounts.account_id()
+        if acct:  # HOSTED: only THIS account's per-agent subtrees (never another user's)
+            ids = list(self.registry.list_ids()) if self.registry is not None else ["main"]
+            dirs = {}
+            for aid in ids:
+                sd = user_state.account_state_dir(self.config.state_dir, acct, aid)
+                dirs[str(sd)] = sd
+            return list(dirs.values())
         dirs = {str(self.config.state_dir): self.config.state_dir}
         if self.registry is not None:
             for aid in self.registry.list_ids():
@@ -2127,6 +2349,18 @@ class Gateway:
         Deduped by path; the daemon-root state_dir (legacy/global sessions) is tagged `main`."""
         pairs: list = []
         seen: set = set()
+        acct = accounts.account_id()
+        if acct:  # HOSTED: enumerate ONLY this account's per-agent subtrees
+            ids = list(self.registry.list_ids()) if self.registry is not None else []
+            if "main" not in ids:
+                ids.append("main")
+            for aid in ids:
+                sd = user_state.account_state_dir(self.config.state_dir, acct, aid)
+                key = str(sd)
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append((aid, sd))
+            return pairs
         if self.registry is not None:
             for aid in self.registry.list_ids():
                 try:
@@ -2142,16 +2376,25 @@ class Gateway:
             pairs.append(("main", self.config.state_dir))
         return pairs
 
+    def _projects_root(self):
+        """Where a user's projects (+ their shared workspaces) live: the CURRENT account's root
+        when signed in, else the daemon state_dir. Mirrors the per-account session/workspace
+        routing (M2) so one user's projects never appear for another."""
+        acct = accounts.account_id()
+        if acct:
+            return user_state.account_root(self.config.state_dir, acct)
+        return self.config.state_dir
+
     def _projects_list(self) -> dict:
         from agentd.infrastructure.memory import projects_store
 
-        return {"projects": projects_store.list_projects(self.config.state_dir)}
+        return {"projects": projects_store.list_projects(self._projects_root())}
 
     async def _projects_create(self, params: dict) -> dict:
         from agentd.infrastructure.memory import projects_store
 
         project = projects_store.create_project(
-            self.config.state_dir, str(params.get("name") or "")
+            self._projects_root(), str(params.get("name") or "")
         )
         await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": True, "project": project}
@@ -2160,7 +2403,7 @@ class Gateway:
         from agentd.infrastructure.memory import projects_store
 
         ok = projects_store.rename_project(
-            self.config.state_dir, (params.get("id") or "").strip(), str(params.get("name") or "")
+            self._projects_root(), (params.get("id") or "").strip(), str(params.get("name") or "")
         )
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
@@ -2179,7 +2422,7 @@ class Gateway:
         project_id = (params.get("id") or "").strip()
         if not project_id:
             return {"ok": False, "error": "id required"}
-        removed = projects_store.delete_project(self.config.state_dir, project_id)
+        removed = projects_store.delete_project(self._projects_root(), project_id)
         sessions_deleted = 0
         for state_dir in self._all_state_dirs():
             for sid in sessions_in_project(state_dir, project_id):
@@ -2203,7 +2446,7 @@ class Gateway:
             return {"ok": False, "error": "id required"}
         if agent_id and self.registry is not None and agent_id not in self.registry.list_ids():
             return {"ok": False, "error": f"unknown agent: {agent_id}"}
-        ok = projects_store.set_lead(self.config.state_dir, project_id, agent_id)
+        ok = projects_store.set_lead(self._projects_root(), project_id, agent_id)
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": ok, "id": project_id, "defaultAgentId": agent_id}
@@ -2219,12 +2462,12 @@ class Gateway:
             return {"ok": False, "error": "id and agentId required"}
         if add and self.registry is not None and agent_id not in self.registry.list_ids():
             return {"ok": False, "error": f"unknown agent: {agent_id}"}
-        project = projects_store.get_project(self.config.state_dir, project_id)
+        project = projects_store.get_project(self._projects_root(), project_id)
         if project is None:
             return {"ok": False, "error": "unknown project"}
         members = list(project.get("members") or [])
         members = (members + [agent_id]) if add else [m for m in members if m != agent_id]
-        ok = projects_store.set_members(self.config.state_dir, project_id, members)
+        ok = projects_store.set_members(self._projects_root(), project_id, members)
         if ok:
             await self._send_all(dump_frame(Event(event="projects.changed", payload={})))
         return {"ok": ok, "id": project_id, "members": members}
@@ -2754,7 +2997,13 @@ class Gateway:
         entry = Path(base) / (app.get("entry") or "ui/index.html")
         if not entry.is_file():
             return None
-        return {"title": app.get("title") or getattr(spec, "name", aid), "url": f"/apps/{aid}/"}
+        return {
+            "title": app.get("title") or getattr(spec, "name", aid),
+            "url": f"/apps/{aid}/",
+            # the author's declared presentation — a normal "browser" tab or the app's
+            # own chromeless "window"; every opener (CLI, desktop button) honors it
+            "mode": app.get("mode") or "browser",
+        }
 
     def _agents_list(self) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
@@ -2885,10 +3134,13 @@ class Gateway:
         if project_id:
             from agentd.infrastructure.memory import projects_store
 
-            if projects_store.get_project(self.config.state_dir, project_id) is None:
+            if projects_store.get_project(self._projects_root(), project_id) is None:
                 return None, "unknown project"
-            return projects_store.project_workspace_dir(self.config.state_dir, project_id), ""
+            return projects_store.project_workspace_dir(self._projects_root(), project_id), ""
         agent_id = (params.get("agentId") or "").strip() or "main"
+        acct = accounts.account_id()
+        if acct:  # HOSTED: browse THIS account's own per-agent workspace
+            return user_state.account_workspace(self.config.state_dir, acct, agent_id), ""
         if self.registry is not None:
             try:
                 return Path(self.registry.get(agent_id).workspace), ""
@@ -3152,6 +3404,9 @@ class Gateway:
                 name=name,
                 description=str(params.get("description") or "").strip(),
                 identity=str(params.get("identity") or params.get("instructions") or "").strip(),
+                # optional APP AGENT scaffold: "" = chat only, "browser"/"window" = ship a
+                # ui/ + [app] declaring how openers present it (docs/PROTOCOL.md §9)
+                app=str(params.get("app") or "").strip().lower(),
             )
         except ValueError as e:
             return {"created": False, "error": str(e)}
@@ -3323,6 +3578,67 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
+    def _platform_status(self) -> dict:
+        """Non-secret hosted-platform view: is this install a hosted flavor, is the model
+        gateway live (signed in), and where a client should send sign-in requests. Everything
+        comes from the distribution profile / seam state — nothing hardcoded."""
+        distribution = getattr(self.config, "distribution", None)
+        return {
+            "accountsUrl": str(getattr(distribution, "accounts_url", "") or ""),
+            "modelGateway": model_gateway.status(),
+        }
+
+    def _platform_connect(self, params: dict) -> dict:
+        """Bind this install to a platform account: persist the caller's accounts session token
+        as the model-gateway credential (AGENTD_MODEL_GATEWAY_KEY in the user .env — the same
+        secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
+        model_gateway.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
+        the desktop shell calls it on every handshake to heal .env drift."""
+        # DESKTOP-ONLY: platform.connect manages the LOCAL daemon's model-key credential. On a
+        # hosted (accounts-mode) daemon the model key is server-owned (master key / accounts
+        # seam), so a per-connection sign-in must NOT rewrite it — refuse cleanly.
+        if accounts.enabled():
+            raise ValueError("this deployment manages platform keys server-side")
+        token = str(params.get("token") or "").strip()
+        if not token:
+            raise ValueError("platform.connect requires a token")
+        env_path = _config_file_path().parent / ".env"
+        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": token})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
+    def _platform_disconnect(self) -> dict:
+        """Sign out of platform keys: drop the persisted credential and reconfigure — BYOK
+        (local provider keys) resumes live. No-op on a hosted daemon (nothing local to clear)."""
+        if accounts.enabled():
+            return self._platform_status()
+        env_path = _config_file_path().parent / ".env"
+        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": ""})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
+    def _platform_set_gateway_url(self, params: dict) -> dict:
+        """Set (or clear) the desktop Cloud-mode gateway URL OVERRIDE. Persists
+        model_gateway.api_base to agentd.config.json, updates the live config, and re-runs
+        model_gateway.configure() so it applies immediately (a currently-connected session
+        retargets live). An empty url clears the override, falling back to the baked
+        distribution default. No-op on a hosted (accounts-mode) daemon."""
+        if accounts.enabled():
+            raise ValueError("this deployment manages the gateway server-side")
+        url = str(params.get("url") or "").strip().rstrip("/")
+        mg = dict(getattr(self.config, "model_gateway", None) or {})
+        if url:
+            mg["api_base"] = url
+        else:
+            mg.pop("api_base", None)
+        try:
+            self.config.model_gateway = mg  # live config for this process
+        except Exception:  # noqa: BLE001 — persistence below is the durable path
+            pass
+        _persist_config_patch({"model_gateway": mg})
+        model_gateway.configure(self.config)
+        return self._platform_status()
+
     def _hello(self, params: dict | None = None) -> dict:
         """Handshake: identity + status a client renders as its welcome banner.
 
@@ -3365,6 +3681,9 @@ class Gateway:
             # instructions instead of a bare error (local-first store).
             "localRegistryDir": str(Path(self.config.state_dir) / "registry"),
             "agents": self._agents_list()["agents"],  # so any client can show/pick agents
+            # hosted platform: where sign-in lives + whether platform keys are active — so a
+            # client can gate on sign-in / render the keys indicator from the handshake alone.
+            "platform": self._platform_status(),
         }
 
     def _config_get(self) -> dict:
@@ -3411,6 +3730,8 @@ class Gateway:
             "raw": raw,
             "effectiveModel": _effective_model(cfg),
             "version": __version__,
+            # read-only hosted-platform state for the Settings indicator (platform keys vs BYOK)
+            "platform": self._platform_status(),
         }
 
     def _config_set(self, params: dict) -> dict:
@@ -3473,7 +3794,9 @@ class Gateway:
             result["saved"] = True  # nothing to change is not a failure
         return result
 
-    async def _chat_send(self, params: dict, client_id: str | None = None) -> dict:
+    async def _chat_send(
+        self, params: dict, client_id: str | None = None, account: dict | None = None
+    ) -> dict:
         session_key = params.get("sessionKey") or "default"
         message = params.get("message") or ""
 
@@ -3491,6 +3814,18 @@ class Gateway:
         )
         if not message.strip() and not attachments:
             raise ValueError("message must not be empty")
+
+        # HOSTED metering gate: an account with a budget that has already reached this month's cap
+        # cannot start a new turn. A fresh check (not the cached connect-time view) so spend that
+        # accrued this session counts. No budget / accounts off => never blocks.
+        if account is not None and account.get("budget_usd") is not None:
+            view = await accounts.check_budget(account.get("account_id"))
+            if view and view.get("over"):
+                raise RuntimeError(
+                    f"monthly budget reached — this account has spent "
+                    f"${view.get('spent_usd')} of its ${view.get('budget_usd')} limit. "
+                    f"Usage resets next month."
+                )
 
         # project membership: a chat started "inside a project" carries projectId; the
         # link lives on the session's meta sidecar (server data — every client sees it).
@@ -3521,7 +3856,7 @@ class Gateway:
             run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
         )
         handle.task = asyncio.create_task(
-            self._run(handle, message, agent_id=agent_id, attachments=attachments)
+            self._run(handle, message, agent_id=agent_id, attachments=attachments, account=account)
         )
         self.runs[session_key] = handle
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
@@ -3561,6 +3896,9 @@ class Gateway:
         """The workspace dir uploads land in — the named agent's own, else the default.
         Mirrors _resolve_state_dir's resolution so files sit where that agent's tools look."""
         aid = (agent_id or "").strip()
+        acct = accounts.account_id()
+        if acct:  # HOSTED: uploads land in this account's own per-agent workspace
+            return str(user_state.account_workspace(self.config.state_dir, acct, aid or "main"))
         if aid and self.registry is not None:
             try:
                 return str(self.registry.get(aid).workspace)
@@ -3578,8 +3916,8 @@ class Gateway:
             try:
                 from agentd.infrastructure.memory import projects_store
 
-                if projects_store.get_project(self.config.state_dir, pid) is not None:
-                    return str(projects_store.project_workspace_dir(self.config.state_dir, pid))
+                if projects_store.get_project(self._projects_root(), pid) is not None:
+                    return str(projects_store.project_workspace_dir(self._projects_root(), pid))
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a send
                 pass
         return self._resolve_workspace(agent_id)
@@ -3626,11 +3964,20 @@ class Gateway:
         mode: str = RunMode.INTERACTIVE,
         agent_id: str | None = None,
         attachments: list[Artifact] | None = None,
+        account: dict | None = None,
     ) -> None:
         # The gateway (presentation) now only adapts transport: it provides the event
         # sink (broadcast) and delegates the actual work to the AgentService use-case.
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
         # `agent_id` is an explicit client agent selection (else resolved from the key).
+        # HOSTED: pin the connection's account on the context for the whole turn so model
+        # calls (model_gateway) and spend reporting downstream see WHO this run bills to.
+        # No-op when accounts are off (account is None). create_task snapshotted this
+        # context, so the pin is isolated to this run's task.
+        _acct_token = accounts.set_account(account)
+        # Start a per-turn spend accumulator ONLY for account-scoped turns (so desktop/local pays
+        # zero overhead — add_usage becomes a single contextvar read). Reported once when done.
+        _usage_token = accounts.start_usage() if account is not None else None
         async def on_event(event: AgentEvent) -> None:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
@@ -3725,6 +4072,33 @@ class Gateway:
                         )
                 except Exception:  # noqa: BLE001
                     pass
+            # HOSTED metering: report this turn's total model spend to the account's ledger, once.
+            if account is not None:
+                u = accounts.read_usage()
+                if u and (u.get("cost_usd") or u.get("in_tokens") or u.get("out_tokens")):
+                    try:
+                        report = await accounts.report_usage(
+                            account.get("account_id"),
+                            u.get("model") or "",
+                            u.get("in_tokens", 0),
+                            u.get("out_tokens", 0),
+                            u.get("cost_usd", 0.0),
+                        )
+                        if report is not None:
+                            log.info(
+                                "metered account=%s +$%.6f (%d/%d tok) -> spent $%.6f%s",
+                                account.get("account_id"),
+                                u.get("cost_usd", 0.0),
+                                u.get("in_tokens", 0),
+                                u.get("out_tokens", 0),
+                                report.get("spent_usd", 0.0),
+                                " [OVER BUDGET]" if report.get("over") else "",
+                            )
+                    except Exception:  # noqa: BLE001 — metering must never break a run
+                        log.exception("usage report failed")
+            # unpin the account + accumulator (best-effort; the task's context is discarded anyway)
+            accounts.reset_usage(_usage_token)
+            accounts.reset_account(_acct_token)
 
     def _agent_for_key(self, session_key: str, agent_id: str | None = None) -> str:
         """The agent a session belongs to: an explicit id wins; else the internal

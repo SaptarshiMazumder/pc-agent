@@ -16,16 +16,31 @@ import '@fontsource/jetbrains-mono/600.css'
 
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { configureAccounts } from './lib/auth'
+import { platform } from './lib/platform'
 import { initialTheme } from './state/store'
 import './styles.css'
 
 // apply the persisted theme BEFORE first paint (no flash of the wrong theme)
 document.documentElement.dataset.theme = initialTheme()
 
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
-)
+async function boot(): Promise<void> {
+  // Hosted flavors declare an accounts URL in distribution.toml ([platform]); it must be
+  // known BEFORE first render so the sign-in gate shows on the very first frame instead of
+  // flashing the app and then bouncing. Open/BYOK flavors return '' — nothing changes.
+  try {
+    const flavor = (await platform.flavor()) as { accountsUrl?: string }
+    configureAccounts(String(flavor.accountsUrl || ''))
+  } catch {
+    /* no flavor (or bridge hiccup) => BYOK behavior, same as before */
+  }
+  createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>
+  )
+}
+
+void boot()

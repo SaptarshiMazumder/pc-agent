@@ -39,6 +39,10 @@ def test_parse_profile_full():
                 "registry_url": "https://r.example/index.json",
                 "publisher_key": "PK",
             },
+            "platform": {
+                "accounts_url": "https://accounts.example/",
+                "model_gateway_url": "https://gateway.example",
+            },
         },
         source_path="x/distribution.toml",
     )
@@ -46,6 +50,14 @@ def test_parse_profile_full():
     assert profile.default_agent == "figure-creator"
     assert profile.is_provisioned("figures") and not profile.is_provisioned("video")
     assert profile.publisher_key == "PK" and not profile.is_open
+    # [platform] endpoints: parsed, trailing slash normalized away
+    assert profile.accounts_url == "https://accounts.example"
+    assert profile.model_gateway_url == "https://gateway.example"
+
+
+def test_platform_absent_means_byok_only():
+    profile = parse_profile({"product": {"id": "agentd"}}, source_path="x")
+    assert profile.accounts_url == "" and profile.model_gateway_url == ""
 
 
 def test_bad_profile_degrades_to_open(tmp_path):
