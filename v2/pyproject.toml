@@ -97,10 +97,15 @@ testpaths = ["tests"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+    # Tier markers — auto-stamped from the directory (tests/unit|integration|e2e) by
+    # tests/conftest.py; never add them by hand.
+    "unit: single component in isolation, all I/O faked (tests/unit)",
+    "integration: real components wired together in-process (tests/integration)",
+    "e2e: end-to-end smoke against a booted daemon (tests/e2e)",
+    # Environment markers — opt-in per test; excluded from Stage 1.
     "live: hits real network/provider APIs (needs secrets; excluded from Stage 1)",
     "browser: needs Playwright + a real Chromium (excluded from Stage 1)",
     "computer: needs the computer-use runtime (display + driver; excluded from Stage 1)",
-    "e2e: end-to-end smoke against a booted daemon",
 ]
 
 # --- ruff: linter (bug-prone patterns) + formatter (consistent style) ---------

@@ -1,4 +1,4 @@
-# Stage-1 gate - run locally; mirrors exactly what ci.yml runs in the cloud.
+# Stage-1 gate - run locally; mirrors exactly what .github/workflows/ci-fast-tests.yml runs in the cloud.
 # Auto-uses the repo's root .venv (no need to activate it first).
 # Blocking gates stop the script on the first failure. mypy is informational (not a gate yet).
 #
@@ -30,7 +30,9 @@ function Invoke-Gate($name, $script) {
 Invoke-Gate "ruff check"          { & $py -m ruff check . }
 Invoke-Gate "ruff format --check" { & $py -m ruff format --check . }
 Invoke-Gate "import-linter"       { & $linter }
-Invoke-Gate "pytest (unit)"       { & $py -m pytest -m "not live and not browser and not computer" -q }
+Invoke-Gate "pytest (unit)"        { & $py -m pytest tests/unit -q }
+Invoke-Gate "pytest (integration)" { & $py -m pytest tests/integration -m "not live and not browser and not computer" -q }
+# tests/e2e (booted-daemon smoke) is NOT a Stage-1 gate; run it explicitly: pytest tests/e2e -m e2e
 
 # --- informational (does NOT block; burn the count down, then promote to a gate) ---
 Write-Host "== mypy (informational) ==" -ForegroundColor Cyan
