@@ -115,3 +115,10 @@ python -m venv .venv
 # ターミナル2 — クライアント
 .\.venv\Scripts\python.exe -X utf8 -m clients.terminal
 ```
+
+
+```Bash
+.venv/Scripts/python.exe -m agentd
+
+cd v2/client/desktop
+npx electron-vite dev
