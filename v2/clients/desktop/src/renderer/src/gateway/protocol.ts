@@ -69,7 +69,9 @@ export interface Hello {
    *  calls currently run on platform keys vs the user's own (BYOK) */
   platform?: {
     accountsUrl: string
-    modelGateway: { enabled: boolean; api_base: string; source: string; has_key: boolean }
+    modelProxy?: { enabled: boolean; api_base: string; source: string; has_key: boolean }
+    /** Deprecated compatibility field returned by older daemons. */
+    modelGateway?: { enabled: boolean; api_base: string; source: string; has_key: boolean }
   }
 }
 

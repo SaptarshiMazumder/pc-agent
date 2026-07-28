@@ -1,4 +1,4 @@
-# Platform Model Gateway — LiteLLM proxy holding OUR provider keys, the metering chokepoint
+# Platform Model Proxy — LiteLLM proxy holding OUR provider keys, the metering chokepoint
 # every agentd model call flows through in platform-keys mode.
 #
 # AUTH is custom (custom_auth.py): the master key => trusted infra; ANY OTHER bearer value is
@@ -14,8 +14,8 @@
 #     litellm --config litellm.config.yaml --port 4000
 #
 # Point agentd at it (cloud daemon / ops):
-#     AGENTD_MODEL_GATEWAY_URL=http://127.0.0.1:4000
-#     AGENTD_MODEL_GATEWAY_KEY=sk-agentd-local
+#     AGENTD_MODEL_PROXY_URL=http://127.0.0.1:4000
+#     AGENTD_MODEL_PROXY_KEY=sk-agentd-local
 # Desktop daemons send the user's session token instead (written by platform.connect).
 
 model_list:

@@ -38,7 +38,7 @@ from agentd.domain.messages import Artifact, artifact_to_dict
 from agentd.domain.notify import Notification
 from agentd.infrastructure import accounts, user_state
 from agentd.infrastructure.files import guess_mime, is_under_roots, save_upload
-from agentd.infrastructure.llm import model_gateway
+from agentd.infrastructure.llm import model_proxy
 from agentd.infrastructure.memory.local_store import list_sessions
 from agentd.presentation.protocol import (
     Event,
@@ -97,6 +97,8 @@ APP_SCOPED_METHODS = frozenset(
         "platform.connect",
         "platform.disconnect",
         "platform.status",
+        "platform.setModelProxyUrl",
+        # Deprecated compatibility method for pre-rename desktop clients.
         "platform.setGatewayUrl",
     }
 )
@@ -660,14 +662,14 @@ def _provider_has_key(model_id: str) -> bool:
     """True if the provider behind this model is usable right now (a required key is present,
     or it needs none / is an unknown custom provider we won't second-guess).
 
-    Platform-keys mode: when a model gateway is configured, the provider KEYS live on the gateway
-    (this daemon holds only the gateway's master key, never GEMINI_API_KEY/DEEPSEEK_API_KEY/…). The
-    gateway is the authority on what's runnable, so nothing should be hidden for lack of a LOCAL key
+    Platform-keys mode: when a model proxy is configured, the provider KEYS live on the proxy
+    (this daemon holds only the proxy's master key, never GEMINI_API_KEY/DEEPSEEK_API_KEY/…). The
+    proxy is the authority on what's runnable, so nothing should be hidden for lack of a LOCAL key
     — otherwise a hosted daemon filters out its entire catalog and the picker comes up empty."""
     try:
-        from agentd.infrastructure.llm import model_gateway
+        from agentd.infrastructure.llm import model_proxy
 
-        if model_gateway.enabled():
+        if model_proxy.enabled():
             return True
     except Exception:
         pass
@@ -1802,7 +1804,7 @@ class Gateway:
     def _serve_platform(self, split, headers) -> HttpResponse:
         """Sign-in over plain HTTP on the gateway port — the RELIABLE transport for an
         app-agent page (same origin as the served UI, so `fetch` just works; no dependence
-        on a WS request/response round-trip surviving the live model-gateway reconfigure
+        on a WS request/response round-trip surviving the live model-proxy reconfigure
         that `platform.connect` triggers).
 
         `GET /platform/status`                    → current hosted-platform view (JSON).
@@ -2153,8 +2155,8 @@ class Gateway:
                 payload = self._platform_disconnect()
             elif req.method == "platform.status":
                 payload = self._platform_status()
-            elif req.method == "platform.setGatewayUrl":
-                payload = self._platform_set_gateway_url(req.params)
+            elif req.method in ("platform.setModelProxyUrl", "platform.setGatewayUrl"):
+                payload = self._platform_set_model_proxy_url(req.params)
             else:
                 return Response(
                     id=req.id, ok=False, payload={"error": f"unknown method: {req.method}"}
@@ -3592,19 +3594,22 @@ class Gateway:
 
     def _platform_status(self) -> dict:
         """Non-secret hosted-platform view: is this install a hosted flavor, is the model
-        gateway live (signed in), and where a client should send sign-in requests. Everything
+        proxy live (signed in), and where a client should send sign-in requests. Everything
         comes from the distribution profile / seam state — nothing hardcoded."""
         distribution = getattr(self.config, "distribution", None)
+        proxy_status = model_proxy.status()
         return {
             "accountsUrl": str(getattr(distribution, "accounts_url", "") or ""),
-            "modelGateway": model_gateway.status(),
+            "modelProxy": proxy_status,
+            # Wire compatibility for already-shipped clients. New clients read modelProxy.
+            "modelGateway": proxy_status,
         }
 
     def _platform_connect(self, params: dict) -> dict:
         """Bind this install to a platform account: persist the caller's accounts session token
-        as the model-gateway credential (AGENTD_MODEL_GATEWAY_KEY in the user .env — the same
+        as the model-proxy credential (AGENTD_MODEL_PROXY_KEY in the user .env — the same
         secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
-        model_gateway.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
+        model_proxy.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
         the desktop shell calls it on every handshake to heal .env drift."""
         # DESKTOP-ONLY: platform.connect manages the LOCAL daemon's model-key credential. On a
         # hosted (accounts-mode) daemon the model key is server-owned (master key / accounts
@@ -3615,8 +3620,15 @@ class Gateway:
         if not token:
             raise ValueError("platform.connect requires a token")
         env_path = _config_file_path().parent / ".env"
-        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": token})
-        model_gateway.configure(self.config)
+        _update_env_file(
+            env_path,
+            {
+                "AGENTD_MODEL_PROXY_KEY": token,
+                # Prevent a stale legacy credential from becoming active after sign-out.
+                "AGENTD_MODEL_GATEWAY_KEY": "",
+            },
+        )
+        model_proxy.configure(self.config)
         return self._platform_status()
 
     def _platform_disconnect(self) -> dict:
@@ -3625,30 +3637,36 @@ class Gateway:
         if accounts.enabled():
             return self._platform_status()
         env_path = _config_file_path().parent / ".env"
-        _update_env_file(env_path, {"AGENTD_MODEL_GATEWAY_KEY": ""})
-        model_gateway.configure(self.config)
+        _update_env_file(
+            env_path, {"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""}
+        )
+        model_proxy.configure(self.config)
         return self._platform_status()
 
-    def _platform_set_gateway_url(self, params: dict) -> dict:
-        """Set (or clear) the desktop Cloud-mode gateway URL OVERRIDE. Persists
-        model_gateway.api_base to agentd.config.json, updates the live config, and re-runs
-        model_gateway.configure() so it applies immediately (a currently-connected session
+    def _platform_set_model_proxy_url(self, params: dict) -> dict:
+        """Set (or clear) the desktop Cloud-mode Model Proxy URL override. Persists
+        model_proxy.api_base to agentd.config.json, updates the live config, and re-runs
+        model_proxy.configure() so it applies immediately (a currently-connected session
         retargets live). An empty url clears the override, falling back to the baked
         distribution default. No-op on a hosted (accounts-mode) daemon."""
         if accounts.enabled():
-            raise ValueError("this deployment manages the gateway server-side")
+            raise ValueError("this deployment manages the model proxy server-side")
         url = str(params.get("url") or "").strip().rstrip("/")
-        mg = dict(getattr(self.config, "model_gateway", None) or {})
+        mp = dict(
+            getattr(self.config, "model_proxy", None)
+            or getattr(self.config, "model_gateway", None)
+            or {}
+        )
         if url:
-            mg["api_base"] = url
+            mp["api_base"] = url
         else:
-            mg.pop("api_base", None)
+            mp["api_base"] = ""
         try:
-            self.config.model_gateway = mg  # live config for this process
+            self.config.model_proxy = mp  # live config for this process
         except Exception:  # noqa: BLE001 — persistence below is the durable path
             pass
-        _persist_config_patch({"model_gateway": mg})
-        model_gateway.configure(self.config)
+        _persist_config_patch({"model_proxy": mp})
+        model_proxy.configure(self.config)
         return self._platform_status()
 
     def _hello(self, params: dict | None = None) -> dict:
@@ -3698,6 +3716,18 @@ class Gateway:
             "platform": self._platform_status(),
         }
 
+    def _platform_keys_locked(self) -> bool:
+        """Provider keys are PLATFORM-managed (not user-editable) whenever the daemon routes models
+        through the Model Proxy — i.e. the desktop exe's Cloud mode and any hosted/AWS daemon. In
+        local BYOK mode this is False and the user edits their own keys. Consumed by _config_get
+        (render the API-Keys section read-only) and enforced by _config_set (refuse key writes)."""
+        try:
+            from agentd.infrastructure.llm import model_proxy
+
+            return bool(model_proxy.enabled())
+        except Exception:
+            return False
+
     def _config_get(self) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
         of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
@@ -3744,6 +3774,9 @@ class Gateway:
             "version": __version__,
             # read-only hosted-platform state for the Settings indicator (platform keys vs BYOK)
             "platform": self._platform_status(),
+            # cloud/platform mode: provider keys live on the Model Proxy, so the UI must render the
+            # API-Keys section read-only. Edits are also refused server-side (see _config_set (c)).
+            "keysLocked": self._platform_keys_locked(),
         }
 
     def _config_set(self, params: dict) -> dict:
@@ -3796,6 +3829,14 @@ class Gateway:
 
         # (c) provider keys -> the .env next to the config file.
         if keys:
+            # Cloud/platform mode: the keys are the proxy's, not this daemon's — editing them here
+            # is meaningless (the daemon routes through the proxy) and misleading, so refuse. The
+            # UI also greys these fields out via keysLocked. Local BYOK mode is unaffected.
+            if self._platform_keys_locked():
+                return {
+                    "saved": False,
+                    "error": "provider keys are managed by the platform in cloud mode and cannot be changed here",
+                }
             env_path = _config_file_path().parent / ".env"
             wrote = _update_env_file(env_path, {k: str(v) for k, v in keys.items()})
             result["envPath"] = str(env_path)
@@ -3983,7 +4024,7 @@ class Gateway:
         # `mode` distinguishes a normal client turn from an autonomous heartbeat tick;
         # `agent_id` is an explicit client agent selection (else resolved from the key).
         # HOSTED: pin the connection's account on the context for the whole turn so model
-        # calls (model_gateway) and spend reporting downstream see WHO this run bills to.
+        # calls (model_proxy) and spend reporting downstream see WHO this run bills to.
         # No-op when accounts are off (account is None). create_task snapshotted this
         # context, so the pin is isolated to this run's task.
         _acct_token = accounts.set_account(account)

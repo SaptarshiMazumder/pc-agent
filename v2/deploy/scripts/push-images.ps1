@@ -14,7 +14,7 @@
 # =============================================================================
 param(
   [string]$Environment = "dev",
-  [string]$Only        = ""   # optional: gateway | accounts | daemon | web
+  [string]$Only        = ""   # optional: model-proxy | accounts | daemon | web
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +31,8 @@ Write-Host "Reading Terraform outputs ($Environment)..." -ForegroundColor Cyan
 $repos    = terraform $chdir output -json repository_urls | ConvertFrom-Json
 $appUrl   = terraform $chdir output -raw app_url               # http://<alb-dns>
 $albHost  = ([Uri]$appUrl).Host
-$registry = ($repos.gateway -split '/')[0]                     # <acct>.dkr.ecr.<region>.amazonaws.com
+$modelProxyRepo = $repos.PSObject.Properties["model-proxy"].Value
+$registry = ($modelProxyRepo -split '/')[0]                    # <acct>.dkr.ecr.<region>.amazonaws.com
 
 Write-Host "  registry : $registry"
 Write-Host "  ALB host : $albHost"
@@ -51,7 +52,7 @@ Write-Host "  login OK" -ForegroundColor Green
 # The `web` image bakes the API URLs at BUILD time, so it must know the ALB host.
 # accounts listens on :4100, daemon (WebSocket) on :8787 - both via the ALB.
 function Build-And-Push($name, $context, $dockerfile, $buildArgs) {
-  $uri = "$($repos.$name):latest"
+  $uri = "$($repos.PSObject.Properties[$name].Value):latest"
   Write-Host "`n=== $name  ->  $uri ===" -ForegroundColor Green
   $dargs = @("build", "-t", $uri, "-f", $dockerfile)
   foreach ($kv in $buildArgs.GetEnumerator()) { $dargs += @("--build-arg", "$($kv.Key)=$($kv.Value)") }
@@ -63,7 +64,7 @@ function Build-And-Push($name, $context, $dockerfile, $buildArgs) {
 }
 
 $images = @{
-  gateway  = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile.gateway";  args = @{} }
+  "model-proxy" = @{ context = "$v2/model-proxy";      dockerfile = "$v2/model-proxy/Dockerfile";          args = @{} }
   accounts = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile.accounts"; args = @{} }
   daemon   = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile";          args = @{} }
   web      = @{ context = "$v2/clients/desktop"; dockerfile = "$v2/clients/desktop/Dockerfile.web";    args = @{
@@ -72,7 +73,12 @@ $images = @{
   } }
 }
 
-$targets = if ($Only) { @($Only) } else { "gateway", "accounts", "daemon", "web" }
+$targets = if ($Only) { @($Only) } else { "model-proxy", "accounts", "daemon", "web" }
+foreach ($name in $targets) {
+  if (-not $images.ContainsKey($name)) {
+    throw "Unknown image '$name'. Choose: model-proxy, accounts, daemon, web."
+  }
+}
 foreach ($name in $targets) {
   $i = $images[$name]
   Build-And-Push $name $i.context $i.dockerfile $i.args
@@ -81,10 +87,15 @@ foreach ($name in $targets) {
 # --- 4. Roll the services so Fargate pulls the new :latest ---
 Write-Host "`nRolling ECS services ($cluster)..." -ForegroundColor Cyan
 foreach ($name in $targets) {
-  aws ecs update-service --cluster $cluster --service "$cluster-$name" --force-new-deployment --region $region | Out-Null
-  Write-Host "  rolled $cluster-$name"
+  $service = aws ecs describe-services --cluster $cluster --services "$cluster-$name" --region $region --query "services[0].status" --output text
+  if ($service -eq "ACTIVE") {
+    aws ecs update-service --cluster $cluster --service "$cluster-$name" --force-new-deployment --region $region | Out-Null
+    Write-Host "  rolled $cluster-$name"
+  } else {
+    Write-Host "  skipped $cluster-$name (not created yet; image was pushed)" -ForegroundColor Yellow
+  }
 }
 
 Write-Host "`nDone. Watch them come up:" -ForegroundColor Cyan
-Write-Host "  aws ecs describe-services --cluster $cluster --services $cluster-web $cluster-daemon $cluster-accounts $cluster-gateway --region $region --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'"
+Write-Host "  aws ecs describe-services --cluster $cluster --services $cluster-web $cluster-daemon $cluster-accounts $cluster-model-proxy --region $region --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'"
 Write-Host "`nThen open:  $appUrl" -ForegroundColor Green

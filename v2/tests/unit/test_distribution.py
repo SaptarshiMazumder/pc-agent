@@ -41,7 +41,7 @@ def test_parse_profile_full():
             },
             "platform": {
                 "accounts_url": "https://accounts.example/",
-                "model_gateway_url": "https://gateway.example",
+                "model_proxy_url": "https://proxy.example",
             },
         },
         source_path="x/distribution.toml",
@@ -52,12 +52,21 @@ def test_parse_profile_full():
     assert profile.publisher_key == "PK" and not profile.is_open
     # [platform] endpoints: parsed, trailing slash normalized away
     assert profile.accounts_url == "https://accounts.example"
-    assert profile.model_gateway_url == "https://gateway.example"
+    assert profile.model_proxy_url == "https://proxy.example"
 
 
 def test_platform_absent_means_byok_only():
     profile = parse_profile({"product": {"id": "agentd"}}, source_path="x")
-    assert profile.accounts_url == "" and profile.model_gateway_url == ""
+    assert profile.accounts_url == "" and profile.model_proxy_url == ""
+
+
+def test_legacy_model_gateway_url_is_still_parsed():
+    profile = parse_profile(
+        {"platform": {"model_gateway_url": "https://legacy-proxy.example/"}},
+        source_path="legacy/distribution.toml",
+    )
+    assert profile.model_proxy_url == "https://legacy-proxy.example"
+    assert profile.model_gateway_url == profile.model_proxy_url
 
 
 def test_bad_profile_degrades_to_open(tmp_path):

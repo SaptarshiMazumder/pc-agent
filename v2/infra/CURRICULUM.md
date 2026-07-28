@@ -96,7 +96,8 @@ environments/staging  same recipe, one word changed                         → 
   console by hand, watch Terraform detect + heal it, understand which side "wins".
 - [x] **2.3 Refactoring without destroying: `moved`.** This repo has a live specimen —
   [environments/dev/main.tf:229-232](environments/dev/main.tf#L229-L232) re-homed the
-  pre-module gateway ECR repo into `module.ecr["gateway"]`. Also `state mv` (imperative
+  pre-module gateway ECR repo into `module.ecr["gateway"]`, then the current
+  `moved.tf` chain renames it to `module.stack.aws_ecr_repository.this["model-proxy"]`. Also `state mv` (imperative
   cousin) and when each applies. Mastery: explain what would have happened *without* that
   block (hint: your pushed images).
 - [x] **2.4 Adopting existing infra: `import`.** `import` blocks (declarative, 1.5+) vs the
@@ -112,7 +113,7 @@ environments/staging  same recipe, one word changed                         → 
 ## Unit 3 — The HCL language, completely
 
 - [x] **3.1 Resources & references.** Address anatomy (`aws_subnet.public[0]`,
-  `module.ecr.aws_ecr_repository.this["gateway"]`); attributes vs arguments;
+  `module.stack.aws_ecr_repository.this["model-proxy"]`); attributes vs arguments;
   interpolation `"${...}"` vs bare expressions.
 - [x] **3.2 Data sources — read, don't create.** The three in this repo:
   [aws_availability_zones](modules/network/main.tf#L21-L23) (don't hardcode AZs),
@@ -191,7 +192,7 @@ resources (console + CLI) → mastery check.
   actually authenticates ([push-images.ps1](environments/dev/push-images.ps1)).
 - [ ] **5.5 [cluster](modules/cluster/main.tf)** — what ECS *is* (control plane), Fargate
   vs EC2 launch types, CloudWatch log groups + retention (cost), Cloud Map private DNS
-  (`gateway.agentd.local` — the cloud version of docker-compose service names).
+  (`model-proxy.agentd.local` — the cloud version of docker-compose service names).
 - [ ] **5.6 [data](modules/data/main.tf)** — Secrets Manager (secret vs secret-*version*,
   recovery windows, the placeholder + [set-keys.ps1](environments/dev/set-keys.ps1)
   out-of-band pattern); the `random` provider (second provider! generated master key);

@@ -24,13 +24,20 @@ provider "aws" {
   region = "ap-northeast-1"
 }
 
+variable "model_proxy_desired_count" {
+  description = "Initial Model Proxy task count; use 0 during the one-time gateway rename."
+  type        = number
+  default     = 1
+}
+
 module "stack" {
   source = "../../modules"
 
   environment = "dev"
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
-  image_tag_mutability = "MUTABLE"
-  ecr_force_delete     = true
+  image_tag_mutability      = "MUTABLE"
+  ecr_force_delete          = true
+  model_proxy_desired_count = var.model_proxy_desired_count
 }
 
 # ── Pass-through outputs (push-images.ps1 and the desktop flavors read these) ──
@@ -40,9 +47,15 @@ output "repository_urls" {
   value       = module.stack.repository_urls
 }
 
+output "model_proxy_repo_url" {
+  description = "Where to push the model-proxy image."
+  value       = module.stack.model_proxy_repo_url
+}
+
+# Deprecated output kept for deployment scripts that have not migrated yet.
 output "gateway_repo_url" {
-  description = "Where to push the gateway image."
-  value       = module.stack.gateway_repo_url
+  description = "Deprecated alias for model_proxy_repo_url."
+  value       = module.stack.model_proxy_repo_url
 }
 
 output "app_url" {
@@ -55,9 +68,15 @@ output "accounts_url" {
   value       = module.stack.accounts_url
 }
 
+output "model_proxy_url" {
+  description = "[platform] model_proxy_url for the desktop flavors."
+  value       = module.stack.model_proxy_url
+}
+
+# Deprecated output kept for existing flavor-generation automation.
 output "model_gateway_url" {
-  description = "[platform] model_gateway_url for the desktop flavors."
-  value       = module.stack.model_gateway_url
+  description = "Deprecated alias for model_proxy_url."
+  value       = module.stack.model_proxy_url
 }
 
 output "registry_url" {

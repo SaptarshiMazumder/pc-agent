@@ -20,7 +20,7 @@ resource "aws_lb" "main" {
 # One target group per service — the pool the ALB forwards to.
 # target_type = "ip" because Fargate tasks register by IP address (awsvpc networking).
 resource "aws_lb_target_group" "svc" {
-  for_each = var.services
+  for_each = local.services
 
   name        = "${local.name_prefix}-${each.key}"
   port        = each.value.port
@@ -36,12 +36,16 @@ resource "aws_lb_target_group" "svc" {
     unhealthy_threshold = 3
   }
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   tags = local.common_tags
 }
 
 # One listener per service — "traffic arriving on THIS port forwards to THAT group."
 resource "aws_lb_listener" "svc" {
-  for_each = var.services
+  for_each = local.services
 
   load_balancer_arn = aws_lb.main.arn
   port              = each.value.port

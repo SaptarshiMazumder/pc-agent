@@ -94,9 +94,9 @@ if (iconSrc) fs.copyFileSync(iconSrc, path.join(flavorDir, 'icon.ico'))
 
 // ---- hosted platform: inherit [platform] from the CORE flavor (one source of truth) --------
 // An app-agent product is a full desktop client: if the core build is a HOSTED product (its
-// distribution.toml declares [platform] accounts_url/model_gateway_url), the app inherits the
+// distribution.toml declares [platform] accounts_url/model_proxy_url), the app inherits the
 // SAME backend, so its exe signs in and runs on our keys too. No core [platform] => a BYOK
-// app-agent (local keys), unchanged. Overridable with --accounts-url / --model-gateway-url.
+// app-agent (local keys), unchanged. Overridable with --accounts-url / --model-proxy-url.
 let platformBlock = ''
 const coreDistPath = path.join(desktopDir, 'flavors', 'core', 'distribution.toml')
 let corePlatform = {}
@@ -106,14 +106,17 @@ try {
   /* no core flavor / unreadable — app-agent stays BYOK */
 }
 const accountsUrl = opt('accounts-url') || String(corePlatform.accounts_url || '')
-const gatewayUrl = opt('model-gateway-url') || String(corePlatform.model_gateway_url || '')
-if (accountsUrl && gatewayUrl) {
+const proxyUrl =
+  opt('model-proxy-url') ||
+  opt('model-gateway-url') ||
+  String(corePlatform.model_proxy_url || corePlatform.model_gateway_url || '')
+if (accountsUrl && proxyUrl) {
   platformBlock = `
 [platform]
 accounts_url = ${JSON.stringify(accountsUrl)}
-model_gateway_url = ${JSON.stringify(gatewayUrl)}
+model_proxy_url = ${JSON.stringify(proxyUrl)}
 `
-  console.log(`  hosted: sign-in ${accountsUrl}, gateway ${gatewayUrl}`)
+  console.log(`  hosted: sign-in ${accountsUrl}, model proxy ${proxyUrl}`)
 }
 
 // ---- distribution.toml: the ONE knob that makes the shell this agent's product ----------

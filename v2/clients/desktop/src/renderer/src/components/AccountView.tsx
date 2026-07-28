@@ -10,8 +10,8 @@ export default function AccountView() {
   const flavor = useApp((s) => s.flavor)
   const session = useAuthSession()
 
-  const gatewayStatus = hello?.platform?.modelGateway
-  const hosted = !!gatewayStatus?.enabled
+  const proxyStatus = hello?.platform?.modelProxy || hello?.platform?.modelGateway
+  const hosted = !!proxyStatus?.enabled
   const keysLabel = hosted
     ? 'Platform keys (included with your account)'
     : 'Your own keys (set in Settings)'

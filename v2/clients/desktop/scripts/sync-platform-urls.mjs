@@ -37,7 +37,9 @@ const repoRoot = path.resolve(desktopDir, '..', '..', '..') // pc-agent/
 // terraform output name -> the distribution.toml key it fills. Add a row to sync a new one.
 const SYNCED = {
   accounts_url: 'accounts_url',
-  model_gateway_url: 'model_gateway_url',
+  model_proxy_url: 'model_proxy_url',
+  // Terraform-output compatibility during the rename rollout.
+  model_gateway_url: 'model_proxy_url',
   registry_url: 'registry_url'
 }
 

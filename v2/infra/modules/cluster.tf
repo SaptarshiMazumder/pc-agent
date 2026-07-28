@@ -14,7 +14,7 @@ resource "aws_cloudwatch_log_group" "agentd" {
   tags              = local.common_tags
 }
 
-# Private DNS so `daemon` can reach gateway:4000 / accounts:4100 by name (as compose does).
+# Private DNS so `daemon` can reach model-proxy:4000 / accounts:4100 by name (as Compose does).
 # Each environment has its own VPC, so the same name is safe across environments.
 resource "aws_service_discovery_private_dns_namespace" "main" {
   name        = "${var.project}.local"

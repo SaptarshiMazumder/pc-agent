@@ -78,9 +78,9 @@ def text_complete(
     if timeout:
         kwargs["request_timeout"] = timeout
 
-    from agentd.infrastructure.llm import model_gateway
+    from agentd.infrastructure.llm import model_proxy
 
-    model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
+    model_proxy.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
     resp = litellm.completion(**kwargs)
     _meter(resp, model)
     return (resp.choices[0].message.content or "") if resp.choices else ""
@@ -123,9 +123,9 @@ def vision_complete(
     if timeout:
         kwargs["request_timeout"] = timeout
 
-    from agentd.infrastructure.llm import model_gateway
+    from agentd.infrastructure.llm import model_proxy
 
-    model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
+    model_proxy.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
     resp = litellm.completion(**kwargs)
     _meter(resp, model)
     return (resp.choices[0].message.content or "") if resp.choices else ""
