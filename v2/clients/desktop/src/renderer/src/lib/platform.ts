@@ -159,7 +159,7 @@ const webPlatform: AgentdPlatform = {
       storeEnabled: true,
       preinstalledBundles: [],
       accountsUrl: '',
-      modelGatewayUrl: '',
+      modelProxyUrl: '',
       bundledPackages: [],
       version: 'web'
     }

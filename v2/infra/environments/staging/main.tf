@@ -45,8 +45,13 @@ output "accounts_url" {
   value = module.stack.accounts_url
 }
 
+output "model_proxy_url" {
+  value = module.stack.model_proxy_url
+}
+
+# Deprecated compatibility alias.
 output "model_gateway_url" {
-  value = module.stack.model_gateway_url
+  value = module.stack.model_proxy_url
 }
 
 output "registry_url" {

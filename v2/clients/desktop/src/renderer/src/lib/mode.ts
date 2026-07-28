@@ -3,7 +3,7 @@
  *
  *   local  — BYOK. The daemon calls model providers directly with the user's own keys
  *            (Settings ▸ API Keys). No gateway, no metering. platform.disconnect.
- *   cloud  — Platform keys. Sign in; the session token becomes the model-gateway credential
+ *   cloud  — Platform keys. Sign in; the session token becomes the model-proxy credential
  *            (platform.connect) and every model call is metered to the account.
  *
  * The ComfyUI-style launcher (Launcher.tsx) sets this; store.ts's connectPlatform reads it to

@@ -72,10 +72,37 @@ fs.mkdirSync(bundlesDir, { recursive: true })
 if (prebuilt) {
   fs.copyFileSync(path.resolve(prebuilt), path.join(bundlesDir, path.basename(prebuilt)))
 } else {
-  const exe = process.platform === 'win32' ? 'agentd.exe' : 'agentd'
-  const venvCli = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin', exe)
-  const cli = fs.existsSync(venvCli) ? venvCli : 'agentd' // repo venv first, else PATH
-  execFileSync(cli, ['bundle', 'pack', agentDir, '--out', bundlesDir], { stdio: 'inherit' })
+  // The packer is the agentd CLI. Resolution order, first hit wins:
+  //   1. the repo venv's console script   (v2/.venv/Scripts/agentd.exe)
+  //   2. the repo venv's python -m agentd.cli.main (same interpreter, no console script
+  //      needed — a plain checkout's venv often has no agentd.exe). NOTE: it must be
+  //      agentd.cli.main, NOT `-m agentd` — the latter is the DAEMON entry point
+  //      (agentd/__main__.py -> agentd.main.main), which ignores the subcommand and tries
+  //      to bind the gateway port.
+  //   3. `agentd` on PATH                 (activated venv / global install)
+  // The venv lives at v2/.venv; repoRoot is pc-agent/, hence the 'v2' segment (same as
+  // the agents dir above).
+  const win = process.platform === 'win32'
+  const venvBin = path.join(repoRoot, 'v2', '.venv', win ? 'Scripts' : 'bin')
+  const venvCli = path.join(venvBin, win ? 'agentd.exe' : 'agentd')
+  const venvPython = path.join(venvBin, win ? 'python.exe' : 'python')
+  const packArgs = ['bundle', 'pack', agentDir, '--out', bundlesDir]
+
+  let cli, args
+  if (fs.existsSync(venvCli)) {
+    cli = venvCli
+    args = packArgs
+  } else if (fs.existsSync(venvPython)) {
+    cli = venvPython
+    args = ['-m', 'agentd.cli.main', ...packArgs]
+  } else {
+    cli = 'agentd'
+    args = packArgs
+  }
+  // Run from v2/: when agentd is NOT pip-installed in the venv (a plain checkout — the
+  // package resolves only because cwd is on sys.path), `-m agentd` fails from anywhere
+  // else. Both paths in packArgs are absolute, so the cwd affects import resolution only.
+  execFileSync(cli, args, { stdio: 'inherit', cwd: path.join(repoRoot, 'v2') })
 }
 
 // ---- icon: ships WITH the agent, like everything else it owns ---------------------------
@@ -94,9 +121,9 @@ if (iconSrc) fs.copyFileSync(iconSrc, path.join(flavorDir, 'icon.ico'))
 
 // ---- hosted platform: inherit [platform] from the CORE flavor (one source of truth) --------
 // An app-agent product is a full desktop client: if the core build is a HOSTED product (its
-// distribution.toml declares [platform] accounts_url/model_gateway_url), the app inherits the
+// distribution.toml declares [platform] accounts_url/model_proxy_url), the app inherits the
 // SAME backend, so its exe signs in and runs on our keys too. No core [platform] => a BYOK
-// app-agent (local keys), unchanged. Overridable with --accounts-url / --model-gateway-url.
+// app-agent (local keys), unchanged. Overridable with --accounts-url / --model-proxy-url.
 let platformBlock = ''
 const coreDistPath = path.join(desktopDir, 'flavors', 'core', 'distribution.toml')
 let corePlatform = {}
@@ -106,14 +133,17 @@ try {
   /* no core flavor / unreadable — app-agent stays BYOK */
 }
 const accountsUrl = opt('accounts-url') || String(corePlatform.accounts_url || '')
-const gatewayUrl = opt('model-gateway-url') || String(corePlatform.model_gateway_url || '')
-if (accountsUrl && gatewayUrl) {
+const proxyUrl =
+  opt('model-proxy-url') ||
+  opt('model-gateway-url') ||
+  String(corePlatform.model_proxy_url || corePlatform.model_gateway_url || '')
+if (accountsUrl && proxyUrl) {
   platformBlock = `
 [platform]
 accounts_url = ${JSON.stringify(accountsUrl)}
-model_gateway_url = ${JSON.stringify(gatewayUrl)}
+model_proxy_url = ${JSON.stringify(proxyUrl)}
 `
-  console.log(`  hosted: sign-in ${accountsUrl}, gateway ${gatewayUrl}`)
+  console.log(`  hosted: sign-in ${accountsUrl}, model proxy ${proxyUrl}`)
 }
 
 // ---- distribution.toml: the ONE knob that makes the shell this agent's product ----------

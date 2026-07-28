@@ -43,7 +43,7 @@ package "IDENTITY" as IDENT {
 ' ---- compute plane (cattle — runs the image, holds NO durable data) --------
 package "COMPUTE plane  (disposable — kill/replace/scale freely)" as COMPUTE {
   rectangle "**Amazon ECR**\n<<image registry>>\nengine image · gateway image ·\nsandbox-runner image" as ECR #F0FFF0
-  rectangle "**Model Gateway**\n<<ECS Fargate service>>\nLiteLLM proxy: holds OUR keys,\nmeters per account, enforces plan.\nServes desktop AND web. BYOK skips it." as GW #F0FFF0
+  rectangle "**Model Proxy**\n<<ECS Fargate service>>\nLiteLLM proxy: holds OUR keys,\nmeters per account, enforces plan.\nServes desktop AND web. BYOK skips it." as GW #F0FFF0
   rectangle "**Platform / Registry API**\n<<ECS Fargate service>>\nsign-in glue, publish, entitlements,\nagent provisioning" as API #F0FFF0
   rectangle "**Hosted Runtime — engine fleet**\n<<ECS Fargate service>>\nthe agentd image, multi-user;\nper-connection user_id -> that user's state" as FLEET #EAF3FF
   rectangle "**Sandbox runner**\n<<ECS Fargate task, on-demand>>\nruns an agent's CUSTOM plugin code\nin isolation; mounts only that user's\nagent dir; dies after the run" as SBX #FFF0F0
@@ -54,7 +54,7 @@ package "STATE plane  (durable — the ONLY place user data lives)" as STATE {
   database "**Amazon RDS (PostgreSQL)**\n<<database>>\naccounts · subscriptions ·\nmarketplace listings · entitlements ·\nusage / metering rows" as RDS #FFF0F0
   database "**Amazon EFS**\n<<shared filesystem>>\nper-user state roots:\n/users/<uid>/agents · sessions · memory\n(mounted by the engine fleet)" as EFS #FFF0F0
   database "**Amazon S3**\n<<object store>>\n.agentpkg blobs · uploaded files ·\nbuilt .exe installers" as S3 #FFF0F0
-  rectangle "**AWS Secrets Manager**\n<<secrets>>\nOUR provider API keys —\nreadable ONLY by the Model Gateway" as SEC #FFF0F0
+  rectangle "**AWS Secrets Manager**\n<<secrets>>\nOUR provider API keys —\nreadable ONLY by the Model Proxy" as SEC #FFF0F0
 }
 
 ' ---- distribution + external ------------------------------------------------
@@ -79,7 +79,7 @@ FLEET --> GW : model calls (always via gateway)
 FLEET --> SBX : dispatch custom-plugin exec
 SBX --> EFS : mount ONLY this user's agent dir
 
-' model gateway internals
+' model proxy internals
 GW ..> SEC : read provider keys
 GW --> RDS : write usage / check plan
 GW --> LLM : forward with our key
@@ -102,7 +102,7 @@ GW ..> CW
 
 legend right
   == Build phase (colour) ==
-  <back:#F0FFF0>  Phase 1</back>  Platform Server: Cognito, Model Gateway,
+  <back:#F0FFF0>  Phase 1</back>  Platform Server: Cognito, Model Proxy,
       Registry API, RDS, S3, Secrets, ECR — serves DESKTOP first
   <back:#EAF3FF>  Phase 2</back>  Hosted Runtime: engine fleet, EFS,
       ALB, CloudFront, Route 53 — browser users

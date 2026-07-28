@@ -37,7 +37,7 @@ AWSCloudGroup(aws) {
   RegionGroup(region, "ap-northeast-1 (Tokyo)") {
 
     ' ---- registry + shared services (region scope) ----
-    ElasticContainerRegistry(ecr, "ECR", "4 image repos: gateway/accounts/daemon/web")
+    ElasticContainerRegistry(ecr, "ECR", "4 image repos: model-proxy/accounts/daemon/web")
     SecretsManager(secrets, "Secrets Manager", "agentd/dev/app: master key + provider keys")
     CloudWatch(logs, "CloudWatch Logs", "/agentd/dev : all container output")
 
@@ -50,7 +50,7 @@ AWSCloudGroup(aws) {
           ElasticContainerService(web, "web", "nginx UI  :80")
           ElasticContainerService(accounts, "accounts", "sign-in / metering  :4100")
           ElasticContainerService(daemon, "daemon", "agent engine + WebSocket  :8787")
-          ElasticContainerService(gateway, "gateway", "LiteLLM proxy  :4000 (internal)")
+          ElasticContainerService(modelproxy, "model-proxy", "LiteLLM proxy  :4000 (internal)")
           Fargate(fargate, "Fargate", "serverless compute for all 4 tasks")
         }
       }
@@ -71,9 +71,9 @@ alb -[#232F3E]-> accounts : :4100
 alb -[#232F3E]-> daemon : :8787 (WebSocket)
 
 ' internal service-to-service via Cloud Map names
-daemon -[#1BA672]-> gateway : gateway.agentd.local:4000
+daemon -[#1BA672]-> modelproxy : model-proxy.agentd.local:4000
 daemon -[#1BA672]-> accounts : accounts.agentd.local:4100
-gateway -[#DD344C]-> providers : provider keys
+modelproxy -[#DD344C]-> providers : provider keys
 
 ' ================= state (dashed, green) =================
 accounts .[#7AA116].> efs : /data/accounts.db
@@ -81,7 +81,7 @@ daemon .[#7AA116].> efs : /data (per-user files)
 
 ' ================= plumbing (dotted, grey) =================
 fargate .[#879196].> ecr : pull images
-gateway .[#879196].> secrets : inject keys
+modelproxy .[#879196].> secrets : inject keys
 daemon .[#879196].> secrets : master key
 web .[#879196].> logs
 daemon .[#879196].> logs

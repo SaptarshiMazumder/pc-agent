@@ -24,7 +24,22 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 RUN useradd -u 1000 -m agentd && mkdir -p /data && chown agentd:agentd /data
 COPY --from=build /dist/agentd-*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/agentd-*.whl && rm /tmp/agentd-*.whl
+# `[mcp]` pulls the optional MCP SDK: without it build_mcp_provider returns None and EVERY
+# mcp-kind plugin silently contributes zero tools (the Settings card renders, disconnected).
+# `uv` is what those plugins launch their servers with (`uvx <server>`), so it belongs to the
+# runtime, not the dev box.
+RUN pip install --no-cache-dir "$(ls /tmp/agentd-*.whl)[mcp]" uv && rm /tmp/agentd-*.whl
+
+# Pre-resolve the MCP servers the built-in plugins declare, so `uvx` runs from the image
+# instead of downloading at first use — a container may have no egress, and a cold fetch on
+# the first chat turn reads as a hang. Pinned at build = every task runs the same server.
+# Add a row when a new mcp-kind plugin ships. (Keep in sync with plugins/*/plugin.toml [mcp].)
+ENV UV_TOOL_DIR=/opt/uv/tools \
+    UV_TOOL_BIN_DIR=/opt/uv/bin \
+    UV_CACHE_DIR=/opt/uv/cache \
+    PATH=/opt/uv/bin:$PATH
+RUN uv tool install workspace-mcp \
+ && chown -R agentd:agentd /opt/uv
 COPY --from=build /bundles /opt/agentd/bundles
 COPY deploy/docker/entrypoint.sh /usr/local/bin/agentd-entrypoint
 # tolerate CRLF from a Windows checkout, then make it executable

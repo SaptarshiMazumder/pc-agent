@@ -8,10 +8,10 @@ import { useApp } from '../state/store'
 /**
  * Startup launcher — the ComfyUI-style home that picks the desktop RUN MODE before the app opens.
  *
- *   Local card — BYOK: the daemon uses the user's own provider keys, no gateway, no metering.
+ *   Local card — BYOK: the daemon uses the user's own provider keys, no proxy, no metering.
  *   Cloud card — platform keys: sign in, and every model call is metered to the account via the
- *                model gateway. The gateway URL has a baked default (distribution profile) with an
- *                editable override here (persisted live via platform.setGatewayUrl).
+ *                Model Proxy. Its URL has a baked default (distribution profile) with an
+ *                editable override here (persisted live via platform.setModelProxyUrl).
  *
  * Choosing a mode sets lib/mode (persisted) and re-asserts it on the live daemon (store.applyMode).
  * The choice is remembered; Settings ▸ "Switch mode" returns here.
@@ -41,10 +41,10 @@ export default function Launcher(): JSX.Element {
   const applyMode = useApp((s) => s.applyMode)
   const session = useAuthSession()
 
-  const gw = hello?.platform?.modelGateway
-  const gatewayUrl = gw?.api_base || ''
+  const proxy = hello?.platform?.modelProxy || hello?.platform?.modelGateway
+  const proxyUrl = proxy?.api_base || ''
   const [editingUrl, setEditingUrl] = useState(false)
-  const [urlDraft, setUrlDraft] = useState(gatewayUrl)
+  const [urlDraft, setUrlDraft] = useState(proxyUrl)
   const [savingUrl, setSavingUrl] = useState(false)
 
   const product = flavor?.productName || 'agentd'
@@ -64,8 +64,8 @@ export default function Launcher(): JSX.Element {
   async function saveUrl(): Promise<void> {
     setSavingUrl(true)
     try {
-      await gateway.request('platform.setGatewayUrl', { url: urlDraft.trim() })
-      await applyMode() // refresh hello.platform.modelGateway
+      await gateway.request('platform.setModelProxyUrl', { url: urlDraft.trim() })
+      await applyMode() // refresh hello.platform.modelProxy
       setEditingUrl(false)
     } catch {
       /* older daemon / not connected — leave the editor open */
@@ -104,7 +104,7 @@ export default function Launcher(): JSX.Element {
           <div className="launcher-card-title">Cloud</div>
           <div className="launcher-card-sub">Platform keys, metered to your account</div>
           <div className="launcher-card-body">
-            Sign in and model calls route through the hosted gateway on platform keys — nothing to
+            Sign in and model calls route through the hosted Model Proxy on platform keys — nothing to
             configure, usage billed to your account.
           </div>
 
@@ -114,7 +114,7 @@ export default function Launcher(): JSX.Element {
                 <input
                   className="launcher-gw-input"
                   value={urlDraft}
-                  placeholder="https://gateway.example.com"
+                  placeholder="https://models.example.com"
                   onChange={(e) => setUrlDraft(e.target.value)}
                   spellCheck={false}
                   autoFocus
@@ -132,14 +132,14 @@ export default function Launcher(): JSX.Element {
               <button
                 className="launcher-gw-show"
                 type="button"
-                title="Override the gateway URL"
+                title="Override the Model Proxy URL"
                 onClick={() => {
-                  setUrlDraft(gatewayUrl)
+                  setUrlDraft(proxyUrl)
                   setEditingUrl(true)
                 }}
               >
-                <span className="launcher-gw-label">Gateway</span>
-                <span className="launcher-gw-url">{gatewayUrl || 'default (not set) — click to set'}</span>
+                <span className="launcher-gw-label">Model Proxy</span>
+                <span className="launcher-gw-url">{proxyUrl || 'default (not set) — click to set'}</span>
               </button>
             )}
           </div>

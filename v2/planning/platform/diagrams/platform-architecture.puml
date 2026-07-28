@@ -41,7 +41,7 @@ package "(1) CORE ENGINE = agentd\nsame code on desktop OR our fleet" as CORE #E
 
 package "(2) PLATFORM SERVER (our cloud brain — serves ALL users)" as PLAT #FFF5F0 {
   rectangle "Accounts\nsign-in, issues account token" as ACC
-  rectangle "Model Gateway  (the 'Cursor server')\nholds OUR provider keys, meters per account,\nenforces subscription/limits. BYOK bypasses it." as GW
+  rectangle "Model Proxy  (the 'Cursor server')\nholds OUR provider keys, meters per account,\nenforces subscription/limits. BYOK bypasses it." as GW
   rectangle "Marketplace Registry\npublished .agentpkg + listings;\nthe listing IS the share link" as REG
 }
 
@@ -98,7 +98,7 @@ skinparam note {
 }
 
 package "COMPUTE plane (cattle — disposable)" as COMPUTE #EAF3FF {
-  rectangle "engine fleet (runs the image)\n+ model gateway box\nkill / replace / scale freely" as CMP
+  rectangle "engine fleet (runs the image)\n+ model proxy box\nkill / replace / scale freely" as CMP
   rectangle "image shelf (the program)" as IMG
 }
 
@@ -147,7 +147,7 @@ skinparam note {
 
 package "DESKTOP / EXE  (engine on THEIR machine)" as D #F0FFF0 {
   rectangle "BYOK\ntheir key, calls provider direct.\nOur platform not in the path. Free to us.\n= today's mode" as DBYOK
-  rectangle "SUBSCRIPTION\nsign in; local engine calls our\nModel Gateway with account token.\nNo key setup ever. = the CURSOR model" as DSUB
+  rectangle "SUBSCRIPTION\nsign in; local engine calls our\nModel Proxy with account token.\nNo key setup ever. = the CURSOR model" as DSUB
 }
 
 package "BROWSER  (engine on OUR hosted runtime)" as B #EAF3FF {
@@ -182,7 +182,7 @@ skinparam note {
 participant "User" as U
 participant "Engine\n(local OR hosted)" as E
 participant "State plane\n(their agent + history)" as S
-participant "Model Gateway" as G
+participant "Model Proxy" as G
 participant "Provider" as P
 
 U -> E : message
@@ -197,7 +197,7 @@ E --> U : answer
 
 note over U, P
   BYOK differs at ONE step: the engine calls the Provider directly with the
-  user's own key; the Model Gateway is not in the path (and nothing is metered).
+  user's own key; the Model Proxy is not in the path (and nothing is metered).
 end note
 @enduml
 

@@ -27,7 +27,7 @@ provider "aws" {
 module "stack" {
   source = "../../modules"
 
-  environment = "prod"
+  environment = "production"
   # prod hardening: image tags are permanent, and destroy can never eat images.
   image_tag_mutability = "IMMUTABLE"
   ecr_force_delete     = false
@@ -45,8 +45,13 @@ output "accounts_url" {
   value = module.stack.accounts_url
 }
 
+output "model_proxy_url" {
+  value = module.stack.model_proxy_url
+}
+
+# Deprecated compatibility alias.
 output "model_gateway_url" {
-  value = module.stack.model_gateway_url
+  value = module.stack.model_proxy_url
 }
 
 output "registry_url" {

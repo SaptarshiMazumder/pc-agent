@@ -2,10 +2,10 @@
 #   • a task definition (the blueprint: image, cpu/mem, env, secrets, logs, optional EFS)
 #   • a service-discovery entry (so siblings reach it at <name>.agentd.local)
 #   • an ECS service (keeps N copies alive, registered with its ALB target group)
-# Adding a container to the platform = adding an entry to var.services. That's it.
+# Adding a container to the platform = adding an entry to local.services. That's it.
 
 resource "aws_ecs_task_definition" "svc" {
-  for_each = var.services
+  for_each = local.services
 
   family                   = "${local.name_prefix}-${each.key}"
   requires_compatibilities = ["FARGATE"]
@@ -58,7 +58,7 @@ resource "aws_ecs_task_definition" "svc" {
 
 # Service discovery: makes each service reachable at <name>.agentd.local.
 resource "aws_service_discovery_service" "svc" {
-  for_each = var.services
+  for_each = local.services
 
   name = each.key
 
@@ -75,12 +75,16 @@ resource "aws_service_discovery_service" "svc" {
     failure_threshold = 1
   }
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   tags = merge(local.common_tags, { Component = each.key })
 }
 
 # The service: keeps desired_count copies alive, wired to the network + the ALB.
 resource "aws_ecs_service" "svc" {
-  for_each = var.services
+  for_each = local.services
 
   name            = "${local.name_prefix}-${each.key}"
   cluster         = aws_ecs_cluster.main.arn
@@ -107,7 +111,8 @@ resource "aws_ecs_service" "svc" {
   # Terraform sets the INITIAL count, then stops managing it — so down.ps1/up.ps1 can scale
   # tasks to 0 (pause the compute bill) and back to 1 without `apply` reverting them.
   lifecycle {
-    ignore_changes = [desired_count]
+    create_before_destroy = true
+    ignore_changes        = [desired_count]
   }
 
   tags = merge(local.common_tags, { Component = each.key })

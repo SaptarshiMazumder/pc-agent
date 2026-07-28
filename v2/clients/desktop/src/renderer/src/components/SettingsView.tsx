@@ -32,6 +32,8 @@ interface ConfigData {
   /** {config_key: AGENTD_VAR} — knobs an env var currently pins (config.json can't win) */
   envOverrides: Record<string, string>
   providerKeys: string[]
+  /** cloud/platform mode: provider keys are server-managed → API-Keys section is read-only */
+  keysLocked?: boolean
   catalogs: Record<string, ModelOption[]>
   raw: string
   effectiveModel: string
@@ -361,6 +363,7 @@ function GroupCard({ group, ctx, query = '' }: { group: GroupDef; ctx: Ctx; quer
             envSet={fieldScope(field.key) === 'env' && !!ctx.data?.env[bareKey(field.key)]}
             envTouched={fieldScope(field.key) === 'env' && (ctx.keysDraft[bareKey(field.key)] ?? '') !== (ctx.data?.envValues?.[bareKey(field.key)] ?? '')}
             pinnedBy={envVarFor(ctx.data, field.key)}
+            lockedByPlatform={fieldScope(field.key) === 'env' && !!ctx.data?.keysLocked}
             listBuf={ctx.listBuf}
             setListBuf={ctx.setListBuf}
             onChange={(v) => ctx.setValue(field, v)}
@@ -536,6 +539,7 @@ function FieldRow({
   envSet,
   envTouched,
   pinnedBy,
+  lockedByPlatform,
   listBuf,
   setListBuf,
   onChange
@@ -547,6 +551,8 @@ function FieldRow({
   envTouched: boolean
   /** AGENTD_* var pinning this knob in .env → render read-only (config.json can't win) */
   pinnedBy?: string
+  /** cloud/platform mode: provider keys are managed server-side → render read-only */
+  lockedByPlatform?: boolean
   listBuf: Record<string, string>
   setListBuf: (u: (b: Record<string, string>) => Record<string, string>) => void
   onChange: (v: any) => void
@@ -673,8 +679,16 @@ function FieldRow({
   }
 
   const stacked = field.type === 'list' || field.type === 'secret' || field.type === 'text' || field.type === 'modellist'
+  // Read-only when an env var pins the knob OR (for provider keys) the daemon is in cloud/platform
+  // mode, where keys live on the Model Proxy and a local edit would be meaningless.
+  const lockTitle = lockedByPlatform
+    ? 'Locked — provider keys are managed by the platform in cloud mode (switch to Local mode to use your own keys)'
+    : pinnedBy
+      ? `Locked — set by ${pinnedBy} in .env (remove it there to edit here)`
+      : ''
+  const locked = !!lockTitle
   return (
-    <div className={`settings-row ${stacked ? 'settings-row--stacked' : ''} ${pinnedBy ? 'settings-row--pinned' : ''}`}>
+    <div className={`settings-row ${stacked ? 'settings-row--stacked' : ''} ${locked ? 'settings-row--pinned' : ''}`}>
       <div className="settings-label">
         <div className="k">
           {field.label}
@@ -683,17 +697,18 @@ function FieldRow({
               {envTouched ? 'will save' : envSet ? 'set' : 'not set'}
             </span>
           )}
-          {pinnedBy && (
-            <span className="pinned-lock" title={`Locked — set by ${pinnedBy} in .env (remove it there to edit here)`}>
+          {locked && (
+            <span className="pinned-lock" title={lockTitle}>
               <Lock size={12} />
             </span>
           )}
         </div>
         {field.help && <div className="d">{field.help}</div>}
       </div>
-      {/* pinned knobs are non-interactive: config.json (what a save writes) can't beat the env var */}
+      {/* locked knobs are non-interactive: config.json (what a save writes) can't beat the env var,
+          and provider keys in cloud mode are the platform's, not this daemon's */}
       <div className="settings-ctl">
-        {pinnedBy ? <div className="pinned-ctl">{control()}</div> : control()}
+        {locked ? <div className="pinned-ctl">{control()}</div> : control()}
       </div>
     </div>
   )

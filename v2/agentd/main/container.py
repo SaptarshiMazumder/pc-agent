@@ -230,11 +230,11 @@ def build_service(
         context_policy = WindowContextPolicy(config.context_max_messages)
     from agentd.application.tool_models import brain_model
     from agentd.infrastructure import accounts
-    from agentd.infrastructure.llm import model_gateway
+    from agentd.infrastructure.llm import model_proxy
     from agentd.infrastructure.llm.model_router import build_model_router
 
     # platform-keys mode: route ALL model calls through our metering proxy (default off => direct)
-    model_gateway.configure(config)
+    model_proxy.configure(config)
     # hosted identity + per-account metering (default off => the daemon has no notion of accounts)
     accounts.configure(config)
 

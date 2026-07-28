@@ -1,4 +1,4 @@
-"""Model-gateway auth + metering — per-USER credentials at the LiteLLM proxy.
+"""Model-proxy auth + metering — per-USER credentials at the LiteLLM proxy.
 
 Mounted into the proxy via litellm.config.yaml:
     general_settings.custom_auth:  custom_auth.user_api_key_auth
@@ -38,7 +38,7 @@ from fastapi import Request
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import UserAPIKeyAuth
 
-log = logging.getLogger("gateway.auth")
+log = logging.getLogger("model_proxy.auth")
 
 # token -> (account_id, expiry epoch). Short TTL: absorbs per-turn call bursts without letting
 # a revoked/expired session linger at the proxy.

@@ -1,0 +1,172 @@
+@startuml desktop-local-mode-request-flow
+' ============================================================================
+'  agentd desktop - LOCAL MODE (BYOK)
+'  Activity-flowchart view of one request through the implemented layers.
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng desktop-local-mode-request-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Desktop Client - LOCAL Mode (BYOK)\nExact request flow through agentd's Presentation, Application, Domain and Infrastructure layers
+
+start
+
+partition "0 . DESKTOP STARTUP - Electron main + renderer" #E8F0FE {
+  :**Supervisor.ensure()**  (supervisor.ts)\nread ~/.agentd/gateway.json;\nif absent/stale, spawn embedded `python -m agentd`;
+  :return local WebSocket URL + rotating machine token;
+  :**GatewayClient.connect()**  (client.ts)\nconnect to ws://127.0.0.1:8787/?token=<machine-token>;
+  :Local mode selected -> **connectPlatform()**  (store.ts)\nsends RPC `platform.disconnect`;
+}
+
+partition "1 . PRESENTATION - Gateway (gateway.py)" #FDECEA {
+  :**Gateway._handle_conn()**\n_origin_allowed() + _authorized(machine token);
+  :**Gateway._platform_disconnect()**\nclear AGENTD_MODEL_PROXY_KEY;\n**model_proxy.configure()** -> hosted proxy disabled;
+}
+
+note right
+  The desktop always talks to a LOCAL daemon.
+  Local/Cloud mode changes the model route,
+  not where AgentService or the tools run.
+end note
+
+partition "2 . DESKTOP CLIENT - React UI + GatewayClient" #E8F0FE {
+  :User types a message;
+  :**store.ts :: sendMessage()**\nadd optimistic user bubble; mark session running;
+  :**GatewayClient.request("chat.send")**\n{sessionKey, message, agentId, projectId,\n attachments, idempotencyKey};
+}
+
+partition "3 . PRESENTATION - Gateway + RunHandle" #FDECEA {
+  :**Gateway._dispatch() -> _chat_send()**\nvalidate message/agent; save attachments locally;\napply idempotency + active-run checks;
+  :create **RunHandle**\n{runId, sessionKey, abort, client_id};
+  :start `asyncio.create_task(Gateway._run(...))`;
+  :return correlated WebSocket `res {runId}` IMMEDIATELY\n(the background run continues);
+}
+
+partition "4 . APPLICATION - AgentService + RunContext" #E6F4EA {
+  :**Gateway._run()** creates the EventSink callback\nthen calls **AgentService.handle_message()**;
+  :resolve agent through the injected **AgentRegistry** port;
+}
+
+partition "5 . INFRASTRUCTURE - registry + persistence adapters" #F3E8FF {
+  :**FileAgentRegistry.get(agentId)**  (file_registry.py)\nread agents/<id> -> return AgentSpec;
+}
+
+partition "6 . DOMAIN - pure types and rules (no I/O)" #FFF4E5 {
+  :**AgentSpec + RunMode.INTERACTIVE**  (agent.py);
+  :**select_tools() + apply_mode()**\nreturn the tools this agent may use;
+  :construct **UserMessage**  (messages.py);
+}
+
+partition "4 . APPLICATION - AgentService + RunContext" #E6F4EA {
+  :set **RunContext**\n{agent_id, workspace, plugin/model overrides};
+}
+
+partition "5 . INFRASTRUCTURE - SessionStore + prompt inputs" #F3E8FF {
+  :**SessionStore.load()**  (local_store.py)\nload local JSONL transcript;
+  :**SessionStore.append(UserMessage)**;
+}
+
+partition "4 . APPLICATION - AgentService" #E6F4EA {
+  :build system prompt\nidentity + context + skill descriptions + tool schemas;
+  :call injected AgentEngine port\n-> concrete **NativeEngine.run()**;
+}
+
+repeat
+  partition "7 . INFRASTRUCTURE - NativeEngine reason <-> act loop" #EDE7F6 {
+    :begin one **run_agent_loop()** turn  (native.py);
+    :**litellm_stream()**  (litellm.py)\nconvert domain Message[] + prompt + tools\ninto provider completion arguments;
+    :**model_proxy.apply(kwargs)**\nNO-OP because Local mode disabled the proxy;
+  }
+
+  partition "8 . EXTERNAL MODEL PROVIDER" #E0F2F1 {
+    :`litellm.acompletion(stream=true)`\nusing the user's locally configured provider key;
+    :stream thinking, visible text, tool-call chunks and usage;
+  }
+
+  partition "7 . INFRASTRUCTURE - NativeEngine + LLM adapter" #EDE7F6 {
+    :normalize chunks;\nbuild **AssistantMessage** + **AgentEvent** values;
+  }
+
+  partition "9 . LIVE OUTPUT - Presentation -> Desktop" #E3F2FD {
+    :on every delta, **Gateway._broadcast()** wraps the AgentEvent\nas a `chat.event` WebSocket frame;
+    :**GatewayClient.handleFrame() -> store.handleAgentEvent()**\nrender thinking/text/tool progress immediately;
+  }
+
+  switch (What did AssistantMessage contain?)
+
+  case ( TOOL CALLS )
+    partition "7 . INFRASTRUCTURE - local tool execution" #EDE7F6 {
+      :validate arguments and run the selected local Tool\nfiles / exec / browser / web / MCP / plugin tool\nthrough its GuardedTool wrapper;
+    }
+    partition "6 . DOMAIN - messages.py" #FFF4E5 {
+      :construct **ToolResultMessage**\n(+ Artifact values / error);
+    }
+    partition "5 . INFRASTRUCTURE - SessionStore" #F3E8FF {
+      :persist AssistantMessage + ToolResultMessage;
+    }
+    partition "7 . INFRASTRUCTURE - NativeEngine" #EDE7F6 {
+      :append ToolResultMessage to in-memory Message[];\nnext turn sends the COMPLETE updated history to the model;
+    }
+
+  case ( FINAL TEXT )
+    partition "7 . INFRASTRUCTURE - completion policy" #EDE7F6 {
+      if (planning-only, reasoning-only, empty,\nfollow-up queued, or verification requests revision?) then (INCOMPLETE)
+        :inject continuation/follow-up/revision message\nand continue the loop;
+      else (GENUINELY DONE)
+        :accept AssistantMessage as final;
+      endif
+    }
+
+  case ( ERROR / ABORT )
+    partition "7 . INFRASTRUCTURE - NativeEngine" #EDE7F6 {
+      :mark stopReason = error or aborted;
+    }
+
+  endswitch
+
+repeat while (another model turn required?) is (yes) not (no)
+
+partition "10 . FINAL OUTPUT + LOCAL PERSISTENCE" #E0F2F1 {
+  :**SessionStore.append(AssistantMessage)**;
+  :emit **AgentEvent("agent_end", {stopReason})**;
+  :**Gateway._broadcast() -> GatewayClient -> Zustand store**;
+  :mark session not running; show final answer to user;
+}
+
+stop
+
+note right
+  LOCAL MODE TRUST BOUNDARY
+  - daemon, prompt assembly, Message[], sessions and workspace remain on the PC
+  - every Tool executes on the PC
+  - only the LLM request crosses the network
+  - Accounts and hosted Model Proxy are absent
+  - no platform metering occurs
+end note
+
+legend left
+  | Layer | Exact implementation shown |
+  | Desktop | Supervisor, GatewayClient, store.ts |
+  | Presentation | Gateway, RunHandle, WebSocket req/res/event |
+  | Application | AgentService, RunContext, injected ports |
+  | Domain | AgentSpec, RunMode, Message types, AgentEvent, selection rules |
+  | Infrastructure | FileAgentRegistry, SessionStore, NativeEngine, LiteLLM, Tools |
+endlegend
+
+@enduml

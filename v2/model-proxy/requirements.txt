@@ -1,0 +1,5 @@
+# custom_auth.py depends on LiteLLM's custom-auth and CustomLogger contracts.
+# Keep this pinned and upgrade deliberately with the proxy auth/metering tests.
+litellm[proxy]==1.88.1
+httpx>=0.27,<1
+python-dotenv>=1,<2

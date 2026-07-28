@@ -29,7 +29,7 @@ File shape (all keys optional):
 
     [platform]
     accounts_url = "https://accounts.example.com"           # sign-in service (client-side)
-    model_gateway_url = "https://gateway.example.com"       # hosted LiteLLM proxy (platform keys)
+    model_proxy_url = "https://models.example.com"          # hosted LiteLLM proxy (platform keys)
 """
 
 from __future__ import annotations
@@ -57,12 +57,17 @@ class DistributionProfile:
     registry_url: str = ""  # "" => no registry configured
     publisher_key: str = ""  # base64 ed25519 pubkey ("" => unsigned mode)
     accounts_url: str = ""  # "" => no hosted accounts (BYOK-only install)
-    model_gateway_url: str = ""  # "" => no platform model gateway
+    model_proxy_url: str = ""  # "" => no platform model proxy
     source_path: str = ""  # where this profile was loaded from ("" => open)
 
     @property
     def is_open(self) -> bool:
         return not self.source_path
+
+    @property
+    def model_gateway_url(self) -> str:
+        """Deprecated compatibility alias for pre-rename callers."""
+        return self.model_proxy_url
 
     def is_provisioned(self, plugin_id: str) -> bool:
         """The Provisioned gate: None = everything; else membership."""
@@ -90,7 +95,9 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
         registry_url=str(store.get("registry_url") or ""),
         publisher_key=str(store.get("publisher_key") or ""),
         accounts_url=str(platform.get("accounts_url") or "").rstrip("/"),
-        model_gateway_url=str(platform.get("model_gateway_url") or "").rstrip("/"),
+        model_proxy_url=str(
+            platform.get("model_proxy_url") or platform.get("model_gateway_url") or ""
+        ).rstrip("/"),
         source_path=source_path,
     )
 

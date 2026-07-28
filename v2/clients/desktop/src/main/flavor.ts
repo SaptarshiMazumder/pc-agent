@@ -27,9 +27,9 @@ export interface Flavor {
   /** HOSTED PLATFORM ([platform] in distribution.toml): where sign-in lives. '' => BYOK-only
    *  install, no sign-in gate — exactly the pre-platform behavior. */
   accountsUrl: string
-  /** the hosted LiteLLM model gateway; the daemon reads the same file itself — the shell only
+  /** the hosted LiteLLM Model Proxy; the daemon reads the same file itself — the shell only
    *  needs this for display/diagnostics. */
-  modelGatewayUrl: string
+  modelProxyUrl: string
   /** absolute path of the loaded file; '' => open default (nothing to pass on) */
   sourcePath: string
   /** absolute paths of .agentpkg files shipped with this build (resources/bundles) */
@@ -44,7 +44,7 @@ const OPEN: Flavor = {
   storeEnabled: true,
   preinstalledBundles: [],
   accountsUrl: '',
-  modelGatewayUrl: '',
+  modelProxyUrl: '',
   sourcePath: '',
   bundledPackages: []
 }
@@ -88,7 +88,9 @@ export async function loadFlavor(): Promise<Flavor> {
         storeEnabled: store.enabled !== false,
         preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
         accountsUrl: String(platform.accounts_url || '').replace(/\/$/, ''),
-        modelGatewayUrl: String(platform.model_gateway_url || '').replace(/\/$/, ''),
+        modelProxyUrl: String(
+          platform.model_proxy_url || platform.model_gateway_url || ''
+        ).replace(/\/$/, ''),
         sourcePath: candidate,
         bundledPackages: packages
       }

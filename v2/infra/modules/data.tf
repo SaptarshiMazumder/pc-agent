@@ -3,19 +3,19 @@
 # NOTE: RDS is intentionally NOT here yet. The accounts app still uses SQLite, so its DB file
 # lives on EFS for now. When we teach accounts to speak Postgres, RDS comes back together with
 # that app change (they're one unit of work).
-#   • Secrets Manager — app secrets (model gateway master key + provider API keys)
+#   • Secrets Manager — app secrets (model-proxy master key + provider API keys)
 #   • EFS             — shared file system (accounts SQLite DB + daemon per-user files)
 
 # ─────────────────────────── Secrets ───────────────────────────
 
-# A generated master key the daemon presents to the model gateway (an arbitrary shared secret).
+# A generated master key the daemon presents to the model proxy (an arbitrary shared secret).
 resource "random_password" "master_key" {
   length  = 32
   special = false
 }
 
 # The accounts service's INTERNAL key: authorizes trusted-infra writes to the spend ledger
-# (the model gateway's usage callback). Never given to clients/desktops.
+# (the model proxy's usage callback). Never given to clients/desktops.
 resource "random_password" "accounts_internal_key" {
   length  = 32
   special = false
@@ -26,7 +26,7 @@ resource "random_password" "accounts_internal_key" {
 # Terraform state.
 resource "aws_secretsmanager_secret" "app" {
   name                    = "${var.project}/${var.environment}/app"
-  description             = "App secrets (model gateway master key + provider API keys)"
+  description             = "App secrets (model-proxy master key + provider API keys)"
   recovery_window_in_days = 0 # dev: delete immediately on destroy (no 30-day recycle-bin hold)
   tags                    = local.common_tags
 }
@@ -38,6 +38,9 @@ resource "aws_secretsmanager_secret_version" "app" {
     ACCOUNTS_INTERNAL_KEY = random_password.accounts_internal_key.result
     GEMINI_API_KEY        = "REPLACE_ME"
     DEEPSEEK_API_KEY      = "REPLACE_ME"
+    # MCP server credentials are secrets like any other (workspace-mcp / the google plugin).
+    GOOGLE_OAUTH_CLIENT_ID     = "REPLACE_ME"
+    GOOGLE_OAUTH_CLIENT_SECRET = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

@@ -40,7 +40,7 @@ execution model before any infra is written.
 2. **Platform Server** — three small services that serve **every** user regardless of where
    their engine runs:
    - **Accounts** — sign-in; issues the account token.
-   - **Model Gateway** ("the Cursor server") — holds OUR provider keys, meters per account,
+   - **Model Proxy** ("the Cursor server") — holds OUR provider keys, meters per account,
      enforces plan/limits. BYOK bypasses it.
    - **Marketplace Registry** — stores published `.agentpkg` + listings; the listing IS the
      share link. It runs **no** agents.
@@ -63,7 +63,7 @@ execution model before any infra is written.
 
 > Diagram: `platform-architecture.puml → planes`, and `aws-deployment.puml`.
 
-- **Compute plane** (cattle — disposable): the engine fleet, the model gateway, sandbox
+- **Compute plane** (cattle — disposable): the engine fleet, the model proxy, sandbox
   runners. Kill/replace/scale freely. Holds nothing durable.
 - **State plane** (crown jewels — durable, isolated per account, backed up): accounts DB,
   per-user state roots, uploaded files, our secrets.
@@ -100,7 +100,7 @@ changes is one seam — `model endpoint + credential` = `(provider, their key)` 
 
 **Compute plane**
 - **ECR** — stores engine / gateway / sandbox images.
-- **Model Gateway** — ECS Fargate service; LiteLLM proxy; our keys via Secrets Manager;
+- **Model Proxy** — ECS Fargate service; LiteLLM proxy; our keys via Secrets Manager;
   per-account virtual keys, budgets, metering → RDS. Serves desktop AND web.
 - **Platform / Registry API** — ECS Fargate service; sign-in glue, publish, entitlements,
   agent provisioning.
@@ -114,7 +114,7 @@ changes is one seam — `model endpoint + credential` = `(provider, their key)` 
 - **EFS** — per-user state roots `/users/<uid>/agents · sessions · memory` (mounted by the
   fleet; access points scope the sandbox mounts).
 - **S3** — `.agentpkg` blobs, uploaded files, built `.exe` installers.
-- **Secrets Manager** — our provider API keys; readable ONLY by the Model Gateway.
+- **Secrets Manager** — our provider API keys; readable ONLY by the Model Proxy.
 
 **Edge / identity**
 - **Cognito** — accounts; issues the account token.
@@ -161,7 +161,7 @@ the VM vanishes; the workspace persists.
 - **Local executor** (desktop, and trusted built-ins on web) — in-process/subprocess; model
   seam → user's key or gateway; fs → whole machine (desktop) or user root (web).
 - **Sandbox executor** (web: custom plugins, exec, heavy) — dispatch to the sandbox; model
-  seam → a short-lived, spend-capped **virtual key** minted by the Model Gateway; fs → mounted
+  seam → a short-lived, spend-capped **virtual key** minted by the Model Proxy; fs → mounted
   user dir only.
 
 Tool code is identical because two conventions already hold in agentd: tools get their model
@@ -228,7 +228,7 @@ case).
 
 **Track B — PLATFORM (our services + AWS infra; drawn in `aws-deployment.puml`).**
 
-- **B1. Model Gateway** — LiteLLM proxy; keys in Secrets Manager; per-account virtual keys,
+- **B1. Model Proxy** — LiteLLM proxy; keys in Secrets Manager; per-account virtual keys,
   budgets, metering → RDS.
 - **B2. Accounts** — Cognito + desktop `agentd login` device flow.
 - **B3. Registry/Platform API** + S3 + RDS — publish, listings, entitlements, hosted marketplace.
@@ -269,7 +269,7 @@ it at what we just stood up and watch it work.
 | Milestone | Steps (in order) | What you SEE in the web client |
 |---|---|---|
 | **M0 — Web client on localhost** | Track C (C1–C3) | Full JARVIS in a browser, dialing the local daemon; your real agents, chat, tools, sessions all work. Baseline. |
-| **M1 — Platform keys + accounts** | Model Gateway (B1) · model seam → gateway (A5) · Accounts + login (B2) | Point the client's backend at the gateway → a chat reply from OUR keys, metered. Then a real sign-in screen; the same chat works under an account. Desktop app gets this too. |
+| **M1 — Platform keys + accounts** | Model Proxy (B1) · model seam → proxy (A5) · Accounts + login (B2) | Point the client's backend at the proxy → a chat reply from OUR keys, metered. Then a real sign-in screen; the same chat works under an account. Desktop app gets this too. |
 | **M2 — Multi-user engine core** | per-user state root (A1) + identity at gate (A2) · web-mode confinement (A3) | Log in as two users → each sees only their own agents/sessions. (Behavior is visible; the isolation GUARANTEE also gets an adversarial test — A cannot read B's root.) |
 | **M3 — Browser product on the cloud** | Hosted Runtime infra (B4) · host the client on S3/CloudFront | Open the client's CLOUD URL dialing `wss://our-host` → JARVIS running on the cloud engine, not the laptop. |
 | **M4 — Marketplace & sharing** | Registry/Platform API (B3) | Install/share an agent from the catalog and watch it appear; the 5-second share works, one catalog for web + desktop. |

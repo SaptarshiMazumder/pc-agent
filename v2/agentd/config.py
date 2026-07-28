@@ -328,13 +328,15 @@ class Config:
     #                       "vision_model": "gemini/gemini-3.1-pro-preview"}   # omit => keep normal brain
     # OFF (or both models unset) => no router => the agent's normal brain runs every turn, unchanged.
     cost_efficiency: dict = field(default_factory=dict)
-    # PLATFORM MODEL GATEWAY (platform-keys mode). Default OFF => every model call goes DIRECT to
+    # PLATFORM MODEL PROXY (platform-keys mode). Default OFF => every model call goes DIRECT to
     # the provider with the local/BYOK key, unchanged. When on, ALL model calls route through OUR
     # LiteLLM proxy (which holds our provider keys + meters per account). Shape:
-    #   "model_gateway": {"enabled": true, "api_base": "http://localhost:4000"}
-    # The gateway KEY is a SECRET from the env (AGENTD_MODEL_GATEWAY_KEY), never here. The URL may
-    # also come from AGENTD_MODEL_GATEWAY_URL (env wins). Resolved by
-    # infrastructure/llm/model_gateway.configure at boot.
+    #   "model_proxy": {"enabled": true, "api_base": "http://localhost:4000"}
+    # The proxy KEY is a SECRET from the env (AGENTD_MODEL_PROXY_KEY), never here. The URL may
+    # also come from AGENTD_MODEL_PROXY_URL (env wins). Resolved by
+    # infrastructure/llm/model_proxy.configure at boot.
+    model_proxy: dict = field(default_factory=dict)
+    # Deprecated read-only compatibility input. New writes use model_proxy.
     model_gateway: dict = field(default_factory=dict)
     # PLATFORM ACCOUNTS (hosted identity + per-account metering). Default OFF => the daemon has no
     # notion of accounts; connections authenticate with the single machine token and no spend is
