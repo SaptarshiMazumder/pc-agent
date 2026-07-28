@@ -1,7 +1,7 @@
 """One command to run the whole HOSTED stack locally — so you stop juggling terminals + env vars.
 
     python deploy/dev.py            # accounts + daemon + web   ->  open http://localhost:5273
-    python deploy/dev.py --proxy    # ALSO run the model gateway (full "keys live server-side" shape)
+    python deploy/dev.py --model-proxy  # ALSO run the Model Proxy (full hosted-key shape)
     python deploy/dev.py --no-web    # backends only (accounts + daemon)
 
 Ctrl+C stops everything it started. Re-running is safe: it frees its own ports first.
@@ -10,9 +10,10 @@ What it starts (and why the proxy is OFF by default):
   * accounts service (:4100)  — identity + per-account budget/tab
   * agentd daemon    (:8790)  — accounts ON; calls providers DIRECTLY with your v2/.env keys
   * web client       (:5273)  — the browser UI, in accounts mode
-The LiteLLM model gateway is only needed for the PRODUCTION property "provider keys live in a
+The LiteLLM Model Proxy is only needed for the PRODUCTION property "provider keys live in a
 separate process, not the daemon." For local dev that adds a 4th process for no functional gain —
-accounts, metering, and per-user isolation all work without it — so it's opt-in via --proxy.
+accounts, metering, and per-user isolation all work without it — so it's opt-in via
+--model-proxy (`--proxy` remains a short compatibility alias).
 
 The DESKTOP app is separate and already one command:  cd clients/desktop && npm run dev
 """
@@ -36,7 +37,12 @@ except ImportError:  # pragma: no cover
 HERE = Path(__file__).resolve()
 V2 = HERE.parents[1]
 REPO = HERE.parents[2]
-VENV_PY = REPO / ".venv" / "Scripts" / ("python.exe" if os.name == "nt" else "python")
+VENV_PY = (
+    REPO
+    / ".venv"
+    / ("Scripts" if os.name == "nt" else "bin")
+    / ("python.exe" if os.name == "nt" else "python")
+)
 PY = str(VENV_PY if VENV_PY.exists() else Path(sys.executable))
 
 # --- knobs (kept obvious; not user-facing config) ---------------------------
@@ -48,7 +54,7 @@ STATE_DIR = V2 / ".agentd-hosted"  # deterministic hosted state (NOT ~/.agentd; 
 DAEMON_TOKEN = "devtoken"
 MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-agentd-local")
 
-USE_PROXY = "--proxy" in sys.argv
+USE_PROXY = "--model-proxy" in sys.argv or "--proxy" in sys.argv
 NO_WEB = "--no-web" in sys.argv
 
 if load_dotenv:
@@ -170,9 +176,9 @@ def main() -> None:
     spawn("accounts", [PY, str(V2 / "deploy" / "accounts" / "run-local.py")],
           env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT)})
 
-    # 2) model gateway (opt-in)
+    # 2) Model Proxy (opt-in)
     if USE_PROXY:
-        spawn("proxy", [PY, str(V2 / "deploy" / "gateway" / "run-local.py")])
+        spawn("model-proxy", [PY, str(V2 / "model-proxy" / "run-local.py")])
 
     # 3) daemon (accounts ON; direct provider calls unless --proxy)
     #    AGENTD_HOME gives it a SEPARATE rendezvous/logs from the desktop app's daemon (~/.agentd),
@@ -187,8 +193,8 @@ def main() -> None:
         "AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
     }
     if USE_PROXY:
-        daemon_env["AGENTD_MODEL_GATEWAY_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
-        daemon_env["AGENTD_MODEL_GATEWAY_KEY"] = MASTER_KEY
+        daemon_env["AGENTD_MODEL_PROXY_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
+        daemon_env["AGENTD_MODEL_PROXY_KEY"] = MASTER_KEY
     spawn("daemon", [PY, "-m", "agentd"], env=daemon_env, cwd=str(V2))
 
     # 4) web client (accounts mode)
@@ -209,7 +215,7 @@ def main() -> None:
     print("\n" + "=" * 56)
     print(f"  {tick(ok_acc)} accounts   http://127.0.0.1:{ACCOUNTS_PORT}")
     if USE_PROXY:
-        print(f"  {tick(ok_proxy)} gateway    http://127.0.0.1:{PROXY_PORT}")
+        print(f"  {tick(ok_proxy)} model-proxy http://127.0.0.1:{PROXY_PORT}")
     print(f"  {tick(ok_daemon)} daemon     ws://127.0.0.1:{DAEMON_PORT}  (accounts ON)")
     if not NO_WEB:
         print(f"  {tick(ok_web)} web        http://localhost:{WEB_PORT}   <-- OPEN THIS")

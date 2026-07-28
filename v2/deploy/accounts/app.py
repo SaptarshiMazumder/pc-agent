@@ -1,7 +1,7 @@
 """Platform Accounts service — the State plane's first brick.
 
 This is OUR crown-jewel identity + metering store, deliberately SEPARATE from the daemon
-(one accounts store is shared by the whole daemon fleet) and SEPARATE from the Model Gateway
+(one accounts store is shared by the whole daemon fleet) and SEPARATE from the Model Proxy
 (LiteLLM meters model calls; WE own accounts, budgets, and the spend ledger — the billing
 source of truth, so it never becomes LiteLLM's internal DB).
 
@@ -19,13 +19,13 @@ Contract (what agentd depends on):
     GET  /health                                         -> {ok: true}
 
 A session token is the browser's credential; it is NOT a model key. agentd resolves the token
-to an account and meters that account's spend — the model key (the gateway master key, or a
+to an account and meters that account's spend — the model key (the model-proxy master key, or a
 per-account virtual key later) never leaves the server side.
 
 Public-exposure hardening (all env-driven; unset = today's open local-dev behavior):
     ACCOUNTS_SESSION_TTL_DAYS  sessions expire after N days (default 30; 0 = never)
     ACCOUNTS_INTERNAL_KEY      when set: /usage requires X-Internal-Key (the ledger is written
-                               by trusted infra — the model gateway's callback — only), and
+                               by trusted infra — the model proxy's callback — only), and
                                /budget/{id} requires the key OR the account's own session token
     ACCOUNTS_CORS_ORIGINS      comma-separated allowed origins (default "*", local dev)
     ACCOUNTS_RATE_LIMIT        per-IP fixed window "count/seconds" on /signup + /login
@@ -349,7 +349,7 @@ def budget(
 @app.post("/usage")
 def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
     """A completed model call's cost lands here (the spend ledger). TRUSTED WRITERS ONLY —
-    in the platform topology that is the model gateway's success callback, which sees every
+    in the platform topology that is the model proxy's success callback, which sees every
     call server-side; clients (desktop daemons) cannot write their own ledger. Returns the
     new month-to-date spend and whether the account is now over its cap."""
     if not _require_internal(x_internal_key):

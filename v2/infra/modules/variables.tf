@@ -38,6 +38,12 @@ variable "ecr_force_delete" {
   default     = true
 }
 
+variable "model_proxy_desired_count" {
+  description = "Initial Model Proxy task count. Set to 0 for the one-time live service rename, push the image, then scale up."
+  type        = number
+  default     = 1
+}
+
 # ─────────────────────────── The services map ───────────────────────────
 # ONE entry per container. Adding a service here gives it an ECR repo, ALB target
 # group + listener + firewall holes, service discovery, and a Fargate service — no
@@ -64,13 +70,13 @@ variable "services" {
       health_path = "/"
     }
 
-    # gateway — LiteLLM model proxy. PUBLIC (platform-keys mode): signed-in desktop
+    # model-proxy — LiteLLM proxy. PUBLIC (platform-keys mode): signed-in desktop
     # daemons call it with their accounts session token; custom_auth.py resolves the
     # token via the accounts service, and the usage callback writes each call's cost
     # to the ledger. The cloud daemon still reaches it internally
-    # (gateway.agentd.local) with the master key. The liveness path is
+    # (model-proxy.agentd.local) with the master key. The liveness path is
     # unauthenticated on the pinned litellm (1.88.1).
-    gateway = {
+    "model-proxy" = {
       port        = 4000
       health_path = "/health/liveliness"
       env = {
@@ -95,7 +101,7 @@ variable "services" {
         ACCOUNTS_SESSION_TTL_DAYS = "30"
         ACCOUNTS_RATE_LIMIT       = "10/60"
         # CORS: the web client's origin. "*" until the web origin is stable (browser
-        # clients only; the desktop app and the model gateway are not subject to CORS).
+        # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
       }
       secret_keys = {
@@ -105,22 +111,26 @@ variable "services" {
     }
 
     # daemon — the agent engine + WebSocket. Mounts EFS for per-user state; reaches
-    # gateway/accounts by their service-discovery names. A plain HTTP GET to the WS
+    # model-proxy/accounts by their service-discovery names. A plain HTTP GET to the WS
     # root returns 426 Upgrade Required; /healthz exists specifically for the ALB.
     daemon = {
       port        = 8787
       health_path = "/healthz"
       env = {
-        AGENTD_HOST              = "0.0.0.0"
-        AGENTD_PORT              = "8787"
-        AGENTD_HOME              = "/data"
-        AGENTD_STATE_DIR         = "/data/state"
-        AGENTD_WORKSPACE         = "/data/workspace"
-        AGENTD_ACCOUNTS_URL      = "http://accounts.agentd.local:4100"
-        AGENTD_MODEL_GATEWAY_URL = "http://gateway.agentd.local:4000"
+        AGENTD_HOST            = "0.0.0.0"
+        AGENTD_PORT            = "8787"
+        AGENTD_HOME            = "/data"
+        AGENTD_STATE_DIR       = "/data/state"
+        AGENTD_WORKSPACE       = "/data/workspace"
+        AGENTD_ACCOUNTS_URL    = "http://accounts.agentd.local:4100"
+        AGENTD_MODEL_PROXY_URL = "http://model-proxy.agentd.local:4000"
       }
       secret_keys = {
-        AGENTD_MODEL_GATEWAY_KEY = "LITELLM_MASTER_KEY"
+        AGENTD_MODEL_PROXY_KEY = "LITELLM_MASTER_KEY"
+        # MCP servers inherit the daemon's environment (mcp/session.py:resolve_subprocess), so
+        # a server's credentials are just task env — workspace-mcp reads these two itself.
+        GOOGLE_OAUTH_CLIENT_ID     = "GOOGLE_OAUTH_CLIENT_ID"
+        GOOGLE_OAUTH_CLIENT_SECRET = "GOOGLE_OAUTH_CLIENT_SECRET"
       }
       efs = true
     }
@@ -128,6 +138,15 @@ variable "services" {
 }
 
 locals {
+  services = merge(
+    var.services,
+    {
+      "model-proxy" = merge(
+        var.services["model-proxy"],
+        { desired_count = var.model_proxy_desired_count }
+      )
+    }
+  )
   name_prefix = "${var.project}-${var.environment}"
   common_tags = {
     Project     = var.project

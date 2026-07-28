@@ -7,12 +7,12 @@ notion of accounts — connections authenticate with the single machine token ex
 presented token to an account, pins it on `current_account` for the turn, and the run can check the
 account's budget before spending and report cost after.
 
-Mirrors infrastructure/llm/model_gateway.py: one process-wide setting, configured once at boot.
+Mirrors infrastructure/llm/model_proxy.py: one process-wide setting, configured once at boot.
 The URL comes from env (AGENTD_ACCOUNTS_URL) or config (accounts.api_base); env wins. There is no
 secret here — the session token is the client's credential, resolved over the wire.
 
 The account identity is carried by a contextvar so it reaches code deep in the model-call stack
-(model_gateway, usage reporting) without threading a parameter through every layer. `_run` sets it
+(model_proxy, usage reporting) without threading a parameter through every layer. `_run` sets it
 at the top of the turn task; `asyncio.create_task` snapshots the context, so each run is isolated.
 """
 
@@ -216,7 +216,7 @@ async def report_usage(
     is logged but never breaks the run.
 
     Requires AGENTD_ACCOUNTS_INTERNAL_KEY: the ledger is written by TRUSTED infra only. In the
-    platform-keys topology the model gateway's own success callback is the single ledger writer
+    platform-keys topology the model proxy's own success callback is the single ledger writer
     (it sees every call server-side, tamper-proof), so a daemon without the internal key — every
     desktop, and the default cloud deploy — no-ops here instead of double-counting (or 401ing)
     against the hardened /usage endpoint. The in-memory per-turn accumulator is unaffected."""

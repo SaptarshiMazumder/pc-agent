@@ -17,7 +17,7 @@ $v2       = (Resolve-Path "$PSScriptRoot/../..").Path            # deploy/script
 $envDir   = Join-Path $v2 "infra/environments/$Environment"
 $chdir    = "-chdir=$envDir"                                     # quoted so PowerShell expands it
 $cluster  = "agentd-$Environment"
-$services = "gateway", "accounts", "daemon", "web"
+$services = "model-proxy", "accounts", "daemon", "web"
 
 if (-not (Test-Path $envDir)) { throw "No such environment: $envDir" }
 

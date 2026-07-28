@@ -146,12 +146,12 @@ def ensure_onboarded() -> bool:
         # dev configs are project files, not ~/.agentd files.
         print("No agentd.config.json found in the checkout; copy config.example.json to start.")
         return False
-    # Hosted flavor (distribution declares a platform model gateway): model calls run on
+    # Hosted flavor (distribution declares a platform model proxy): model calls run on
     # PLATFORM keys once the user signs in through the app — the BYOK provider/key wizard
     # would only mislead. Seed the default config and skip it entirely.
     from agentd.distribution import load_profile
 
-    if load_profile().model_gateway_url:
+    if load_profile().model_proxy_url:
         _write_config(_DEFAULT_MODEL)
         print("Hosted install — sign in from the app; model access uses platform keys.")
         return True

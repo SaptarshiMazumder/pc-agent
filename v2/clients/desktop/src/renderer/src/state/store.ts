@@ -111,6 +111,8 @@ interface FlavorInfo {
   preinstalledBundles: string[]
   /** hosted platform ([platform] in distribution.toml); '' => BYOK-only install */
   accountsUrl?: string
+  modelProxyUrl?: string
+  /** Deprecated compatibility field from older Electron main processes. */
   modelGatewayUrl?: string
   bundledPackages: string[]
   version: string
@@ -528,7 +530,7 @@ export const useApp = create<AppState>((set, get) => {
           return { items, running: false, pendingArtifacts: [] }
         })
         // Hosted mode: an auth-shaped run failure may mean the session token expired at the
-        // model gateway. Re-check against the accounts service and only sign out on a
+        // Model Proxy. Re-check against the accounts service and only sign out on a
         // DEFINITIVE rejection (never on a flaky network) — the sign-in gate then takes over.
         if (error && isAccountsMode() && /\b401\b|sign in required|authentication/i.test(error)) {
           void resolveSession().then((verdict) => {
@@ -571,7 +573,7 @@ export const useApp = create<AppState>((set, get) => {
 
   /** DESKTOP: re-assert the chosen run mode on the LOCAL daemon on every (re)connect.
    *   • Cloud — hand the signed-in session token to the daemon (platform.connect persists it as
-   *     the model-gateway credential, so hosted keys survive restarts and .env drift self-heals).
+   *     the model-proxy credential, so hosted keys survive restarts and .env drift self-heals).
    *   • Local (or no mode yet) — clear any platform credential (platform.disconnect) so the daemon
    *     runs BYOK with the user's own keys.
    *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
@@ -815,7 +817,7 @@ export const useApp = create<AppState>((set, get) => {
 
     async applyMode() {
       // Re-assert Local/Cloud on the live daemon and refresh the platform status the UI reads
-      // (hello.platform.modelGateway). No-op until the connection is open.
+      // (hello.platform.modelProxy). No-op until the connection is open.
       if (get().connection !== 'open') return
       await connectPlatform()
       try {

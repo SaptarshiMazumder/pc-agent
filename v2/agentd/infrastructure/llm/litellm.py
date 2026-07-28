@@ -323,9 +323,9 @@ async def litellm_stream(
         effective_idle = None if _is_local_provider(model) else idle_timeout_sec
 
         # --- Consume the stream chunk by chunk (idle-guarded) ---
-        from agentd.infrastructure.llm import model_gateway
+        from agentd.infrastructure.llm import model_proxy
 
-        model_gateway.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
+        model_proxy.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
         response = await litellm.acompletion(**kwargs)
         it = response.__aiter__()
         while True:

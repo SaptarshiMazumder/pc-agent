@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id)
 
 // The page is served BY the daemon, so its own origin + bearer token authorize same-origin
 // HTTP calls back to it. HTTP is the reliable transport for sign-in: a plain fetch to our own
-// origin can't be disturbed by the live model-gateway reconfigure that binding a token performs.
+// origin can't be disturbed by the live model-proxy reconfigure that binding a token performs.
 const PAGE = new URL(window.location.href)
 const ORIGIN = PAGE.origin
 const DTOKEN = PAGE.searchParams.get('token') || ''
@@ -119,7 +119,7 @@ async function doSignIn(email, password) {
   try {
     const status = await platformConnect(login.token)
     console.log('[signin] connect replied:', JSON.stringify(status).slice(0, 160))
-    ok = !!(status && status.modelGateway && status.modelGateway.enabled)
+    ok = !!(modelProxyStatus(status) && modelProxyStatus(status).enabled)
   } catch (e) {
     console.log('[signin] connect reply lost:', (e && e.message) || e)
   }
@@ -128,7 +128,7 @@ async function doSignIn(email, password) {
     await new Promise((r) => setTimeout(r, 700))
     try {
       const s = await platformStatus()
-      ok = !!(s && s.modelGateway && s.modelGateway.enabled)
+      ok = !!(modelProxyStatus(s) && modelProxyStatus(s).enabled)
     } catch (_) { /* transient — keep polling */ }
   }
   if (!ok) throw new Error('could not activate this device — the Figure Creator service did not accept the sign-in')
@@ -165,6 +165,11 @@ function onSignedIn() {
   refreshComposer()
 }
 
+/** New daemons say modelProxy; modelGateway keeps already-installed daemons compatible. */
+function modelProxyStatus(status) {
+  return status && (status.modelProxy || status.modelGateway)
+}
+
 $('signOut').addEventListener('click', async () => {
   saveSession(null)
   try { await client.request('platform.disconnect', {}) } catch (_) {}
@@ -186,7 +191,7 @@ async function bootstrap() {
   }
   accountsBase = String(status.accountsUrl || '').replace(/\/$/, '')
   const hosted = !!accountsBase
-  const keysLive = !!(status.modelGateway && status.modelGateway.enabled)
+  const keysLive = !!(modelProxyStatus(status) && modelProxyStatus(status).enabled)
 
   if (!hosted || keysLive) {
     // BYOK build, or the daemon already holds a valid platform token (persisted) — go in.
@@ -200,7 +205,7 @@ async function bootstrap() {
   if (stored && stored.token) {
     try {
       const s = await platformConnect(stored.token)
-      if (s && s.modelGateway && s.modelGateway.enabled) { onSignedIn(); return }
+      if (modelProxyStatus(s) && modelProxyStatus(s).enabled) { onSignedIn(); return }
     } catch (_) { /* fall through */ }
     saveSession(null)
   }

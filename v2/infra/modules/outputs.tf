@@ -3,9 +3,14 @@ output "repository_urls" {
   value       = { for name, repo in aws_ecr_repository.this : name => repo.repository_url }
 }
 
+output "model_proxy_repo_url" {
+  description = "Where to push the Model Proxy image."
+  value       = aws_ecr_repository.this["model-proxy"].repository_url
+}
+
 output "gateway_repo_url" {
-  description = "Where to push the gateway image."
-  value       = aws_ecr_repository.this["gateway"].repository_url
+  description = "Deprecated compatibility alias for model_proxy_repo_url."
+  value       = aws_ecr_repository.this["model-proxy"].repository_url
 }
 
 output "app_url" {
@@ -20,8 +25,13 @@ output "accounts_url" {
   value       = "http://${aws_lb.main.dns_name}:4100"
 }
 
+output "model_proxy_url" {
+  description = "[platform] model_proxy_url for the desktop flavors (platform keys)."
+  value       = "http://${aws_lb.main.dns_name}:4000"
+}
+
 output "model_gateway_url" {
-  description = "[platform] model_gateway_url for the desktop flavors (platform keys)."
+  description = "Deprecated compatibility alias for model_proxy_url."
   value       = "http://${aws_lb.main.dns_name}:4000"
 }
 

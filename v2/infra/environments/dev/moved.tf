@@ -266,3 +266,40 @@ moved {
   from = module.svc_web.aws_ecs_service.this
   to   = module.stack.aws_ecs_service.svc["web"]
 }
+
+# ── service rename: gateway → model-proxy ──
+# These moves connect the old and new Terraform addresses. Resources whose physical AWS
+# names contain the service key are replaced with create-before-destroy; follow the staged
+# image migration in deploy/LAUNCH.md before the full apply.
+moved {
+  from = module.stack.aws_vpc_security_group_ingress_rule.alb_ingress["gateway"]
+  to   = module.stack.aws_vpc_security_group_ingress_rule.alb_ingress["model-proxy"]
+}
+moved {
+  from = module.stack.aws_vpc_security_group_ingress_rule.svc_from_alb["gateway"]
+  to   = module.stack.aws_vpc_security_group_ingress_rule.svc_from_alb["model-proxy"]
+}
+moved {
+  from = module.stack.aws_ecr_repository.this["gateway"]
+  to   = module.stack.aws_ecr_repository.this["model-proxy"]
+}
+moved {
+  from = module.stack.aws_lb_target_group.svc["gateway"]
+  to   = module.stack.aws_lb_target_group.svc["model-proxy"]
+}
+moved {
+  from = module.stack.aws_lb_listener.svc["gateway"]
+  to   = module.stack.aws_lb_listener.svc["model-proxy"]
+}
+moved {
+  from = module.stack.aws_ecs_task_definition.svc["gateway"]
+  to   = module.stack.aws_ecs_task_definition.svc["model-proxy"]
+}
+moved {
+  from = module.stack.aws_service_discovery_service.svc["gateway"]
+  to   = module.stack.aws_service_discovery_service.svc["model-proxy"]
+}
+moved {
+  from = module.stack.aws_ecs_service.svc["gateway"]
+  to   = module.stack.aws_ecs_service.svc["model-proxy"]
+}
