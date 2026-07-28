@@ -658,7 +658,19 @@ def _provider_group(model_id: str) -> str:
 
 def _provider_has_key(model_id: str) -> bool:
     """True if the provider behind this model is usable right now (a required key is present,
-    or it needs none / is an unknown custom provider we won't second-guess)."""
+    or it needs none / is an unknown custom provider we won't second-guess).
+
+    Platform-keys mode: when a model gateway is configured, the provider KEYS live on the gateway
+    (this daemon holds only the gateway's master key, never GEMINI_API_KEY/DEEPSEEK_API_KEY/…). The
+    gateway is the authority on what's runnable, so nothing should be hidden for lack of a LOCAL key
+    — otherwise a hosted daemon filters out its entire catalog and the picker comes up empty."""
+    try:
+        from agentd.infrastructure.llm import model_gateway
+
+        if model_gateway.enabled():
+            return True
+    except Exception:
+        pass
     envs = _PROVIDER_KEY_ENV.get(_provider_prefix(model_id))
     if not envs:  # unknown provider or keyless (ollama) => don't hide
         return True

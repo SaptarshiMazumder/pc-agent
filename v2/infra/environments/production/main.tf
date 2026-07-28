@@ -27,7 +27,7 @@ provider "aws" {
 module "stack" {
   source = "../../modules"
 
-  environment = "prod"
+  environment = "production"
   # prod hardening: image tags are permanent, and destroy can never eat images.
   image_tag_mutability = "IMMUTABLE"
   ecr_force_delete     = false
