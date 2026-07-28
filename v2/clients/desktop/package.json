@@ -16,6 +16,7 @@
     "build:web": "vite build --config vite.config.web.ts",
     "preview:web": "vite preview --config vite.config.web.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "sync:urls": "node scripts/sync-platform-urls.mjs --strict",
     "gen:app": "node scripts/gen-app-flavor.mjs",
     "dist:app": "node scripts/dist-app.mjs",
     "dist:core": "electron-vite build && electron-builder --config electron-builder.yml",

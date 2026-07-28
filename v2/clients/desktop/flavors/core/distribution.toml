@@ -23,3 +23,5 @@ publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 # Restore the two URLs below to re-enable the hosted sign-in product (AWS dev stack).
 # accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
 # model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"
+accounts_url = "http://agentd-dev-978186267.ap-northeast-1.elb.amazonaws.com:4100"
+model_gateway_url = "http://agentd-dev-978186267.ap-northeast-1.elb.amazonaws.com:4000"
