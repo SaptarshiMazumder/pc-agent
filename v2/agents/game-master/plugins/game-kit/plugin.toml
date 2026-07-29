@@ -1,0 +1,5 @@
+id = "game-kit"
+name = "Game Kit"
+kind = "native"
+entry = "game_kit:register"
+description = "Game Master's own tools: roll_dice (deterministic, no LLM) and narrate_scene (LLM)."

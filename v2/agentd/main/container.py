@@ -126,6 +126,20 @@ def build_service(
     loaded_plugin_ids: set = set()
     _late: dict = {}
 
+    # PLUGIN-SANDBOX seam: the UNTRUSTED tool tier (agents/<id>/plugins/ — tools that ship inside a
+    # marketplace agent's package) runs behind a PluginSandbox instead of in-process. Dormant unless
+    # config.sandbox_untrusted_plugins is set; the default backend is an in-process passthrough
+    # (proves the boundary, no isolation) — swap for a container/microVM/remote backend later. The
+    # CapabilityResolver (what a run may touch) is the seam the approval layer plugs into later.
+    from agentd.infrastructure.tools.sandbox import (
+        DefaultCapabilityResolver,
+        LocalPluginSandbox,
+        wrap_untrusted,
+    )
+
+    plugin_sandbox = LocalPluginSandbox()
+    capability_resolver = DefaultCapabilityResolver()
+
     def _wrap(raw_tools: list) -> list:
         out = []
         for t in raw_tools:
@@ -146,11 +160,20 @@ def build_service(
         return _wrap(apply_plugin_enablement(kept, getattr(config, "plugins", None)))
 
     def _agent_private_tools() -> dict:
-        """Discover + gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
+        """Discover + sandbox/gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
         WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
-        idempotent — the service replaces its map instead of appending."""
+        idempotent — the service replaces its map instead of appending. This tier is UNTRUSTED, so
+        it is routed through the plugin sandbox FIRST (a no-op passthrough unless enabled), then
+        guarded — giving Guard(Sandbox(inner))."""
         return {
-            aid: _gate_and_wrap(tlist)
+            aid: _gate_and_wrap(
+                wrap_untrusted(
+                    tlist,
+                    sandbox=plugin_sandbox,
+                    resolver=capability_resolver,
+                    config=config,
+                )
+            )
             for aid, tlist in discover_agent_plugins(
                 getattr(registry, "agents_dir", None), config, plugin_deps, entitlement
             ).items()

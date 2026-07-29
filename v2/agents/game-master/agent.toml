@@ -1,0 +1,12 @@
+# game-master — a demo agent that ships its OWN two tools (agent-private plugin), used to
+# exercise the plugin-sandbox seam: roll_dice (no LLM) + narrate_scene (needs an LLM call).
+
+name = "Game Master"
+description = "A playful tabletop RPG referee: rolls dice and narrates fantasy scenes."
+version = "0.1.0"
+
+# Tight scope: this agent needs nothing from the shared catalog. Its OWN tools (roll_dice,
+# narrate_scene — shipped in plugins/game-kit) are implicitly allowed and never named here.
+# report_outcome is the one shared tool a scheduled run uses to declare done/blocked/failed.
+[tools]
+allow = ["report_outcome"]

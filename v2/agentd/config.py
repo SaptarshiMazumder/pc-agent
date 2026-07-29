@@ -313,6 +313,14 @@ class Config:
     # agent_messaging: the agent can message OTHER persistent agents and get a reply (message_agent),
     # honoring each agent's [subagents] allow scope. OFF by default.
     agent_messaging_enabled: bool = False  # AGENTD_AGENT_MESSAGING
+    # sandbox_untrusted_plugins: route the UNTRUSTED tool tier (tools that ship inside a marketplace
+    # agent's own package, agents/<id>/plugins/) through a PluginSandbox instead of running them
+    # in-process. OFF by default; the default backend is an in-process passthrough (proves the seam,
+    # no real isolation) until a container/microVM/remote backend is wired. AGENTD_SANDBOX_PLUGINS=1.
+    sandbox_untrusted_plugins: bool = False  # AGENTD_SANDBOX_PLUGINS
+    # sandbox_trusted_plugins: plugin ids to EXEMPT from the sandbox even when the above is on
+    # (local dev convenience for a plugin you author yourself). Never trust a plugin you didn't write.
+    sandbox_trusted_plugins: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -757,6 +765,13 @@ def load_config(path: Path | None = None) -> Config:
         )
     if os.environ.get("AGENTD_AGENT_MESSAGING"):
         cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
+    if os.environ.get("AGENTD_SANDBOX_PLUGINS"):
+        cfg.sandbox_untrusted_plugins = os.environ["AGENTD_SANDBOX_PLUGINS"].lower() not in (
             "0",
             "false",
             "no",
