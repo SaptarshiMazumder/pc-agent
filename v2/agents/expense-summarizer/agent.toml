@@ -7,14 +7,13 @@
 # want it locked down.
 
 name = "Expense Summarizer"
+version = "1.0.0"
 
-# Its OWN app UI (ui/), served by the daemon at /apps/expense-summarizer/ and opened
-# as its own chromeless window (agentd app open expense-summarizer). The UI only
-# INVOKES the agent over the WS protocol — all intelligence stays in this folder's
-# markdown/skills.
-[app]
-title = "Expense Summarizer"
-mode = "window"
+# DISPLAY fields are TOP-LEVEL keys, NOT part of [app]. The registry reads them with
+# data.get(...) and falls back to the generated presentation.json sidecar — so writing
+# them under [app] is silently ignored (TOML scopes them into that table) and the
+# generated values win instead. [app] itself is read for exactly five keys:
+# entry / title / mode / public / public_tools.
 description = "Reads your expense files (bank/card CSVs), totals the month, categorizes spending, and draws charts."
 tagline = "expenses · charts"
 color = "#2E7D32"
@@ -25,3 +24,11 @@ suggestions = [
   "Top 5 merchants by spend this month",
   "Compare June vs July spending by category",
 ]
+
+# Its OWN app UI (ui/), served by the daemon at /apps/expense-summarizer/ and opened
+# as its own chromeless window (agentd app open expense-summarizer). The UI only
+# INVOKES the agent over the WS protocol — all intelligence stays in this folder's
+# markdown/skills.
+[app]
+title = "Expense Summarizer"
+mode = "window"
