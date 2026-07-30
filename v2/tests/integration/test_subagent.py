@@ -9,9 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.messages import AssistantMessage, TextContent
-from agentd.infrastructure.memory.local_store import SessionStore
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.messages import AssistantMessage, TextContent
+from agent_runtime.infrastructure.memory.local_store import SessionStore
 
 
 def _reg(tmp_path):
@@ -22,7 +22,7 @@ def _reg(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spawn_runs_child_and_returns_its_answer(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _FakeService:
         async def handle_message(
@@ -46,7 +46,7 @@ async def test_spawn_runs_child_and_returns_its_answer(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spawn_cap_and_depth_guards(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     gw = Gateway(
         config=SimpleNamespace(state_dir=tmp_path, subagent_max=0),
@@ -63,7 +63,7 @@ async def test_spawn_cap_and_depth_guards(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_depth_configurable(tmp_path):
     """A3: with subagent_max_depth=2, a depth-1 sub may spawn; a depth-2 one may not."""
-    from agentd.presentation.gateway import Gateway, _subagent_depth
+    from agent_runtime.presentation.gateway import Gateway, _subagent_depth
 
     assert _subagent_depth("agent:main:dev") == 0
     assert _subagent_depth("agent:main:sub:1:abc") == 1
@@ -84,7 +84,7 @@ async def test_subagent_depth_configurable(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_allowlist_blocks_unscoped_target(tmp_path):
     """A4: a caller with [subagents] allow may only delegate to matching ids/globs."""
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     reg = SimpleNamespace(
         get=lambda a: SimpleNamespace(state_dir=tmp_path, subagents_allow=("check-*",)),
@@ -103,7 +103,7 @@ async def test_subagent_allowlist_blocks_unscoped_target(tmp_path):
 @pytest.mark.asyncio
 async def test_message_agent_guards(tmp_path):
     """A5: message_agent honors self / unknown / allowlist / loop guards (all pre-run)."""
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     reg = SimpleNamespace(
         get=lambda a: SimpleNamespace(subagents_allow=("check-*",)),
@@ -123,8 +123,8 @@ async def test_message_agent_guards(tmp_path):
 def test_subagent_relay_compacts_meaningful_beats_only():
     # the PARENT-view relay: only start / tool / done / error become a compact subagent_event;
     # raw text/thinking deltas (and tool-end) are dropped so the parent isn't flooded.
-    from agentd.domain.events import AgentEvent
-    from agentd.presentation.gateway import subagent_relay
+    from agent_runtime.domain.events import AgentEvent
+    from agent_runtime.presentation.gateway import subagent_relay
 
     ck = "agent:scout:sub:abcd1234"  # child session key -> agent resolved as "scout"
     start = subagent_relay(ck, AgentEvent("agent_start", {}))

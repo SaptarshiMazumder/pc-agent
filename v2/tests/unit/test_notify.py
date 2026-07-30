@@ -10,14 +10,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.domain.notify import Notification
-from agentd.infrastructure.notify import (
+from agent_runtime.domain.notify import Notification
+from agent_runtime.infrastructure.notify import (
     ClientPushNotifier,
     CompositeNotifier,
     StoreNotifier,
     build_notifier,
 )
-from agentd.infrastructure.tasks import SqliteTaskStore
+from agent_runtime.infrastructure.tasks import SqliteTaskStore
 
 
 def _notif(**over):
@@ -96,7 +96,7 @@ def test_build_notifier_composition(tmp_path):
 
 
 def test_gateway_notifications_list_and_ack(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     store = SqliteTaskStore(tmp_path / "a.sqlite")
     store.save(_notif(agent_id="a", text="one"))
@@ -117,7 +117,7 @@ def test_gateway_notifications_list_and_ack(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gateway_notify_run_builds_notification(tmp_path):
-    from agentd.presentation.gateway import Gateway, RunHandle
+    from agent_runtime.presentation.gateway import Gateway, RunHandle
 
     seen = []
 
@@ -140,7 +140,7 @@ async def test_gateway_notify_run_builds_notification(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gateway_push_notification_frame(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     sent = []
 

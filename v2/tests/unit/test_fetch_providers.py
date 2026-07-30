@@ -10,7 +10,7 @@ from fetch.extract import extract_html, sanitize_url, truncate
 from fetch.factory import build_fetch_providers
 from web_fetch import _CACHE, MIN_USEFUL_CHARS, WebFetchTool
 
-from agentd.application.interfaces.fetch import FetchProvider, FetchResult
+from agent_runtime.application.interfaces.fetch import FetchProvider, FetchResult
 
 LONG = "x" * (MIN_USEFUL_CHARS + 50)
 THIN = "tiny"

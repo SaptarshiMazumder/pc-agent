@@ -21,7 +21,7 @@ rectangle "agentd DAEMON  :8790\n----\nThe ENGINE. Holds NO provider keys, NO ac
 
 rectangle "ACCOUNTS SERVICE  :4100\n----\nOUR identity + tab ledger (the 'State plane').\nSQLite tables: accounts / sessions / usage\nfile: deploy/accounts/app.py" as accounts
 
-rectangle "MODEL PROXY  :4000  (independent LiteLLM service)\n----\nHOLDS: the REAL provider keys + a master key.\nEvery hosted model call flows through here = metering chokepoint.\nfiles: model-proxy/custom_auth.py, litellm.config.yaml,\n       run-local.py, Dockerfile" as proxy
+rectangle "MODEL PROXY  :4000  (independent LiteLLM service)\n----\nHOLDS: the REAL provider keys + a master key.\nEvery hosted model call flows through here = metering chokepoint.\nfiles: model_proxy/custom_auth.py, litellm.config.yaml,\n       run-local.py, Dockerfile" as proxy
 
 cloud "PROVIDERS\nGemini / DeepSeek / Anthropic / ..." as prov
 

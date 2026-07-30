@@ -46,8 +46,8 @@ on:
   push:
     branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
     paths: # only rebuild when something that ships actually changed
-      - "v2/agentd/**"
-      - "v2/model-proxy/**"
+      - "v2/agent_runtime/**"
+      - "v2/model_proxy/**"
       - "v2/deploy/accounts/**"
       - "v2/clients/desktop/**"
       - "v2/deploy/docker/**"
@@ -143,7 +143,7 @@ jobs:
           }
           want() { [ "$DEPLOY_SERVICE" = "all" ] || [ "$DEPLOY_SERVICE" = "$1" ]; }
           if want model-proxy; then
-            build model-proxy v2/model-proxy v2/model-proxy/Dockerfile
+            build model-proxy v2/model_proxy v2/model_proxy/Dockerfile
           fi
           if want accounts; then
             build accounts v2 v2/deploy/docker/Dockerfile.accounts

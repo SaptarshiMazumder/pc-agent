@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rich.console import Console
 
-import agentd.clients.terminal.picker as picker
-from agentd.clients.terminal.__main__ import COMMANDS, command_options, session_options
-from agentd.clients.terminal.picker import Option, filter_options, render_menu, window_bounds
+import agent_runtime.clients.terminal.picker as picker
+from agent_runtime.clients.terminal.__main__ import COMMANDS, command_options, session_options
+from agent_runtime.clients.terminal.picker import Option, filter_options, render_menu, window_bounds
 
 OPTS = [
     Option(value="term-aaa", label="term-aaa", detail="16 msgs · 2023-11-14"),

@@ -1,5 +1,5 @@
 /**
- * Wire protocol types — the TS mirror of agentd/presentation/protocol.py and the payloads in
+ * Wire protocol types — the TS mirror of agent_runtime/presentation/protocol.py and the payloads in
  * docs/PROTOCOL.md. Additive server fields are always allowed; clients ignore what they don't know.
  */
 

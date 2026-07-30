@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application import capabilities as cap
-from agentd.application.descriptions import first_meaningful_line
+from agent_runtime.application import capabilities as cap
+from agent_runtime.application.descriptions import first_meaningful_line
 
 
 # ---- the shared fallback helper --------------------------------------------------
@@ -31,7 +31,7 @@ def test_first_line_blank_and_truncation():
 
 # ---- agent description resolver (fallback chain) ---------------------------------
 def _registry(tmp_path, agents: dict):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     adir = tmp_path / "agents"
     for aid, files in agents.items():
@@ -113,7 +113,7 @@ def test_descriptor_producers_shape():
 
 # ---- the model-facing roster (gate + allowlist) ----------------------------------
 def _service(registry):
-    from agentd.application.services.agent_service import AgentService
+    from agent_runtime.application.services.agent_service import AgentService
 
     svc = object.__new__(AgentService)  # only _registry is used by the roster method
     svc._registry = registry

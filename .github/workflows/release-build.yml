@@ -24,10 +24,10 @@ jobs:
         working-directory: v2
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must match agentd/__init__.py and package.json
+      - name: Tag must match agent_runtime/__init__.py and package.json
         run: |
           TAG="${GITHUB_REF_NAME#v}"                                          # v1.2.3 -> 1.2.3
-          PYVER=$(grep '__version__' agentd/__init__.py | head -1 | cut -d'"' -f2)
+          PYVER=$(grep '__version__' agent_runtime/__init__.py | head -1 | cut -d'"' -f2)
           NPMVER=$(grep '"version"' clients/desktop/package.json | head -1 | cut -d'"' -f4)
           echo "tag=$TAG  agentd=$PYVER  package.json=$NPMVER"
           if [ "$TAG" != "$PYVER" ] || [ "$TAG" != "$NPMVER" ]; then

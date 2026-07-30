@@ -17,13 +17,13 @@ import os
 import sys
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.domain.messages import ImageContent, TextContent
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.domain.messages import ImageContent, TextContent
 
 # document text extraction (docx/pdf/xlsx/pptx) — one source of truth, shared with the
 # Resource Manager describer so both read & describe documents the same way.
-from agentd.infrastructure.documents import EXTRACTORS as _EXTRACTORS
+from agent_runtime.infrastructure.documents import EXTRACTORS as _EXTRACTORS
 
 log = logging.getLogger("agentd")
 

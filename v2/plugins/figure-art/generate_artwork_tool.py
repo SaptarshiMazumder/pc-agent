@@ -18,10 +18,14 @@ from pathlib import Path
 
 import figure_art_gemini as gem
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import resolve_tool_model, resolve_tool_provider, tool_config
-from agentd.domain.messages import ImageContent, TextContent
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.tool_models import (
+    resolve_tool_model,
+    resolve_tool_provider,
+    tool_config,
+)
+from agent_runtime.domain.messages import ImageContent, TextContent
 
 # The "no-text" half — ALWAYS appended (textless is the whole point; labels are the vector overlay).
 # Kept SEPARATE from style so a rich style can never be diluted by a "flat" directive.

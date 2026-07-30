@@ -39,7 +39,7 @@ partition "1 . HOSTED ACCOUNTS SERVICE :4100 - deploy/accounts/app.py" #FFF0F0 {
 
 partition "0 . DESKTOP STARTUP + CLOUD MODE BINDING" #E8F0FE {
   :save Session in desktop localStorage;
-  :**Supervisor.ensure()**  (supervisor.ts)\nfind or spawn LOCAL `python -m agentd`;
+  :**Supervisor.ensure()**  (supervisor.ts)\nfind or spawn LOCAL `python -m agent_runtime`;
   :**GatewayClient.connect()** to localhost :8787\nusing the daemon's separate machine token;
   :Cloud mode -> **connectPlatform()**  (store.ts)\n`GatewayClient.request("platform.connect", {sess_ token})`;
 }
@@ -108,7 +108,7 @@ repeat
     :**model_proxy.apply(kwargs)**\nmodel = litellm_proxy/<model>\napi_base = hosted Model Proxy\napi_key = sess_ token;
   }
 
-  partition "10 . HOSTED MODEL PROXY :4000 - v2/model-proxy" #FFF0F0 {
+  partition "10 . HOSTED MODEL PROXY :4000 - v2/model_proxy" #FFF0F0 {
     :receive OpenAI-compatible streaming completion;
     :**custom_auth.user_api_key_auth()**\nmaster key? NO -> session-token path;
   }

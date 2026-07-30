@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.sandbox import DENY_ALL, CapabilityGrant, PluginOrigin
-from agentd.infrastructure.tools.sandbox import (
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.sandbox import DENY_ALL, CapabilityGrant, PluginOrigin
+from agent_runtime.infrastructure.tools.sandbox import (
     DefaultCapabilityResolver,
     LocalPluginSandbox,
     SandboxedTool,

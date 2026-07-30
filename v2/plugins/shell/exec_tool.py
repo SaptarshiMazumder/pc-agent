@@ -14,9 +14,9 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import tool_config
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.tool_models import tool_config
 
 OUTPUT_CAP = 50_000
 

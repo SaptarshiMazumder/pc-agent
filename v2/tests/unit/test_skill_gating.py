@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.skills import Skill
-from agentd.infrastructure.prompt import _advertise_skills
-from agentd.infrastructure.skills.file_skills import load_skills_dir, skill_eligible
+from agent_runtime.application.interfaces.skills import Skill
+from agent_runtime.infrastructure.prompt import _advertise_skills
+from agent_runtime.infrastructure.skills.file_skills import load_skills_dir, skill_eligible
 
 # ── requires gate ────────────────────────────────────────────────────────────
 
@@ -88,6 +88,6 @@ def test_skills_section_applies_budget():
 
 
 def build_skills(skills, cfg):
-    from agentd.infrastructure.prompt import _skills_section
+    from agent_runtime.infrastructure.prompt import _skills_section
 
     return _skills_section(skills, cfg) or ""

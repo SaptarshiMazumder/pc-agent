@@ -1,7 +1,7 @@
 """Hatch build hook: ship the built-in content INSIDE the package for WHEEL builds.
 
 The wheel must carry the built-in plugin bundles and starter data in-package
-(agentd/_builtin_plugins, agentd/_data) — their presence is runtime_paths'
+(agent_runtime/_builtin_plugins, agent_runtime/_data) — their presence is runtime_paths'
 packaged-mode marker. A checkout must NEVER contain those dirs (that would flip dev
 installs into packaged mode), so nothing is staged inside the repo: a filtered copy
 goes to a TEMP directory and is mapped into the wheel via ``build_data
@@ -64,8 +64,8 @@ class BuiltinsStagingHook(BuildHookInterface):
             _copy_filtered(starter_skills, data_dst / "agents" / "main" / "skills")
 
         force_include = build_data.setdefault("force_include", {})
-        force_include[str(builtins_dst)] = "agentd/_builtin_plugins"
-        force_include[str(data_dst)] = "agentd/_data"
+        force_include[str(builtins_dst)] = "agent_runtime/_builtin_plugins"
+        force_include[str(data_dst)] = "agent_runtime/_data"
         self.app.display_info(
             f"agentd wheel: staged {plugin_count} built-in plugin file(s) + starter data"
         )

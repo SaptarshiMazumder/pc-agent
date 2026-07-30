@@ -1,5 +1,5 @@
 /**
- * Declarative schema for the Settings page. Each tab groups the daemon's agentd.config
+ * Declarative schema for the Settings page. Each tab groups the daemon's agent_runtime.config
  * knobs (and a few client-only + provider-key fields) into cards, and SettingsView renders
  * every field from this description with one generic control per `type`. Add a knob here —
  * no new component — and it shows up, edits a draft, and saves through config.set.

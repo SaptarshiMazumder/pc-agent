@@ -11,12 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from skill_tool import SkillWorkshopTool
 
-from agentd.application import run_context as rc
-from agentd.application.interfaces.skills import Skill
-from agentd.application.run_context import RunContext
-from agentd.domain.agent import merge_skills, select_skills
-from agentd.infrastructure.agents import FileAgentRegistry
-from agentd.infrastructure.skills.file_skills import load_skills_dir
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.interfaces.skills import Skill
+from agent_runtime.application.run_context import RunContext
+from agent_runtime.domain.agent import merge_skills, select_skills
+from agent_runtime.infrastructure.agents import FileAgentRegistry
+from agent_runtime.infrastructure.skills.file_skills import load_skills_dir
 
 
 def _skill(name, desc="d"):

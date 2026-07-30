@@ -22,8 +22,8 @@ __pycache__/
 tmp/
 
 # wheel-build staging (hatch hook) — presence of these flips packaged mode; never commit
-agentd/_builtin_plugins/
-agentd/_data/
+agent_runtime/_builtin_plugins/
+agent_runtime/_data/
 
 # wheel build artifacts
 dist/

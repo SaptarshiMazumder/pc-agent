@@ -1,4 +1,4 @@
-"""WhatsApp-style time labels (agentd.clients.timefmt) — the shared display rules."""
+"""WhatsApp-style time labels (agent_runtime.clients.timefmt) — the shared display rules."""
 
 import sys
 from datetime import datetime
@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.clients.timefmt import whatsapp_day, whatsapp_when
+from agent_runtime.clients.timefmt import whatsapp_day, whatsapp_when
 
 NOW = datetime(2026, 7, 5, 18, 0).timestamp()  # Sunday 5 July 2026, 18:00
 

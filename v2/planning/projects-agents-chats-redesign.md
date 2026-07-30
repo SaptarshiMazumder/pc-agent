@@ -1,7 +1,7 @@
 # Projects / Agents / Chats redesign — implementation plan
 
 > **Status:** APPROVED to build (user said "i want this all to be built"). Not started.
-> **Owner context:** desktop client (`v2/clients/desktop`) + gateway (`v2/agentd`).
+> **Owner context:** desktop client (`v2/clients/desktop`) + gateway (`v2/agent_runtime`).
 > **How to use this doc:** this is the single source of truth after context compaction.
 > Read it top-to-bottom before implementing. Build in the phase order in §9. Update the
 > checkboxes in §9 as you go.
@@ -75,7 +75,7 @@ Two layers, built in order:
   dark toggle, lime via tokens; font-weight tokens `--fw-*` (dark redefines lighter, Segoe UI has no
   500 face). NEVER auto-commit.
 
-### Gateway (`v2/agentd/presentation/gateway.py`)
+### Gateway (`v2/agent_runtime/presentation/gateway.py`)
 - RPC dispatch in `_dispatch`. Existing session/project RPCs: `sessions.list`, `sessions.history`,
   `sessions.rename`, `sessions.delete`, `sessions.move` (writes `projectId` to meta),
   `sessions.duplicate`, `projects.list`, `projects.create`, `projects.rename`, `projects.delete`,
@@ -392,7 +392,7 @@ Store/Settings views). Respect `--fw-*` tokens, soft-scroll, tooltips.
       "Delegation directive" to the system prompt telling the agent to `message_agent(agent=<id>, …)`
       and weave the replies in. Fires ONLY when the message_agent tool is really in the toolset —
       a mention degrades to plain text otherwise (no false capability). Composer `+` menu inserts
-      `@Name`. Config: `agent_messaging_enabled: true` added to `v2/agentd.config.json`.
+      `@Name`. Config: `agent_messaging_enabled: true` added to `v2/agent_runtime.config.json`.
 - [x] Verified by `tests/test_layer_b.py` (mention matching, inheritance, RPCs).
 
 ### Phase B3 — project-scoped workspace binding (file ownership — §11) ✅ DONE
@@ -448,9 +448,9 @@ project's workspace or the agent's own? And how does the agent "know"?
   path). Every agent gets its own isolated dir "so files never collide."
 - The run hands that to tools at ONE seam: `agent_service.handle_message` →
   `set_run_context(RunContext(..., workspace=str(agent.workspace)))`
-  ([agent_service.py:139-141](v2/agentd/application/services/agent_service.py#L139)).
+  ([agent_service.py:139-141](v2/agent_runtime/application/services/agent_service.py#L139)).
 - Every file/exec tool reads the root from ONE chokepoint: `run_context.current_workspace(default)`
-  ([run_context.py:37](v2/agentd/application/run_context.py#L37)). Tools only ever use **relative**
+  ([run_context.py:37](v2/agent_runtime/application/run_context.py#L37)). Tools only ever use **relative**
   paths — they never choose a root.
 - **Projects own no files today** — a project is just `{id,name,createdAt}` + a `projectId` tag on
   sessions. Zero filesystem presence.

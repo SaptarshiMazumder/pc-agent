@@ -28,7 +28,7 @@ title Desktop Client - LOCAL Mode (BYOK)\nExact request flow through agentd's Pr
 start
 
 partition "0 . DESKTOP STARTUP - Electron main + renderer" #E8F0FE {
-  :**Supervisor.ensure()**  (supervisor.ts)\nread ~/.agentd/gateway.json;\nif absent/stale, spawn embedded `python -m agentd`;
+  :**Supervisor.ensure()**  (supervisor.ts)\nread ~/.agentd/gateway.json;\nif absent/stale, spawn embedded `python -m agent_runtime`;
   :return local WebSocket URL + rotating machine token;
   :**GatewayClient.connect()**  (client.ts)\nconnect to ws://127.0.0.1:8787/?token=<machine-token>;
   :Local mode selected -> **connectPlatform()**  (store.ts)\nsends RPC `platform.disconnect`;

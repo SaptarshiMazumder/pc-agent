@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentd.application.run_context import current_workspace
+from agent_runtime.application.run_context import current_workspace
 
 EMU_PER_PX = 9525   # 914400 EMU/inch / 96 px/inch
 

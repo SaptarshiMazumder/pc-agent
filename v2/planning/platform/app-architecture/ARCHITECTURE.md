@@ -90,7 +90,7 @@ agentd/
 └── main/                    # composition root
     ├── config.py            # Config (engine, model/tier, memory backend, paths, endpoints)
     ├── container.py         # build implementations from config + wire into the use-cases
-    └── main.py              # entrypoint: python -m agentd
+    └── main.py              # entrypoint: python -m agent_runtime
 
 # content (data, not code) — lives beside the package, not inside it:
 skills/                      # one folder per skill, each with a SKILL.md playbook

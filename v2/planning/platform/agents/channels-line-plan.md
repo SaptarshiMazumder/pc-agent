@@ -43,7 +43,7 @@ audience's policy + agent + tool-scope declarative and isolated. See `agent-chan
 The word "restaurant" must appear **nowhere** in the platform code. We ship generic
 primitives; a restaurant is *assembled* from them at deploy time.
 
-| We build (generic platform code, `v2/agentd/`) | NOT built — tenant content (config + data) |
+| We build (generic platform code, `v2/agent_runtime/`) | NOT built — tenant content (config + data) |
 |---|---|
 | `LineChannel` (generic LINE transport), `WebhookServer`, `policy` gate, session router, command router | The **`restaurant` agent** = a directory `agents/restaurant/` (`agent.toml` + `IDENTITY.md`) — like the existing `cost-calc`/`expense-calc` agent dirs |
 | MCP support + notify (already exist) | The **menu/hours/persona** = text in `IDENTITY.md`; the **owner setup** = `config.channels[]` entries |
@@ -123,7 +123,7 @@ L1–L3 + O1–O2 below; after that, new channels/roles/tenants are **config + a
 ## Tier R — Assemble a restaurant (CONFIG + DATA, not platform code)
 
 > Not build steps for the codebase — this is the operator runbook for standing up one tenant
-> from the generic primitives. The only thing that could touch `v2/agentd/` here is a *generic*
+> from the generic primitives. The only thing that could touch `v2/agent_runtime/` here is a *generic*
 > notify/handoff tool **if** one doesn't already exist (and it's generic, never "restaurant").
 
 - ☐ **R1. `restaurant` agent directory** (data). `agents/restaurant/agent.toml` + `IDENTITY.md`,

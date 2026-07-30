@@ -9,7 +9,7 @@ from search.providers.brave import BraveProvider
 from search.providers.duckduckgo import DuckDuckGoProvider
 from search.providers.gemini import GeminiGroundingProvider
 
-from agentd.application.interfaces.search import SearchProvider, SearchResult
+from agent_runtime.application.interfaces.search import SearchProvider, SearchResult
 
 
 def test_providers_satisfy_port():

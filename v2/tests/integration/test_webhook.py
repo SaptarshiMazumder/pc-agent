@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.domain.channels import InboundMessage
-from agentd.infrastructure.channels.line_channel import LineChannel
-from agentd.infrastructure.channels.webhook import WebhookServer
+from agent_runtime.domain.channels import InboundMessage
+from agent_runtime.infrastructure.channels.line_channel import LineChannel
+from agent_runtime.infrastructure.channels.webhook import WebhookServer
 
 
 class _Req:

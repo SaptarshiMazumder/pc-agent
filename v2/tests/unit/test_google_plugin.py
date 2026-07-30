@@ -82,7 +82,7 @@ def test_register_contributes_the_section():
 
 
 def test_emitted_through_build_system_prompt():
-    from agentd.infrastructure.prompt import build_system_prompt
+    from agent_runtime.infrastructure.prompt import build_system_prompt
 
     p = build_system_prompt(
         _cfg(), [_tool("google__gmail_send")], "m", agent=_agent(), plugin_sections=[google_section]

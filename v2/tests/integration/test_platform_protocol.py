@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.events import AgentEvent
-from agentd.presentation.gateway import PROTOCOL_VERSION, Gateway
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.presentation.gateway import PROTOCOL_VERSION, Gateway
 
 
 def _gw(tmp_path) -> Gateway:
@@ -85,11 +85,11 @@ def test_broadcast_falls_back_to_default_agent(tmp_path):
 # =============================== P2: app hosting + scoping ===================================
 from urllib.parse import urlsplit  # noqa: E402
 
-from agentd.presentation.gateway import (  # noqa: E402
+from agent_runtime.presentation.gateway import (  # noqa: E402
     APP_SCOPED_METHODS,
     _scoped_event_allowed,
 )
-from agentd.presentation.protocol import Request  # noqa: E402
+from agent_runtime.presentation.protocol import Request  # noqa: E402
 
 
 def _app_agent_dir(tmp_path, agent_id="demo") -> SimpleNamespace:
@@ -125,7 +125,7 @@ def _gw_with_agent(tmp_path, spec) -> Gateway:
 
 # ---- [app] parsing (file registry) ----------------------------------------------------------
 def test_agent_toml_app_section_parsed(tmp_path):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     d = tmp_path / "agents" / "consoleapp"
     (d / "ui").mkdir(parents=True)
@@ -155,7 +155,7 @@ def test_agent_toml_app_section_parsed(tmp_path):
 def test_agent_toml_app_mode_declared_and_normalized(tmp_path):
     """[app] mode: the AUTHOR declares how openers present the app — "window" (its own
     chromeless window) or "browser" (a tab, the default); junk falls back to browser."""
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     agents = tmp_path / "agents"
     for aid, mode_line in (("winapp", 'mode = "window"'), ("junkapp", 'mode = "kiosk"')):
@@ -292,7 +292,7 @@ class _FakeTool:
     artifact_action = None  # NOT a canvas-action tool — host invoke must refuse it
 
     async def execute(self, _id, params, _abort):
-        from agentd.application.run_context import current_run_context
+        from agent_runtime.application.run_context import current_run_context
 
         ctx = current_run_context()
         return SimpleNamespace(
@@ -328,9 +328,9 @@ def test_tools_invoke_scoped_runs_agent_allowed_tool(tmp_path):
 
 # ---- agentd app open: entry point mints the URL and AUTO-STARTS the daemon --------------------
 def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
-    from agentd import lifecycle
-    from agentd.cli import rpc
-    from agentd.cli.commands import app as app_cmd
+    from agent_runtime import lifecycle
+    from agent_runtime.cli import rpc
+    from agent_runtime.cli.commands import app as app_cmd
 
     info = lifecycle.GatewayInfo(host="127.0.0.1", port=8787, pid=1, token="TOK")
     ensured = {"called": False}
@@ -368,7 +368,7 @@ def test_app_open_window_prefers_app_window_and_falls_back(monkeypatch):
     import subprocess
     import webbrowser
 
-    from agentd.cli.commands import app as app_cmd
+    from agent_runtime.cli.commands import app as app_cmd
 
     URL = "http://127.0.0.1:8787/apps/demo/?x=1"
     real_find = app_cmd._find_chromium  # keep the real one for the env-override check
@@ -416,7 +416,7 @@ def test_app_open_window_prefers_app_window_and_falls_back(monkeypatch):
 def test_agents_create_scaffolds_app_agent(tmp_path):
     """registry.create(app="window"): the new agent ships [app] mode="window" + a starter
     ui/ page — an OPENABLE app agent the moment it exists, advertised with its mode."""
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     cfg = SimpleNamespace(
         state_dir=str(tmp_path / "state"),
@@ -451,8 +451,8 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
     .agentpkg, unpack it into a fresh agents_dir (= install), and the app agent works from there —
     [app] parsed (mode included), ui served. Built products (clients/) and user data never ride
     inside the package. 'Anyone can ship a child client' as one file."""
-    from agentd.domain.bundle import BundleManifest
-    from agentd.infrastructure.marketplace.bundle_io import (
+    from agent_runtime.domain.bundle import BundleManifest
+    from agent_runtime.infrastructure.marketplace.bundle_io import (
         pack_bundle,
         read_manifest,
         unpack_bundle,
@@ -483,7 +483,7 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
     assert not (installed / "clients").exists()  # built products never ship in the source artifact
 
     # the installed copy is a working app agent: registry parses [app], the gateway serves it
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     cfg = SimpleNamespace(
         state_dir=str(tmp_path / "state"),
@@ -514,11 +514,11 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
 # connections scoped to it, limited to PUBLIC_APP_METHODS and the author-declared
 # `public_tools` subset. config.app_hosts maps a vanity hostname to an agent so each curated
 # agent lives at its own URL. Both are fully dormant by default (no opt-in, empty map).
-from agentd.presentation.gateway import PUBLIC_APP_METHODS  # noqa: E402
+from agent_runtime.presentation.gateway import PUBLIC_APP_METHODS  # noqa: E402
 
 
 def test_agent_toml_app_public_parsed(tmp_path):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     d = tmp_path / "agents" / "pubapp"
     (d / "ui").mkdir(parents=True)

@@ -6,8 +6,8 @@ carries the auth token) and speaks the chat.send / chat.event JSON protocol. The
 share NO server code — a client could be written in any language.
 
 - terminal/  — shim; the Python terminal REPL lives IN the package now
-               (agentd/clients/terminal, ships with the wheel).
+               (agent_runtime/clients/terminal, ships with the wheel).
                Run: `agentd chat`  (or `python -m clients.terminal` from a checkout)
 - desktop/   — the Electron shell (chat + agents + STORE + daemon supervisor).
                Run: `cd clients/desktop && npm run dev`. See its README.
-- watch.py   — shim; event-log tail moved to agentd/clients/watch.
+- watch.py   — shim; event-log tail moved to agent_runtime/clients/watch.

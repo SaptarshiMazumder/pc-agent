@@ -12,8 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.events import AgentEvent
-from agentd.infrastructure.events import FileEventLog, build_event_log
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.infrastructure.events import FileEventLog, build_event_log
 
 
 def _records(path: Path):
@@ -72,7 +72,7 @@ def test_build_event_log_gated_by_flag(tmp_path):
 @pytest.mark.asyncio
 async def test_gateway_feeds_the_event_log(tmp_path):
     # the gateway's on_event sink forwards every event to the injected event log
-    from agentd.presentation.gateway import Gateway, RunHandle
+    from agent_runtime.presentation.gateway import Gateway, RunHandle
 
     recorded = []
 

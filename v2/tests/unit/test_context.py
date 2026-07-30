@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import AssistantMessage, TextContent, UserMessage
-from agentd.infrastructure.context import WindowContextPolicy
+from agent_runtime.domain.messages import AssistantMessage, TextContent, UserMessage
+from agent_runtime.infrastructure.context import WindowContextPolicy
 
 
 def _a(t):

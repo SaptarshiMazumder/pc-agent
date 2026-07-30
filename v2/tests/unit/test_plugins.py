@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.plugins import (
+from agent_runtime.infrastructure.plugins import (
     discover_plugin_contributions,
     discover_plugin_tools,
     load_manifest,
@@ -298,7 +298,7 @@ def test_entitlement_fails_open_on_error(tmp_path):
 
 
 def test_default_entitlement_allows_all(tmp_path):
-    from agentd.infrastructure.plugins import AllowAllEntitlement
+    from agent_runtime.infrastructure.plugins import AllowAllEntitlement
 
     pdir = _make_plugin(tmp_path, pid="ent3", mod="agentd_ent3_mod")
     tools = discover_plugin_contributions(_cfg(pdir), None, AllowAllEntitlement())[0]

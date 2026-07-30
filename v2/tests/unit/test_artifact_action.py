@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.plugins.catalog import catalog_from_tools
+from agent_runtime.infrastructure.plugins.catalog import catalog_from_tools
 
 
 class _Tool:
@@ -60,7 +60,7 @@ class _Gate:
         )
 
     # bind the real method so we test the actual gating/return logic
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     _tools_invoke = Gateway._tools_invoke
 
@@ -70,7 +70,7 @@ class _ActionTool:
     artifact_action = {"mime": ["image/png"], "label": "Go", "param": "image"}
 
     async def execute(self, call_id, params, abort, on_update=None):
-        from agentd.application.interfaces.tool import ToolResult
+        from agent_runtime.application.interfaces.tool import ToolResult
 
         # echo the path back as if it produced an artifact (path need not exist -> dropped, fine)
         return ToolResult.text(f"ran on {params.get('image')}", artifacts=[])
@@ -81,7 +81,7 @@ class _NoActionTool:
     artifact_action = {}
 
     async def execute(self, call_id, params, abort, on_update=None):
-        from agentd.application.interfaces.tool import ToolResult
+        from agent_runtime.application.interfaces.tool import ToolResult
 
         return ToolResult.text("ok")
 

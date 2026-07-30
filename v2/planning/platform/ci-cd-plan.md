@@ -5,7 +5,7 @@
 ## Phase 4 completion notes
 
 - **`release-build.yml`** (trigger `on: push: tags: ['v*']`, `concurrency cancel-in-progress: false`, `permissions: contents: write`). 4 chained jobs = the 5-step assembly line:
-  - `version-check` (ubuntu): tag `${GITHUB_REF_NAME#v}` must equal `agentd/__init__.py __version__` AND desktop `package.json version` — portable `grep|cut` (NOT `grep -P`, which dies on Git Bash's non-UTF-8 locale). ✅ validated locally.
+  - `version-check` (ubuntu): tag `${GITHUB_REF_NAME#v}` must equal `agent_runtime/__init__.py __version__` AND desktop `package.json version` — portable `grep|cut` (NOT `grep -P`, which dies on Git Bash's non-UTF-8 locale). ✅ validated locally.
   - `wheel` (ubuntu): `pip install build` → `python -m build --wheel` → upload `wheel` artifact. ✅ built locally (640 KB, hatch hook staged 118 plugin files + data).
   - `installers` (windows): download `wheel` → `build-runtime.ps1 -Wheel <path>` (embeds CPython 3.11.11 + wheel + mcp) → `npm run dist:core` + `dist:studio` → upload `installers`. NOT dry-runnable locally.
   - `publish` (ubuntu): download all → `gh release create`/`upload --clobber` (idempotent; `find -print0 | xargs -0` handles spaces in `.exe` names).
@@ -93,7 +93,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
   - Unit tests (Stage 1): `ubuntu-latest` — fast/cheap; conftest already guards the Windows proactor loop with `if sys.platform == "win32"`.
   - Optional `windows-latest` on push-to-develop only (exercise Windows paths without burning PR minutes).
   - Release build (Stage 3): **`windows-latest` mandatory** — `build-runtime.ps1` is PowerShell, target is NSIS.
-- [x] **0.5** Version single-source-of-truth decided: **git tag `vX.Y.Z` wins.** Stage 3 `version-check` job fails the build unless `agentd/__init__.py` `__version__` (`0.1.0`) and desktop `package.json` `version` (`0.1.0`) both equal the tag.
+- [x] **0.5** Version single-source-of-truth decided: **git tag `vX.Y.Z` wins.** Stage 3 `version-check` job fails the build unless `agent_runtime/__init__.py` `__version__` (`0.1.0`) and desktop `package.json` `version` (`0.1.0`) both equal the tag.
 
 ---
 
@@ -150,7 +150,7 @@ The desktop installer **embeds** the Python daemon: `build-runtime.ps1` installs
 *Produces the shippable artifacts. The chained build.*
 
 - [ ] **4.1** Triggers: `push` tags `v*` + `workflow_dispatch`.
-- [ ] **4.2** Job `version-check`: parse tag `vX.Y.Z`; fail unless `agentd/__init__.py` `__version__` **and** desktop `package.json` `version` both equal `X.Y.Z` (enforces 0.5).
+- [ ] **4.2** Job `version-check`: parse tag `vX.Y.Z`; fail unless `agent_runtime/__init__.py` `__version__` **and** desktop `package.json` `version` both equal `X.Y.Z` (enforces 0.5).
 - [ ] **4.3** Job `wheel` (`ubuntu-latest`): `pip install build` → `python -m build --wheel` from `v2/`. Runs the custom hatch hook [scripts/hatch_build.py](../../scripts/hatch_build.py) (stages `_builtin_plugins` + `_data` into the wheel). Upload the `.whl` artifact.
 - [ ] **4.4** Job `installer` (`windows-latest`, `needs: [wheel]`), matrix over flavor (`core`, `figure-creator-studio`):
   1. Download the wheel artifact.

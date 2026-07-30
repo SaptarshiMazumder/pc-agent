@@ -12,8 +12,8 @@ import asyncio
 import zipfile
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
 
 
 def _human(n: float) -> str:

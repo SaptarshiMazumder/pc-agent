@@ -8,9 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.config import Config, McpServerConfig
-from agentd.presentation import gateway as gw_mod
-from agentd.presentation.gateway import Gateway, _persist_mcp_servers, _server_dict
+from agent_runtime.config import Config, McpServerConfig
+from agent_runtime.presentation import gateway as gw_mod
+from agent_runtime.presentation.gateway import Gateway, _persist_mcp_servers, _server_dict
 
 
 class _Tool:

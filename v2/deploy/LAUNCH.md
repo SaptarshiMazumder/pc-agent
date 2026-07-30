@@ -17,7 +17,7 @@ $env:ACCOUNTS_INTERNAL_KEY = "devinternal"
 
 # terminal 2 — model proxy (custom auth ON)
 $env:ACCOUNTS_URL = "http://127.0.0.1:4100"; $env:ACCOUNTS_INTERNAL_KEY = "devinternal"
-.\.venv\Scripts\python.exe v2\model-proxy\run-local.py
+.\.venv\Scripts\python.exe v2\model_proxy\run-local.py
 
 # terminal 3 — local signed registry
 .\.venv\Scripts\python.exe v2\deploy\registry\publish.py --key <keypair.json> --serve
@@ -39,7 +39,7 @@ row, master key → trusted.)
 ## 1. Publisher keypair (once, keep OUTSIDE the repo)
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from agentd.cli.main import main; main()" bundle keygen --out C:\keys\agentd-publisher-key.json
+.\.venv\Scripts\python.exe -c "from agent_runtime.cli.main import main; main()" bundle keygen --out C:\keys\agentd-publisher-key.json
 ```
 
 Success: prints the base64 PUBLIC key → paste it as `publisher_key` in the flavors
@@ -92,7 +92,7 @@ aws secretsmanager put-secret-value --secret-id agentd/dev/app --secret-string '
 ```powershell
 aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <acct>.dkr.ecr.ap-northeast-1.amazonaws.com
 
-docker build -t <ecr>/model-proxy:latest -f model-proxy/Dockerfile model-proxy
+docker build -t <ecr>/model-proxy:latest -f model_proxy/Dockerfile model_proxy
 docker build -t <ecr>/accounts:latest -f deploy/docker/Dockerfile.accounts .
 docker push <ecr>/model-proxy:latest; docker push <ecr>/accounts:latest
 

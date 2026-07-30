@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.skills import Skill
-from agentd.infrastructure.skills.relevance import rank_skills_by_relevance
+from agent_runtime.application.interfaces.skills import Skill
+from agent_runtime.infrastructure.skills.relevance import rank_skills_by_relevance
 
 
 def _sk(name, always=False):
@@ -64,7 +64,7 @@ def test_fails_open_on_embed_error():
 def test_build_embed_fn_none_unless_enabled_and_model():
     from types import SimpleNamespace
 
-    from agentd.infrastructure.skills.relevance import build_skill_embed_fn
+    from agent_runtime.infrastructure.skills.relevance import build_skill_embed_fn
 
     def _cfg(enabled, model):
         plugins = {"skills": {"tools": {"relevance": {"model": model}}}} if model else {}

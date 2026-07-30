@@ -1,6 +1,6 @@
 """Built-in 'web' bundle — web_search + web_fetch and their provider subpackages (search/, fetch/).
 
-Migrated out of agentd core. The search/fetch PROVIDER interfaces stay in agentd.application
+Migrated out of agentd core. The search/fetch PROVIDER interfaces stay in agent_runtime.application
 (inner layer); their concrete providers + the tools live here. web_fetch's browser-render provider
 gets the shared browser via DI (``ctx.browser``) — None when the browser subsystem is off, in which
 case it falls back to plain httpx fetching.

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from verify_tool import VerifyTool
 
-from agentd.application.interfaces.verifier import Verdict
+from agent_runtime.application.interfaces.verifier import Verdict
 
 
 class _StubVerifier:
@@ -51,7 +51,7 @@ def test_verify_tool_registered_only_when_enabled():
     # lives in the plugin's register(), so assert against that directly.
     import verify_plugin
 
-    from agentd.config import load_config
+    from agent_runtime.config import load_config
 
     class _Api:
         def __init__(self):

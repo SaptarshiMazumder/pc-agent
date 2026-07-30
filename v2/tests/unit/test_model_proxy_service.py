@@ -1,4 +1,4 @@
-"""Contract tests for the independently packaged ``v2/model-proxy`` service."""
+"""Contract tests for the independently packaged ``v2/model_proxy`` service."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 
 def _load_auth_module():
-    path = Path(__file__).resolve().parents[2] / "model-proxy" / "custom_auth.py"
+    path = Path(__file__).resolve().parents[2] / "model_proxy" / "custom_auth.py"
     spec = importlib.util.spec_from_file_location("agentd_model_proxy_custom_auth", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

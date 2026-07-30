@@ -1,6 +1,6 @@
 # agentd packaging (M1). `pip install .` (or pipx/uv tool install) gives the `agentd`
 # and `jarvis` commands. The wheel carries the built-in plugin bundles + starter data
-# INSIDE the package (agentd/_builtin_plugins, agentd/_data — staged by the build hook,
+# INSIDE the package (agent_runtime/_builtin_plugins, agent_runtime/_data — staged by the build hook,
 # never present in a checkout, which is exactly how runtime_paths detects the mode).
 # An editable install (`pip install -e .`) stays in repo mode on purpose.
 
@@ -9,6 +9,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
+# The DIST name stays `agentd` — it is the product/CLI identity and the wheel glob
+# (`agentd-*.whl`) used by deploy/docker/Dockerfile, release-build.yml and
+# clients/desktop/scripts/build-runtime.ps1. Only the IMPORT package is agent_runtime.
 name = "agentd"
 dynamic = ["version"]
 description = "agentd — a local agent daemon: one gateway, many agents, plugins, skills, and a marketplace."
@@ -67,14 +70,14 @@ all = ["agentd[computer,mcp,figures-vector]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "ruff>=0.6", "mypy>=1.11", "agentd[all]"]
 
 [project.scripts]
-agentd = "agentd.cli.main:main"
-jarvis = "agentd.cli.main:main"
+agentd = "agent_runtime.cli.main:main"
+jarvis = "agent_runtime.cli.main:main"
 
 [tool.hatch.version]
-path = "agentd/__init__.py"
+path = "agent_runtime/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agentd"]
+packages = ["agent_runtime"]
 exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
@@ -82,7 +85,7 @@ path = "scripts/hatch_build.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "agentd",
+    "agent_runtime",
     "plugins",
     "agents/main/skills",
     "SOUL.md",
@@ -129,11 +132,11 @@ ignore = [
 # --- mypy: static type checking (start lenient, scoped to core; ratchet later) -
 [tool.mypy]
 python_version = "3.11"
-files = ["agentd"]
+files = ["agent_runtime"]
 ignore_missing_imports = true    # don't error on untyped 3rd-party libs (litellm, etc.)
 check_untyped_defs = false
 warn_return_any = false
 warn_unused_ignores = false
 no_implicit_optional = true
-exclude = ['agentd/_builtin_plugins/', 'agentd/_data/']
+exclude = ['agent_runtime/_builtin_plugins/', 'agent_runtime/_data/']
 

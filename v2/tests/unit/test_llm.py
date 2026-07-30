@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import (
+from agent_runtime.domain.messages import (
     AssistantMessage,
     TextContent,
     ThinkingContent,
@@ -19,7 +19,7 @@ from agentd.domain.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from agentd.infrastructure.llm.litellm import (
+from agent_runtime.infrastructure.llm.litellm import (
     _ToolCallAccumulator,
     litellm_stream,
     messages_to_litellm,
@@ -78,7 +78,7 @@ def test_drops_placeholder_and_orphaned_tool_result():
     # Regression: a "couldn't generate" placeholder persisted BETWEEN a tool call and its
     # result, plus an orphaned tool result, must be sanitized out so strict providers
     # (Gemini) don't reject the whole history with "missing corresponding tool call".
-    from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
+    from agent_runtime.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
 
     history = [
         AssistantMessage(

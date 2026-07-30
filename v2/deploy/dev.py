@@ -178,7 +178,7 @@ def main() -> None:
 
     # 2) Model Proxy (opt-in)
     if USE_PROXY:
-        spawn("model-proxy", [PY, str(V2 / "model-proxy" / "run-local.py")])
+        spawn("model-proxy", [PY, str(V2 / "model_proxy" / "run-local.py")])
 
     # 3) daemon (accounts ON; direct provider calls unless --proxy)
     #    AGENTD_HOME gives it a SEPARATE rendezvous/logs from the desktop app's daemon (~/.agentd),
@@ -195,7 +195,7 @@ def main() -> None:
     if USE_PROXY:
         daemon_env["AGENTD_MODEL_PROXY_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
         daemon_env["AGENTD_MODEL_PROXY_KEY"] = MASTER_KEY
-    spawn("daemon", [PY, "-m", "agentd"], env=daemon_env, cwd=str(V2))
+    spawn("daemon", [PY, "-m", "agent_runtime"], env=daemon_env, cwd=str(V2))
 
     # 4) web client (accounts mode)
     if not NO_WEB:

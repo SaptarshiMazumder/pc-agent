@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.distribution import parse_profile
-from agentd.infrastructure import accounts
-from agentd.infrastructure.llm import model_gateway, model_proxy
+from agent_runtime.distribution import parse_profile
+from agent_runtime.infrastructure import accounts
+from agent_runtime.infrastructure.llm import model_gateway, model_proxy
 
 
 def _config(proxy=None, platform_url="", legacy=None):

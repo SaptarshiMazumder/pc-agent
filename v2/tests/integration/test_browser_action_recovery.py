@@ -47,7 +47,7 @@ def _cfg(tmp_path):
 
 async def _provider(tmp_path):
     try:
-        from agentd.infrastructure.tools.browser.providers.playwright import (
+        from agent_runtime.infrastructure.tools.browser.providers.playwright import (
             PlaywrightBrowserProvider,
         )
     except ImportError:

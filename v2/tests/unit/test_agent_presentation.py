@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.agents import presentation
+from agent_runtime.infrastructure.agents import presentation
 
 
 def test_clean_presentation_trims_and_caps():
@@ -59,7 +59,7 @@ def test_sidecar_roundtrip(tmp_path):
 
 
 def _registry(tmp_path):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     return FileAgentRegistry(
         SimpleNamespace(
@@ -91,7 +91,7 @@ def test_registry_reads_sidecar_and_toml_wins(tmp_path):
 
 
 def test_agents_list_carries_presentation(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     spec = SimpleNamespace(
         name="Helper",
@@ -198,7 +198,7 @@ def test_registry_create_scaffolds_and_loads(tmp_path):
 def test_gateway_agents_create(tmp_path):
     import asyncio
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     reg = _registry(tmp_path)
     events = []

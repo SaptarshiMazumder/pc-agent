@@ -19,8 +19,8 @@ from pathlib import Path
 
 import figure_art_gemini as ig
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
 
 _EDIT_PROMPT = (
     "Reproduce this EXACT image, pixel-for-pixel, changing ONLY the following: {instruction}. "

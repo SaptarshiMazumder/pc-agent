@@ -63,6 +63,6 @@ if (-not (Test-Path $Python)) {
 & $Python -m pip install --quiet "mcp>=1.0"
 
 # 4. smoke: the embedded runtime must import + report its version
-$version = & $Python -c "import agentd; print(agentd.__version__)"
+$version = & $Python -c "import agent_runtime; print(agentd.__version__)"
 Write-Host "runtime ready: agentd $version at $CpythonDir"
 Write-Host "next: npm run dist:core  (or dist:studio)"

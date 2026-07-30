@@ -1,0 +1,512 @@
+"""The core agent loop.
+
+Faithful port of OpenClaw's agent-loop + embedded-agent-runner continuation
+protocol. Beyond the basic ReAct cycle (LLM -> tools -> repeat), it adds:
+
+  - steering messages injected before the first turn (get_steering_messages)
+  - typed incomplete-turn retries after a no-tool-call turn:
+      planning-only / reasoning-only / empty-response  (incomplete_turn.py)
+  - follow-up message injection after a turn would end (get_follow_up_messages)
+  - a before-finalize revision hook (verify_answer) — up to 3 revisions
+  - OpenClaw's iteration cap (min(160, max(32, 24 + 8*profiles)))
+
+Injected instructions are appended as synthetic user messages and the loop
+continues, exactly like OpenClaw re-prompting the model to keep going.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import traceback
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Protocol
+
+from agent_runtime.application.interfaces.run_observer import RunObserver, ToolEvent
+from agent_runtime.domain.events import AgentEvent, EventCallback
+from agent_runtime.domain.messages import (
+    Artifact,
+    AssistantMessage,
+    Message,
+    TextContent,
+    ToolCallContent,
+    ToolResultMessage,
+    UserMessage,
+    message_to_dict,
+)
+from agent_runtime.infrastructure.files import resolve_artifacts
+from agent_runtime.infrastructure.memory.local_store import SessionStore
+from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
+
+from .incomplete_turn import (
+    INCOMPLETE_TURN_FALLBACK_TEXT,
+    MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
+    RETRY_INSTRUCTIONS,
+    RETRY_LIMITS,
+    PlanningContext,
+    build_before_finalize_retry_prompt,
+    classify_incomplete_turn,
+    resolve_max_run_loop_iterations,
+)
+
+
+class StreamFn(Protocol):
+    def __call__(
+        self,
+        *,
+        model: str,
+        system_prompt: str,
+        messages: list[Message],
+        tools: list[Tool],
+        abort: asyncio.Event,
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+
+# Stop reasons that end a turn without tool execution.
+TERMINAL_STOP_REASONS = ("stop", "length", "error", "aborted")
+
+FollowUpFn = Callable[[], Awaitable[list[Message]] | list[Message]]
+VerifyFn = Callable[[list[Message]], Awaitable[str | None] | str | None]
+
+
+async def _maybe_await(value):
+    if asyncio.iscoroutine(value):
+        return await value
+    return value
+
+
+# After this many liveness halts in a run without recovery, stop (safety backstop).
+STUCK_CAP = 3
+
+
+def _notify_tool(observers, ev: ToolEvent) -> list[str]:
+    out = []
+    for o in observers:
+        try:
+            r = o.on_tool(ev)
+        except Exception:  # noqa: BLE001 — an observer must never break the run
+            r = None
+        if r:
+            out.append(r)
+    return out
+
+
+def _notify_turn(observers, index: int) -> list[str]:
+    out = []
+    for o in observers:
+        try:
+            r = o.on_turn(index)
+        except Exception:  # noqa: BLE001
+            r = None
+        if r:
+            out.append(r)
+    return out
+
+
+async def run_agent_loop(
+    *,
+    messages: list[Message],
+    system_prompt: str,
+    tools: list[Tool],
+    stream_fn: StreamFn,
+    model: str,
+    on_event: EventCallback,
+    abort: asyncio.Event,
+    session: SessionStore | None = None,
+    max_iterations: int | None = None,
+    execution_contract: str = "",
+    get_steering_messages: FollowUpFn | None = None,
+    get_follow_up_messages: FollowUpFn | None = None,
+    verify_answer: VerifyFn | None = None,
+    observers: list[RunObserver] | None = None,
+    context_policy=None,
+    model_router=None,
+    model_trace: bool = False,
+) -> list[Message]:
+    """Run the loop until the model produces a genuine final answer (or limits
+    are hit). Mutates `messages` in place; returns only messages produced here."""
+    tool_map = {t.name: t for t in tools}
+    new_messages: list[Message] = []
+    stop_reason = "stop"
+    error_text: str | None = None  # human-readable reason when stop_reason == "error"
+    max_iters = max_iterations or resolve_max_run_loop_iterations(1)
+
+    retry_counts = {k: 0 for k in RETRY_LIMITS}
+    finalize_revisions = 0
+    produced_visible_text = False
+    # the user's triggering request, captured BEFORE any steering/retry injection — used to
+    # gate the planning-only nudge (OpenClaw: only fire it when the user asked the agent to act).
+    user_prompt = next((mm.content for mm in reversed(messages) if isinstance(mm, UserMessage)), "")
+
+    # --- decoupled liveness seam (default off => unchanged behavior) ---
+    observers = observers or []
+    for o in observers:
+        o.reset()
+    stuck_halts = 0
+
+    def persist(m: Message) -> None:
+        messages.append(m)
+        new_messages.append(m)
+        if session is not None:
+            session.append(m)
+
+    def inject(text: str) -> None:
+        persist(UserMessage(content=text))
+
+    async def handle_halts(halts: list[str]) -> bool:
+        """A liveness observer flagged the run as stuck. Inject a steering message
+        and continue; after STUCK_CAP unrecovered halts, signal the loop to stop."""
+        nonlocal stuck_halts
+        halts = [h for h in halts if h]
+        if not halts:
+            return False
+        stuck_halts += 1
+        await on_event(AgentEvent("continuation", {"reason": "stuck", "attempt": stuck_halts}))
+        if stuck_halts > STUCK_CAP:
+            return True  # repeated nudges ignored -> stop (safety backstop)
+        inject("[liveness] " + " ".join(dict.fromkeys(halts)))
+        return False
+
+    await on_event(AgentEvent("agent_start", {}))
+    try:
+        # Steering messages injected before the first turn (OpenClaw outer-loop start).
+        if get_steering_messages is not None:
+            for m in await _maybe_await(get_steering_messages()) or []:
+                persist(m)
+
+        iterations = 0
+        while iterations < max_iters:
+            iterations += 1
+            await on_event(AgentEvent("turn_start", {}))
+            await on_event(AgentEvent("message_start", {"role": "assistant"}))
+
+            assistant: AssistantMessage | None = None
+            # compact the model's VIEW of history if a policy is set (never mutates the
+            # real transcript; default None => send everything, unchanged).
+            send_messages = context_policy.prepare(messages) if context_policy else messages
+            # Cost-efficiency routing (default off => active_model is just `model`): pick the brain
+            # per iteration by NEED — a cheap text model normally, a vision model only when the
+            # OUTGOING context actually carries an image the brain must see (see infrastructure/llm/
+            # model_router.py). The chosen model is what litellm records on the turn.
+            active_model = model_router(model, send_messages) if model_router else model
+            async for ev in stream_fn(
+                model=active_model,
+                system_prompt=system_prompt,
+                messages=send_messages,
+                tools=tools,
+                abort=abort,
+            ):
+                kind = ev.get("type")
+                if kind in ("text_delta", "thinking_delta"):
+                    await on_event(
+                        AgentEvent("message_update", {"kind": kind, "delta": ev.get("delta", "")})
+                    )
+                elif kind == "toolcall_end":
+                    await on_event(
+                        AgentEvent(
+                            "message_update",
+                            {"kind": "toolcall", "toolCall": ev.get("toolCall")},
+                        )
+                    )
+                elif kind == "done":
+                    assistant = ev["message"]
+
+            if assistant is None:  # defensive: stream ended without a done event
+                assistant = AssistantMessage(
+                    stop_reason="error", error_message="stream ended without result"
+                )
+            persist(assistant)
+            if assistant.text.strip():
+                produced_visible_text = True
+            await on_event(AgentEvent("message_end", {"message": message_to_dict(assistant)}))
+            # observability (default off => silent): which brain ran THIS step + its token usage, so a
+            # client can show the per-step model/cost trail (e.g. deepseek -> gemini -> deepseek).
+            if model_trace:
+                u = assistant.usage or {}
+                await on_event(
+                    AgentEvent(
+                        "model_trace",
+                        {
+                            "step": iterations,
+                            "model": active_model,
+                            "tokensIn": int(u.get("input") or 0),
+                            "tokensOut": int(u.get("output") or 0),
+                            # cache-read subset of tokensIn; tokensCached/tokensIn = cache hit rate
+                            "tokensCached": int(u.get("cached") or 0),
+                        },
+                    )
+                )
+
+            if abort.is_set() or assistant.stop_reason == "aborted":
+                stop_reason = "aborted"
+                await on_event(AgentEvent("turn_end", {}))
+                break
+
+            tool_calls = assistant.tool_calls
+            if tool_calls and assistant.stop_reason not in ("error", "aborted"):
+                results, tool_halts = await _execute_tool_calls(
+                    tool_calls, tool_map, abort, on_event, observers
+                )
+                for r in results:  # assistant source order
+                    persist(r)
+                    await on_event(AgentEvent("message_end", {"message": message_to_dict(r)}))
+                await on_event(AgentEvent("turn_end", {}))
+                if abort.is_set():
+                    stop_reason = "aborted"
+                    break
+                # liveness: per-tool halts + per-turn check (default off => empty)
+                if await handle_halts(tool_halts + _notify_turn(observers, iterations)):
+                    stop_reason = "stuck"
+                    break
+                continue  # back to the model with tool results
+
+            # --- No tool calls: the turn would normally end. Decide if it's complete. ---
+            await on_event(AgentEvent("turn_end", {}))
+
+            # liveness: tick the turn (a no-tool turn isn't "grinding"; usually a no-op)
+            no_tool_halts = _notify_turn(observers, iterations)
+            if no_tool_halts:
+                if await handle_halts(no_tool_halts):
+                    stop_reason = "stuck"
+                    break
+                continue
+
+            if assistant.stop_reason in ("error",):
+                stop_reason = "error"
+                error_text = assistant.error_message
+                break
+
+            # 1. Typed incomplete-turn retries (planning/reasoning/empty). planning_only is
+            #    gated (OpenClaw): only an agentic task-runner on an actionable prompt gets it.
+            kind = classify_incomplete_turn(
+                assistant,
+                PlanningContext(
+                    user_prompt=user_prompt,
+                    model=active_model,
+                    execution_contract=execution_contract,
+                ),
+            )
+            if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
+                retry_counts[kind] += 1
+                await on_event(
+                    AgentEvent("continuation", {"reason": kind, "attempt": retry_counts[kind]})
+                )
+                inject(RETRY_INSTRUCTIONS[kind])
+                continue
+
+            # 2. Follow-up message injection (harness-driven continuation).
+            if get_follow_up_messages is not None:
+                follow_ups = await _maybe_await(get_follow_up_messages()) or []
+                if follow_ups:
+                    for m in follow_ups:
+                        persist(m)
+                    continue
+
+            # 3. Before-finalize revision hook (legacy callable seam).
+            if (
+                verify_answer is not None
+                and finalize_revisions < MAX_BEFORE_AGENT_FINALIZE_REVISIONS
+            ):
+                reason = await _maybe_await(verify_answer(messages))
+                if reason:
+                    finalize_revisions += 1
+                    await on_event(
+                        AgentEvent(
+                            "continuation", {"reason": "revision", "attempt": finalize_revisions}
+                        )
+                    )
+                    inject(build_before_finalize_retry_prompt(reason))
+                    continue
+
+            # (Answer verification is now the agent-invoked `verify_answer` TOOL — it is
+            # NOT a loop hook. The loop knows nothing about it.)
+
+            # Genuinely done.
+            stop_reason = assistant.stop_reason
+            break
+        else:
+            stop_reason = "length"  # iteration cap exhausted
+    except asyncio.CancelledError:
+        abort.set()
+        await on_event(AgentEvent("agent_end", {"stopReason": "aborted"}))
+        raise
+
+    # Fallback text when a run produced no user-visible answer at all.
+    if not produced_visible_text and stop_reason not in ("aborted",):
+        fallback = AssistantMessage(
+            content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason=stop_reason
+        )
+        persist(fallback)
+        await on_event(AgentEvent("message_end", {"message": message_to_dict(fallback)}))
+
+    end_payload = {"stopReason": stop_reason}
+    if error_text:
+        end_payload["error"] = error_text
+    await on_event(AgentEvent("agent_end", end_payload))
+    return new_messages
+
+
+async def _execute_tool_calls(
+    tool_calls: list[ToolCallContent],
+    tool_map: dict[str, Tool],
+    abort: asyncio.Event,
+    on_event: EventCallback,
+    observers: list[RunObserver] | None = None,
+) -> tuple[list[ToolResultMessage], list[str]]:
+    """Execute one assistant turn's tool calls.
+
+    Parallel-capable tools run concurrently; sequential tools run in source
+    order after the parallel batch. Results are returned in source order. Also
+    notifies liveness observers before/after each call and returns any halt
+    reasons they raised (empty when no observers are configured).
+    """
+    observers = observers or []
+    results: dict[int, ToolResultMessage] = {}
+    halts: list[str] = []
+
+    async def run_one(index: int, call: ToolCallContent) -> None:
+        tool = tool_map.get(call.name)
+        halts.extend(_notify_tool(observers, ToolEvent(call.name, call.arguments, "before")))
+        await on_event(
+            AgentEvent(
+                "tool_execution_start",
+                {"toolCallId": call.id, "toolName": call.name, "args": call.arguments},
+            )
+        )
+
+        # Forward a tool's incremental progress (GuardedTool retries/timeouts, the
+        # computer tool's per-step updates) as tool_progress events. Sync callback
+        # (the contract type); the async emit is scheduled fire-and-forget.
+        def _on_update(update) -> None:
+            if isinstance(update, str):
+                text = update
+            else:  # a ToolResult — join its text blocks
+                text = "".join(getattr(b, "text", "") for b in getattr(update, "content", []))
+            asyncio.create_task(
+                on_event(
+                    AgentEvent(
+                        "tool_progress",
+                        {"toolCallId": call.id, "toolName": call.name, "text": text},
+                    )
+                )
+            )
+
+        if tool is None:
+            result = ToolResult.text(f"Unknown tool: {call.name}", is_error=True)
+        else:
+            try:
+                args = validate_args(tool, call.arguments)
+                result = await tool.execute(call.id, args, abort, _on_update)
+            except ToolArgError as e:
+                result = ToolResult.text(str(e), is_error=True)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                result = ToolResult.text(
+                    f"Tool '{call.name}' failed:\n{traceback.format_exc(limit=4)}",
+                    is_error=True,
+                )
+        # DELIVERABLES: a producing tool declares the file(s) it made via result.artifacts;
+        # resolve each to a typed artifact (skips non-existent/dupes). Nothing is inferred from text.
+        declared = [
+            Artifact(**info) for info in resolve_artifacts(getattr(result, "artifacts", None))
+        ]
+        msg = ToolResultMessage(
+            tool_call_id=call.id,
+            tool_name=call.name,
+            content=result.content,
+            is_error=result.is_error,
+            artifacts=declared,
+        )
+        results[index] = msg
+        rtext = "".join(getattr(b, "text", "") for b in result.content)
+        digest = hashlib.sha1(rtext.encode("utf-8", "ignore")).hexdigest()[:12] if rtext else None
+        halts.extend(
+            _notify_tool(
+                observers,
+                ToolEvent(
+                    call.name,
+                    call.arguments,
+                    "after",
+                    is_error=result.is_error,
+                    result_digest=digest,
+                ),
+            )
+        )
+        await on_event(
+            AgentEvent(
+                "tool_execution_end",
+                {
+                    "toolCallId": call.id,
+                    "toolName": call.name,
+                    "isError": result.is_error,
+                    "result": message_to_dict(msg),
+                },
+            )
+        )
+
+    parallel: list[tuple[int, ToolCallContent]] = []
+    sequential: list[tuple[int, ToolCallContent]] = []
+    for i, call in enumerate(tool_calls):
+        tool = tool_map.get(call.name)
+        if tool is not None and tool.concurrency == "sequential":
+            sequential.append((i, call))
+        else:
+            parallel.append((i, call))
+
+    if parallel:
+        await asyncio.gather(*(run_one(i, c) for i, c in parallel))
+    for i, call in sequential:
+        await run_one(i, call)
+
+    return [results[i] for i in sorted(results)], halts
+
+
+class NativeEngine:
+    """Our hand-rolled reason->act loop, wrapped as a swappable AgentEngine.
+
+    Holds the LLM stream function + model id; ``run`` just delegates to
+    ``run_agent_loop`` (the function above). Alternative engines (Claude Agent SDK,
+    LangGraph) would be sibling classes implementing this same ``run`` shape — the
+    application's AgentService calls whichever one it was given, none the wiser.
+    """
+
+    def __init__(
+        self,
+        stream_fn,
+        model: str,
+        max_iterations: int | None = None,
+        observers=None,
+        context_policy=None,
+        execution_contract: str = "",
+        model_router=None,
+        model_trace: bool = False,
+    ):
+        self._stream_fn = stream_fn  # the LLMService (e.g. litellm_stream)
+        self._model = model  # which model id to pass each call
+        self._max_iterations = max_iterations
+        self._observers = observers or []  # decoupled liveness seam (default off)
+        self._context_policy = context_policy  # compaction policy (S7); None = send all
+        self._execution_contract = execution_contract  # gates the planning-only nudge (OpenClaw)
+        self._model_router = model_router  # cost-efficiency brain routing (default off => None)
+        self._model_trace = model_trace  # emit per-step model_trace events (default off)
+
+    async def run(
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+    ):
+        return await run_agent_loop(
+            messages=messages,
+            system_prompt=system_prompt,
+            tools=tools,
+            stream_fn=self._stream_fn,
+            model=model or self._model,  # per-agent override, else the engine default
+            on_event=on_event,
+            abort=abort,
+            session=session,
+            max_iterations=self._max_iterations,
+            observers=self._observers,
+            context_policy=self._context_policy,
+            execution_contract=self._execution_contract,
+            model_router=self._model_router,
+            model_trace=self._model_trace,
+        )

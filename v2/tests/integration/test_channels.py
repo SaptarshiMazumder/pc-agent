@@ -10,12 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.domain.agent import RunMode, apply_mode
-from agentd.domain.messages import AssistantMessage, TextContent
-from agentd.infrastructure.channels import ChannelPoller, MemoryChannel, build_channel
-from agentd.infrastructure.channels.email_channel import EmailChannel, parse_search
-from agentd.infrastructure.memory.local_store import SessionStore
-from agentd.infrastructure.notify import ChannelNotifier
+from agent_runtime.domain.agent import RunMode, apply_mode
+from agent_runtime.domain.messages import AssistantMessage, TextContent
+from agent_runtime.infrastructure.channels import ChannelPoller, MemoryChannel, build_channel
+from agent_runtime.infrastructure.channels.email_channel import EmailChannel, parse_search
+from agent_runtime.infrastructure.memory.local_store import SessionStore
+from agent_runtime.infrastructure.notify import ChannelNotifier
 
 # ---- MemoryChannel (reference transport) ------------------------------------
 
@@ -40,7 +40,7 @@ def test_build_channel_by_type():
 
 
 def test_build_channel_line_from_config_creds():
-    from agentd.infrastructure.channels.line_channel import LineChannel
+    from agent_runtime.infrastructure.channels.line_channel import LineChannel
 
     ch = build_channel(
         {
@@ -59,7 +59,7 @@ def test_build_channel_line_from_config_creds():
 
 
 def test_build_channel_line_env_suffix_for_second_account(monkeypatch):
-    from agentd.infrastructure.channels.line_channel import LineChannel
+    from agent_runtime.infrastructure.channels.line_channel import LineChannel
 
     monkeypatch.setenv("LINE_CHANNEL_SECRET_OWNER", "s2")
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN_OWNER", "t2")
@@ -90,7 +90,7 @@ def test_build_channel_line_missing_creds_raises(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_channel_notifier_sends_to_owner_via_same_send():
-    from agentd.domain.notify import Notification
+    from agent_runtime.domain.notify import Notification
 
     ch = MemoryChannel()
     await ChannelNotifier(ch, "owner@me.com").notify(
@@ -179,7 +179,7 @@ def test_channel_mode_hides_autonomous_only_tools():
 
 
 def test_gateway_build_channels_and_notifiers(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     cfg = SimpleNamespace(
         state_dir=tmp_path,
@@ -196,7 +196,7 @@ def test_gateway_build_channels_and_notifiers(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gateway_channel_inbound_runs_and_replies(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _FakeService:  # the "agent": writes a reply msg
         async def handle_message(

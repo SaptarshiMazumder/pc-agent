@@ -1,16 +1,16 @@
 /**
  * Daemon supervisor — the desktop shell's half of "the user never sees Python".
  *
- * Ensure-running mirror of agentd/lifecycle.py: find the live daemon via the
+ * Ensure-running mirror of agent_runtime/lifecycle.py: find the live daemon via the
  * rendezvous file, else spawn one DETACHED and wait for the file + an open port.
  * The daemon command resolves (first hit wins):
  *   1. AGENTD_DAEMON_CMD                      (explicit override, also what dev uses)
- *   2. <resources>/python python -m agentd    (packaged: the embedded runtime — a
+ *   2. <resources>/python python -m agent_runtime    (packaged: the embedded runtime — a
  *      RELOCATABLE python-build-standalone CPython, NOT a venv (venvs bake in an
  *      absolute base-interpreter path and don't survive being moved to the user's
  *      machine) and NOT a frozen exe, so marketplace pip-plugins can still install)
  *   3. `agentd` on PATH                        (a pipx/uv install on this machine)
- *   4. `python -m agentd`                      (last resort, dev checkouts)
+ *   4. `python -m agent_runtime`                      (last resort, dev checkouts)
  *
  * The supervisor never stops the daemon on app quit by default: it is a USER-level
  * service (cron jobs, channels keep running) — the shell is just one client of it.
@@ -52,10 +52,10 @@ function commandCandidates(): string[][] {
       process.platform === 'win32'
         ? path.join(process.resourcesPath, 'python', 'python.exe')
         : path.join(process.resourcesPath, 'python', 'bin', 'python')
-    if (fsSync.existsSync(embedded)) candidates.push([embedded, '-m', 'agentd'])
+    if (fsSync.existsSync(embedded)) candidates.push([embedded, '-m', 'agent_runtime'])
   }
   candidates.push(['agentd', 'serve'])
-  candidates.push([process.platform === 'win32' ? 'python' : 'python3', '-m', 'agentd'])
+  candidates.push([process.platform === 'win32' ? 'python' : 'python3', '-m', 'agent_runtime'])
   return candidates
 }
 

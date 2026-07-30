@@ -1,27 +1,27 @@
 [importlinter]
-root_package = agentd
+root_package = agent_runtime
 include_external_packages = True
 
 [importlinter:contract:clean-layers]
 name = Clean architecture layers (domain <- application <- infrastructure/presentation <- main <- clients <- cli)
 type = layers
 layers =
-    agentd.cli
-    agentd.clients
-    agentd.main
-    agentd.presentation
-    agentd.infrastructure
-    agentd.application
-    agentd.domain
+    agent_runtime.cli
+    agent_runtime.clients
+    agent_runtime.main
+    agent_runtime.presentation
+    agent_runtime.infrastructure
+    agent_runtime.application
+    agent_runtime.domain
 
 [importlinter:contract:core-not-import-plugins]
-name = Core (agentd) must not import plugin implementations (plugins are the outermost ring)
+name = Core (agent_runtime) must not import plugin implementations (plugins are the outermost ring)
 type = forbidden
 source_modules =
-    agentd
+    agent_runtime
 forbidden_modules =
     plugins
 # Tool/capability implementations live in plugins/ (built-in bundles + third-party), discovered at
 # runtime. The dependency rule points INWARD: plugins may import the framework surface (Tool,
 # ToolResult, domain types), but the core never reaches outward to a plugin. (Built-in bundles
-# import by bare module name on the loader's sys.path; agentd never names `plugins` statically.)
+# import by bare module name on the loader's sys.path; agent_runtime never names `plugins` statically.)

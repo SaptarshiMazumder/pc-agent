@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.prompt import build_system_prompt
+from agent_runtime.infrastructure.prompt import build_system_prompt
 
 
 def _cfg(**over):

@@ -1,7 +1,7 @@
 # HOSTED-DEV flavor — the full hosted-platform product wired to LOCALHOST services, for
 # end-to-end testing before (and without) AWS:
 #   accounts:  python v2/deploy/accounts/run-local.py      (:4100)
-#   model proxy: python v2/model-proxy/run-local.py        (:4000, custom auth; set
+#   model proxy: python v2/model_proxy/run-local.py        (:4000, custom auth; set
 #              ACCOUNTS_URL=http://127.0.0.1:4100 and ACCOUNTS_INTERNAL_KEY=devinternal)
 #   registry:  python v2/deploy/registry/publish.py --serve  (:8877, signed local index)
 #

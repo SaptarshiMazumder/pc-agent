@@ -35,8 +35,8 @@ _REGISTRY_NAME = "agentd marketplace"
 _PUBLISHER = "agentd"
 
 
-# The CLI entry (agentd.cli.main), NOT `-m agentd` — the bare module entry boots the DAEMON.
-_CLI = [sys.executable, "-c", "from agentd.cli.main import main; raise SystemExit(main())"]
+# The CLI entry (agent_runtime.cli.main), NOT `-m agent_runtime` — the bare module entry boots the DAEMON.
+_CLI = [sys.executable, "-c", "from agent_runtime.cli.main import main; raise SystemExit(main())"]
 
 
 def _run(cli_args: list[str]) -> None:

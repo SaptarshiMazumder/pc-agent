@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.autonomy import resolve_run_outcome
+from agent_runtime.domain.autonomy import resolve_run_outcome
 
 
 def test_declared_done_maps_to_ok():
@@ -59,8 +59,8 @@ def test_consecutive_failures_counts_incomplete(tmp_path):
     # a chronically-incomplete job accrues failures -> can auto-pause (no infinite spam)
     import time
 
-    from agentd.domain.autonomy import ScheduledTask
-    from agentd.infrastructure.tasks.sqlite_store import SqliteTaskStore
+    from agent_runtime.domain.autonomy import ScheduledTask
+    from agent_runtime.infrastructure.tasks.sqlite_store import SqliteTaskStore
 
     s = SqliteTaskStore(tmp_path / "a.sqlite")
     s.add(

@@ -3,7 +3,7 @@ escalation (only when a browser manager is available)."""
 
 from __future__ import annotations
 
-from agentd.application.interfaces.fetch import FetchProvider
+from agent_runtime.application.interfaces.fetch import FetchProvider
 from fetch.providers import BrowserRenderProvider, HttpxFetchProvider
 
 

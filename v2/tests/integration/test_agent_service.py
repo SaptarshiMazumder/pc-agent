@@ -10,11 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pathlib import Path
 
-from agentd.application import run_context as rc
-from agentd.application.run_context import set_run_outcome
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import AgentSpec, RunMode
-from agentd.domain.messages import UserMessage
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.run_context import set_run_outcome
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.agent import AgentSpec, RunMode
+from agent_runtime.domain.messages import UserMessage
 
 
 async def _sink(_ev):

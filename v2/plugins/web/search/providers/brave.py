@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import httpx
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _FRESHNESS_MAP = {"day": "pd", "week": "pw", "month": "pm", "year": "py"}

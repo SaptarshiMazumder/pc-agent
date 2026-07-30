@@ -11,8 +11,8 @@ import time
 
 from fetch import DEFAULT_MAX_CHARS, MAX_CHARS_CAP, sanitize_url
 
-from agentd.application.interfaces.fetch import FetchProvider, FetchResult
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.fetch import FetchProvider, FetchResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 CACHE_TTL_SEC = 900
 # Below this many characters a result is treated as "thin" — try the next

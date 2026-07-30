@@ -3,8 +3,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import AssistantMessage, TextContent, ThinkingContent, ToolCallContent
-from agentd.infrastructure.engine.incomplete_turn import (
+from agent_runtime.domain.messages import (
+    AssistantMessage,
+    TextContent,
+    ThinkingContent,
+    ToolCallContent,
+)
+from agent_runtime.infrastructure.engine.incomplete_turn import (
     PlanningContext,
     classify_incomplete_turn,
     is_empty_response,

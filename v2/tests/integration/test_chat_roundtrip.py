@@ -12,17 +12,17 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.messages import AssistantMessage, TextContent, ToolCallContent
-from agentd.infrastructure.engine.native import NativeEngine
-from agentd.infrastructure.memory.local_store import (
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.messages import AssistantMessage, TextContent, ToolCallContent
+from agent_runtime.infrastructure.engine.native import NativeEngine
+from agent_runtime.infrastructure.memory.local_store import (
     SessionStore,
     read_session_messages,
     write_session_meta,
 )
-from agentd.infrastructure.tools import Tool, ToolResult
-from agentd.presentation.gateway import Gateway
-from agentd.presentation.protocol import Request
+from agent_runtime.infrastructure.tools import Tool, ToolResult
+from agent_runtime.presentation.gateway import Gateway
+from agent_runtime.presentation.protocol import Request
 
 
 class EchoTool(Tool):

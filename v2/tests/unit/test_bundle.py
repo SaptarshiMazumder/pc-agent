@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.bundle import (
+from agent_runtime.domain.bundle import (
     BundleError,
     compat_ok,
     is_update,

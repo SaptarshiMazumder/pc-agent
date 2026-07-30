@@ -19,7 +19,7 @@ import asyncio
 import random
 import re
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 # ── roll_dice ──────────────────────────────────────────────────────────────────────────────────
 # NdM(+/-K): N dice (default 1) of M sides, optional flat modifier. e.g. "2d6", "d20", "3d8-2".
@@ -115,7 +115,7 @@ class NarrateSceneTool(Tool):
         tone = str(params.get("tone") or "vivid").strip()
 
         # Resolve the model uniformly — a text tool inherits the brain when nothing is configured.
-        from agentd.application.tool_models import brain_model
+        from agent_runtime.application.tool_models import brain_model
 
         model = self.resolve_model(self.config) or brain_model(self.config)
 
@@ -126,7 +126,7 @@ class NarrateSceneTool(Tool):
             f"Setup: {setup}"
         )
 
-        from agentd.infrastructure.llm.oneshot import text_complete
+        from agent_runtime.infrastructure.llm.oneshot import text_complete
 
         try:
             narration = await asyncio.to_thread(

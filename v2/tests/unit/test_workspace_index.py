@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from types import SimpleNamespace
 
-from agentd.infrastructure.workspace import FileWorkspaceIndex, build_workspace_index
+from agent_runtime.infrastructure.workspace import FileWorkspaceIndex, build_workspace_index
 
 
 def _ws(tmp_path):

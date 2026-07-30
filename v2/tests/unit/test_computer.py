@@ -7,15 +7,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.tools.computer.actions import (
+from agent_runtime.infrastructure.tools.computer.actions import (
     parse_function_call,
     to_pyautogui_key,
     to_real,
 )
-from agentd.infrastructure.tools.computer.drivers.gemini_computer_use import (
+from agent_runtime.infrastructure.tools.computer.drivers.gemini_computer_use import (
     GeminiComputerUseDriver,
 )
-from agentd.infrastructure.tools.computer.factory import build_computer_provider
+from agent_runtime.infrastructure.tools.computer.factory import build_computer_provider
 
 # ---- pure helpers -----------------------------------------------------
 

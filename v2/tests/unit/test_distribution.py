@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.distribution import OPEN_PROFILE, load_profile, parse_profile
-from agentd.infrastructure.plugins.discovery import _passes_gates
-from agentd.infrastructure.plugins.manifest import PluginManifest
+from agent_runtime.distribution import OPEN_PROFILE, load_profile, parse_profile
+from agent_runtime.infrastructure.plugins.discovery import _passes_gates
+from agent_runtime.infrastructure.plugins.manifest import PluginManifest
 
 
 def _manifest(plugin_id: str, **kwargs) -> PluginManifest:

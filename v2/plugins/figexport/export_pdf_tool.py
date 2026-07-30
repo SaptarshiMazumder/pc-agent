@@ -11,7 +11,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from figexport_common import resolve_path
 
 _LEN = re.compile(r"[-+]?[0-9]*\.?[0-9]+")

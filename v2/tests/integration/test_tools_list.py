@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import AgentSpec
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.agent import AgentSpec
 
 
 class FT:  # a duck-typed fake tool
@@ -91,7 +91,7 @@ def test_unknown_agent_falls_back_to_full_catalog():
 
 
 def test_gateway_tools_list_passes_agent_and_count():
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _Svc:
         def list_tools(self, agent_id=None):

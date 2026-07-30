@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import select_private_tools
-from agentd.infrastructure.plugins import discover_agent_plugins
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.agent import select_private_tools
+from agent_runtime.infrastructure.plugins import discover_agent_plugins
 
 
 def _write_private_plugin(agents_dir: Path, agent_id: str, tool_name: str, module: str) -> None:
@@ -124,7 +124,7 @@ class _ExecPrivTool:
 
 
 def test_scoped_invoke_runs_private_tool(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     spec = SimpleNamespace(
         id="demo",
@@ -162,8 +162,8 @@ def test_scoped_invoke_runs_private_tool(tmp_path):
 
 # ---- shipping: the private plugin travels inside the .agentpkg ----------------------------------
 def test_private_plugin_ships_inside_agentpkg(tmp_path):
-    from agentd.domain.bundle import BundleManifest
-    from agentd.infrastructure.marketplace.bundle_io import pack_bundle, unpack_bundle
+    from agent_runtime.domain.bundle import BundleManifest
+    from agent_runtime.infrastructure.marketplace.bundle_io import pack_bundle, unpack_bundle
 
     src_agents = tmp_path / "src"
     _write_private_plugin(src_agents, "kiosk", "kiosk_tool", "tkit_priv_pack_mod")

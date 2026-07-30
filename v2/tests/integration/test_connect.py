@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from login_tool import SimpleLoginTool
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.infrastructure.channels.webhook import WebhookServer
-from agentd.infrastructure.credentials import ConnectTokenStore
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.infrastructure.channels.webhook import WebhookServer
+from agent_runtime.infrastructure.credentials import ConnectTokenStore
 
 
 def test_token_mint_resolve_consume_is_single_use():

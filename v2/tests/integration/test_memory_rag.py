@@ -11,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.domain.agent import AgentSpec
-from agentd.domain.memory import MemoryItem
-from agentd.infrastructure.embeddings import build_embed_fn, cosine
-from agentd.infrastructure.memory.bank import SqliteMemoryBank
-from agentd.infrastructure.memory.dreaming import dream
+from agent_runtime.domain.agent import AgentSpec
+from agent_runtime.domain.memory import MemoryItem
+from agent_runtime.infrastructure.embeddings import build_embed_fn, cosine
+from agent_runtime.infrastructure.memory.bank import SqliteMemoryBank
+from agent_runtime.infrastructure.memory.dreaming import dream
 
 _VOCAB = [
     "login",
@@ -169,7 +169,7 @@ def test_dreaming_forgets_stale_never_recalled(tmp_path):
 
 @pytest.mark.asyncio
 async def test_background_embedder_fills_vector(tmp_path):
-    from agentd.infrastructure.memory.background import BackgroundEmbedder
+    from agent_runtime.infrastructure.memory.background import BackgroundEmbedder
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     mid = bank.save_pending(
@@ -189,8 +189,8 @@ async def test_background_embedder_fills_vector(tmp_path):
 async def test_remember_tool_defers_embed_but_stays_recallable(tmp_path):
     from memory_tools import RememberTool
 
-    from agentd.application.run_context import RunContext, set_run_context
-    from agentd.infrastructure.memory.background import BackgroundEmbedder
+    from agent_runtime.application.run_context import RunContext, set_run_context
+    from agent_runtime.infrastructure.memory.background import BackgroundEmbedder
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite", embed_fn=_embed)
     emb = BackgroundEmbedder(bank)
@@ -207,7 +207,7 @@ def test_remember_tool_without_embedder_saves_sync(tmp_path):
     # no embedder passed -> falls back to the synchronous save (keyword-only deployments/tests)
     from memory_tools import RememberTool
 
-    from agentd.application.run_context import RunContext, set_run_context
+    from agent_runtime.application.run_context import RunContext, set_run_context
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite")  # no embed_fn
     set_run_context(RunContext("A", "s", "interactive"))
@@ -258,7 +258,7 @@ class _Reg:
 
 
 def _svc(engine, recall):
-    from agentd.application.services.agent_service import AgentService
+    from agent_runtime.application.services.agent_service import AgentService
 
     return AgentService(
         engine=engine,
@@ -272,7 +272,7 @@ def _svc(engine, recall):
 
 @pytest.mark.asyncio
 async def test_auto_recall_prepends_on_interactive_turn():
-    from agentd.domain.agent import RunMode
+    from agent_runtime.domain.agent import RunMode
 
     eng = _FakeEngine()
     svc = _svc(eng, recall=lambda agent, q: "## Relevant memories\n- prior fact")
@@ -285,7 +285,7 @@ async def test_auto_recall_prepends_on_interactive_turn():
 
 @pytest.mark.asyncio
 async def test_auto_recall_skipped_on_heartbeat_turn():
-    from agentd.domain.agent import RunMode
+    from agent_runtime.domain.agent import RunMode
 
     eng = _FakeEngine()
     svc = _svc(eng, recall=lambda agent, q: "## Relevant memories\n- prior fact")
@@ -297,7 +297,7 @@ async def test_auto_recall_skipped_on_heartbeat_turn():
 
 @pytest.mark.asyncio
 async def test_auto_recall_failopen_on_embed_error():
-    from agentd.domain.agent import RunMode
+    from agent_runtime.domain.agent import RunMode
 
     def _boom(agent, q):
         raise RuntimeError("embedder down")

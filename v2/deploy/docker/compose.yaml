@@ -13,7 +13,7 @@ services:
   model-proxy: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
     # custom_auth.py accepts the master key (infra) OR an accounts session token (desktop
     # platform-keys mode), and its success callback writes usage to the accounts ledger.
-    build: { context: ../../model-proxy, dockerfile: Dockerfile }
+    build: { context: ../../model_proxy, dockerfile: Dockerfile }
     image: agentd-model-proxy:local
     env_file: [../../.env] # provider keys (GEMINI_API_KEY, ...) at runtime, never baked
     environment:

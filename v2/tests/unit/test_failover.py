@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.infrastructure.llm.failover import make_failover_stream
+from agent_runtime.infrastructure.llm.failover import make_failover_stream
 
 
 def _inner(behaviors):

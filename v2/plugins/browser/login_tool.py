@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import logging
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
 
 log = logging.getLogger("agentd")
 
@@ -106,7 +106,7 @@ class SimpleLoginTool(Tool):
         # here. (An assistant told to help its owner may share it; an agent told not to share
         # setup links with the people it talks to must not.)
         if self._connect is not None and self._public_url:
-            from agentd.infrastructure.credentials import ConnectTokenStore
+            from agent_runtime.infrastructure.credentials import ConnectTokenStore
 
             token = self._connect.mint(agent_id, site)
             link = ConnectTokenStore.link(self._public_url, token)

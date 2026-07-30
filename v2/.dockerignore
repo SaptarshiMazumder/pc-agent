@@ -25,7 +25,7 @@ dist/
 **/*.pyc
 **/node_modules/
 # agent workspace DATA only — never a bare **/workspace/, which would also swallow
-# the agentd.infrastructure.workspace source package (it did, once)
+# the agent_runtime.infrastructure.workspace source package (it did, once)
 agents/*/workspace/
 .agentd/workspace/
 *.agentpkg

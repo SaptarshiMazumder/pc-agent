@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.tools.browser.providers.base import BaseBrowserSession
+from agent_runtime.infrastructure.tools.browser.providers.base import BaseBrowserSession
 
 
 class _FakePage:

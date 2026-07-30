@@ -9,14 +9,14 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import UserMessage
-from agentd.infrastructure.memory.local_store import (
+from agent_runtime.domain.messages import UserMessage
+from agent_runtime.infrastructure.memory.local_store import (
     SessionStore,
     read_session_meta,
     write_session_meta,
 )
-from agentd.presentation.gateway import Gateway
-from agentd.presentation.protocol import Request
+from agent_runtime.presentation.gateway import Gateway
+from agent_runtime.presentation.protocol import Request
 
 
 def _spec(tmp_path, agent_id):

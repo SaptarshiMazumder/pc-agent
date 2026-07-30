@@ -12,10 +12,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.notify import Notification
-from agentd.infrastructure.tasks import SqliteTaskStore
-from agentd.presentation.gateway import Gateway
-from agentd.presentation.protocol import Request
+from agent_runtime.domain.notify import Notification
+from agent_runtime.infrastructure.tasks import SqliteTaskStore
+from agent_runtime.presentation.gateway import Gateway
+from agent_runtime.presentation.protocol import Request
 
 
 def _gw(tmp_path, task_store=None):

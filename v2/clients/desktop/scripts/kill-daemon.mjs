@@ -3,7 +3,7 @@
 //
 // Why this exists: Python does not hot-reload edited modules, and the desktop supervisor
 // (src/main/supervisor.ts) reconnects to an already-running daemon instead of restarting
-// it. So without this, edits under v2/agentd/** never take effect on a plain `npm run dev`
+// it. So without this, edits under v2/agent_runtime/** never take effect on a plain `npm run dev`
 // — you keep talking to the stale daemon that booted before your change.
 //
 // Mechanism mirrors agentd/lifecycle.py:stop_daemon — read the rendezvous file the daemon

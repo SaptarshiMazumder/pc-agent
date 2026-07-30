@@ -27,9 +27,9 @@ from pathlib import Path
 
 import vectorize_extract as vx
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import resolve_tool_model
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.tool_models import resolve_tool_model
 
 # Strip prompt — same wording the vision plugin uses (read_labels_from_image), duplicated here
 # because plugins are sys.path-isolated siblings; keep the two in step if you edit one.
@@ -152,7 +152,7 @@ def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
         _sys.path.insert(0, igdir)
     import figure_art_gemini as ig
 
-    from agentd.application.tool_models import tool_config
+    from agent_runtime.application.tool_models import tool_config
 
     key = ig.resolve_key(api_key, config)
     primary = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)

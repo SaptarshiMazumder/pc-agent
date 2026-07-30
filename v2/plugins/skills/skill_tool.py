@@ -12,8 +12,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
 
 
 def _slug(name: str) -> str:

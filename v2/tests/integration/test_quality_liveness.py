@@ -12,11 +12,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.verifier import VerifyContext
-from agentd.domain.events import AgentEvent
-from agentd.domain.messages import AssistantMessage, TextContent, ToolCallContent, UserMessage
-from agentd.infrastructure.engine.native import run_agent_loop
-from agentd.infrastructure.tools import Tool, ToolResult
+from agent_runtime.application.interfaces.verifier import VerifyContext
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.domain.messages import (
+    AssistantMessage,
+    TextContent,
+    ToolCallContent,
+    UserMessage,
+)
+from agent_runtime.infrastructure.engine.native import run_agent_loop
+from agent_runtime.infrastructure.tools import Tool, ToolResult
 
 
 # --- minimal loop harness (mirrors test_loop.py) ---------------------------
@@ -81,7 +86,7 @@ async def _run(script, *, observers=None, tools=None):
 # --- #3 CallRateBrake -------------------------------------------------------
 @pytest.mark.asyncio
 async def test_call_rate_brake_halts_repeated_tool():
-    from agentd.infrastructure.liveness import CallRateBrake
+    from agent_runtime.infrastructure.liveness import CallRateBrake
 
     script = [_tool(f"c{i}") for i in range(4)] + [_text("done")]
     events, msgs = await _run(script, observers=[CallRateBrake(window=10, max_per_tool=3)])
@@ -101,7 +106,7 @@ async def test_call_rate_brake_off_by_default():
 # --- #4 NoProgressDetector --------------------------------------------------
 @pytest.mark.asyncio
 async def test_no_progress_halts_on_repeated_results():
-    from agentd.infrastructure.liveness import NoProgressDetector
+    from agent_runtime.infrastructure.liveness import NoProgressDetector
 
     script = [_tool("a", "same"), _tool("b", "same"), _tool("c", "same"), _text("done")]
     events, msgs = await _run(script, observers=[NoProgressDetector(max_idle_turns=2)])
@@ -113,7 +118,7 @@ async def test_no_progress_halts_on_repeated_results():
 # --- the LLM-judge (used by the verify_answer tool) ------------------------
 @pytest.mark.asyncio
 async def test_llm_judge_parses_fail_verdict():
-    from agentd.infrastructure.verify import LlmJudgeVerifier
+    from agent_runtime.infrastructure.verify import LlmJudgeVerifier
 
     async def judge(_):
         return '{"ok": false, "reasons": "only 3 of 5 found"}'
@@ -124,7 +129,7 @@ async def test_llm_judge_parses_fail_verdict():
 
 @pytest.mark.asyncio
 async def test_llm_judge_extracts_json_from_chatter():
-    from agentd.infrastructure.verify import LlmJudgeVerifier
+    from agent_runtime.infrastructure.verify import LlmJudgeVerifier
 
     async def judge(_):
         return 'Sure! {"ok": true, "reasons": ""} hope that helps'
@@ -134,7 +139,7 @@ async def test_llm_judge_extracts_json_from_chatter():
 
 @pytest.mark.asyncio
 async def test_llm_judge_fail_open_on_garbage_and_error():
-    from agentd.infrastructure.verify import LlmJudgeVerifier
+    from agent_runtime.infrastructure.verify import LlmJudgeVerifier
 
     async def garbage(_):
         return "no json here"
@@ -148,7 +153,7 @@ async def test_llm_judge_fail_open_on_garbage_and_error():
 
 # --- factories + prompt -----------------------------------------------------
 def test_build_observers_default_and_selection():
-    from agentd.infrastructure.liveness import build_observers
+    from agent_runtime.infrastructure.liveness import build_observers
 
     assert build_observers(SimpleNamespace(liveness=None)) == []
     obs = build_observers(SimpleNamespace(liveness=["callrate", "noprogress", "bogus"]))
@@ -156,8 +161,8 @@ def test_build_observers_default_and_selection():
 
 
 def test_completeness_section_toggle():
-    from agentd.config import load_config
-    from agentd.infrastructure.prompt import build_system_prompt
+    from agent_runtime.config import load_config
+    from agent_runtime.infrastructure.prompt import build_system_prompt
 
     cfg = load_config()
     cfg.completeness_check = False

@@ -20,9 +20,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import resolve_tool_model
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.tool_models import resolve_tool_model
 
 import vision_gemini as vg
 

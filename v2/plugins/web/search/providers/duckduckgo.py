@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 
 class DuckDuckGoProvider:

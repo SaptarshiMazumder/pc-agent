@@ -10,7 +10,7 @@ from search.cache import _CACHE
 from search.format import format_results
 from web_search import WebSearchTool
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 
 class FakeProvider:

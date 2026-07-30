@@ -19,7 +19,7 @@ import json
 import logging
 import uuid
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 log = logging.getLogger("agentd")
 

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from skill_tool import SkillWorkshopTool
 
-from agentd.infrastructure.skills import FileSkillRegistry
+from agent_runtime.infrastructure.skills import FileSkillRegistry
 
 
 @pytest.mark.asyncio

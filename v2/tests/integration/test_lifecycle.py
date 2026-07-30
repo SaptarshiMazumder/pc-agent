@@ -12,8 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd import lifecycle
-from agentd.lifecycle import GatewayInfo
+from agent_runtime import lifecycle
+from agent_runtime.lifecycle import GatewayInfo
 
 
 @pytest.fixture

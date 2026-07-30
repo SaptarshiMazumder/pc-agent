@@ -16,7 +16,7 @@ import re
 import textwrap
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 def _slug(name: str) -> str:
@@ -32,7 +32,7 @@ def _ident(name: str) -> str:
 _MODULE_TEMPLATE = '''\
 """Agent-authored tool (created at runtime by create_tool). Edit with care."""
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class GeneratedTool(Tool):

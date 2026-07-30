@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.agent import apply_plugin_enablement
+from agent_runtime.domain.agent import apply_plugin_enablement
 
 
 def _t(name, plugin):
