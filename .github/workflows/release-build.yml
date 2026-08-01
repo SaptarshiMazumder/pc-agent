@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: v2/clients/desktop/package-lock.json
+          cache-dependency-path: v2/clients/package-lock.json
       - name: Download the wheel from the wheel job
         uses: actions/download-artifact@v4
         with:
@@ -82,8 +82,11 @@ jobs:
           $wheel = (Get-ChildItem ../../dist -Filter "agentd-*.whl" | Select-Object -First 1).FullName
           Write-Host "using wheel: $wheel"
           powershell -File scripts/build-runtime.ps1 -Wheel $wheel
-      - name: Install desktop deps
+      - name: Install client deps
+        # the workspace ROOT owns the lockfile; electron-builder resolves the hoisted
+        # node_modules from clients/ when it runs in desktop/ below
         run: npm ci
+        working-directory: v2/clients
       - name: Build core + studio installers
         run: |
           npm run dist:core

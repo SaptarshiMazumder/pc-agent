@@ -65,9 +65,9 @@ function Build-And-Push($name, $context, $dockerfile, $buildArgs) {
 
 $images = @{
   "model-proxy" = @{ context = "$v2/model_proxy";      dockerfile = "$v2/model_proxy/Dockerfile";          args = @{} }
-  accounts = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile.accounts"; args = @{} }
+  accounts = @{ context = "$v2/accounts";        dockerfile = "$v2/accounts/Dockerfile";               args = @{} }
   daemon   = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile";          args = @{} }
-  web      = @{ context = "$v2/clients/desktop"; dockerfile = "$v2/clients/desktop/Dockerfile.web";    args = @{
+  web      = @{ context = "$v2/clients";        dockerfile = "$v2/clients/web/Dockerfile";             args = @{
       VITE_AGENTD_ACCOUNTS_URL = "http://$albHost`:4100"
       VITE_AGENTD_URL          = "ws://$albHost`:8787"
   } }

@@ -1,0 +1,8 @@
+# Accounts service runtime deps. Deliberately tiny: app.py imports ONLY the stdlib plus
+# FastAPI, so this service has zero coupling to agent_runtime and installs in seconds.
+#
+# NOTE: the old deploy/docker/Dockerfile.accounts also installed httpx — the service never
+# imports it. It is needed only by fastapi.testclient (tests/unit/test_accounts_service.py),
+# and agentd already declares httpx, so the test run gets it from the root venv.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1

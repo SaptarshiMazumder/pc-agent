@@ -19,5 +19,5 @@ publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 # platform keys (BYOK still works after sign-out). HTTP for the private-testing phase —
 # switch to https + rebuild the installer once TLS lands (REQUIRED before public launch).
 [platform]
-accounts_url = "http://agentd-dev-14694105.ap-northeast-1.elb.amazonaws.com:4100"
-model_proxy_url = "http://agentd-dev-14694105.ap-northeast-1.elb.amazonaws.com:4000"
+accounts_url = "http://agentd-dev-1880987451.ap-northeast-1.elb.amazonaws.com:4100"
+model_proxy_url = "http://agentd-dev-1880987451.ap-northeast-1.elb.amazonaws.com:4000"

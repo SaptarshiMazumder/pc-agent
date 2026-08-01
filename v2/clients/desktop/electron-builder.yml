@@ -5,6 +5,12 @@
 # installer still works and falls back to an `agentd` on PATH (see supervisor.ts).
 appId: dev.agentd.desktop
 productName: agentd
+# npm WORKSPACES: electron-builder's implicit "installing production dependencies" step runs an
+# install rooted at the WORKSPACE (clients/), which prunes every devDependency there — it wiped
+# vite/electron-vite/typescript out of clients/node_modules on the first run. Nothing this app
+# externalizes is native (`ws` and `@iarna/toml` are pure JS; the renderer is bundled by vite),
+# so the rebuild buys nothing and is turned off.
+npmRebuild: false
 directories:
   output: dist/core
 files:

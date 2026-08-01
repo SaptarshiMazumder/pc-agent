@@ -58,12 +58,12 @@ jobs:
       # tests/e2e (booted-daemon smoke) is intentionally NOT run here yet — it gets its
       # own job (non-blocking at first) once the first daemon smoke test lands.
 
-  desktop:
-    name: Desktop (electron client)
+  clients:
+    name: Clients (ui + desktop + web)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: v2/clients/desktop
+        working-directory: v2/clients # npm WORKSPACE root (ui + desktop + web)
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: v2/clients/desktop/package-lock.json
+          cache-dependency-path: v2/clients/package-lock.json
 
       - name: Install
         run: npm ci
@@ -79,5 +79,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build
-        run: npm run build
+      - name: Build (desktop shell + web client)
+        run: |
+          npm run build:desktop
+          npm run build:web

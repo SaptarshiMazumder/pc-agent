@@ -292,6 +292,9 @@ def _account_for_token(c: sqlite3.Connection, token: str) -> sqlite3.Row:
     ttl = _session_ttl_s()
     if ttl > 0 and _now() - float(row["session_created_at"] or 0) > ttl:
         c.execute("DELETE FROM sessions WHERE token=?", (token,))
+        # _db() commits only on a CLEAN exit, and we are about to raise — so the purge must be
+        # committed here or it rolls back and every expired session stays in the table forever.
+        c.commit()
         raise HTTPException(status_code=401, detail="invalid or expired token")
     return row
 

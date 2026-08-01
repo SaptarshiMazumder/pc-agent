@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
 
   accounts: # identity + per-account budget/tab (State plane)
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.accounts }
+    build: { context: ../../accounts, dockerfile: Dockerfile }
     image: agentd-accounts:local
     environment:
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes
@@ -59,8 +59,8 @@ services:
 
   web: # the browser UI (static build, nginx). API URLs baked for the local ports.
     build:
-      context: ../../clients/desktop
-      dockerfile: Dockerfile.web
+      context: ../../clients
+      dockerfile: web/Dockerfile
       args:
         VITE_AGENTD_ACCOUNTS_URL: http://localhost:4100
         VITE_AGENTD_URL: ws://localhost:8790

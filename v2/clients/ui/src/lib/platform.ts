@@ -73,7 +73,7 @@ function isLocalhostPage(): boolean {
   return h === 'localhost' || h === '127.0.0.1'
 }
 
-/** DEV convenience: ask the vite dev server (see vite.config.web.ts) for the live daemon's
+/** DEV convenience: ask the vite dev server (see web/vite.config.ts) for the live daemon's
  *  url+token, read straight from ~/.agentd/gateway.json. Re-fetched on every (re)connect, so
  *  a daemon restart (which rotates the token) reconnects with no manual URL juggling. Absent
  *  in production (static hosting) — the fetch just fails and we fall back. */

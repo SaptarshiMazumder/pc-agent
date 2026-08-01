@@ -2,5 +2,5 @@
 connects to the gateway over WebSocket (rendezvous via ~/.agentd/gateway.json, or an
 explicit --url). Currently: terminal/ (the REPL) and watch (event-log tail).
 
-The desktop shell lives OUTSIDE the package (v2/clients/desktop, an Electron app) —
+The GUI clients live OUTSIDE the package (v2/clients: ui + desktop + web) —
 it is a build product, not python code, but speaks the exact same protocol."""

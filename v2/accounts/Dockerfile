@@ -1,13 +1,15 @@
-# Accounts service image (the State plane's identity + tab). Build context = v2/.
-#   docker build -t agentd-accounts -f deploy/docker/Dockerfile.accounts .
+# Accounts service image — identity, sessions, budgets and the spend ledger (the State plane).
+# This service has an isolated build context: v2/accounts/ (same shape as v2/model_proxy/).
+#   docker build -t agentd-accounts v2/accounts
 #
-# Stage 1 (local): SQLite in a mounted volume (AGENTD_ACCOUNTS_DB). Stage 2 swaps to Postgres
+# Stage 1 (today): SQLite in a mounted volume (AGENTD_ACCOUNTS_DB). Stage 2 swaps to Postgres
 # (add psycopg + DATABASE_URL) with NO change to the daemon-facing contract (/resolve etc.).
 FROM python:3.11-slim
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir "fastapi>=0.115" "uvicorn[standard]>=0.30" "httpx>=0.27"
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
-COPY deploy/accounts/app.py /app/app.py
+COPY app.py /app/app.py
 WORKDIR /app
 USER app
 ENV AGENTD_ACCOUNTS_DB=/data/accounts.db \

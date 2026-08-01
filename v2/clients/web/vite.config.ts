@@ -68,24 +68,26 @@ function cspAllowApiOrigins(): Plugin {
 }
 
 /**
- * Standalone WEB build of the JARVIS renderer — the SAME React app the desktop shell runs,
- * served as a plain browser client with no Electron. Host capabilities (supervisor, files)
- * come from src/renderer/src/lib/platform.ts, which falls back to browser equivalents when
- * the Electron bridge (window.agentd) is absent.
+ * Standalone WEB build of the JARVIS renderer.
  *
- *   npm run dev:web      # dev server; open with ?token=<daemon token> for a localhost daemon
- *   npm run build:web    # static bundle -> dist-web/  (hosted on S3/CloudFront later)
+ * `root` points at the SHARED ui package (../ui) — the exact same sources electron.vite.config.ts
+ * builds for the desktop shell. There is no second copy of the UI and no per-target fork: host
+ * capabilities come from ui/src/lib/platform.ts, which falls back to browser equivalents when the
+ * Electron bridge (window.agentd) is absent.
+ *
+ *   npm run dev -w agentd-web      # dev server on :5273
+ *   npm run build -w agentd-web    # static bundle -> web/dist/ (served by nginx, see Dockerfile)
  *
  * Endpoint: the client dials ws://localhost:8787 by default; override with ?daemon=, ?url=
  * + ?token=, or VITE_AGENTD_URL / VITE_AGENTD_TOKEN. Same-origin wss when served from a real
  * host (production).
  */
 export default defineConfig({
-  root: fileURLToPath(new URL('./src/renderer', import.meta.url)),
+  root: fileURLToPath(new URL('../ui', import.meta.url)),
   base: './',
   plugins: [react(), devDaemonToken(), cspAllowApiOrigins()],
   build: {
-    outDir: fileURLToPath(new URL('./dist-web', import.meta.url)),
+    outDir: fileURLToPath(new URL('./dist', import.meta.url)),
     emptyOutDir: true
   },
   server: { port: 5273 }

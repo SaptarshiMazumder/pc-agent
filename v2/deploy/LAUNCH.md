@@ -13,7 +13,7 @@ no limits). This card is the exact command sequence; each step says what success
 ```powershell
 # terminal 1 — accounts service
 $env:ACCOUNTS_INTERNAL_KEY = "devinternal"
-.\.venv\Scripts\python.exe -m uvicorn app:app --port 4100   # from v2/deploy/accounts
+.\.venv\Scripts\python.exe -m uvicorn app:app --port 4100   # from v2/accounts
 
 # terminal 2 — model proxy (custom auth ON)
 $env:ACCOUNTS_URL = "http://127.0.0.1:4100"; $env:ACCOUNTS_INTERNAL_KEY = "devinternal"
@@ -23,12 +23,12 @@ $env:ACCOUNTS_URL = "http://127.0.0.1:4100"; $env:ACCOUNTS_INTERNAL_KEY = "devin
 .\.venv\Scripts\python.exe v2\deploy\registry\publish.py --key <keypair.json> --serve
 
 # terminal 4 — the desktop app in hosted mode (NO provider keys needed)
-cd v2\clients\desktop
+cd v2\clients
 npx cross-env AGENTD_FLAVOR=hosted-dev npm run dev
 ```
 
 Success: sign-in gate on first launch → signup → Store lists both agents → install →
-chat completes; `sqlite3 v2/deploy/accounts/data/accounts.db "select * from usage"` shows
+chat completes; `sqlite3 v2/accounts/data/accounts.db "select * from usage"` shows
 exactly ONE row per model call (written by the model proxy, not the daemon). Sign out →
 Settings shows "Your own keys" and BYOK still works.
 
@@ -93,7 +93,7 @@ aws secretsmanager put-secret-value --secret-id agentd/dev/app --secret-string '
 aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <acct>.dkr.ecr.ap-northeast-1.amazonaws.com
 
 docker build -t <ecr>/model-proxy:latest -f model_proxy/Dockerfile model_proxy
-docker build -t <ecr>/accounts:latest -f deploy/docker/Dockerfile.accounts .
+docker build -t <ecr>/accounts:latest -f accounts/Dockerfile accounts
 docker push <ecr>/model-proxy:latest; docker push <ecr>/accounts:latest
 
 aws ecs update-service --cluster agentd-dev --service agentd-dev-model-proxy --force-new-deployment
@@ -122,7 +122,7 @@ Edit `v2/clients/desktop/flavors/core/distribution.toml` (and studio): uncomment
 ## 6. Ship the installer
 
 ```powershell
-cd v2\clients\desktop
+cd v2\clients
 npm run dist:core          # or tag vX.Y.Z and let .github/workflows/release-build.yml build it
 ```
 

@@ -48,8 +48,8 @@ on:
     paths: # only rebuild when something that ships actually changed
       - "v2/agent_runtime/**"
       - "v2/model_proxy/**"
-      - "v2/deploy/accounts/**"
-      - "v2/clients/desktop/**"
+      - "v2/accounts/**"
+      - "v2/clients/**"
       - "v2/deploy/docker/**"
       - ".github/workflows/deploy.yml"
 
@@ -146,13 +146,13 @@ jobs:
             build model-proxy v2/model_proxy v2/model_proxy/Dockerfile
           fi
           if want accounts; then
-            build accounts v2 v2/deploy/docker/Dockerfile.accounts
+            build accounts v2/accounts v2/accounts/Dockerfile
           fi
           if want daemon; then
             build daemon v2 v2/deploy/docker/Dockerfile
           fi
           if want web; then
-            build web v2/clients/desktop v2/clients/desktop/Dockerfile.web \
+            build web v2/clients v2/clients/web/Dockerfile \
               --build-arg "VITE_AGENTD_ACCOUNTS_URL=http://${ALB}:4100" \
               --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787"
           fi

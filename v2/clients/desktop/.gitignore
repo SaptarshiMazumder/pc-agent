@@ -1,6 +1,5 @@
 node_modules/
 out/
 dist/
-dist-web/
 runtime/
 flavors/*/bundles/

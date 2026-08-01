@@ -1,0 +1,18 @@
+{
+  "name": "agentd-clients",
+  "private": true,
+  "version": "0.1.5",
+  "description": "agentd client workspace — one shared renderer (ui), two shells: the Electron desktop app and the hosted web client.",
+  "workspaces": [
+    "ui",
+    "desktop",
+    "web"
+  ],
+  "scripts": {
+    "dev:desktop": "npm run dev -w agentd-desktop",
+    "dev:web": "npm run dev -w agentd-web",
+    "build:desktop": "npm run build -w agentd-desktop",
+    "build:web": "npm run build -w agentd-web",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

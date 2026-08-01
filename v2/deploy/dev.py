@@ -15,7 +15,7 @@ separate process, not the daemon." For local dev that adds a 4th process for no 
 accounts, metering, and per-user isolation all work without it — so it's opt-in via
 --model-proxy (`--proxy` remains a short compatibility alias).
 
-The DESKTOP app is separate and already one command:  cd clients/desktop && npm run dev
+The DESKTOP app is separate and already one command:  cd clients && npm run dev:desktop
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ def main() -> None:
         free_port(port)
 
     # 1) accounts
-    spawn("accounts", [PY, str(V2 / "deploy" / "accounts" / "run-local.py")],
+    spawn("accounts", [PY, str(V2 / "accounts" / "run-local.py")],
           env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT)})
 
     # 2) Model Proxy (opt-in)
@@ -199,7 +199,7 @@ def main() -> None:
 
     # 4) web client (accounts mode)
     if not NO_WEB:
-        spawn("web", "npm run dev:web", cwd=str(V2 / "clients" / "desktop"), shell=True,
+        spawn("web", "npm run dev:web", cwd=str(V2 / "clients"), shell=True,
               env={"VITE_AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
                    "VITE_AGENTD_URL": f"ws://127.0.0.1:{DAEMON_PORT}"})
 

@@ -1,8 +1,0 @@
-# web image build context = clients/desktop/. Keep it lean.
-node_modules/
-dist/
-dist-web/
-out/
-release/
-*.log
-.vite/

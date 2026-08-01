@@ -1,11 +1,11 @@
 """Run the Platform Accounts service LOCALLY (SQLite) on :4100.
 
-    python deploy/accounts/run-local.py          # from v2/, or anywhere
+    python accounts/run-local.py                 # from v2/, or anywhere
 
 Then point agentd at it (default OFF unless this URL is set):
     AGENTD_ACCOUNTS_URL=http://127.0.0.1:4100
 
-The DB lives at deploy/accounts/data/accounts.db (override with AGENTD_ACCOUNTS_DB).
+The DB lives at accounts/data/accounts.db (override with AGENTD_ACCOUNTS_DB).
 """
 
 import os

@@ -1,0 +1,10 @@
+# npm workspaces hoist every package's deps here, so this is the ONE node_modules that matters
+# (desktop/ keeps its own ignore for the Electron-specific build outputs).
+node_modules/
+*/node_modules/
+
+# web build output (static bundle nginx serves)
+web/dist/
+
+*.log
+.vite/
