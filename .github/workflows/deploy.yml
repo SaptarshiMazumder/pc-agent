@@ -142,11 +142,14 @@ jobs:
             echo "::endgroup::"
           }
           want() { [ "$DEPLOY_SERVICE" = "all" ] || [ "$DEPLOY_SERVICE" = "$1" ]; }
+          # NOTE: model-proxy and accounts build from the v2/ context (not their own folder)
+          # so both images can install the shared telemetry library at v2/monitoring/. Their
+          # Dockerfiles still COPY only the handful of files each service needs.
           if want model-proxy; then
-            build model-proxy v2/model_proxy v2/model_proxy/Dockerfile
+            build model-proxy v2 v2/model_proxy/Dockerfile
           fi
           if want accounts; then
-            build accounts v2/accounts v2/accounts/Dockerfile
+            build accounts v2 v2/accounts/Dockerfile
           fi
           if want daemon; then
             build daemon v2 v2/deploy/docker/Dockerfile

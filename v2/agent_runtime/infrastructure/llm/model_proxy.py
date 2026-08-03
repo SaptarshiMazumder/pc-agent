@@ -109,9 +109,16 @@ def apply(kwargs: dict) -> dict:
     # the account explicitly via the OpenAI `user` field.
     from agent_runtime.infrastructure import (
         accounts,  # local import — accounts imports nothing from llm
+        telemetry,
     )
 
     acct = accounts.account_id()
     if acct and "user" not in kwargs:
         kwargs["user"] = acct
+    # Carry the tracking number across the process boundary. This is the ONLY point where our
+    # correlation context can reach the proxy, and the proxy is where cost is known — so
+    # without these headers a usage row can never be tied back to the message that caused it.
+    trace = telemetry.trace_headers()
+    if trace:
+        kwargs["extra_headers"] = {**(kwargs.get("extra_headers") or {}), **trace}
     return kwargs

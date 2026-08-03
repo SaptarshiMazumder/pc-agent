@@ -16,7 +16,18 @@ from agent_runtime.main.container import build_gateway
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    # Structured JSON logs when the telemetry package is available, plain text otherwise (an
+    # older install, or a wheel built before it existed). JSON is what makes every line carry
+    # the run's tracking number automatically, and what puts each line through the redaction
+    # allowlist — so a stray log call cannot put user content into CloudWatch.
+    from agent_runtime.infrastructure import telemetry
+
+    if telemetry.AVAILABLE:
+        telemetry.setup_logging("daemon")
+    else:
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+        )
     # Self-onboard BEFORE loading config. The desktop shell (and any `python -m agent_runtime`)
     # spawns THIS entry point directly, bypassing the CLI's `agentd serve` — so onboarding
     # must live here too, or a fresh packaged install boots with no config and crashes in

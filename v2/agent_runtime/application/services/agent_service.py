@@ -19,7 +19,12 @@ from agent_runtime.application.interfaces.agent_engine import AgentEngine
 from agent_runtime.application.interfaces.agents import AgentRegistry
 from agent_runtime.application.interfaces.events import EventSink
 from agent_runtime.application.interfaces.memory import SessionStore
-from agent_runtime.application.run_context import RunContext, current_run_outcome, set_run_context
+from agent_runtime.application.run_context import (
+    RunContext,
+    current_run_outcome,
+    current_trace_ids,
+    set_run_context,
+)
 from agent_runtime.domain.agent import (
     AgentSpec,
     RunMode,
@@ -313,6 +318,11 @@ class AgentService:
         # expose the run context to context-aware tools (e.g. cron tags its task with
         # this agent). Task-local, so concurrent runs never cross. Set BEFORE the prompt is
         # built, so the workspace manifest indexes the same folder the tools will use.
+        # Carry the run's tracking number as DATA on the context. Contextvars cannot cross a
+        # process boundary, so anything that hands work to another process (the plugin sandbox
+        # today, a remote backend later) needs it explicitly — otherwise that work appears in
+        # the logs as an orphan with no run attached.
+        _run_id, _turn_id = current_trace_ids()
         set_run_context(
             RunContext(
                 agent_id=agent.id,
@@ -320,6 +330,8 @@ class AgentService:
                 mode=mode,
                 workspace=workspace,
                 plugins=getattr(agent, "plugins", None) or None,
+                run_id=_run_id,
+                turn_id=_turn_id,
             )
         )
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode

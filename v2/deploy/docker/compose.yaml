@@ -13,7 +13,8 @@ services:
   model-proxy: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
     # custom_auth.py accepts the master key (infra) OR an accounts session token (desktop
     # platform-keys mode), and its success callback writes usage to the accounts ledger.
-    build: { context: ../../model_proxy, dockerfile: Dockerfile }
+    # context = v2/ so the image can install the shared telemetry library at v2/monitoring/
+    build: { context: ../.., dockerfile: model_proxy/Dockerfile }
     image: agentd-model-proxy:local
     env_file: [../../.env] # provider keys (GEMINI_API_KEY, ...) at runtime, never baked
     environment:
@@ -25,7 +26,7 @@ services:
     restart: unless-stopped
 
   accounts: # identity + per-account budget/tab (State plane)
-    build: { context: ../../accounts, dockerfile: Dockerfile }
+    build: { context: ../.., dockerfile: accounts/Dockerfile }
     image: agentd-accounts:local
     environment:
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes

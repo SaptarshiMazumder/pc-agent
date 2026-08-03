@@ -62,3 +62,8 @@ v2/agents/*/workspace/
 # Agent BUILT PRODUCTS (installer exes delivered by the app factory) — derived from the
 # .agentpkg, hundreds of MB; live with their agent but never in git or in the package
 v2/agents/*/clients/
+
+# Local telemetry capture — the dev dashboard's input (monitoring/dev_dashboard.py).
+# Metrics normally go to stdout only; AGENTD_TELEMETRY_FILE also appends here for local viewing.
+*.telemetry.jsonl
+v2/.telemetry.jsonl

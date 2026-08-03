@@ -63,9 +63,12 @@ function Build-And-Push($name, $context, $dockerfile, $buildArgs) {
   if ($LASTEXITCODE -ne 0) { throw "push of $name failed (exit $LASTEXITCODE)" }
 }
 
+# model-proxy and accounts build from the v2/ context (not their own folder) so both images can
+# install the shared telemetry library at v2/monitoring/. Their Dockerfiles still COPY only the
+# few files each service needs, so neither image gains agent_runtime, plugins or agents.
 $images = @{
-  "model-proxy" = @{ context = "$v2/model_proxy";      dockerfile = "$v2/model_proxy/Dockerfile";          args = @{} }
-  accounts = @{ context = "$v2/accounts";        dockerfile = "$v2/accounts/Dockerfile";               args = @{} }
+  "model-proxy" = @{ context = $v2;              dockerfile = "$v2/model_proxy/Dockerfile";          args = @{} }
+  accounts = @{ context = $v2;                   dockerfile = "$v2/accounts/Dockerfile";               args = @{} }
   daemon   = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile";          args = @{} }
   web      = @{ context = "$v2/clients";        dockerfile = "$v2/clients/web/Dockerfile";             args = @{
       VITE_AGENTD_ACCOUNTS_URL = "http://$albHost`:4100"

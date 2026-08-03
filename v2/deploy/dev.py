@@ -53,6 +53,9 @@ PROXY_PORT = 4000
 STATE_DIR = V2 / ".agentd-hosted"  # deterministic hosted state (NOT ~/.agentd; keeps desktop separate)
 DAEMON_TOKEN = "devtoken"
 MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-agentd-local")
+# Shared by accounts (gates /usage writes) and the proxy (presents it). Same default as
+# deploy/docker/compose.yaml so the local and container stacks behave identically.
+INTERNAL_KEY = os.environ.get("ACCOUNTS_INTERNAL_KEY", "devinternal")
 
 USE_PROXY = "--model-proxy" in sys.argv or "--proxy" in sys.argv
 NO_WEB = "--no-web" in sys.argv
@@ -174,11 +177,18 @@ def main() -> None:
 
     # 1) accounts
     spawn("accounts", [PY, str(V2 / "accounts" / "run-local.py")],
-          env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT)})
+          env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT),
+               # only enforced when the proxy is in play; matches what the proxy presents
+               **({"ACCOUNTS_INTERNAL_KEY": INTERNAL_KEY} if USE_PROXY else {})})
 
     # 2) Model Proxy (opt-in)
+    #    Wire it to accounts, or it only accepts the master key and NEVER writes the usage
+    #    ledger (custom_auth returns early without ACCOUNTS_URL + ACCOUNTS_INTERNAL_KEY) — which
+    #    makes the two things the proxy exists for, per-user auth and metering, untestable here.
     if USE_PROXY:
-        spawn("model-proxy", [PY, str(V2 / "model_proxy" / "run-local.py")])
+        spawn("model-proxy", [PY, str(V2 / "model_proxy" / "run-local.py")],
+              env={"ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
+                   "ACCOUNTS_INTERNAL_KEY": INTERNAL_KEY})
 
     # 3) daemon (accounts ON; direct provider calls unless --proxy)
     #    AGENTD_HOME gives it a SEPARATE rendezvous/logs from the desktop app's daemon (~/.agentd),

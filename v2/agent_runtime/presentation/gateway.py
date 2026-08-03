@@ -28,7 +28,11 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response as HttpResponse
 
 from agent_runtime import __version__, lifecycle
-from agent_runtime.application.run_context import current_run_context, take_run_outcome
+from agent_runtime.application.run_context import (
+    current_run_context,
+    set_trace_ids,
+    take_run_outcome,
+)
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config
 from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
@@ -36,7 +40,7 @@ from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
 from agent_runtime.domain.notify import Notification
-from agent_runtime.infrastructure import accounts, user_state
+from agent_runtime.infrastructure import accounts, telemetry, user_state
 from agent_runtime.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agent_runtime.infrastructure.llm import model_proxy
 from agent_runtime.infrastructure.memory.local_store import list_sessions
@@ -283,6 +287,11 @@ class RunHandle:
     client_id: str | None = None  # the client connection that started this run
     parent_session_key: str | None = None  # set for a SUB-AGENT run -> its progress is
     #                                         relayed (compactly) to the parent's view
+    parent_run_id: str | None = None  # SUB-AGENT: the run that spawned this one. Without it a
+    #                                   delegated run's cost looks like it came from nowhere.
+    trigger: str = "chat"  # chat | cron | heartbeat | channel | webhook | app | subagent.
+    #                        Most runs do NOT start at a chat box, and unattended ones (cron)
+    #                        carry the highest cost risk — so they need their own dimension.
     task: asyncio.Task | None = None
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
@@ -3900,9 +3909,19 @@ class Gateway:
 
         existing = self.runs.get(session_key)
         if existing is not None and existing.task is not None and not existing.task.done():
+            # Refused BEFORE a run_id would have existed — exactly the class of failure that
+            # used to be invisible. The client's traceId (below) is what makes it findable.
+            telemetry.count(
+                "run_refused_total", reason="active_run",
+                _props={"trace_id": str(params.get("traceId") or "")[:64]},
+            )
             raise RuntimeError(f"session '{session_key}' already has an active run")
 
-        run_id = uuid.uuid4().hex[:12]
+        # THE TRACKING NUMBER. Prefer the id the CLIENT minted: it exists before this handler
+        # runs, so a failure in validation/attachments/the guard above is still traceable, and
+        # the client can quote it in a support ticket. Full uuid4 hex, not [:12] — this is now
+        # a join key on the usage ledger queried across months, where 48 bits is not enough.
+        run_id = str(params.get("traceId") or "").strip()[:64] or uuid.uuid4().hex
         if idem:
             self.idempotency[idem] = run_id
         handle = RunHandle(
@@ -4031,6 +4050,20 @@ class Gateway:
         # Start a per-turn spend accumulator ONLY for account-scoped turns (so desktop/local pays
         # zero overhead — add_usage becomes a single contextvar read). Reported once when done.
         _usage_token = accounts.start_usage() if account is not None else None
+        # Bind the tracking number for the WHOLE run. create_task snapshotted this context, so
+        # the binding is isolated to this run's task and every log line, metric and outbound
+        # proxy header underneath picks it up with no argument threading.
+        telemetry.bind(
+            run_id=handle.run_id,
+            parent_run_id=handle.parent_run_id,
+            trigger=handle.trigger,
+            agent_id=agent_id,
+            account_id=(account or {}).get("account_id"),
+        )
+        # Same ids, but on an application-layer contextvar, so AgentService can stamp them onto
+        # the RunContext without importing infrastructure (v2/.importlinter forbids it).
+        set_trace_ids(handle.run_id, "")
+        _run_started = time.perf_counter()
         async def on_event(event: AgentEvent) -> None:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
@@ -4070,6 +4103,15 @@ class Gateway:
             if self.event_log is not None:
                 self.event_log.emit(handle.session_key, handle.run_id, crash)
         finally:
+            # The run-level numbers, emitted before anything else in the teardown can fail.
+            # duration is what a user waited; outcome is whether they got an answer at all.
+            telemetry.timing(
+                "run_duration_ms",
+                (time.perf_counter() - _run_started) * 1000,
+                outcome=status,
+                trigger=handle.trigger,
+            )
+            telemetry.count("run_total", outcome=status, trigger=handle.trigger)
             # Auto-title an interactive chat after its first exchange (LM-Studio style):
             # fire-and-forget so it never delays the run; skips cron/heartbeat/aborted and
             # sessions that already have a title. Titles are conversation data (server-side),

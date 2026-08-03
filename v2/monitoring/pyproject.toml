@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentd-telemetry"
+version = "0.1.0"
+description = "Shared instrumentation for agentd services — counters, timers and structured logs printed as CloudWatch EMF."
+requires-python = ">=3.11"
+dependencies = []   # deliberately ZERO: this is imported by every service, including the
+                    # pinned-litellm model_proxy image. A dependency here is a dependency there.
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentd_telemetry"]

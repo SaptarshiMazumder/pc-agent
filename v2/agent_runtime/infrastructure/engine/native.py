@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
@@ -34,6 +35,7 @@ from agent_runtime.domain.messages import (
     UserMessage,
     message_to_dict,
 )
+from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.files import resolve_artifacts
 from agent_runtime.infrastructure.memory.local_store import SessionStore
 from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
@@ -177,6 +179,9 @@ async def run_agent_loop(
         iterations = 0
         while iterations < max_iters:
             iterations += 1
+            # ONE message can be many model turns (think -> tool -> think -> answer). Numbering
+            # them is what lets "turn 4 of run abc was the slow one" be a question you can ask.
+            telemetry.bind(turn_id=f"{telemetry.get().get('run_id', 'run')}-{iterations}")
             await on_event(AgentEvent("turn_start", {}))
             await on_event(AgentEvent("message_start", {"role": "assistant"}))
 
@@ -391,21 +396,43 @@ async def _execute_tool_calls(
                 )
             )
 
+        # THE single choke point for every tool in the system — built-in, plugin, MCP,
+        # sandboxed, agent-private, third-party marketplace. Timing it here means every tool
+        # ever published is instrumented without its author doing anything, and it is what
+        # separates "the model is slow" (their problem) from "our tools are slow" (ours).
+        # NOTE the tool NAME is a property, never a dimension: with a public marketplace it is
+        # unbounded, and unbounded dimensions are billed per distinct value.
+        _tool_started = time.perf_counter()
+        _tool_outcome = "ok"
         if tool is None:
             result = ToolResult.text(f"Unknown tool: {call.name}", is_error=True)
+            _tool_outcome = "unknown"
         else:
             try:
                 args = validate_args(tool, call.arguments)
                 result = await tool.execute(call.id, args, abort, _on_update)
+                if getattr(result, "is_error", False):
+                    _tool_outcome = "error"
             except ToolArgError as e:
                 result = ToolResult.text(str(e), is_error=True)
+                _tool_outcome = "bad_args"
             except asyncio.CancelledError:
+                telemetry.timing(
+                    "tool_duration_ms", (time.perf_counter() - _tool_started) * 1000,
+                    outcome="aborted", _props={"tool": call.name},
+                )
                 raise
             except Exception:
                 result = ToolResult.text(
                     f"Tool '{call.name}' failed:\n{traceback.format_exc(limit=4)}",
                     is_error=True,
                 )
+                _tool_outcome = "exception"
+        telemetry.timing(
+            "tool_duration_ms", (time.perf_counter() - _tool_started) * 1000,
+            outcome=_tool_outcome, _props={"tool": call.name},
+        )
+        telemetry.count("tool_call_total", outcome=_tool_outcome, _props={"tool": call.name})
         # DELIVERABLES: a producing tool declares the file(s) it made via result.artifacts;
         # resolve each to a typed artifact (skips non-existent/dupes). Nothing is inferred from text.
         declared = [

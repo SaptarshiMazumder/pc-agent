@@ -1275,7 +1275,13 @@ export const useApp = create<AppState>((set, get) => {
           agentId: currentAgentId || undefined,
           projectId: currentProjectId || undefined,
           attachments: attachments?.length ? attachments : undefined,
-          idempotencyKey: `${currentSessionKey}-${Date.now()}`
+          idempotencyKey: `${currentSessionKey}-${Date.now()}`,
+          // The tracking number, minted HERE at the edge. The daemon adopts it as the run id,
+          // it rides HTTP headers into the model proxy, and it lands on the usage ledger row —
+          // so one id answers "what happened to this message, and what did it cost?". Created
+          // client-side on purpose: a request the daemon rejects before starting a run (an
+          // already-active session, bad attachments) still has an id we can search for.
+          traceId: crypto.randomUUID()
         })
         // the daemon saved the uploads and returned their real workspace paths — attach
         // them to the user bubble we just pushed so they render via /file (like history)

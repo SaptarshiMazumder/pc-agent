@@ -21,9 +21,29 @@ class RunContext:
     # Per-agent model overrides from agent.toml [plugins.*]: {plugin: {"model": ..., "tools": {tool: {"model": ...}}}}.
     # Layered ABOVE global config.plugins by resolve_tool_model. None/empty = inherit global.
     plugins: dict | None = None
+    # The run's tracking number, carried EXPLICITLY because contextvars do not survive a
+    # process boundary. Anything handed a RunContext — today the in-process plugin sandbox,
+    # tomorrow a container/microVM/remote backend — can therefore re-establish correlation on
+    # the far side instead of its work appearing as an orphan.
+    run_id: str = ""
+    turn_id: str = ""
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
+
+# The run's correlation ids, kept HERE rather than read from the telemetry library, because
+# application may not import infrastructure (see v2/.importlinter). Presentation sets these
+# where it starts a run; this layer only reads them. Stdlib only — no new dependency, and the
+# ids are still available with telemetry uninstalled.
+_trace: contextvars.ContextVar = contextvars.ContextVar("agentd_trace_ids", default=("", ""))
+
+
+def set_trace_ids(run_id: str = "", turn_id: str = "") -> None:
+    _trace.set((run_id or "", turn_id or ""))
+
+
+def current_trace_ids() -> tuple[str, str]:
+    return _trace.get()
 
 
 def set_run_context(ctx: RunContext) -> None:

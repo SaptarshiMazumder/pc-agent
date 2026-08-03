@@ -29,6 +29,13 @@ COPY --from=build /dist/agentd-*.whl /tmp/
 # `uv` is what those plugins launch their servers with (`uvx <server>`), so it belongs to the
 # runtime, not the dev box.
 RUN pip install --no-cache-dir "$(ls /tmp/agentd-*.whl)[mcp]" uv && rm /tmp/agentd-*.whl
+# Shared instrumentation (v2/monitoring). Without it the daemon still runs — every telemetry
+# call degrades to a no-op via infrastructure/telemetry.py — but the hosted daemon would be
+# the one service in the fleet you cannot see inside. Zero dependencies, so it cannot disturb
+# the resolution above.
+COPY monitoring /tmp/monitoring
+RUN pip install --no-cache-dir /tmp/monitoring && rm -rf /tmp/monitoring
+ENV AGENTD_SERVICE=daemon
 
 # Pre-resolve the MCP servers the built-in plugins declare, so `uvx` runs from the image
 # instead of downloading at first use — a container may have no egress, and a cold fetch on

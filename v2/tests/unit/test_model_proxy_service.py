@@ -62,10 +62,32 @@ def test_usage_fields_fall_back_to_nonzero_cost():
     auth = _load_auth_module()
     response = SimpleNamespace(usage={"prompt_tokens": 10, "completion_tokens": 5})
 
-    model, input_tokens, output_tokens, cost = auth._usage_fields(
+    model, input_tokens, output_tokens, cost, cached = auth._usage_fields(
         {"model": "provider/model"},
         response,
     )
 
     assert (model, input_tokens, output_tokens) == ("provider/model", 10, 5)
     assert cost > 0
+    assert cached == 0  # no cache detail reported => 0, never a guess
+
+
+def test_usage_fields_read_cached_tokens_when_reported():
+    """Cache reads cost ~10% of a normal input token, so the cached share is the biggest lever
+    on cost of goods — and agents carry very large, very stable system prompts. Providers
+    disagree on where they report it, so both shapes are pinned here."""
+    auth = _load_auth_module()
+
+    openai_shape = SimpleNamespace(
+        usage={
+            "prompt_tokens": 1000,
+            "completion_tokens": 50,
+            "prompt_tokens_details": {"cached_tokens": 800},
+        }
+    )
+    assert auth._usage_fields({"model": "m"}, openai_shape)[4] == 800
+
+    anthropic_shape = SimpleNamespace(
+        usage={"prompt_tokens": 1000, "completion_tokens": 50, "cache_read_input_tokens": 640}
+    )
+    assert auth._usage_fields({"model": "m"}, anthropic_shape)[4] == 640
