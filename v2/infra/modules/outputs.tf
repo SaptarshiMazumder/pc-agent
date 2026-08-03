@@ -44,3 +44,27 @@ output "registry_bucket" {
   description = "Upload target for deploy/registry/publish.py (aws s3 sync)."
   value       = aws_s3_bucket.registry.bucket
 }
+
+output "alerts_topic_arn" {
+  description = "SNS topic every alarm publishes to. Check subscriptions are CONFIRMED, not PendingConfirmation."
+  value       = aws_sns_topic.alerts.arn
+}
+
+output "alarm_names" {
+  description = "Every alarm created, for `aws cloudwatch describe-alarms --alarm-names`. Any of these stuck in INSUFFICIENT_DATA after traffic has flowed means its metric-math search matched nothing."
+  value = concat(
+    [
+      aws_cloudwatch_metric_alarm.unbilled_spend.alarm_name,
+      aws_cloudwatch_metric_alarm.ledger_write_failures.alarm_name,
+      aws_cloudwatch_metric_alarm.ledger_buffer_backlog.alarm_name,
+      aws_cloudwatch_metric_alarm.cap_overspend.alarm_name,
+      aws_cloudwatch_metric_alarm.accounts_unreachable.alarm_name,
+      aws_cloudwatch_metric_alarm.proxy_5xx.alarm_name,
+      aws_cloudwatch_metric_alarm.cost_per_hour.alarm_name,
+      aws_cloudwatch_metric_alarm.resolve_latency.alarm_name,
+      aws_cloudwatch_metric_alarm.login_rejections.alarm_name,
+    ],
+    [for a in aws_cloudwatch_metric_alarm.unhealthy_targets : a.alarm_name],
+    [for a in aws_cloudwatch_metric_alarm.no_successful_logins : a.alarm_name],
+  )
+}

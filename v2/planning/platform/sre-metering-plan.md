@@ -1,12 +1,47 @@
 # SRE, Observability & Metering Plan — pc-agent (`v2/`)
 
-> **Status:** ✅ **Phases 0 + 1 COMPLETE** — telemetry library, correlation ID end-to-end (client → daemon → proxy → money row), JSON logging everywhere, prepaid credits with a **hard cap enforced before the provider is called**, config-driven model tiers, and ledger replay. **590 unit tests green.** **Not yet deployed** — see the deploy card below. Next: Phase 2 (double-entry ledger + `NullPaymentProvider`) or jump to 3.5 (alarms) to make the new counters page. · **Scope:** Cloud mode only (desktop Cloud + hosted web) · **Home:** `v2/monitoring/` · **Diagram:** [`diagrams/sre-observability.puml`](diagrams/sre-observability.puml)
+> **Status:** ✅ **Phases 0 + 1 COMPLETE, DEPLOYED, AND VERIFIED ON LIVE TRAFFIC (2026-08-03)** — telemetry library, correlation ID end-to-end (client → daemon → proxy → money row), JSON logging everywhere, prepaid credits with a **hard cap enforced before the provider is called**, config-driven model tiers, and ledger replay. **590 unit tests green.** Now in progress: **3.5 (alarms)** — the new counters exist but nothing watches them. · **Scope:** Cloud mode only (desktop Cloud + hosted web) · **Home:** `v2/monitoring/` · **Diagram:** [`diagrams/sre-observability.puml`](diagrams/sre-observability.puml)
 >
 > **Two of the three live defects are now closed:** DEF-1 (silent billing loss — counted *and* replayed) and DEF-2 (budgets enforced nowhere in desktop Cloud mode — now enforced at the proxy, the one chokepoint neither topology can bypass). DEF-3 (SIGTERM kills live runs) remains, in Phase 4.
 >
 > **Working doc** — check boxes off as we go. Each phase is independently shippable. Resume at the first unchecked item.
 
 ## Progress notes
+
+### Live verification — 2026-08-03
+
+Deployed to dev and traced a real desktop Cloud-mode message end to end. `monitoring/trace.ps1`
+walks the five hops and reported all five green:
+
+| Hop | Evidence | Result |
+|---|---|---|
+| 1 browser minted the id | id was a **dashed** UUID, not the daemon's dashless `uuid4().hex` fallback | PASS |
+| 2 daemon ran it | 8 metric lines, `outcome=ok`, 6 687 ms, 1 turn (`<run_id>-1`) | PASS |
+| 3 header crossed the wire | AWS holds rows for the same `run_id` | PASS |
+| 4 proxy priced it | 27 model-proxy lines: cost, credits, tokens in/out/cached | PASS |
+| 5 accounts billed it | 2 × `ledger_row_total=1` keyed by that `run_id` | PASS |
+
+**One message billed TWO model calls**, and the second billing row landed ~4 s *after* the run's
+`run_duration_ms` was emitted. So a second call is made inside the run and never awaited by it —
+background work (title generation or a memory write) inheriting the run's context. Not yet
+identified. It means the real cost of a message is roughly double what the turn count implies,
+and half of it is invisible in the turn metrics. **This is the first finding the telemetry paid
+for; it was undiscoverable yesterday.**
+
+**Still unproven in production** (unit-tested only): the 402/403 refusals, `credits_remaining`
+visibly draining, and `unbilled_cost_usd` sitting at 0.
+
+Two tools added for reading the result, because the CloudWatch console cannot answer these
+questions without knowing that the metric name is the field key and that `run_id` is a property
+rather than a dimension: `monitoring/cloud_check.ps1` (money, failures, ledger, auth in one
+pass) and `monitoring/trace.ps1` (one request, all five hops, both machines). Query reference in
+`monitoring/QUERIES.md`.
+
+Both `.ps1` files are **7-bit ASCII deliberately** — Windows PowerShell 5.1 parses `.ps1` as the
+system ANSI codepage unless the file carries a UTF-8 BOM, so a single em-dash in a comment breaks
+string quoting and the script fails to parse. They also pass Logs Insights queries to the AWS CLI
+via `file://` rather than as an argument, because PowerShell strips embedded double quotes when
+building a native command line and `filter run_id = "abc-123"` arrives unquoted.
 
 ### 0.1 · Telemetry library — done
 
@@ -451,20 +486,20 @@ Robot customer every 5 minutes from outside the VPC: sign in → send a message 
 
 ## Part 5 — The ledger
 
-### Phase 0 · Foundation — **COMPLETE** (built, not yet deployed)
+### Phase 0 · Foundation — **COMPLETE** (deployed + verified live 2026-08-03)
 - [x] 0.1 Telemetry library (`count`/`timer`/`log`/`redact`, EMF to stdout) — **+ cardinality guard, + live dev dashboard**
 - [x] 0.2 Correlation ID: client `traceId` → `run_id` → `turn_id` → `parent_run_id` → `trigger`
 - [x] 0.3 Structured JSON logging + allowlist redaction, all three services
 - [x] 0.4 Cross-process ID propagation (`RunContext.run_id/turn_id`; MCP deliberately excluded — see notes)
 - [x] 0.5 Package the library into all three images (build context widened to `v2/`)
 
-### Phase 1 · The metered event — **COMPLETE** (built, not yet deployed)
+### Phase 1 · The metered event — **COMPLETE** (deployed; hops 4–5 verified live, refusals still unproven in prod)
 - [x] 1.1 Canonical usage event schema + write path at the Proxy *(creator_id / agent_version / credit_class on the row wait for the catalog in 2.2)*
 - [x] 1.2 Cost → credits conversion *(per-call `ceil`; run-level rounding deliberately not built — see notes)*
 - [x] 1.3 Funding source resolution (+ BYOK never reaches the proxy at all)
 - [x] 1.4 Balance + hard-cap enforcement — in the **pre-call** hook, before the provider is touched
 - [x] 1.5 Model tier enforcement (config-driven tiers, `model_tier_max` per grant)
-- [x] 1.6 **Fix silent ledger loss** — counter ✅ · retry buffer ✅ · alarm ⬜ *(alarm is 3.5)*
+- [x] 1.6 **Fix silent ledger loss** — counter ✅ · retry buffer ✅ · alarm ✅ *(3.5, authored — awaiting `terraform apply`)*
 
 ### Phase 2 · Accounting
 - [ ] 2.1 Double-entry ledger
@@ -478,7 +513,9 @@ Robot customer every 5 minutes from outside the VPC: sign in → send a message 
 - [ ] 3.2 The four clocks + model/tool time split
 - [ ] 3.3 Business metrics (incl. `run_refused{reason}`)
 - [ ] 3.4 Abuse + fraud signals
-- [ ] 3.5 Alarms (6) + runbook links
+- [x] 3.5 **Alarms — authored, awaiting `terraform apply`.** 11 alarms in `infra/modules/alarms.tf` + SNS topic. Runbook links replaced by the **diagnosing Logs Insights query inlined in each `alarm_description`** — a link needs a runbook to exist (5.5); the query works today and shows up in the alert email itself. Verify with `monitoring/alarm_check.ps1`.
+  - Two decisions worth remembering. **The alarm-vs-dimensions problem is solved on the EMIT side, not in Terraform.** EMF publishes one metric per *exact* dimension set, so `{outcome="fail"}` matches nothing when the failing lines also carry `reason` — an alarm that reports healthy forever and can never fire. The first attempt used `SEARCH()` metric math to match across sets; **that cannot work — `PutMetricAlarm` rejects it outright** (`SEARCH is not supported on Metric Alarms`), since an alarm must bind to a fixed set of time series. Instead `agentd_telemetry` publishes stable ROLLUP dimension sets — `{service}` and `{service, outcome}` — alongside the exact set (`emf._dimension_sets`, pinned by `tests/unit/test_telemetry_emf.py`), and the alarms are ordinary `dimensions = {}` alarms binding to those. **The two files are coupled**: alarming on a dimension outside the rollups silently yields an alarm that can never fire. **`treat_missing_data = "notBreaching"` everywhere except the login-absence alarm**, because for money alarms no data *is* health — which is also why `describe-alarms` cannot validate them and `alarm_check.ps1` replays each query instead.
+  - Deviations from the sketch above: 5xx alarms on an **absolute count**, not 1% of requests (at dev volume one error is a 33% rate); the **login-absence** alarm ships **disabled** (`enable_login_absence_alarm = false`) since a dev environment is legitimately silent overnight; auth and funding fail-open are **one** alarm, since they mean the same thing operationally and would always fire together.
 - [ ] 3.6 Dashboards: service health, business health
 - [ ] 3.7 Synthetic canary + `/health/ready`
 
@@ -509,6 +546,14 @@ Not features. Bugs found during design review that exist in the working tree tod
 | DEF-5 | Accounts DB unbacked | SQLite on EFS | losing it loses accounts **and** the money ledger | 4.3 |
 | DEF-6 | Accounts is a hard dependency in the hot path | `custom_auth.py:85` per model call; single task, SQLite (cannot scale to 2 without corruption) | Accounts down = all users blocked within 60s | mitigation in 3.7; real fix is Postgres, out of scope |
 | DEF-7 | No correlation between services | — | "my chat broke at 3pm" is unanswerable | 0.2 |
+
+### Found while verifying live — 2026-08-03
+
+| # | Defect | Where | Impact | Fix |
+|---|---|---|---|---|
+| DEF-8 | EMF namespace is `agentd` for **every** environment | `monitoring/agentd_telemetry/emf.py:25` (`AGENTD_TELEMETRY_NAMESPACE` defaults to `agentd`, and nothing sets it per env) | the moment a second environment exists, dev and prod metrics merge into one namespace: dev alarms fire on prod traffic and prod dashboards include dev noise. **Harmless today because dev is the only environment** — which is exactly why it will be forgotten. | set `AGENTD_TELEMETRY_NAMESPACE=agentd-<env>` in the services map and point `var.telemetry_namespace` at it, in the same change that creates the second environment. Doing it now would break the alarms below, which must match what the running tasks actually emit. |
+| DEF-9 | Second, unawaited model call per message | unidentified — likely title generation or a memory write | every message costs ~2× what the turn count implies, and the extra call lands after `run_duration_ms` is emitted, so it is invisible in run metrics while still being billed | identify the call path, then either await it inside the run or give it its own `trigger` so it stops masquerading as chat spend |
+| DEF-10 | Desktop daemon reports `service: unknown`; `daemon.log` has no rotation (58 MB, embedded NULs) | Electron's supervisor does not set `AGENTD_SERVICE`; nothing rotates the log | cosmetic today (the local file only ever holds daemon lines) but wrong the moment 5.1 uploads them — everything would arrive labelled `unknown`. The unbounded log makes every local diagnostic slower and makes `grep` treat the file as binary. | set `AGENTD_SERVICE=daemon` in `supervisor.ts`; add size-based rotation. Do it with 5.1. |
 
 ---
 
