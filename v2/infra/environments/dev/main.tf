@@ -30,6 +30,12 @@ variable "model_proxy_desired_count" {
   default     = 1
 }
 
+variable "alert_email" {
+  description = "Where dev alarms go. Kept as a variable rather than hardcoded so the address is not committed; pass with -var or a *.tfvars file. Empty = topic created, nobody subscribed."
+  type        = string
+  default     = ""
+}
+
 module "stack" {
   source = "../../modules"
 
@@ -38,6 +44,16 @@ module "stack" {
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
   model_proxy_desired_count = var.model_proxy_desired_count
+
+  # Alarms (3.5). Thresholds are deliberately loose for dev: the goal here is to prove the
+  # alarms WIRE UP and can actually fire, not to tune them. The money alarms (unbilled
+  # spend, ledger failures, buffer backlog, overspend) all trigger at > 0 and need no
+  # tuning at any traffic level -- those are the ones that matter.
+  alert_email             = var.alert_email
+  cost_per_hour_alarm_usd = 5
+  proxy_5xx_threshold     = 5
+  # enable_login_absence_alarm stays false: dev has no continuous traffic, so "no sign-ins
+  # for 30 minutes" is the normal state overnight.
 }
 
 # ── Pass-through outputs (push-images.ps1 and the desktop flavors read these) ──

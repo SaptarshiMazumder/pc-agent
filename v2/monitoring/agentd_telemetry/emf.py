@@ -28,6 +28,14 @@ _VERSION = os.environ.get("AGENTD_VERSION", "").strip() or "dev"
 _FILE = os.environ.get("AGENTD_TELEMETRY_FILE", "").strip()
 _ENABLED = os.environ.get("AGENTD_TELEMETRY", "1").strip() not in ("0", "false", "no")
 
+#: Dimension keys that ALARMS are allowed to bind to, coarsest first. See `_dimension_sets`.
+#: Overridable because which keys are alarm-worthy is a deployment decision, not a code one.
+_ROLLUP_KEYS = tuple(
+    k.strip()
+    for k in os.environ.get("AGENTD_TELEMETRY_ROLLUP_KEYS", "service,outcome").split(",")
+    if k.strip()
+)
+
 # stdout is shared with normal logging; serialise so a metric line is never interleaved with
 # a half-written log line (which would make the JSON unparseable at the other end).
 _lock = threading.Lock()
@@ -63,6 +71,37 @@ def emit(record: dict) -> None:
                 pass
 
 
+def _dimension_sets(dims: dict) -> list[list[str]]:
+    """Which dimension combinations this metric is published under.
+
+    CloudWatch creates ONE METRIC PER EXACT DIMENSION SET, and a call site is free to add a
+    dimension the next call site omits: `ledger_write_total` carries {outcome, reason, service}
+    when a write fails and {outcome, service} when it succeeds. Publishing only the exact set
+    would therefore mean NO fixed set an alarm could name — `dimensions = { outcome = "fail" }`
+    matches neither and the alarm sits in INSUFFICIENT_DATA forever, which looks installed and
+    can never fire. (Alarms cannot escape this with SEARCH() the way dashboards can: metric
+    alarms reject SEARCH outright, because an alarm must bind to a fixed set of time series.)
+
+    So alongside the exact set we publish progressively coarser ROLLUPS over _ROLLUP_KEYS —
+    {service} and {service, outcome} — which are present regardless of what else a call site
+    tagged. Those are what alarms bind to. Both rollups are needed and they answer different
+    questions: {service} gives "p99 resolve latency, all outcomes", {service, outcome} gives
+    "failed ledger writes, all reasons".
+
+    A rollup is emitted only when every key in it is present, and never when it duplicates the
+    exact set — a repeated set would publish (and bill for) the same metric twice.
+    """
+    exact = sorted(dims)
+    sets = [exact]
+    for depth in range(1, len(_ROLLUP_KEYS) + 1):
+        rollup = _ROLLUP_KEYS[:depth]
+        if all(key in dims for key in rollup):
+            candidate = sorted(rollup)
+            if candidate not in sets:
+                sets.append(candidate)
+    return sets
+
+
 def metric_record(
     name: str, value: float, unit: str, dimensions: dict, properties: dict
 ) -> dict:
@@ -83,7 +122,7 @@ def metric_record(
             "CloudWatchMetrics": [
                 {
                     "Namespace": _NAMESPACE,
-                    "Dimensions": [sorted(dims.keys())],
+                    "Dimensions": _dimension_sets(dims),
                     "Metrics": [{"Name": name, "Unit": unit}],
                 }
             ],

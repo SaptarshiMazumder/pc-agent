@@ -44,6 +44,56 @@ variable "model_proxy_desired_count" {
   default     = 1
 }
 
+# ─────────────────────────── Alarms (see alarms.tf) ───────────────────────────
+
+variable "alert_email" {
+  description = "Where alarm notifications go. Empty = create the SNS topic but subscribe nobody (alarms still fire, into the void). AWS sends a confirmation link the recipient must click."
+  type        = string
+  default     = ""
+}
+
+variable "telemetry_namespace" {
+  description = "CloudWatch namespace the services publish EMF metrics to. MUST match what the running tasks emit (AGENTD_TELEMETRY_NAMESPACE, default `agentd`) or every metric-math alarm silently matches nothing. See DEF-8: this is not yet per-environment."
+  type        = string
+  default     = "agentd"
+}
+
+variable "cost_per_hour_alarm_usd" {
+  description = "Page when provider spend exceeds this many USD in one hour. Set from observed normal, not from a budget: this catches runaway loops and abuse, not overspend."
+  type        = number
+  default     = 5
+}
+
+variable "proxy_5xx_threshold" {
+  description = "Model Proxy 5xx responses in 5 minutes before paging. An absolute count, not a percentage: at low traffic a ratio makes one error look like a 33% error rate."
+  type        = number
+  default     = 5
+}
+
+variable "resolve_latency_p99_ms" {
+  description = "Page when p99 session-token resolution exceeds this. It runs before every model call for every user, so it is the platform's latency floor."
+  type        = number
+  default     = 1000
+}
+
+variable "login_rejection_threshold" {
+  description = "Rejected sign-ins in 5 minutes before paging. Catches credential stuffing and a broken password path alike."
+  type        = number
+  default     = 20
+}
+
+variable "enable_login_absence_alarm" {
+  description = "Page when NO successful sign-in occurs in the window. Off by default: a dev environment is legitimately silent for hours and this is the one alarm that treats missing data as breaching."
+  type        = bool
+  default     = false
+}
+
+variable "login_absence_window_minutes" {
+  description = "Window for enable_login_absence_alarm."
+  type        = number
+  default     = 30
+}
+
 # ─────────────────────────── The services map ───────────────────────────
 # ONE entry per container. Adding a service here gives it an ECR repo, ALB target
 # group + listener + firewall holes, service discovery, and a Fargate service — no
