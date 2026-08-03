@@ -3504,10 +3504,27 @@ class Gateway:
         except ValueError as e:
             return {"created": False, "error": str(e)}
         # show it right away, then fill colour/tagline in the background
-        await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
+        await self._broadcast_agents_changed()
         asyncio.create_task(self._maybe_generate_presentations())
         log.info("agents.create %s (%s)", spec.id, name or spec.id)
         return {"created": True, "agentId": spec.id, "name": spec.name}
+
+    async def _broadcast_agents_changed(self) -> None:
+        """Tell every connected client the agent ROSTER changed, so it redraws its list."""
+        await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
+
+    def broadcast_agents_changed(self) -> None:
+        """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
+
+        A plugin that alters the roster (agent-builder's reload_agent) runs inside ordinary
+        synchronous tool code, so it cannot await. The send is scheduled on the running loop
+        instead — a notification nobody waits on. Outside a loop (unit tests) it is a no-op,
+        which is why the plugin treats the handle as best-effort."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self._broadcast_agents_changed())
 
     def _workspace_cleanup(self, params: dict) -> dict:
         """Tidy an agent's workspace: delete scratch (all of <workspace>/tmp/) + any file

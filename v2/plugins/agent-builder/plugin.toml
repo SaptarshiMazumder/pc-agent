@@ -1,0 +1,15 @@
+# agent-builder — the by-chat agent AUTHORING support tier.
+#
+# Phase 1 gave the model the conventions (agents/main/skills/build-agent/SKILL.md) and the
+# `write` tool already lets it author any file. This bundle adds the two things writing files
+# cannot do:
+#   validate_agent — is what was written well-formed, packageable, and sandbox-safe?
+#   reload_agent   — make agent.toml edits + NEW private plugins live, and tell every client.
+#
+# Ungated on purpose: both are READ/REFRESH operations over agents that already exist on disk.
+# Neither writes agent code (that is create_agent / create_tool / write, each gated separately).
+id = "agent-builder"
+name = "Agent Builder"
+kind = "native"
+entry = "agent_builder_plugin:register"
+description = "Validate an authored agent (layout, packageability, sandbox) and reload it live."

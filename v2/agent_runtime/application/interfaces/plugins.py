@@ -39,6 +39,11 @@ class PluginContext:
     registry: object = None  # AgentRegistry — list/author agents at runtime (create_agent)
     register_plugin_live: object = None  # callable() -> hot-load NEWLY-written plugins into the
     #                                      live catalog without a restart (used by create_tool)
+    broadcast_agents_changed: object = None  # callable() -> fan an `agents.changed` event out to
+    #                                          every connected client, so a plugin that alters the
+    #                                          agent ROSTER (reload_agent) can refresh their
+    #                                          sidebars. Late-bound: the gateway does not exist
+    #                                          when plugins are discovered.
 
     def resource(self, name: str) -> str:
         """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,

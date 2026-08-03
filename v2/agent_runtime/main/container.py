@@ -221,6 +221,14 @@ def build_service(
             "sections": len(new_sections),
         }
 
+    def broadcast_agents_changed() -> None:
+        """Fan `agents.changed` out to every client. A THUNK because plugins are discovered
+        before the Gateway is constructed — it resolves through _late at call time, exactly
+        like register_plugin_live resolves the service. No-op until the gateway exists."""
+        gateway = _late.get("gateway")
+        if gateway is not None:
+            gateway.broadcast_agents_changed()
+
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     plugin_deps = {
@@ -233,6 +241,7 @@ def build_service(
         "connect_token_store": connect_token_store,
         "registry": registry,
         "register_plugin_live": register_plugin_live,
+        "broadcast_agents_changed": broadcast_agents_changed,
     }
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
@@ -542,7 +551,7 @@ def build_gateway(config: Config) -> Gateway:
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
 
-    return Gateway(
+    gateway = Gateway(
         config=config,
         service=service,
         browser_manager=browser_manager,
@@ -557,3 +566,9 @@ def build_gateway(config: Config) -> Gateway:
             config
         ),  # egress privacy gate (None unless enabled)
     )
+    # LATE-BIND the roster broadcast (same pattern as _late["service"] above): plugins are
+    # discovered long before the Gateway exists, so the handle passed to them is a thunk that
+    # resolves once it does. A plugin that changes the agent roster (agent-builder's
+    # reload_agent) uses this to refresh every client's sidebar.
+    _late["gateway"] = gateway
+    return gateway

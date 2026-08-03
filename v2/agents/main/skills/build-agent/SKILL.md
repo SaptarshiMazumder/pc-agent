@@ -176,7 +176,7 @@ entry = "weather_kit:register"   # "<module>:<callable>" — module is in THIS f
 bare module name.
 
 ```python
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class GetWeatherTool(Tool):
@@ -202,6 +202,35 @@ class GetWeatherTool(Tool):
 def register(api, ctx):
     api.register_tool(GetWeatherTool())
 ```
+
+### An agent's own tools are treated as UNTRUSTED
+
+Trust is decided by **location, not authorship**: anything discovered under
+`agents/<id>/plugins/` is classified `THIRD_PARTY_BUNDLE`. The reason is that agents can be
+*downloaded* — a `.agentpkg` can carry someone else's Python, which would then run on the
+installer's machine with their keys. The classifier cannot tell your code from a stranger's,
+so it judges the folder.
+
+When sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
+
+| | |
+| --- | --- |
+| files | the run's workspace only |
+| network | **none** |
+| secrets | **`{}` — always.** It never sees a provider key. |
+
+Practical consequences when you write a private plugin:
+
+- **Do not read API keys from the environment.** Take the value as a tool *parameter*, or use a
+  shared tool that already owns that capability.
+- **Do not assume network access.**
+- If the plugin genuinely needs either and *you* wrote it, the operator can exempt it:
+  `sandbox_trusted_plugins = ["<plugin-id>"]` in config. Never suggest exempting code the user
+  did not author.
+
+Today the flag is off by default and the shipped backend does not enforce the grant, so nothing
+breaks immediately — but a plugin that reaches for keys or the network will break the day real
+isolation lands, and on the machine of anyone who installs the agent.
 
 ### Python library dependencies
 
@@ -285,9 +314,14 @@ Author with that in mind:
 2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
    first; the agent is resolvable from this moment.
 3. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files, `ui/`.
-4. Verify — `validate_agent` if available; otherwise re-read what you wrote.
-5. Activate — `reload_agent` if available (needed for `agent.toml` edits and new private
-   plugins; skills and `ui/` are already live).
+   For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
+   and writes the plugin in the right shape for you.
+4. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
+   things being silently ignored, things that only break at installer-build time, and tools
+   that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
+5. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
+   plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
+   served straight off disk, so both are live the moment you save.
 6. Tell the user how to try it: a new chat with that agent, or its app window.
 
 ## Rules

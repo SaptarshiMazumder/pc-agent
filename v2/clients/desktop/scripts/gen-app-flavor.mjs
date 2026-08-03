@@ -74,11 +74,12 @@ if (prebuilt) {
 } else {
   // The packer is the agentd CLI. Resolution order, first hit wins:
   //   1. the repo venv's console script   (v2/.venv/Scripts/agentd.exe)
-  //   2. the repo venv's python -m agentd.cli.main (same interpreter, no console script
-  //      needed — a plain checkout's venv often has no agentd.exe). NOTE: it must be
-  //      agentd.cli.main, NOT `-m agentd` — the latter is the DAEMON entry point
-  //      (agentd/__main__.py -> agentd.main.main), which ignores the subcommand and tries
-  //      to bind the gateway port.
+  //   2. the repo venv's python -m agent_runtime.cli.main (same interpreter, no console
+  //      script needed — a plain checkout's venv often has no agentd.exe). NOTE: it must
+  //      be agent_runtime.cli.main, NOT `-m agent_runtime` — the latter is the DAEMON
+  //      entry point (__main__.py -> main.main), which ignores the subcommand and tries
+  //      to bind the gateway port. The PACKAGE is agent_runtime; the CLI/product name
+  //      is still `agentd`.
   //   3. `agentd` on PATH                 (activated venv / global install)
   // The venv lives at v2/.venv; repoRoot is pc-agent/, hence the 'v2' segment (same as
   // the agents dir above).
@@ -94,7 +95,7 @@ if (prebuilt) {
     args = packArgs
   } else if (fs.existsSync(venvPython)) {
     cli = venvPython
-    args = ['-m', 'agentd.cli.main', ...packArgs]
+    args = ['-m', 'agent_runtime.cli.main', ...packArgs]
   } else {
     cli = 'agentd'
     args = packArgs

@@ -1,0 +1,305 @@
+@startuml agent-builder-architecture
+title Agent Builder — **PHASE 3: validate + reload**\nGREEN = new · ORANGE = modified · GREY = existing, untouched
+
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam class {
+  BorderColor #444
+  ArrowColor #555
+}
+
+legend top left
+  |<#C8E6C9>       | **NEW** in phase 3 |
+  |<#FFE0B2>       | **MODIFIED** in phase 3 (new members marked NEW) |
+  |<#E0E0E0>       | **EXISTING** — reused as-is |
+  == plugins/ is the OUTERMOST ring: it imports agent_runtime, never the reverse ==
+  == (.importlinter contract: core-not-import-plugins) ==
+endlegend
+
+' ═══════════════════════ CORE — agent_runtime ═══════════════════════
+package "agent_runtime/domain" #F5F5F5 {
+  class AgentSpec <<entity>> #E0E0E0 {
+    +id / name / version
+    +app : dict | None
+    +plugins : dict
+    +tools_allow / skills_allow
+    +dir : Path | None
+  }
+  enum PluginOrigin #E0E0E0 {
+    BUILTIN
+    FIRST_PARTY
+    THIRD_PARTY_BUNDLE
+    --
+    +is_untrusted : bool
+  }
+  class CapabilityGrant <<value>> #E0E0E0 {
+    DEFAULT-DENY
+    +secrets = {}
+    +files / network / cpu / mem
+    .. never sees provider keys ..
+  }
+}
+
+package "agent_runtime/application/interfaces" #F5F5F5 {
+  abstract class Tool <<port>> #E0E0E0 {
+    +name / description / parameters / label
+    {abstract} +execute(tool_call_id, params, abort, on_update)
+  }
+  interface AgentRegistry <<port>> #E0E0E0 {
+    +resolve(session_key)
+    +get(agent_id)
+    +list_ids()
+    .. add()/refresh() are NOT on this port ..
+  }
+  class PluginContext #FFE0B2 {
+    +config : object
+    +plugin_dir : str
+    +registry : object
+    +register_plugin_live : object
+    +browser / task_store / memory_bank / ...
+    __ NEW __
+    +broadcast_agents_changed : object = None
+    .. late-bound callable() -> the Gateway's ..
+    .. agents.changed fan-out. ADDITIVE field. ..
+  }
+}
+
+package "agent_runtime/infrastructure" #F5F5F5 {
+  class FileAgentRegistry <<adapter>> #E0E0E0 {
+    +agents_dir : Path
+    +refresh() : list[str]
+    +add(agent_id) : AgentSpec
+    +get(agent_id) / list_ids()
+    -_load_dir(agent_id, d) : AgentSpec
+    .. THE agent.toml parser ..
+  }
+  class discovery <<module>> #E0E0E0 {
+    +discover_agent_plugins(agents_dir, config, deps, entitlement)
+    .. stamps _agent_id on every private tool ..
+  }
+  class classify <<module>> #E0E0E0 {
+    +classify_origin(tool, config) : PluginOrigin
+    +wrap_untrusted(tools, sandbox, resolver, config)
+    .. _agent_id set => THIRD_PARTY_BUNDLE ..
+  }
+  class bundle_io <<module>> #E0E0E0 {
+    +EXCLUDED_DIRS = {workspace, clients}
+    +pack_bundle() / unpack_bundle()
+  }
+}
+
+package "agent_runtime/presentation" #F5F5F5 {
+  class Gateway #FFE0B2 {
+    +serve() / _handle_conn()
+    -_agents_create()
+    -_agents_list() : dict
+    -_send_all(frame)
+    __ NEW __
+    +broadcast_agents_changed()
+    .. extracted from _agents_create so a ..
+    .. plugin can trigger the SAME fan-out ..
+  }
+}
+
+package "agent_runtime/main" #F5F5F5 {
+  class container #FFE0B2 {
+    +register_plugin_live() : dict
+    -_agent_private_tools() : dict
+    -_late : dict
+    __ NEW __
+    plugin_deps["broadcast_agents_changed"]
+    .. late-bound gateway callable — the same ..
+    .. _late pattern register_plugin_live uses ..
+  }
+}
+
+' ═══════════════════════ NEW BUNDLE ═══════════════════════
+package "plugins/agent-builder  «NEW BUNDLE»" #F5F5F5 {
+
+  class plugin_toml <<manifest>> #C8E6C9 {
+    id = "agent-builder"
+    kind = "native"
+    entry = "agent_builder_plugin:register"
+  }
+
+  class agent_builder_plugin <<composition root>> #C8E6C9 {
+    +register(api, ctx)
+    .. builds services, injects adapters, ..
+    .. registers both tools ..
+  }
+
+  package "domain  (pure, no I/O)" {
+    class Finding <<value>> #C8E6C9 {
+      +level : str
+      +code : str
+      +message : str
+      +path : str
+    }
+    class Report <<value>> #C8E6C9 {
+      +agent_id : str
+      +findings : list[Finding]
+      +ok : bool
+      +as_text() : str
+    }
+    class AgentLayoutRules <<pure>> #C8E6C9 {
+      +check(listing, spec) : list[Finding]
+      __ checks __
+      agent.toml + IDENTITY.md exist
+      display keys NOT inside [app]
+      [app] holds only its five keys
+      skills/<n>/SKILL.md shape
+      plugins/<pid>/plugin.toml + entry
+    }
+    class PackageabilityRules <<pure>> #C8E6C9 {
+      +check(spec, listing) : list[Finding]
+      __ checks __
+      [app] present => can become an exe
+      version set => installs supersede
+      ui/ entry file actually exists
+      nothing needed sits in workspace/
+    }
+    class SandboxRules <<pure>> #C8E6C9 {
+      +check(spec, listing, config) : list[Finding]
+      __ checks __
+      agents/<id>/plugins/* is UNTRUSTED
+      warn when its code needs network
+      or env secrets under default-deny
+      point at sandbox_trusted_plugins
+    }
+  }
+
+  package "application  (orchestration)" {
+    class ValidateAgentService #C8E6C9 {
+      -_reader : AgentDirReader
+      -_rules : list
+      +validate(agent_id) : Report
+      .. parse -> run every rule -> Report ..
+    }
+    class ReloadAgentService #C8E6C9 {
+      -_reloader : RegistryReloadAdapter
+      +reload(agent_id) : dict
+      .. re-read + register + announce ..
+    }
+  }
+
+  package "infrastructure  (I/O only)" {
+    class AgentDirReader <<adapter>> #C8E6C9 {
+      -_registry
+      +spec(agent_id) : AgentSpec
+      +listing(agent_id) : list[str]
+      +read(rel_path) : str
+      .. delegates the PARSE to core ..
+    }
+    class RegistryReloadAdapter <<adapter>> #C8E6C9 {
+      -_registry
+      -_register_plugin_live
+      -_broadcast
+      +reload(agent_id) : dict
+      .. refresh/add -> plugin rediscovery ..
+      .. -> agents.changed ..
+    }
+  }
+
+  package "presentation  (tool surface)" {
+    class ValidateAgentTool <<Tool>> #C8E6C9 {
+      +name = "validate_agent"
+      +default_retryable = True
+      +parameters = {agent_id}
+      +execute(...)
+    }
+    class ReloadAgentTool <<Tool>> #C8E6C9 {
+      +name = "reload_agent"
+      +default_retryable = False
+      +parameters = {agent_id}
+      +execute(...)
+    }
+  }
+}
+
+package "agents/main/skills" #F5F5F5 {
+  class "build-agent/SKILL.md" as SKILL #FFE0B2 {
+    (phase 1) full agent.toml schema
+    (phase 1) plugin / skill / ui layout
+    __ NEW __
+    + SANDBOX section: a private plugin is
+      THIRD_PARTY_BUNDLE, default-deny, no
+      secrets; how to request an exemption
+    + document validate_agent / reload_agent
+      in the "order of work"
+  }
+}
+
+' ═══════════════════════ RELATIONS ═══════════════════════
+ValidateAgentTool ..|> Tool
+ReloadAgentTool   ..|> Tool
+FileAgentRegistry ..|> AgentRegistry
+
+ValidateAgentTool o--> ValidateAgentService
+ReloadAgentTool   o--> ReloadAgentService
+
+ValidateAgentService --> AgentLayoutRules
+ValidateAgentService --> PackageabilityRules
+ValidateAgentService --> SandboxRules
+ValidateAgentService --> AgentDirReader
+ValidateAgentService ..> Report
+AgentLayoutRules ..> Finding
+PackageabilityRules ..> Finding
+SandboxRules ..> Finding
+
+PackageabilityRules ..> bundle_io : mirrors EXCLUDED_DIRS
+SandboxRules ..> classify : mirrors the _agent_id rule
+classify ..> PluginOrigin
+classify ..> CapabilityGrant
+
+ReloadAgentService --> RegistryReloadAdapter
+AgentDirReader --> FileAgentRegistry : reuses _load_dir parse\n(one source of truth)
+RegistryReloadAdapter --> FileAgentRegistry : refresh() / add()
+RegistryReloadAdapter ..> discovery : re-discover NEW private plugins
+RegistryReloadAdapter ..> Gateway : broadcast_agents_changed()
+FileAgentRegistry --> AgentSpec
+
+agent_builder_plugin ..> ValidateAgentTool : constructs
+agent_builder_plugin ..> ReloadAgentTool : constructs
+agent_builder_plugin --> PluginContext : reads registry,\nregister_plugin_live,\nbroadcast_agents_changed
+plugin_toml ..> agent_builder_plugin : entry=
+
+container ..> PluginContext : fills the handles
+container ..> Gateway : late-binds the broadcast
+
+SKILL ..> ValidateAgentTool : tells the model to call it
+SKILL ..> ReloadAgentTool
+
+note as N1 #E3F2FD
+  **The one core edit this phase needs.**
+  PluginContext has no way to emit an event, so a plugin tool cannot
+  refresh the client's agent list. One ADDITIVE field
+  (broadcast_agents_changed) + late-binding in container.py — the same
+  pattern register_plugin_live already uses. PluginContext's own
+  docstring says "new fields are additive", so this is its intended
+  extension path, not a workaround.
+end note
+
+note as N2 #FFF3E0
+  **Why SandboxRules exists.**
+  classify_origin(): a tool tagged _agent_id (anything under
+  agents/<id>/plugins/) is THIRD_PARTY_BUNDLE => untrusted => runs under
+  a DEFAULT-DENY CapabilityGrant with secrets = {}.
+  That is exactly where phase 2's create_tool --agent writes. So a
+  self-authored tool needing network or an API key will fail once
+  AGENTD_SANDBOX_PLUGINS is on — and nothing warns the author today.
+  This rule makes it visible AT AUTHORING TIME.
+end note
+
+note as N3 #E3F2FD
+  **Validation never re-implements the schema.**
+  AgentDirReader asks FileAgentRegistry to parse. If a directory yields
+  an AgentSpec it is structurally valid. The rules only add what the
+  DAEMON tolerates but the PIPELINE or the SANDBOX does not.
+end note
+
+N1 .. PluginContext
+N2 .. SandboxRules
+N3 .. AgentDirReader
+
+@enduml
