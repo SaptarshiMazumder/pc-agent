@@ -28,6 +28,13 @@ resource "aws_lb_target_group" "svc" {
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
+  # How long a REPLACED task keeps draining before ECS may stop it. The AWS default is 300s,
+  # and the old deployment is not gone until every one of its targets finishes draining — so
+  # that default silently put a 5-minute floor under EVERY rollout and under the deploy
+  # workflow's `ecs wait services-stable`. 30s is ample for these request lifetimes; the one
+  # exception is the daemon, whose WebSocket sessions are long-lived and deserve a real drain.
+  deregistration_delay = each.value.deregistration_delay
+
   health_check {
     path                = each.value.health_path
     matcher             = "200-399"

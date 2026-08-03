@@ -147,9 +147,9 @@ def _init_db() -> None:
                 model_tier   TEXT NOT NULL DEFAULT '',
                 cached_tokens INTEGER NOT NULL DEFAULT 0     -- cache reads ~10% of input price
             );
-            CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month);
+            -- Only columns that the ORIGINAL usage table shipped with may be indexed here;
+            -- everything added later is indexed after the migration below. See the note there.
             CREATE INDEX IF NOT EXISTS ix_usage_acct_month ON usage(account_id, month);
-            CREATE INDEX IF NOT EXISTS ix_usage_run ON usage(run_id);
 
             -- PREPAID CREDITS. One row per grant, not one balance per account, because a grant
             -- is what carries an EXPIRY and a CLASS -- and both are load-bearing:
@@ -180,19 +180,31 @@ def _init_db() -> None:
         for column in ("run_id", "turn_id"):
             if column not in have:
                 c.execute(f"ALTER TABLE usage ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-        if "run_id" not in have:
-            c.execute("CREATE INDEX IF NOT EXISTS ix_usage_run ON usage(run_id)")
         if "credits" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN credits INTEGER NOT NULL DEFAULT 0")
         if "funding_source" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN funding_source TEXT NOT NULL DEFAULT ''")
         if "agent_id" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''")
-            c.execute("CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month)")
         if "model_tier" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN model_tier TEXT NOT NULL DEFAULT ''")
         if "cached_tokens" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
+
+        # Indexes over migrated columns come LAST, and unconditionally.
+        #
+        # They CANNOT live in the schema script above: that script creates `usage` only
+        # IF NOT EXISTS, so against a database written by an older build the CREATE TABLE is
+        # a no-op and an index on a column that build never had raises "no such column" —
+        # which is a startup crash, not a degraded feature. IF NOT EXISTS makes each one
+        # idempotent, so this is also correct for a database created fresh a moment ago.
+        # ANY future column added by the migration above must be indexed HERE, not there.
+        c.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month);
+            CREATE INDEX IF NOT EXISTS ix_usage_run   ON usage(run_id);
+            """
+        )
 
 
 # --- password hashing (stdlib, no bcrypt dependency) -------------------------

@@ -51,6 +51,10 @@ on:
       - "v2/accounts/**"
       - "v2/clients/**"
       - "v2/deploy/docker/**"
+      # monitoring/ is pip-installed INTO three of the four images, so a telemetry-only
+      # change ships real code. Omitting it here would skip the deploy and leave the
+      # containers running the old library while the repo says otherwise.
+      - "v2/monitoring/**"
       - ".github/workflows/deploy.yml"
 
 permissions:
@@ -160,20 +164,63 @@ jobs:
               --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787"
           fi
 
+      # Record the deployment id each roll creates. The next step needs it: "the services are
+      # stable" and "the deploy worked" are NOT the same claim once the circuit breaker can
+      # roll back (see below), and the id is the only thing that tells them apart.
       - name: Roll ECS services
         run: |
           TARGET_SERVICES="$SERVICES"
           if [ "$DEPLOY_SERVICE" != "all" ]; then TARGET_SERVICES="$DEPLOY_SERVICE"; fi
+          : > deployments.txt
           for svc in $TARGET_SERVICES; do
-            aws ecs update-service --cluster "agentd-${ENVIRONMENT}" --service "agentd-${ENVIRONMENT}-${svc}" \
-              --force-new-deployment --region "$AWS_REGION" >/dev/null
-            echo "rolled agentd-${ENVIRONMENT}-${svc}"
+            id=$(aws ecs update-service --cluster "agentd-${ENVIRONMENT}" --service "agentd-${ENVIRONMENT}-${svc}" \
+              --force-new-deployment --region "$AWS_REGION" \
+              --query "service.deployments[?status=='PRIMARY'].id" --output text)
+            echo "$svc $id" >> deployments.txt
+            echo "rolled agentd-${ENVIRONMENT}-${svc} ($id)"
           done
 
+      # The services' ECS deployment circuit breaker (infra/modules/services.tf) makes a broken
+      # image fail instead of crash-looping forever, and ROLLS BACK to the last good task set.
+      # That rollback is why `wait services-stable` is not sufficient on its own: it returns
+      # SUCCESS once things settle, and a rolled-back service settles perfectly well — so a
+      # bare waiter reports a green deploy for an image that never ran. Waiting and then
+      # asserting on OUR deployment id is what makes the step's success mean what it says.
       - name: Wait for services to stabilize
         run: |
-          TARGET_SERVICES="$SERVICES"
-          if [ "$DEPLOY_SERVICE" != "all" ]; then TARGET_SERVICES="$DEPLOY_SERVICE"; fi
-          aws ecs wait services-stable --cluster "agentd-${ENVIRONMENT}" \
-            --services $(for s in $TARGET_SERVICES; do echo "agentd-${ENVIRONMENT}-$s"; done) --region "$AWS_REGION"
-          echo "Services **$TARGET_SERVICES** stable for **$ENVIRONMENT** ✅" >> "$GITHUB_STEP_SUMMARY"
+          CLUSTER="agentd-${ENVIRONMENT}"
+          SVC_NAMES=$(while read -r svc _; do echo "${CLUSTER}-${svc}"; done < deployments.txt)
+
+          # Don't fail here: the waiter's own timeout (40 x 15s) is a far worse error message
+          # than the per-service verdict below, which can say WHICH service and WHY.
+          aws ecs wait services-stable --cluster "$CLUSTER" --services $SVC_NAMES --region "$AWS_REGION" || true
+
+          failed=0
+          while read -r svc id; do
+            name="${CLUSTER}-${svc}"
+            state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$name" --region "$AWS_REGION" \
+              --query "services[0].deployments[?id=='${id}'].rolloutState" --output text)
+            # Empty means our deployment is gone entirely — superseded by a rollback.
+            if [ "$state" = "COMPLETED" ]; then
+              echo "✅ $name — $state"
+              continue
+            fi
+            failed=1
+            echo "::error::$name did not deploy (rolloutState: ${state:-superseded by rollback})"
+            aws ecs describe-services --cluster "$CLUSTER" --services "$name" --region "$AWS_REGION" \
+              --query "services[0].{reason:deployments[?id=='${id}'].rolloutStateReason,events:events[0:5].message}"
+            # The container's own exit reason — usually the actual answer.
+            stopped=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$name" --region "$AWS_REGION" \
+              --desired-status STOPPED --query 'taskArns[0:3]' --output text)
+            if [ -n "$stopped" ] && [ "$stopped" != "None" ]; then
+              aws ecs describe-tasks --cluster "$CLUSTER" --tasks $stopped --region "$AWS_REGION" \
+                --query "tasks[].{stopped:stoppedReason,containers:containers[].{name:name,reason:reason,exit:exitCode}}"
+            fi
+            echo "logs: aws logs tail /ecs/${CLUSTER} --since 30m --region ${AWS_REGION} --log-stream-name-prefix ${svc}" >&2
+          done < deployments.txt
+
+          if [ "$failed" = 1 ]; then
+            echo "Deploy to **$ENVIRONMENT** FAILED — see the annotations above ❌" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Services **$(cut -d' ' -f1 deployments.txt | tr '\n' ' ')** deployed to **$ENVIRONMENT** ✅" >> "$GITHUB_STEP_SUMMARY"

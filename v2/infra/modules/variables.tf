@@ -60,6 +60,12 @@ variable "services" {
     cpu           = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
     memory        = optional(number, 512) # MB
     desired_count = optional(number, 1)
+    # Seconds a replaced task keeps draining. Short by default so a rollout isn't held
+    # open by idle connections; raise it for services with long-lived ones (see alb.tf).
+    deregistration_delay = optional(number, 30)
+    # Seconds after a task starts during which ALB health-check failures do NOT kill it.
+    # Covers cold start (image pull is already excluded, but interpreter + app boot is not).
+    health_check_grace = optional(number, 60)
   }))
 
   default = {
@@ -125,6 +131,11 @@ variable "services" {
         AGENTD_ACCOUNTS_URL    = "http://accounts.agentd.local:4100"
         AGENTD_MODEL_PROXY_URL = "http://model-proxy.agentd.local:4000"
       }
+      # WebSocket sessions are long-lived, so a replaced daemon gets a real drain window
+      # (a 30s cut-off would drop live conversations mid-turn), and a longer boot grace
+      # because it loads the whole agent runtime before /healthz answers.
+      deregistration_delay = 120
+      health_check_grace   = 120
       secret_keys = {
         AGENTD_MODEL_PROXY_KEY = "LITELLM_MASTER_KEY"
         # MCP servers inherit the daemon's environment (mcp/session.py:resolve_subprocess), so

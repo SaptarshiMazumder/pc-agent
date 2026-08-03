@@ -92,6 +92,22 @@ resource "aws_ecs_service" "svc" {
   desired_count   = each.value.desired_count
   launch_type     = "FARGATE"
 
+  # Without this, ECS retries a task that cannot start FOREVER: a container that crashes on
+  # boot is relaunched indefinitely, the deployment never reaches a terminal state, and the
+  # only thing that eventually gives up is the deploy workflow's waiter — after ten minutes,
+  # with "Max attempts exceeded" and no hint of the cause. The breaker makes a broken image
+  # fail as a DEPLOYMENT failure (rolloutState FAILED, with the reason) and puts the previous
+  # working task definition back, which is what "the deploy failed" should mean.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Boot grace: health-check failures in this window don't count against the task, so a slow
+  # starter is not killed before it can serve. It does NOT rescue a crash loop — a container
+  # that exits is still a failure — so it costs the breaker nothing.
+  health_check_grace_period_seconds = each.value.health_check_grace
+
   network_configuration {
     subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.service.id]

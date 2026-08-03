@@ -300,3 +300,90 @@ def test_rate_limit_is_per_client_ip(monkeypatch, tmp_path):
         assert client.post("/login", json={"email": "a@b.com", "password": "x"}, headers=one).status_code == 429
         # a different IP has its own window
         assert client.post("/login", json={"email": "a@b.com", "password": "x"}, headers=two).status_code == 401
+
+
+# --- schema migration --------------------------------------------------------
+#
+# Every test above starts from an empty tmp database, where CREATE TABLE builds `usage` with
+# all of today's columns. Production does NOT: the file lives on EFS and outlives the image,
+# so startup runs against a table some EARLIER build wrote. That gap shipped a crash loop once
+# (an index over `agent_id` inside the schema script, evaluated before the ALTER TABLE that
+# adds the column), so the upgrade path gets its own tests with an old database on disk.
+
+# The `usage` table as it shipped BEFORE correlation ids, credits and per-agent attribution.
+_ORIGINAL_SCHEMA = """
+    CREATE TABLE accounts (
+        id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pw_salt TEXT NOT NULL,
+        pw_hash TEXT NOT NULL, budget_usd REAL, active INTEGER NOT NULL DEFAULT 1,
+        created_at REAL NOT NULL
+    );
+    CREATE TABLE sessions (
+        token TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at REAL NOT NULL
+    );
+    CREATE TABLE usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, ts REAL NOT NULL,
+        month TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0,
+        out_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0
+    );
+"""
+
+
+def _seed_original_db(tmp_path, account_id="acct_old", cost=0.25, budget=None):
+    """Write a database in the pre-migration schema, with a row worth preserving."""
+    import sqlite3
+    import time
+
+    month = time.strftime("%Y-%m", time.gmtime())  # spend is read per CURRENT period
+    path = tmp_path / "accounts.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_ORIGINAL_SCHEMA)
+    conn.execute(
+        "INSERT INTO accounts VALUES (?, 'old@b.com', 'salt', 'hash', ?, 1, 1.0)",
+        (account_id, budget),
+    )
+    conn.execute(
+        "INSERT INTO usage (account_id, ts, month, model, cost_usd) VALUES (?, 1.0, ?, 'm', ?)",
+        (account_id, month, cost),
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def test_startup_migrates_a_database_written_by_an_older_build(monkeypatch, tmp_path):
+    """The regression: startup against an old `usage` table must not raise."""
+    _seed_original_db(tmp_path)
+    module = _load_app_module(monkeypatch, tmp_path)
+    with TestClient(module.app) as client:  # fires startup -> _init_db
+        assert client.get("/health").status_code == 200
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(tmp_path / "accounts.db"))
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(usage)")}
+    indexes = {r[1] for r in conn.execute("PRAGMA index_list(usage)")}
+    conn.close()
+    assert {"run_id", "turn_id", "credits", "funding_source", "agent_id", "model_tier", "cached_tokens"} <= columns
+    # The indexes are the part that regressed: added columns must end up indexed too.
+    assert {"ix_usage_agent", "ix_usage_run", "ix_usage_acct_month"} <= indexes
+
+
+def test_migration_preserves_existing_rows(monkeypatch, tmp_path):
+    """An upgrade is not allowed to lose the ledger it was upgrading."""
+    _seed_original_db(tmp_path, account_id="acct_old", cost=0.25, budget=2)
+    module = _load_app_module(monkeypatch, tmp_path)
+    with TestClient(module.app) as client:
+        r = client.get("/budget/acct_old")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["spent_usd"] == pytest.approx(0.25)
+        assert body["remaining_usd"] == pytest.approx(1.75)
+
+
+def test_startup_is_idempotent_across_restarts(monkeypatch, tmp_path):
+    """ECS restarts the container; the second boot runs _init_db over its own output."""
+    _seed_original_db(tmp_path)
+    for _ in range(3):
+        module = _load_app_module(monkeypatch, tmp_path)
+        with TestClient(module.app) as client:
+            assert client.get("/health").status_code == 200
