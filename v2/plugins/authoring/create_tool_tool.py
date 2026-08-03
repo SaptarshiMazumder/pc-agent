@@ -64,14 +64,22 @@ class CreateToolTool(Tool):
         "it), a `parameters` JSON-schema object, and `code` — the Python body of its execute "
         "step: `params` holds the call args, and you MUST end by returning "
         '`ToolResult.text("...")` (or with is_error=True). Use stdlib / already-installed '
-        "packages. Prefer create_skill (no code) or add_mcp (a server) when they fit — this "
-        "runs NEW code in-process, so use it only for a genuinely new capability."
+        "packages. Pass `agent` to give the tool to ONE agent (it lands in that agent's own "
+        "folder, is offered only to it, and needs no [tools] allow entry); omit `agent` for a "
+        "SHARED tool every agent inherits. Prefer create_skill (no code) or add_mcp (a server) "
+        "when they fit — this runs NEW code in-process, so use it only for a genuinely new "
+        "capability."
     )
     parameters = {
         "type": "object",
         "required": ["id", "name", "code"],
         "properties": {
             "id": {"type": "string", "description": "plugin id, kebab-case (e.g. word-count)"},
+            "agent": {
+                "type": "string",
+                "description": "agent id that OWNS this tool -> agents/<id>/plugins/<pid>/ "
+                "(private to that agent). Omit for a shared tool in the global catalog.",
+            },
             "name": {
                 "type": "string",
                 "description": "tool name the model calls (e.g. word_count)",
@@ -88,9 +96,38 @@ class CreateToolTool(Tool):
         },
     }
 
-    def __init__(self, config, register_plugin_live):
+    def __init__(self, config, register_plugin_live, registry=None):
         self._config = config
         self._reload = register_plugin_live
+        self._registry = registry  # needed to scope a tool to ONE agent (agents_dir + id check)
+
+    def _resolve_root(self, agent_id: str) -> tuple:
+        """Where the new plugin dir goes: the AGENT-PRIVATE tier when an agent is named,
+        else the shared catalog (unchanged default). Returns ``(root, error)``.
+
+        The agents dir comes from the REGISTRY, not config, so the write path is the same
+        one ``discover_agent_plugins`` scans on reload (container._agent_private_tools)."""
+        if not agent_id:
+            root = (
+                getattr(self._config, "plugins_dir", "")
+                or getattr(self._config, "builtin_plugins_dir", "")
+                or ""
+            )
+            if not root:
+                return None, "no plugins dir configured (set AGENTD_PLUGINS_DIR)"
+            return Path(root), None
+        if self._registry is None:
+            return None, "agent-scoped tools need the agent registry — omit `agent` for a shared tool"
+        try:
+            known = self._registry.list_ids()
+        except Exception as e:  # noqa: BLE001 — a registry failure must not crash the turn
+            return None, f"could not read the agent roster ({type(e).__name__}: {e})"
+        if agent_id not in known:
+            return None, f"unknown agent '{agent_id}' (known: {', '.join(sorted(known)) or 'none'})"
+        agents_dir = getattr(self._registry, "agents_dir", None)
+        if not agents_dir:
+            return None, "the registry exposes no agents_dir — cannot place an agent-private tool"
+        return Path(agents_dir) / agent_id / "plugins", None
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         pid = _slug(params.get("id", ""))
@@ -105,17 +142,11 @@ class CreateToolTool(Tool):
         if not isinstance(schema, dict):
             schema = {"type": "object", "properties": {}}
 
-        root = (
-            getattr(self._config, "plugins_dir", "")
-            or getattr(self._config, "builtin_plugins_dir", "")
-            or ""
-        )
-        if not root:
-            return ToolResult.text(
-                "no plugins dir configured (set AGENTD_PLUGINS_DIR) — cannot write the tool",
-                is_error=True,
-            )
-        d = Path(root) / pid
+        agent_id = _slug(params.get("agent", ""))
+        root, err = self._resolve_root(agent_id)
+        if err:
+            return ToolResult.text(f"cannot write the tool: {err}", is_error=True)
+        d = root / pid
         if d.exists():
             return ToolResult.text(
                 f"a plugin '{pid}' already exists at {d} — pick a different id", is_error=True
@@ -158,10 +189,18 @@ class CreateToolTool(Tool):
                 f"wrote tool '{tool_name}' at {d}, but reload failed: {result.get('error')}",
                 is_error=True,
             )
-        loaded = tool_name in (result.get("tools") or [])
+        # Which side of the reload report to check: a SHARED tool shows up in `tools`, an
+        # agent-private one in `agentTools` ({agentId: count}) — the two tiers are reported
+        # separately, so checking `tools` for a scoped tool would always falsely warn.
+        if agent_id:
+            loaded = bool((result.get("agentTools") or {}).get(agent_id))
+            where = f"private to agent '{agent_id}'"
+        else:
+            loaded = tool_name in (result.get("tools") or [])
+            where = "shared (every agent inherits it)"
         return ToolResult.text(
-            f"Created tool '{tool_name}' (plugin '{pid}') at {d} and loaded it live"
+            f"Created tool '{tool_name}' (plugin '{pid}') at {d} — {where} — and loaded it live"
             + ("" if loaded else " (note: not visible in the catalog — check enablement)")
             + " — callable next turn.",
-            details={"id": pid, "tool": tool_name},
+            details={"id": pid, "tool": tool_name, "agent": agent_id or ""},
         )

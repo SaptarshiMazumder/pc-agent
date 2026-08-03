@@ -69,6 +69,29 @@ jobs:
       # tests/e2e (booted-daemon smoke) is intentionally NOT run here yet — it gets its
       # own job (non-blocking at first) once the first daemon smoke test lands.
 
+  model-proxy:
+    name: Python (model-proxy)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/model_proxy # this service owns its pins AND its pytest.ini
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: v2/model_proxy/requirements.txt
+
+      # Deliberately NOT the agentd env: custom_auth.py needs litellm's proxy extra, which
+      # agentd does not (and should not) carry. Same pins as the container, plus the runners.
+      - name: Install (service pins + test deps)
+        run: pip install -r requirements.txt pytest pytest-asyncio
+
+      - name: Contract tests (pytest)
+        run: pytest -q
+
   clients:
     name: Clients (ui + desktop + web)
     runs-on: ubuntu-latest

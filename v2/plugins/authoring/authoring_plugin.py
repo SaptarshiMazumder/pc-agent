@@ -32,4 +32,6 @@ def register(api, ctx):
     if getattr(ctx.config, "tool_workshop", False) and getattr(ctx, "register_plugin_live", None):
         from create_tool_tool import CreateToolTool
 
-        api.register_tool(CreateToolTool(ctx.config, ctx.register_plugin_live))
+        # registry: lets a tool be scoped to ONE agent (agents/<id>/plugins/) — guaranteed
+        # present here, since register() returns early when ctx.registry is None.
+        api.register_tool(CreateToolTool(ctx.config, ctx.register_plugin_live, ctx.registry))
