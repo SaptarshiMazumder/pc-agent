@@ -30,5 +30,5 @@ publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 # figure-creator on OUR keys (HTTP for the private-testing phase; switch to https + rebuild
 # once TLS lands). Same endpoints as the core flavor.
 [platform]
-accounts_url = "http://agentd-dev-1145257060.ap-northeast-1.elb.amazonaws.com:4100"
-model_proxy_url = "http://agentd-dev-1145257060.ap-northeast-1.elb.amazonaws.com:4000"
+accounts_url = "http://agentd-dev-1528339556.ap-northeast-1.elb.amazonaws.com:4100"
+model_proxy_url = "http://agentd-dev-1528339556.ap-northeast-1.elb.amazonaws.com:4000"

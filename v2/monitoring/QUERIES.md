@@ -210,6 +210,50 @@ accounts a bottleneck on the hot path.
 
 ---
 
+## 8. Did the scheduled jobs run, and what did they do?
+
+These live in a **different log group** — `/aws/lambda/agentd-dev-scheduled-jobs`, not
+`/agentd/dev` — because they run in a Lambda rather than in a container. Pick it in the Logs
+Insights dropdown, or prefix the query with
+`SOURCE '/aws/lambda/agentd-dev-scheduled-jobs'`.
+
+```
+fields @timestamp, job, path, outcome, status
+| filter ispresent(outcome)
+| sort @timestamp desc
+```
+
+One line per run. `outcome` is `ok`, `http_error` or `unreachable`.
+
+```
+fields @timestamp, job, result.renewed, result.already_charged, result.failed, result.grants_closed
+| filter outcome = "ok"
+| sort @timestamp desc
+```
+
+What each run actually did. `renewed` is new revenue; `already_charged` is a retried run that
+correctly charged nobody twice; `failed` is a declined card left due for the next hour.
+
+```
+fields @timestamp, job, status, detail
+| filter outcome != "ok"
+| sort @timestamp desc
+```
+
+Why a run failed. `401` means the internal key in the Lambda's environment no longer matches
+Secrets Manager; `unreachable` means the accounts task is down or the security-group rule from
+the Lambda's group is gone; a `500` body is the app's own error.
+
+**The failure this query cannot show you is silence** — a deleted or disabled schedule produces
+no lines at all. For that, check the clock still exists:
+
+```powershell
+aws scheduler list-schedules --name-prefix agentd-dev
+./scheduler_check.ps1              # or this, which also invokes each job and reports the result
+```
+
+---
+
 ## When to use the database instead
 
 CloudWatch Logs are for **operations** — what is happening now, why a request behaved oddly.
@@ -233,4 +277,7 @@ Invoke-RestMethod "http://$alb`:4100/funding?account_id=ACCT" -Headers @{ "X-Int
 ./cloud_check.ps1 -AccountId acct_x      # adds their live credit balance
 ./trace.ps1                              # last request, all five hops, both machines
 ./trace.ps1 -List                        # recent run_ids to choose from
+./alarm_check.ps1                        # replay every alarm's query — can it actually fire?
+./scheduler_check.ps1                    # run all three scheduled jobs, report what they did
+./scheduler_check.ps1 -ListOnly          # just the cron table, touch nothing
 ```

@@ -94,6 +94,68 @@ variable "login_absence_window_minutes" {
   default     = 30
 }
 
+# ─────────────────────── Scheduled jobs (see scheduler.tf) ───────────────────────
+
+variable "scheduled_jobs" {
+  description = <<-EOT
+    The clock. One entry per accounts endpoint that must run on a schedule; adding a job here
+    needs no code change (the endpoint path is passed to the Lambda as data).
+
+    CADENCE IS A COST DECISION, not a correctness one. CloudWatch bills custom metrics per
+    metric per MONTH, prorated hourly and independent of datapoint count, so ledger-snapshot at
+    rate(5 minutes) keeps its 11 gauges billable for all 720 hours (~$3.30/mo) while daily
+    touches ~30 (~$0.14/mo). Raise it when purchase volume makes intraday resolution worth it.
+
+    The times are STAGGERED on purpose: renewals at :00 create grants, close-expired at 00:05
+    retires dead ones, and the snapshot at 00:20 therefore reports a settled balance sheet.
+    Staggering also keeps two writers off SQLite's single write lock at the same minute.
+
+    Cron is Scheduler's 6-field form (minute hour day-of-month month day-of-week year).
+  EOT
+  type = map(object({
+    path        = string
+    schedule    = string
+    description = string
+    enabled     = optional(bool, true)
+  }))
+
+  default = {
+    subscription-renewals = {
+      path        = "/subscriptions/renew-due"
+      schedule    = "cron(0 * * * ? *)"
+      description = "Charge every subscription whose period has ended. Hourly so a renewal is never more than an hour late; idempotent per subscription-period, so an extra run charges nobody twice."
+    }
+    close-expired-credits = {
+      path        = "/ledger/close-expired"
+      schedule    = "cron(5 0 * * ? *)"
+      description = "Book breakage for credits that expired unspent. Expiry is already enforced at spend time; this is the accounting catch-up, so daily is soon enough."
+    }
+    ledger-snapshot = {
+      path        = "/ledger/snapshot"
+      schedule    = "cron(20 0 * * ? *)"
+      description = "Publish the balance sheet as CloudWatch gauges (reserve, liability, creator payable, margin, cogs ratio). Daily to keep 11 custom metrics at ~$0.14/mo instead of ~$3.30."
+    }
+  }
+}
+
+variable "scheduled_job_timezone" {
+  description = "Timezone the cron expressions above are read in. UTC so the books do not shift under daylight saving."
+  type        = string
+  default     = "UTC"
+}
+
+variable "scheduled_job_timeout_seconds" {
+  description = "Lambda timeout for one job. Must exceed a cold Fargate response plus the batch work; the handler's own HTTP timeout is set 5s below this so a slow endpoint is logged as unreachable rather than killed mid-read with no diagnostic."
+  type        = number
+  default     = 60
+}
+
+variable "enable_job_absence_alarm" {
+  description = "Page when NO scheduled job has run in 24h (a stopped billing clock). Off by default because it necessarily fires once before the first invocation; enable after the schedules have run."
+  type        = bool
+  default     = false
+}
+
 # ─────────────────────────── The services map ───────────────────────────
 # ONE entry per container. Adding a service here gives it an ECR repo, ALB target
 # group + listener + firewall holes, service discovery, and a Fargate service — no
