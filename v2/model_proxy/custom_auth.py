@@ -32,6 +32,7 @@ import hmac
 import logging
 import os
 import time
+import uuid
 
 import httpx
 from fastapi import HTTPException, Request
@@ -375,6 +376,22 @@ class AccountsUsageLogger(CustomLogger):
         remaining = int(view.get("credits_remaining") or 0)
         tier_max = str(view.get("model_tier_max") or "")
 
+        # ENTITLEMENT (plan 2.5), checked before credits: "you may not run this" is a clearer
+        # answer than "you are out of credits" for someone who never bought the agent, and it
+        # avoids telling a non-buyer anything about their balance. Rides the funding response, so
+        # no extra round trip. `entitlement_required` is false unless an active product names
+        # this agent, which is what keeps first-party and off-marketplace agents ungated. An
+        # older accounts build omits both fields -> absent means allowed, so this fails OPEN.
+        if view.get("entitlement_required") and not view.get("entitled", True):
+            count(
+                "run_refused_total", reason="not_entitled",
+                _props={"account_id": account_id, "agent_id": agent_id},
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=f"no active subscription for agent '{agent_id}'",
+            )
+
         if remaining <= 0:
             count("run_refused_total", reason="no_credits", _props={"account_id": account_id})
             raise HTTPException(
@@ -469,6 +486,13 @@ class AccountsUsageLogger(CustomLogger):
             _invalidate_funding(account_id)
 
             row = {
+                # EXACTLY-ONCE KEY, minted HERE and never regenerated. The retry buffer below
+                # replays this exact dict, and a failed write includes the case where Accounts
+                # committed the row but the response was lost — so a fresh id per attempt would
+                # let a replay insert a second copy of the same charge. Prefer LiteLLM's own
+                # call id: it is stable for this call and survives a process restart in a way
+                # a uuid minted here would not.
+                "event_id": str(kwargs.get("litellm_call_id") or "") or uuid.uuid4().hex,
                 "account_id": account_id,
                 "model": model,
                 "model_tier": metering.tier_for(model),

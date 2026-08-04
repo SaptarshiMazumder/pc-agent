@@ -53,9 +53,20 @@ Write-Host "`nnotification path" -ForegroundColor Cyan
 $topics = $raw.MetricAlarms | ForEach-Object { $_.AlarmActions } | Sort-Object -Unique
 foreach ($t in $topics) {
   if (-not $t) { continue }
-  $subs = aws sns list-subscriptions-by-topic --topic-arn $t --region $Region --output json | ConvertFrom-Json
+  # Capture the exit code: a DENIED or failed call leaves $subs null, which is otherwise
+  # indistinguishable from a genuinely empty topic - and those two need opposite fixes.
+  $subsRaw = aws sns list-subscriptions-by-topic --topic-arn $t --region $Region --output json 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ??    could not read subscriptions for $t - this check is inconclusive, not a pass:" -ForegroundColor Yellow
+    Write-Host "          $subsRaw" -ForegroundColor Yellow
+    continue
+  }
+  $subs = $subsRaw | ConvertFrom-Json
   if (-not $subs.Subscriptions -or $subs.Subscriptions.Count -eq 0) {
     Write-Host "  FAIL  $t has NO subscriptions - every alarm fires into the void" -ForegroundColor Red
+    Write-Host "          Usually alert_email was not passed to the LAST apply, which DESTROYS the" -ForegroundColor Red
+    Write-Host "          subscription rather than leaving it. Put it in dev.auto.tfvars (see" -ForegroundColor Red
+    Write-Host "          infra/environments/dev/dev.auto.tfvars.example) and re-apply." -ForegroundColor Red
   } else {
     foreach ($s in $subs.Subscriptions) {
       if ($s.SubscriptionArn -like "*PendingConfirmation*" -or $s.SubscriptionArn -eq "PendingConfirmation") {

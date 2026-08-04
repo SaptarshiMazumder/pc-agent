@@ -1,0 +1,20 @@
+# Copy to `dev.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
+# automatically, so no -var flag on any command.
+#
+# WHY THIS FILE EXISTS. `alert_email` defaults to "" and the subscription is `count =
+# var.alert_email == "" ? 0 : 1`. Passing it with -var on one apply and forgetting it on
+# the next therefore does not leave the subscription alone — it DESTROYS it, and every
+# alarm silently goes back to firing into the void. The variable is doing exactly what it
+# says; the flag is just too easy to forget. An auto-loaded file makes it stick.
+#
+# AWS emails a confirmation link the recipient must click. Until then the subscription
+# exists but is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
+# reports both states.
+
+alert_email = "you@example.com"
+
+# Optional — the module defaults are fine for dev. Uncomment to override:
+# cost_per_hour_alarm_usd    = 5
+# proxy_5xx_threshold        = 5
+# resolve_latency_p99_ms     = 1000
+# login_rejection_threshold  = 20

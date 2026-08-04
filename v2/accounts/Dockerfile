@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 COPY monitoring /tmp/monitoring
 RUN pip install --no-cache-dir /tmp/monitoring && rm -rf /tmp/monitoring
 RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
-COPY accounts/app.py /app/app.py
+# app.py imports these as siblings; omitting either is a hard startup failure, not a degraded
+# feature — the ledger IS the money.
+COPY accounts/app.py accounts/ledger.py accounts/payments.py /app/
 WORKDIR /app
 USER app
 ENV AGENTD_SERVICE=accounts \
