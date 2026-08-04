@@ -66,7 +66,30 @@ output "alarm_names" {
     ],
     [for a in aws_cloudwatch_metric_alarm.unhealthy_targets : a.alarm_name],
     [for a in aws_cloudwatch_metric_alarm.no_successful_logins : a.alarm_name],
+    [aws_cloudwatch_metric_alarm.scheduled_jobs_failing.alarm_name],
+    [for a in aws_cloudwatch_metric_alarm.scheduled_jobs_absent : a.alarm_name],
   )
+}
+
+output "scheduled_jobs_function" {
+  description = "The Lambda every schedule invokes. Run a job on demand with `aws lambda invoke --function-name <this> --payload '{\"job\":\"manual\",\"path\":\"/ledger/snapshot\"}' --cli-binary-format raw-in-base64-out out.json` — the same payload the clock sends."
+  value       = aws_lambda_function.scheduled_jobs.function_name
+}
+
+output "scheduled_jobs" {
+  description = "Every schedule: when it fires and what it calls. `aws scheduler list-schedules` confirms they exist and are ENABLED."
+  value = {
+    for name, job in var.scheduled_jobs : aws_scheduler_schedule.job[name].name => {
+      path     = job.path
+      schedule = "${job.schedule} ${var.scheduled_job_timezone}"
+      enabled  = job.enabled
+    }
+  }
+}
+
+output "scheduled_jobs_log_group" {
+  description = "Where each scheduled run's result is logged (job, outcome, status, result)."
+  value       = aws_cloudwatch_log_group.scheduled_jobs.name
 }
 
 output "dashboard_urls" {

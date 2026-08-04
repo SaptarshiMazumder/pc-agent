@@ -1047,11 +1047,20 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
 
     IDEMPOTENT PER PERIOD. The key is the subscription id plus the period it is renewing INTO,
     so calling this twice in the same period charges once, while next period charges again.
+
+    ONE TRANSACTION PER SUBSCRIPTION, NOT ONE PER BATCH (DEF-12). SQLite allows a single writer,
+    and `_db()` waits 10s for the lock. Holding one transaction open across the whole batch means
+    a renewal run of any size blocks every concurrent /debit and /usage write until it finishes --
+    a billing job taking the product down. Committing per subscription holds a short lock many
+    times instead of a long lock once. It also makes a mid-batch crash lose only the subscription
+    in flight: the ones already charged stay charged, the rest stay due for the next run.
     """
     if not _require_internal(x_internal_key):
         raise HTTPException(status_code=401, detail="internal key required")
     now = _now()
     renewed, skipped, failed, already = 0, 0, 0, 0
+    # Read the work list, then RELEASE the connection. sqlite3.Row holds plain values, so these
+    # rows stay usable after the connection closes.
     with _db() as c:
         due = c.execute(
             "SELECT s.id, s.account_id, s.product_id, s.renews_at, p.* FROM subscriptions s "
@@ -1059,43 +1068,44 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
             "WHERE s.status = 'active' AND s.renews_at <> 0 AND s.renews_at <= ? AND p.active = 1",
             (now,),
         ).fetchall()
-        for s in due:
-            price = float(s["price_usd"])
-            credits = int(s["credits"]) or ledger.credits_for_usd(price)
-            # The period being renewed INTO identifies this charge. Reusing the OLD renews_at
-            # would re-charge forever once a period is missed; using `now` would let two calls a
-            # second apart both charge.
-            period_days = int(s["period_days"] or 30)
-            if period_days <= 0:
-                # A zero or negative period can never move renews_at into the future, so this
-                # subscription would be "due" again on the very next run and bill every time.
-                # Skip loudly rather than charge in a loop.
-                skipped += 1
-                count("renewal_total", outcome="skipped", _props={"product_id": str(s["product_id"]), "reason": "bad_period"})
-                continue
-            idem = f"renew:{int(s['id'])}:{int(float(s['renews_at']))}"
-            try:
+    for s in due:
+        price = float(s["price_usd"])
+        credits = int(s["credits"]) or ledger.credits_for_usd(price)
+        # The period being renewed INTO identifies this charge. Reusing the OLD renews_at
+        # would re-charge forever once a period is missed; using `now` would let two calls a
+        # second apart both charge.
+        period_days = int(s["period_days"] or 30)
+        if period_days <= 0:
+            # A zero or negative period can never move renews_at into the future, so this
+            # subscription would be "due" again on the very next run and bill every time.
+            # Skip loudly rather than charge in a loop.
+            skipped += 1
+            count("renewal_total", outcome="skipped", _props={"product_id": str(s["product_id"]), "reason": "bad_period"})
+            continue
+        idem = f"renew:{int(s['id'])}:{int(float(s['renews_at']))}"
+        try:
+            with _db() as c:
                 _txn, created, _split, _charge, _exp = _apply_purchase(
                     c, account_id=str(s["account_id"]), price=price, credits=credits,
                     scope=str(s["scope"]) or "platform", tier_max=str(s["model_tier_max"] or ""),
                     period_days=period_days, creator_id=str(s["creator_id"]),
                     agent_id=str(s["agent_id"]), product_id=str(s["product_id"]), idem=idem,
                 )
-                # A replay for the same period is NOT a renewal. Counting it as one would report
-                # a retried scheduler run as new revenue.
-                if created:
-                    renewed += 1
-                else:
-                    already += 1
-            except HTTPException:
-                # A declined card must not stop the rest of the batch, and must not cancel the
-                # subscription either -- dunning (retry, then notify, then suspend) is its own
-                # policy and does not exist yet. Left due, so the next run tries again.
-                failed += 1
-                count("renewal_total", outcome="failed", _props={"product_id": str(s["product_id"])})
-                continue
-        if renewed:
-            count("renewal_total", renewed, outcome="ok")
+            # A replay for the same period is NOT a renewal. Counting it as one would report
+            # a retried scheduler run as new revenue.
+            if created:
+                renewed += 1
+            else:
+                already += 1
+        except HTTPException:
+            # A declined card must not stop the rest of the batch, and must not cancel the
+            # subscription either -- dunning (retry, then notify, then suspend) is its own
+            # policy and does not exist yet. Left due, so the next run tries again.
+            failed += 1
+            count("renewal_total", outcome="failed", _props={"product_id": str(s["product_id"])})
+            continue
+    if renewed:
+        count("renewal_total", renewed, outcome="ok")
     return {"ok": True, "renewed": renewed, "already_charged": already,
             "skipped": skipped, "failed": failed}
 
@@ -1165,6 +1175,10 @@ def close_expired(x_internal_key: str | None = Header(default=None)) -> dict:
     Run on a schedule. Until it runs, expired credits are already unspendable (`_live_grants`
     filters them) but the books still carry the liability — so revenue is understated and the
     reserve looks more committed than it is. Idempotent per grant: running it twice is safe.
+
+    One transaction per grant, for the same reason as `renew_due` (DEF-12): a batch-wide
+    transaction would hold SQLite's single write lock for the whole run and stall live /debit
+    traffic. Idempotency per grant is what makes the smaller transactions safe.
     """
     if not _require_internal(x_internal_key):
         raise HTTPException(status_code=401, detail="internal key required")
@@ -1176,15 +1190,16 @@ def close_expired(x_internal_key: str | None = Header(default=None)) -> dict:
             "WHERE expires_at <> 0 AND expires_at <= ? AND credits > credits_used",
             (now,),
         ).fetchall()
-        for r in rows:
-            unused = int(r["credits"]) - int(r["credits_used"])
+    for r in rows:
+        unused = int(r["credits"]) - int(r["credits_used"])
+        with _db() as c:
             _txn, created = ledger.post_expiry(
                 c, now, account_id=str(r["account_id"]), credits_unused=unused,
                 grant_id=int(r["id"]),
             )
-            if created:
-                closed += 1
-                credits_expired += unused
+        if created:
+            closed += 1
+            credits_expired += unused
     if credits_expired:
         count("credits_expired_total", credits_expired)
     return {"ok": True, "grants_closed": closed, "credits_expired": credits_expired}

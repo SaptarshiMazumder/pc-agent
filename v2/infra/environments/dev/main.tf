@@ -17,6 +17,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -103,4 +107,21 @@ output "registry_url" {
 output "registry_bucket" {
   description = "Upload target for deploy/registry/publish.py."
   value       = module.stack.registry_bucket
+}
+
+# ── The clock (monitoring/scheduler_check.ps1 reads these three) ──
+
+output "scheduled_jobs_function" {
+  description = "Lambda that runs the accounts service's scheduled endpoints; invoke it by hand to test a job."
+  value       = module.stack.scheduled_jobs_function
+}
+
+output "scheduled_jobs" {
+  description = "Every schedule: when it fires and what it calls."
+  value       = module.stack.scheduled_jobs
+}
+
+output "scheduled_jobs_log_group" {
+  description = "Where each scheduled run's result is logged."
+  value       = module.stack.scheduled_jobs_log_group
 }

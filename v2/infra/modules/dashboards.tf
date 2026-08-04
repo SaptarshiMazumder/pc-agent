@@ -20,6 +20,12 @@
 locals {
   dash_period = 300
 
+  # Period for the BALANCE-SHEET widgets, which are sampled by the scheduled /ledger/snapshot
+  # (scheduler.tf) rather than emitted by traffic. It must be at least the snapshot cadence: a
+  # 5-minute period over a once-a-day sample renders 287 empty buckets and one point, which
+  # looks like an outage. Keep this and var.scheduled_jobs["ledger-snapshot"].schedule in step.
+  sheet_period = 86400
+
   # Widget grid is 24 columns wide. Kept as names so a layout change is one edit, not twelve.
   w_half    = 12
   w_third   = 8
@@ -148,9 +154,39 @@ resource "aws_cloudwatch_dashboard" "service_health" {
         }
       },
 
+      # --- billing backlog + is telemetry even on -----------------------------
+      {
+        type = "metric", x = 0, y = 26, width = local.w_half, height = local.h_row
+        properties = {
+          title = "Billing backlog — rows queued in the proxy's MEMORY. Do not deploy while non-zero."
+          view  = "timeSeries", region = var.region, period = local.dash_period, stat = "Maximum"
+          metrics = [
+            [var.telemetry_namespace, "ledger_buffer_depth", "service", "model-proxy", { label = "queued rows" }],
+          ]
+          yAxis = { left = { min = 0 } }
+        }
+      },
+      {
+        type = "log", x = local.w_half, y = 26, width = local.w_half, height = local.h_row
+        properties = {
+          title  = "Telemetry wiring at boot — if this says DISABLED, every number on this page is a lie"
+          region = var.region
+          # The one check no metric can perform: when the library is missing from an image, the
+          # metric calls become no-ops, so "healthy" and "measuring nothing" look identical
+          # everywhere else. Only the boot log distinguishes them.
+          query = join("\n", [
+            "SOURCE '/${var.project}/${var.environment}'",
+            "| fields @timestamp, @logStream, @message",
+            "| filter @message like /telemetry (ENABLED|DISABLED)/",
+            "| sort @timestamp desc",
+            "| limit 20",
+          ])
+        }
+      },
+
       # --- what actually failed, in words ------------------------------------
       {
-        type = "log", x = 0, y = 26, width = 24, height = local.h_row
+        type = "log", x = 0, y = 32, width = 24, height = local.h_row
         properties = {
           title  = "Recent failures (raw log lines)"
           region = var.region
@@ -180,9 +216,12 @@ resource "aws_cloudwatch_dashboard" "business" {
         properties = {
           markdown = <<-EOT
             ## ${local.name_prefix} · business health
-            **Balance-sheet rows below need `POST /ledger/snapshot` on a schedule.** They are LEVELS
-            (reserve left, creators owed, cost ratio) with no event to hang off, so nothing emits them
-            unless something samples them. Empty widgets there mean the snapshot is not running — not zero.
+            **Balance-sheet rows are sampled DAILY**, by the `${local.name_prefix}-ledger-snapshot`
+            schedule (scheduler.tf). They are LEVELS (reserve left, creators owed, cost ratio) with no
+            event to hang off, so nothing emits them unless something samples them — one point per day
+            is the expected shape, and an *empty* widget means the snapshot stopped running, not zero.
+            To see today's numbers now, invoke the job by hand:
+            `aws lambda invoke --function-name ${local.name_prefix}-scheduled-jobs --payload '{"job":"manual","path":"/ledger/snapshot"}' --cli-binary-format raw-in-base64-out out.json`
 
             `ledger_balanced` must always read **1**. Anything else means a posting bypassed the ledger
             and every number on this page is suspect.
@@ -249,8 +288,8 @@ resource "aws_cloudwatch_dashboard" "business" {
       {
         type = "metric", x = 0, y = 15, width = local.w_third, height = local.h_row
         properties = {
-          title = "Reserve vs liability (needs /ledger/snapshot)"
-          view  = "timeSeries", region = var.region, period = local.dash_period, stat = "Maximum"
+          title = "Reserve vs liability (daily sample)"
+          view  = "timeSeries", region = var.region, period = local.sheet_period, stat = "Maximum"
           metrics = [
             [var.telemetry_namespace, "reserve_balance_usd", "service", "accounts", { label = "inference reserve" }],
             [".", "credit_liability_usd", ".", ".", { label = "credits owed as service" }],
@@ -261,8 +300,8 @@ resource "aws_cloudwatch_dashboard" "business" {
       {
         type = "metric", x = local.w_third, y = 15, width = local.w_third, height = local.h_row
         properties = {
-          title = "Cost ratio — share of revenue going to providers"
-          view  = "timeSeries", region = var.region, period = local.dash_period, stat = "Maximum"
+          title = "Cost ratio — share of revenue going to providers (daily sample)"
+          view  = "timeSeries", region = var.region, period = local.sheet_period, stat = "Maximum"
           metrics = [
             [var.telemetry_namespace, "cogs_ratio", "service", "accounts", { label = "COGS ratio" }],
           ]
@@ -278,7 +317,7 @@ resource "aws_cloudwatch_dashboard" "business" {
         type = "metric", x = local.w_third * 2, y = 15, width = local.w_third, height = local.h_row
         properties = {
           title = "Gross margin + books balanced"
-          view  = "singleValue", region = var.region, period = 86400, stat = "Maximum"
+          view  = "singleValue", region = var.region, period = local.sheet_period, stat = "Maximum"
           metrics = [
             [var.telemetry_namespace, "gross_margin_usd", "service", "accounts", { label = "gross margin USD" }],
             [".", "ledger_balanced", ".", ".", { label = "balanced (must be 1)" }],
@@ -315,9 +354,9 @@ resource "aws_cloudwatch_dashboard" "business" {
         }
       },
 
-      # --- who is spending ---------------------------------------------------
+      # --- who is spending, and on what --------------------------------------
       {
-        type = "log", x = 0, y = 27, width = 24, height = local.h_row
+        type = "log", x = 0, y = 27, width = local.w_half, height = local.h_row
         properties = {
           title  = "Top spenders this period (account_id is a property, so only logs can group by it)"
           region = var.region
@@ -325,6 +364,23 @@ resource "aws_cloudwatch_dashboard" "business" {
             "SOURCE '/${var.project}/${var.environment}'",
             "| filter ispresent(model_cost_usd)",
             "| stats sum(model_cost_usd) as cost_usd, sum(credits_charged_total) as credits by account_id",
+            "| sort cost_usd desc",
+            "| limit 20",
+          ])
+        }
+      },
+      {
+        type = "log", x = local.w_half, y = 27, width = local.w_half, height = local.h_row
+        properties = {
+          title  = "Cost per model — where the margin is actually decided"
+          region = var.region
+          # `model` is deliberately a PROPERTY, not a dimension: with a marketplace, one metric
+          # per model name would be an unbounded bill (D9). So this can only ever be a log query,
+          # which is exactly the trade that decision bought.
+          query = join("\n", [
+            "SOURCE '/${var.project}/${var.environment}'",
+            "| filter ispresent(model_cost_usd)",
+            "| stats sum(model_cost_usd) as cost_usd, sum(credits_charged_total) as credits, count(*) as calls by model",
             "| sort cost_usd desc",
             "| limit 20",
           ])

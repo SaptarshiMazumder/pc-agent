@@ -400,6 +400,78 @@ def test_a_nonpositive_period_is_skipped_not_billed_forever(accounts):
     assert r["renewed"] == 0 and r["skipped"] == 1
 
 
+def test_a_crash_midway_keeps_the_renewals_already_charged(accounts, monkeypatch):
+    """DEF-12: one transaction PER SUBSCRIPTION, not one per batch.
+
+    The lock is the real reason (a batch-wide transaction holds SQLite's single write lock for the
+    whole run and stalls live /debit traffic), but a lock is not something a test can observe. This
+    pins the same boundary from the other side: kill the run midway and the subscriptions already
+    charged must stay charged. Under a batch-wide transaction the exception escapes `with _db()`
+    before `commit()`, so a card was charged in the payment provider and the grant, the ledger
+    posting and the moved renews_at were all rolled back — silent lost revenue plus a customer
+    who paid for nothing.
+    """
+    client, account_id = accounts
+    module = client.app_module  # type: ignore[attr-defined]
+
+    # Two products, because subscriptions are unique per (account, product).
+    for pid in ("monthly-a", "monthly-b"):
+        client.post("/products", headers=INTERNAL, json={
+            "id": pid, "kind": "agent_subscription", "creator_id": "bob",
+            "agent_id": f"agent-{pid}", "price_usd": 20.0, "scope": f"agent:{pid}",
+            "period_days": 30,
+        })
+        client.post("/purchase", headers=INTERNAL, json={
+            "account_id": account_id, "product_id": pid, "idempotency_key": f"buy-{pid}"})
+    _make_due(client, 3600)
+    before = _purchase_txn_count(client)
+
+    real, seen = module._apply_purchase, {"n": 0}
+
+    def die_on_the_second(c, **kwargs):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            raise RuntimeError("task killed mid-batch")  # SIGKILL, OOM, EFS stall
+        return real(c, **kwargs)
+
+    monkeypatch.setattr(module, "_apply_purchase", die_on_the_second)
+
+    with pytest.raises(RuntimeError):
+        client.post("/subscriptions/renew-due", headers=INTERNAL)
+
+    assert _purchase_txn_count(client) == before + 1, "the first renewal must have survived"
+    assert client.get("/ledger/balances", headers=INTERNAL).json()["balanced"], (
+        "a half-finished batch must still leave the books balanced"
+    )
+
+
+def test_a_crash_midway_keeps_the_breakage_already_booked(accounts, monkeypatch):
+    """Same boundary in close-expired, which has the same batch shape and the same fix."""
+    client, account_id = accounts
+    module = client.app_module  # type: ignore[attr-defined]
+    for _ in range(2):
+        client.post("/grant", headers=INTERNAL, json={
+            "account_id": account_id, "credits": 100_000, "expires_days": -1})
+
+    real, seen = module.ledger.post_expiry, {"n": 0}
+
+    def die_on_the_second(c, *args, **kwargs):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            raise RuntimeError("task killed mid-batch")
+        return real(c, *args, **kwargs)
+
+    monkeypatch.setattr(module.ledger, "post_expiry", die_on_the_second)
+
+    with pytest.raises(RuntimeError):
+        client.post("/ledger/close-expired", headers=INTERNAL)
+
+    b = client.get("/ledger/balances", headers=INTERNAL).json()
+    assert b["balanced"] and b["accounts"]["breakage_revenue"] > 0, (
+        "the grant closed before the crash must stay booked"
+    )
+
+
 def test_a_renewal_accrues_to_the_creator_again(accounts):
     """A creator earns every period, not only on the first sale."""
     client, account_id = accounts
