@@ -302,14 +302,30 @@ Plain HTML/CSS/JS needs no build. For React, build into `ui/` with Vite using
 
 ## Packaging rules
 
-An agent becomes a shippable `.exe` via `agentd bundle pack` → `gen:app` → `dist:app`.
-Author with that in mind:
+Shipping is two steps, and only the first happens here:
 
-- `workspace/` and `clients/` are **excluded** from the package. Never put anything the
-  agent *needs* in `workspace/` — that is user data, and on upgrade it is the one directory
-  preserved while the rest of the definition is replaced.
+```
+agents/<id>/  --package_agent-->  <id>-<version>.agentpkg  --installer build-->  <id>.exe
+```
+
+The **`.agentpkg`** is the shareable unit: a zip holding `bundle.toml` + the whole agent
+directory + any shared plugins it vendors. Anyone can install one (`marketplace.install`), and
+it is what an `.exe` build consumes. `package_agent` produces it. Building the `.exe` itself
+needs node + electron-builder + a repo checkout, so it is not a chat operation.
+
+Author with packaging in mind:
+
+- `workspace/`, `sessions/` and `clients/` are **excluded** from the package. Never put
+  anything the agent *needs* in `workspace/` — that is user data, and on upgrade it is the one
+  directory preserved while the rest of the definition is replaced.
+- The agent's own `plugins/` **are** included — they live inside the agent directory.
 - Only agents with an `[app]` section can become a product exe.
-- **Bump `version` on every shipped change**, or an install will not supersede the old copy.
+- **Bump `version` in `agent.toml` on every shipped change.** It is the bundle's version, and
+  installs supersede BY VERSION — re-packing the same number will not replace an existing copy.
+- `bundle.toml` is optional and hand-written. Add one only for publisher-facing facts
+  (`publisher`, `entitlement`, a bundle id that differs from the agent id, shared plugin
+  dependencies). If it declares `version`, it **outranks** `agent.toml` — so normally leave
+  that key out and let the agent's own version rule.
 
 ## Order of work
 
@@ -326,6 +342,8 @@ Author with that in mind:
    plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
    served straight off disk, so both are live the moment you save.
 6. Tell the user how to try it: a new chat with that agent, or its app window.
+7. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
+   re-validates first and refuses on errors, so a broken agent never reaches anyone else.
 
 ## Rules
 

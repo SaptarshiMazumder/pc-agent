@@ -73,11 +73,19 @@ class CreateAgentTool(Tool):
         "When the files are written, call validate_agent, then reload_agent. Cannot create or "
         "overwrite the default agent 'main'."
     )
+    # `action` is NOT required: execute() defaults it to "create", and validate_args runs the
+    # schema BEFORE execute — so requiring it made that default unreachable and rejected the
+    # most natural call there is, create_agent(id=..., identity=...). Creating is the
+    # overwhelmingly common case; make the common case the one you can omit.
     parameters = {
         "type": "object",
-        "required": ["action"],
+        "required": [],
         "properties": {
-            "action": {"type": "string", "enum": ["create", "update", "list"]},
+            "action": {
+                "type": "string",
+                "enum": ["create", "update", "list"],
+                "description": "create (the default) | update an existing agent | list agents",
+            },
             "id": {"type": "string", "description": "agent id, kebab-case (e.g. support-bot)"},
             "name": {"type": "string", "description": "display name (defaults to the id)"},
             "version": {

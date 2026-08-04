@@ -98,7 +98,7 @@
   "_section_cost_efficiency": "Brain ROUTING by need (default off => the one `model` above does every turn). enabled=true => the cheap `text_model` runs ordinary turns; escalate to `vision_model` ONLY when the context carries an image the brain must SEE (an ImageContent block, e.g. a read_image/screenshot result). GENERATING an image needs NO escalation \u2014 that's a tool call the text brain makes with text args. Once an image enters history it stays, so this becomes 'cheap brain until the first image, vision brain onward'. REQUIRES DEEPSEEK_API_KEY in v2/.env for the deepseek text_model (no failover configured => a missing key breaks text turns; set enabled=false to revert).",
   "cost_efficiency": {
     "enabled": true,
-    "text_model": "deepseek/deepseek-v4-pro",
+    "text_model": "gemini/gemini-3.1-pro-preview",
     "vision_model": "gemini/gemini-3.1-pro-preview"
   },
   "_section_plugins": "THE control panel for every plugin + tool. A plugin is just a namespace + a set of tools; ALL knobs live on the tool (plugins.<plugin>.tools.<tool>.<knob>) \u2014 there is no plugin-level model/provider. enabled (plugin or tool level) toggles it off; model = the AI model a tool calls; provider = its backend/SDK/engine; plus any tool-specific knob. Resolves first-hit-wins: per-call > agent.toml tools[T].<knob> > this file's tools[T].<knob> > the tool's built-in default. `description` fields are ONLY for humans reading this file \u2014 the agent never sees them.",

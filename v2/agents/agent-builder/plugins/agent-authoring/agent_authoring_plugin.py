@@ -27,14 +27,18 @@ def register(api, ctx):
     if registry is None:
         return  # every tool here is meaningless without the agent roster
 
+    from agent_authoring.application.package_agent_service import PackageAgentService
     from agent_authoring.application.reload_agent_service import ReloadAgentService
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
+    from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
+    from agent_authoring.infrastructure.agent_packer import AgentPacker
     from agent_authoring.infrastructure.registry_reload_adapter import RegistryReloadAdapter
     from agent_authoring.presentation.create_agent_tool import CreateAgentTool
+    from agent_authoring.presentation.package_agent_tool import PackageAgentTool
     from agent_authoring.presentation.reload_agent_tool import ReloadAgentTool
     from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
 
@@ -53,13 +57,24 @@ def register(api, ctx):
 
     # --- CHECK ----------------------------------------------------------------------
     reader = AgentDirReader(registry)
+    validator = ValidateAgentService(
+        reader,
+        AgentLayoutRules(),
+        PackageabilityRules(),
+        SandboxRules(),
+    )
+    api.register_tool(ValidateAgentTool(validator))
+
+    # --- SHIP -----------------------------------------------------------------------
+    # The SAME validator instance the tool exposes — packaging gates on it, so "what
+    # validate_agent told you" and "what package_agent refuses on" can never diverge.
     api.register_tool(
-        ValidateAgentTool(
-            ValidateAgentService(
+        PackageAgentTool(
+            PackageAgentService(
                 reader,
-                AgentLayoutRules(),
-                PackageabilityRules(),
-                SandboxRules(),
+                AgentPacker(ctx.config),
+                BundleDefaults(),
+                validator,
             )
         )
     )

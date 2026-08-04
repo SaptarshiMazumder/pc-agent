@@ -16,6 +16,15 @@ suggestions = [
   "Validate every agent I have",
 ]
 
+# Its own window: a workbench over every agent on the machine — validate one, package one.
+# `public = false` is not a default being restated; it is the point. This surface can author
+# and package agents, so it must never admit a tokenless visitor on a hosted daemon.
+[app]
+title = "Agent Builder"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
 # The SHARED tools this agent may reach — and nothing else. No shell, no browser, no web:
 # building an agent is a filesystem job.
 #

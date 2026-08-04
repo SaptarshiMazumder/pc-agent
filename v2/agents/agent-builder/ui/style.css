@@ -1,0 +1,194 @@
+/* Agent Builder workbench. Two panes: the roster, and what you can do to one agent.
+   Dark by default — this opens as a chromeless product window alongside a code editor. */
+
+:root {
+  --bg: #14151a;
+  --panel: #1b1d24;
+  --panel-2: #21242d;
+  --line: #2c303b;
+  --text: #e6e8ee;
+  --muted: #9aa1b1;
+  --accent: #5b4fcf;
+  --ok: #4ade80;
+  --bad: #f87171;
+  --warn: #fbbf24;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+body.busy { cursor: progress; }
+body.busy button { pointer-events: none; opacity: 0.55; }
+
+.muted { color: var(--muted); }
+
+/* ---------------------------------------------------------------- top bar */
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+
+.bar-right { display: flex; align-items: center; gap: 12px; }
+
+.status { font-size: 12px; color: var(--muted); }
+.status.live { color: var(--ok); }
+.status.down { color: var(--bad); }
+
+/* ---------------------------------------------------------------- layout */
+.workbench {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  min-height: 0;
+}
+
+.pane { min-height: 0; overflow-y: auto; }
+.roster { border-right: 1px solid var(--line); background: var(--panel); }
+.detail { padding: 22px 26px; }
+
+.pane-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.pane-head h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; margin: 0; color: var(--muted); }
+.pane-head .muted { font-size: 12px; }
+
+/* ---------------------------------------------------------------- roster rows */
+.list { list-style: none; margin: 0; padding: 6px; }
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.row:hover { background: var(--panel-2); }
+.row.active { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.avatar {
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 600; color: #fff;
+}
+
+.row-body { min-width: 0; }
+.row-top { display: flex; align-items: baseline; gap: 6px; }
+.row-name { font-weight: 550; }
+.row-sub, .row-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row-sub { font-size: 12px; }
+.ver { font-size: 11px; color: var(--muted); }
+
+.chip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.chip.self { border-color: var(--accent); color: #b9b2ff; }
+
+/* ---------------------------------------------------------------- detail */
+.empty { max-width: 46ch; margin-top: 18vh; }
+.empty p { margin: 0 0 8px; }
+
+.agent-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.agent-head h2 { margin: 0; font-size: 20px; }
+.agent-head p { margin: 2px 0 0; font-size: 13px; }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 18px 0 0;
+  font-size: 13px;
+}
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; word-break: break-word; }
+
+.actions { display: flex; gap: 10px; margin: 22px 0 6px; flex-wrap: wrap; }
+
+button {
+  font: inherit;
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover { border-color: #3a3f4d; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { filter: brightness(1.1); }
+button.ghost { background: transparent; }
+button.link {
+  border: 0; background: none; color: var(--muted);
+  padding: 0; font-size: 12px; text-decoration: underline;
+}
+
+.out-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-top: 20px;
+}
+.out-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; margin: 0; color: var(--muted); }
+
+/* The tools render their own reports — show them verbatim, wrapped, never truncated. */
+.out {
+  margin: 8px 0 0;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  font: 12.5px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.out.ok { border-left-color: var(--ok); }
+.out.bad { border-left-color: var(--bad); color: #ffd9d9; }
+.out.muted { border-left-color: var(--line); }
+
+@media (max-width: 720px) {
+  .workbench { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; }
+  .roster { border-right: 0; border-bottom: 1px solid var(--line); }
+}
