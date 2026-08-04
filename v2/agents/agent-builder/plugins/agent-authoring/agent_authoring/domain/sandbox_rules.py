@@ -2,26 +2,29 @@
 
 Pure rules, no I/O — the caller passes each private plugin's source text in.
 
-WHY THIS EXISTS
-``classify_origin()`` decides trust by LOCATION, not authorship: any tool discovered under
-``agents/<id>/plugins/`` is stamped ``_agent_id`` and classified THIRD_PARTY_BUNDLE — untrusted.
-The reasoning is sound: an agent can be DOWNLOADED as a .agentpkg carrying someone else's Python,
-which would then run on your machine with your keys. The classifier cannot tell "I authored this
-by chat" from "I installed this from the store", so it judges the folder.
+WHY THIS EXISTS — AND WHY IT IS ABOUT *SHIPPING*, NOT ABOUT HERE
+``classify_origin()`` decides trust by PROVENANCE: an agent's private tools are untrusted when
+the marketplace ledger says that agent arrived in a ``.agentpkg``. So on THIS machine, an agent
+you authored (or one that shipped with the product) keeps its tools trusted — owning tools is
+not itself suspicious.
 
-That folder is exactly where `create_tool(agent=...)` writes. So a tool you author for your own
-agent joins the untrusted tier, and ``DefaultCapabilityResolver`` would hand it:
+The catch is what happens NEXT. The moment someone installs your agent, it lands in THEIR ledger,
+and every tool in ``agents/<id>/plugins/`` becomes THIRD_PARTY_BUNDLE over there. That is exactly
+the folder ``create_tool(agent=...)`` writes to. ``DefaultCapabilityResolver`` then hands it:
     fs      -> the run's workspace only
     net     -> nothing
     secrets -> {}   ALWAYS. It never sees a provider key.
 
+So these checks answer one question: *will this agent still work once someone else installs it?*
+A tool that reads an API key runs fine for its author and silently reads nothing for everybody
+who downloads it — the worst possible failure shape, and invisible without this warning.
+
 ADVISORY, NOT A GATE — deliberately.
-Today ``sandbox_untrusted_plugins`` defaults OFF, and even when ON the shipped backend
-(``LocalPluginSandbox``) is an in-process passthrough that does not enforce the grant at all.
-So nothing here is broken right now, and these findings are INFO/WARN — never ERROR. They exist
-so an author learns at WRITING time that a tool reaching for an API key or the network is living
-on borrowed time: it breaks the day a real isolating backend lands, and it breaks on the machine
-of anyone who installs the agent.
+``sandbox_untrusted_plugins`` defaults OFF, and even when ON the shipped backend
+(``LocalPluginSandbox``) is an in-process passthrough that does not enforce the grant. Nothing
+here is broken today, so every finding is INFO/WARN — never ERROR. They exist so an author learns
+at WRITING time that such a tool is living on borrowed time: it breaks the day a real isolating
+backend lands, and it breaks on the machine of anyone who installs the agent.
 """
 
 from __future__ import annotations
@@ -65,9 +68,9 @@ class SandboxRules:
                 code="PRIVATE_TOOLS_UNTRUSTED",
                 message=(
                     f"this agent ships {len(plugin_ids)} private plugin(s) "
-                    f"({', '.join(plugin_ids)}). Tools under agents/<id>/plugins/ are classified "
-                    f"THIRD_PARTY_BUNDLE (untrusted) — they are sandboxed when "
-                    f"AGENTD_SANDBOX_PLUGINS is on, and always are on someone else's machine"
+                    f"({', '.join(plugin_ids)}). They are trusted HERE (this agent was not "
+                    f"installed from a package), but once someone else installs this agent its "
+                    f"ledger marks it THIRD_PARTY_BUNDLE and these tools get sandboxed"
                 ),
                 path="plugins/",
             )
@@ -83,11 +86,12 @@ class SandboxRules:
                     Finding(
                         level=WARN,
                         code="UNTRUSTED_WANTS_SECRETS",
-                        message=f"plugins/{pid}/ reads environment variables / API keys, but an "
-                        f"untrusted tool is granted secrets = {{}} — it will read nothing",
+                        message=f"plugins/{pid}/ reads environment variables / API keys. That "
+                        f"works for you, but an installed agent is granted secrets = {{}} — for "
+                        f"everyone who downloads this, it will read nothing",
                         path=f"plugins/{pid}/",
-                        fix=f"take the value as a tool PARAMETER, or exempt it locally via "
-                        f"config sandbox_trusted_plugins = [\"{pid}\"] (only for code you wrote)",
+                        fix=f"take the value as a tool PARAMETER, or have whoever installs it "
+                        f'vouch for the agent via config sandbox_trusted_agents = ["{spec.id}"]',
                     )
                 )
             if any(p.search(text) for p in NETWORK_PATTERNS):
@@ -95,11 +99,11 @@ class SandboxRules:
                     Finding(
                         level=WARN,
                         code="UNTRUSTED_WANTS_NETWORK",
-                        message=f"plugins/{pid}/ makes network calls, but an untrusted tool is "
-                        f"granted no network access",
+                        message=f"plugins/{pid}/ makes network calls. That works for you, but an "
+                        f"installed agent is granted no network access",
                         path=f"plugins/{pid}/",
-                        fix=f"use a shared tool that already owns the network path, or exempt it "
-                        f'via config sandbox_trusted_plugins = ["{pid}"]',
+                        fix=f"use a shared tool that already owns the network path, or have "
+                        f'whoever installs it set sandbox_trusted_agents = ["{spec.id}"]',
                     )
                 )
         return out

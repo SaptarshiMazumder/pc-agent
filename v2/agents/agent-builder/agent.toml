@@ -1,0 +1,26 @@
+# Agent Builder — the agent that builds agents.
+#
+# Ships with every install (staged into the wheel by scripts/hatch_build.py, seeded to
+# ~/.agentd/agents/ on first run). It OWNS the build-agent skill: that folder moved here out
+# of agents/main/skills/, which is the shared library every agent reads — so authoring an
+# agent is now this agent's job alone, not something JARVIS does on the side.
+
+name = "Agent Builder"
+version = "1.0.0"
+description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
+tagline = "build · validate · ship agents"
+color = "#5B4FCF"
+suggestions = [
+  "Build me an agent that tracks my gym sets",
+  "Give the weather agent its own app window",
+  "Validate every agent I have",
+]
+
+# The SHARED tools this agent may reach — and nothing else. No shell, no browser, no web:
+# building an agent is a filesystem job.
+#
+# Its OWN tools (create_agent, create_tool, validate_agent, reload_agent — from
+# plugins/agent-authoring/ below) are deliberately absent: an agent's private tools are
+# IMPLICITLY allowed and never need naming here. That is also why `main` cannot call them.
+[tools]
+allow = ["read", "write", "edit", "ls", "find", "skill_workshop"]

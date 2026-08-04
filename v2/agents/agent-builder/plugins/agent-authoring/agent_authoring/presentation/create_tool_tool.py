@@ -5,9 +5,10 @@ Writes a drop-in plugin: ``<plugins_dir>/<id>/plugin.toml`` + a Python module th
 ``register_plugin_live`` (the B1 reload seam) so the tool joins the LIVE catalog and is callable
 on the next turn.
 
-DANGER — this writes and runs NEW Python in-process (RCE by design). It is gated behind
-``AGENTD_TOOL_WORKSHOP`` (off by default); the operator opts in by env, exactly like the other
-authoring creators. Prefer create_skill (no code) or add_mcp (a server) when they fit; reach for
+DANGER — this writes and runs NEW Python in-process (RCE by design). It used to be gated behind
+``AGENTD_TOOL_WORKSHOP``; the gate is now the AGENT BOUNDARY. This bundle is private to
+agents/agent-builder/, so only that agent can call it, and an install without that agent has no
+route to it at all. Prefer a skill (no code) or add_mcp (a server) when they fit; reach for
 create_tool only when a genuinely new in-process capability is needed."""
 
 from __future__ import annotations

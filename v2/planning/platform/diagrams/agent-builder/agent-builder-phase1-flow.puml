@@ -54,7 +54,7 @@ partition "5 . INFRASTRUCTURE - skill discovery  (READ FRESH EVERY TURN)" #F3E8F
 }
 
 partition "5a . THE NEW ARTIFACT  <<PHASE 1>>" #C8E6C9 {
-  :**agents/main/skills/build-agent/SKILL.md**\n<<NEW - the only thing this phase adds>>;
+  :**skills/build-agent/SKILL.md**\n<<NEW - the only thing this phase adds>>\n(authored under agents/main/; phase 5 moved it\nto the agents/agent-builder/ agent);
   :**_parse_frontmatter()** reads\nname: build-agent\ndescription: use when asked to create an agent\nalways: false;
   :-> **Skill**{name, description, path, always=false, body};
 }

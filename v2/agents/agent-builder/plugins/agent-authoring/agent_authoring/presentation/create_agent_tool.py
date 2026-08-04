@@ -1,4 +1,4 @@
-"""create_agent — author a new persistent AGENT by chatting.
+"""create_agent — SCAFFOLD a new persistent AGENT, then get out of the way.
 
 "An agent is a directory": this writes ``agents/<id>/`` (``agent.toml`` + ``IDENTITY.md``, plus
 ``AGENTS.md`` when operating rules are given), then registers it in the LIVE registry via
@@ -6,6 +6,26 @@
 resolvable on the next message WITHOUT a restart. The files it writes are exactly what
 ``FileAgentRegistry`` / ``load_bootstrap`` read, so a by-chat agent is identical to a
 hand-authored one.
+
+DELIBERATELY FROZEN AT THE SKELETON — do not add parameters for the rest of agent.toml.
+
+This tool owns the half of an agent that genuinely needs code:
+  * correct TOML KEY ORDER — every top-level key must precede the first ``[table]``, or TOML
+    scopes it INTO that table and it is silently ignored (the exact bug that made an authored
+    ``color``/``tagline`` under ``[app]`` vanish in favour of a generated sidecar value),
+  * refusing to create or clobber the default agent ``main``,
+  * ``registry.add()`` — the agent is resolvable on the very next message.
+
+The other half is open-ended and belongs to ``write``: ``[app]``, ``[tools]``, the display keys,
+``skills``, and above all ``[plugins.<plugin>.tools.<tool>]`` — any plugin x any tool x any knob
+(figure-creator's whole image engine lives there). That has no enumerable shape, so a
+parameterised creator could never be complete; it would grow forever and still miss cases, while
+teaching the model a second grammar for something it already writes fluently as TOML.
+
+The model can do that safely because it has the grammar (the `build-agent` skill, owned by the
+agents/agent-builder/ agent)
+and a checker (``validate_agent``). Anything this tool cannot express, it names in its result so
+the next step is obvious.
 """
 
 from __future__ import annotations
@@ -35,17 +55,23 @@ class CreateAgentTool(Tool):
     label = "Create Agent"
     default_retryable = False  # side-effecting (writes a definition); never auto-retry
     description = (
-        "Create a new persistent AGENT by chatting — an agent is a directory of instructions. "
-        "action='create' writes agents/<id>/ (agent.toml + IDENTITY.md, plus AGENTS.md when you "
-        "give rules) and registers it LIVE so it is usable on the next message with no restart; "
-        "action='update' rewrites an existing agent; action='list' shows current agents. Provide "
-        "a short kebab-case `id`, a display `name`, and an `identity` (who the agent is — its "
-        "role, tone, and boundaries); optionally `rules` (operating do/don'ts), a `model`, a "
-        "one-line `description` (what it's for — shown to orchestrators picking who to delegate "
-        "to), and `subagents_allow` (ids/globs of specialist agents THIS agent may delegate to, "
-        "e.g. ['check-*']). For an AUTONOMOUS agent, set `heartbeat` (e.g. '30m') + `heartbeat_md` "
-        '(its standing checklist) and `capabilities` (e.g. {"autonomy": true}) — it self-wakes '
-        "live, no restart. Cannot create or overwrite the default agent 'main'."
+        "SCAFFOLD a new persistent AGENT — an agent is a directory of instructions. Call this "
+        "FIRST when asked to build an agent: it writes agents/<id>/ (agent.toml + IDENTITY.md, "
+        "plus AGENTS.md when you give rules) and registers it LIVE, so the agent is usable on the "
+        "next message with no restart. action='update' rewrites an existing agent; action='list' "
+        "shows current agents. Provide a kebab-case `id`, a display `name`, an `identity` (who it "
+        "is — role, tone, boundaries), and a `version` (e.g. '1.0.0'); optionally `rules` "
+        "(operating do/don'ts), a `model`, a one-line `description`, and `subagents_allow` "
+        "(ids/globs it may delegate to). For an AUTONOMOUS agent add `heartbeat` (e.g. '30m') + "
+        "`heartbeat_md` and `capabilities` (e.g. {\"autonomy\": true}). "
+        "THIS TOOL ONLY WRITES THE SKELETON. Everything else is authored with `write` against the "
+        "build-agent skill's grammar: the [app] table and ui/, [tools] allow/deny, the top-level "
+        "display keys (tagline/color/suggestions), per-agent tool wiring "
+        "([plugins.<plugin>.tools.<tool>]), and its skills/ — write those as "
+        "skills/<name>/SKILL.md files, NOT with skill_workshop (that only ever writes into the "
+        "CALLING agent's own skills). Use create_tool(agent=<id>) for the agent's private tools. "
+        "When the files are written, call validate_agent, then reload_agent. Cannot create or "
+        "overwrite the default agent 'main'."
     )
     parameters = {
         "type": "object",
@@ -54,6 +80,11 @@ class CreateAgentTool(Tool):
             "action": {"type": "string", "enum": ["create", "update", "list"]},
             "id": {"type": "string", "description": "agent id, kebab-case (e.g. support-bot)"},
             "name": {"type": "string", "description": "display name (defaults to the id)"},
+            "version": {
+                "type": "string",
+                "description": "agent version, e.g. '1.0.0' (defaults to 1.0.0). Bump it on every "
+                "shipped change — bundle installs supersede an older copy BY VERSION",
+            },
             "identity": {
                 "type": "string",
                 "description": "IDENTITY.md body: who the agent is, its tone and boundaries",
@@ -114,6 +145,9 @@ class CreateAgentTool(Tool):
                 is_error=True,
             )
         name = (params.get("name") or agent_id).strip()
+        # Default rather than omit: an agent with no version cannot be superseded by a later
+        # install (bundles compare versions), and validate_agent flags its absence.
+        version = (params.get("version") or "1.0.0").strip()
         model = (params.get("model") or "").strip()
         rules = (params.get("rules") or "").strip()
         description = (params.get("description") or "").strip()
@@ -142,7 +176,7 @@ class CreateAgentTool(Tool):
         d.mkdir(parents=True, exist_ok=True)
         # TOML: top-level keys MUST precede any [table], so emit name/model/description/heartbeat
         # first, then the [capabilities] / [subagents] tables.
-        top = [f"name = {_toml_str(name)}"]
+        top = [f"name = {_toml_str(name)}", f"version = {_toml_str(version)}"]
         if model:
             top.append(f"model = {_toml_str(model)}")
         if description:
@@ -176,8 +210,33 @@ class CreateAgentTool(Tool):
             )
 
         verb = "Updated" if existed else "Created"
+        written = ["agent.toml", "IDENTITY.md"]
+        if rules:
+            written.append("AGENTS.md")
+        if heartbeat_md:
+            written.append("HEARTBEAT.md")
+
+        # HAND-OFF: this tool only ever writes the skeleton, so say so and name the next step.
+        # The model's whole picture of a tool is its description + its results, and this is the
+        # moment the remaining work is actionable.
+        lines = [
+            f"{verb} agent '{agent_id}' ({name}) v{version} at {d} — registered live, resolvable "
+            f"on the next message, no restart.",
+            f"Wrote: {', '.join(written)}.",
+            "",
+            "This is the SKELETON only. Author anything else with `write` (see the build-agent "
+            "skill for the grammar):",
+            "  • [app] + ui/  — to give it its own window / make it packageable as an .exe",
+            "  • [tools] allow/deny  — to narrow what it may use",
+            "  • tagline / color / suggestions  — TOP-LEVEL keys, never inside [app]",
+            "  • [plugins.<plugin>.tools.<tool>]  — per-agent model + tool wiring",
+            "  • skills/<name>/SKILL.md  — its playbooks. Author these with `write`: "
+            "skill_workshop only ever writes into the CALLING agent's own skills dir.",
+            "Then: create_tool(agent='%s') for its private tools." % agent_id,
+            f"Finally: validate_agent('{agent_id}') to check it, then reload_agent('{agent_id}') "
+            f"to apply any agent.toml edits.",
+        ]
         return ToolResult.text(
-            f"{verb} agent '{agent_id}' ({name}) at {d} and registered it live — it's resolvable "
-            f"now, no restart needed.",
-            details={"id": agent_id},
+            "\n".join(lines),
+            details={"id": agent_id, "version": version, "written": written, "scope": "skeleton"},
         )

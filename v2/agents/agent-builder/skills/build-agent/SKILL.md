@@ -203,15 +203,16 @@ def register(api, ctx):
     api.register_tool(GetWeatherTool())
 ```
 
-### An agent's own tools are treated as UNTRUSTED
+### An agent's own tools become UNTRUSTED once someone installs the agent
 
-Trust is decided by **location, not authorship**: anything discovered under
-`agents/<id>/plugins/` is classified `THIRD_PARTY_BUNDLE`. The reason is that agents can be
-*downloaded* — a `.agentpkg` can carry someone else's Python, which would then run on the
-installer's machine with their keys. The classifier cannot tell your code from a stranger's,
-so it judges the folder.
+Trust is decided by **provenance**: an agent's private tools are classified
+`THIRD_PARTY_BUNDLE` when the marketplace ledger says that agent arrived in a `.agentpkg`.
+Locally — an agent you just authored, or one that shipped with the product — the tools are
+trusted. Owning tools is not itself suspicious.
 
-When sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
+The catch is what happens on **someone else's machine**. Installing your agent records it in
+their ledger, so every tool under `agents/<id>/plugins/` is untrusted over there. When
+sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
 
 | | |
 | --- | --- |
@@ -219,18 +220,20 @@ When sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
 | network | **none** |
 | secrets | **`{}` — always.** It never sees a provider key. |
 
-Practical consequences when you write a private plugin:
+So the question to ask while writing a private plugin is *"will this still work after someone
+downloads it?"*:
 
 - **Do not read API keys from the environment.** Take the value as a tool *parameter*, or use a
-  shared tool that already owns that capability.
+  shared tool that already owns that capability. A plugin that reads `os.environ` works
+  perfectly for its author and silently reads nothing for every user — the worst failure shape.
 - **Do not assume network access.**
-- If the plugin genuinely needs either and *you* wrote it, the operator can exempt it:
-  `sandbox_trusted_plugins = ["<plugin-id>"]` in config. Never suggest exempting code the user
-  did not author.
+- If it genuinely needs either, the person installing it can vouch for the agent:
+  `sandbox_trusted_agents = ["<agent-id>"]` in their config. Never suggest that for code the
+  user did not author.
 
 Today the flag is off by default and the shipped backend does not enforce the grant, so nothing
-breaks immediately — but a plugin that reaches for keys or the network will break the day real
-isolation lands, and on the machine of anyone who installs the agent.
+breaks immediately — but such a plugin will break the day real isolation lands, and on the
+machine of anyone who installs the agent.
 
 ### Python library dependencies
 

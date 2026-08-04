@@ -301,15 +301,13 @@ class Config:
     # skill_workshop (S10): the agent authors reusable SKILL.md playbooks at runtime.
     # OFF by default; AGENTD_SKILL_WORKSHOP=1 to enable.
     skill_workshop: bool = False  # AGENTD_SKILL_WORKSHOP
-    # agent_workshop: author new agent DEFINITIONS (agents/<id>/ = agent.toml + IDENTITY.md)
-    # by chatting; create_agent registers them LIVE (no restart). OFF by default.
-    agent_workshop: bool = False  # AGENTD_AGENT_WORKSHOP
+    # (agent_workshop / tool_workshop were removed: create_agent and create_tool are no longer
+    # shared tools needing a process-wide switch. They are PRIVATE to the agent-builder agent
+    # — agents/agent-builder/plugins/agent-authoring/ — so only that agent can reach them, and
+    # a fresh install has a working Agent Builder without editing config.)
     # mcp_workshop: the agent can connect an MCP server by chatting (add_mcp) — config + connect,
     # loads its tools live. OFF by default; only add servers you trust.
     mcp_workshop: bool = False  # AGENTD_MCP_WORKSHOP
-    # tool_workshop: the agent can author + hot-load a NEW native tool by chatting (create_tool).
-    # This writes and RUNS new Python in-process (RCE by design) — OFF by default, opt-in by env.
-    tool_workshop: bool = False  # AGENTD_TOOL_WORKSHOP
     # agent_messaging: the agent can message OTHER persistent agents and get a reply (message_agent),
     # honoring each agent's [subagents] allow scope. OFF by default.
     agent_messaging_enabled: bool = False  # AGENTD_AGENT_MESSAGING
@@ -381,6 +379,11 @@ class Config:
     max_tenants: int = 50
     # Evict a tenant with no connections after this long. AGENTD_TENANT_IDLE_SECONDS.
     tenant_idle_seconds: int = 1800
+    # sandbox_trusted_agents: agent ids whose PRIVATE tools (agents/<id>/plugins/) are trusted even
+    # if the agent was installed from a package. The per-agent twin of the above — trust is normally
+    # DERIVED (an agent is untrusted iff the marketplace ledger says it arrived in a .agentpkg), so
+    # this is only for vouching for a specific publisher's agent. AGENTD_SANDBOX_TRUSTED_AGENTS.
+    sandbox_trusted_agents: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -828,22 +831,8 @@ def load_config(path: Path | None = None) -> Config:
             "no",
             "",
         )
-    if os.environ.get("AGENTD_AGENT_WORKSHOP"):
-        cfg.agent_workshop = os.environ["AGENTD_AGENT_WORKSHOP"].lower() not in (
-            "0",
-            "false",
-            "no",
-            "",
-        )
     if os.environ.get("AGENTD_MCP_WORKSHOP"):
         cfg.mcp_workshop = os.environ["AGENTD_MCP_WORKSHOP"].lower() not in ("0", "false", "no", "")
-    if os.environ.get("AGENTD_TOOL_WORKSHOP"):
-        cfg.tool_workshop = os.environ["AGENTD_TOOL_WORKSHOP"].lower() not in (
-            "0",
-            "false",
-            "no",
-            "",
-        )
     if os.environ.get("AGENTD_AGENT_MESSAGING"):
         cfg.agent_messaging_enabled = os.environ["AGENTD_AGENT_MESSAGING"].lower() not in (
             "0",
@@ -889,6 +878,12 @@ def load_config(path: Path | None = None) -> Config:
             )
         else:
             cfg.sandbox_untrusted_plugins = True
+    if os.environ.get("AGENTD_SANDBOX_TRUSTED_AGENTS"):
+        cfg.sandbox_trusted_agents = tuple(
+            s.strip()
+            for s in os.environ["AGENTD_SANDBOX_TRUSTED_AGENTS"].split(",")
+            if s.strip()
+        )
     if os.environ.get("AGENTD_MODEL_FALLBACKS"):
         cfg.model_fallbacks = [
             s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()

@@ -1,0 +1,76 @@
+"""agent-authoring — the bundle's COMPOSITION ROOT.
+
+The only place in this bundle that wires anything: it reads the handles off PluginContext, builds
+the rules -> services -> adapters -> tools chain, and registers the four tools. Every class below
+is constructor-injected, so each is unit-testable without a daemon.
+
+Layout note: the layered code lives under the ``agent_authoring/`` package rather than bare
+``domain/`` + ``application/`` folders, because the loader does ``sys.path.insert(0, <plugin dir>)``
+for EVERY plugin — generic top-level package names would collide between bundles. One uniquely
+named package keeps the layering visible and the namespace safe.
+
+All four tools are ungated. The two that AUTHOR (create_agent, create_tool) used to sit behind
+the agent_workshop / tool_workshop config flags; they no longer need to, because this bundle is
+PRIVATE to the agent-builder agent — only that agent can call them, which is the boundary those
+flags were approximating from a distance.
+"""
+
+from __future__ import annotations
+
+import logging
+
+log = logging.getLogger("agentd")
+
+
+def register(api, ctx):
+    registry = getattr(ctx, "registry", None)
+    if registry is None:
+        return  # every tool here is meaningless without the agent roster
+
+    from agent_authoring.application.reload_agent_service import ReloadAgentService
+    from agent_authoring.application.validate_agent_service import ValidateAgentService
+    from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
+    from agent_authoring.domain.packageability_rules import PackageabilityRules
+    from agent_authoring.domain.sandbox_rules import SandboxRules
+    from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
+    from agent_authoring.infrastructure.registry_reload_adapter import RegistryReloadAdapter
+    from agent_authoring.presentation.create_agent_tool import CreateAgentTool
+    from agent_authoring.presentation.reload_agent_tool import ReloadAgentTool
+    from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
+
+    # --- AUTHOR ---------------------------------------------------------------------
+    api.register_tool(CreateAgentTool(registry))
+
+    # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
+    # the tool would write a file that never becomes callable. Register nothing rather than that.
+    register_plugin_live = getattr(ctx, "register_plugin_live", None)
+    if register_plugin_live is not None:
+        from agent_authoring.presentation.create_tool_tool import CreateToolTool
+
+        api.register_tool(CreateToolTool(ctx.config, register_plugin_live, registry))
+    else:
+        log.info("agent-authoring: no live-reload handle — create_tool not registered")
+
+    # --- CHECK ----------------------------------------------------------------------
+    reader = AgentDirReader(registry)
+    api.register_tool(
+        ValidateAgentTool(
+            ValidateAgentService(
+                reader,
+                AgentLayoutRules(),
+                PackageabilityRules(),
+                SandboxRules(),
+            )
+        )
+    )
+
+    # --- ACTIVATE -------------------------------------------------------------------
+    # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
+    # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
+    # and reports honestly which steps it managed.
+    broadcast = getattr(ctx, "broadcast_agents_changed", None)
+    reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
+    api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
+
+    if broadcast is None:
+        log.info("agent-authoring: no broadcast handle — reload_agent will not refresh clients")

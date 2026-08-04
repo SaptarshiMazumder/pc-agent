@@ -1,0 +1,21 @@
+# agent-authoring — the Agent Builder's OWN tools.
+#
+# These live inside agents/agent-builder/ rather than in the shared plugins/ ring, so ownership
+# is STRUCTURAL: the agent-private tier is visible only to its owning agent. `main` cannot see
+# create_agent — not via a deny list someone must remember to extend, but because the tool is
+# not in its catalog at all. Every tool added here inherits that for free.
+#
+# TRUSTED, despite sitting in that tier: classify_origin judges by PROVENANCE, not location — an
+# agent is untrusted only when the marketplace ledger says it arrived in a .agentpkg, and
+# agent-builder ships with the product. (Before that change this move was impossible: these
+# tools would have been sandboxed to workspace-only FS, and create_agent writes to agents/<id>/.)
+#
+# UNGATED on purpose. create_agent and create_tool once sat behind the agent_workshop /
+# tool_workshop config flags, which answered "may this daemon author agents and code at all?" —
+# a question the agent boundary now answers better. Keeping them would ship a JARVIS whose Agent
+# Builder appears in the sidebar and is broken until the user hand-edits JSON.
+id = "agent-authoring"
+name = "Agent Authoring"
+kind = "native"
+entry = "agent_authoring_plugin:register"
+description = "Author, validate and activate agents: create_agent, create_tool, validate_agent, reload_agent."

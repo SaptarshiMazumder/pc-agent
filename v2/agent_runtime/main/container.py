@@ -99,13 +99,20 @@ def build_service(
     memory_bank=None,
     credential_store=None,
     connect_token_store=None,
+    late: dict | None = None,
 ) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
 
     `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
     the gateway and service share them; if omitted, a file-backed registry is built
     here (single-agent / tests) and there is no task ledger. `memory_bank` is the durable
-    long-term memory (None unless memory is enabled)."""
+    long-term memory (None unless memory is enabled).
+
+    `late` is the LATE-BINDING dict shared with the caller: things built AFTER plugin
+    discovery (the AgentService itself, and the Gateway — which `build_gateway` only has
+    once this returns) are stashed there, so the thunks handed to plugins can resolve them
+    at call time. Owned by the caller rather than module-level state: two containers in one
+    process (tests do this) must not share one."""
     from agent_runtime.infrastructure.resources import build_resource_manager
     from agent_runtime.infrastructure.tools.guard import GuardedTool, resolve_policy
 
@@ -144,7 +151,7 @@ def build_service(
     # the AgentService once it exists (it's built below). `register_plugin_live` re-scans, loads
     # only NEW plugins, and merges their tools+sections into the LIVE catalog (create_tool uses it).
     loaded_plugin_ids: set = set()
-    _late: dict = {}
+    _late: dict = late if late is not None else {}
 
     # PLUGIN-SANDBOX seam: the UNTRUSTED tool tier (agents/<id>/plugins/ — tools that ship inside a
     # marketplace agent's package) runs behind a PluginSandbox instead of in-process. Dormant unless
@@ -160,6 +167,16 @@ def build_service(
 
     plugin_sandbox = build_plugin_sandbox(config)
     capability_resolver = DefaultCapabilityResolver(config=config)
+
+    # The sandbox's UNTRUSTED SET, resolved here because the composition root owns the
+    # marketplace store: an agent is untrusted iff the installer's ledger says it arrived in a
+    # .agentpkg. Read fresh on every call — an install lands in the ledger and _agent_private_tools
+    # is recomputed right after, so a downloaded agent is sandboxed without a restart.
+    from pathlib import Path
+
+    from agent_runtime.infrastructure.marketplace.installed_store import JsonInstalledStore
+
+    installed_store = JsonInstalledStore(Path(config.state_dir) / "installed_bundles.json")
 
     def _wrap(raw_tools: list) -> list:
         out = []
@@ -183,9 +200,10 @@ def build_service(
     def _agent_private_tools() -> dict:
         """Discover + sandbox/gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
         WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
-        idempotent — the service replaces its map instead of appending. This tier is UNTRUSTED, so
-        it is routed through the plugin sandbox FIRST (a no-op passthrough unless enabled), then
-        guarded — giving Guard(Sandbox(inner))."""
+        idempotent — the service replaces its map instead of appending. Tools from an INSTALLED
+        agent are untrusted, so they are routed through the plugin sandbox FIRST (a no-op
+        passthrough unless enabled), then guarded — giving Guard(Sandbox(inner))."""
+        installed = installed_store.installed_ids()  # None => unreadable ledger => fail closed
         return {
             aid: _gate_and_wrap(
                 wrap_untrusted(
@@ -193,6 +211,7 @@ def build_service(
                     sandbox=plugin_sandbox,
                     resolver=capability_resolver,
                     config=config,
+                    installed_agent_ids=installed,
                 )
             )
             for aid, tlist in discover_agent_plugins(
@@ -538,6 +557,9 @@ def build_gateway(config: Config) -> Gateway:
 
     credential_store = build_credential_store(config)
     connect_token_store = ConnectTokenStore() if credential_store is not None else None
+    # The late-binding dict is OURS: build_service stashes the AgentService in it, and we add
+    # the Gateway below — both exist only after plugin discovery has already handed thunks out.
+    late: dict = {}
     service = build_service(
         config,
         browser_manager,
@@ -547,6 +569,7 @@ def build_gateway(config: Config) -> Gateway:
         memory_bank=memory_bank,
         credential_store=credential_store,
         connect_token_store=connect_token_store,
+        late=late,
     )
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
@@ -566,9 +589,9 @@ def build_gateway(config: Config) -> Gateway:
             config
         ),  # egress privacy gate (None unless enabled)
     )
-    # LATE-BIND the roster broadcast (same pattern as _late["service"] above): plugins are
-    # discovered long before the Gateway exists, so the handle passed to them is a thunk that
-    # resolves once it does. A plugin that changes the agent roster (agent-builder's
+    # LATE-BIND the roster broadcast (same pattern as late["service"] inside build_service):
+    # plugins are discovered long before the Gateway exists, so the handle passed to them is a
+    # thunk that resolves once it does. A plugin that changes the agent roster (agent-builder's
     # reload_agent) uses this to refresh every client's sidebar.
-    _late["gateway"] = gateway
+    late["gateway"] = gateway
     return gateway

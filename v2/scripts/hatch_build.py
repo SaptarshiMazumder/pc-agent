@@ -59,9 +59,15 @@ class BuiltinsStagingHook(BuildHookInterface):
         if default_cfg.is_file():
             data_dst.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(default_cfg, data_dst / "config.default.json")
-        starter_skills = root / "agents" / "main" / "skills"
-        if starter_skills.is_dir():
-            _copy_filtered(starter_skills, data_dst / "agents" / "main" / "skills")
+        # Starter agent content, laid out exactly as it will sit under ~/.agentd/agents/
+        # (first_run.seed_user_layout copies this tree file-by-file, never overwriting).
+        #   main/skills     — the SHARED skills library every agent reads
+        #   agent-builder   — a shipped DEFAULT AGENT, whole: definition, prose, own skills
+        # Add a path here to ship another default agent.
+        for rel in (Path("main") / "skills", Path("agent-builder")):
+            src = root / "agents" / rel
+            if src.is_dir():
+                _copy_filtered(src, data_dst / "agents" / rel)
 
         force_include = build_data.setdefault("force_include", {})
         force_include[str(builtins_dst)] = "agent_runtime/_builtin_plugins"
