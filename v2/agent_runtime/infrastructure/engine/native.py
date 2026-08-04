@@ -176,6 +176,16 @@ async def run_agent_loop(
             for m in await _maybe_await(get_steering_messages()) or []:
                 persist(m)
 
+        # THE CLOCKS (plan 3.2). "It's slow" is unactionable until you know WHICH part was slow,
+        # and the split that matters is model time vs tool time — they have completely different
+        # fixes (change the model / fix the tool). Both halves are emitted; the split itself is a
+        # query, because summing `tool_duration_ms` by run_id already answers the tool side and
+        # threading an accumulator through the tool executor would buy nothing.
+        _run_t0 = time.perf_counter()
+        _first_output_ms: float | None = None
+        _first_text_ms: float | None = None
+        _model_time_ms = 0.0
+
         iterations = 0
         while iterations < max_iters:
             iterations += 1
@@ -194,6 +204,7 @@ async def run_agent_loop(
             # OUTGOING context actually carries an image the brain must see (see infrastructure/llm/
             # model_router.py). The chosen model is what litellm records on the turn.
             active_model = model_router(model, send_messages) if model_router else model
+            _turn_t0 = time.perf_counter()
             async for ev in stream_fn(
                 model=active_model,
                 system_prompt=system_prompt,
@@ -203,6 +214,20 @@ async def run_agent_loop(
             ):
                 kind = ev.get("type")
                 if kind in ("text_delta", "thinking_delta"):
+                    # FIRST OUTPUT is the number a user actually judges us on — the gap between
+                    # pressing send and the screen changing. Measured from the top of the loop,
+                    # so it includes prompt assembly and the provider's own time to first byte.
+                    # Recorded once per run; `_first_text_ms` separates real answer text from
+                    # thinking, because a wall of reasoning is not the same as an answer.
+                    # NOT the same as "first token of the FINAL answer" — which turn turns out to
+                    # be final is only known once the loop ends, so that one needs a retroactive
+                    # pass and is deliberately not built.
+                    if _first_output_ms is None:
+                        _first_output_ms = (time.perf_counter() - _run_t0) * 1000
+                        telemetry.timing("first_output_ms", _first_output_ms, source="stream")
+                    if _first_text_ms is None and kind == "text_delta":
+                        _first_text_ms = (time.perf_counter() - _run_t0) * 1000
+                        telemetry.timing("first_text_ms", _first_text_ms, source="stream")
                     await on_event(
                         AgentEvent("message_update", {"kind": kind, "delta": ev.get("delta", "")})
                     )
@@ -215,6 +240,13 @@ async def run_agent_loop(
                     )
                 elif kind == "done":
                     assistant = ev["message"]
+
+            # Per-turn model time. The interesting comparison is against tool_duration_ms on the
+            # same run: a run that spent 40 s in the model needs a different model, a run that
+            # spent 40 s in tools needs a faster tool.
+            _turn_model_ms = (time.perf_counter() - _turn_t0) * 1000
+            _model_time_ms += _turn_model_ms
+            telemetry.timing("model_stream_ms", _turn_model_ms, source="stream")
 
             if assistant is None:  # defensive: stream ended without a done event
                 assistant = AssistantMessage(
@@ -335,6 +367,11 @@ async def run_agent_loop(
         abort.set()
         await on_event(AgentEvent("agent_end", {"stopReason": "aborted"}))
         raise
+
+    # Total model time for the run. Emitted here rather than in a `finally` on purpose: an
+    # aborted run re-raises above, and a partial total would poison the percentile with runs that
+    # were cut off. `run_duration_ms` in the gateway already covers the aborted case.
+    telemetry.timing("model_time_ms", _model_time_ms, source="stream")
 
     # Fallback text when a run produced no user-visible answer at all.
     if not produced_visible_text and stop_reason not in ("aborted",):

@@ -35,6 +35,7 @@ Public-exposure hardening (all env-driven; unset = today's open local-dev behavi
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -49,7 +50,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Shared instrumentation (v2/monitoring). Optional at import so an image that has not installed
 # it still boots — telemetry must never be able to take down the identity service.
 try:
-    from agentd_telemetry import count, setup_logging, timing
+    from agentd_telemetry import count, gauge, setup_logging, timing
 
     _TELEMETRY = True
 except ImportError:  # pragma: no cover
@@ -58,11 +59,42 @@ except ImportError:  # pragma: no cover
     def count(*_a, **_k):  # type: ignore[misc]
         pass
 
+    def gauge(*_a, **_k):  # type: ignore[misc]
+        pass
+
     def timing(*_a, **_k):  # type: ignore[misc]
         pass
 
     def setup_logging(*_a, **_k):  # type: ignore[misc]
         pass
+
+
+# Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
+# the tests load this file by path, where the module has no package. Same defensive pattern as
+# model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
+# the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
+try:  # pragma: no cover - exercised by whichever path the runtime takes
+    import ledger
+    import payments
+except ModuleNotFoundError:  # pragma: no cover
+    import importlib.util as _ilu
+    import pathlib as _pathlib
+    import sys as _sys
+
+    def _sibling(name: str):
+        spec = _ilu.spec_from_file_location(name, _pathlib.Path(__file__).with_name(f"{name}.py"))
+        assert spec and spec.loader
+        module = _ilu.module_from_spec(spec)
+        # MUST be registered BEFORE exec_module. `payments` defines dataclasses under
+        # `from __future__ import annotations`, and dataclasses resolves those string
+        # annotations via sys.modules[cls.__module__] — absent, it dereferences None and the
+        # import dies with a bewildering AttributeError from inside the stdlib.
+        _sys.modules[name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    ledger = _sibling("ledger")
+    payments = _sibling("payments")
 
 
 setup_logging("accounts")
@@ -190,6 +222,12 @@ def _init_db() -> None:
             c.execute("ALTER TABLE usage ADD COLUMN model_tier TEXT NOT NULL DEFAULT ''")
         if "cached_tokens" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
+        # THE DE-DUPLICATION KEY. The proxy buffers a usage row when the write fails and replays
+        # it later -- but "failed" includes "accounts committed the row and the response was
+        # lost". Without a key the replay inserts a SECOND copy, silently overstating that
+        # account's usage in a way nothing detects and nothing can undo.
+        if "event_id" not in have:
+            c.execute("ALTER TABLE usage ADD COLUMN event_id TEXT NOT NULL DEFAULT ''")
 
         # Indexes over migrated columns come LAST, and unconditionally.
         #
@@ -203,8 +241,64 @@ def _init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month);
             CREATE INDEX IF NOT EXISTS ix_usage_run   ON usage(run_id);
+            -- PARTIAL, because every row written before event_id existed carries '' and a
+            -- plain UNIQUE index would collide on the second of them. Rows without a key keep
+            -- the old at-least-once behaviour; rows with one are exactly-once.
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_usage_event
+                ON usage(event_id) WHERE event_id <> '';
+
+            -- WHAT IS FOR SALE (2.2). A product is the thing a purchase buys: a platform credit
+            -- pack (no creator) or an agent subscription (a creator earns from it). Kept as data
+            -- so adding a price or a tier is a row, never a deploy.
+            CREATE TABLE IF NOT EXISTS products (
+                id             TEXT PRIMARY KEY,
+                kind           TEXT NOT NULL DEFAULT 'credit_pack',  -- credit_pack | agent_subscription
+                title          TEXT NOT NULL DEFAULT '',
+                creator_id     TEXT NOT NULL DEFAULT '',   -- '' = platform's own, nobody accrues
+                agent_id       TEXT NOT NULL DEFAULT '',
+                price_usd      REAL NOT NULL DEFAULT 0,
+                credits        INTEGER NOT NULL DEFAULT 0, -- 0 = derive from price and markup
+                scope          TEXT NOT NULL DEFAULT 'platform',
+                model_tier_max TEXT NOT NULL DEFAULT '',
+                period_days    INTEGER NOT NULL DEFAULT 30,
+                active         INTEGER NOT NULL DEFAULT 1,
+                created_at     REAL NOT NULL DEFAULT 0
+            );
+
+            -- A recurring intent to buy. Renewal is NOT automatic yet: this records what should
+            -- renew and when, so a scheduler can be added without a schema change.
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                product_id   TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'active',   -- active | cancelled
+                renews_at    REAL NOT NULL DEFAULT 0,
+                created_at   REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_subs_acct ON subscriptions(account_id, status);
+            -- One subscription per (account, product): renewing must UPDATE the existing row,
+            -- not accumulate a new one each period, or renew-due would charge N times over.
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_subs_acct_product
+                ON subscriptions(account_id, product_id);
+            CREATE INDEX IF NOT EXISTS ix_subs_due ON subscriptions(status, renews_at);
+
+            -- WHO MAY RUN WHAT (2.5). Separate from credits on purpose: having money is not the
+            -- same as being allowed. This is also where "this agent requires BYOK" will live.
+            CREATE TABLE IF NOT EXISTS entitlements (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                agent_id     TEXT NOT NULL,
+                source       TEXT NOT NULL DEFAULT 'purchase',  -- purchase | grant | trial
+                min_version  TEXT NOT NULL DEFAULT '',
+                expires_at   REAL NOT NULL DEFAULT 0,           -- 0 = never
+                created_at   REAL NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_ent_acct_agent
+                ON entitlements(account_id, agent_id);
             """
         )
+        ledger.schema(c)
+        payments.schema(c)
 
 
 # --- password hashing (stdlib, no bcrypt dependency) -------------------------
@@ -477,6 +571,29 @@ def _live_grants(c: sqlite3.Connection, account_id: str, agent_id: str) -> list[
     return list(rows)
 
 
+def _entitlement_state(c: sqlite3.Connection, account_id: str, agent_id: str) -> tuple[bool, bool]:
+    """(required, held) for running this agent.
+
+    REQUIRED IS DATA-DRIVEN, never a list in code: an agent needs an entitlement precisely when
+    somebody is selling it (an active product names it). So first-party agents, the default
+    agent, and anything not on the marketplace stay freely runnable, and putting an agent up for
+    sale is what starts gating it — one row, no deploy.
+    """
+    if not agent_id:
+        return False, True
+    required = c.execute(
+        "SELECT 1 FROM products WHERE agent_id = ? AND active = 1 LIMIT 1", (agent_id,)
+    ).fetchone() is not None
+    if not required:
+        return False, True
+    held = c.execute(
+        "SELECT 1 FROM entitlements WHERE account_id=? AND agent_id=? "
+        "AND (expires_at = 0 OR expires_at > ?) LIMIT 1",
+        (account_id, agent_id, _now()),
+    ).fetchone() is not None
+    return True, held
+
+
 def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict:
     grants = _live_grants(c, account_id, agent_id)
     remaining = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
@@ -486,12 +603,18 @@ def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict
     source = ""
     if grants:
         source = "agent_subscription" if str(grants[0]["scope"]).startswith("agent:") else "platform_pool"
+    # Carried on the FUNDING response rather than its own endpoint: the proxy already calls this
+    # before every uncached model call, so gating on entitlement costs zero extra round trips.
+    # A second hot-path call per message would be a real latency tax on every user (DEF-6).
+    required, held = _entitlement_state(c, account_id, agent_id)
     return {
         "account_id": account_id,
         "credits_remaining": remaining,
         "model_tier_max": tier_max,
         "funding_source": source,
         "credit_class": str(grants[0]["credit_class"]) if grants else "",
+        "entitlement_required": required,
+        "entitled": held,
     }
 
 
@@ -580,10 +703,19 @@ def grant(payload: dict = Body(...), x_internal_key: str | None = Header(default
     with _db() as c:
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="unknown account")
-        c.execute(
+        ts = _now()
+        cur = c.execute(
             "INSERT INTO credit_grants (account_id, scope, credits, credits_used, credit_class, "
             "model_tier_max, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
-            (account_id, scope, credits, credit_class, tier_max, expires_at, _now()),
+            (account_id, scope, credits, credit_class, tier_max, expires_at, ts),
+        )
+        # NO CASH CAME IN, but a liability was still created: we now owe this account service.
+        # Posted as a promotional grant whatever the credit_class says, because that is what
+        # actually happened -- credits conjured without a payment. /purchase is the only path
+        # that books cash, and the only one where a creator accrues anything.
+        ledger.post_promotional_grant(
+            c, ts, account_id=account_id, credits=credits,
+            ref=f"grant:{cur.lastrowid}", idempotency_key=f"grant:{cur.lastrowid}",
         )
         view = _funding_view(c, account_id, "")
     count("credits_granted_total", credits, credit_class=credit_class, _props={"account_id": account_id})
@@ -618,22 +750,494 @@ def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default
     agent_id = str(payload.get("agent_id") or "").strip()[:64]
     model_tier = str(payload.get("model_tier") or "").strip()[:32]
     cached_tok = max(0, int(payload.get("cached_tokens") or 0))
+    # EXACTLY-ONCE KEY, minted by the proxy when the call completed and carried unchanged through
+    # every retry. Absent (an older proxy) falls back to the previous at-least-once behaviour
+    # rather than rejecting the row — losing a billing record is worse than duplicating one.
+    event_id = str(payload.get("event_id") or "").strip()[:80]
     ts = _now()
     with _db() as c:
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             count("ledger_row_total", outcome="rejected", reason="unknown_account")
             raise HTTPException(status_code=404, detail="unknown account")
-        c.execute(
+        cur = c.execute(
             "INSERT INTO usage (account_id, ts, month, model, in_tokens, out_tokens, cost_usd, "
-            "run_id, turn_id, credits, funding_source, agent_id, model_tier, cached_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "run_id, turn_id, credits, funding_source, agent_id, model_tier, cached_tokens, "
+            "event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(event_id) WHERE event_id <> '' DO NOTHING",
             (account_id, ts, _month_key(ts), model, in_tok, out_tok, cost, run_id, turn_id,
-             credits, funding_source, agent_id, model_tier, cached_tok),
+             credits, funding_source, agent_id, model_tier, cached_tok, event_id),
         )
+        duplicate = cur.rowcount == 0
+        if not duplicate:
+            # The double-entry consequence of the same event, in the SAME transaction as the
+            # usage row: a provider is owed, and prepaid service was delivered. Keyed by the
+            # same event_id so a replay cannot post the money twice either.
+            ledger.post_consumption(
+                c, ts,
+                account_id=account_id,
+                cost_micros=ledger.usd_to_micros(cost),
+                credits_charged=credits,
+                agent_id=agent_id,
+                ref=run_id,
+                idempotency_key=f"consumption:{event_id}" if event_id else "",
+            )
         view = _budget_view(c, account_id)
+    if duplicate:
+        # Not an error: the proxy did the right thing by retrying. Worth counting because a
+        # steady rate means responses are being lost, which is a network or timeout problem.
+        count("ledger_row_total", outcome="duplicate", _props={"account_id": account_id, "run_id": run_id})
+        return {"ok": True, "duplicate": True, "spent_usd": view["spent_usd"], "over": view["over"],
+                "remaining_usd": view["remaining_usd"]}
     # Written from the LEDGER's own side. The proxy counts its attempts; this counts what
     # actually landed. Two independent counters — a gap between them is the interesting signal.
     count("ledger_row_total", outcome="ok", _props={"account_id": account_id, "run_id": run_id})
     if view["over"]:
         count("budget_exceeded_total", _props={"account_id": account_id})
-    return {"ok": True, "spent_usd": view["spent_usd"], "over": view["over"], "remaining_usd": view["remaining_usd"]}
+    return {"ok": True, "duplicate": False, "spent_usd": view["spent_usd"], "over": view["over"],
+            "remaining_usd": view["remaining_usd"]}
+
+
+# --- purchases, the ledger, entitlements (plan 2.1-2.5) ----------------------
+#
+# /grant conjures credits. /purchase is the real path: take money (mocked), create the grant,
+# and post the four-way split — liability, reserve, creator accrual, platform margin — in one
+# transaction. Everything except the money movement itself is real from day one, because money
+# history cannot be backfilled.
+
+
+@app.post("/products")
+def upsert_product(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """Define something sellable. Data, not code: a new price or tier is a row."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    pid = (payload.get("id") or "").strip()
+    price = float(payload.get("price_usd") or 0)
+    if not pid or price <= 0:
+        raise HTTPException(status_code=400, detail="id and positive price_usd required")
+    # credits omitted => derive from price and the markup, which is the normal case. Stating
+    # them explicitly is for a promotional bundle that deliberately breaks the usual ratio.
+    credits = int(payload.get("credits") or 0) or ledger.credits_for_usd(price)
+    with _db() as c:
+        c.execute(
+            "INSERT INTO products (id, kind, title, creator_id, agent_id, price_usd, credits, "
+            "scope, model_tier_max, period_days, active, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, title=excluded.title, "
+            "creator_id=excluded.creator_id, agent_id=excluded.agent_id, "
+            "price_usd=excluded.price_usd, credits=excluded.credits, scope=excluded.scope, "
+            "model_tier_max=excluded.model_tier_max, period_days=excluded.period_days, "
+            "active=excluded.active",
+            (
+                pid,
+                (payload.get("kind") or "credit_pack").strip(),
+                (payload.get("title") or "").strip(),
+                (payload.get("creator_id") or "").strip(),
+                (payload.get("agent_id") or "").strip(),
+                price,
+                credits,
+                (payload.get("scope") or "platform").strip(),
+                (payload.get("model_tier_max") or "").strip(),
+                int(payload.get("period_days") or 30),
+                1 if payload.get("active", True) else 0,
+                _now(),
+            ),
+        )
+    return {"ok": True, "id": pid, "credits": credits}
+
+
+@app.get("/products")
+def list_products() -> dict:
+    """Public: the catalogue. No internal key — a marketplace has to be browsable."""
+    with _db() as c:
+        rows = c.execute("SELECT * FROM products WHERE active = 1 ORDER BY price_usd").fetchall()
+    return {"products": [dict(r) for r in rows]}
+
+
+def _apply_purchase(
+    c: sqlite3.Connection,
+    *,
+    account_id: str,
+    price: float,
+    credits: int,
+    scope: str,
+    tier_max: str,
+    period_days: int,
+    creator_id: str,
+    agent_id: str,
+    product_id: str,
+    idem: str,
+) -> tuple[str, bool, dict, "payments.Charge", float]:
+    """Charge, post the books, mint the grant, extend access. Shared by /purchase and renewal.
+
+    Returns `created=False` when the idempotency key had already been posted — the caller MUST
+    distinguish that from a fresh charge, or a retried request gets reported as new revenue.
+
+    Extracted because a renewal IS a purchase — same money, same split, same creator accrual —
+    and two copies of this sequence would drift, with the divergence showing up as a quiet
+    accounting difference between a first purchase and every one after it.
+    """
+    rail = payments.provider()
+    charge = rail.charge(
+        account_id=account_id, amount_usd=price,
+        idempotency_key=idem or f"auto:{account_id}:{_now()}",
+        description=product_id or "credit pack",
+        meta={"credits": credits, "product_id": product_id},
+    )
+    ts = _now()
+    payments.record(c, ts, "charge", charge, account_id=account_id, idempotency_key=idem)
+    if not charge.ok:
+        raise HTTPException(status_code=402, detail=f"payment failed: {charge.status}")
+
+    # Post BEFORE creating the grant: this is the step that can legitimately refuse (a sale that
+    # would lose money), and refusing before the credits exist is what stops a rejected purchase
+    # from half-landing.
+    try:
+        txn_id, created, split = ledger.post_purchase(
+            c, ts,
+            account_id=account_id, gross_micros=ledger.usd_to_micros(price),
+            credits_sold=credits, agent_id=agent_id, creator_id=creator_id,
+            ref=charge.reference, idempotency_key=f"purchase:{idem}" if idem else "",
+        )
+    except ledger.LedgerError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+    expires_at = (ts + period_days * 86_400) if period_days else 0.0
+    if not created:
+        # Already posted under this key: the books are correct and must not be touched again, and
+        # no second grant may be minted. Return so a replay is a genuine no-op.
+        return txn_id, False, split, charge, expires_at
+    c.execute(
+        "INSERT INTO credit_grants (account_id, scope, credits, credits_used, credit_class, "
+        "model_tier_max, expires_at, created_at) VALUES (?, ?, ?, 0, 'paid', ?, ?, ?)",
+        (account_id, scope, credits, tier_max, expires_at, ts),
+    )
+    # Buying an agent subscription also entitles you to run it (2.5). Money and permission are
+    # separate concepts, so this is a separate row rather than an implication of having credits.
+    if agent_id:
+        c.execute(
+            "INSERT INTO entitlements (account_id, agent_id, source, expires_at, created_at) "
+            "VALUES (?, ?, 'purchase', ?, ?) ON CONFLICT(account_id, agent_id) DO UPDATE SET "
+            "expires_at=excluded.expires_at",
+            (account_id, agent_id, expires_at, ts),
+        )
+        if product_id:
+            c.execute(
+                "INSERT INTO subscriptions (account_id, product_id, status, renews_at, created_at) "
+                "VALUES (?, ?, 'active', ?, ?) ON CONFLICT(account_id, product_id) DO UPDATE SET "
+                "status='active', renews_at=excluded.renews_at",
+                (account_id, product_id, expires_at, ts),
+            )
+    return txn_id, True, split, charge, expires_at
+
+
+@app.post("/purchase")
+def purchase(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """Buy credits. Charge (mocked) → grant → ledger, in one transaction.
+
+    IDEMPOTENT BY REQUIREMENT, not politeness. A purchase is the one request a user will retry
+    when the network hiccups, and charging twice for one intent is the worst bug a payments
+    system can have. The caller's key covers the charge, the grant AND the ledger posting, so a
+    replay returns the original result and creates nothing.
+    """
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    account_id = (payload.get("account_id") or "").strip()
+    if not account_id:
+        raise HTTPException(status_code=400, detail="account_id required")
+    idem = str(payload.get("idempotency_key") or "").strip()[:120]
+    product_id = (payload.get("product_id") or "").strip()
+
+    with _db() as c:
+        if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="unknown account")
+
+        creator_id = agent_id = ""
+        scope, tier_max = "platform", ""
+        period_days = int(payload.get("expires_days") or 30)
+        if product_id:
+            p = c.execute("SELECT * FROM products WHERE id=? AND active=1", (product_id,)).fetchone()
+            if p is None:
+                raise HTTPException(status_code=404, detail=f"unknown product {product_id}")
+            price = float(p["price_usd"])
+            credits = int(p["credits"]) or ledger.credits_for_usd(price)
+            creator_id, agent_id = str(p["creator_id"]), str(p["agent_id"])
+            scope = str(p["scope"]) or "platform"
+            tier_max = str(p["model_tier_max"] or "")
+            period_days = int(p["period_days"] or 30)
+        else:
+            price = float(payload.get("usd") or 0)
+            credits = int(payload.get("credits") or 0) or ledger.credits_for_usd(price)
+        if price <= 0 or credits <= 0:
+            raise HTTPException(status_code=400, detail="a product_id or a positive usd is required")
+
+        # An already-posted purchase means this is a replay: return the original, charge nothing.
+        if idem:
+            prior = c.execute(
+                "SELECT txn_id, meta FROM ledger_txns WHERE idempotency_key = ?",
+                (f"purchase:{idem}",),
+            ).fetchone()
+            if prior is not None:
+                view = _funding_view(c, account_id, agent_id)
+                return {"ok": True, "replayed": True, "txn_id": str(prior["txn_id"]),
+                        "split": json.loads(prior["meta"] or "{}"), **view}
+
+        txn_id, _created, split, charge, _expires = _apply_purchase(
+            c, account_id=account_id, price=price, credits=credits, scope=scope,
+            tier_max=tier_max, period_days=period_days, creator_id=creator_id,
+            agent_id=agent_id, product_id=product_id, idem=idem,
+        )
+        view = _funding_view(c, account_id, agent_id)
+
+    count("credits_granted_total", credits, credit_class="paid", _props={"account_id": account_id})
+    count("purchase_total", outcome="ok", _props={"account_id": account_id, "product_id": product_id})
+    # The three numbers the business is actually made of, separated at the moment of sale.
+    count("purchase_gross_usd", price, _props={"account_id": account_id})
+    count("reserve_funded_usd", ledger.micros_to_usd(split["reserve_micros"]))
+    count("creator_accrued_usd", ledger.micros_to_usd(split["creator_micros"]),
+          _props={"creator_id": creator_id})
+    return {"ok": True, "replayed": False, "txn_id": txn_id, "credits": credits,
+            "charge_reference": charge.reference,
+            "split": {k: ledger.micros_to_usd(v) for k, v in split.items()},
+            **view}
+
+
+@app.post("/subscriptions/renew-due")
+def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
+    """Charge and re-grant every subscription whose period has ended (2.2).
+
+    Deliberately a PULLED endpoint rather than a background thread: the accounts service is a
+    single container with a SQLite file, and a timer inside it would fire on every replica the
+    moment there is more than one — billing every subscriber twice. A scheduler calling this once
+    is a thing you can see, retry, and turn off.
+
+    IDEMPOTENT PER PERIOD. The key is the subscription id plus the period it is renewing INTO,
+    so calling this twice in the same period charges once, while next period charges again.
+    """
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    now = _now()
+    renewed, skipped, failed, already = 0, 0, 0, 0
+    with _db() as c:
+        due = c.execute(
+            "SELECT s.id, s.account_id, s.product_id, s.renews_at, p.* FROM subscriptions s "
+            "JOIN products p ON p.id = s.product_id "
+            "WHERE s.status = 'active' AND s.renews_at <> 0 AND s.renews_at <= ? AND p.active = 1",
+            (now,),
+        ).fetchall()
+        for s in due:
+            price = float(s["price_usd"])
+            credits = int(s["credits"]) or ledger.credits_for_usd(price)
+            # The period being renewed INTO identifies this charge. Reusing the OLD renews_at
+            # would re-charge forever once a period is missed; using `now` would let two calls a
+            # second apart both charge.
+            period_days = int(s["period_days"] or 30)
+            if period_days <= 0:
+                # A zero or negative period can never move renews_at into the future, so this
+                # subscription would be "due" again on the very next run and bill every time.
+                # Skip loudly rather than charge in a loop.
+                skipped += 1
+                count("renewal_total", outcome="skipped", _props={"product_id": str(s["product_id"]), "reason": "bad_period"})
+                continue
+            idem = f"renew:{int(s['id'])}:{int(float(s['renews_at']))}"
+            try:
+                _txn, created, _split, _charge, _exp = _apply_purchase(
+                    c, account_id=str(s["account_id"]), price=price, credits=credits,
+                    scope=str(s["scope"]) or "platform", tier_max=str(s["model_tier_max"] or ""),
+                    period_days=period_days, creator_id=str(s["creator_id"]),
+                    agent_id=str(s["agent_id"]), product_id=str(s["product_id"]), idem=idem,
+                )
+                # A replay for the same period is NOT a renewal. Counting it as one would report
+                # a retried scheduler run as new revenue.
+                if created:
+                    renewed += 1
+                else:
+                    already += 1
+            except HTTPException:
+                # A declined card must not stop the rest of the batch, and must not cancel the
+                # subscription either -- dunning (retry, then notify, then suspend) is its own
+                # policy and does not exist yet. Left due, so the next run tries again.
+                failed += 1
+                count("renewal_total", outcome="failed", _props={"product_id": str(s["product_id"])})
+                continue
+        if renewed:
+            count("renewal_total", renewed, outcome="ok")
+    return {"ok": True, "renewed": renewed, "already_charged": already,
+            "skipped": skipped, "failed": failed}
+
+
+@app.post("/ledger/snapshot")
+def ledger_snapshot(x_internal_key: str | None = Header(default=None)) -> dict:
+    """Publish the balance sheet as metrics (plan 3.3 business metrics).
+
+    WHY A PUSH, AND WHY SCHEDULED. Every other metric here is an EVENT — a call happened, a
+    charge succeeded. These are LEVELS: how much reserve is left, how much we owe creators, what
+    the cost ratio is. A level has no event to hang off, so nothing would ever emit it; it has to
+    be sampled. Calling this on a schedule is what turns the ledger into a graph.
+    """
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    with _db() as c:
+        b = ledger.balances(c)
+        acct = b["accounts"]
+        live = c.execute(
+            "SELECT COALESCE(SUM(credits - credits_used), 0) AS n FROM credit_grants "
+            "WHERE credits > credits_used AND (expires_at = 0 OR expires_at > ?)", (_now(),)
+        ).fetchone()
+
+    gauge("reserve_balance_usd", acct["inference_reserve"])
+    gauge("creator_payable_usd", acct["creator_payable"])
+    gauge("credit_liability_usd", acct["user_credit_liability"])
+    gauge("platform_revenue_usd", acct["platform_revenue"])
+    gauge("breakage_revenue_usd", acct["breakage_revenue"])
+    gauge("provider_cost_usd_total", acct["provider_cost"])
+    gauge("gross_margin_usd", b["gross_margin_usd"])
+    gauge("credits_outstanding", int(live["n"]))
+    # The single number that says whether the business works: share of recognised revenue that
+    # went to providers. Above the markup's implied ratio means we are selling below cost.
+    revenue = acct["platform_revenue"] + acct["breakage_revenue"]
+    gauge("cogs_ratio", round(acct["provider_cost"] / revenue, 4) if revenue > 0 else 0.0)
+    # Not a gauge but a health check: must always be 1. Alarmable, unlike a JSON field.
+    gauge("ledger_balanced", 1 if b["balanced"] else 0)
+    return {"ok": True, **b, "credits_outstanding": int(live["n"])}
+
+
+@app.get("/health/ready")
+def health_ready() -> dict:
+    """READINESS, kept separate from /health liveness (plan 3.7).
+
+    /health answers "is the process up" and must never depend on anything downstream — a
+    liveness check that fails when a dependency blips gets the whole fleet restarted during
+    someone else's outage. This one answers "can it actually do its job": the database must be
+    reachable AND WRITABLE, which an EFS mount going read-only would otherwise hide until the
+    first user tried to sign up.
+    """
+    try:
+        with _db() as c:
+            c.execute("SELECT 1 FROM accounts LIMIT 1").fetchone()
+            # A read proves the mount exists; only a write proves it still accepts writes.
+            c.execute("CREATE TABLE IF NOT EXISTS _readiness (ts REAL)")
+            c.execute("DELETE FROM _readiness")
+            c.execute("INSERT INTO _readiness (ts) VALUES (?)", (_now(),))
+    except Exception as e:  # noqa: BLE001 - any failure at all means not ready
+        raise HTTPException(status_code=503, detail=f"not ready: {type(e).__name__}") from e
+    return {"ok": True, "db": "writable"}
+
+
+@app.post("/ledger/close-expired")
+def close_expired(x_internal_key: str | None = Header(default=None)) -> dict:
+    """Book breakage for grants that expired unspent (2.4).
+
+    Run on a schedule. Until it runs, expired credits are already unspendable (`_live_grants`
+    filters them) but the books still carry the liability — so revenue is understated and the
+    reserve looks more committed than it is. Idempotent per grant: running it twice is safe.
+    """
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    now = _now()
+    closed, credits_expired = 0, 0
+    with _db() as c:
+        rows = c.execute(
+            "SELECT id, account_id, credits, credits_used FROM credit_grants "
+            "WHERE expires_at <> 0 AND expires_at <= ? AND credits > credits_used",
+            (now,),
+        ).fetchall()
+        for r in rows:
+            unused = int(r["credits"]) - int(r["credits_used"])
+            _txn, created = ledger.post_expiry(
+                c, now, account_id=str(r["account_id"]), credits_unused=unused,
+                grant_id=int(r["id"]),
+            )
+            if created:
+                closed += 1
+                credits_expired += unused
+    if credits_expired:
+        count("credits_expired_total", credits_expired)
+    return {"ok": True, "grants_closed": closed, "credits_expired": credits_expired}
+
+
+@app.get("/ledger/balances")
+def ledger_balances(x_internal_key: str | None = Header(default=None)) -> dict:
+    """Every account, plus `balanced` — which must be true. False means a posting bypassed
+    `ledger.post()`, and every number here is suspect until that is found."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    with _db() as c:
+        return ledger.balances(c)
+
+
+@app.get("/ledger/entries")
+def ledger_entries(
+    account_id: str = "",
+    txn_type: str = "",
+    limit: int = 100,
+    x_internal_key: str | None = Header(default=None),
+) -> dict:
+    """Raw entries, newest first. The audit trail: every balance above is re-derivable here."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    where, args = [], []
+    if account_id:
+        where.append("account_id = ?")
+        args.append(account_id)
+    if txn_type:
+        where.append("txn_type = ?")
+        args.append(txn_type)
+    sql = "SELECT * FROM ledger_entries"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(max(1, min(1000, int(limit))))
+    with _db() as c:
+        rows = c.execute(sql, args).fetchall()
+    return {"entries": [
+        {**dict(r), "amount_usd": ledger.micros_to_usd(int(r["amount_micros"]))} for r in rows
+    ]}
+
+
+@app.get("/entitlement")
+def entitlement(
+    account_id: str,
+    agent_id: str,
+    x_internal_key: str | None = Header(default=None),
+) -> dict:
+    """May this account run this agent? Separate from credits: having money is not permission.
+
+    NOT YET ENFORCED at the proxy. Wiring it in means either an extra hot-path call or folding
+    the answer into /funding, which the proxy already calls — the latter, when it is done.
+    """
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    now = _now()
+    with _db() as c:
+        row = c.execute(
+            "SELECT * FROM entitlements WHERE account_id=? AND agent_id=? "
+            "AND (expires_at = 0 OR expires_at > ?)",
+            (account_id, agent_id, now),
+        ).fetchone()
+    return {"account_id": account_id, "agent_id": agent_id, "entitled": row is not None,
+            "source": str(row["source"]) if row else "",
+            "expires_at": float(row["expires_at"]) if row else 0.0}
+
+
+@app.post("/entitlement")
+def grant_entitlement(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """Grant access without a purchase — a trial, a comp, a creator testing their own agent."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    account_id = (payload.get("account_id") or "").strip()
+    agent_id = (payload.get("agent_id") or "").strip()
+    if not account_id or not agent_id:
+        raise HTTPException(status_code=400, detail="account_id and agent_id required")
+    days = float(payload.get("expires_days") or 0)
+    ts = _now()
+    expires_at = (ts + days * 86_400) if days != 0 else 0.0
+    with _db() as c:
+        if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="unknown account")
+        c.execute(
+            "INSERT INTO entitlements (account_id, agent_id, source, expires_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id, agent_id) DO UPDATE SET "
+            "source=excluded.source, expires_at=excluded.expires_at",
+            (account_id, agent_id, (payload.get("source") or "grant").strip(), expires_at, ts),
+        )
+    return {"ok": True, "account_id": account_id, "agent_id": agent_id, "expires_at": expires_at}

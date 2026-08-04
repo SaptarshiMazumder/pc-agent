@@ -68,3 +68,11 @@ output "alarm_names" {
     [for a in aws_cloudwatch_metric_alarm.no_successful_logins : a.alarm_name],
   )
 }
+
+output "dashboard_urls" {
+  description = "Direct links to the two dashboards. Service health during an incident; business daily."
+  value = {
+    service_health = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.service_health.dashboard_name}"
+    business       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.business.dashboard_name}"
+  }
+}
