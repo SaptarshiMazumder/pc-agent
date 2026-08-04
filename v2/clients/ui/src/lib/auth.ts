@@ -119,6 +119,49 @@ export async function resolveSession(): Promise<'valid' | 'invalid' | 'unknown'>
   }
 }
 
+/** What the signed-in account can spend right now. */
+export type Credits = {
+  creditsRemaining: number
+  fundingSource: string
+  creditClass: string
+  modelTierMax: string
+  entitlementRequired: boolean
+  entitled: boolean
+  expiresAt: number
+}
+
+/**
+ * Read the account's own balance from the accounts service.
+ *
+ * Called with the SESSION TOKEN and no account id — the service resolves the account from the
+ * token, so this can only ever return the caller's own balance. Returns null rather than
+ * throwing: a balance is decoration, and a metering hiccup must not break the chat that is
+ * already running.
+ */
+export async function fetchCredits(agentId = ''): Promise<Credits | null> {
+  const s = getSession()
+  if (!s || !isAccountsMode()) return null
+  try {
+    const q = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''
+    const r = await fetch(accountsUrl() + '/me/credits' + q, {
+      headers: { Authorization: `Bearer ${s.token}` }
+    })
+    if (!r.ok) return null
+    const d = (await r.json()) as Record<string, unknown>
+    return {
+      creditsRemaining: Number(d.credits_remaining || 0),
+      fundingSource: String(d.funding_source || ''),
+      creditClass: String(d.credit_class || ''),
+      modelTierMax: String(d.model_tier_max || ''),
+      entitlementRequired: Boolean(d.entitlement_required),
+      entitled: d.entitled !== false,
+      expiresAt: Number(d.expires_at || 0)
+    }
+  } catch {
+    return null
+  }
+}
+
 /** React hook: the current session (re-renders on sign-in/out). */
 export function useAuthSession(): Session | null {
   return useSyncExternalStore(
