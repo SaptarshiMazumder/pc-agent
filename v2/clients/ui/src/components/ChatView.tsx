@@ -3,6 +3,7 @@ import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentLabel, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
+import { fetchCredits, useAuthSession } from '../lib/auth'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp, type OutgoingAttachment } from '../state/store'
 import FileName from './FileName'
@@ -66,6 +67,48 @@ export default function ChatView() {
   const model = usage?.model || hello?.model || ''
   const usageStr = usage ? `↑ ${usage.tokensIn.toLocaleString()} · ↓ ${usage.tokensOut.toLocaleString()} tok` : ''
   const suggestions = currentAgent?.suggestions?.length ? currentAgent.suggestions : DEFAULT_SUGGESTIONS
+
+  // CREDITS in the status strip. Tokens tell you how much was said; credits tell you what it
+  // COST — the number a user on a paid plan actually cares about, and until now the only way to
+  // discover it was to run out and get a 402 mid-sentence. Read per agent, because an agent
+  // subscription has its own siloed balance rather than drawing on the platform pool.
+  const account = useAuthSession()
+  const [credits, setCredits] = useState<number | null>(null)
+  const wasRunning = useRef(false)
+
+  useEffect(() => {
+    if (!account) {
+      setCredits(null)
+      return
+    }
+    let alive = true
+    void fetchCredits(currentAgentId).then((c) => {
+      if (alive) setCredits(c ? c.creditsRemaining : null)
+    })
+    return () => {
+      alive = false
+    }
+  }, [account?.accountId, currentAgentId])
+
+  useEffect(() => {
+    const finished = wasRunning.current && !running
+    wasRunning.current = running
+    if (!finished || !account) return
+    let alive = true
+    // The debit happens in the proxy's success callback, which can land a moment AFTER the run
+    // ends — so read twice. Without the second pass the strip usually shows the pre-message
+    // balance and looks like nothing was charged.
+    const read = () =>
+      void fetchCredits(currentAgentId).then((c) => {
+        if (alive) setCredits(c ? c.creditsRemaining : null)
+      })
+    read()
+    const t = setTimeout(read, 1500)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [running])
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -260,6 +303,21 @@ export default function ChatView() {
       <div className="composer-hint">
         <span className="hint-model">{model || 'agentd'}</span>
         {usageStr && <><span className="hint-sep"> · </span><span className="hint-toks">{usageStr}</span></>}
+        {credits !== null && (
+          <>
+            <span className="hint-sep"> · </span>
+            <span
+              className="hint-toks"
+              title={
+                credits === 0
+                  ? 'Out of credits — the next message will be refused until you top up'
+                  : 'Platform credits left on this account. Updates after each message.'
+              }
+            >
+              {credits === 0 ? 'no credits left' : `${credits.toLocaleString()} credits`}
+            </span>
+          </>
+        )}
         <span className="hint-sep"> · </span>
         <span className="hint-note">{running ? 'running — press Stop to interrupt' : 'runs locally'}</span>
       </div>

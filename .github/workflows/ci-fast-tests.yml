@@ -32,10 +32,21 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: v2/pyproject.toml
+          cache-dependency-path: |
+            v2/pyproject.toml
+            v2/monitoring/pyproject.toml
 
       - name: Install (editable + dev extras)
         run: pip install -e ".[dev]"
+
+      # The shared telemetry library is its OWN distribution (v2/monitoring), not an extra of
+      # agentd — it is pip-installed into three of the four images and must stay dependency-free,
+      # which is why it is packaged separately. CI has to install it explicitly: every import
+      # site has an optional-import no-op fallback, so without this the suite would silently
+      # test the fallbacks instead of the real thing, and tests that import it outright fail
+      # to collect.
+      - name: Install telemetry library (v2/monitoring)
+        run: pip install -e monitoring
 
       - name: Lint (ruff)
         run: ruff check .

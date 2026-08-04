@@ -634,6 +634,41 @@ def funding(
         return _funding_view(c, account_id, agent_id)
 
 
+@app.get("/me/credits")
+def my_credits(
+    agent_id: str = "",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """The signed-in account's OWN balance. The only money endpoint a client may call.
+
+    Everything else here is internal-key only, because a client is user-controlled and must never
+    be able to read another account or write its own ledger. This one is safe because it resolves
+    the account FROM THE TOKEN rather than taking an account_id — there is no parameter to tamper
+    with, so a caller can only ever see themselves.
+
+    It exists because the product sells credits and the app could not show anyone their balance:
+    /funding needs the internal key (which a desktop must never hold) and /budget reports dollars
+    against a cap, not credits. Without this, "how much do I have left" was answerable only by a
+    402 at the moment of failure.
+    """
+    with _db() as c:
+        row = _account_for_token(c, _bearer(authorization))
+        account_id = str(row["id"])
+        view = _funding_view(c, account_id, agent_id)
+        # Soonest expiry, so the UI can warn before an allowance dies rather than after. NULL/0
+        # means a grant that never expires, which sorts last.
+        soonest = c.execute(
+            "SELECT MIN(expires_at) AS e FROM credit_grants WHERE account_id = ? "
+            "AND credits > credits_used AND expires_at > ?",
+            (account_id, _now()),
+        ).fetchone()
+    return {
+        "email": str(row["email"]),
+        "expires_at": float(soonest["e"]) if soonest and soonest["e"] else 0.0,
+        **view,
+    }
+
+
 @app.post("/debit")
 def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
     """Consume credits. HARD STOP: never goes negative, never partially debits.
