@@ -50,6 +50,37 @@ def _toml_arr(items: list) -> str:
     return "[" + ", ".join(_toml_str(i) for i in items) + "]"
 
 
+# What this tool writes. Anything else in an agent.toml was authored with `write`, and a
+# re-scaffold silently deletes it — so it has to be named before that happens.
+_SKELETON_KEYS = frozenset({"name", "version", "model", "description", "heartbeat"})
+_SKELETON_TABLES = frozenset({"capabilities", "subagents"})
+
+
+def _authored_sections(path: Path) -> list[str]:
+    """Everything in an existing agent.toml that this tool does NOT own, named the way the
+    author wrote it (``[app]``, ``[tools]``, ``tagline``, ``[plugins.figures...]``).
+
+    Unreadable or absent file -> empty: a caller cannot be warned about content nobody can
+    read, and guessing would be worse than saying nothing."""
+    try:
+        import tomllib
+
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[str] = []
+    for key, value in data.items():
+        if key in _SKELETON_KEYS or key in _SKELETON_TABLES:
+            continue
+        if key == "plugins" and isinstance(value, dict):
+            out += [f"[plugins.{sub}...]" for sub in sorted(value)]
+        elif isinstance(value, dict):
+            out.append(f"[{key}]")
+        else:
+            out.append(key)
+    return sorted(out)
+
+
 class CreateAgentTool(Tool):
     name = "create_agent"
     label = "Create Agent"
@@ -58,8 +89,13 @@ class CreateAgentTool(Tool):
         "SCAFFOLD a new persistent AGENT — an agent is a directory of instructions. Call this "
         "FIRST when asked to build an agent: it writes agents/<id>/ (agent.toml + IDENTITY.md, "
         "plus AGENTS.md when you give rules) and registers it LIVE, so the agent is usable on the "
-        "next message with no restart. action='update' rewrites an existing agent; action='list' "
-        "shows current agents. Provide a kebab-case `id`, a display `name`, an `identity` (who it "
+        "next message with no restart. action='list' shows current agents. "
+        "IF THE ID ALREADY EXISTS THIS REFUSES — ask the USER whether to work on that agent or "
+        "make a new one, and never decide it yourself. To edit an existing agent, change the "
+        "specific files with `write`; action='update' RE-SCAFFOLDS from scratch and destroys "
+        "[app], [tools] and plugin wiring, so it needs confirm_overwrite=true and only after the "
+        "user has said they want it rebuilt. "
+        "Provide a kebab-case `id`, a display `name`, an `identity` (who it "
         "is — role, tone, boundaries), and a `version` (e.g. '1.0.0'); optionally `rules` "
         "(operating do/don'ts), a `model`, a one-line `description`, and `subagents_allow` "
         "(ids/globs it may delegate to). For an AUTONOMOUS agent add `heartbeat` (e.g. '30m') + "
@@ -81,6 +117,12 @@ class CreateAgentTool(Tool):
         "type": "object",
         "required": [],
         "properties": {
+            "confirm_overwrite": {
+                "type": "boolean",
+                "description": "REQUIRED for action='update'. Set true ONLY after the user has "
+                "explicitly said to rebuild this agent from scratch — it destroys [app], "
+                "[tools], display keys and plugin wiring. Never set it on your own initiative",
+            },
             "action": {
                 "type": "string",
                 "enum": ["create", "update", "list"],
@@ -172,14 +214,40 @@ class CreateAgentTool(Tool):
         d = Path(reg.agents_dir) / agent_id
         existed = d.is_dir()
         if existed and action == "create":
+            # This message used to read "use action='update' to change it" — a one-step
+            # workaround the model took on its own, which is how an existing agent lost its
+            # [app] table and orphaned a whole ui/ folder. The refusal must hand the decision
+            # BACK to the user, and offer no shortcut.
             return ToolResult.text(
-                f"agent '{agent_id}' already exists — use action='update' to change it",
+                f"agent '{agent_id}' already exists — this is the user's decision, not yours.\n"
+                f"ASK THEM: work on the existing '{agent_id}', or create a new agent?\n"
+                f"  • new agent      -> call again with a DIFFERENT id\n"
+                f"  • edit this one  -> use `write` on the specific files; everything else "
+                f"stays intact\n"
+                f"  • rebuild it     -> only if they explicitly ask for it from scratch: "
+                f"action='update' with confirm_overwrite=true",
                 is_error=True,
             )
         if not existed and action == "update":
             return ToolResult.text(
                 f"no agent '{agent_id}' to update — use action='create'", is_error=True
             )
+
+        # An update REWRITES agent.toml from the skeleton, so anything `write` authored is
+        # gone. Name it before doing it, and refuse without explicit confirmation.
+        destroyed: list[str] = []
+        if existed and action == "update":
+            destroyed = _authored_sections(d / "agent.toml")
+            if not params.get("confirm_overwrite"):
+                lost = ", ".join(destroyed) if destroyed else "nothing beyond the skeleton"
+                return ToolResult.text(
+                    f"REFUSING to rebuild '{agent_id}' — this would DELETE: {lost}.\n"
+                    f"Ask the user first. If they only want a change, use `write` on the "
+                    f"specific file instead — it keeps everything else.\n"
+                    f"If they genuinely want it rebuilt from scratch, call again with "
+                    f"confirm_overwrite=true.",
+                    is_error=True,
+                )
 
         d.mkdir(parents=True, exist_ok=True)
         # TOML: top-level keys MUST precede any [table], so emit name/model/description/heartbeat
@@ -217,7 +285,7 @@ class CreateAgentTool(Tool):
                 is_error=True,
             )
 
-        verb = "Updated" if existed else "Created"
+        verb = "Rebuilt" if existed else "Created"
         written = ["agent.toml", "IDENTITY.md"]
         if rules:
             written.append("AGENTS.md")
@@ -231,6 +299,16 @@ class CreateAgentTool(Tool):
             f"{verb} agent '{agent_id}' ({name}) v{version} at {d} — registered live, resolvable "
             f"on the next message, no restart.",
             f"Wrote: {', '.join(written)}.",
+        ]
+        if destroyed:
+            # Say what was destroyed, in the same message, every time. If this rebuild happened
+            # without the user actually asking for it, this line is how they find out now
+            # instead of when the app window stops opening.
+            lines += [
+                f"DELETED (re-scaffold replaced agent.toml): {', '.join(destroyed)}.",
+                "Re-author anything still needed with `write`.",
+            ]
+        lines += [
             "",
             "This is the SKELETON only. Author anything else with `write` (see the build-agent "
             "skill for the grammar):",
@@ -246,5 +324,11 @@ class CreateAgentTool(Tool):
         ]
         return ToolResult.text(
             "\n".join(lines),
-            details={"id": agent_id, "version": version, "written": written, "scope": "skeleton"},
+            details={
+                "id": agent_id,
+                "version": version,
+                "written": written,
+                "destroyed": destroyed,
+                "scope": "skeleton",
+            },
         )

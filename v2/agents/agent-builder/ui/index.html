@@ -7,62 +7,141 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="bar">
-    <div class="brand">
-      <span class="dot"></span>
-      <h1>Agent Builder</h1>
-    </div>
-    <div class="bar-right">
-      <button id="refresh" class="ghost" title="re-read the agent roster">Refresh</button>
-      <span id="status" class="status" title="connection to the agentd daemon">connecting…</span>
-    </div>
-  </header>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
-  <main class="workbench">
-    <!-- LEFT: the roster -->
-    <nav class="pane roster">
-      <div class="pane-head">
-        <h2>Agents</h2>
-        <span id="count" class="muted"></span>
-      </div>
-      <ul id="agents" class="list"></ul>
-    </nav>
-
-    <!-- RIGHT: the selected agent -->
-    <section class="pane detail">
-      <div id="empty" class="empty">
-        <p>Select an agent to validate or package it.</p>
-        <p class="muted">
-          Build a new one by chatting with Agent Builder, then come back here to check and ship it.
-        </p>
+  <div class="shell">
+    <!-- ══════════════════ LEFT: rail ══════════════════ -->
+    <aside class="rail glass" id="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <span class="mark">◈</span>
+          <span class="brand-name">Agent Builder</span>
+        </div>
+        <button class="icon-btn" id="railToggle" title="Collapse sidebar">‹</button>
       </div>
 
-      <article id="agent" hidden>
-        <div class="agent-head">
-          <div>
-            <h2 id="a-name">–</h2>
-            <p id="a-sub" class="muted">–</p>
+      <button class="new-btn" id="newAgent">
+        <span class="plus">+</span> New agent
+      </button>
+
+      <nav class="rail-nav">
+        <button class="nav-item active" data-view="build"><span class="ico">✦</span>Build</button>
+        <button class="nav-item" data-view="settings"><span class="ico">⚙</span>Settings</button>
+      </nav>
+
+      <div class="rail-section">
+        <span class="rail-label">Chats</span>
+        <span class="count" id="chatCount"></span>
+      </div>
+      <ul class="agent-list" id="chatList"></ul>
+
+      <div class="rail-foot">
+        <span class="status" id="status">connecting…</span>
+        <span class="ver" id="daemonVer"></span>
+      </div>
+    </aside>
+
+    <!-- ══════════════════ CENTER ══════════════════ -->
+    <main class="main">
+      <header class="topbar glass">
+        <div class="crumbs">
+          <span class="crumb-root" id="crumbRoot">Agent Builder</span>
+          <span class="sep" id="crumbSep" hidden>·</span>
+          <span class="crumb-leaf" id="crumbLeaf" title="the agent shown in the inspector"></span>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" id="newChat" title="Start a fresh conversation">New chat</button>
+          <!-- also in the rail, but the rail folds on a small window and this must never
+               become unreachable -->
+          <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+          <button class="icon-btn" id="panelToggle" title="Toggle inspector">▤</button>
+        </div>
+      </header>
+
+      <!-- BUILD view: the conversation -->
+      <section class="view" id="view-build">
+        <div class="thread" id="thread">
+          <div class="hero" id="hero">
+            <h1>What should we build?</h1>
+            <p>Describe an agent — what it does, what it needs access to — and I'll write it,
+               check it, and make it shippable.</p>
+            <div class="suggests" id="suggests"></div>
           </div>
-          <div class="badges" id="a-badges"></div>
         </div>
 
-        <dl class="facts" id="a-facts"></dl>
-
-        <div class="actions">
-          <button id="validate" class="ghost">Validate</button>
-          <button id="package" class="primary">Package&nbsp;→&nbsp;.agentpkg</button>
+        <div class="composer-wrap">
+          <div class="composer glass" id="composer">
+            <textarea id="input" rows="1" placeholder="Describe the agent you want…"></textarea>
+            <div class="composer-foot">
+              <span class="hint" id="hint">Enter to send · Shift+Enter for a new line</span>
+              <button class="send" id="send" title="Send">↑</button>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div class="out-head">
-          <h3 id="out-title">Output</h3>
-          <button id="clear" class="link" hidden>clear</button>
+      <!-- SETTINGS view -->
+      <section class="view" id="view-settings" hidden>
+        <div class="settings-scroll">
+          <div class="settings-inner" id="settingsBody">
+            <div class="loading">loading settings…</div>
+          </div>
         </div>
-        <pre id="out" class="out muted">Nothing run yet.</pre>
-      </article>
-    </section>
-  </main>
+      </section>
+    </main>
+
+    <!-- ══════════════════ RIGHT: inspector ══════════════════ -->
+    <aside class="panel glass" id="panel">
+      <div class="panel-head">
+        <!-- The agent being INSPECTED. It lives here rather than in the rail because the rail
+             is this agent's own conversation history — inspecting another agent is a side
+             activity, not the primary navigation. -->
+        <label class="panel-label" for="agentPick">Inspecting</label>
+        <select class="agent-pick" id="agentPick"></select>
+        <p class="panel-sub" id="panelSub">—</p>
+      </div>
+
+      <div class="panel-actions" id="panelActions" hidden>
+        <button class="ghost-btn sm" id="btnValidate">Validate</button>
+        <button class="prime-btn sm" id="btnPackage">Package</button>
+      </div>
+
+      <div class="tabs" id="fileTabs" hidden>
+        <button class="tab active" data-root="definition">Definition</button>
+        <button class="tab" data-root="workspace">Workspace</button>
+      </div>
+
+      <div class="tree" id="tree"></div>
+
+      <div class="panel-out" id="panelOut" hidden>
+        <div class="panel-out-head">
+          <span id="outTitle">Output</span>
+          <button class="link-btn" id="outClear">clear</button>
+        </div>
+        <pre id="outBody"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ══════════════════ file viewer ══════════════════ -->
+  <div class="viewer-back" id="viewerBack" hidden>
+    <div class="viewer glass">
+      <header>
+        <div class="viewer-title">
+          <span class="vname" id="viewerName"></span>
+          <span class="vpath" id="viewerPath"></span>
+        </div>
+        <button class="icon-btn" id="viewerClose">✕</button>
+      </header>
+      <div class="viewer-body" id="viewerBody"></div>
+    </div>
+  </div>
 
   <script src="vendor/agentd-client.js"></script>
+  <script src="md.js"></script>
+  <script src="files.js"></script>
+  <script src="settings.js"></script>
+  <script src="chat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

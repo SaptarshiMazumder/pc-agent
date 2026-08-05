@@ -857,18 +857,36 @@ class TerminalClient:
 
     # --- live streaming of assistant text & reasoning --------------------
 
-    def _renderable(self):
-        """How the current buffer is drawn, depending on the stream mode.
+    def _draw(self, chunk: str):
+        """Render one chunk of the stream, per the current mode.
 
         think -> muted italic block under a header, so reasoning is visually
         distinct from the final answer, which is rendered as bright markdown.
         """
         if self._mode == "think":
-            return Group(
-                Text("✻ thinking", style="grey50"),
-                Padding(Text(self._buf, style="italic grey50"), (0, 0, 0, 2)),
-            )
-        return Markdown(self._buf, code_theme=CODE_THEME)  # was: default monokai (rainbow)
+            return Padding(Text(chunk, style="italic grey50"), (0, 0, 0, 2))
+        return Markdown(chunk, code_theme=CODE_THEME)  # was: default monokai (rainbow)
+
+    def _renderable(self):
+        """The live region: EXACTLY ONE LINE, always.
+
+        This is the whole trick. `Live` repaints a multi-line region by emitting cursor-up
+        (`ESC[1A`) for each line, and a terminal scrolls its viewport to follow the cursor —
+        so ANY region taller than one line yanks you back to the bottom 12x a second, no
+        matter how small it is. A single-line region emits only erase-line (`ESC[2K`), which
+        moves nothing. Measured, not assumed.
+
+        So the pending text is previewed as one truncated, unstyled line; the real markdown
+        rendering happens in _flush_complete_blocks, which prints whole blocks into ordinary
+        scrollback where they are never repainted again.
+        """
+        tail = self._buf.rsplit("\n", 1)[-1].strip() or "…"
+        return Text(
+            f"▌ {tail}",
+            style="grey50" if self._mode == "think" else "grey58",
+            no_wrap=True,       # wrapping would make it 2 lines, and cursor-up would be back
+            overflow="ellipsis",
+        )
 
     def _ensure_live(self, mode: str) -> None:
         # Switching between thinking and answer starts a fresh region so the
@@ -878,6 +896,8 @@ class TerminalClient:
         if self._live is None:
             self._mode = mode
             self._buf = ""
+            if mode == "think":
+                console.print(Text("✻ thinking", style="grey50"))
             self._live = Live(
                 console=console,
                 refresh_per_second=12,
@@ -885,15 +905,65 @@ class TerminalClient:
             )
             self._live.start()
 
+    # ---- why the streaming buffer is FLUSHED instead of accumulated ---------------
+    # `Live` repaints its region by moving the cursor up and redrawing. Once the region
+    # is taller than the terminal it cannot move above the top of the screen, so it emits
+    # the overflow as NEW LINES at the bottom — and the terminal scrolls to follow, 12x a
+    # second. That is what made scrolling up during a long answer unwinnable: nothing was
+    # "auto-scrolling", the app was simply printing, and a terminal program cannot even
+    # observe that you scrolled (scrollback belongs to the emulator).
+    #
+    # So the live region is kept SMALL: whole blocks are committed to real scrollback as
+    # soon as they are complete, and only the in-progress block is repainted. Markdown
+    # cannot be rendered line-by-line (a fence or list needs its whole block), so the
+    # split happens at a blank line — and never inside a ``` fence.
+
+    @staticmethod
+    def _fence_open(text: str) -> bool:
+        """True when an odd number of ``` fences means we are inside a code block."""
+        return text.count("```") % 2 == 1
+
+    def _flush_complete_blocks(self) -> None:
+        """Commit every finished block to scrollback, leaving the tail live."""
+        while True:
+            split = self._buf.find("\n\n")
+            if split == -1:
+                break
+            block, rest = self._buf[:split], self._buf[split + 2 :]
+            if self._fence_open(block):
+                break  # a blank line INSIDE a code fence is not a block boundary
+            self._live.update(Text(""))  # clear the region before printing above it
+            console.print(self._draw(block))
+            self._buf = rest
+
+        # A single block taller than the screen (a long code listing has no blank lines)
+        # would grow the region right back past the viewport. Commit it early rather than
+        # resume the scroll fight: close the fence, print, and reopen it for the remainder.
+        limit = max(console.size.height - 4, 8)
+        if self._buf.count("\n") >= limit:
+            head, _, tail = self._buf.rpartition("\n")
+            if self._fence_open(head):
+                head += "\n```"
+                tail = "```\n" + tail
+            self._live.update(Text(""))
+            console.print(self._draw(head))
+            self._buf = tail
+
     def _push(self, mode: str, delta: str) -> None:
         self._ensure_live(mode)
         self._buf += delta
+        if "\n" in delta:  # only a newline can complete a block — skip the scan otherwise
+            self._flush_complete_blocks()
         self._live.update(self._renderable())
 
     def _close_live(self) -> None:
         if self._live is not None:
-            # leave the fully-rendered block on screen
-            self._live.update(self._renderable() if self._buf else Text(""))
+            # Commit the tail to scrollback, then drop the live region. _draw, NOT
+            # _renderable: the latter is only the one-line preview, so printing it here
+            # would replace the last block of the answer with a truncated stub.
+            self._live.update(Text(""))
+            if self._buf.strip():
+                console.print(self._draw(self._buf))
             self._live.stop()
             self._live = None
             self._mode = None
@@ -949,6 +1019,17 @@ class TerminalClient:
             console.print(
                 Text(f"  ↻ continue ({event.get('reason')} #{event.get('attempt')})", style=f"dim {LIME_DEEP}")
             )
+        elif etype == "model_fallback":
+            # The model you configured is NOT the one answering. Loud on purpose: this was a
+            # log-file-only fact, and it turned an unpaid API key into days of mystery.
+            self._close_live()
+            console.print(
+                Text(f"  ⚠ {event.get('from')} unavailable — falling back to "
+                     f"{event.get('to')}", style="bold yellow")
+            )
+            reason = (event.get("reason") or "").strip()
+            if reason:
+                console.print(Text(f"    {reason[:300]}", style="dim yellow"))
         elif etype == "subagent_event":
             # nested-run visibility: a sub-agent's compact beats, relayed to the parent view
             self._close_live()
@@ -971,6 +1052,10 @@ class TerminalClient:
                 err = event.get("error")
                 if err:  # surface the exact reason (rate limit, auth, etc.)
                     console.print(Text(str(err), style="error"))
+            elif reason == "no_output":
+                # Not a normal stop — the run finished having said nothing. The message
+                # itself carries the diagnosis; this line stops it reading as success.
+                console.print(Text("[run ended without an answer]", style="bold yellow"))
             elif reason and reason != "stop":
                 console.print(Text(f"[run ended: {reason}]", style="dim"))
             # WhatsApp-style stamp: when the reply landed (dim, tucked right)

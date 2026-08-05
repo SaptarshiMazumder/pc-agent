@@ -92,3 +92,78 @@ def test_main_cannot_be_created(tmp_path):
     result = asyncio.run(tool.execute("c1", args, asyncio.Event()))
     assert result.is_error
     assert not (tmp_path / "main").exists()
+
+
+# --- never clobber an existing agent by accident ----------------------------
+# An earlier version answered "already exists — use action='update' to change it", which the
+# model followed on its own initiative. That rewrote agent.toml from the skeleton and deleted
+# a real agent's [app] table, orphaning its whole ui/ folder. The decision belongs to the user.
+
+def _existing(tmp_path, body):
+    d = tmp_path / "victim"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "agent.toml").write_text(body, encoding="utf-8")
+    (d / "IDENTITY.md").write_text("original\n", encoding="utf-8")
+    return d
+
+
+AUTHORED = (
+    'name = "Victim"\nversion = "2.0.0"\ntagline = "hand written"\n\n'
+    '[app]\ntitle = "Victim"\nentry = "ui/index.html"\n\n'
+    '[tools]\nallow = ["read"]\n\n'
+    '[plugins.figures.tools.make_chart]\nmodel = "x"\n'
+)
+
+
+def test_create_on_an_existing_id_refuses_and_offers_no_shortcut(tmp_path):
+    _existing(tmp_path, AUTHORED)
+    tool = _tool(tmp_path)
+    args = validate_args(tool, {"id": "victim", "identity": "new"})
+    res = asyncio.run(tool.execute("c", args, asyncio.Event()))
+    assert res.is_error
+    text = res.content[0].text
+    assert "ASK THEM" in text                      # hands the decision back
+    assert "DIFFERENT id" in text                  # the new-agent option
+    assert "`write`" in text                       # the edit-in-place option
+    assert (tmp_path / "victim" / "agent.toml").read_text(encoding="utf-8") == AUTHORED
+
+
+def test_update_without_confirmation_refuses_and_names_the_losses(tmp_path):
+    _existing(tmp_path, AUTHORED)
+    tool = _tool(tmp_path)
+    args = validate_args(tool, {"action": "update", "id": "victim", "identity": "new"})
+    res = asyncio.run(tool.execute("c", args, asyncio.Event()))
+    assert res.is_error
+    text = res.content[0].text
+    for section in ("[app]", "[tools]", "tagline", "[plugins.figures...]"):
+        assert section in text, f"{section} must be named before it is destroyed"
+    assert (tmp_path / "victim" / "agent.toml").read_text(encoding="utf-8") == AUTHORED
+
+
+def test_confirmed_rebuild_is_allowed_and_reports_what_it_deleted(tmp_path):
+    """Destruction is NOT blocked — it is made deliberate and visible."""
+    _existing(tmp_path, AUTHORED)
+    tool = _tool(tmp_path)
+    args = validate_args(
+        tool,
+        {"action": "update", "id": "victim", "identity": "new", "confirm_overwrite": True},
+    )
+    res = asyncio.run(tool.execute("c", args, asyncio.Event()))
+    assert not res.is_error
+    text = res.content[0].text
+    assert "DELETED" in text
+    for section in ("[app]", "[tools]", "tagline"):
+        assert section in text
+    assert res.details["destroyed"]
+    assert "[app]" not in (tmp_path / "victim" / "agent.toml").read_text(encoding="utf-8")
+
+
+def test_creating_a_different_agent_never_touches_the_first(tmp_path):
+    """The other half of the user's question: a new id is a new directory, full stop."""
+    _existing(tmp_path, AUTHORED)
+    tool = _tool(tmp_path)
+    args = validate_args(tool, {"id": "tinder-clone", "identity": "swipe"})
+    res = asyncio.run(tool.execute("c", args, asyncio.Event()))
+    assert not res.is_error
+    assert (tmp_path / "victim" / "agent.toml").read_text(encoding="utf-8") == AUTHORED
+    assert (tmp_path / "tinder-clone" / "agent.toml").is_file()

@@ -2,7 +2,7 @@
   "_comment": "KNOBS live here. KEYS/SECRETS live in v2/.env. NOTE: any AGENTD_* env var STILL OVERRIDES a value here, so keep knobs OUT of .env or they win. Keys are Config field names (config.py), not AGENTD_* names.",
   "_comment_google": "Google moved to plugins/google/ (an MCP plugin) \u2014 no longer a hardcoded mcp_servers entry.",
   "_section_models": "The agent BRAIN (reasoning). Every model-bearing TOOL/SUBSYSTEM model lives in `plugins` below, NOT here.",
-  "model": "gemini/gemini-3.1-pro-preview",
+  "model": "openai/gpt-5",
   "reasoning_effort": "medium",
   "_section_model_catalog": "The MENU of models the desktop Settings > Models dropdowns offer \u2014 the source of truth for the picker. Each entry: {value: litellm 'provider/model' id, label: display name}. The UI shows only entries whose provider API key is set in v2/.env (add a key to unlock its models); your currently-configured models always appear regardless. Edit freely \u2014 add, remove, relabel.",
   "model_catalog": [

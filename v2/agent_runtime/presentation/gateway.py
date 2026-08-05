@@ -104,8 +104,44 @@ APP_SCOPED_METHODS = frozenset(
         "platform.setModelProxyUrl",
         # Deprecated compatibility method for pre-rename desktop clients.
         "platform.setGatewayUrl",
+        # SETTINGS. An agent app renders its own settings page — above all BYOK: the user
+        # pastes their provider key and the agent works. That is configuration OF the local
+        # daemon by its own user, not administration of the backend, so it belongs here.
+        # config.get REDACTS its secret-bearing fields for an INSTALLED agent (see
+        # _config_get): a page that ships inside a downloaded package must never be able to
+        # read the key back out and post it somewhere — there is no CSP on /apps/ pages.
+        # config.set needs no such split; its allowlist already ignores everything outside
+        # EXPOSED_CONFIG_KEYS.
+        "config.get",
+        "config.set",
     }
 )
+
+# CROSS-AGENT READS — the ONE exception to "an app can never act as another agent".
+#
+# Every scoped request normally has its `agentId` OVERWRITTEN with the connection's own agent
+# (see _handle_request), which is what stops a product window — weather's dashboard, a
+# downloaded agent's UI — from reading anything else on the machine. Agent Builder is the one
+# window whose entire job is looking at OTHER agents: it has to show you the agent it just
+# built. So it, and only it, may name a different agent on these methods.
+#
+# HARDCODED ON PURPOSE. Not config, not env, not agent.toml — there is no input an agent could
+# write to add itself here. Changing this list means changing this file.
+#
+# READS ONLY. chat.send, sessions.delete, workspace.delete/upload/mkdir are deliberately
+# absent: reading about another agent is the feature, acting or destroying as one is not.
+CROSS_AGENT_READS: dict[str, frozenset[str]] = {
+    "agent-builder": frozenset(
+        {
+            "agents.detail",
+            "sessions.list",
+            "sessions.history",
+            "workspace.list",
+            "tools.list",
+            "capabilities.list",
+        }
+    ),
+}
 
 # The PUBLIC tier (hosted deployments): what an UNAUTHENTICATED connection scoped to an
 # agent whose [app] declares `public = true` may call. A strict subset of the scoped tier —
@@ -2088,7 +2124,11 @@ class Gateway:
                         "error": f"method '{req.method}' is not available to app connections"
                     },
                 )
-            req.params["agentId"] = scope
+            # …unless this (agent, method) pair is an explicit CROSS_AGENT_READ, in which case
+            # the caller's own agentId stands. Everything else — and every write, for everyone —
+            # is forced back to self.
+            if req.method not in CROSS_AGENT_READS.get(scope, ()):
+                req.params["agentId"] = scope
         try:
             if req.method == "chat.send":
                 payload = await self._chat_send(req.params, client_id, account)
@@ -2097,7 +2137,7 @@ class Gateway:
             elif req.method == "hello":
                 payload = self._hello(req.params)
             elif req.method == "config.get":
-                payload = self._config_get()
+                payload = self._config_get(scope)
             elif req.method == "config.set":
                 payload = self._config_set(req.params)
             elif req.method == "sessions.list":
@@ -3218,7 +3258,15 @@ class Gateway:
 
     def _workspace_root(self, params: dict):
         """(root Path, error) — the workspace root these ops act on: projectId wins, else
-        agentId (default main). None root + a message when the entity doesn't exist."""
+        agentId (default main). None root + a message when the entity doesn't exist.
+
+        ``root="definition"`` switches from the agent's WORKSPACE (its output, user data) to
+        its DEFINITION directory — agent.toml, IDENTITY.md, skills/, plugins/, ui/. Those are
+        the files that appear while an agent is being BUILT, and they live one level ABOVE the
+        workspace, so no amount of browsing the workspace ever reaches them. Read-only in
+        practice: the mutating ops (mkdir/upload/delete) all resolve through here too, but
+        only Agent Builder can point them at another agent, and CROSS_AGENT_READS grants it
+        no mutating method."""
         project_id = (params.get("projectId") or "").strip()
         if project_id:
             from agent_runtime.infrastructure.memory import projects_store
@@ -3227,6 +3275,16 @@ class Gateway:
                 return None, "unknown project"
             return projects_store.project_workspace_dir(self._projects_root(), project_id), ""
         agent_id = (params.get("agentId") or "").strip() or "main"
+        if (params.get("root") or "").strip() == "definition":
+            if self.registry is None:
+                return None, "no agent registry"
+            try:
+                agent_dir = getattr(self.registry.get(agent_id), "dir", None)
+            except KeyError:
+                return None, f"unknown agent: {agent_id}"
+            if not agent_dir:
+                return None, f"agent '{agent_id}' has no directory on disk"
+            return Path(agent_dir), ""
         acct = accounts.account_id()
         if acct:  # HOSTED: browse THIS account's own per-agent workspace
             return user_state.account_workspace(self.config.state_dir, acct, agent_id), ""
@@ -3247,6 +3305,10 @@ class Gateway:
             return None
         return p
 
+    # Never shown when browsing an agent's DEFINITION: `workspace/` is the other root and has
+    # its own listing, and the caches are noise nobody authored.
+    DEFINITION_HIDDEN = frozenset({"workspace", "__pycache__", ".git", ".pytest_cache"})
+
     def _workspace_list(self, params: dict) -> dict:
         """One directory's entries (lazy tree node): dirs first, then files, name-sorted.
         Each entry: {name, kind(folder|image|video|audio|file), size, modified, rel, path}.
@@ -3260,6 +3322,11 @@ class Gateway:
         d = self._ws_resolve(root, rel)
         if d is None or not d.is_dir():
             return {"entries": [], "error": "not a directory"}
+        hidden = (
+            self.DEFINITION_HIDDEN
+            if (params.get("root") or "").strip() == "definition"
+            else frozenset()
+        )
         dirs: list = []
         files: list = []
         try:
@@ -3267,6 +3334,8 @@ class Gateway:
         except OSError:
             children = []
         for p in children[:500]:
+            if p.name in hidden:
+                continue
             try:
                 st = p.stat()
             except OSError:
@@ -3836,10 +3905,32 @@ class Gateway:
         except Exception:
             return False
 
-    def _config_get(self) -> dict:
+    def _is_installed_agent(self, agent_id: str) -> bool:
+        """Did this agent arrive inside a downloaded .agentpkg, rather than ship with the
+        product / get authored here? The installer's ledger decides — never the agent's own
+        files — so a package cannot vouch for itself. Same rule the plugin sandbox uses.
+
+        FAILS CLOSED: an unreadable ledger returns True, so a broken ledger redacts rather
+        than leaks."""
+        if not agent_id:
+            return False  # a host connection, not an app
+        from pathlib import Path
+
+        from agent_runtime.infrastructure.marketplace.installed_store import JsonInstalledStore
+
+        ids = JsonInstalledStore(
+            Path(self.config.state_dir) / "installed_bundles.json"
+        ).installed_ids()
+        return True if ids is None else agent_id in ids
+
+    def _config_get(self, scope: str | None = None) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
         of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
-        UI can reveal a saved key), the config file path, and the raw file text (Advanced editor)."""
+        UI can reveal a saved key), the config file path, and the raw file text (Advanced editor).
+
+        ``scope`` is the agent id when this comes from an APP window. A window belonging to an
+        INSTALLED agent gets the settings surface with every secret-bearing field removed — see
+        _redact_for_installed_agent for what and why."""
         import json
 
         cfg = self.config
@@ -3860,7 +3951,7 @@ class Gateway:
                 raw = json.dumps(json.loads(raw), indent=2) + "\n"
             except ValueError:
                 pass
-        return {
+        payload = {
             "path": str(path),
             "exists": path.is_file(),
             "envPath": str(path.parent / ".env"),
@@ -3886,6 +3977,34 @@ class Gateway:
             # API-Keys section read-only. Edits are also refused server-side (see _config_set (c)).
             "keysLocked": self._platform_keys_locked(),
         }
+        return self._redact_for_installed_agent(payload, scope)
+
+    @staticmethod
+    def _redact_secret_fields(payload: dict) -> dict:
+        """Strip every field that hands out a secret or the shape of this machine.
+
+        Not just `envValues`. An app window is a page that may have shipped inside someone
+        else's package, and /apps/ pages have no CSP — so anything readable is exfiltratable:
+
+          envValues  the provider keys themselves
+          raw        the WHOLE config file text (the Advanced editor's payload — whatever the
+                     user keeps in there, including keys they pasted by hand)
+          path       absolute path of the config file
+          envPath    absolute path of the .env
+
+        What survives is what a settings page actually needs: `values` (the curated
+        EXPOSED_CONFIG_KEYS), `env` presence booleans, catalogs, and the platform indicators.
+        So BYOK still works — the page can say "no key set", take one, and save it through
+        config.set. It just can never read one back.
+        """
+        return {k: v for k, v in payload.items() if k not in ("envValues", "raw", "path", "envPath")}
+
+    def _redact_for_installed_agent(self, payload: dict, scope: str | None) -> dict:
+        """Host connections and locally-authored agents get everything; a DOWNLOADED agent's
+        window gets the redacted surface."""
+        if scope and self._is_installed_agent(scope):
+            return self._redact_secret_fields(payload)
+        return payload
 
     def _config_set(self, params: dict) -> dict:
         """Persist config edits. Three independent, composable inputs:

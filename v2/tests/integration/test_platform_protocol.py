@@ -228,17 +228,38 @@ def test_agents_list_carries_app_surface(tmp_path):
 # ---- scoped connections: method tier + forced agent ------------------------------------------
 def test_scoped_dispatch_denies_host_tier_and_forces_agent(tmp_path):
     gw = _gw(tmp_path)
+    # `config.get` used to be the example here. It is now app-callable ON PURPOSE — an agent
+    # app renders its own settings page (BYOK), and the SECRET fields are what get withheld
+    # instead (see tests/unit/test_app_scope_boundary.py). Administration of the backend is
+    # still host-only, so assert that with something that genuinely is.
     denied = asyncio.run(
-        gw._dispatch(Request(id="1", method="config.get", params={}), None, "demo")
+        gw._dispatch(Request(id="1", method="marketplace.install", params={}), None, "demo")
     )
     assert denied.ok is False and "not available to app connections" in denied.payload["error"]
-    assert "config.get" not in APP_SCOPED_METHODS
+    assert "marketplace.install" not in APP_SCOPED_METHODS
     # a stable-tier method passes, with the scoped agent FORCED onto the params
     req = Request(id="2", method="sessions.list", params={"agentId": "other-agent"})
     ok = asyncio.run(gw._dispatch(req, None, "demo"))
     assert ok.ok is True
     assert req.params["agentId"] == "demo"  # the app cannot act as another agent
     assert ok.payload.get("agentId") == "demo"
+
+
+def test_agent_builder_alone_may_read_across_agents(tmp_path):
+    """The ONE exception to the forcing above — and only for reads.
+
+    'demo' above proves the rule; agent-builder proves the exception, so a future edit to
+    CROSS_AGENT_READS cannot quietly widen the boundary without one of these failing."""
+    gw = _gw(tmp_path)
+    # READ: the requested agent survives
+    req = Request(id="1", method="sessions.list", params={"agentId": "other-agent"})
+    asyncio.run(gw._dispatch(req, None, "agent-builder"))
+    assert req.params["agentId"] == "other-agent"
+
+    # WRITE: forced back to self, even for agent-builder
+    req = Request(id="2", method="chat.send", params={"agentId": "other-agent", "text": "hi"})
+    asyncio.run(gw._dispatch(req, None, "agent-builder"))
+    assert req.params["agentId"] == "agent-builder"
 
 
 # ---- scoped event filtering ------------------------------------------------------------------

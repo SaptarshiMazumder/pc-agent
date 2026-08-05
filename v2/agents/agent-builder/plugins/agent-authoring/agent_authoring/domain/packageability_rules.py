@@ -57,16 +57,36 @@ class PackageabilityRules:
         has_app = isinstance(app, dict)
 
         if not has_app:
-            out.append(
-                Finding(
-                    level=INFO,
-                    code="NOT_A_PRODUCT",
-                    message="no [app] section — this is a chat-only agent and cannot be built "
-                    "into its own .exe (gen-app-flavor rejects agents without [app])",
-                    path="agent.toml",
-                    fix="add an [app] table with title + mode, and a ui/, to make it a product",
+            # A ui/ with no [app] is never intentional: somebody built the interface and the
+            # declaration that serves it is gone. It is what a re-scaffold leaves behind when
+            # it rewrites agent.toml from the skeleton, and it is invisible otherwise — the
+            # files are all still there, the window just never opens. ERROR, not info.
+            orphaned = [f for f in files if f.startswith("ui/")]
+            if orphaned:
+                out.append(
+                    Finding(
+                        level=ERROR,
+                        code="ORPHANED_UI",
+                        message=f"ui/ exists ({len(orphaned)} file(s)) but agent.toml has NO "
+                        f"[app] section — nothing serves this interface, so the window can "
+                        f"never open. Usually means [app] was wiped by a re-scaffold",
+                        path="agent.toml",
+                        fix="restore the [app] table (title, mode, entry = 'ui/index.html'), "
+                        "or delete ui/ if the agent is meant to be chat-only",
+                    )
                 )
-            )
+            else:
+                out.append(
+                    Finding(
+                        level=INFO,
+                        code="NOT_A_PRODUCT",
+                        message="no [app] section — this is a chat-only agent and cannot be "
+                        "built into its own .exe (gen-app-flavor rejects agents without [app])",
+                        path="agent.toml",
+                        fix="add an [app] table with title + mode, and a ui/, to make it a "
+                        "product",
+                    )
+                )
         else:
             entry = str(app.get("entry") or "ui/index.html")
             if entry not in files:

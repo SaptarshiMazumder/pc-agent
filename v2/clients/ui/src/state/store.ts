@@ -536,6 +536,28 @@ export const useApp = create<AppState>((set, get) => {
           return { ...session, items }
         })
         break
+      case 'model_fallback':
+        // The configured model could not serve this turn and another one answered instead.
+        // Goes in the SCROLLBACK, not the status strip: it is a fact about this specific
+        // exchange ("you are not talking to the model you chose, and here is why"), and it
+        // used to live only in a log file — which is how an unpaid API key looked like the
+        // app hanging for days.
+        patchSession(sessionKey, (session) => ({
+          ...session,
+          items: [
+            ...session.items,
+            {
+              kind: 'system' as const,
+              tone: 'error' as const,
+              text:
+                `${String(event.from || 'the configured model')} is unavailable — ` +
+                `${String(event.to || 'a fallback')} answered instead. ` +
+                String(event.reason || ''),
+              ts
+            }
+          ]
+        }))
+        break
       case 'agent_end': {
         const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
         reportRun(error ? 'error' : String(event.stopReason || 'ok'), firstTokenMs)
