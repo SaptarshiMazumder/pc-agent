@@ -1,13 +1,18 @@
 """One command to run the whole HOSTED stack locally — so you stop juggling terminals + env vars.
 
-    python deploy/dev.py            # accounts + daemon + web   ->  open http://localhost:5273
+    python deploy/dev.py            # accounts + ingest + daemon + web  ->  http://localhost:5273
     python deploy/dev.py --model-proxy  # ALSO run the Model Proxy (full hosted-key shape)
-    python deploy/dev.py --no-web    # backends only (accounts + daemon)
+    python deploy/dev.py --no-web    # backends only (accounts + ingest + daemon)
+    python deploy/dev.py --no-ingest # skip the telemetry mail slot
 
 Ctrl+C stops everything it started. Re-running is safe: it frees its own ports first.
 
 What it starts (and why the proxy is OFF by default):
   * accounts service (:4100)  — identity + per-account budget/tab
+  * ingest service   (:4200)  — the mail slot for desktop + browser telemetry (plan 5.1/5.2/5.3).
+                                ON by default because without it the diagnostics toggle and the
+                                browser RUM reporter have nowhere to send, so both are only
+                                testable by deploying. Its stdout is where a batch becomes EMF.
   * agentd daemon    (:8790)  — accounts ON; calls providers DIRECTLY with your v2/.env keys
   * web client       (:5273)  — the browser UI, in accounts mode
 The LiteLLM Model Proxy is only needed for the PRODUCTION property "provider keys live in a
@@ -50,6 +55,7 @@ ACCOUNTS_PORT = 4100
 DAEMON_PORT = 8790
 WEB_PORT = 5273
 PROXY_PORT = 4000
+INGEST_PORT = 4200
 STATE_DIR = V2 / ".agentd-hosted"  # deterministic hosted state (NOT ~/.agentd; keeps desktop separate)
 DAEMON_TOKEN = "devtoken"
 MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-agentd-local")
@@ -58,6 +64,10 @@ MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-agentd-local")
 INTERNAL_KEY = os.environ.get("ACCOUNTS_INTERNAL_KEY", "devinternal")
 
 USE_PROXY = "--model-proxy" in sys.argv or "--proxy" in sys.argv
+# Ingest is ON by default, unlike the proxy: it costs one tiny process, and without it the
+# desktop diagnostics toggle (plan 5.1) has nowhere to send, so the whole feature is only
+# testable by deploying. `--no-ingest` turns it off.
+USE_INGEST = "--no-ingest" not in sys.argv
 NO_WEB = "--no-web" in sys.argv
 
 if load_dotenv:
@@ -171,7 +181,7 @@ def main() -> None:
     print(f"[dev] python={PY}")
     print(f"[dev] hosted state_dir={STATE_DIR}")
     ports = [ACCOUNTS_PORT, DAEMON_PORT] + ([PROXY_PORT] if USE_PROXY else []) + \
-            ([] if NO_WEB else [WEB_PORT])
+            ([INGEST_PORT] if USE_INGEST else []) + ([] if NO_WEB else [WEB_PORT])
     for port in ports:
         free_port(port)
 
@@ -189,6 +199,14 @@ def main() -> None:
         spawn("model-proxy", [PY, str(V2 / "model_proxy" / "run-local.py")],
               env={"ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
                    "ACCOUNTS_INTERNAL_KEY": INTERNAL_KEY})
+
+    # 2b) ingest — the mail slot for desktop + browser telemetry (5.2). Wired to accounts so a
+    #     batch carrying a session token is ATTRIBUTED; without it events still arrive, anonymous.
+    #     Its stdout is where you watch a diagnostics batch turn into EMF lines.
+    if USE_INGEST:
+        spawn("ingest", [PY, str(V2 / "ingest" / "run-local.py")],
+              env={"AGENTD_INGEST_PORT": str(INGEST_PORT),
+                   "ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}"})
 
     # 3) daemon (accounts ON; direct provider calls unless --proxy)
     #    AGENTD_HOME gives it a SEPARATE rendezvous/logs from the desktop app's daemon (~/.agentd),
@@ -209,15 +227,20 @@ def main() -> None:
 
     # 4) web client (accounts mode)
     if not NO_WEB:
-        spawn("web", "npm run dev:web", cwd=str(V2 / "clients"), shell=True,
-              env={"VITE_AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
-                   "VITE_AGENTD_URL": f"ws://127.0.0.1:{DAEMON_PORT}"})
+        web_env = {"VITE_AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
+                   "VITE_AGENTD_URL": f"ws://127.0.0.1:{DAEMON_PORT}"}
+        if USE_INGEST:
+            # Browser RUM (5.3) is inert without this, so a local run would silently exercise
+            # none of it.
+            web_env["VITE_AGENTD_INGEST_URL"] = f"http://127.0.0.1:{INGEST_PORT}"
+        spawn("web", "npm run dev:web", cwd=str(V2 / "clients"), shell=True, env=web_env)
 
     # readiness board
     print("[dev] waiting for services...")
     ok_acc = wait_http(f"http://127.0.0.1:{ACCOUNTS_PORT}/health")
     ok_daemon = wait_port(DAEMON_PORT)
     ok_proxy = wait_port(PROXY_PORT) if USE_PROXY else None
+    ok_ingest = wait_http(f"http://127.0.0.1:{INGEST_PORT}/health") if USE_INGEST else None
     ok_web = wait_port(WEB_PORT) if not NO_WEB else None
 
     def tick(v):
@@ -226,6 +249,8 @@ def main() -> None:
     print(f"  {tick(ok_acc)} accounts   http://127.0.0.1:{ACCOUNTS_PORT}")
     if USE_PROXY:
         print(f"  {tick(ok_proxy)} model-proxy http://127.0.0.1:{PROXY_PORT}")
+    if USE_INGEST:
+        print(f"  {tick(ok_ingest)} ingest     http://127.0.0.1:{INGEST_PORT}")
     print(f"  {tick(ok_daemon)} daemon     ws://127.0.0.1:{DAEMON_PORT}  (accounts ON)")
     if not NO_WEB:
         print(f"  {tick(ok_web)} web        http://localhost:{WEB_PORT}   <-- OPEN THIS")

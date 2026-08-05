@@ -40,7 +40,9 @@ const SYNCED = {
   model_proxy_url: 'model_proxy_url',
   // Terraform-output compatibility during the rename rollout.
   model_gateway_url: 'model_proxy_url',
-  registry_url: 'registry_url'
+  registry_url: 'registry_url',
+  // Opt-in diagnostics (plan 5.1). Rots the same way as the rest — it is the same ALB.
+  ingest_url: 'ingest_url'
 }
 
 // ---- args ---------------------------------------------------------------------------

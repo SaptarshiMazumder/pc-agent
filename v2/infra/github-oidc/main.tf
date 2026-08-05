@@ -79,6 +79,26 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
     resources = ["arn:aws:ecs:*:${data.aws_caller_identity.me.account_id}:service/agentd-*/*"]
   }
+  # READ-ONLY, and only so a FAILED deploy can explain itself. When a rollout does not complete,
+  # the workflow lists the service's stopped tasks and reads their stoppedReason — which is
+  # almost always the actual answer ("CannotPullContainerError", "OutOfMemoryError", the
+  # container's own exit code). Without these two the diagnostic step dies with an
+  # AccessDeniedException instead, taking the verdict with it: the run fails with exit 254 and
+  # says nothing about why the service did not deploy.
+  #
+  # ListTasks is scoped to container-instance rather than task because that is the resource ARN
+  # IAM builds for this call (see the denial message); DescribeTasks is scoped to the tasks.
+  # Neither can change anything.
+  statement {
+    sid       = "EcsDiagnoseList"
+    actions   = ["ecs:ListTasks"]
+    resources = ["arn:aws:ecs:*:${data.aws_caller_identity.me.account_id}:container-instance/agentd-*/*"]
+  }
+  statement {
+    sid       = "EcsDiagnoseDescribe"
+    actions   = ["ecs:DescribeTasks"]
+    resources = ["arn:aws:ecs:*:${data.aws_caller_identity.me.account_id}:task/agentd-*/*"]
+  }
   statement {
     sid       = "AlbLookup"
     actions   = ["elasticloadbalancing:DescribeLoadBalancers"]

@@ -84,13 +84,24 @@ resource "aws_service_discovery_service" "svc" {
 
 # The service: keeps desired_count copies alive, wired to the network + the ALB.
 resource "aws_ecs_service" "svc" {
-  for_each = local.services
+  # Removed while HIBERNATING, not merely scaled to zero. The service's load-balancer attachment
+  # would otherwise have to be edited in place when the ALB comes and goes, and the provider may
+  # treat that as a replacement — which an ECS service cannot survive under create_before_destroy,
+  # because two services in one cluster may not share a name. Deleting and recreating a stateless
+  # service is the boring option, and boring is what a cost switch should be.
+  for_each = local.alb_services
 
   name            = "${local.name_prefix}-${each.key}"
   cluster         = aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.svc[each.key].arn
-  desired_count   = each.value.desired_count
   launch_type     = "FARGATE"
+
+  # THE COST SWITCH (var.paused). Terraform owns this number so that turning the environment off
+  # and on is `terraform apply` — the command you already run — and so the set of services being
+  # paused is derived from local.services rather than typed into a script that has to be
+  # remembered every time a service is added. A hand-maintained list had already drifted: it
+  # still named four services after `ingest` became the fifth, so a "down" left one running.
+  desired_count = local.paused ? 0 : each.value.desired_count
 
   # Without this, ECS retries a task that cannot start FOREVER: a container that crashes on
   # boot is relaunched indefinitely, the deployment never reaches a terminal state, and the
@@ -124,11 +135,13 @@ resource "aws_ecs_service" "svc" {
     container_port   = each.value.port
   }
 
-  # Terraform sets the INITIAL count, then stops managing it — so down.ps1/up.ps1 can scale
-  # tasks to 0 (pause the compute bill) and back to 1 without `apply` reverting them.
+  # `ignore_changes = [desired_count]` USED TO BE HERE, so that down.ps1/up.ps1 could scale tasks
+  # outside Terraform. It is gone on purpose: two mechanisms owned the same number, so the state
+  # file and reality disagreed by design, and the only way to know whether an environment was
+  # paused was to ask AWS. Terraform owns it now (var.paused) — which is also what makes pausing
+  # a plain `apply` instead of a separate script.
   lifecycle {
     create_before_destroy = true
-    ignore_changes        = [desired_count]
   }
 
   tags = merge(local.common_tags, { Component = each.key })

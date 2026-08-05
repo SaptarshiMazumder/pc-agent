@@ -25,3 +25,7 @@ registry_url = "http://127.0.0.1:8877/index.json"
 [platform]
 accounts_url = "http://127.0.0.1:4100"
 model_proxy_url = "http://127.0.0.1:4000"
+# Loopback, so sync-platform-urls leaves it alone (the value IS the intent). `dev.py` starts a
+# local ingest on this port, which is what makes the opt-in diagnostics toggle testable without
+# deploying anything.
+ingest_url = "http://127.0.0.1:4200"

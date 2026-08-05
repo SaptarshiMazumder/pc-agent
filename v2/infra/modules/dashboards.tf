@@ -101,7 +101,7 @@ resource "aws_cloudwatch_dashboard" "service_health" {
           title = "Load balancer — requests and 5xx"
           view  = "timeSeries", region = var.region, period = local.dash_period, stat = "Sum"
           metrics = [
-            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.main.arn_suffix, { label = "requests" }],
+            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", local.alb_suffix, { label = "requests" }],
             [".", "HTTPCode_Target_5XX_Count", ".", ".", { label = "5xx", color = "#d62728" }],
             [".", "HTTPCode_Target_4XX_Count", ".", ".", { label = "4xx (incl. the gate refusing)", color = "#ff7f0e" }],
           ]
@@ -115,10 +115,13 @@ resource "aws_cloudwatch_dashboard" "service_health" {
           title = "Unhealthy targets — one task per service, so 1 IS an outage"
           view  = "timeSeries", region = var.region, period = 60, stat = "Maximum"
           metrics = [
-            for name, _cfg in local.services : [
+            # local.alb_services, not local.services: while hibernating there are no target
+            # groups to name, and a widget referencing one would fail the plan rather than
+            # simply render empty.
+            for name, _cfg in local.alb_services : [
               "AWS/ApplicationELB", "UnHealthyHostCount",
               "TargetGroup", aws_lb_target_group.svc[name].arn_suffix,
-              "LoadBalancer", aws_lb.main.arn_suffix,
+              "LoadBalancer", local.alb_suffix,
               { label = name }
             ]
           ]
@@ -142,7 +145,11 @@ resource "aws_cloudwatch_dashboard" "service_health" {
       {
         type = "metric", x = 0, y = 20, width = 24, height = local.h_row
         properties = {
-          title = "Speed as users feel it — HOSTED WEB ONLY (desktop daemons run on the user's PC and do not upload)"
+          # Desktop daemons run on the user's PC, so these are hosted-web runs only. The desktop
+          # equivalents arrive via the opt-in uploader (plan 5.1) under client_* names, through
+          # the ingest service — a different, self-reported population, deliberately not merged
+          # into this graph.
+          title = "Speed as users feel it — HOSTED WEB (desktop reports separately, see client_run_ms)"
           view  = "timeSeries", region = var.region, period = local.dash_period
           metrics = [
             [var.telemetry_namespace, "first_output_ms", "service", "daemon", { stat = "p50", label = "p50 to first output" }],

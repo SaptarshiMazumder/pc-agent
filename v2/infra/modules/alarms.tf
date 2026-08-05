@@ -286,7 +286,8 @@ resource "aws_cloudwatch_metric_alarm" "accounts_unreachable" {
 
 # No redundancy today: one task per service, so an unhealthy target IS an outage.
 resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
-  for_each = local.services
+  # Bound to target groups, so it exists exactly when they do (not while hibernating).
+  for_each = local.alb_services
 
   alarm_name          = "${local.name_prefix}-${each.key}-unhealthy"
   namespace           = "AWS/ApplicationELB"
@@ -307,14 +308,24 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
 
   dimensions = {
     TargetGroup  = aws_lb_target_group.svc[each.key].arn_suffix
-    LoadBalancer = aws_lb.main.arn_suffix
+    LoadBalancer = aws_lb.main[0].arn_suffix
   }
 }
 
 # Users cannot chat. An absolute count rather than the 1%-of-requests ratio the plan
 # sketched: at dev traffic levels a ratio means one error in three requests trips a 33%
 # rate, so the percentage is noise until there is real volume. Revisit with traffic.
+# Same address change as aws_lb.main — see the note in alb.tf. An alarm is cheap to recreate, so
+# this one cost nothing, but the block belongs here for the same reason.
+moved {
+  from = aws_cloudwatch_metric_alarm.proxy_5xx
+  to   = aws_cloudwatch_metric_alarm.proxy_5xx[0]
+}
+
 resource "aws_cloudwatch_metric_alarm" "proxy_5xx" {
+  # Bound to the model-proxy target group, so it goes away with it while hibernating.
+  count = local.alb_count
+
   alarm_name          = "${local.name_prefix}-model-proxy-5xx"
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HTTPCode_Target_5XX_Count"
@@ -338,7 +349,7 @@ resource "aws_cloudwatch_metric_alarm" "proxy_5xx" {
 
   dimensions = {
     TargetGroup  = aws_lb_target_group.svc["model-proxy"].arn_suffix
-    LoadBalancer = aws_lb.main.arn_suffix
+    LoadBalancer = aws_lb.main[0].arn_suffix
   }
 }
 

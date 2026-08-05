@@ -40,10 +40,30 @@ variable "alert_email" {
   default     = ""
 }
 
+# The cost switch. `terraform apply -var paused=true` to stop the compute bill; a plain
+# `terraform apply` to bring it back. Keeps the ALB, so the hostname every desktop installer and
+# the web image have baked in never changes. See the variable's own docs in ../../modules.
+variable "paused" {
+  description = "Scale every task to 0 and disable the scheduled jobs, keeping the ALB (and therefore the URL)."
+  type        = bool
+  default     = false
+}
+
+# Everything `paused` does, plus the load balancer itself: ~$3/month instead of ~$21. The cost is
+# that the URL is different on the way back up, so the web image needs a rebuild (merge to
+# develop, or run Deploy). Desktop flavors re-sync themselves on `npm run dev`.
+variable "hibernate" {
+  description = "Remove the ALB, its listeners/target groups and the ECS services too. Implies paused. The public URL WILL change on the next apply."
+  type        = bool
+  default     = false
+}
+
 module "stack" {
   source = "../../modules"
 
   environment = "dev"
+  paused      = var.paused
+  hibernate   = var.hibernate
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -115,6 +135,11 @@ output "model_gateway_url" {
 output "registry_url" {
   description = "[store] registry_url for the desktop flavors."
   value       = module.stack.registry_url
+}
+
+output "ingest_url" {
+  description = "[platform] ingest_url for the desktop flavors and the web build (opt-in client telemetry). sync-platform-urls.mjs reads this."
+  value       = module.stack.ingest_url
 }
 
 output "registry_bucket" {
