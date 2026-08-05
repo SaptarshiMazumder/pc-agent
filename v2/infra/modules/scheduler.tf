@@ -182,7 +182,11 @@ resource "aws_scheduler_schedule" "job" {
 
   name        = "${local.name_prefix}-${each.key}"
   description = each.value.description
-  state       = each.value.enabled ? "ENABLED" : "DISABLED"
+  # A paused environment must not run a billing clock against a service that is not there: the
+  # Lambda would fail hourly, `scheduled-jobs-failing` would page all night, and the cause would
+  # be a deliberate action. Nothing is lost by the gap — every job is idempotent and simply runs
+  # on its next tick after `terraform apply` brings the environment back.
+  state = (each.value.enabled && !local.paused) ? "ENABLED" : "DISABLED"
 
   schedule_expression          = each.value.schedule
   schedule_expression_timezone = var.scheduled_job_timezone
@@ -255,7 +259,9 @@ resource "aws_cloudwatch_metric_alarm" "scheduled_jobs_failing" {
 # breaching. Off by default because it necessarily fires once in the window BEFORE the
 # first invocation; turn it on after `scheduler_check.ps1` passes.
 resource "aws_cloudwatch_metric_alarm" "scheduled_jobs_absent" {
-  count = var.enable_job_absence_alarm ? 1 : 0
+  # Not while paused: "no job ran in 24h" is exactly what pausing MEANS, and an alarm that fires
+  # on a deliberate action is one you learn to ignore before it ever catches a real one.
+  count = (var.enable_job_absence_alarm && !local.paused) ? 1 : 0
 
   alarm_name          = "${local.name_prefix}-scheduled-jobs-not-running"
   comparison_operator = "LessThanThreshold"

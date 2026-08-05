@@ -13,31 +13,35 @@ output "gateway_repo_url" {
   value       = aws_ecr_repository.this["model-proxy"].repository_url
 }
 
+# EVERY URL BELOW IS "" WHILE HIBERNATING, because there is no load balancer to name. That empty
+# string is load-bearing rather than sloppy: sync-platform-urls.mjs skips a blank value, so a
+# hibernated environment leaves the desktop flavors holding their last known URLs instead of
+# blanking them into a build that cannot reach anything.
 output "app_url" {
-  description = "The public URL of the app (serves once the containers are healthy)."
-  value       = "http://${aws_lb.main.dns_name}"
+  description = "The public URL of the app (serves once the containers are healthy). Empty while hibernating."
+  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}"
 }
 
-# ── Desktop-flavor wiring: these three values go into the flavors' distribution.toml ──
+# ── Desktop-flavor wiring: these values go into the flavors' distribution.toml ──
 
 output "accounts_url" {
   description = "[platform] accounts_url for the desktop flavors (sign-in endpoint)."
-  value       = "http://${aws_lb.main.dns_name}:4100"
+  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["accounts"].port}"
 }
 
 output "model_proxy_url" {
   description = "[platform] model_proxy_url for the desktop flavors (platform keys)."
-  value       = "http://${aws_lb.main.dns_name}:4000"
+  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["model-proxy"].port}"
 }
 
 output "model_gateway_url" {
   description = "Deprecated compatibility alias for model_proxy_url."
-  value       = "http://${aws_lb.main.dns_name}:4000"
+  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["model-proxy"].port}"
 }
 
 output "ingest_url" {
   description = "[platform] ingest_url for the desktop flavors and the web build (opt-in client telemetry). Empty in a client's config = the uploader stays off."
-  value       = "http://${aws_lb.main.dns_name}:${local.services["ingest"].port}"
+  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["ingest"].port}"
 }
 
 output "registry_url" {
@@ -64,7 +68,8 @@ output "alarm_names" {
       aws_cloudwatch_metric_alarm.ledger_buffer_backlog.alarm_name,
       aws_cloudwatch_metric_alarm.cap_overspend.alarm_name,
       aws_cloudwatch_metric_alarm.accounts_unreachable.alarm_name,
-      aws_cloudwatch_metric_alarm.proxy_5xx.alarm_name,
+      # `proxy_5xx` and the per-service unhealthy alarms are ALB-bound, so they vanish while
+      # hibernating; the concat below tolerates an empty list rather than failing the plan.
       aws_cloudwatch_metric_alarm.cost_per_hour.alarm_name,
       aws_cloudwatch_metric_alarm.resolve_latency.alarm_name,
       aws_cloudwatch_metric_alarm.login_rejections.alarm_name,

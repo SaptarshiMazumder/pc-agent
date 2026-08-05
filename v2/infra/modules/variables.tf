@@ -44,6 +44,84 @@ variable "model_proxy_desired_count" {
   default     = 1
 }
 
+variable "paused" {
+  description = <<-EOT
+    THE COST SWITCH. `terraform apply -var paused=true` scales every Fargate task to 0 and
+    disables the scheduled jobs; a plain `terraform apply` brings it all back. One command each
+    way, and it is the same command you already run.
+
+    WHAT IT DELIBERATELY DOES NOT TOUCH: the load balancer. That is the entire point. An ALB's
+    DNS name carries an AWS-assigned suffix, so destroying it mints a NEW hostname on the way
+    back up — which orphans every desktop installer already in someone's hands (their baked
+    `accounts_url` stops resolving, sign-in dies, and the service looks perfectly healthy the
+    whole time), and forces a web image rebuild because that URL is baked in at build time.
+    Keeping the ALB costs ~$18/month and removes that entire class of problem.
+
+    THE MATH (ap-northeast-1, 5 services at 0.25 vCPU / 0.5 GB):
+      running      ~$77/mo   compute ~$56 + ALB ~$18 + alarms/secrets/storage ~$3
+      paused       ~$21/mo   the ALB, the alarms, and the data. No compute.
+      ALB dropped   ~$3/mo   and a new hostname every single time.
+    Pausing is 73% of the saving for none of the breakage. The remaining $18 is worth spending
+    until a domain exists — a Route 53 record we own is what makes dropping the ALB safe.
+
+    Scheduled jobs are disabled while paused because they would otherwise keep firing hourly
+    against a service that is not running, which pages you all night for a deliberate action.
+
+    For the last ~$18 as well, see `hibernate`.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "hibernate" {
+  description = <<-EOT
+    PAUSE, PLUS THE LOAD BALANCER. `terraform apply -var hibernate=true` removes the ALB, its
+    target groups, its listeners and the ECS services on top of everything `paused` does —
+    leaving ~$3/month: the data (EFS), the secrets, the images (ECR) and the network. Implies
+    `paused`, so you never have to pass both.
+
+    THE COST IS THE HOSTNAME, and it is not recoverable by trying harder. An ALB's DNS name
+    carries an AWS-assigned suffix, so the one you get back is a NEW name every time. That is
+    fine for an environment with no installed users and expensive for one with them — the URL is
+    baked into desktop installers and into the web image at build time, so anyone holding an old
+    build has a client that resolves nothing while the service looks perfectly healthy.
+
+    WHAT SELF-HEALS ON WAKE, so this stays a two-command routine:
+      * DESKTOP flavors — `npm run dev` runs sync-platform-urls as `predev`, which reads the new
+        URLs back out of Terraform. Nothing to do.
+      * INTERNAL service-to-service traffic — proxy -> accounts, daemon -> proxy, the scheduled
+        jobs Lambda — all use service discovery (`accounts.agentd.local`), never the ALB. A new
+        ALB changes nothing for them.
+      * The WEB image — needs a rebuild, because its API origins are baked in AND pinned in its
+        Content-Security-Policy. The Deploy workflow reads the live ALB at build time, so
+        merging to `develop` (or running Deploy manually) fixes it. That is the one extra step,
+        and it is one you already do.
+
+    Whole-service resources are removed rather than scaled, so waking is a clean create instead
+    of an in-place edit of an ECS service's load-balancer attachment — which the provider may
+    treat as a replacement, and an ECS service cannot be replaced create-before-destroy because
+    its name must be unique in the cluster.
+  EOT
+  type        = bool
+  default     = false
+}
+
+locals {
+  # Hibernating implies paused: there is nowhere to route to, so running tasks would only burn
+  # money. Written once here rather than as `var.paused || var.hibernate` in five places.
+  paused = var.paused || var.hibernate
+  # The routing layer exists only when not hibernating. Both are `for_each`/`count` inputs, so
+  # they must be knowable at plan time — which they are, being plain variables.
+  alb_services = var.hibernate ? {} : local.services
+  alb_count    = var.hibernate ? 0 : 1
+  # "" while hibernating. Callers (outputs, sync-platform-urls) treat an empty URL as "unknown",
+  # which is exactly right: the next ALB does not have a name yet.
+  alb_dns = try(one(aws_lb.main[*].dns_name), "") == null ? "" : try(one(aws_lb.main[*].dns_name), "")
+  # The dimension value AWS/ApplicationELB metrics are keyed by. Dashboard widgets are plain JSON,
+  # so an absent ALB just makes them reference nothing rather than failing the plan.
+  alb_suffix = try(one(aws_lb.main[*].arn_suffix), "") == null ? "" : try(one(aws_lb.main[*].arn_suffix), "")
+}
+
 # ─────────────────────────── Alarms (see alarms.tf) ───────────────────────────
 
 variable "alert_email" {

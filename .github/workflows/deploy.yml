@@ -181,12 +181,28 @@ jobs:
           if [ "$DEPLOY_SERVICE" != "all" ]; then TARGET_SERVICES="$DEPLOY_SERVICE"; fi
           : > deployments.txt
           for svc in $TARGET_SERVICES; do
-            id=$(aws ecs update-service --cluster "agentd-${ENVIRONMENT}" --service "agentd-${ENVIRONMENT}-${svc}" \
+            name="agentd-${ENVIRONMENT}-${svc}"
+            # HIBERNATED ENVIRONMENTS HAVE NO ECS SERVICES. `terraform apply -var hibernate=true`
+            # removes them along with the ALB to get the bill to ~$3/month, and a merge to
+            # develop still runs this workflow — which used to die on the first update-service
+            # for something that does not exist. Skipping is right rather than failing: the
+            # images ARE still built and pushed to ECR above, so waking the environment with
+            # `terraform apply` starts tasks on the image this very run produced.
+            status=$(aws ecs describe-services --cluster "agentd-${ENVIRONMENT}" --services "$name" \
+              --region "$AWS_REGION" --query "services[0].status" --output text 2>/dev/null || echo "MISSING")
+            if [ "$status" != "ACTIVE" ]; then
+              echo "::notice::$name is ${status} — skipping the roll. The image is in ECR; \`terraform apply\` will start it."
+              continue
+            fi
+            id=$(aws ecs update-service --cluster "agentd-${ENVIRONMENT}" --service "$name" \
               --force-new-deployment --region "$AWS_REGION" \
               --query "service.deployments[?status=='PRIMARY'].id" --output text)
             echo "$svc $id" >> deployments.txt
-            echo "rolled agentd-${ENVIRONMENT}-${svc} ($id)"
+            echo "rolled $name ($id)"
           done
+          if [ ! -s deployments.txt ]; then
+            echo "No running services to roll — the **$ENVIRONMENT** environment is hibernated. Images were pushed; \`terraform apply\` brings it back. ⏸" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # The services' ECS deployment circuit breaker (infra/modules/services.tf) makes a broken
       # image fail instead of crash-looping forever, and ROLLS BACK to the last good task set.
@@ -197,11 +213,31 @@ jobs:
       - name: Wait for services to stabilize
         run: |
           CLUSTER="agentd-${ENVIRONMENT}"
+          # Nothing was rolled (hibernated environment) — there is nothing to wait for, and
+          # `wait services-stable` with an empty service list is an error, not a no-op.
+          if [ ! -s deployments.txt ]; then
+            echo "nothing rolled; skipping the stability wait"
+            exit 0
+          fi
           SVC_NAMES=$(while read -r svc _; do echo "${CLUSTER}-${svc}"; done < deployments.txt)
 
-          # Don't fail here: the waiter's own timeout (40 x 15s) is a far worse error message
-          # than the per-service verdict below, which can say WHICH service and WHY.
-          aws ecs wait services-stable --cluster "$CLUSTER" --services $SVC_NAMES --region "$AWS_REGION" || true
+          # Don't fail here: the waiter's own timeout is a far worse error message than the
+          # per-service verdict below, which can say WHICH service and WHY.
+          #
+          # LOOPED, because `wait services-stable` has a FIXED, non-configurable budget of
+          # 40 attempts x 15s = 10 minutes, and the daemon legitimately needs more than that:
+          # health_check_grace 120s + two ALB checks 30s apart + deregistration_delay 120s for
+          # its long-lived WebSocket sessions, on top of loading the whole agent runtime. Ten
+          # minutes was enough until a fifth service joined the roll; then the daemon was still
+          # in its final drain when the waiter gave up, and a deploy that worked was reported
+          # as a failure. Three passes = a 30-minute ceiling, and it exits as soon as ECS says
+          # stable, so a fast deploy costs nothing extra.
+          for attempt in 1 2 3; do
+            if aws ecs wait services-stable --cluster "$CLUSTER" --services $SVC_NAMES --region "$AWS_REGION"; then
+              break
+            fi
+            echo "waiter pass $attempt timed out; services still settling"
+          done
 
           failed=0
           while read -r svc id; do
@@ -215,16 +251,24 @@ jobs:
             fi
             failed=1
             echo "::error::$name did not deploy (rolloutState: ${state:-superseded by rollback})"
+            # EVERY diagnostic below is `|| true`. The job runs under `bash -e`, so one failing
+            # command aborts the step — and these run only when something is ALREADY broken, so
+            # aborting here replaces the verdict with the diagnostic's own error. That is exactly
+            # what happened when the deploy role was missing ecs:ListTasks: exit 254, an IAM
+            # message, and no word about which service failed or why. A diagnostic that can
+            # suppress the diagnosis is worse than no diagnostic.
             aws ecs describe-services --cluster "$CLUSTER" --services "$name" --region "$AWS_REGION" \
-              --query "services[0].{reason:deployments[?id=='${id}'].rolloutStateReason,events:events[0:5].message}"
+              --query "services[0].{reason:deployments[?id=='${id}'].rolloutStateReason,events:events[0:5].message}" || true
             # The container's own exit reason — usually the actual answer.
             stopped=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$name" --region "$AWS_REGION" \
-              --desired-status STOPPED --query 'taskArns[0:3]' --output text)
+              --desired-status STOPPED --query 'taskArns[0:3]' --output text 2>/dev/null || true)
             if [ -n "$stopped" ] && [ "$stopped" != "None" ]; then
               aws ecs describe-tasks --cluster "$CLUSTER" --tasks $stopped --region "$AWS_REGION" \
-                --query "tasks[].{stopped:stoppedReason,containers:containers[].{name:name,reason:reason,exit:exitCode}}"
+                --query "tasks[].{stopped:stoppedReason,containers:containers[].{name:name,reason:reason,exit:exitCode}}" || true
             fi
-            echo "logs: aws logs tail /ecs/${CLUSTER} --since 30m --region ${AWS_REGION} --log-stream-name-prefix ${svc}" >&2
+            # The log group is /<project>/<env> (infra/modules/cluster.tf) — NOT the /ecs/<cluster>
+            # that ECS uses by default, because the awslogs driver is configured explicitly.
+            echo "logs: aws logs tail /agentd/${ENVIRONMENT} --since 30m --region ${AWS_REGION} --log-stream-name-prefix ${svc}" >&2
           done < deployments.txt
 
           if [ "$failed" = 1 ]; then
