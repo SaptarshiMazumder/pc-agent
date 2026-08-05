@@ -138,6 +138,29 @@ variable "scheduled_jobs" {
   }
 }
 
+variable "scheduled_job_overrides" {
+  description = <<-EOT
+    Per-environment cadence/enablement, merged onto var.scheduled_jobs BY KEY. Only the fields
+    you set are overridden; everything else keeps the default above.
+
+    WHY THIS EXISTS RATHER THAN EDITING THE DEFAULTS. Cadence is correct per ENVIRONMENT, not
+    globally. Hourly subscription renewals are right in production — a renewal must never be
+    more than an hour late — and pointless in a dev environment that has no subscribers and is
+    scaled to zero most of the day, where the same schedule just invokes a Lambda against a
+    dead service 24 times a day. Tuning dev by editing the defaults would silently retime
+    production too, which is how a billing clock drifts without anyone deciding it should.
+
+    Overriding a `schedule` does NOT relax the ordering constraint documented on
+    var.scheduled_jobs: renewals must still land before close-expired, which must still land
+    before the snapshot, or the snapshot reports a balance sheet mid-settlement.
+  EOT
+  type = map(object({
+    schedule = optional(string)
+    enabled  = optional(bool)
+  }))
+  default = {}
+}
+
 variable "scheduled_job_timezone" {
   description = "Timezone the cron expressions above are read in. UTC so the books do not shift under daylight saving."
   type        = string
@@ -226,6 +249,26 @@ variable "services" {
         ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
       }
       efs = true
+    }
+
+    # ingest — the mail slot for telemetry from machines we do not own: the desktop
+    # daemon (which runs on the USER's PC, so its stdout never reaches CloudWatch) and
+    # the browser client. Validates against an allowlist and prints EMF; no database,
+    # no downstream, no state. The only service in the metering plan that had to exist.
+    #
+    # ACCOUNTS_URL is optional here on purpose: unauthenticated events are ACCEPTED
+    # (anonymous), because "the daemon failed to start" is the most valuable event on
+    # this endpoint and a client that cannot start often cannot sign in either.
+    ingest = {
+      port        = 4200
+      health_path = "/health"
+      env = {
+        ACCOUNTS_URL = "http://accounts.agentd.local:4100"
+        # Generous per IP: one desktop batches every ~30s, and a machine in a reboot
+        # loop is exactly what we want to SEE rather than throttle into silence.
+        INGEST_RATE_LIMIT   = "60/60"
+        INGEST_CORS_ORIGINS = "*"
+      }
     }
 
     # daemon — the agent engine + WebSocket. Mounts EFS for per-user state; reaches

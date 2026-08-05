@@ -29,7 +29,11 @@ Public-exposure hardening (all env-driven; unset = today's open local-dev behavi
                                /budget/{id} requires the key OR the account's own session token
     ACCOUNTS_CORS_ORIGINS      comma-separated allowed origins (default "*", local dev)
     ACCOUNTS_RATE_LIMIT        per-IP fixed window "count/seconds" on /signup + /login
-                               (default "10/60"; "0/0" disables)
+                               and on /me/purchase (default "10/60"; "0/0" disables)
+
+What is for sale is DATA, never code:
+    AGENTD_CREDIT_PACKS        JSON list of credit packs; replaces the built-in seed entirely
+    AGENTD_CREDIT_PACK_DAYS    how long a purchased pack lasts before it expires (default 365)
 """
 
 from __future__ import annotations
@@ -401,9 +405,78 @@ def _check_rate(request: Request) -> None:
         raise HTTPException(status_code=429, detail="too many attempts; try again later")
 
 
+# --- what is for sale ---------------------------------------------------------
+# The catalogue lives in the `products` table, so a price or a tier is a row and never a deploy.
+# But an empty table means an empty store on a fresh environment, so the packs below are a SEED:
+# they are inserted only when absent, and AGENTD_CREDIT_PACKS replaces the list outright.
+#
+# Packs are defined by CREDITS, and the price is DERIVED (ledger.usd_for_credits). That direction
+# matters: a credit is a unit of service, so a round number of them is the meaningful quantity,
+# and deriving the price means the store can never disagree with the markup dial. State
+# `price_usd` on a pack only to deliberately break the usual ratio (a launch promotion).
+_CREDIT_PACK_SEED: list[dict] = [
+    {"id": "credits-1k", "credits": 1_000, "title": "1,000 credits"},
+    {"id": "credits-10k", "credits": 10_000, "title": "10,000 credits"},
+    {"id": "credits-100k", "credits": 100_000, "title": "100,000 credits"},
+    {"id": "credits-1m", "credits": 1_000_000, "title": "1,000,000 credits"},
+]
+
+
+def _credit_pack_days() -> int:
+    try:
+        return int(os.environ.get("AGENTD_CREDIT_PACK_DAYS", "") or 365)
+    except ValueError:
+        return 365
+
+
+def _credit_packs() -> list[dict]:
+    """The packs to seed. AGENTD_CREDIT_PACKS (a JSON list) replaces the seed entirely.
+
+    A malformed value falls back to the seed rather than failing to boot: sign-in must not go
+    down because a store setting has a typo in it.
+    """
+    raw = os.environ.get("AGENTD_CREDIT_PACKS", "").strip()
+    if not raw:
+        return [dict(p) for p in _CREDIT_PACK_SEED]
+    try:
+        parsed = json.loads(raw)
+        packs = [p for p in parsed if isinstance(p, dict) and p.get("id")]
+        if not packs:
+            raise ValueError("no usable entries")
+        return packs
+    except (ValueError, TypeError) as e:
+        count("config_invalid_total", _props={"setting": "AGENTD_CREDIT_PACKS", "error": str(e)[:120]})
+        return [dict(p) for p in _CREDIT_PACK_SEED]
+
+
+def _seed_credit_packs() -> None:
+    """Insert any missing pack. DO NOTHING on conflict, deliberately.
+
+    An upsert here would revert every operator edit made through POST /products on the next
+    deploy -- so a price change would silently last only until the next restart. Absent packs are
+    created; existing ones are left exactly as they are.
+    """
+    packs, period = _credit_packs(), _credit_pack_days()
+    with _db() as c:
+        for p in packs:
+            credits = int(p.get("credits") or 0)
+            price = float(p.get("price_usd") or 0) or ledger.usd_for_credits(credits)
+            if credits <= 0 or price <= 0:
+                continue
+            c.execute(
+                "INSERT INTO products (id, kind, title, creator_id, agent_id, price_usd, "
+                "credits, scope, model_tier_max, period_days, active, created_at) "
+                "VALUES (?, 'credit_pack', ?, '', '', ?, ?, 'platform', ?, ?, 1, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                (str(p["id"]), str(p.get("title") or f"{credits:,} credits"), price, credits,
+                 str(p.get("model_tier_max") or ""), int(p.get("period_days") or period), _now()),
+            )
+
+
 @app.on_event("startup")
 def _startup() -> None:
     _init_db()
+    _seed_credit_packs()
 
 
 @app.get("/health")
@@ -881,11 +954,30 @@ def upsert_product(payload: dict = Body(...), x_internal_key: str | None = Heade
 
 
 @app.get("/products")
-def list_products() -> dict:
-    """Public: the catalogue. No internal key — a marketplace has to be browsable."""
+def list_products(kind: str = "") -> dict:
+    """Public: the catalogue. No internal key — a marketplace has to be browsable.
+
+    `kind` filters to one shelf (`credit_pack`, `agent_subscription`). The store UI asks for the
+    shelf it renders rather than filtering client-side, so adding a third kind of product does
+    not make it appear in the credits dialog.
+    """
     with _db() as c:
-        rows = c.execute("SELECT * FROM products WHERE active = 1 ORDER BY price_usd").fetchall()
-    return {"products": [dict(r) for r in rows]}
+        if kind:
+            rows = c.execute(
+                "SELECT * FROM products WHERE active = 1 AND kind = ? ORDER BY price_usd",
+                (kind.strip(),),
+            ).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM products WHERE active = 1 ORDER BY price_usd").fetchall()
+    # `provider` tells the client which rail is in play, and `payment_note` is the rail's own
+    # words for what a purchase will do. The UI DISPLAYS them; it must not branch on them (see
+    # payments.py: no code path may work only because payments are mocked).
+    rail = payments.provider()
+    return {
+        "products": [dict(r) for r in rows],
+        "provider": rail.name,
+        "payment_note": rail.purchase_note,
+    }
 
 
 def _apply_purchase(
@@ -1034,6 +1126,90 @@ def purchase(payload: dict = Body(...), x_internal_key: str | None = Header(defa
             "charge_reference": charge.reference,
             "split": {k: ledger.micros_to_usd(v) for k, v in split.items()},
             **view}
+
+
+@app.post("/me/purchase")
+def my_purchase(
+    request: Request,
+    payload: dict = Body(...),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Buy something as the signed-in account. The second (and last) money endpoint a client may
+    call, and the one that lets a user top up from the app instead of asking an operator.
+
+    THE ONLY THING THE CLIENT MAY SEND IS A product_id. Price and credit count are read from the
+    `products` row, never from the request — otherwise a user posts `{"usd": 0.01, "credits":
+    10000000}` and mints themselves a fortune. `/purchase` still exists for trusted infra and
+    still takes an amount, which is exactly why it needs the internal key and this does not.
+
+    IDEMPOTENCY IS NAMESPACED BY ACCOUNT. The client mints the key (one per button press, so a
+    double-click or a retried request buys one pack), but a client-chosen key is client-CONTROLLED:
+    unnamespaced, account A could send account B's key and be handed B's purchase back as a
+    "replay". `me:<account>:<key>` makes that impossible while keeping the retry safety.
+
+    Rate-limited like sign-in: this is a write that costs the platform money to serve.
+    """
+    _check_rate(request)
+    product_id = str(payload.get("product_id") or "").strip()
+    if not product_id:
+        raise HTTPException(status_code=400, detail="product_id required")
+    client_key = str(payload.get("idempotency_key") or "").strip()[:80]
+
+    with _db() as c:
+        row = _account_for_token(c, _bearer(authorization))
+        account_id = str(row["id"])
+        p = c.execute(
+            "SELECT * FROM products WHERE id = ? AND active = 1", (product_id,)
+        ).fetchone()
+        if p is None:
+            count("purchase_total", outcome="failed",
+                  _props={"account_id": account_id, "product_id": product_id, "reason": "unknown_product"})
+            raise HTTPException(status_code=404, detail=f"unknown product {product_id}")
+
+        price = float(p["price_usd"])
+        credits = int(p["credits"]) or ledger.credits_for_usd(price)
+        idem = f"me:{account_id}:{client_key}" if client_key else ""
+
+        if idem:
+            prior = c.execute(
+                "SELECT txn_id, meta FROM ledger_txns WHERE idempotency_key = ?",
+                (f"purchase:{idem}",),
+            ).fetchone()
+            if prior is not None:
+                view = _funding_view(c, account_id, str(p["agent_id"]))
+                return {"ok": True, "replayed": True, "txn_id": str(prior["txn_id"]),
+                        "product_id": product_id, "credits": credits, "price_usd": price, **view}
+
+        txn_id, _created, split, charge, expires_at = _apply_purchase(
+            c, account_id=account_id, price=price, credits=credits,
+            scope=str(p["scope"]) or "platform", tier_max=str(p["model_tier_max"] or ""),
+            period_days=int(p["period_days"] or _credit_pack_days()),
+            creator_id=str(p["creator_id"]), agent_id=str(p["agent_id"]),
+            product_id=product_id, idem=idem,
+        )
+        view = _funding_view(c, account_id, str(p["agent_id"]))
+
+    # Same counters as /purchase — a self-serve top-up is not a different kind of revenue, and
+    # splitting it would make every business number need adding up in two places.
+    count("credits_granted_total", credits, credit_class="paid", _props={"account_id": account_id})
+    count("purchase_total", outcome="ok",
+          _props={"account_id": account_id, "product_id": product_id, "channel": "self_serve"})
+    count("purchase_gross_usd", price, _props={"account_id": account_id})
+    count("reserve_funded_usd", ledger.micros_to_usd(split["reserve_micros"]))
+    if str(p["creator_id"]):
+        count("creator_accrued_usd", ledger.micros_to_usd(split["creator_micros"]),
+              _props={"creator_id": str(p["creator_id"])})
+
+    return {
+        "ok": True, "replayed": False, "txn_id": txn_id, "product_id": product_id,
+        "title": str(p["title"] or ""), "credits": credits, "price_usd": price,
+        "expires_at": expires_at,
+        # What the rail actually did, in the rail's own words. The client shows this; it does not
+        # interpret it.
+        "payment": {"provider": charge.provider, "status": charge.status,
+                    "detail": charge.detail, "reference": charge.reference},
+        **view,
+    }
 
 
 @app.post("/subscriptions/renew-due")

@@ -102,6 +102,8 @@ resource "aws_cloudwatch_metric_alarm" "unbilled_spend" {
 
     Usual cause: the request reached the proxy without an account (master key used for user
     traffic, or the accounts /resolve lookup failed open). Check auth_total{credential}.
+  
+  Runbook: monitoring/runbooks/unbilled-spend.md
   EOT
 
   # No `outcome` on this metric — it is emitted only when spend IS unattributed, so its
@@ -132,6 +134,8 @@ resource "aws_cloudwatch_metric_alarm" "ledger_write_failures" {
 
     reason=unreachable -> accounts is down or the internal key rotated without rolling the
     proxy. reason=http_error -> read status_code on the same lines.
+  
+  Runbook: monitoring/runbooks/ledger-write-failures.md
   EOT
 
   # The {service, outcome} rollup is what makes this work: failures are tagged with a
@@ -163,6 +167,8 @@ resource "aws_cloudwatch_metric_alarm" "ledger_buffer_backlog" {
 
     Diagnose:
       filter ispresent(ledger_buffer_depth) | stats max(ledger_buffer_depth) by bin(5m)
+  
+  Runbook: monitoring/runbooks/ledger-buffer-backlog.md
   EOT
 
   # Maximum, not Sum: this is a level, and the question is whether the queue was EVER
@@ -196,6 +202,8 @@ resource "aws_cloudwatch_metric_alarm" "cap_overspend" {
 
     Diagnose:
       filter ispresent(overspend_usd) | stats sum(overspend_usd) as usd, count(*) as n by model
+  
+  Runbook: monitoring/runbooks/cap-overspend.md
   EOT
 
   namespace   = local.ns
@@ -235,6 +243,8 @@ resource "aws_cloudwatch_metric_alarm" "accounts_unreachable" {
     Check the accounts service first (running count, target health), then whether
     ACCOUNTS_INTERNAL_KEY in Secrets Manager matches what the running tasks hold -- a
     rotated key without a service roll looks exactly like an outage.
+  
+  Runbook: monitoring/runbooks/accounts-unreachable.md
   EOT
 
   # The one alarm here that still needs metric math — it adds two separate metrics. Both
@@ -322,6 +332,8 @@ resource "aws_cloudwatch_metric_alarm" "proxy_5xx" {
 
     NOTE 402 (out of credits) and 403 (model above plan tier) are 4xx and deliberately do
     NOT count here -- those are the gate working. Look for them via run_refused_total.
+  
+  Runbook: monitoring/runbooks/model-proxy-5xx.md
   EOT
 
   dimensions = {
@@ -356,6 +368,8 @@ resource "aws_cloudwatch_metric_alarm" "cost_per_hour" {
       filter ispresent(model_cost_usd)
       | stats sum(model_cost_usd) as usd, sum(model_call_total) as calls by run_id
       | sort usd desc
+  
+  Runbook: monitoring/runbooks/cost-per-hour.md
   EOT
 
   # Hourly period: cost is only meaningful as a rate, and the threshold is USD/hour.
@@ -387,6 +401,8 @@ resource "aws_cloudwatch_metric_alarm" "resolve_latency" {
 
     Password hashing is deliberately slow (PBKDF2, 200k rounds) but that is /login, not
     /resolve. If login_ms moved too, someone changed the rounds.
+  
+  Runbook: monitoring/runbooks/resolve-latency-p99.md
   EOT
 
   # {service} rather than {service, outcome}: the tail latency users feel includes the
@@ -415,6 +431,8 @@ resource "aws_cloudwatch_metric_alarm" "login_rejections" {
     verification for legitimate users -- distinguish by whether login_total{outcome=ok}
     also went to zero:
       filter ispresent(login_total) | stats count(*) as n by outcome, bin(5m)
+  
+  Runbook: monitoring/runbooks/login-rejections.md
   EOT
 
   # Emitted by ACCOUNTS, not the proxy — sign-in never touches the model path.
@@ -446,6 +464,8 @@ resource "aws_cloudwatch_metric_alarm" "no_successful_logins" {
 
     This alarm treats MISSING DATA AS BREACHING, unlike every other alarm here -- the point
     is to catch total absence, which is what a fully broken sign-in looks like.
+  
+  Runbook: monitoring/runbooks/no-successful-logins.md
   EOT
 
   namespace   = local.ns

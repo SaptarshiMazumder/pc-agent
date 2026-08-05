@@ -72,16 +72,26 @@ def accounts(monkeypatch, tmp_path):
         yield client, r.json()["account_id"]
 
 
-def _make_due(client, seconds_ago: float = 60) -> None:
-    """Backdate every active subscription so the next renew-due run picks it up.
+def _past_period(client, seconds_ago: float = 60) -> float:
+    """A whole-second timestamp in the past, usable as an explicit period boundary."""
+    return float(int(client.app_module._now()) - int(seconds_ago))  # type: ignore[attr-defined]
 
-    `seconds_ago` must DIFFER between calls when a test simulates consecutive periods: the
-    renewal key is the whole-second `renews_at` it renews into, and a test runs fast enough that
-    two `now - 60` values land in the same second, which is correctly treated as one period.
+
+def _make_due(client, renews_at: float | None = None) -> None:
+    """Backdate every active subscription to an EXACT `renews_at` so renew-due picks it up.
+
+    ABSOLUTE, NOT "seconds ago". The renewal's idempotency key is the whole-second `renews_at` it
+    renews INTO, so "same period" and "new period" are identities, not durations. Deriving the
+    value from `_now()` at each call made both directions timing-dependent: two calls meant to
+    name the SAME period become different ones if the clock crosses a second between them (the
+    run charges twice and the test sees `renewed == 1` where it expected `already_charged == 1`),
+    and two calls meant to name DIFFERENT periods collapse into one if it does not. A test that
+    passes or fails on how busy the machine is teaches nothing either way.
     """
+    if renews_at is None:
+        renews_at = _past_period(client)
     with client.app_module._db() as c:  # type: ignore[attr-defined]
-        c.execute("UPDATE subscriptions SET renews_at = ? WHERE status = 'active'",
-                  (client.app_module._now() - seconds_ago,))  # type: ignore[attr-defined]
+        c.execute("UPDATE subscriptions SET renews_at = ? WHERE status = 'active'", (renews_at,))
 
 
 # --- the books must balance ---------------------------------------------------
@@ -366,7 +376,10 @@ def test_renewal_charges_once_per_period(accounts):
     sale that keeps re-billing."""
     client, account_id = accounts
     _subscribe(client, account_id)
-    _make_due(client, 3600)
+    # Captured ONCE. Every assertion below is about whether two runs name the same period, so the
+    # period has to be a fixed value rather than one re-derived from the clock at each step.
+    period = _past_period(client, 3600)
+    _make_due(client, period)
     before = _purchase_txn_count(client)
 
     assert client.post("/subscriptions/renew-due", headers=INTERNAL).json()["renewed"] == 1
@@ -379,13 +392,13 @@ def test_renewal_charges_once_per_period(accounts):
 
     # Force the SAME period due again: the scheduler ran twice. One charge, reported honestly as
     # already_charged rather than as new revenue.
-    _make_due(client, 3600)
+    _make_due(client, period)
     again = client.post("/subscriptions/renew-due", headers=INTERNAL).json()
     assert again["renewed"] == 0 and again["already_charged"] == 1
     assert _purchase_txn_count(client) == before + 1
 
     # A genuinely NEW period is a new charge — otherwise a subscription bills only once, ever.
-    _make_due(client, 7200)
+    _make_due(client, period - 3600)
     assert client.post("/subscriptions/renew-due", headers=INTERNAL).json()["renewed"] == 1
     assert _purchase_txn_count(client) == before + 2
 
@@ -423,7 +436,7 @@ def test_a_crash_midway_keeps_the_renewals_already_charged(accounts, monkeypatch
         })
         client.post("/purchase", headers=INTERNAL, json={
             "account_id": account_id, "product_id": pid, "idempotency_key": f"buy-{pid}"})
-    _make_due(client, 3600)
+    _make_due(client, _past_period(client, 3600))
     before = _purchase_txn_count(client)
 
     real, seen = module._apply_purchase, {"n": 0}
@@ -481,6 +494,130 @@ def test_a_renewal_accrues_to_the_creator_again(accounts):
     client.post("/subscriptions/renew-due", headers=INTERNAL)
     after = client.get("/ledger/balances", headers=INTERNAL).json()["accounts"]["creator_payable"]
     assert after > before
+
+
+# --- the store, and buying credits as the signed-in user ----------------------
+
+
+def _signin(client, email="buyer@x.io"):
+    """A second account, with its session token — the only credential a client ever holds."""
+    client.post("/signup", json={"email": email, "password": "password123"})
+    d = client.post("/login", json={"email": email, "password": "password123"}).json()
+    return d["account_id"], {"Authorization": f"Bearer {d['token']}"}
+
+
+def test_the_credit_packs_are_seeded_and_priced_from_the_markup(accounts, led):
+    """Packs are defined by a round number of CREDITS and the price is derived, so the store can
+    never disagree with the markup dial. Seeded on startup because an empty table is an empty
+    store on a fresh environment."""
+    client, _ = accounts
+    body = client.get("/products", params={"kind": "credit_pack"}).json()
+    packs = {p["id"]: p for p in body["products"]}
+
+    assert set(packs) >= {"credits-1k", "credits-10k", "credits-100k", "credits-1m"}
+    for pack in packs.values():
+        assert pack["price_usd"] == pytest.approx(led.usd_for_credits(pack["credits"]))
+        assert pack["creator_id"] == "", "a platform credit pack must not accrue to a creator"
+    # The rail describes itself, so the UI never has to know which one is configured.
+    assert body["provider"] == "null" and "no card is charged" in body["payment_note"].lower()
+
+
+def test_kind_filters_the_shelf(accounts):
+    """The store asks for the shelf it renders. Without this, an agent subscription would show up
+    in the buy-credits dialog the moment one existed."""
+    client, account_id = accounts
+    _subscribe(client, account_id)
+    all_kinds = {p["kind"] for p in client.get("/products").json()["products"]}
+    assert all_kinds == {"credit_pack", "agent_subscription"}
+    only = {p["kind"] for p in client.get("/products", params={"kind": "credit_pack"}).json()["products"]}
+    assert only == {"credit_pack"}
+
+
+def test_buying_a_pack_adds_exactly_the_packs_credits(accounts):
+    client, _ = accounts
+    _account_id, auth = _signin(client)
+
+    before = client.get("/me/credits", headers=auth).json()["credits_remaining"]
+    r = client.post("/me/purchase", headers=auth,
+                    json={"product_id": "credits-100k", "idempotency_key": "click-1"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["credits"] == 100_000
+    assert body["credits_remaining"] == before + 100_000
+    # The mock rail still records a real intent, and says so in its own words.
+    assert body["payment"]["provider"] == "null" and body["payment"]["status"] == "succeeded"
+    assert client.get("/ledger/balances", headers=INTERNAL).json()["balanced"]
+
+
+def test_the_client_cannot_choose_its_own_price(accounts):
+    """The whole reason this endpoint takes only a product_id. Anything else in the payload must be
+    ignored, or a user mints themselves a fortune with one curl."""
+    client, _ = accounts
+    _account_id, auth = _signin(client)
+
+    body = client.post("/me/purchase", headers=auth, json={
+        "product_id": "credits-1k",
+        # every one of these is an attack, and every one must be dropped on the floor
+        "usd": 0.01, "price_usd": 0.01, "credits": 10_000_000, "creator_id": "me",
+    }).json()
+
+    assert body["credits"] == 1_000
+    assert body["credits_remaining"] == 1_000
+    packs = {p["id"]: p for p in client.get("/products", params={"kind": "credit_pack"}).json()["products"]}
+    assert body["price_usd"] == packs["credits-1k"]["price_usd"]
+
+
+def test_a_double_click_buys_one_pack(accounts):
+    client, _ = accounts
+    _account_id, auth = _signin(client)
+    first = client.post("/me/purchase", headers=auth,
+                        json={"product_id": "credits-10k", "idempotency_key": "same-click"}).json()
+    second = client.post("/me/purchase", headers=auth,
+                         json={"product_id": "credits-10k", "idempotency_key": "same-click"}).json()
+
+    assert first["replayed"] is False and second["replayed"] is True
+    assert second["credits_remaining"] == first["credits_remaining"]
+    assert _purchase_txn_count(client) == 1
+
+
+def test_one_account_cannot_replay_anothers_purchase(accounts):
+    """The idempotency key is client-CONTROLLED, so it is namespaced by account. Unnamespaced, B
+    could send A's key and be handed A's purchase back."""
+    client, _ = accounts
+    _a_id, a_auth = _signin(client, "a@x.io")
+    _b_id, b_auth = _signin(client, "b@x.io")
+
+    client.post("/me/purchase", headers=a_auth,
+                json={"product_id": "credits-1k", "idempotency_key": "guessable"})
+    b = client.post("/me/purchase", headers=b_auth,
+                    json={"product_id": "credits-1k", "idempotency_key": "guessable"}).json()
+
+    assert b["replayed"] is False, "B must get its own purchase, not a view of A's"
+    assert b["credits_remaining"] == 1_000
+    assert _purchase_txn_count(client) == 2
+
+
+def test_buying_requires_a_valid_session_and_a_real_product(accounts):
+    client, _ = accounts
+    _account_id, auth = _signin(client)
+
+    assert client.post("/me/purchase", json={"product_id": "credits-1k"}).status_code == 401
+    assert client.post("/me/purchase", headers={"Authorization": "Bearer nope"},
+                       json={"product_id": "credits-1k"}).status_code == 401
+    assert client.post("/me/purchase", headers=auth,
+                       json={"product_id": "no-such-pack"}).status_code == 404
+    assert client.post("/me/purchase", headers=auth, json={}).status_code == 400
+
+
+def test_seeding_never_reverts_an_operator_price_change(accounts):
+    """An upsert-on-boot would make a price change last only until the next restart."""
+    client, _ = accounts
+    client.post("/products", headers=INTERNAL, json={
+        "id": "credits-1k", "kind": "credit_pack", "price_usd": 5.0, "credits": 1_000})
+    client.app_module._seed_credit_packs()  # type: ignore[attr-defined]
+    packs = {p["id"]: p for p in client.get("/products", params={"kind": "credit_pack"}).json()["products"]}
+    assert packs["credits-1k"]["price_usd"] == 5.0
 
 
 # --- the balance-sheet snapshot and readiness ---------------------------------

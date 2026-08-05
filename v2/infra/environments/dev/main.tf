@@ -58,6 +58,19 @@ module "stack" {
   proxy_5xx_threshold     = 5
   # enable_login_absence_alarm stays false: dev has no continuous traffic, so "no sign-ins
   # for 30 minutes" is the normal state overnight.
+
+  # The clock, slowed down for dev. Renewals are HOURLY by default and that is correct in
+  # production, where a subscription must never renew more than an hour late. Dev has no
+  # subscribers and is scaled to zero for most of the day, so the production cadence buys
+  # nothing and invokes a Lambda against a dead service 24 times a day -- noise in the logs
+  # and in the scheduled-jobs-failing alarm.
+  #
+  # 00:00 keeps the ORDERING the module depends on: renewals :00 -> close-expired 00:05 ->
+  # snapshot 00:20, so the snapshot still reports a settled balance sheet. This is the same
+  # schedule as the default, just its once-daily instance rather than all 24.
+  scheduled_job_overrides = {
+    subscription-renewals = { schedule = "cron(0 0 * * ? *)" }
+  }
 }
 
 # ── Pass-through outputs (push-images.ps1 and the desktop flavors read these) ──

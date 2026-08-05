@@ -40,6 +40,27 @@ _ROLLUP_KEYS = tuple(
 # a half-written log line (which would make the JSON unparseable at the other end).
 _lock = threading.Lock()
 
+#: When set, `emit` writes HERE instead of resolving `sys.stdout`.
+#:
+#: Exists for exactly one caller: the plugin stdout capture (agent_runtime .../stdout_capture.py)
+#: redirects `sys.stdout` process-wide for the duration of an untrusted tool call, and
+#: `contextlib.redirect_stdout` cannot distinguish the plugin's `print` from ours. Without this
+#: pin, every metric emitted while a plugin tool ran would be swallowed into that plugin's capture
+#: buffer and never reach CloudWatch — telemetry disappearing precisely during third-party code.
+#: Default None keeps today's late-binding behaviour, which is what lets pytest's capsys see
+#: emitted lines.
+_direct_stream = None
+
+
+def pin_stream(stream):
+    """Point telemetry's own output at `stream` (None = resolve sys.stdout per write).
+
+    Returns the PREVIOUS value so callers can restore rather than assume they were the outermost.
+    """
+    global _direct_stream
+    previous, _direct_stream = _direct_stream, stream
+    return previous
+
 
 def service() -> str:
     return _SERVICE
@@ -59,8 +80,9 @@ def emit(record: dict) -> None:
         return
     with _lock:
         try:
-            sys.stdout.write(line + "\n")
-            sys.stdout.flush()
+            stream = _direct_stream if _direct_stream is not None else sys.stdout
+            stream.write(line + "\n")
+            stream.flush()
         except Exception:  # noqa: BLE001 — a closed/broken stdout is not our problem to raise
             pass
         if _FILE:
@@ -69,6 +91,13 @@ def emit(record: dict) -> None:
                     fh.write(line + "\n")
             except Exception:  # noqa: BLE001
                 pass
+    # THE MAIL PATH (5.1). Inert unless the machine is one whose stdout we cannot read — i.e. a
+    # desktop that opted in. Deliberately OUTSIDE the stdout lock: the uploader only appends to a
+    # bounded deque, but holding the print lock across anything a future backend might make slower
+    # would put telemetry in the way of the thing it measures.
+    from . import uploader as _uploader  # local import: keeps a cycle impossible at import time
+
+    _uploader.uploader.offer(record)
 
 
 def _dimension_sets(dims: dict) -> list[list[str]]:

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { User, LogIn, RefreshCw } from 'lucide-react'
+import { User, LogIn, RefreshCw, CreditCard } from 'lucide-react'
 
-import { fetchCredits, useAuthSession, type Credits } from '../lib/auth'
+import { fetchCredits, onCreditsChanged, useAuthSession, type Credits } from '../lib/auth'
+import { useBilling } from '../lib/billing'
 import { useApp } from '../state/store'
 import PageShell from './PageShell'
 
@@ -9,7 +10,9 @@ import PageShell from './PageShell'
 export default function AccountView() {
   const hello = useApp((s) => s.hello)
   const flavor = useApp((s) => s.flavor)
+  const setView = useApp((s) => s.setView)
   const session = useAuthSession()
+  const { metered } = useBilling()
 
   // CREDITS. Read straight from the accounts service with the session token — the daemon is not
   // in this path at all, because the balance is the account's business and not the machine's.
@@ -29,8 +32,13 @@ export default function AccountView() {
     // worse than showing none.
   }, [session?.accountId])
 
+  // A purchase on the billing page must not leave a stale number here.
+  useEffect(() => onCreditsChanged(() => void refresh()), [])
+
   const proxyStatus = hello?.platform?.modelProxy || hello?.platform?.modelGateway
-  const hosted = !!proxyStatus?.enabled
+  // Either the daemon routes through the proxy, or this is a metered session — see lib/billing.ts
+  // for why the daemon's own status is not enough on its own.
+  const hosted = !!proxyStatus?.enabled || metered
   const keysLabel = hosted
     ? 'Platform keys (included with your account)'
     : 'Your own keys (set in Settings)'
@@ -68,7 +76,7 @@ export default function AccountView() {
           </div>
         </div>
 
-        {session && hosted && (
+        {session && metered && (
           <div className="settings-group">
             <div className="settings-section">Credits</div>
             <div className="kv-card">
@@ -111,6 +119,10 @@ export default function AccountView() {
                     Credits are spent per model call — a cheap model costs a fraction of a premium one.
                   </div>
                 </div>
+                <button className="btn primary" type="button" onClick={() => setView('subscription')}
+                        title="Top up your balance">
+                  <CreditCard size={15} />Buy credits
+                </button>
                 <button className="btn" type="button" onClick={() => void refresh()} disabled={loading}
                         title="Re-read your balance from the platform">
                   <RefreshCw size={15} />Refresh

@@ -1,25 +1,31 @@
 import { useState, type ReactNode } from 'react'
 import { Settings, SlidersHorizontal, Database, User, CreditCard } from 'lucide-react'
 
+import { useBilling } from '../lib/billing'
 import { useApp, type View } from '../state/store'
 
 /**
  * The sidebar's "gear" menu: replaces the old single Settings button with a popover of
- * app-level destinations (Settings, Data sources, Account, Subscription). Used in both the
+ * app-level destinations (Settings, Data sources, Account, Credits). Used in both the
  * full footer and the collapsed rail (variant switches the trigger styling + popover anchor).
  */
 const ITEMS: { id: View; label: string; icon: ReactNode }[] = [
   { id: 'settings', label: 'Settings', icon: <SlidersHorizontal size={16} /> },
   { id: 'datasources', label: 'Data sources', icon: <Database size={16} /> },
   { id: 'account', label: 'Account', icon: <User size={16} /> },
+  // Same destination either way; the word changes because the page does. On a metered account it
+  // is where you top up, and "Subscription" is where nobody would look for that.
   { id: 'subscription', label: 'Subscription', icon: <CreditCard size={16} /> }
 ]
 
 export default function SettingsMenu({ variant }: { variant: 'footer' | 'rail' }) {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
+  const { billing } = useBilling()
   const [open, setOpen] = useState(false)
   const active = ITEMS.some((i) => i.id === view)
+  const label = (it: { id: View; label: string }): string =>
+    it.id === 'subscription' && billing ? 'Credits & billing' : it.label
 
   return (
     <div className="menu-wrap">
@@ -50,7 +56,7 @@ export default function SettingsMenu({ variant }: { variant: 'footer' | 'rail' }
               }}
             >
               {it.icon}
-              <span>{it.label}</span>
+              <span>{label(it)}</span>
             </button>
           ))}
         </div>

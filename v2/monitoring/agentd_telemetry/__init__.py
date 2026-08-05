@@ -22,12 +22,17 @@ from .context import bind, get, scope, unbind
 from .emf import emit, enabled, service
 from .logs import setup as setup_logging
 from .metrics import count, gauge, money, timer, timing
+from .uploader import configure as configure_upload
+from .uploader import flush as flush_upload
+from .uploader import status as upload_status
 
 __all__ = [
     "bind",
+    "configure_upload",
     "count",
     "emit",
     "enabled",
+    "flush_upload",
     "gauge",
     "get",
     "money",
@@ -37,4 +42,5 @@ __all__ = [
     "timer",
     "timing",
     "unbind",
+    "upload_status",
 ]

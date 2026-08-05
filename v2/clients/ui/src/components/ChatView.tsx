@@ -3,7 +3,7 @@ import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentLabel, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
-import { fetchCredits, useAuthSession } from '../lib/auth'
+import { fetchCredits, onCreditsChanged, useAuthSession } from '../lib/auth'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import { useApp, type OutgoingAttachment } from '../state/store'
 import FileName from './FileName'
@@ -41,6 +41,7 @@ export default function ChatView() {
   const sendMessage = useApp((s) => s.sendMessage)
   const abortRun = useApp((s) => s.abortRun)
   const composerSeed = useApp((s) => s.composerSeed)
+  const setView = useApp((s) => s.setView)
 
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<OutgoingAttachment[]>([])
@@ -109,6 +110,16 @@ export default function ChatView() {
       clearTimeout(t)
     }
   }, [running])
+
+  // A top-up on the billing page happens outside this component, so nothing here would re-render
+  // and the chip would keep showing the pre-purchase balance until the next message.
+  useEffect(
+    () =>
+      onCreditsChanged(() => {
+        void fetchCredits(currentAgentId).then((c) => setCredits(c ? c.creditsRemaining : null))
+      }),
+    [currentAgentId]
+  )
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -306,16 +317,20 @@ export default function ChatView() {
         {credits !== null && (
           <>
             <span className="hint-sep"> · </span>
-            <span
-              className="hint-toks"
+            {/* A dead end is the worst place to learn you are out of credits, so the chip is the
+                shortcut to the top-up page rather than only a readout. */}
+            <button
+              type="button"
+              className={`hint-credits ${credits === 0 ? 'empty' : ''}`}
+              onClick={() => setView('subscription')}
               title={
                 credits === 0
-                  ? 'Out of credits — the next message will be refused until you top up'
-                  : 'Platform credits left on this account. Updates after each message.'
+                  ? 'Out of credits — the next message will be refused. Click to top up.'
+                  : 'Platform credits left on this account. Updates after each message. Click to top up.'
               }
             >
-              {credits === 0 ? 'no credits left' : `${credits.toLocaleString()} credits`}
-            </span>
+              {credits === 0 ? 'no credits left — top up' : `${credits.toLocaleString()} credits`}
+            </button>
           </>
         )}
         <span className="hint-sep"> · </span>

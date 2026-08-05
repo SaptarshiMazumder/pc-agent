@@ -58,6 +58,9 @@ class DistributionProfile:
     publisher_key: str = ""  # base64 ed25519 pubkey ("" => unsigned mode)
     accounts_url: str = ""  # "" => no hosted accounts (BYOK-only install)
     model_proxy_url: str = ""  # "" => no platform model proxy
+    # "" => the diagnostics uploader can never run, whatever the user's toggle says. A build with
+    # nowhere to send diagnostics must not offer to send them.
+    ingest_url: str = ""
     source_path: str = ""  # where this profile was loaded from ("" => open)
 
     @property
@@ -98,6 +101,7 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
         model_proxy_url=str(
             platform.get("model_proxy_url") or platform.get("model_gateway_url") or ""
         ).rstrip("/"),
+        ingest_url=str(platform.get("ingest_url") or "").rstrip("/"),
         source_path=source_path,
     )
 

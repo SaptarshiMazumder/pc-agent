@@ -247,6 +247,21 @@ export const SETTINGS_TABS: TabDef[] = [
           { key: 'resource_summarize_enabled', label: 'Text summaries', help: 'One-line summaries for text resources (sends content to the model).', type: 'toggle' },
           { key: 'event_log_enabled', label: 'Durable event log', help: 'Record every run’s event stream for later inspection.', type: 'toggle' }
         ]
+      },
+      {
+        // Opt-in, default off, and the help text states exactly what leaves the machine. This
+        // daemon runs on the user's own computer: consent is the default, and a vague "help us
+        // improve" would be asking for permission without saying what for.
+        title: 'Diagnostics',
+        help: 'Off by default. Nothing is sent unless you turn this on.',
+        fields: [
+          {
+            key: 'diagnostics_upload',
+            label: 'Send anonymous diagnostics',
+            help: 'Share timing only — how long a run took, how much of that was the model, whether it finished, and whether the daemon started. Never your messages, files, tool inputs or outputs. Signed in, reports are tied to your account so support can find them; signed out they are anonymous.',
+            type: 'toggle'
+          }
+        ]
       }
     ]
   },

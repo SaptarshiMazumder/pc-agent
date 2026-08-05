@@ -17,9 +17,13 @@ Three layers, and only one of them is a running service:
 request path and loses data exactly when things break — the thing that reports the outage ends
 up on the far side of it. Services `print()`; printing cannot fail.
 
-The one exception is [`ingest/`](#not-built-yet) (plan 5.2): the desktop daemon runs on the
-user's machine, so its output lands on their disk where we can never read it. That needs a
-mailbox. Everything running on AWS just prints.
+The one exception is [`../ingest/`](../ingest/app.py) (plan 5.2): the desktop daemon runs on the
+user's machine, and the web client runs in their browser, so their output lands somewhere we can
+never read it. That needs a mailbox. Everything running on AWS just prints.
+
+Note what that exception is NOT: no AWS service calls ingest, and nothing in a request path does.
+It receives a batch after the fact from a client that has already finished its work — so it can be
+slow, wrong, or entirely down without anyone's message failing.
 
 ## How it works
 
@@ -105,15 +109,27 @@ monitoring/
 │   ├── metrics.py        count / timing / timer / gauge / money + cardinality guard
 │   ├── context.py        run_id etc. on a contextvar, not in 200 signatures
 │   ├── redact.py         allowlist — the gate content cannot pass
+│   ├── uploader.py       the MAIL path (5.1): opt-in, off by default, desktop only
 │   └── logs.py           JSON logging with the same context and the same allowlist
+├── runbooks/             one per alarm — the filename IS the alarm's suffix (5.5)
 ├── dev_dashboard.py      local live view (dev tool, not deployed, no dependencies)
+├── cloud_check.ps1       money, failures, ledger and auth in one pass
+├── trace.ps1             one message across all five hops, both machines
+├── alarm_check.ps1       replay every alarm's own query — can it actually fire?
+├── scheduler_check.ps1   run the three scheduled jobs and report what they did
+├── money_check.ps1       the whole money path against a live environment
 └── pyproject.toml        installable: `pip install -e v2/monitoring`
 ```
 
+The receiving end of `uploader.py` is **[`../ingest/`](../ingest/app.py)** — a separate service,
+deployed like any other (one entry in the services map), because it is the only thing here that
+accepts input from machines we do not own.
+
 ### Not built yet
 
-`terraform/` (alarms + dashboards) · `synthetics/` (the robot customer) · `ingest/` (desktop and
-browser reports) · `runbooks/`. See the plan.
+`synthetics/` (the robot customer, plan 3.7). Alarms and dashboards live in
+[`../infra/modules/`](../infra/modules/) with the rest of the infrastructure rather than in a
+`terraform/` folder here — same lifecycle as the services they watch.
 
 ## Install
 

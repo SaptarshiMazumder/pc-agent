@@ -35,6 +35,11 @@ output "model_gateway_url" {
   value       = "http://${aws_lb.main.dns_name}:4000"
 }
 
+output "ingest_url" {
+  description = "[platform] ingest_url for the desktop flavors and the web build (opt-in client telemetry). Empty in a client's config = the uploader stays off."
+  value       = "http://${aws_lb.main.dns_name}:${local.services["ingest"].port}"
+}
+
 output "registry_url" {
   description = "[store] registry_url for the desktop flavors (public marketplace index)."
   value       = "https://${aws_s3_bucket.registry.bucket}.s3.${var.region}.amazonaws.com/index.json"
@@ -77,9 +82,9 @@ output "scheduled_jobs_function" {
 }
 
 output "scheduled_jobs" {
-  description = "Every schedule: when it fires and what it calls. `aws scheduler list-schedules` confirms they exist and are ENABLED."
+  description = "Every schedule: when it fires and what it calls, AFTER this environment's overrides — reading var.scheduled_jobs here would report the default cadence rather than the one deployed. `aws scheduler list-schedules` confirms they exist and are ENABLED."
   value = {
-    for name, job in var.scheduled_jobs : aws_scheduler_schedule.job[name].name => {
+    for name, job in local.scheduled_jobs : aws_scheduler_schedule.job[name].name => {
       path     = job.path
       schedule = "${job.schedule} ${var.scheduled_job_timezone}"
       enabled  = job.enabled

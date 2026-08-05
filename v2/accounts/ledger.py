@@ -29,6 +29,7 @@ is what `balance_of` normalises, so a caller never has to remember which way rou
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import uuid
@@ -158,6 +159,25 @@ def credits_for_usd(usd: float) -> int:
     if rate <= 0 or markup <= 0:
         return 0
     return int(float(usd) * rate / markup)
+
+
+def usd_for_credits(credits: int) -> float:
+    """What `credits` should cost — the inverse of `credits_for_usd`.
+
+    Exists because a credit PACK is naturally defined by a round number of credits ("1,000,000
+    credits") while a charge is naturally a price, and deriving one from the other means the two
+    can never drift out of step with the markup dial.
+
+    ROUNDED UP to whole cents, for the same reason `credits_for_usd` floors: rounding down would
+    hand over a sliver more service than was paid for. It also happens to make the round packs
+    land on round prices at the default dials -- 1,000,000 credits is $19.999988, which is $20.00
+    up and $19.99 to nearest.
+    """
+    rate = credits_per_usd()
+    markup = credit_markup()
+    if rate <= 0 or markup <= 0:
+        return 0.0
+    return math.ceil(int(credits) * markup / rate * 100) / 100
 
 
 # --- schema ------------------------------------------------------------------

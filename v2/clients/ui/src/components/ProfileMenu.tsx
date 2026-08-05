@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LayoutGrid, LogOut, Monitor, User } from 'lucide-react'
+import { CreditCard, LayoutGrid, LogOut, Monitor, User } from 'lucide-react'
 
 import { signOut, useAuthSession } from '../lib/auth'
 import { setMode, useMode } from '../lib/mode'
@@ -9,10 +9,15 @@ import { useApp } from '../state/store'
 /**
  * The bottom-of-sidebar profile/account menu — the SINGLE home for identity + mode.
  *
- * Account identity is a CLOUD concept, so it only appears in Cloud mode (signed in): profile
- * icon, email, an Account shortcut, and Sign out. Local mode shows no account — just "Switch".
+ * Account identity is a CLOUD concept, so it only appears when signed in: profile icon, email,
+ * Account + Credits shortcuts, and Sign out. Desktop Local mode shows no account — just "Switch".
  * "Switch mode" returns to the main launcher (setMode(null) → App shows <Launcher/>), where you
- * pick Local or Cloud — deliberately NOT an inline toggle. Desktop-only.
+ * pick Local or Cloud — deliberately NOT an inline toggle, and DESKTOP-ONLY: the web build has no
+ * BYOK mode to switch to.
+ *
+ * WEB USED TO GET NOTHING HERE. This component bailed out on `!isDesktop`, which on the hosted web
+ * client — where every user is signed in and metered — removed the only route to the account page
+ * and the only way to sign out. Mode is the desktop-only part, not identity.
  */
 export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' }): JSX.Element | null {
   const setView = useApp((s) => s.setView)
@@ -20,8 +25,10 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
   const mode = useMode()
   const [open, setOpen] = useState(false)
 
-  if (!isDesktop) return null
-  const signedIn = mode === 'cloud' && !!session // account exists only in Cloud mode
+  // On the web there is no Local mode: being signed in IS being in the cloud.
+  const signedIn = !!session && (!isDesktop || mode === 'cloud')
+  // Nothing to show on the web when signed out — the sign-in gate is already the whole screen.
+  if (!isDesktop && !signedIn) return null
   const TriggerIcon = signedIn ? User : Monitor
 
   function toLauncher(): void {
@@ -81,18 +88,32 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
                 <User size={16} />
                 <span>Account</span>
               </button>
+              <button
+                className="app-menu-item"
+                type="button"
+                onClick={() => {
+                  setView('subscription')
+                  setOpen(false)
+                }}
+              >
+                <CreditCard size={16} />
+                <span>Credits &amp; billing</span>
+              </button>
               <button className="app-menu-item" type="button" onClick={doSignOut}>
                 <LogOut size={16} />
                 <span>Sign out</span>
               </button>
-              <div className="pmenu-sep" />
+              {isDesktop && <div className="pmenu-sep" />}
             </>
           )}
 
-          <button className="app-menu-item" type="button" onClick={toLauncher}>
-            <LayoutGrid size={16} />
-            <span>Switch mode</span>
-          </button>
+          {/* Mode is a desktop concept: there is no BYOK web build to switch to. */}
+          {isDesktop && (
+            <button className="app-menu-item" type="button" onClick={toLauncher}>
+              <LayoutGrid size={16} />
+              <span>Switch mode</span>
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -358,6 +358,18 @@ class Config:
     # loop iteration + its token usage — so a client can show "step 1 deepseek 1.2k/0.5k → step 2
     # gemini …". Default ON; AGENTD_MODEL_TRACE=0 turns it off. No effect on the run itself.
     model_trace: bool = True
+    # DIAGNOSTICS UPLOAD (plan 5.1). Send a SHORT LIST of timing metrics — how long a run took, how
+    # much of that was the model, whether it finished — to the platform's ingest service. This
+    # daemon may be running on the user's own PC, where its stdout reaches nobody, so this is the
+    # only way those numbers ever leave the machine.
+    #
+    # DEFAULT OFF, AND IT STAYS OFF UNTIL SOMEONE TICKS THE BOX. Metadata only: the forwarded
+    # payload is names + numbers + correlation ids, gated by the same allowlist as every other
+    # metric and re-checked by the receiver. Never message text, tool arguments, or file paths.
+    # The URL comes from the distribution profile ([platform] ingest_url) or AGENTD_INGEST_URL;
+    # with no URL this is inert regardless of the toggle.
+    diagnostics_upload: bool = False  # AGENTD_DIAGNOSTICS_UPLOAD
+    ingest_url: str = ""  # AGENTD_INGEST_URL / distribution [platform] ingest_url
     # Execution sandbox (S17, seam): "" / "local" = run on host (default, unchanged);
     # "docker"/"ssh" select an isolating adapter (not yet implemented). AGENTD_SANDBOX.
     sandbox: str = ""
@@ -587,6 +599,15 @@ def load_config(path: Path | None = None) -> Config:
         )
     if os.environ.get("AGENTD_MODEL_TRACE"):
         cfg.model_trace = os.environ["AGENTD_MODEL_TRACE"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_DIAGNOSTICS_UPLOAD"):
+        cfg.diagnostics_upload = os.environ["AGENTD_DIAGNOSTICS_UPLOAD"].lower() not in (
+            "0",
+            "false",
+            "no",
+            "",
+        )
+    if os.environ.get("AGENTD_INGEST_URL"):
+        cfg.ingest_url = os.environ["AGENTD_INGEST_URL"].strip().rstrip("/")
     if os.environ.get("AGENTD_EVENT_LOG_MAX"):
         cfg.event_log_max_runs = int(os.environ["AGENTD_EVENT_LOG_MAX"])
     if os.environ.get("AGENTD_RESOURCES"):

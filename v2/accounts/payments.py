@@ -48,6 +48,12 @@ class PaymentProvider:
 
     name = "abstract"
 
+    #: One sentence a client may show a user BEFORE they confirm — the rail's own words for what
+    #: pressing the button will do. Here rather than in the UI so that no client has to know
+    #: which rail is configured, and so that swapping the rail rewrites the disclosure itself
+    #: instead of leaving a stale "no money moves" note on a page that now charges cards.
+    purchase_note = ""
+
     def charge(self, *, account_id: str, amount_usd: float, idempotency_key: str,
                description: str = "", meta: dict | None = None) -> Charge:
         raise NotImplementedError
@@ -63,6 +69,9 @@ class NullPaymentProvider(PaymentProvider):
     """Records intent, moves nothing. The only implementation today."""
 
     name = "null"
+    purchase_note = (
+        "Test mode: no card is charged and no money moves. Credits are added immediately."
+    )
 
     def _ref(self, kind: str, idempotency_key: str) -> str:
         # Derived from the idempotency key so replaying a request yields the SAME reference,
