@@ -5,7 +5,13 @@
 # then paste the output role ARN into the repo secret AWS_DEPLOY_ROLE_ARN.
 #
 #   terraform -chdir=github-oidc init
-#   terraform -chdir=github-oidc apply -var github_repo=OWNER/REPO
+#   terraform -chdir=github-oidc apply                      # github_repo now has a default
+#   terraform -chdir=github-oidc apply -var github_repo=OWNER/REPO   # a fork
+#
+# GOTCHA THAT COST A DEPLOY: `github_repo` used to have no default, so a bare `apply` PROMPTED
+# for it — and that prompt is easy to mistake for the apply confirmation. Answering "yes" set the
+# trust policy to `repo:yes:*` and locked GitHub Actions out of AWS entirely. It now has a default
+# and a validation that rejects anything that is not OWNER/REPO.
 # ─────────────────────────────────────────────────────────────────────────────
 terraform {
   required_version = ">= 1.9"
@@ -21,8 +27,26 @@ provider "aws" {
 }
 
 variable "github_repo" {
-  description = "The GitHub repo allowed to assume the role, as OWNER/REPO (e.g. SaptarshiMazumder/pc-agent)."
+  description = "The GitHub repo allowed to assume the role, as OWNER/REPO."
   type        = string
+
+  # DEFAULTED, because this variable had no default and that broke deploys. Terraform prompts for
+  # a missing variable BEFORE the apply confirmation, and the prompt looks exactly like the
+  # confirmation — so `terraform apply` answered with "yes" silently rewrote the trust policy to
+  # `repo:yes:*`, and every subsequent workflow run failed with "Not authorized to perform
+  # sts:AssumeRoleWithWebIdentity". The role and the OIDC provider were fine; the value was junk.
+  #
+  # A default is safe here: this is a ROOT module for one repository, not a shared one, and a
+  # wrong default cannot widen access — it can only fail to grant it (a fork inheriting this value
+  # gets denied, which is the correct outcome). Override with -var for a fork.
+  default = "SaptarshiMazumder/pc-agent"
+
+  # The second half of the fix, and the more important one. This is the value that decides WHO may
+  # assume a role with deploy permissions, so it deserves to fail loudly rather than accept a word.
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", var.github_repo))
+    error_message = "github_repo must be OWNER/REPO (e.g. SaptarshiMazumder/pc-agent) — a bare word here silently locks the deploy workflow out of AWS."
+  }
 }
 
 data "aws_caller_identity" "me" {}
