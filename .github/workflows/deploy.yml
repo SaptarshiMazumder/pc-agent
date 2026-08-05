@@ -41,7 +41,7 @@ on:
       service:
         description: "Deploy all services or one independently"
         type: choice
-        options: [all, model-proxy, accounts, daemon, web]
+        options: [all, model-proxy, accounts, daemon, web, ingest]
         default: all
   push:
     branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
@@ -51,6 +51,7 @@ on:
       - "v2/accounts/**"
       - "v2/clients/**"
       - "v2/deploy/docker/**"
+      - "v2/ingest/**"
       # monitoring/ is pip-installed INTO three of the four images, so a telemetry-only
       # change ships real code. Omitting it here would skip the deploy and leave the
       # containers running the old library while the repo says otherwise.
@@ -63,7 +64,7 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  SERVICES: "model-proxy accounts daemon web"
+  SERVICES: "model-proxy accounts daemon web ingest"
 
 jobs:
   # ── Job 1: decide which environment. No AWS, no gate — its ONLY purpose is to produce
@@ -159,9 +160,16 @@ jobs:
             build daemon v2 v2/deploy/docker/Dockerfile
           fi
           if want web; then
+            # The web build bakes its endpoints in, so a new one is a new build arg. INGEST is
+            # OPTIONAL by design: an empty value leaves the browser reporter inert, which is what
+            # a build for an environment without an ingest service should do.
             build web v2/clients v2/clients/web/Dockerfile \
               --build-arg "VITE_AGENTD_ACCOUNTS_URL=http://${ALB}:4100" \
-              --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787"
+              --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787" \
+              --build-arg "VITE_AGENTD_INGEST_URL=http://${ALB}:4200"
+          fi
+          if want ingest; then
+            build ingest v2 v2/ingest/Dockerfile
           fi
 
       # Record the deployment id each roll creates. The next step needs it: "the services are

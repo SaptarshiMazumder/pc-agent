@@ -785,6 +785,14 @@ textarea.input, textarea.field-input, textarea.settings-input { border-radius: 1
 .composer-hint .hint-toks { color: var(--dim); }
 .composer-hint .hint-sep,
 .composer-hint .hint-note { color: var(--faint); }
+/* the credit balance — a readout that is also the route to the top-up page, so it is a button
+   styled to sit inline with the rest of the strip rather than to look like one */
+.composer-hint .hint-credits {
+  background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--dim); text-underline-offset: 2px;
+}
+.composer-hint .hint-credits:hover { color: var(--text); text-decoration: underline; }
+.composer-hint .hint-credits.empty { color: var(--danger); font-weight: var(--fw-medium); }
 
 /* artifacts — media/documents an agent produced */
 .artifacts { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: 8px 0 4px; }
@@ -1140,6 +1148,8 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .kv-val { font: 12.5px var(--mono); color: var(--text); word-break: break-all; }
 .settings-note { color: var(--dim); font-size: 12.5px; line-height: 1.6; }
 .settings-note code { font: 12px var(--mono); color: var(--accent-text); }
+/* A failed action (a declined purchase) must not read as a footnote. */
+.settings-note.error { color: var(--danger); }
 
 /* --- tabbed settings (header + nav rail + content) --- */
 .settings-inner.settings-wide { max-width: 1060px; }

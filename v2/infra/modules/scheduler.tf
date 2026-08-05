@@ -29,6 +29,22 @@
 # Scheduler invocations (~9k/mo) and Lambda (~9k invocations) are under a cent combined.
 # ─────────────────────────────────────────────────────────────────────────────
 
+locals {
+  # The job list as it will actually be scheduled: the defaults with this environment's
+  # overrides applied per key. `try` yields null when a job has no override entry (or the
+  # entry omits that field), which falls back to the default — so an environment names only
+  # what it changes, and a job added to var.scheduled_jobs later reaches every environment
+  # without anyone remembering to re-list it here.
+  scheduled_jobs = {
+    for name, job in var.scheduled_jobs : name => {
+      path        = job.path
+      description = job.description
+      schedule    = try(var.scheduled_job_overrides[name].schedule, null) != null ? var.scheduled_job_overrides[name].schedule : job.schedule
+      enabled     = try(var.scheduled_job_overrides[name].enabled, null) != null ? var.scheduled_job_overrides[name].enabled : job.enabled
+    }
+  }
+}
+
 # ── The function ───────────────────────────────────────────────────────────────
 
 # Zipped from source at plan time. `output_path` deliberately lives under .terraform/ so
@@ -162,7 +178,7 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
 }
 
 resource "aws_scheduler_schedule" "job" {
-  for_each = var.scheduled_jobs
+  for_each = local.scheduled_jobs
 
   name        = "${local.name_prefix}-${each.key}"
   description = each.value.description
@@ -222,6 +238,8 @@ resource "aws_cloudwatch_metric_alarm" "scheduled_jobs_failing" {
     Reproduce it by hand (same payload the schedule sends):
       aws lambda invoke --function-name ${local.name_prefix}-scheduled-jobs \
         --payload '{"job":"manual","path":"/ledger/snapshot"}' --cli-binary-format raw-in-base64-out out.json
+  
+  Runbook: monitoring/runbooks/scheduled-jobs-failing.md
   EOT
 
   namespace   = "AWS/Lambda"
@@ -255,6 +273,8 @@ resource "aws_cloudwatch_metric_alarm" "scheduled_jobs_absent" {
 
     Check the schedules still exist and are ENABLED:
       aws scheduler list-schedules --name-prefix ${local.name_prefix}
+  
+  Runbook: monitoring/runbooks/scheduled-jobs-not-running.md
   EOT
 
   namespace   = "AWS/Lambda"

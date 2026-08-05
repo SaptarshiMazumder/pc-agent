@@ -16,6 +16,7 @@ from __future__ import annotations
 from agent_runtime.application.interfaces.tool import OnUpdate, Tool, ToolResult
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant
+from agent_runtime.infrastructure.tools.sandbox import stdout_capture
 
 
 class LocalPluginSandbox:
@@ -47,4 +48,12 @@ class LocalPluginSandbox:
                 is_error=True,
             )
         # Passthrough. A future backend runs this inside an isolated runtime and enforces `grant`.
-        return await tool.execute(tool_call_id, params, abort, on_update)
+        #
+        # The ONE thing this backend does enforce is stdout (5.4). An in-process plugin's `print`
+        # goes to the same stdout as our EMF lines, so without this its output reaches CloudWatch
+        # raw — outside the redaction allowlist entirely, because the allowlist was never in that
+        # path. Captured, scrubbed, capped and re-emitted tagged with the plugin id.
+        if not stdout_capture.enabled():
+            return await tool.execute(tool_call_id, params, abort, on_update)
+        with stdout_capture.capture(plugin_id, tool_name):
+            return await tool.execute(tool_call_id, params, abort, on_update)

@@ -55,6 +55,9 @@ function cspAllowApiOrigins(): Plugin {
   }
   add(process.env.VITE_AGENTD_ACCOUNTS_URL)
   add(process.env.VITE_AGENTD_URL)
+  // RUM posts here. Without this the CSP blocks every report on a hosted build, and the only
+  // symptom is a permanently empty dashboard — the failure mode this whole plugin exists for.
+  add(process.env.VITE_AGENTD_INGEST_URL)
   const hosts = Array.from(origins).join(' ')
   return {
     name: 'agentd-csp-allow-api-origins',

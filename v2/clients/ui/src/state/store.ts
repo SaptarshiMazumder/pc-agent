@@ -27,6 +27,7 @@ import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth
 import { getMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform } from '../lib/platform'
+import { reportReconnect, reportRun } from '../lib/rum'
 
 export type ChatItem = (
   | { kind: 'user'; text: string }
@@ -406,7 +407,17 @@ export const useApp = create<AppState>((set, get) => {
     }))
   }
 
+  // PERCEIVED first-token latency (RUM 5.3): from pressing send to the first character the user
+  // can actually read. Not the same number the proxy reports — that one excludes queueing, the
+  // WebSocket hop and the render, which is most of what a slow reply feels like. Assistant text
+  // only: a wall of thinking tokens is not an answer arriving.
+  let runStartedAt = 0
+  let firstTokenMs = 0
+
   function appendStreaming(sessionKey: string, kind: 'assistant' | 'thinking', delta: string, ts: number): void {
+    if (kind === 'assistant' && runStartedAt && !firstTokenMs) {
+      firstTokenMs = Date.now() - runStartedAt
+    }
     patchSession(sessionKey, (session) => {
       const items = [...session.items]
       const last = items[items.length - 1]
@@ -519,6 +530,9 @@ export const useApp = create<AppState>((set, get) => {
         break
       case 'agent_end': {
         const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
+        reportRun(error ? 'error' : String(event.stopReason || 'ok'), firstTokenMs)
+        runStartedAt = 0
+        firstTokenMs = 0
         patchSession(sessionKey, (session) => {
           const items = error
             ? [...session.items, { kind: 'system' as const, tone: 'error' as const, text: error, ts }]
@@ -756,6 +770,10 @@ export const useApp = create<AppState>((set, get) => {
       }))
     })
     gateway.onStatus((status) => {
+      // A reconnect is invisible server-side — each one arrives looking like a normal new
+      // connection — so a client dropping every ninety seconds on bad wifi produces no symptom
+      // anywhere except the user's frustration. Counted here, once per reopen, never on the first.
+      if (status === 'open' && get().connection === 'closed') reportReconnect()
       set({ connection: status })
       if (status === 'open') void handshake()
     })
@@ -1264,6 +1282,8 @@ export const useApp = create<AppState>((set, get) => {
 
     async sendMessage(text, attachments) {
       const { currentSessionKey, currentAgentId, currentProjectId } = get()
+      runStartedAt = Date.now()
+      firstTokenMs = 0
       patchSession(currentSessionKey, (session) => ({
         items: [...session.items, { kind: 'user', text, ts: Date.now() }],
         running: true

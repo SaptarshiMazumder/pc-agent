@@ -495,6 +495,7 @@ EXPOSED_CONFIG_KEYS = (
     "scratch_ttl_hours",
     "context_max_messages",
     "event_log_enabled",
+    "diagnostics_upload",
     "parallel_search_enabled",
     "google_account",
     "public_url",
@@ -534,6 +535,7 @@ EXPOSED_KEY_ENV = {
     "execution_contract": "AGENTD_EXECUTION_CONTRACT",
     "subagents_enabled": "AGENTD_SUBAGENTS",
     "subagent_max_depth": "AGENTD_SUBAGENT_MAX_DEPTH",
+    "diagnostics_upload": "AGENTD_DIAGNOSTICS_UPLOAD",
     "memory_enabled": "AGENTD_MEMORY",
     "memory_auto_recall": "AGENTD_MEMORY_AUTO_RECALL",
     "memory_auto_recall_limit": "AGENTD_MEMORY_AUTO_RECALL_LIMIT",
@@ -3612,6 +3614,13 @@ class Gateway:
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,
+            # Diagnostics (5.1). `available` is what the settings UI gates the toggle on: a build
+            # with no ingest endpoint must not offer to send anywhere, and "we couldn't send it"
+            # is a worse answer than never having asked.
+            "diagnostics": {
+                "available": bool(telemetry.resolve_ingest_url(self.config)),
+                **telemetry.upload_status(),
+            },
         }
 
     def _platform_connect(self, params: dict) -> dict:
@@ -3638,6 +3647,12 @@ class Gateway:
             },
         )
         model_proxy.configure(self.config)
+        # Sign-in success/failure is itself a signal we are blind to today: a desktop that cannot
+        # bind to its account produces no proxy traffic, which looks identical to an idle user.
+        telemetry.count("platform_connect_total", outcome="ok")
+        # The same token identifies diagnostics, so an opted-in user's reports stop being
+        # anonymous the moment they sign in. Only reaches the wire if they opted in.
+        telemetry.apply_diagnostics(self.config, token=token)
         return self._platform_status()
 
     def _platform_disconnect(self) -> dict:
@@ -3650,6 +3665,9 @@ class Gateway:
             env_path, {"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""}
         )
         model_proxy.configure(self.config)
+        # Drop the identity from queued diagnostics too: after sign-out this machine's reports
+        # must not still carry the account id of whoever was signed in.
+        telemetry.apply_diagnostics(self.config, token="")
         return self._platform_status()
 
     def _platform_set_model_proxy_url(self, params: dict) -> dict:
@@ -3834,6 +3852,11 @@ class Gateway:
                         setattr(self.config, k, v)
                 except Exception:  # noqa: BLE001 — a bad value never crashes the save
                     pass
+            if "diagnostics_upload" in clean:
+                # CONSENT MUST TAKE EFFECT NOW, not on the next restart. Everything else here is
+                # allowed to be "restart recommended"; a switch that says diagnostics are off
+                # while they are still being sent is not a stale setting, it is a false statement.
+                telemetry.apply_diagnostics(self.config)
             result.update(saved=True, path=path, restartRecommended=True)
 
         # (c) provider keys -> the .env next to the config file.

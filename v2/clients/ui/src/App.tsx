@@ -16,6 +16,7 @@ import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useMode } from './lib/mode'
 import { isDesktop } from './lib/platform'
+import { installRum } from './lib/rum'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
 
@@ -48,6 +49,10 @@ export default function App() {
 
   // app-wide soft scroll edges: auto-applies the fade to every scroll container (any page)
   useEffect(() => installSoftScroll(), [])
+
+  // Browser RUM (5.3). No-op on desktop (the daemon's opt-in uploader owns that surface) and on
+  // any build without an ingest URL, so this line costs nothing where it does not apply.
+  useEffect(() => installRum(), [])
 
   // Desktop startup gate: pick Local or Cloud first.
   if (isDesktop && !mode) return <Launcher />

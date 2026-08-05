@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 
 if sys.platform == "win32":
     # Must be set before any event loop is created (Playwright + asyncio subprocesses
@@ -37,7 +38,17 @@ def main() -> None:
 
     ensure_onboarded()
     config = load_config()
+    # DIAGNOSTICS (plan 5.1). Inert unless the user opted in AND the build has somewhere to send
+    # them. Applied before build_gateway so a crash during startup is still reported.
+    telemetry.apply_diagnostics(config)
+    _started = time.perf_counter()
     gateway = build_gateway(config)
+    # "The daemon started" is the signal v0.1.0 did not have: a broken embedded runtime produced
+    # no traffic anywhere, so the failure was indistinguishable from nobody using the product.
+    # Emitted after the composition root, because a daemon that cannot build its gateway has not
+    # started in any sense a user would recognise.
+    telemetry.timing("daemon_start_ms", (time.perf_counter() - _started) * 1000, outcome="ok")
+    telemetry.count("daemon_start_total", outcome="ok")
     try:
         asyncio.run(gateway.serve())
     except KeyboardInterrupt:

@@ -31,6 +31,14 @@ ALLOWED: set[str] = {
     # names that are unbounded but SAFE (they are identifiers, not user content).
     # These live in properties, never in dimensions — see emf.metric_record.
     "tool", "event", "message",
+    # The ONE deliberate exception to "identifiers only": text a third-party plugin printed to
+    # stdout inside our process. It is admitted here because the alternative is worse, not
+    # because it is safe — without capture that same text reaches CloudWatch RAW, having never
+    # passed through this module at all (the allowlist was never in `print`'s path). By the time
+    # it arrives it has been secret-masked, line-capped and size-capped by
+    # agent_runtime/infrastructure/tools/sandbox/stdout_capture.py, and it is tagged with the
+    # plugin that produced it. Never populate this field from our own code.
+    "plugin_output",
 }
 
 _EXTRA = {

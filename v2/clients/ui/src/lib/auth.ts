@@ -162,6 +162,130 @@ export async function fetchCredits(agentId = ''): Promise<Credits | null> {
   }
 }
 
+// --------------------------------------------------------------------------- buying credits
+
+/** One thing on the shelf. Shaped by the server's `products` row, never by the client. */
+export type CreditPack = {
+  id: string
+  kind: string
+  title: string
+  priceUsd: number
+  credits: number
+  modelTierMax: string
+  periodDays: number
+}
+
+export type Catalog = {
+  packs: CreditPack[]
+  /** Which payment rail is configured. For display only — never branch behaviour on it. */
+  provider: string
+  /** The rail's own sentence about what confirming will do ("no card is charged", or later the
+   *  real thing). Rendered verbatim so swapping the rail rewrites the disclosure itself. */
+  paymentNote: string
+}
+
+function toPack(d: Record<string, unknown>): CreditPack {
+  return {
+    id: String(d.id || ''),
+    kind: String(d.kind || ''),
+    title: String(d.title || ''),
+    priceUsd: Number(d.price_usd || 0),
+    credits: Number(d.credits || 0),
+    modelTierMax: String(d.model_tier_max || ''),
+    periodDays: Number(d.period_days || 0)
+  }
+}
+
+/**
+ * What is for sale. PUBLIC — no token, because a store has to be browsable before you sign in.
+ *
+ * The shelf is asked for by `kind`, so a new kind of product (an agent subscription, a seat)
+ * does not silently appear in the buy-credits dialog.
+ */
+export async function fetchCatalog(kind = 'credit_pack'): Promise<Catalog | null> {
+  if (!isAccountsMode()) return null
+  try {
+    const r = await fetch(`${accountsUrl()}/products?kind=${encodeURIComponent(kind)}`)
+    if (!r.ok) return null
+    const d = (await r.json()) as { products?: Record<string, unknown>[]; provider?: string; payment_note?: string }
+    return {
+      packs: (d.products || []).map(toPack),
+      provider: String(d.provider || ''),
+      paymentNote: String(d.payment_note || '')
+    }
+  } catch {
+    return null
+  }
+}
+
+export type Purchase = {
+  ok: boolean
+  replayed: boolean
+  credits: number
+  priceUsd: number
+  creditsRemaining: number
+  /** The rail's own account of what it did — shown as-is on the receipt line. */
+  paymentDetail: string
+}
+
+/**
+ * Buy one thing from the catalogue as the signed-in account.
+ *
+ * SENDS ONLY A product_id. Price and credit count come from the server's row — a client that
+ * could name its own price could mint itself a fortune, so there is deliberately no parameter
+ * for either here.
+ *
+ * The idempotency key is minted PER CALL (one per button press), so a retry after a lost
+ * response returns the original purchase instead of buying a second pack. Unlike the other
+ * helpers this THROWS on failure: a silent null is right for a balance you are decorating a
+ * screen with, and wrong for a purchase the user is waiting on.
+ */
+export async function purchase(productId: string): Promise<Purchase> {
+  const s = getSession()
+  if (!s || !isAccountsMode()) throw new Error('sign in to buy credits')
+  const r = await fetch(`${accountsUrl()}/me/purchase`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id: productId, idempotency_key: newIdempotencyKey() })
+  })
+  const d = (await r.json().catch(() => ({}))) as Record<string, unknown>
+  if (!r.ok) throw new Error(String(d.detail || `purchase failed (HTTP ${r.status})`))
+  notifyCreditsChanged()
+  const payment = (d.payment || {}) as Record<string, unknown>
+  return {
+    ok: true,
+    replayed: d.replayed === true,
+    credits: Number(d.credits || 0),
+    priceUsd: Number(d.price_usd || 0),
+    creditsRemaining: Number(d.credits_remaining || 0),
+    paymentDetail: String(payment.detail || '')
+  }
+}
+
+/** crypto.randomUUID is unavailable on insecure origins (the HTTP-only dev ALB), so fall back
+ *  rather than throwing on the one platform we actually test against today. */
+function newIdempotencyKey(): string {
+  const c = globalThis.crypto
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+// A balance can change without this tab doing anything that re-renders it: a purchase on the
+// Credits page must move the chip in the composer. One tiny bus, rather than every consumer
+// polling — polling a money endpoint on a timer is a cost we would pay forever.
+const creditListeners = new Set<() => void>()
+
+/** Subscribe to "the balance probably changed"; returns an unsubscribe. */
+export function onCreditsChanged(cb: () => void): () => void {
+  creditListeners.add(cb)
+  return () => creditListeners.delete(cb)
+}
+
+/** Announce a balance change. Called by `purchase`; safe to call after any known debit. */
+export function notifyCreditsChanged(): void {
+  creditListeners.forEach((l) => l())
+}
+
 /** React hook: the current session (re-renders on sign-in/out). */
 export function useAuthSession(): Session | null {
   return useSyncExternalStore(

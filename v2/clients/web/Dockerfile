@@ -32,8 +32,12 @@ COPY ui/ ui/
 COPY web/ web/
 ARG VITE_AGENTD_ACCOUNTS_URL
 ARG VITE_AGENTD_URL
+# Optional: unset leaves the browser RUM reporter inert (no listeners, no socket), which is the
+# right behaviour for an environment that has no ingest service.
+ARG VITE_AGENTD_INGEST_URL
 ENV VITE_AGENTD_ACCOUNTS_URL=$VITE_AGENTD_ACCOUNTS_URL \
-    VITE_AGENTD_URL=$VITE_AGENTD_URL
+    VITE_AGENTD_URL=$VITE_AGENTD_URL \
+    VITE_AGENTD_INGEST_URL=$VITE_AGENTD_INGEST_URL
 RUN npm run build -w agentd-web   # -> web/dist/
 
 # --- serve stage ---------------------------------------------------------------
