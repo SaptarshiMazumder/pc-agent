@@ -118,7 +118,7 @@ python -m venv .venv
 
 
 ```Bash
-.venv/Scripts/python.exe -m agentd
+ ./.venv/Scripts/python.exe -m agent_runtime.cli.main chat --agent agent-builder
 
 cd v2/client/desktop
 npx electron-vite dev

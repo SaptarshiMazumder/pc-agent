@@ -1,0 +1,12 @@
+name = "Inbox Triage"
+version = "1.0.0"
+heartbeat = "1h"
+description = "Watches your inbox and summarizes emails that need a reply, on a schedule or on demand."
+
+[app]
+title = "Inbox Triage"
+mode = "window"
+entry = "ui/index.html"
+
+[capabilities]
+autonomy = true

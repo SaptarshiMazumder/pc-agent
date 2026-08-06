@@ -52,7 +52,11 @@ dependencies = [
 
 [project.optional-dependencies]
 computer = ["pyautogui>=0.9.54", "Pillow>=10"]   # computer-use tool (AGENTD_COMPUTER_ENABLED=1)
-mcp = ["mcp>=1.0"]                                # external MCP connectors
+# external MCP connectors. `mcp` is the CLIENT SDK; `uv` is the LAUNCHER — stdio MCP plugins
+# declare commands like ["uvx", "workspace-mcp", …], so without it every such plugin dies at
+# connect time with a bare "file not found". It was already installed explicitly in the Docker
+# image and nowhere else, which is how the container had Gmail and the desktop exe did not.
+mcp = ["mcp>=1.0", "uv>=0.5"]
 # figure vectorization (extract_annotations + trace_image backends). The tools load without these
 # and return actionable install errors — install this extra to enable the extraction route.
 figures-vector = [

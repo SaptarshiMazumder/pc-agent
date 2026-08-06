@@ -154,6 +154,35 @@ def packaged_starter_agents_dir() -> Path:
     return PACKAGED_DATA_DIR / "agents"
 
 
+def launcher_path(base: str | None = None) -> str:
+    """The PATH a CHILD PROCESS of agentd should get: this interpreter's script directory
+    first, then everything already there.
+
+    Stdio MCP plugins name their launcher as a bare command (``uvx``, ``npx``). Those are
+    declared as dependencies and pip-installed alongside agentd — which puts them in
+    ``<prefix>/Scripts`` (Windows) or ``<prefix>/bin`` (POSIX). Neither is added to PATH just
+    by RUNNING that interpreter, so in a packaged install the launcher sits on disk, correctly
+    installed, and resolves to nothing.
+
+    ONE definition, because two places need the same answer and they must not disagree: the
+    plugin-compatibility gate (`[requires] bins`) decides whether to load a plugin, and the
+    subprocess spawner decides where to find its command. When those used different PATHs, a
+    declared-and-installed launcher could be judged missing and the plugin skipped.
+    """
+    import sys
+    import sysconfig
+
+    current = os.environ.get("PATH", "") if base is None else base
+    scripts = sysconfig.get_path("scripts")
+    known = current.split(os.pathsep)
+    extra = [
+        d
+        for d in (scripts, os.path.dirname(sys.executable))
+        if d and os.path.isdir(d) and d not in known
+    ]
+    return os.pathsep.join([*extra, current]) if extra else current
+
+
 def ensure_user_layout() -> Path:
     """Create the ~/.agentd skeleton (idempotent). Returns the home dir."""
     home = user_home()

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inbox Triage</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Inbox Triage</h1>
+            <p>Your executive assistant for emails.</p>
+        </header>
+
+        <main>
+            <section class="card">
+                <h2>Manual Trigger</h2>
+                <p>Run the triage now to see what needs your attention.</p>
+                <button id="run-now-btn" class="primary-btn">Run Inbox Triage Now</button>
+            </section>
+
+            <section class="card">
+                <h2>Schedule</h2>
+                <p>Set a daily time for the agent to check your inbox automatically.</p>
+                <div class="form-group">
+                    <input type="time" id="schedule-time" value="08:00">
+                    <button id="save-schedule-btn">Save Schedule</button>
+                </div>
+            </section>
+
+            <section class="status">
+                <h3>Agent Status</h3>
+                <div id="log">Waiting for action...</div>
+            </section>
+        </main>
+    </div>
+
+    <script src="vendor/agentd-client.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
