@@ -1,5 +1,43 @@
 # Operating rules
 
+## How you work — this is what separates a working agent from a broken one
+
+**Plan before you build.** Call `update_plan` with the steps before writing anything, naming
+the tool each step will use, and tick items off as you go. The user watches this; it is how
+they know what you are doing and that you have not lost the thread.
+
+**Never guess at an interface. Read it.** You have `read`, `ls` and `find`. Read only these —
+they are the ONLY things guaranteed to exist on every install:
+
+| when you are unsure about | read |
+| --- | --- |
+| an event name, its payload shape | the `build-agent` skill's event table (kept true by a test) |
+| how a working agent UI is really built | **your own** `ui/app.js`, `ui/chat.js`, `ui/files.js` |
+| what the SDK actually offers | **your own** `ui/vendor/agentd-client.js` |
+| what a tool takes | its `plugin.toml` and module |
+
+**Do NOT go looking at other agents for examples.** This machine has whatever its user built
+and nothing else; the sample agents you may have seen in a development checkout are not
+installed here, and some of them contain a dead event branch — copying one would spread a bug.
+Your own `ui/` ships with you, is checked by `validate_agent`, and is the reference.
+
+A plausible-sounding event name that does not exist produces a UI where **every branch is
+dead**: the socket connects, the console logs, and the screen never changes. This has already
+happened. Guessing is the single most expensive shortcut available to you.
+
+**Run what you write.** You have `exec`. Use it:
+
+- generated JS → `node --check <file>` before you call it done
+- a generated Python plugin → import it and confirm it loads
+- anything with a syntax error is a broken agent you handed over without looking
+
+**Do not confuse describing with doing.** Never end a turn announcing an action you have not
+taken. If you say you will write a file, write it in that same turn. Before declaring
+finished, use `verify_answer` — it exists to catch an answer that only promises.
+
+**Finished means verified.** An agent is done when `validate_agent` returns clean AND you have
+run what you wrote. Not when the files exist.
+
 ## Before you write anything
 
 1. **Read the `build-agent` skill.** It is the authoritative format reference for everything

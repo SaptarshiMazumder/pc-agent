@@ -23,6 +23,75 @@ window.Chat = (function () {
   let frame = 0
   const tools = new Map()  // toolCallId -> its row
 
+  // ── attachments ───────────────────────────────────────────────────────────
+  // Screenshots are how you show an agent what is wrong with an agent, so this window needs
+  // them. Three routes, because people reach for all three: paste, drag-drop, and a button.
+  const MAX_FILES = 10
+  let pending = []   // [{name, mimeType, dataBase64}]
+
+  /** A clipboard image usually has no usable filename ('' or no extension). The daemon then
+   *  stores it as literally "attachment", which — having no extension — is not classified as
+   *  an image, so a vision model never receives it as one. Name it from its mime type. */
+  function fileName(f) {
+    if (f.name && f.name.includes('.')) return f.name
+    const ext = ((f.type.split('/')[1] || 'bin').split('+')[0]).replace(/[^a-z0-9]/gi, '')
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    return `${f.name || 'pasted'}-${stamp}.${ext}`
+  }
+
+  function readFile(f) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve({
+        name: fileName(f),
+        mimeType: f.type || 'application/octet-stream',
+        dataBase64: String(r.result).split(',')[1] || '',
+      })
+      r.onerror = () => reject(r.error)
+      r.readAsDataURL(f)
+    })
+  }
+
+  async function addFiles(list) {
+    const files = Array.from(list || [])
+    if (!files.length) return
+    const room = MAX_FILES - pending.length
+    if (room <= 0) return
+    pending = pending.concat(await Promise.all(files.slice(0, room).map(readFile)))
+    drawAttachments()
+  }
+
+  function drawAttachments() {
+    const box = $('attachments')
+    box.textContent = ''
+    box.hidden = !pending.length
+    pending.forEach((a, i) => {
+      const chip = document.createElement('span')
+      chip.className = 'chip-file'
+      if (a.mimeType.startsWith('image/')) {
+        const img = document.createElement('img')
+        img.src = `data:${a.mimeType};base64,${a.dataBase64}`
+        img.alt = a.name
+        chip.append(img)
+      }
+      chip.append(text('span', 'chip-name', a.name))
+      const x = document.createElement('button')
+      x.className = 'chip-x'
+      x.textContent = '✕'
+      x.title = 'Remove'
+      x.addEventListener('click', () => { pending.splice(i, 1); drawAttachments() })
+      chip.append(x)
+      box.append(chip)
+    })
+  }
+
+  function text(tag, cls, value) {
+    const n = document.createElement(tag)
+    n.className = cls
+    n.textContent = value
+    return n
+  }
+
   // ── autoscroll that respects the reader ────────────────────────────────────
   let stick = true
   function nearBottom() {
@@ -49,6 +118,64 @@ window.Chat = (function () {
     })
     $('send').addEventListener('click', () => (running ? abort() : send()))
     $('newChat').addEventListener('click', reset)
+
+    // paste: `files` covers a copied FILE, but a copied IMAGE (screenshot tool, "copy image")
+    // can arrive ONLY in `items` with `files` empty — read both or pasting a screenshot
+    // silently does nothing. A plain text paste falls through untouched.
+    input.addEventListener('paste', (e) => {
+      const dt = e.clipboardData
+      if (!dt) return
+      const fromItems = Array.from(dt.items || [])
+        .filter((it) => it.kind === 'file')
+        .map((it) => it.getAsFile())
+        .filter(Boolean)
+      const files = dt.files && dt.files.length ? Array.from(dt.files) : fromItems
+      if (!files.length) return
+      e.preventDefault()
+      void addFiles(files)
+    })
+
+    // Drop a file anywhere in the window to attach it.
+    //
+    // No overlay. The only feedback is a tint on the composer's own border, cleared by a
+    // self-expiring timer — `dragover` fires continuously while a drag is live, so "no
+    // dragover recently" reliably means it ended, however it ended. Counting
+    // dragenter/dragleave instead looks correct and is not: they fire per child element, and
+    // a drop landing outside the counted subtree never decrements.
+    const DRAG_IDLE_MS = 700
+    const hasFiles = (dt) => !!dt && Array.from(dt.types || []).includes('Files')
+    let dragTimer = null
+    const dragOff = () => {
+      clearTimeout(dragTimer)
+      dragTimer = null
+      $('composer').classList.remove('drag')
+    }
+    const dragOn = () => {
+      $('composer').classList.add('drag')
+      clearTimeout(dragTimer)
+      dragTimer = setTimeout(dragOff, DRAG_IDLE_MS)
+    }
+
+    // Window level, not a zone: preventDefault is REQUIRED or Electron navigates the whole
+    // window to the dropped file:// URL and the UI is replaced by the image.
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e.dataTransfer)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      dragOn()
+    })
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e.dataTransfer)) return
+      e.preventDefault()
+      dragOff()
+      void addFiles(e.dataTransfer.files)
+    })
+    window.addEventListener('dragend', dragOff)
+    window.addEventListener('blur', dragOff)
+
+    const picker = $('filePicker')
+    $('attach').addEventListener('click', () => picker.click())
+    picker.addEventListener('change', () => { void addFiles(picker.files); picker.value = '' })
 
     client.on('chat.event', (p) => {
       if (p.sessionKey === sessionKey) handle(p.event || {})
@@ -130,6 +257,25 @@ window.Chat = (function () {
     if (h) h.remove()
   }
 
+  /** What the user just attached, shown on their own bubble — an image as a thumbnail so
+   *  they can see WHICH screenshot they sent, anything else as a named chip. */
+  function userAttachments(atts) {
+    const box = document.createElement('div')
+    box.className = 'msg-files'
+    for (const a of atts) {
+      if (a.mimeType.startsWith('image/')) {
+        const img = document.createElement('img')
+        img.src = `data:${a.mimeType};base64,${a.dataBase64}`
+        img.alt = a.name
+        img.title = a.name
+        box.append(img)
+      } else {
+        box.append(text('span', 'chip-file', a.name))
+      }
+    }
+    return box
+  }
+
   function bubble(role) {
     const wrap = document.createElement('div')
     wrap.className = `msg ${role}`
@@ -145,10 +291,16 @@ window.Chat = (function () {
 
   async function send() {
     const input = $('input')
-    const text = input.value.trim()
-    if (!text || running) return
+    const body = input.value.trim()
+    // a message may be attachments-only — the daemon accepts that, so don't require text
+    if ((!body && !pending.length) || running) return
     dropHero()
-    bubble('user').textContent = text
+    const b = bubble('user')
+    if (body) b.textContent = body
+    if (pending.length) b.append(userAttachments(pending))
+    const sending = pending
+    pending = []
+    drawAttachments()
     input.value = ''
     input.style.height = 'auto'
     stick = true
@@ -158,7 +310,11 @@ window.Chat = (function () {
     setSending(true)
     try {
       // `message`, not `text` — chat.send reads params.message and rejects an empty one.
-      await client.send({ sessionKey, message: text })
+      await client.send({
+        sessionKey,
+        message: body,
+        ...(sending.length ? { attachments: sending } : {}),
+      })
     } catch (e) {
       running = false
       setSending(false)

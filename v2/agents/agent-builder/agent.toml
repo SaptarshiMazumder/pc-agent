@@ -25,11 +25,26 @@ mode = "window"
 entry = "ui/index.html"
 public = false
 
-# The SHARED tools this agent may reach — and nothing else. No shell, no browser, no web:
-# building an agent is a filesystem job.
+# The SHARED tools this agent may reach.
 #
-# Its OWN tools (create_agent, create_tool, validate_agent, reload_agent — from
-# plugins/agent-authoring/ below) are deliberately absent: an agent's private tools are
+# This list once read "no shell, no browser, no web: building an agent is a filesystem job",
+# which optimised for least privilege and removed the two abilities that most separate good
+# agent output from bad — PLANNING and VERIFYING. An agent that cannot run what it wrote
+# cannot discover that it was wrong, so it shipped a UI whose every event branch was dead.
+#   update_plan   keep a live checklist while building (the user watches it tick over)
+#   exec          RUN what was written: node --check on generated JS, import a new plugin
+#   verify_answer self-review before declaring done — it catches, in its own words, "an
+#                 answer that only promises instead of delivering"
+#
+# `exec` is not a new risk class here: this agent already has unsandboxed `write` (any path)
+# and `create_tool`, which writes Python AND hot-loads it into the running process. It could
+# always execute arbitrary code — it just could not check its own work first.
+#
+# Its OWN tools (create_agent, create_tool, validate_agent, reload_agent, package_agent —
+# from plugins/agent-authoring/ below) are deliberately absent: an agent's private tools are
 # IMPLICITLY allowed and never need naming here. That is also why `main` cannot call them.
 [tools]
-allow = ["read", "write", "edit", "ls", "find", "skill_workshop"]
+allow = [
+  "read", "write", "edit", "ls", "find", "skill_workshop",
+  "update_plan", "exec", "verify_answer",
+]

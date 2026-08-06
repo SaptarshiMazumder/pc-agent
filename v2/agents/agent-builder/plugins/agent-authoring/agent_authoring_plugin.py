@@ -56,12 +56,27 @@ def register(api, ctx):
         log.info("agent-authoring: no live-reload handle — create_tool not registered")
 
     # --- CHECK ----------------------------------------------------------------------
+    # The UI rules are told the real vocabulary rather than keeping their own copy: event
+    # names from the runtime's domain, callable methods from the gateway's app tier. A second
+    # copy would be one more thing to drift — which is the exact class of bug they exist to
+    # catch (a skill that listed an event nobody emits produced a UI with every branch dead).
+    from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
+
+    from agent_authoring.domain.ui_rules import UiRules
+
     reader = AgentDirReader(registry)
     validator = ValidateAgentService(
         reader,
         AgentLayoutRules(),
         PackageabilityRules(),
         SandboxRules(),
+        UiRules(
+            events=APP_FACING_EVENTS,
+            kinds=MESSAGE_UPDATE_KINDS,
+            methods=frozenset(APP_SCOPED_METHODS),
+            sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
+        ),
     )
     api.register_tool(ValidateAgentTool(validator))
 

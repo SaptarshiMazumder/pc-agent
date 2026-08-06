@@ -67,11 +67,21 @@ class AgentDirReader:
         return sorted(out)
 
     def sources(self, agent_dir: Path, files: list[str]) -> dict:
-        """Text of every private-plugin .py, for the sandbox source scan. Unreadable files are
-        skipped — a scan is best-effort guidance, never a gate."""
+        """Text of the agent's own CODE, for the rules that read it:
+
+            plugins/**/*.py   the sandbox source scan (secrets / network reach)
+            ui/**/*.js        the app checks (event shapes, callable methods)
+
+        The vendored SDK under ui/vendor/ is included — the UI rules skip it themselves, and
+        reading it is how a check could later confirm which methods really exist.
+
+        Unreadable or oversized files are skipped: a source scan is guidance, never a gate."""
         out: dict[str, str] = {}
         for rel in files:
-            if not (rel.startswith("plugins/") and rel.endswith(".py")):
+            wanted = (rel.startswith("plugins/") and rel.endswith(".py")) or (
+                rel.startswith("ui/") and rel.endswith(".js")
+            )
+            if not wanted:
                 continue
             p = agent_dir / rel
             try:

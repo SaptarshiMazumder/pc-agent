@@ -71,11 +71,14 @@
 
         <div class="composer-wrap">
           <div class="composer glass" id="composer">
+            <div class="attachments" id="attachments" hidden></div>
             <textarea id="input" rows="1" placeholder="Describe the agent you want…"></textarea>
             <div class="composer-foot">
-              <span class="hint" id="hint">Enter to send · Shift+Enter for a new line</span>
+              <button class="attach-btn" id="attach" title="Attach files">+</button>
+              <span class="hint" id="hint">Enter to send · Shift+Enter for a new line · paste or drop images</span>
               <button class="send" id="send" title="Send">↑</button>
             </div>
+            <input type="file" id="filePicker" multiple hidden />
           </div>
         </div>
       </section>

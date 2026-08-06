@@ -17,11 +17,14 @@ from ..domain.report import Report
 
 
 class ValidateAgentService:
-    def __init__(self, reader, layout_rules, packageability_rules, sandbox_rules):
+    def __init__(self, reader, layout_rules, packageability_rules, sandbox_rules, ui_rules=None):
         self._reader = reader
         self._layout = layout_rules
         self._packageability = packageability_rules
         self._sandbox = sandbox_rules
+        # Optional so the service still constructs where the runtime's event/method vocabulary
+        # is not available to inject (unit tests). Absent => the app code simply is not read.
+        self._ui = ui_rules
 
     def validate(self, agent_id: str) -> Report:
         agent_id = (agent_id or "").strip()
@@ -66,9 +69,12 @@ class ValidateAgentService:
             )
 
         findings: list[Finding] = []
+        sources = self._reader.sources(agent_dir, files)  # read once, shared by every rule
         findings += self._layout.check(spec, raw, files)
         findings += self._packageability.check(spec, raw, files)
-        findings += self._sandbox.check(spec, raw, files, self._reader.sources(agent_dir, files))
+        findings += self._sandbox.check(spec, raw, files, sources)
+        if self._ui is not None:
+            findings += self._ui.check(spec, raw, files, sources)
         return Report(agent_id=agent_id, findings=tuple(findings))
 
     @staticmethod

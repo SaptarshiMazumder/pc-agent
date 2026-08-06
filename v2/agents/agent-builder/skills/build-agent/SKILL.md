@@ -283,19 +283,100 @@ ui/
 const client = agentd.fromPage({ clientName: 'my-app/1' })
 
 client.onStatus((s) => { /* 'connecting' | 'open' | 'closed' */ })
-client.onRun(sessionKey, (payload) => { /* stream events for one session */ })
 await client.send({ message, sessionKey, agentId: 'my-agent' })
 await client.abort(sessionKey)
 const { sessions } = await client.sessions('my-agent')
+const { messages } = await client.history(sessionKey, 'my-agent')
+const res = await client.invokeTool('my_tool', { arg: 1 })
 const url = client.fileUrl(artifactPath)   // authenticated URL for an artifact
 ```
 
-Useful `chat.event` types: `message_delta`, `message_end`, `tool_execution_start`,
-`tool_execution_end`, `agent_end`.
+### Reading run events — THE PAYLOAD IS NESTED
 
-A scoped app connection may only call the STABLE tier — `chat.*`, `sessions.*`, `tools.*`,
-`agents.*`, `workspace.*`, `notifications.*`. **`config.get` / `config.set` are denied.**
-Do not build a settings screen; configuration belongs to the host client.
+`onRun` / `onAgent` hand you the whole `chat.event` push, not the event itself. The type you
+switch on lives one level down, in `.event`:
+
+```js
+client.onRun(sessionKey, (payload) => {
+  // payload = { sessionKey, runId, agentId, ts, event: { type, ... } }
+  const ev = payload.event                    // <-- NOT payload.type
+  switch (ev.type) {
+    case 'message_update':
+      if (ev.kind === 'text_delta') append(ev.delta)
+      else if (ev.kind === 'thinking_delta') showThinking(ev.delta)
+      break
+    case 'tool_execution_start': startRow(ev.toolCallId, ev.toolName, ev.args); break
+    case 'tool_execution_end':   endRow(ev.toolCallId, ev.isError); break
+    case 'agent_end':            done(ev.stopReason, ev.error); break
+  }
+})
+```
+
+Reading `payload.type` is the single most common way an agent UI ends up silently doing
+nothing: every branch misses, the socket is fine, and the screen never updates.
+
+### The events, and what each carries
+
+Only these are part of the app contract. Anything not listed is internal and may change.
+
+```text agentd:events
+message_update       {kind: "text_delta"|"thinking_delta"|"toolcall", delta | toolCall}
+tool_execution_start {toolCallId, toolName, args}
+tool_progress        {toolCallId, toolName, text}
+tool_execution_end   {toolCallId, toolName, result, isError}
+message_end          {message}
+model_fallback       {from, to, reason}
+model_trace          {step, model, requestedModel, tokensIn, tokensOut, tokensCached}
+continuation         {reason, attempt}
+turn_start           {}
+turn_end             {}
+agent_start          {}
+agent_end            {stopReason, error?}
+```
+
+Three that are easy to get wrong:
+
+- **`turn_end` is NOT the end of the run.** One run has many turns — answer, call a tool,
+  answer again. Settle the current bubble on `turn_end`; only go idle on **`agent_end`**.
+- **`agent_end` carries the verdict.** `stopReason: "no_output"` means the run finished with
+  nothing to show, and `error` explains why. Render it — a silent end looks like a hang.
+- **`model_fallback` means the user is not talking to the model they configured.** Show it,
+  or a failing primary model looks like your app being broken.
+
+### What an app connection may call
+
+```text agentd:app-methods
+hello
+chat.send
+chat.abort
+sessions.list
+sessions.history
+sessions.rename
+sessions.delete
+agents.list
+agents.detail
+tools.list
+tools.invoke
+capabilities.list
+plugins.catalog
+workspace.list
+workspace.mkdir
+workspace.upload
+workspace.delete
+notifications.list
+notifications.ack
+config.get
+config.set
+platform.status
+platform.connect
+platform.disconnect
+```
+
+`config.get` / `config.set` ARE available, so an agent MAY offer its own settings screen —
+that is how a shipped agent asks its user for their own API key (BYOK). One limit: for an
+agent installed from a package, `config.get` omits the secret-bearing fields (`envValues`,
+`raw`, `path`) — you can see *that* a key is set and write a new one, never read one back.
+Everything else — installs, projects, automation — is host-only and denied.
 
 Plain HTML/CSS/JS needs no build. For React, build into `ui/` with Vite using
 `base: './'` (an absolute base resolves outside `/apps/<id>/` and 404s).

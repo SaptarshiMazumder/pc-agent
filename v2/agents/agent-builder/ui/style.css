@@ -30,6 +30,13 @@
 }
 
 * { box-sizing: border-box; }
+
+/* The `hidden` ATTRIBUTE only works through a user-agent rule that ANY author `display`
+   silently beats. Every element styled with display:flex/grid and toggled via .hidden is
+   therefore permanently visible — which is how a "Drop to attach" overlay ended up covering
+   the transcript from page load, with nothing to do with dragging at all. One rule, so the
+   attribute means what it says everywhere. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 
 body {
@@ -404,6 +411,52 @@ body {
   padding-top: 4px;
 }
 .hint { font-size: 11px; color: var(--faint); }
+
+/* ── attachments ──────────────────────────────────────────────────────────── */
+.attachments {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 2px 2px 8px;
+}
+.chip-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 220px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--hair-2);
+  background: rgba(255,255,255,0.05);
+  font-size: 11.5px;
+}
+.chip-file img {
+  width: 26px; height: 26px; flex: none;
+  object-fit: cover; border-radius: 5px; display: block;
+}
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x {
+  border: 0; background: none; color: var(--faint);
+  cursor: pointer; font-size: 10px; padding: 0 2px; line-height: 1;
+}
+.chip-x:hover { color: var(--bad); }
+
+.attach-btn {
+  width: 26px; height: 26px; flex: none;
+  border-radius: 7px; border: 1px solid var(--hair-2);
+  background: transparent; color: var(--dim);
+  cursor: pointer; font-size: 15px; line-height: 1;
+}
+.attach-btn:hover { border-color: var(--violet); color: var(--text); }
+.composer-foot { gap: 10px; }
+
+/* what the user attached, on their own bubble */
+.msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+.msg-files img {
+  max-width: 220px; max-height: 160px;
+  border-radius: 10px; border: 1px solid var(--hair-2); display: block;
+}
+
+/* Dragging a file over the window just tints the composer's own border. There is no overlay:
+   an element covering the transcript to announce something the user already knows is doing
+   is all cost and no information — and when it stuck, it hid the conversation entirely. */
+.composer.drag { border-color: var(--violet); box-shadow: 0 0 0 3px rgba(139,116,255,0.14); }
 .send {
   width: 30px; height: 30px; flex: none;
   border-radius: 9px; border: 0; cursor: pointer;
