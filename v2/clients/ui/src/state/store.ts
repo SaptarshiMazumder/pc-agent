@@ -72,6 +72,7 @@ export type View =
   | 'projects' // the Projects list page
   | 'project' // one project's detail page (uses currentProjectId)
   | 'agent' // one agent's detail page (uses viewedAgentId)
+  | 'app' // an agent's OWN UI, embedded (uses appAgentId)
 
 /** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
  *  the CURRENT agent's list, so a tab from another agent must remember where it
@@ -287,6 +288,10 @@ interface AppState {
   currentProjectId: string
   /** which agent the agent-detail page (view:'agent') is showing — set by clicking a sidebar agent */
   viewedAgentId: string
+  /** which agent's own UI the embedded app page (view:'app') is showing. Separate from
+   *  viewedAgentId so backing out of an app returns to that agent's page rather than
+   *  whichever agent happened to be browsed last. */
+  appAgentId: string
   projects: ProjectRow[]
   sessions: Record<string, SessionState>
   /** Chrome-style tabs: chats opened this app-session, in tab order */
@@ -335,6 +340,9 @@ interface AppState {
   closeAllTabs(): void
   reorderTabs(from: string, to: string): void
   selectAgent(agentId: string): Promise<void>
+  /** open an agent's OWN UI inside the shell (view:'app'). The agent must advertise `app` on
+   *  the roster; openers that want a separate window keep calling platform.openAppWindow. */
+  openAgentApp(agentId: string): void
   /** open an agent's DETAIL page (view:'agent') — browse its chats/workspace/skills, does NOT
    *  start or switch a chat (that's selectAgent / "New chat with agent" on the page) */
   viewAgent(agentId: string): void
@@ -797,6 +805,7 @@ export const useApp = create<AppState>((set, get) => {
     currentSessionKey: newSessionKey(),
     currentProjectId: '',
     viewedAgentId: '',
+    appAgentId: '',
     projects: [],
     sessions: {},
     composerSeed: null,
@@ -997,6 +1006,12 @@ export const useApp = create<AppState>((set, get) => {
     viewAgent(agentId) {
       // open the agent's detail PAGE — browse only; does NOT switch the chat agent
       set({ view: 'agent', viewedAgentId: agentId })
+    },
+
+    openAgentApp(agentId) {
+      // the agent's OWN UI, embedded. Also sets viewedAgentId so the app page's "Agent" button
+      // (and anything else that backs out) lands on the agent this app belongs to.
+      set({ view: 'app', appAgentId: agentId, viewedAgentId: agentId })
     },
 
     openProject(projectId) {

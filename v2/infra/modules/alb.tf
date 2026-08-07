@@ -71,16 +71,58 @@ resource "aws_lb_target_group" "svc" {
   tags = local.common_tags
 }
 
+locals {
+  # TLS is a per-environment fact, expressed once. Everything below (and outputs.tf) reads this
+  # rather than re-testing the variable, so "is this environment encrypted" has one answer.
+  tls_enabled = var.certificate_arn != ""
+
+  # Which PORT each service listens on publicly. Identical to the container port in every case
+  # but one: with TLS on, `web` moves to 443 so the app has a normal https:// URL with no port in
+  # it, and :80 becomes a redirect (below). The TARGET GROUP still points at the container's own
+  # port — a listener port and a target port are different things, and conflating them here would
+  # send :443 traffic to a container that is not listening on 443.
+  listener_ports = {
+    for name, cfg in local.alb_services :
+    name => (name == "web" && local.tls_enabled ? 443 : cfg.port)
+  }
+}
+
 # One listener per service — "traffic arriving on THIS port forwards to THAT group."
 resource "aws_lb_listener" "svc" {
   for_each = local.alb_services
 
   load_balancer_arn = aws_lb.main[0].arn
-  port              = each.value.port
-  protocol          = "HTTP"
+  port              = local.listener_ports[each.key]
+  protocol          = local.tls_enabled ? "HTTPS" : "HTTP"
+  # A modern policy rather than the AWS default: this terminates sign-in traffic, and the default
+  # still negotiates TLS 1.0/1.1 with clients that ask.
+  ssl_policy      = local.tls_enabled ? "ELBSecurityPolicy-TLS13-1-2-2021-06" : null
+  certificate_arn = local.tls_enabled ? var.certificate_arn : null
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.svc[each.key].arn
+  }
+}
+
+# :80 -> :443, only when TLS is on (without it, :80 IS the web listener above).
+#
+# A redirect and not a second forward: serving the same app over both schemes means a bookmark,
+# a stale link, or a typed hostname silently downgrades the connection, and the user has no way
+# to tell. 301 so browsers stop asking.
+resource "aws_lb_listener" "http_redirect" {
+  count = local.tls_enabled && !var.hibernate ? 1 : 0
+
+  load_balancer_arn = aws_lb.main[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
   }
 }

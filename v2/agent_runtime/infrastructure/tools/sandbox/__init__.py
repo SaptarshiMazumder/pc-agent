@@ -4,27 +4,35 @@ The trust boundary for UNTRUSTED plugin tools — tools that ride in inside a ma
 package (``agents/<id>/plugins/``). Trusted, first-party tools are untouched and keep running
 in-process.
 
-  * ``LocalPluginSandbox``      — default backend: in-process passthrough (no isolation yet).
+  * ``LocalPluginSandbox``      — in-process passthrough (no isolation). The desktop default.
+  * ``SubprocessPluginSandbox`` — one child process per tool call: no runtime handles, scrubbed
+                                  env, redacted config, audit-hook enforcement. The hosted default.
+  * ``build_plugin_sandbox``    — the ONE place a backend is chosen (config-driven).
   * ``SandboxedTool``           — the transparent wrapper that routes execute() through a backend.
   * ``DefaultCapabilityResolver``— the conservative, non-interactive grant (approval layer later).
   * ``classify_origin`` / ``wrap_untrusted`` — the single classify+wrap decision point.
 
 Ports live in ``agent_runtime.application.interfaces.plugin_sandbox``; value objects in
-``agent_runtime.domain.sandbox``. Swap ``LocalPluginSandbox`` for a gVisor/Firecracker/remote backend
-behind the same port without touching the daemon.
+``agent_runtime.domain.sandbox``. A gVisor/Firecracker/remote backend joins them in ``backends.py``
+behind the same port, without touching the daemon.
 """
 
 from __future__ import annotations
 
+from .backends import build_plugin_sandbox, resolve_backend_name
 from .capabilities import DefaultCapabilityResolver
 from .classify import classify_origin, wrap_untrusted
 from .local import LocalPluginSandbox
 from .sandboxed_tool import SandboxedTool
+from .subprocess_backend import SubprocessPluginSandbox
 
 __all__ = [
     "DefaultCapabilityResolver",
     "LocalPluginSandbox",
     "SandboxedTool",
+    "SubprocessPluginSandbox",
+    "build_plugin_sandbox",
     "classify_origin",
+    "resolve_backend_name",
     "wrap_untrusted",
 ]

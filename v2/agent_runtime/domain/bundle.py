@@ -88,14 +88,112 @@ class RegistryEntry:
     entitlement: str = ""
     icon: str = ""  # store-card glyph name ("" => client default)
     sig: str = ""  # base64 ed25519 over the sha256 digest (M7)
+    publisher_id: str = ""  # schema 2: WHOSE key signed it (a roster id). "" => the index's own key
+
+
+# ── The trust roster (schema 2) ─────────────────────────────────────────────────────────
+#
+# THE PROBLEM IT SOLVES. In schema 1 a registry has exactly one publisher key, and every client
+# pins it at install time. A second creator therefore cannot publish: their signature would be
+# rejected by every installed client, and the only fix would be re-pinning — a new build, shipped
+# to everyone, per creator. That is not a marketplace.
+#
+# THE ANSWER. Clients still pin exactly ONE key: the platform ROOT key. The root key does not sign
+# bundles. It signs a ROSTER — the list of creators and their public keys — and each creator signs
+# their own bundles with their own key, which never leaves them. Adding a creator is a roster edit;
+# so is revoking one. No client ever re-pins anything.
+#
+# WHAT THIS DOES NOT PROVIDE, stated because the gap is real and easy to assume away: the roster is
+# signed, and each BUNDLE is signed, but the index as a whole is not. Someone who can rewrite
+# index.json can therefore REMOVE an entry or REPLAY an older one. They cannot forge a bundle or
+# add a creator. `issued` plus the client's memory of the newest roster it has seen bounds the
+# replay; a signed index manifest is the real fix, and is not in this change.
+
+
+@dataclass(frozen=True)
+class PublisherEntry:
+    """One creator on the roster: a stable id and the public key their bundles are signed with."""
+
+    id: str
+    key: str  # base64 ed25519 public key
+    name: str = ""
+    added: str = ""  # ISO-8601, informational
+
+
+@dataclass(frozen=True)
+class PublisherRoster:
+    entries: tuple[PublisherEntry, ...] = ()
+    revoked: tuple[str, ...] = ()
+    issued: str = ""  # ISO-8601; monotonic — a client rejects a roster older than one it has seen
+    sig: str = ""  # base64 ed25519 over roster_signing_payload(...), by the PLATFORM ROOT key
+
+    def trusted_keys(self) -> dict[str, str]:
+        """id -> public key, revocations removed. The map bundle verification looks a creator up in.
+
+        Revocation is applied HERE rather than by deleting the entry, so a revoked creator's row
+        stays visible in the file (and in `agentd bundle roster show`). A silently deleted creator
+        and a creator who was never there look identical, which is the wrong thing to be unable to
+        tell apart during an incident.
+        """
+        revoked = {r.strip() for r in self.revoked if r.strip()}
+        return {e.id: e.key for e in self.entries if e.id and e.key and e.id not in revoked}
+
+
+def roster_signing_payload(
+    entries: tuple[PublisherEntry, ...], revoked: tuple[str, ...], issued: str
+) -> bytes:
+    """The EXACT bytes the root key signs. Canonical, and it has to be.
+
+    Both sides serialize this independently — the publisher when signing, the client when checking
+    — so any disagreement about key order, spacing or field set is a signature that never verifies,
+    on a path where "invalid signature" is indistinguishable from an actual attack. Sorted keys, no
+    spaces, entries sorted by id, and only the four fields that matter.
+    """
+    import json
+
+    payload = {
+        "issued": issued or "",
+        "revoked": sorted(r for r in revoked if r),
+        "roster": sorted(
+            ({"added": e.added or "", "id": e.id, "key": e.key, "name": e.name or ""} for e in entries),
+            key=lambda e: e["id"],
+        ),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def parse_publisher_roster(data: dict) -> PublisherRoster:
+    if not isinstance(data, dict):
+        raise BundleError("registry index: `publishers` is not an object")
+    entries = []
+    for raw in data.get("roster") or []:
+        if not isinstance(raw, dict):
+            continue
+        pid = str(raw.get("id") or "").strip()
+        key = str(raw.get("key") or "").strip()
+        if not _valid_id(pid) or not key:
+            continue
+        entries.append(
+            PublisherEntry(
+                id=pid, key=key, name=str(raw.get("name") or pid), added=str(raw.get("added") or "")
+            )
+        )
+    return PublisherRoster(
+        entries=tuple(entries),
+        revoked=tuple(str(r).strip() for r in (data.get("revoked") or []) if str(r).strip()),
+        issued=str(data.get("issued") or ""),
+        sig=str(data.get("sig") or ""),
+    )
 
 
 @dataclass(frozen=True)
 class RegistryIndex:
     name: str = ""
     publisher: str = ""
-    publisher_key: str = ""  # base64 ed25519 public key ("" => unsigned index)
+    publisher_key: str = ""  # schema 1: the one publisher key. schema 2: the PLATFORM ROOT key.
     bundles: tuple[RegistryEntry, ...] = ()
+    schema: int = 1
+    publishers: PublisherRoster | None = None  # schema 2 only
 
 
 @dataclass(frozen=True)
@@ -162,9 +260,28 @@ def parse_bundle_manifest(data: dict) -> BundleManifest:
     )
 
 
+SUPPORTED_INDEX_SCHEMAS = (1, 2)
+
+
 def parse_registry_index(data: dict) -> RegistryIndex:
-    if not isinstance(data, dict) or int(data.get("schema") or 1) != 1:
-        raise BundleError("registry index: unsupported schema (want schema=1)")
+    """Schema 1 (one publisher key) and schema 2 (a signed roster of creators) both parse here.
+
+    Schema 1 keeps working forever, or at least for as long as clients built before schema 2
+    existed are still installed — which, for a downloadable desktop app, is "indefinitely". An
+    already-installed client that met an index it could not parse would show an empty store with
+    no explanation, so the compatibility is not a courtesy.
+    """
+    if not isinstance(data, dict):
+        raise BundleError("registry index: not a JSON object")
+    try:
+        schema = int(data.get("schema") or 1)
+    except (TypeError, ValueError):
+        raise BundleError("registry index: `schema` is not a number") from None
+    if schema not in SUPPORTED_INDEX_SCHEMAS:
+        raise BundleError(
+            f"registry index: unsupported schema {schema} (this agentd understands "
+            f"{', '.join(str(s) for s in SUPPORTED_INDEX_SCHEMAS)}) — update agentd"
+        )
     entries = []
     for raw in data.get("bundles") or []:
         if not isinstance(raw, dict) or not _valid_id(str(raw.get("id") or "")):
@@ -183,13 +300,19 @@ def parse_registry_index(data: dict) -> RegistryIndex:
                 entitlement=str(raw.get("entitlement") or ""),
                 icon=str(raw.get("icon") or ""),
                 sig=str(raw.get("sig") or ""),
+                publisher_id=str(raw.get("publisher_id") or ""),
             )
         )
+    publishers = None
+    if schema >= 2:
+        publishers = parse_publisher_roster(data.get("publishers") or {})
     return RegistryIndex(
         name=str(data.get("name") or ""),
         publisher=str(data.get("publisher") or ""),
         publisher_key=str(data.get("publisher_key") or ""),
         bundles=tuple(entries),
+        schema=schema,
+        publishers=publishers,
     )
 
 

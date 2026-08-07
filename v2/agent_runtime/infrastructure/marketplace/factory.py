@@ -26,7 +26,16 @@ def build_marketplace_service(
     pinned_key = getattr(profile, "publisher_key", "") if profile else ""
     state_dir = Path(config.state_dir)
     return MarketplaceService(
-        registry_client=RegistryClient(url, pinned_publisher_key=pinned_key) if url else None,
+        registry_client=RegistryClient(
+            url,
+            pinned_publisher_key=pinned_key,
+            # Where the newest roster date accepted from each registry is remembered, which is what
+            # makes a replayed index detectable. Per state_dir, so a hosted account's memory is its
+            # own — the marketplace service is already built per account.
+            trust_state_path=state_dir / "registry_trust.json",
+        )
+        if url
+        else None,
         installer=FileBundleInstaller(
             agents_dir=Path(config.agents_dir),
             plugins_dir=Path(config.plugins_dir),

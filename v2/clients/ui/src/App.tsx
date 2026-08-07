@@ -11,6 +11,7 @@ import ProjectView from './components/ProjectView'
 import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
+import AppView from './components/AppView'
 import StoreView from './components/StoreView'
 import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
@@ -82,6 +83,7 @@ export default function App() {
         {view === 'projects' && <ProjectsView />}
         {view === 'project' && <ProjectView />}
         {view === 'agent' && <AgentView />}
+        {view === 'app' && <AppView />}
       </main>
       <Canvas />
     </div>

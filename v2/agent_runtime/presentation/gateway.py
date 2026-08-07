@@ -884,7 +884,12 @@ class Gateway:
     auth_token: str = ""
     # M4: the marketplace service — built lazily on the first marketplace.* call
     # (mirrors _ensure_mcp_provider), wired to broadcast progress + hot-reload.
+    # This one is the NO-ACCOUNT service (desktop/local, and anything a test injects).
     marketplace: object | None = None
+    # account id -> that account's marketplace service. Hosted only: an install writes files, so
+    # each account composes the service against its OWN agents/plugins/state dirs. Empty on
+    # desktop, where account_id() is never set. See _marketplace().
+    account_marketplaces: dict = field(default_factory=dict)
     clients: set[ServerConnection] = field(default_factory=set)
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
     # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
@@ -1562,9 +1567,37 @@ class Gateway:
             handle.cron_run_id = self.task_store.record_run(task.id, task.agent_id)  # history
             handle.cron_task_id = task.id
             handle.cron_failure_alert = getattr(task, "failure_alert", 0)
-        handle.task = asyncio.create_task(self._run(handle, message, mode=RunMode.CRON))
+        # A CRON RUN EXECUTES AS THE ACCOUNT THAT SCHEDULED IT.
+        #
+        # The scheduler fires from a heartbeat loop with no connection behind it, so the account
+        # contextvar is empty here — and every state resolver downstream (user_state's session
+        # dir, workspace, the memory partition) reads exactly that contextvar. Left unset, a
+        # hosted user's scheduled run would read and write the SHARED state instead of theirs:
+        # not a crash, just someone else's files, on a timer, unattended.
+        #
+        # Set BEFORE create_task and reset straight after: a Task snapshots the context at
+        # creation, so the run keeps this account for its whole life while the heartbeat loop
+        # goes back to having none.
+        #
+        # Only the id is known here (there is no session token to re-resolve), so budget/quota
+        # fields are absent and a spend check sees "not over". Acceptable while cron is rare and
+        # the ledger still records the spend; re-resolve here when hosted autonomy is offered.
+        acct_token = None
+        if getattr(task, "account_id", ""):
+            acct_token = accounts.set_account({"account_id": task.account_id})
+        try:
+            handle.task = asyncio.create_task(self._run(handle, message, mode=RunMode.CRON))
+        finally:
+            if acct_token is not None:
+                accounts.reset_account(acct_token)
         self.runs[session_key] = handle
-        log.info("cron fire: task %s -> run %s (%s)", task.id, run_id, session_key)
+        log.info(
+            "cron fire: task %s -> run %s (%s)%s",
+            task.id,
+            run_id,
+            session_key,
+            f" account={task.account_id}" if getattr(task, "account_id", "") else "",
+        )
         return True
 
     async def _post_heartbeat(self, agent_id: str) -> None:
@@ -2643,18 +2676,53 @@ class Gateway:
     # ------------------------------------------------------------- marketplace (M4)
 
     def _marketplace(self):
-        """Lazy marketplace service: progress broadcasts to every client (the store UI
-        renders them) and after_change hot-reloads agents + plugins — install to usable
-        with NO restart."""
-        if self.marketplace is None:
-            from agent_runtime.infrastructure.marketplace import build_marketplace_service
+        """Lazy marketplace service for the CALLING ACCOUNT: progress broadcasts to every client
+        (the store UI renders them) and after_change hot-reloads agents + plugins — install to
+        usable with NO restart.
 
-            self.marketplace = build_marketplace_service(
+        PER ACCOUNT, because an install writes files. With one shared service every install
+        unpacked into the daemon-global agents_dir and recorded itself in one
+        installed_bundles.json, so on a hosted daemon a visitor's install appeared in everybody's
+        store as "installed" and their uninstall deleted it for everybody. The service itself is
+        unchanged — it is composed against a config whose agents/plugins/state dirs point into
+        the caller's own subtree (user_state), which is the same trick sessions and workspace
+        already use.
+
+        Desktop is untouched: accounts are off, account_id() is None, and there is exactly one
+        service built from the unmodified config — including one that a test injected.
+        """
+        from agent_runtime.infrastructure.marketplace import build_marketplace_service
+
+        acct = accounts.account_id()
+        if not acct:
+            if self.marketplace is None:
+                self.marketplace = build_marketplace_service(
+                    self.config,
+                    on_event=self._marketplace_progress,
+                    after_change=self._marketplace_after_change,
+                )
+            return self.marketplace
+
+        service = self.account_marketplaces.get(acct)
+        if service is None:
+            import dataclasses
+
+            scoped = dataclasses.replace(
                 self.config,
+                agents_dir=user_state.account_agents_dir(self.config.state_dir, acct),
+                plugins_dir=user_state.account_plugins_dir(self.config.state_dir, acct),
+                # state_dir carries installed_bundles.json and the download scratch dir, so it
+                # has to move too — otherwise two accounts would share one "what is installed"
+                # ledger while owning different files, and the store would show the union.
+                state_dir=user_state.account_root(self.config.state_dir, acct),
+            )
+            service = build_marketplace_service(
+                scoped,
                 on_event=self._marketplace_progress,
                 after_change=self._marketplace_after_change,
             )
-        return self.marketplace
+            self.account_marketplaces[acct] = service
+        return service
 
     def _marketplace_progress(self, payload: dict) -> None:
         """Sync -> async bridge for install progress (the service is transport-blind)."""

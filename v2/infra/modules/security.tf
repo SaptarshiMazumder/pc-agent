@@ -27,6 +27,19 @@ resource "aws_vpc_security_group_ingress_rule" "alb_ingress" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# :443, only with TLS on. The loop above opens each service's own port; 443 is the one the
+# services map does not name, because it belongs to the load balancer rather than to a container.
+resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  count = local.tls_enabled ? 1 : 0
+
+  security_group_id = aws_security_group.alb.id
+  description       = "https from anywhere"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
 resource "aws_vpc_security_group_egress_rule" "alb_all" {
   security_group_id = aws_security_group.alb.id
   ip_protocol       = "-1"

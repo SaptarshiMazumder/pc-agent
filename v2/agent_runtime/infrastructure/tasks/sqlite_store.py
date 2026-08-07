@@ -16,6 +16,7 @@ from pathlib import Path
 from agent_runtime.domain.autonomy import Goal, RunRecord, ScheduledTask
 from agent_runtime.domain.commitment import Commitment
 from agent_runtime.domain.notify import Notification
+from agent_runtime.infrastructure import accounts
 from agent_runtime.infrastructure.autonomy.schedule import next_due_after
 
 _SCHEMA = """
@@ -103,6 +104,7 @@ _COLS = (
     "created_at",
     "delivery",
     "failure_alert",
+    "account_id",
 )
 _GOAL_COLS = ("id", "agent_id", "session_key", "objective", "token_budget", "status", "created_at")
 
@@ -123,6 +125,7 @@ def _row_to_task(row) -> ScheduledTask:
         created_at=d["created_at"],
         delivery=d.get("delivery", "run"),
         failure_alert=int(d.get("failure_alert") or 0),
+        account_id=str(d.get("account_id") or ""),
     )
 
 
@@ -151,6 +154,7 @@ class SqliteTaskStore:
             ("tasks", "cron_expr", "TEXT"),
             ("tasks", "tz", "TEXT"),
             ("tasks", "failure_alert", "INTEGER NOT NULL DEFAULT 0"),
+            ("tasks", "account_id", "TEXT NOT NULL DEFAULT ''"),
             ("runs", "outcome", "TEXT"),  # agent-declared outcome
             ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),  # one-line reason
         ):
@@ -162,11 +166,18 @@ class SqliteTaskStore:
 
     def add(self, task: ScheduledTask) -> str:
         task_id = task.id or uuid.uuid4().hex[:12]
+        # OWNERSHIP IS STAMPED HERE, not at the call sites. There are three of them today
+        # (the gateway's schedule RPC and two in the autonomy cron tool) and there will be more;
+        # a per-caller stamp is one forgotten line away from a task that runs as nobody, on the
+        # shared state, forever. add() always runs in the creating connection's context, so the
+        # contextvar is the right answer and there is exactly one place to get it wrong.
+        # An explicit account on the task wins (restore/import paths).
+        account_id = task.account_id or (accounts.account_id() or "")
         self._db.execute(
             "INSERT OR REPLACE INTO tasks "
             "(id, agent_id, session_key, kind, payload, next_due, every_seconds, "
-            " cron_expr, tz, enabled, created_at, delivery, failure_alert) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " cron_expr, tz, enabled, created_at, delivery, failure_alert, account_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id,
                 task.agent_id,
@@ -181,6 +192,7 @@ class SqliteTaskStore:
                 task.created_at,
                 task.delivery,
                 int(task.failure_alert),
+                account_id,
             ),
         )
         self._db.commit()
@@ -212,15 +224,20 @@ class SqliteTaskStore:
         return cur.rowcount > 0
 
     def list(self, agent_id: str | None = None) -> list[ScheduledTask]:
-        if agent_id is None:
-            rows = self._db.execute(
-                f"SELECT {','.join(_COLS)} FROM tasks ORDER BY created_at DESC"
-            ).fetchall()
-        else:
-            rows = self._db.execute(
-                f"SELECT {','.join(_COLS)} FROM tasks WHERE agent_id=? ORDER BY created_at DESC",
-                (agent_id,),
-            ).fetchall()
+        """This caller's tasks. Scoped to the CURRENT account whenever one is set, so a hosted
+        user's schedule list is theirs alone; unscoped (every task) on desktop, unchanged."""
+        where, params = [], []
+        if agent_id is not None:
+            where.append("agent_id=?")
+            params.append(agent_id)
+        account_id = accounts.account_id()
+        if account_id:
+            where.append("account_id=?")
+            params.append(account_id)
+        clause = f" WHERE {' AND '.join(where)}" if where else ""
+        rows = self._db.execute(
+            f"SELECT {','.join(_COLS)} FROM tasks{clause} ORDER BY created_at DESC", params
+        ).fetchall()
         return [_row_to_task(r) for r in rows]
 
     def remove(self, task_id: str) -> bool:

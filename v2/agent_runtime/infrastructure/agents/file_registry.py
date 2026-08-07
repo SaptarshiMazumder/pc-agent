@@ -88,13 +88,32 @@ def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -
 
 
 class FileAgentRegistry:
-    """File-backed AgentRegistry. Discovers once at construction (cheap, cached)."""
+    """File-backed AgentRegistry. Discovers once at construction (cheap, cached).
 
-    def __init__(self, config):
+    TWO LAYERS, on a hosted daemon. The SHARED layer is whatever the deployment ships in
+    ``config.agents_dir`` — a curated catalogue every account sees. The OVERLAY layer is the
+    agents ONE account installed for itself (``user_state.account_agents_dir``), resolved per
+    connection from the account contextvar.
+
+    Reads union the two with the overlay winning, so installing your own build of a curated agent
+    replaces it FOR YOU and for nobody else. Writes (add/create/remove) go to the overlay whenever
+    an account is active, which is what stops one visitor's marketplace install from appearing in
+    everyone's agent list — and their uninstall from removing it from everyone's.
+
+    ``overlay_dir`` is a CALLABLE, not a path: the answer changes per connection, and the registry
+    is constructed once at boot. It returns None on desktop (no accounts), where there is exactly
+    one user and the shared layer is the whole truth — so that path is byte-for-byte what it was.
+    """
+
+    def __init__(self, config, overlay_dir=None):
         self._config = config
         self._agents_dir = Path(
             getattr(config, "agents_dir", None) or Path(config.state_dir).parent / "agents"
         )
+        self._overlay_dir = overlay_dir
+        #: str(overlay path) -> that account's specs. Keyed by PATH rather than account id so the
+        #: cache cannot outlive a re-pointed root, and so a test can drive it without an account.
+        self._overlays: dict[str, dict[str, AgentSpec]] = {}
         self._specs = self._discover()
 
     def refresh(self) -> list[str]:
@@ -102,28 +121,75 @@ class FileAgentRegistry:
         out-of-band drop of an agents/<id>/ dir) becomes visible WITHOUT a restart.
         Atomic swap: readers see the old dict or the new one, never a partial."""
         self._specs = self._discover()
-        return sorted(self._specs)
+        # Overlays are dropped wholesale rather than re-scanned: refresh() runs after an install,
+        # the installing account's overlay is the one that changed, and re-scanning every account
+        # that ever connected would make one user's install cost work proportional to everyone.
+        # They rebuild lazily on next read.
+        self._overlays.clear()
+        return sorted(self._current())
 
     # ---- discovery ----------------------------------------------------------
 
-    def _discover(self) -> dict[str, AgentSpec]:
+    def _scan(self, directory: Path) -> dict[str, AgentSpec]:
+        """Every valid ``<dir>/<id>/`` under one root. No main synthesis — that belongs to the
+        shared layer only (an overlay must not invent an agent the account never installed)."""
         specs: dict[str, AgentSpec] = {}
-        if self._agents_dir.is_dir():
-            for d in sorted(self._agents_dir.iterdir()):
-                if not d.is_dir():
-                    continue
-                agent_id = d.name.strip().lower()
-                if not _valid_id(agent_id):
-                    log.warning("agents: skipping invalid dir name %r", d.name)
-                    continue
-                try:
-                    specs[agent_id] = self._load_dir(agent_id, d)
-                except Exception as e:  # noqa: BLE001 — one bad agent must not break the rest
-                    log.warning("agents: failed to load '%s': %s", agent_id, e)
+        if not directory.is_dir():
+            return specs
+        for d in sorted(directory.iterdir()):
+            if not d.is_dir():
+                continue
+            agent_id = d.name.strip().lower()
+            if not _valid_id(agent_id):
+                log.warning("agents: skipping invalid dir name %r", d.name)
+                continue
+            try:
+                specs[agent_id] = self._load_dir(agent_id, d)
+            except Exception as e:  # noqa: BLE001 — one bad agent must not break the rest
+                log.warning("agents: failed to load '%s': %s", agent_id, e)
+        return specs
+
+    def _discover(self) -> dict[str, AgentSpec]:
+        specs = self._scan(self._agents_dir)
         if "main" not in specs:
             specs["main"] = self._synthesize_main()
         log.info("agents: %d loaded (%s)", len(specs), ", ".join(sorted(specs)))
         return specs
+
+    # ---- the two layers -----------------------------------------------------
+
+    def _overlay_path(self) -> Path | None:
+        if self._overlay_dir is None:
+            return None
+        try:
+            path = self._overlay_dir()
+        except Exception:  # noqa: BLE001 — a broken resolver must degrade to the shared catalogue,
+            log.exception("agents: overlay resolver failed — using the shared catalogue only")
+            return None
+        return Path(path) if path else None
+
+    def _overlay(self) -> dict[str, AgentSpec]:
+        path = self._overlay_path()
+        if path is None:
+            return {}
+        key = str(path)
+        cached = self._overlays.get(key)
+        if cached is None:
+            cached = self._scan(path)
+            self._overlays[key] = cached
+        return cached
+
+    def _current(self) -> dict[str, AgentSpec]:
+        """What THIS caller may see: shared catalogue + their own installs."""
+        overlay = self._overlay()
+        return {**self._specs, **overlay} if overlay else self._specs
+
+    def _write_target(self) -> tuple[dict[str, AgentSpec], Path]:
+        """Where a NEW agent goes: the caller's overlay when they have one, else shared."""
+        path = self._overlay_path()
+        if path is None:
+            return self._specs, self._agents_dir
+        return self._overlay(), path
 
     def _main_display_name(self) -> str:
         # main's USER-FACING name — the internal id "main" must never surface in a client.
@@ -292,26 +358,38 @@ class FileAgentRegistry:
 
     @property
     def agents_dir(self) -> Path:
-        """The root that holds ``<id>/`` definition dirs — so an authoring tool writes a new
-        agent in the SAME place discovery reads from (single source of truth)."""
-        return self._agents_dir
+        """The root an authoring tool should WRITE a new agent into — the caller's overlay when
+        they have one, else the shared catalogue. Discovery reads from both, so this stays the
+        "same place discovery reads from" it always was; on a hosted daemon it just stops meaning
+        "the place everyone reads from"."""
+        return self._write_target()[1]
 
     def add(self, agent_id: str) -> AgentSpec:
         """(Re)load ONE ``agents/<id>/`` dir into the registry at runtime, so a newly-authored
         agent is resolvable WITHOUT a restart — the inverse of ``remove()``. ``resolve``/``get``
-        read ``_specs`` live each turn, so the new agent is usable on the next message."""
+        read the live maps each turn, so the new agent is usable on the next message.
+
+        Looks in the caller's overlay FIRST: a marketplace install lands there, and finding the
+        shared copy of the same id instead would load the curated agent while the user's own
+        install sat on disk doing nothing.
+        """
         agent_id = (agent_id or "").strip().lower()
         if not _valid_id(agent_id):
             raise ValueError(f"invalid agent id: {agent_id!r}")
-        d = self._agents_dir / agent_id
-        if not d.is_dir():
-            raise FileNotFoundError(str(d))
-        spec = self._load_dir(agent_id, d)
-        self._specs[agent_id] = spec
-        log.info(
-            "agents: added '%s' at runtime (now: %s)", agent_id, ", ".join(sorted(self._specs))
-        )
-        return spec
+        overlay_path = self._overlay_path()
+        for specs, root in (
+            (self._overlay(), overlay_path) if overlay_path is not None else (None, None),
+            (self._specs, self._agents_dir),
+        ):
+            if specs is None or root is None:
+                continue
+            d = root / agent_id
+            if d.is_dir():
+                spec = self._load_dir(agent_id, d)
+                specs[agent_id] = spec
+                log.info("agents: added '%s' at runtime from %s", agent_id, root)
+                return spec
+        raise FileNotFoundError(str((overlay_path or self._agents_dir) / agent_id))
 
     def create(
         self,
@@ -332,8 +410,12 @@ class FileAgentRegistry:
         agent_id = (agent_id or "").strip().lower()
         if not _valid_id(agent_id):
             raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
-        d = self._agents_dir / agent_id
-        if agent_id in self._specs or d.exists():
+        target_specs, target_root = self._write_target()
+        d = target_root / agent_id
+        # Collides against what this caller can SEE (shared + their overlay), not just the layer
+        # being written to: creating an agent whose id shadows a curated one would look like it
+        # worked and then resolve to the wrong definition on the next message.
+        if agent_id in self._current() or d.exists():
             raise ValueError(f"agent '{agent_id}' already exists")
 
         d.mkdir(parents=True, exist_ok=True)
@@ -359,20 +441,21 @@ class FileAgentRegistry:
             (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
 
         spec = self._load_dir(agent_id, d)
-        self._specs[agent_id] = spec
-        log.info("agents: created '%s' (%s)", agent_id, name or agent_id)
+        target_specs[agent_id] = spec
+        log.info("agents: created '%s' (%s) in %s", agent_id, name or agent_id, target_root)
         return spec
 
     # ---- AgentRegistry ------------------------------------------------------
 
     def resolve(self, session_key: str) -> AgentSpec:
-        return self._specs.get(agent_id_from_session_key(session_key)) or self._specs["main"]
+        specs = self._current()
+        return specs.get(agent_id_from_session_key(session_key)) or specs["main"]
 
     def get(self, agent_id: str) -> AgentSpec:
-        return self._specs[agent_id]
+        return self._current()[agent_id]
 
     def list_ids(self) -> list[str]:
-        return sorted(self._specs)
+        return sorted(self._current())
 
     def remove(self, agent_id: str) -> dict:
         """Delete an agent's DEFINITION dir (agent.toml/IDENTITY/… + its workspace) and
@@ -385,11 +468,30 @@ class FileAgentRegistry:
         agent_id = (agent_id or "").strip().lower()
         if agent_id == "main":
             raise ValueError("cannot delete the default agent 'main'")
-        if agent_id not in self._specs:
-            raise KeyError(agent_id)
+
+        overlay_path = self._overlay_path()
+        if overlay_path is not None:
+            # THE ISOLATION RULE. An account may delete only what it installed. Without this an
+            # ordinary uninstall of a CURATED agent would rmtree the shared catalogue — one user
+            # removing an agent from every other user's account, permanently, with the UI
+            # reporting success. That is the single most destructive thing per-account installs
+            # could get wrong, so it is refused here rather than anywhere further out.
+            overlay = self._overlay()
+            if agent_id not in overlay:
+                if agent_id in self._specs:
+                    raise ValueError(
+                        f"'{agent_id}' is part of this deployment's shared catalogue and cannot "
+                        "be removed by an account — uninstall only affects agents you installed"
+                    )
+                raise KeyError(agent_id)
+            specs, root = overlay, overlay_path
+        else:
+            if agent_id not in self._specs:
+                raise KeyError(agent_id)
+            specs, root = self._specs, self._agents_dir
 
         removed = {"id": agent_id, "definition": False, "sessions": False}
-        def_dir = self._agents_dir / agent_id  # definition + workspace/ live here
+        def_dir = root / agent_id  # definition + workspace/ live here
         if def_dir.is_dir():
             shutil.rmtree(def_dir, ignore_errors=True)
             removed["definition"] = not def_dir.exists()
@@ -397,7 +499,12 @@ class FileAgentRegistry:
         if state_dir.is_dir():
             shutil.rmtree(state_dir, ignore_errors=True)
             removed["sessions"] = not state_dir.exists()
-        del self._specs[agent_id]
+        # NOTE (accounts): this is the SHARED sessions path. An account's transcripts live under
+        # <state_dir>/accounts/<acct>/agents/<id>/ (user_state.account_state_dir), so uninstalling
+        # leaves them on disk. Deliberate for now — orphaned data is recoverable and losing a
+        # user's history to an uninstall is not — but it means uninstall+reinstall resurrects the
+        # old chats. Wire account_state_dir in here when uninstall grows a "delete my data" flag.
+        del specs[agent_id]
         log.info(
             "agents: removed '%s' (definition=%s sessions=%s)",
             agent_id,

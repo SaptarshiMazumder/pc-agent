@@ -124,6 +124,13 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
                     ("_plugin_name", m.name),
                     ("_plugin_desc", plugin_desc),
                     ("_agent_id", agent_id),
+                    # WHERE the code came from, carried on the tool itself. This tier is the
+                    # untrusted one, and a sandbox backend that runs the tool in another process
+                    # cannot pass the live object across — it has to load the plugin again on the
+                    # far side, which takes an entry and a directory. Without these two tags the
+                    # subprocess backend has no recipe and (correctly) refuses to run the tool.
+                    ("_plugin_entry", m.entry),
+                    ("_plugin_root", str(m.root) if m.root is not None else ""),
                 ):
                     try:
                         setattr(t, attr, val)

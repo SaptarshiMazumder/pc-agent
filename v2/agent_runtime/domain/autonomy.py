@@ -30,6 +30,12 @@ class ScheduledTask:
     created_at: float = 0.0
     delivery: str = "run"  # "run" = agent executes payload | "message" = deliver verbatim
     failure_alert: int = 0  # notify the user after N consecutive failed runs (0 = off)
+    # WHOSE task this is, on a hosted daemon ("" = single-user/desktop, the only case until
+    # accounts exist). The scheduler fires out of a heartbeat loop with no connection behind it,
+    # so without this a task created by one user would run with NO account context — reading and
+    # writing the SHARED state instead of the creator's, and charging nobody. Stamped by the
+    # store at add() time from the creating connection's account.
+    account_id: str = ""
 
 
 @dataclass(frozen=True)
