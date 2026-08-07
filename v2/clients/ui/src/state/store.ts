@@ -26,7 +26,7 @@ import { setGatewayUrl } from '../lib/artifacts'
 import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
 import { getMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
-import { isDesktop, platform } from '../lib/platform'
+import { isDesktop, platform, randomUuid } from '../lib/platform'
 import { reportReconnect, reportRun } from '../lib/rum'
 
 export type ChatItem = (
@@ -1301,7 +1301,7 @@ export const useApp = create<AppState>((set, get) => {
           // so one id answers "what happened to this message, and what did it cost?". Created
           // client-side on purpose: a request the daemon rejects before starting a run (an
           // already-active session, bad attachments) still has an id we can search for.
-          traceId: crypto.randomUUID()
+          traceId: randomUuid()
         })
         // the daemon saved the uploads and returned their real workspace paths — attach
         // them to the user bubble we just pushed so they render via /file (like history)

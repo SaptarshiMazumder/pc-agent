@@ -838,6 +838,27 @@ def load_config(path: Path | None = None) -> Config:
         cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
     elif not cfg.registry_url:
         cfg.registry_url = cfg.distribution.registry_url or default_local_registry(cfg.state_dir)
+    # The publisher key needs the SAME env door as the url above, and for a specific reason.
+    #
+    # Both values normally arrive together, baked into a distribution profile by an installer. The
+    # HOSTED daemon has neither: it is a container, and its whole configuration is task env. So the
+    # only way to point a container at a registry was AGENTD_REGISTRY — which carries the url and
+    # NOT the key, silently downgrading every download from "signed by the publisher we pinned" to
+    # "the checksum matches whatever index.json claimed". Those are very different guarantees: a
+    # checksum only proves the .agentpkg is the file the index described, and anyone who can
+    # rewrite index.json rewrites the checksum with it. On a public-read bucket that is exactly
+    # the attack the signature exists to stop, so the key gets a door of its own.
+    #
+    # Set on the profile rather than a new Config field so there stays ONE place that answers
+    # "which publisher do we trust" (marketplace/factory.py reads config.distribution.publisher_key).
+    # Stripped BEFORE the emptiness test, not after: `AGENTD_PUBLISHER_KEY="  "` is truthy, so
+    # testing the raw value would accept a blank and overwrite a real pinned key with "" — turning
+    # verification off on a build whose profile had it on. A whitespace-only value means unset.
+    publisher_key_env = os.environ.get("AGENTD_PUBLISHER_KEY", "").strip()
+    if publisher_key_env:
+        from dataclasses import replace
+
+        cfg.distribution = replace(cfg.distribution, publisher_key=publisher_key_env)
     if os.environ.get("AGENTD_GATEWAY_AUTH"):
         cfg.gateway_auth = os.environ["AGENTD_GATEWAY_AUTH"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TOKEN"):

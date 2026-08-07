@@ -128,6 +128,43 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["elasticloadbalancing:DescribeLoadBalancers"]
     resources = ["*"] # describe does not support resource scoping
   }
+  # PUBLISH THE MARKETPLACE (.github/workflows/publish-registry.yml). Writing the registry is the
+  # last thing that still required a laptop: the repo, the private signing key and AWS credentials
+  # all had to be on one machine, so nobody else could publish and losing that one key file would
+  # have permanently ended publishing to this registry (every installed client pins its public
+  # half). Moving it into CI needs exactly these three actions on exactly these buckets.
+  #
+  # Scoped to agentd-*-registry-* — deliberately narrower than the ECR/ECS grants, which cover
+  # agentd-*: a deploy role that could write ANY bucket in the account is a much bigger blast
+  # radius than one that can only replace marketplace artifacts.
+  #
+  # GetObject and ListBucket are here because publishing is a read-modify-write: the workflow must
+  # read the CURRENT index.json to carry forward bundles it is not republishing. Without the read,
+  # each publish would rebuild the index from just that run's packages and unpublish every other
+  # agent in the registry.
+  statement {
+    sid       = "RegistryPublishObjects"
+    actions   = ["s3:PutObject", "s3:GetObject"]
+    resources = ["arn:aws:s3:::agentd-*-registry-*/*"]
+  }
+  statement {
+    sid       = "RegistryPublishList"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::agentd-*-registry-*"]
+  }
+  # The registry bucket's name ends in a random suffix (S3 names are globally unique), so the
+  # workflow DISCOVERS it instead of hardcoding it — the same trick Deploy uses for the ALB
+  # hostname, and what lets both run without Terraform state.
+  #
+  # This action cannot be resource-scoped: it is the account-level "list bucket names" call. It
+  # returns names only — no contents, no policies, no access — and the alternative was writing the
+  # bucket name into SSM at apply time and granting a read on that, which is one more resource and
+  # one more thing to keep in step for the same outcome.
+  statement {
+    sid       = "RegistryDiscoverBucket"
+    actions   = ["s3:ListAllMyBuckets"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role" "deploy" {

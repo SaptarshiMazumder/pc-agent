@@ -115,11 +115,28 @@ locals {
   alb_services = var.hibernate ? {} : local.services
   alb_count    = var.hibernate ? 0 : 1
   # "" while hibernating. Callers (outputs, sync-platform-urls) treat an empty URL as "unknown",
-  # which is exactly right: the next ALB does not have a name yet.
-  alb_dns = try(one(aws_lb.main[*].dns_name), "") == null ? "" : try(one(aws_lb.main[*].dns_name), "")
-  # The dimension value AWS/ApplicationELB metrics are keyed by. Dashboard widgets are plain JSON,
-  # so an absent ALB just makes them reference nothing rather than failing the plan.
-  alb_suffix = try(one(aws_lb.main[*].arn_suffix), "") == null ? "" : try(one(aws_lb.main[*].arn_suffix), "")
+  # which is exactly right: the next ALB does not have a name yet. The dimension value
+  # AWS/ApplicationELB metrics are keyed by works the same way: dashboard widgets are plain JSON,
+  # so an absent ALB should make them reference nothing rather than fail.
+  #
+  # `join("", …)` AND NOT a conditional, because these must be STRINGS even while the ALB they
+  # describe is being destroyed in this very apply. The previous form —
+  #
+  #   try(one(aws_lb.main[*].arn_suffix), "") == null ? "" : try(one(aws_lb.main[*].arn_suffix), "")
+  #
+  # looks like it guarantees that and does not. Its result type is only settled by EVALUATING a
+  # resource attribute, and on the hibernate apply (count 1 -> 0, ALB destroyed in the same run)
+  # what landed in the dashboard body was `null`. CloudWatch then rejected the whole PutDashboard:
+  #
+  #   /widgets/4/properties/metrics/0/3  "Invalid metric field type, only String type is allowed"
+  #
+  # which failed `down.ps1 -Full` HALFWAY THROUGH — services already deleted, ALB gone, apply exit
+  # 1. A cost switch that leaves the environment in pieces is worse than no cost switch.
+  #
+  # join() cannot do that: its type is string, statically, and an empty list joins to "" rather
+  # than to null. One element in, that element out; nothing in, "" out. No try, no null path.
+  alb_dns    = join("", aws_lb.main[*].dns_name)
+  alb_suffix = join("", aws_lb.main[*].arn_suffix)
 }
 
 # ─────────────────────────── Alarms (see alarms.tf) ───────────────────────────
@@ -255,6 +272,21 @@ variable "enable_job_absence_alarm" {
   description = "Page when NO scheduled job has run in 24h (a stopped billing clock). Off by default because it necessarily fires once before the first invocation; enable after the schedules have run."
   type        = bool
   default     = false
+}
+
+variable "registry_publisher_key" {
+  description = "Base64 ed25519 PUBLIC key that signed the marketplace index — the hosted daemon pins downloads to it. This is the public half; it is safe in state, in task env, and in git (the desktop flavors already carry the same string). Empty = unsigned mode: sha256 is still checked but a rewritten index.json would be accepted, so leave it empty only for a private registry you fully control."
+  type        = string
+  default     = ""
+
+  validation {
+    # A base64 raw ed25519 public key is 32 bytes => 44 chars with padding. Catching a truncated
+    # paste here matters because the failure is otherwise invisible until an install: the daemon
+    # boots fine, the store lists fine, and only the download rejects — reading as "the bundle is
+    # broken" rather than "the key is wrong".
+    condition     = var.registry_publisher_key == "" || can(regex("^[A-Za-z0-9+/]{43}=$", var.registry_publisher_key))
+    error_message = "registry_publisher_key must be a base64 ed25519 public key (44 chars ending in '='), or empty. Use the public half printed by `agentd bundle keygen` — never the private key."
+  }
 }
 
 # ─────────────────────────── The services map ───────────────────────────

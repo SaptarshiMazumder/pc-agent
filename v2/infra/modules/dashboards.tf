@@ -26,6 +26,19 @@ locals {
   # looks like an outage. Keep this and var.scheduled_jobs["ledger-snapshot"].schedule in step.
   sheet_period = 86400
 
+  # ...and the other half of that decision, which cost an afternoon of "the dashboard is broken".
+  #
+  # A widget's `period` and the console's TIME RANGE have to be compatible, and nothing warns you
+  # when they are not. With the console's default 3-hour range, a 1-day period has no bucket
+  # boundary inside the window at all, so CloudWatch returns NOTHING — not a sparse line, not a
+  # single point. A correctly-working daily gauge and a job that never ran look identical.
+  #
+  # So the balance-sheet widgets carry their own window and deliberately ignore the range picker.
+  # That is the right trade for a LEVEL sampled once a day: "reserve on hand" has no meaningful
+  # 1-hour view, and the number you want is always "the last several samples". Traffic widgets
+  # keep following the picker, because for a RATE the range is the question being asked.
+  sheet_window = "-P7D"
+
   # Widget grid is 24 columns wide. Kept as names so a layout change is one edit, not twelve.
   w_half    = 12
   w_third   = 8
@@ -227,8 +240,17 @@ resource "aws_cloudwatch_dashboard" "business" {
             schedule (scheduler.tf). They are LEVELS (reserve left, creators owed, cost ratio) with no
             event to hang off, so nothing emits them unless something samples them — one point per day
             is the expected shape, and an *empty* widget means the snapshot stopped running, not zero.
+            Their windows are FIXED at 7 days and ignore the range picker above (a 1-day period
+            returns nothing at all inside a 3-hour range).
             To see today's numbers now, invoke the job by hand:
-            `aws lambda invoke --function-name ${local.name_prefix}-scheduled-jobs --payload '{"job":"manual","path":"/ledger/snapshot"}' --cli-binary-format raw-in-base64-out out.json`
+            `aws lambda invoke --function-name ${local.name_prefix}-scheduled-jobs --payload '{"job":"manual","path":"/ledger/snapshot"}' --cli-binary-format raw-in-base64-out --region ${var.region} out.json`
+
+            ⚠️ **The scheduled jobs only run if this environment is UP at 00:00–00:20 UTC.** They POST
+            to `accounts.agentd.local`, which does not resolve while tasks are scaled to zero, so a
+            night spent `paused`/`hibernate`d silently skips that day's snapshot **and that day's
+            subscription renewals** — the Lambda just errors and retries into nothing. A gap in these
+            widgets is the first visible symptom; `${local.name_prefix}-scheduled-jobs` Errors is the
+            second. If this environment is usually off overnight, move those crons to a time it is on.
 
             `ledger_balanced` must always read **1**. Anything else means a posting bypassed the ledger
             and every number on this page is suspect.
@@ -259,9 +281,20 @@ resource "aws_cloudwatch_dashboard" "business" {
             [var.telemetry_namespace, "model_cost_usd", "service", "model-proxy", { label = "USD/hour" }],
             [".", "unbilled_cost_usd", ".", ".", { label = "UNBILLED — should be flat zero", color = "#d62728" }],
           ]
-          annotations = {
-            horizontal = [{ label = "cost/hour alarm", value = var.cost_per_hour_alarm_usd }]
-          }
+          # NO cost/hour annotation here, on purpose. A horizontal annotation EXTENDS THE Y-AXIS to
+          # include its value, so drawing var.cost_per_hour_alarm_usd (5) pinned this chart's scale
+          # to 0–$5. Real spend at pre-launch volume is ~$0.0013/hour — one four-thousandth of the
+          # chart height, rendered as a flat line welded to the x-axis and indistinguishable from
+          # "no data". The widget that exists to show spend was the one widget that could not.
+          #
+          # The threshold is not lost: aws_cloudwatch_metric_alarm.cost_per_hour (alarms.tf) is what
+          # actually pages, and an alarm is a better home for a number than a chart line is. Drawing
+          # it here only helped if traffic was already within an order of magnitude of it — i.e.
+          # never, until the day the alarm fires and tells you directly.
+          #
+          # Same trap, milder, on the latency widget above: the 1000 ms annotation squashes a real
+          # 311 ms p99 into the bottom third. Kept there because one order of magnitude is still
+          # legible, and seeing headroom-to-alarm is genuinely useful for latency.
         }
       },
 
@@ -295,8 +328,9 @@ resource "aws_cloudwatch_dashboard" "business" {
       {
         type = "metric", x = 0, y = 15, width = local.w_third, height = local.h_row
         properties = {
-          title = "Reserve vs liability (daily sample)"
+          title = "Reserve vs liability (last 7 daily samples)"
           view  = "timeSeries", region = var.region, period = local.sheet_period, stat = "Maximum"
+          start = local.sheet_window # fixed window — see local.sheet_window
           metrics = [
             [var.telemetry_namespace, "reserve_balance_usd", "service", "accounts", { label = "inference reserve" }],
             [".", "credit_liability_usd", ".", ".", { label = "credits owed as service" }],
@@ -307,8 +341,9 @@ resource "aws_cloudwatch_dashboard" "business" {
       {
         type = "metric", x = local.w_third, y = 15, width = local.w_third, height = local.h_row
         properties = {
-          title = "Cost ratio — share of revenue going to providers (daily sample)"
+          title = "Cost ratio — share of revenue going to providers (last 7 daily samples)"
           view  = "timeSeries", region = var.region, period = local.sheet_period, stat = "Maximum"
+          start = local.sheet_window # fixed window — see local.sheet_window
           metrics = [
             [var.telemetry_namespace, "cogs_ratio", "service", "accounts", { label = "COGS ratio" }],
           ]
@@ -325,6 +360,7 @@ resource "aws_cloudwatch_dashboard" "business" {
         properties = {
           title = "Gross margin + books balanced"
           view  = "singleValue", region = var.region, period = local.sheet_period, stat = "Maximum"
+          start = local.sheet_window # fixed window — see local.sheet_window
           metrics = [
             [var.telemetry_namespace, "gross_margin_usd", "service", "accounts", { label = "gross margin USD" }],
             [".", "ledger_balanced", ".", ".", { label = "balanced (must be 1)" }],

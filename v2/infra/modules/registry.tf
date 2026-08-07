@@ -14,6 +14,14 @@ resource "random_id" "suffix" {
   byte_length = 4
 }
 
+locals {
+  # The one expression that builds the index url, so the desktop flavors (via the output), the
+  # hosted daemon (via task env) and any future client all read the SAME string. It used to live
+  # only in outputs.tf, which is why the hosted daemon never got one: an output is for humans, and
+  # nothing inside the module could reach it.
+  registry_index_url = "https://${aws_s3_bucket.registry.bucket}.s3.${var.region}.amazonaws.com/index.json"
+}
+
 resource "aws_s3_bucket" "registry" {
   bucket        = "${local.name_prefix}-registry-${random_id.suffix.hex}"
   force_destroy = true # dev: registry contents are always re-publishable build artifacts

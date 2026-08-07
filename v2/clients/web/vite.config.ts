@@ -64,8 +64,35 @@ function cspAllowApiOrigins(): Plugin {
     apply: 'build',
     transformIndexHtml(html) {
       if (!hosts) return html
-      // stop each directive at ; OR the closing " (the last directive has no trailing ;)
-      return html.replace(/(connect-src|img-src|media-src|frame-src)([^;"]*)/g, `$1$2 ${hosts}`)
+      // SCOPED TO THE TAG'S content ATTRIBUTE. The previous version ran the directive regex over
+      // the WHOLE document, which also matched the words "connect-src" in the prose comment above
+      // the tag — and that match's `[^;"]*` ran on past `-->` and terminated at the quote in
+      // `http-equiv="`, injecting the hosts INTO that attribute:
+      //
+      //   <meta http-equiv= http://alb:4100 …"Content-Security-Policy"  content="…">
+      //
+      // A browser then reads http-equiv as `http://alb:4100`, so it is never
+      // "Content-Security-Policy" and THE WHOLE POLICY IS INERT. Every hosted build shipped with
+      // no CSP at all, and the symptom was the absence of a symptom: the app worked fine, because
+      // nothing was being restricted. Isolate the attribute first, edit only inside it.
+      const CSP_TAG = /(<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*content=")([^"]*)(")/i
+      if (!CSP_TAG.test(html)) {
+        // Fail LOUDLY rather than silently ship a build whose API origins are not allowed —
+        // that produces a client that loads and then cannot reach anything.
+        throw new Error(
+          'agentd-csp-allow-api-origins: no <meta http-equiv="Content-Security-Policy" content="…"> ' +
+            'found in index.html. The hosted build needs its API origins in the policy; refusing to emit.'
+        )
+      }
+      return html.replace(CSP_TAG, (_all, before: string, policy: string, after: string) => {
+        // Inside the attribute there are no quotes, so a directive ends at `;` or at the end of
+        // the value (the last directive has no trailing `;`).
+        const widened = policy.replace(
+          /(connect-src|img-src|media-src|frame-src)([^;]*)/g,
+          `$1$2 ${hosts}`
+        )
+        return before + widened + after
+      })
     }
   }
 }

@@ -2,9 +2,28 @@ import { RefreshCw, Check } from 'lucide-react'
 import { useState } from 'react'
 
 import { glyph } from '../lib/glyphs'
+import { isDesktop } from '../lib/platform'
 import { useApp } from '../state/store'
 import PageShell from './PageShell'
 import SearchBox from './SearchBox'
+
+/**
+ * WHERE AN INSTALL LANDS depends on which daemon this client is attached to, and the two answers
+ * are different enough that saying "this app" for both would be a lie.
+ *
+ * Desktop: the daemon runs on this machine, so an install is yours alone.
+ * Browser: the daemon is a server, its agents directory is one shared disk (EFS on the hosted
+ *   deployment), and per-user isolation does not exist yet — so an install is visible to, and
+ *   removable by, everyone connected to it. That is the accepted trade for now, but a user
+ *   clicking Uninstall deserves to know it is not only their copy going away.
+ *
+ * `isDesktop` is the Electron bridge's presence, so this is a fact about the host rather than a
+ * guess about the deployment: a browser pointed at a local daemon during development still gets
+ * the accurate reading ("this server", shared by whoever is connected to it).
+ */
+const SUBTITLE = isDesktop
+  ? 'Install agents into this app — live, no restart.'
+  : 'Install agents on this server — live, no restart. Installs are shared by everyone using it.'
 
 export default function StoreView() {
   const catalog = useApp((s) => s.catalog)
@@ -24,7 +43,7 @@ export default function StoreView() {
   const search = <SearchBox value={query} onChange={setQuery} placeholder="Search agents" />
 
   return (
-    <PageShell title="Store" sub="Install agents into this app — live, no restart." actions={actions} search={search}>
+    <PageShell title="Store" sub={SUBTITLE} actions={actions} search={search}>
         {catalogError && <div className="banner banner-error">{catalogError}</div>}
 
         <div className="cards">
@@ -62,7 +81,13 @@ export default function StoreView() {
               </div>
             )
           })}
-          {bundles.length === 0 && !catalogError && <div className="page-sub">No bundles match.</div>}
+          {/* Two different nothings. "No bundles match" over an EMPTY registry sends you hunting
+              for a typo in a search box you never typed in — say which one it is. */}
+          {bundles.length === 0 && !catalogError && (
+            <div className="page-sub">
+              {q ? 'No bundles match.' : 'Nothing published to this registry yet.'}
+            </div>
+          )}
         </div>
     </PageShell>
   )
