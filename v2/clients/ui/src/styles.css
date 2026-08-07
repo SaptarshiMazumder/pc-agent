@@ -1118,6 +1118,20 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .page-bar { flex: none; padding: 44px 34px 12px; }          /* the pinned top band */
 .page-bar .settings-head { padding: 0; }
 .settings-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 34px 40px; }
+
+/* EMBEDDED AGENT APP (PageShell className="app-embed", view:'app').
+   The one page whose body must NOT scroll: the app inside the frame does its own scrolling, and
+   a scrollbar on the body too would give the same content two of them. So the body becomes a
+   flex column, the max-width cap and page padding are dropped (an app wants the full pane, not a
+   centred 1060px column of prose), and the frame takes the remaining height.
+   `min-height:0` on both is what actually lets a flex child SHRINK — without it the iframe's
+   default height wins and the frame overflows the viewport instead of fitting it. */
+.app-embed .settings-body { overflow: hidden; display: flex; padding: 0 18px 18px; }
+.app-embed .settings-body > .settings-inner { max-width: none; display: flex; min-height: 0; }
+.app-frame {
+  flex: 1; min-height: 0; width: 100%; border: 0; display: block;
+  border-radius: var(--radius); background: var(--bg2); border: 1px solid var(--border);
+}
 /* pinned search bar (PageShell `search` slot): a flex:none band under the header — it never
    scrolls, the body below it does. Single-column centres it in the same max-width as the body;
    two-column pins it inside the content column, right above the first label. */

@@ -1,18 +1,26 @@
-"""`agentd bundle ...` — PUBLISHER tooling (us, and later third parties):
+"""`agentd bundle ...` — PUBLISHER tooling (us, and third-party creators):
 
   pack    an agents/<id>/ directory (+ vendored plugins) -> <id>-<ver>.agentpkg
   index   a directory of .agentpkg files -> index.json  (= a complete registry)
   publish pack + sign + upload, in one command — the whole release
   serve   that directory over http://localhost — a real local marketplace
   keygen  an ed25519 keypair for signing indexes (M7)
+  roster  the trusted-creator list a multi-creator registry runs on
 
 The `pack` defaults come from an optional `bundle.toml` inside the agent dir, so a
-bundle's identity lives WITH the agent (flags override)."""
+bundle's identity lives WITH the agent (flags override).
+
+ONE REGISTRY, TWO SHAPES. A single-vendor registry needs `keygen` + `publish --key` and nothing
+else. A registry with more than one creator needs the roster: the PLATFORM ROOT key signs who is
+trusted, each creator's own key signs their own bundles, and clients pin only the root key — so
+adding a creator never means rebuilding and reshipping installed apps. The two shapes share every
+command; supplying `--roster` is what switches the output to schema 2."""
 
 from __future__ import annotations
 
 import argparse
 import tomllib
+from datetime import UTC
 from pathlib import Path
 
 from agent_runtime.domain.bundle import BundleManifest, PluginDep, parse_bundle_manifest
@@ -85,9 +93,70 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="publish without signatures (local testing only)",
     )
     publish.add_argument(
+        "--publisher-id",
+        default="",
+        help="YOUR creator id on the registry's roster (multi-creator registries). Your bundles "
+        "are stamped with it so clients verify them against your key and nobody else's.",
+    )
+    publish.add_argument(
+        "--roster",
+        default="",
+        help="the signed roster file from `agentd bundle roster` — publishes a schema-2 "
+        "(multi-creator) index. Omit to keep the roster already on the registry.",
+    )
+    publish.add_argument(
         "--dry-run", action="store_true", help="build everything, upload nothing, print the plan"
     )
     publish.set_defaults(func=run_publish)
+
+    roster = sub.add_parser(
+        "roster",
+        help="manage the trusted-creator roster (signed by the PLATFORM ROOT key)",
+        description="The roster is the only thing the root key signs. Creators sign their own "
+        "bundles with their own keys, which never leave them — so this is the one command that "
+        "needs the root private key, and it should run where that key lives (CI) and nowhere else.",
+    )
+    roster_sub = roster.add_subparsers(dest="roster_command", required=True)
+
+    roster_add = roster_sub.add_parser("add", help="add or re-key a creator, then re-sign")
+    roster_add.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_add.add_argument("--id", required=True, help="the creator's stable id (e.g. 'acme')")
+    roster_add.add_argument("--key", required=True, help="the creator's PUBLIC key (base64)")
+    roster_add.add_argument("--name", default="", help="display name (default: the id)")
+    roster_add.add_argument("--file", default="registry-roster.json", help="the roster file")
+    roster_add.set_defaults(func=run_roster_add)
+
+    roster_revoke = roster_sub.add_parser("revoke", help="revoke a creator, then re-sign")
+    roster_revoke.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_revoke.add_argument("--id", required=True, help="the creator id to revoke")
+    roster_revoke.add_argument("--file", default="registry-roster.json", help="the roster file")
+    roster_revoke.set_defaults(func=run_roster_revoke)
+
+    roster_show = roster_sub.add_parser("show", help="print a roster and check its signature")
+    roster_show.add_argument("file", nargs="?", default="registry-roster.json")
+    roster_show.add_argument(
+        "--root-key",
+        default="",
+        help="verify the signature against this PUBLIC key (base64) or keypair file",
+    )
+    roster_show.set_defaults(func=run_roster_show)
+
+    roster_publish = roster_sub.add_parser(
+        "publish",
+        help="push the roster to a registry WITHOUT publishing any bundle",
+        description="A roster edit only takes effect once the registry serves it. Adding a creator "
+        "can ride along with their first publish; a REVOCATION cannot — the creator being revoked "
+        "is exactly the person who can no longer publish. So the platform pushes the roster on its "
+        "own, and this is that command.",
+    )
+    roster_publish.add_argument(
+        "--to", default="", help="registry target: a directory, or s3://bucket[/prefix]"
+    )
+    roster_publish.add_argument("--file", default="registry-roster.json", help="the roster file")
+    roster_publish.add_argument(
+        "--dry-run", action="store_true", help="show what would change, upload nothing"
+    )
+    roster_publish.set_defaults(func=run_roster_publish)
 
     serve = sub.add_parser("serve", help="serve a registry directory over http (local marketplace)")
     serve.add_argument("directory")
@@ -341,6 +410,74 @@ def _upload_registry(staging: Path, target: str, is_s3: bool) -> int:
     return 0
 
 
+def _resolve_roster(args: argparse.Namespace, existing: dict, prior_key: str):
+    """-> (roster block | None | False, root_key). False means "stated but unreadable, stop".
+
+    A registry that ALREADY has a roster keeps it when `--roster` is omitted. Dropping it would be
+    a one-command demotion of a multi-creator registry back to a single key — every other creator
+    silently un-trusted, their bundles rejected on every install, with no error at publish time.
+    """
+    from agent_runtime.domain.bundle import BundleError
+    from agent_runtime.infrastructure.marketplace import roster_builder
+
+    block = None
+    if args.roster:
+        try:
+            block = roster_builder.read_roster_file(Path(args.roster))
+        except BundleError as e:
+            print(e)
+            return False, ""
+    elif int(existing.get("schema") or 1) >= 2:
+        block = existing.get("publishers") or {}
+        print("this registry has a creator roster — carrying it forward unchanged")
+    if block is None:
+        return None, ""
+    return block, str(block.get("root_key") or "") or prior_key
+
+
+def _creator_check(roster_block: dict, publisher_id: str, public_b64: str, private_b64: str) -> str:
+    """The refusals that stop a publish which would look successful and fail on every install.
+
+    All three failures below produce the same user-visible symptom — the store lists the bundle and
+    every download fails signature verification — so they are worth catching here, where the cause
+    is still obvious, instead of in a support thread.
+    """
+    if not private_b64:
+        return (
+            "this registry has a creator roster, so bundles must be SIGNED with your own key.\n"
+            "  agentd bundle keygen --out my-creator-key.json\n"
+            "  (ask the platform to add its public key with `agentd bundle roster add`)\n"
+            "  agentd bundle publish ... --key my-creator-key.json --publisher-id <your id>"
+        )
+    if not publisher_id:
+        return (
+            "this registry has a creator roster, so --publisher-id is required.\n"
+            "Without it your bundles would be published unattributed, and clients would try to "
+            "verify them against the PLATFORM ROOT key — which never signs bundles — so every "
+            "install would fail."
+        )
+    entries = {str(e.get("id") or ""): e for e in (roster_block.get("roster") or [])}
+    if publisher_id in {str(r) for r in (roster_block.get("revoked") or [])}:
+        return f"creator '{publisher_id}' is REVOKED on this roster — nothing you publish would install."
+    entry = entries.get(publisher_id)
+    if entry is None:
+        known = ", ".join(sorted(entries)) or "(none)"
+        return (
+            f"creator '{publisher_id}' is not on this registry's roster (it lists: {known}).\n"
+            "The platform adds you once, with your PUBLIC key:\n"
+            f"  agentd bundle roster add --root-key <root.json> --id {publisher_id} --key {public_b64}"
+        )
+    if str(entry.get("key") or "") != public_b64:
+        return (
+            f"KEY MISMATCH for creator '{publisher_id}' — refusing to publish.\n"
+            f"  the roster lists: {str(entry.get('key') or '')}\n"
+            f"  your keypair is:  {public_b64}\n"
+            "Use the keypair the roster knows, or have the platform re-key you:\n"
+            f"  agentd bundle roster add --root-key <root.json> --id {publisher_id} --key {public_b64}"
+        )
+    return ""
+
+
 def run_publish(args: argparse.Namespace) -> int:
     import json
     import os
@@ -385,27 +522,45 @@ def run_publish(args: argparse.Namespace) -> int:
     prior_key = str(existing.get("publisher_key") or "")
     prior_entries = tuple(existing.get("bundles") or [])
 
-    # Two ways to break every client that already trusts this registry. Both are one flag away from
-    # being intentional, and neither should be reachable by accident.
-    if prior_key and not private_b64:
-        print(
-            f"this registry is SIGNED (publisher_key {prior_key[:12]}…) and you are publishing "
-            "unsigned.\nEvery client pinned to that key would reject the whole registry. "
-            "Pass --key with the matching keypair."
-        )
+    # Is this a multi-creator registry? Either because a roster was passed, or because the registry
+    # already is one — in which case publishing WITHOUT the roster would drop it and demote the
+    # whole registry back to a single key, un-trusting every other creator in one command.
+    roster_block, root_key_b64 = _resolve_roster(args, existing, prior_key)
+    if roster_block is False:  # a stated roster that could not be read; the reason is printed
         return 1
-    if prior_key and public_b64 and prior_key != public_b64 and not args.rotate_key:
-        print(
-            "KEY MISMATCH — refusing to publish.\n"
-            f"  registry is signed by: {prior_key}\n"
-            f"  your keypair's public: {public_b64}\n"
-            "Publishing would re-sign the registry with a key no installed client trusts, and the "
-            "symptom is every download failing verification while the store still lists fine.\n"
-            "Use the original keypair, or pass --rotate-key AND update publisher_key in "
-            "v2/clients/desktop/flavors/*/distribution.toml plus registry_publisher_key in "
-            "v2/infra/environments/<env>/main.tf (existing installs will need the new build)."
-        )
-        return 1
+
+    if roster_block is not None:
+        failure = _creator_check(roster_block, args.publisher_id, public_b64, private_b64)
+        if failure:
+            print(failure)
+            return 1
+    else:
+        # Single-key registry. Two ways to break every client that already trusts it, both one flag
+        # away from being intentional, and neither reachable by accident.
+        if prior_key and not private_b64:
+            print(
+                f"this registry is SIGNED (publisher_key {prior_key[:12]}…) and you are publishing "
+                "unsigned.\nEvery client pinned to that key would reject the whole registry. "
+                "Pass --key with the matching keypair."
+            )
+            return 1
+        if prior_key and public_b64 and prior_key != public_b64 and not args.rotate_key:
+            print(
+                "KEY MISMATCH — refusing to publish.\n"
+                f"  registry is signed by: {prior_key}\n"
+                f"  your keypair's public: {public_b64}\n"
+                "Publishing would re-sign the registry with a key no installed client trusts, and "
+                "the symptom is every download failing verification while the store still lists "
+                "fine.\n"
+                "Either use the original keypair, or — if this registry now has more than one "
+                "creator — put your key on its roster instead of replacing the registry's:\n"
+                f"  agentd bundle roster add --root-key <root.json> --id <you> --key {public_b64}\n"
+                "  agentd bundle publish ... --publisher-id <you> --roster registry-roster.json\n"
+                "The blunt alternative is --rotate-key AND updating publisher_key in "
+                "v2/clients/desktop/flavors/*/distribution.toml plus registry_publisher_key in "
+                "v2/infra/environments/<env>/main.tf (existing installs will need the new build)."
+            )
+            return 1
 
     with tempfile.TemporaryDirectory(prefix="agentd-publish-") as work:
         staging = Path(work)
@@ -428,6 +583,9 @@ def run_publish(args: argparse.Namespace) -> int:
             private_key_b64=private_b64,
             public_key_b64=public_b64,
             carry_entries=prior_entries,
+            publisher_id=args.publisher_id if roster_block is not None else "",
+            roster=roster_block,
+            root_key_b64=root_key_b64,
         )
         index = json.loads(index_path.read_text(encoding="utf-8"))
         listed = [f"{b.get('id')} {b.get('version')}" for b in index.get("bundles", [])]
@@ -451,6 +609,197 @@ def run_publish(args: argparse.Namespace) -> int:
         print("Stores pick it up on their next refresh (the desktop Store's Refresh button).")
     else:
         print(f"Serve it locally:  agentd bundle serve {target}")
+    return 0
+
+
+# ─────────────────────────────── roster ───────────────────────────────
+
+
+def _now_iso() -> str:
+    from datetime import datetime
+
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_keypair(path: str) -> tuple[str, str]:
+    """-> (private_b64, public_b64) from a `agentd bundle keygen` file."""
+    import json
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return str(data["private_key"]), str(data["public_key"])
+
+
+def _load_roster(path: str) -> dict:
+    from agent_runtime.infrastructure.marketplace import roster_builder
+
+    if not Path(path).is_file():
+        return {}
+    return roster_builder.read_roster_file(Path(path))
+
+
+def run_roster_add(args: argparse.Namespace) -> int:
+    from agent_runtime.domain.bundle import BundleError
+    from agent_runtime.infrastructure.marketplace import roster_builder
+
+    try:
+        root_private, root_public = _read_keypair(args.root_key)
+        block = roster_builder.with_publisher(
+            _load_roster(args.file),
+            publisher_id=args.id,
+            name=args.name,
+            key=args.key,
+            issued=_now_iso(),
+            root_private_b64=root_private,
+            root_public_b64=root_public,
+        )
+    except (OSError, ValueError, KeyError, BundleError) as e:
+        print(f"cannot update the roster: {e}")
+        return 1
+    roster_builder.write_roster_file(Path(args.file), block)
+    print(f"roster updated: {args.id} is now trusted ({len(block.get('roster') or [])} creator(s))")
+    print(f"wrote {args.file} — publish it with:  agentd bundle publish ... --roster {args.file}")
+    return 0
+
+
+def run_roster_revoke(args: argparse.Namespace) -> int:
+    from agent_runtime.domain.bundle import BundleError
+    from agent_runtime.infrastructure.marketplace import roster_builder
+
+    try:
+        root_private, root_public = _read_keypair(args.root_key)
+        existing = _load_roster(args.file)
+        if not existing:
+            print(f"no roster at {args.file} — nothing to revoke")
+            return 1
+        block = roster_builder.without_publisher(
+            existing, publisher_id=args.id, issued=_now_iso(),
+            root_private_b64=root_private, root_public_b64=root_public,
+        )
+    except (OSError, ValueError, KeyError, BundleError) as e:
+        print(f"cannot update the roster: {e}")
+        return 1
+    roster_builder.write_roster_file(Path(args.file), block)
+    print(f"revoked {args.id}. Their row is kept for the record; their key no longer verifies.")
+    print(
+        "This takes effect for a client on its next index fetch — bundles ALREADY installed from "
+        "them stay installed. Revocation stops new installs; it is not a remote uninstall."
+    )
+    return 0
+
+
+def run_roster_show(args: argparse.Namespace) -> int:
+    from agent_runtime.domain.bundle import BundleError, parse_publisher_roster
+    from agent_runtime.infrastructure.marketplace.trust import verify_roster
+
+    try:
+        block = _load_roster(args.file)
+    except BundleError as e:
+        print(e)
+        return 1
+    if not block:
+        print(f"no roster at {args.file}")
+        return 1
+    roster = parse_publisher_roster(block)
+    print(f"roster issued {roster.issued or '(no date)'} — {len(roster.entries)} creator(s)")
+    revoked = set(roster.revoked)
+    for entry in roster.entries:
+        mark = "REVOKED" if entry.id in revoked else "trusted"
+        print(f"  {mark:8} {entry.id:20} {entry.key[:16]}…  {entry.name}")
+    root_key = str(block.get("root_key") or "")
+    if args.root_key:
+        root_key = args.root_key
+        if Path(root_key).is_file():
+            root_key = _read_keypair(root_key)[1]
+    if not root_key:
+        print("\nno root key to check the signature against (pass --root-key)")
+        return 0
+    ok = verify_roster(roster, root_key)
+    print(f"\nsignature: {'VALID' if ok else 'INVALID'} against {root_key[:16]}…")
+    return 0 if ok else 1
+
+
+def run_roster_publish(args: argparse.Namespace) -> int:
+    """Replace a registry's roster in place. No bundles are packed and none are touched."""
+    import json
+    import os
+    import tempfile
+
+    from agent_runtime.domain.bundle import BundleError, parse_publisher_roster
+
+    target = (args.to or os.environ.get("AGENTD_PUBLISH_TARGET", "")).strip()
+    if not target:
+        print("no registry target. Pass --to <directory|s3://bucket[/prefix]>.")
+        return 1
+    is_s3 = target.startswith(_S3_SCHEME)
+
+    try:
+        block = _load_roster(args.file)
+    except BundleError as e:
+        print(e)
+        return 1
+    if not block:
+        print(f"no roster at {args.file}")
+        return 1
+
+    existing = _read_registry_index(target, is_s3)
+    if existing is None:
+        return 1
+    if not existing:
+        print("there is no registry at that target yet — publish a bundle first.")
+        return 1
+
+    # A roster older than the one already served would be REFUSED by every client as a replay, and
+    # the registry would be stuck that way until someone noticed. Catch it here instead.
+    prior = str((existing.get("publishers") or {}).get("issued") or "")
+    issued = str(block.get("issued") or "")
+    if prior and issued and issued < prior:
+        print(
+            f"refusing: this roster ({issued}) is OLDER than the one the registry already serves "
+            f"({prior}). Clients reject a roster that goes backwards — publishing it would break "
+            "the store for everyone who has already seen the newer one."
+        )
+        return 1
+
+    roster = parse_publisher_roster(block)
+    trusted = roster.trusted_keys()
+    orphaned = sorted(
+        {
+            str(b.get("publisher_id") or "")
+            for b in (existing.get("bundles") or [])
+            if b.get("publisher_id") and str(b.get("publisher_id")) not in trusted
+        }
+    )
+    index = dict(existing)
+    index["schema"] = 2
+    index["publishers"] = block
+    index["publisher_key"] = str(block.get("root_key") or "") or str(existing.get("publisher_key") or "")
+
+    print(f"roster: {len(trusted)} trusted creator(s), {len(roster.revoked)} revoked")
+    if orphaned:
+        # Not an error — revoking someone is SUPPOSED to stop their bundles installing. It is
+        # printed because the listing still shows those cards, so the store looks unchanged and
+        # only the download fails, which is a confusing thing to discover from a user report.
+        print(
+            "  these bundles will stop installing (their creator is revoked or unlisted): "
+            + ", ".join(
+                f"{b.get('id')} [{b.get('publisher_id')}]"
+                for b in (existing.get("bundles") or [])
+                if str(b.get("publisher_id") or "") in orphaned
+            )
+        )
+    if args.dry_run:
+        print(f"\n--dry-run: nothing uploaded. Would update the roster at {target}")
+        return 0
+
+    with tempfile.TemporaryDirectory(prefix="agentd-roster-") as work:
+        staging = Path(work)
+        (staging / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+        # No .agentpkg in staging, so this uploads index.json and nothing else — the artifacts
+        # already in the registry are untouched.
+        if _upload_registry(staging, target, is_s3) != 0:
+            print("upload FAILED — the registry's roster is unchanged.")
+            return 1
+    print("\nroster published. Clients pick it up on their next index fetch.")
     return 0
 
 

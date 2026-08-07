@@ -17,31 +17,48 @@ output "gateway_repo_url" {
 # string is load-bearing rather than sloppy: sync-platform-urls.mjs skips a blank value, so a
 # hibernated environment leaves the desktop flavors holding their last known URLs instead of
 # blanking them into a build that cannot reach anything.
+locals {
+  # ONE place decides scheme + host, so a TLS switch cannot half-apply. These outputs feed the
+  # desktop flavors (sync-platform-urls.mjs) and the web image's build args, so if `app_url` went
+  # https while `accounts_url` stayed http, the app would load over TLS and then be blocked by
+  # the browser for making an insecure request — a failure that looks like the backend is down.
+  #
+  # `public_host` prefers the domain the certificate is for: hitting an https listener via the
+  # ALB's own *.elb.amazonaws.com name fails the certificate check, so once TLS is on, the ALB
+  # hostname is no longer a usable address.
+  url_scheme  = local.tls_enabled ? "https" : "http"
+  public_host = var.domain_name != "" ? var.domain_name : local.alb_dns
+  # With TLS, web sits on 443 and the URL carries no port at all.
+  app_origin = local.public_host == "" ? "" : (
+    local.tls_enabled ? "https://${local.public_host}" : "http://${local.public_host}"
+  )
+}
+
 output "app_url" {
   description = "The public URL of the app (serves once the containers are healthy). Empty while hibernating."
-  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}"
+  value       = local.app_origin
 }
 
 # ── Desktop-flavor wiring: these values go into the flavors' distribution.toml ──
 
 output "accounts_url" {
   description = "[platform] accounts_url for the desktop flavors (sign-in endpoint)."
-  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["accounts"].port}"
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
 }
 
 output "model_proxy_url" {
   description = "[platform] model_proxy_url for the desktop flavors (platform keys)."
-  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["model-proxy"].port}"
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 }
 
 output "model_gateway_url" {
   description = "Deprecated compatibility alias for model_proxy_url."
-  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["model-proxy"].port}"
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 }
 
 output "ingest_url" {
   description = "[platform] ingest_url for the desktop flavors and the web build (opt-in client telemetry). Empty in a client's config = the uploader stays off."
-  value       = local.alb_dns == "" ? "" : "http://${local.alb_dns}:${local.services["ingest"].port}"
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["ingest"].port}"
 }
 
 output "registry_url" {

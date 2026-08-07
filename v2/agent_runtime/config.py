@@ -321,6 +321,54 @@ class Config:
     # sandbox_trusted_plugins: plugin ids to EXEMPT from the sandbox even when the above is on
     # (local dev convenience for a plugin you author yourself). Never trust a plugin you didn't write.
     sandbox_trusted_plugins: tuple = ()
+    # WHICH sandbox backend: "local" (in-process passthrough, no isolation) or "subprocess" (a child
+    # process per tool call, scrubbed env, no runtime handles, audit-hook enforcement). Empty = the
+    # deployment decides: subprocess when multi_tenant is on, local otherwise. AGENTD_SANDBOX_BACKEND.
+    sandbox_plugin_backend: str = ""
+    # The interpreter the subprocess backend spawns. Empty = the one running the daemon (correct
+    # almost always; an embedded runtime that relocates its python.exe is the exception).
+    sandbox_python: str = ""
+    # Environment variables an untrusted child INHERITS. Empty = the seed in the backend (PATH and
+    # the handful the interpreter needs to boot). An ALLOWLIST on purpose: with a denylist, every
+    # provider key added anywhere in future leaks into every sandbox until someone updates it.
+    sandbox_env_passthrough: tuple = ()
+    # Config fields the child may READ (it gets a projection, never the live Config — which holds
+    # every provider key). Empty = the seed in sandbox/protocol.py. Anything not listed raises
+    # AttributeError in the child, so getattr(config, x, default) returns the caller's default.
+    sandbox_config_fields: tuple = ()
+    # Let a sandboxed plugin load native code (ctypes). OFF: ctypes is the cheap way out of an
+    # interpreter-level control, and a plugin that genuinely needs FFI is the one you least want
+    # running next to other accounts' files.
+    sandbox_allow_native: bool = False
+    # POSIX + daemon-running-as-root ONLY: drop each sandbox child to this uid/gid before exec.
+    # This is the one control here the KERNEL enforces rather than the interpreter — but it needs
+    # the tenant workspace to be writable by that user, so it stays off until an operator sets it.
+    sandbox_child_uid: int = 0
+    sandbox_child_gid: int = 0
+    # Ceilings for ONE untrusted tool call: {"timeout_s": 120, "cpu_ms": 0, "mem_mb": 0} (0 = no
+    # limit). Wall clock is enforced everywhere; cpu/mem are POSIX rlimits, so they do nothing on
+    # Windows — a memory bomb in a plugin is survivable on the hosted task and is not on a desktop.
+    sandbox_limits: dict = field(default_factory=dict)
+    # ── MULTI-TENANCY (hosted only) ──────────────────────────────────────────────────────────
+    # multi_tenant: this daemon serves MANY accounts, so state_dir/agents_dir/workspace/plugins_dir
+    # are resolved PER CONNECTION under tenant_root/<account_id>/ instead of being process-global,
+    # and every connection must present a session token that the accounts service can resolve
+    # (fail-closed — an unattributable connection is refused, never pooled into a shared world).
+    #
+    # OFF by default and it must stay that way: a desktop daemon serves exactly one person, so the
+    # globals are correct there and per-connection identity would be pure overhead. This is a
+    # property of the DEPLOYMENT, which is why it is env-settable on the hosted task and nowhere
+    # else. AGENTD_MULTI_TENANT=1.
+    multi_tenant: bool = False
+    # Where tenant homes live. Empty = <AGENTD_HOME>/users. AGENTD_TENANT_ROOT.
+    tenant_root: str = ""
+    # How many tenants may be resident at once. A tenant costs MEMORY (its own loaded plugin
+    # graph), not money — one process, no extra containers — so this is a memory budget and the
+    # right value depends on how heavy the plugin set is. Least-recently-used UNREFERENCED tenants
+    # are evicted past this; a tenant with live connections is never evicted. AGENTD_MAX_TENANTS.
+    max_tenants: int = 50
+    # Evict a tenant with no connections after this long. AGENTD_TENANT_IDLE_SECONDS.
+    tenant_idle_seconds: int = 1800
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -798,6 +846,37 @@ def load_config(path: Path | None = None) -> Config:
             "no",
             "",
         )
+    # Multi-tenancy: hosted-only, env-only. Deliberately NOT readable from config.json — this
+    # decides whether one person's files are reachable by another, and a setting that dangerous
+    # should be a property of the deployment that starts the process, not of a file inside a
+    # writable state directory that an agent could conceivably edit.
+    if os.environ.get("AGENTD_SANDBOX_BACKEND"):
+        cfg.sandbox_plugin_backend = os.environ["AGENTD_SANDBOX_BACKEND"].strip().lower()
+    if os.environ.get("AGENTD_MULTI_TENANT"):
+        cfg.multi_tenant = os.environ["AGENTD_MULTI_TENANT"].lower() not in ("0", "false", "no", "")
+    if os.environ.get("AGENTD_TENANT_ROOT"):
+        cfg.tenant_root = os.environ["AGENTD_TENANT_ROOT"].strip()
+    for _env, _field in (
+        ("AGENTD_MAX_TENANTS", "max_tenants"),
+        ("AGENTD_TENANT_IDLE_SECONDS", "tenant_idle_seconds"),
+    ):
+        if os.environ.get(_env):
+            try:
+                setattr(cfg, _field, int(os.environ[_env]))
+            except ValueError:
+                logging.getLogger("agentd").warning("%s ignored: not an integer", _env)
+    # A daemon serving MANY accounts sandboxes the untrusted tier by default. The alternative is a
+    # hosted deployment where marketplace plugin code runs in-process next to every account's files
+    # because one env var was never set — and nothing about that failure is visible until it is
+    # exploited. Explicitly disabling it is still possible, and now says so out loud.
+    if cfg.multi_tenant and not cfg.sandbox_untrusted_plugins:
+        if os.environ.get("AGENTD_SANDBOX_PLUGINS", "").strip().lower() in ("0", "false", "no"):
+            logging.getLogger("agentd").warning(
+                "multi_tenant is ON but AGENTD_SANDBOX_PLUGINS disables the plugin sandbox — "
+                "untrusted marketplace plugins will run IN-PROCESS with this daemon's access"
+            )
+        else:
+            cfg.sandbox_untrusted_plugins = True
     if os.environ.get("AGENTD_MODEL_FALLBACKS"):
         cfg.model_fallbacks = [
             s.strip() for s in os.environ["AGENTD_MODEL_FALLBACKS"].split(",") if s.strip()

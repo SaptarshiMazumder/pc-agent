@@ -40,6 +40,7 @@ export default function AgentView() {
   const viewedAgentId = useApp((s) => s.viewedAgentId)
   const recents = useApp((s) => s.recents)
   const newChatWithAgent = useApp((s) => s.newChatWithAgent)
+  const openAgentApp = useApp((s) => s.openAgentApp)
   const resumeSession = useApp((s) => s.resumeSession)
   const currentSessionKey = useApp((s) => s.currentSessionKey)
   const view = useApp((s) => s.view)
@@ -93,15 +94,21 @@ export default function AgentView() {
   const appInfo = detail?.app ?? agent.app ?? null
   const openApp = async (): Promise<void> => {
     if (!appInfo) return
-    const url = appLaunchUrl(appInfo, agent.id)
-    // honor the AUTHOR's declared presentation: mode "window" = a dedicated desktop
-    // window; "browser" (the default) = the system browser. window.open is routed to
-    // the OS browser by the main process, and doubles as the no-IPC fallback.
+    // Honor the AUTHOR's declared presentation. `mode: "window"` still means a dedicated
+    // desktop window — an app that asked for the whole screen gets it.
+    //
+    // The DEFAULT changed (apps-plan P4): "browser" used to mean the system browser, which
+    // threw the user out of the app they had just installed the agent into. It now means
+    // EMBEDDED — the app opens as a page inside agentd (view:'app'), which is what installing
+    // something into a product is supposed to feel like. The window route stays one click away
+    // from there, so nothing became unreachable.
     if (appInfo.mode === 'window') {
-      const res = await platform.openAppWindow?.(url, appInfo.title)
+      const res = await platform.openAppWindow?.(appLaunchUrl(appInfo, agent.id), appInfo.title)
       if (res?.ok) return
+      window.open(appLaunchUrl(appInfo, agent.id)) // no bridge (browser) — fall back
+      return
     }
-    window.open(url)
+    openAgentApp(agent.id)
   }
 
   return (

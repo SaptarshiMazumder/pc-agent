@@ -87,5 +87,12 @@ def test_parse_registry_index_skips_junk_rows():
 
 
 def test_parse_registry_index_rejects_unknown_schema():
+    """Schema 2 (the creator roster) is understood now; a FUTURE schema still is not, and saying so
+    beats an empty store with no explanation."""
     with pytest.raises(BundleError):
-        parse_registry_index({"schema": 2, "bundles": []})
+        parse_registry_index({"schema": 9, "bundles": []})
+
+
+def test_parse_registry_index_accepts_schema_2():
+    index = parse_registry_index({"schema": 2, "bundles": []})
+    assert index.schema == 2 and index.publishers is not None

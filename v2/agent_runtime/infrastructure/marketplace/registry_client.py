@@ -9,7 +9,17 @@ served from disk today and uploaded to a CDN tomorrow ("local now, cloud later")
 
 Verification (fail closed): sha256 always when the index carries one; ed25519
 signature when a publisher key is PINNED (distribution profile wins over the
-index's self-declared key — an installer-baked key can't be spoofed by a registry)."""
+index's self-declared key — an installer-baked key can't be spoofed by a registry).
+
+TWO TRUST SHAPES, one pinned key either way:
+
+  * schema 1 — one publisher. The pinned key signed every bundle directly.
+  * schema 2 — many creators. The pinned key is the PLATFORM ROOT key; it signed a ROSTER of
+    creators, and each creator's own key signed their own bundles. Trust is therefore derived:
+    verify the roster with the pinned key, then verify each bundle against ITS creator's key.
+
+The pinned key is the same field in both (`distribution.publisher_key`), which is the entire point
+— adding a creator must never require re-pinning an already-installed client."""
 
 from __future__ import annotations
 
@@ -30,6 +40,7 @@ from agent_runtime.domain.bundle import (
 )
 from agent_runtime.infrastructure import signing
 from agent_runtime.infrastructure.marketplace.bundle_io import sha256_file
+from agent_runtime.infrastructure.marketplace.trust import RosterMemory, verify_roster
 
 log = logging.getLogger("agentd")
 
@@ -51,9 +62,19 @@ def normalize_registry_url(raw: str) -> str:
 class RegistryClient:
     """The one concrete RegistryClient (see application/interfaces/marketplace)."""
 
-    def __init__(self, registry_url: str, pinned_publisher_key: str = ""):
+    def __init__(
+        self,
+        registry_url: str,
+        pinned_publisher_key: str = "",
+        trust_state_path: Path | None = None,
+    ):
         self._index_url = normalize_registry_url(registry_url)
         self._pinned_key = pinned_publisher_key
+        self._memory = RosterMemory(trust_state_path)
+        # Filled by fetch_index for a schema-2 registry: creator id -> public key. Empty means
+        # either schema 1 or "no index has been fetched yet", and `_verify` distinguishes the two
+        # by whether the entry names a publisher_id.
+        self._trusted: dict[str, str] = {}
 
     async def fetch_index(self) -> RegistryIndex:
         raw = await self._read_bytes(self._index_url)
@@ -61,7 +82,42 @@ class RegistryClient:
             index = parse_registry_index(json.loads(raw.decode("utf-8")))
         except (ValueError, UnicodeDecodeError) as e:
             raise BundleError(f"registry index at {self._index_url} is not valid: {e}") from e
+        self._establish_trust(index)
         return index
+
+    def _establish_trust(self, index: RegistryIndex) -> None:
+        """Schema 2: verify the roster with the pinned root key and keep the creator key map.
+
+        This runs on the INDEX fetch rather than on download, because a bad roster invalidates the
+        whole listing, not one bundle — and a store that renders cards from a listing it has
+        already decided it cannot trust is a store that will happily offer you the install.
+        """
+        self._trusted = {}
+        if index.schema < 2:
+            return
+        roster = index.publishers
+        if roster is None:
+            raise BundleError("registry index: schema 2 with no `publishers` roster — refusing")
+        if not verify_roster(roster, self._pinned_key):
+            raise BundleError(
+                "registry index: the publisher roster's signature does not match this install's "
+                "pinned platform key — refusing the whole registry"
+            )
+        if self._memory.is_downgrade(self._index_url, roster.issued):
+            raise BundleError(
+                f"registry index: this roster ({roster.issued}) is OLDER than one already accepted "
+                f"from {self._index_url} ({self._memory.newest_seen(self._index_url)}). That is what "
+                "a replayed index looks like — refusing. If the rollback is intentional, clear the "
+                "registry trust file."
+            )
+        self._trusted = roster.trusted_keys()
+        if self._pinned_key:
+            self._memory.remember(self._index_url, roster.issued)
+        log.info(
+            "registry: roster verified — %d trusted creator(s), %d revoked",
+            len(self._trusted),
+            len(roster.revoked),
+        )
 
     async def download(self, entry: RegistryEntry, dest_dir: Path) -> Path:
         if not entry.url:
@@ -84,17 +140,36 @@ class RegistryClient:
                 f"'{entry.id}': sha256 mismatch — refusing corrupted/tampered "
                 f"artifact (got {digest[:12]}…, want {entry.sha256[:12]}…)"
             )
-        if self._pinned_key:  # a pinned key makes signatures MANDATORY (fail closed)
-            if not entry.sig:
-                artifact.unlink(missing_ok=True)
-                raise BundleError(
-                    f"'{entry.id}': unsigned artifact but this install pins a "
-                    f"publisher key — refusing"
-                )
-            if not signing.verify(self._pinned_key, digest.encode("ascii"), entry.sig):
-                artifact.unlink(missing_ok=True)
-                raise BundleError(f"'{entry.id}': publisher signature INVALID — refusing")
-            log.info("bundle %s: signature verified against the pinned publisher key", entry.id)
+        if not self._pinned_key:  # unpinned install: sha256 is the whole check (dev / local)
+            return
+        # A pinned key makes signatures MANDATORY (fail closed).
+        if not entry.sig:
+            artifact.unlink(missing_ok=True)
+            raise BundleError(
+                f"'{entry.id}': unsigned artifact but this install pins a publisher key — refusing"
+            )
+        key, whose = self._signing_key(entry, artifact)
+        if not signing.verify(key, digest.encode("ascii"), entry.sig):
+            artifact.unlink(missing_ok=True)
+            raise BundleError(f"'{entry.id}': {whose} signature INVALID — refusing")
+        log.info("bundle %s: signature verified against %s", entry.id, whose)
+
+    def _signing_key(self, entry: RegistryEntry, artifact: Path) -> tuple[str, str]:
+        """WHICH key should have signed this bundle — the pinned one, or its creator's."""
+        if not entry.publisher_id:
+            return self._pinned_key, "the pinned publisher key"
+        key = self._trusted.get(entry.publisher_id)
+        if not key:
+            artifact.unlink(missing_ok=True)
+            # Covers three cases that all mean the same thing to a user — the creator is unknown,
+            # they were revoked, or the roster was never established because the entry arrived from
+            # somewhere other than a verified index. All three are "we cannot vouch for this".
+            raise BundleError(
+                f"'{entry.id}': published by '{entry.publisher_id}', who is not a trusted creator "
+                "on this registry's roster (unknown, revoked, or the roster was not verified) — "
+                "refusing"
+            )
+        return key, f"creator '{entry.publisher_id}'"
 
     # ------------------------------------------------------------ transports
 

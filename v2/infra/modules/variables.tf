@@ -274,6 +274,41 @@ variable "enable_job_absence_alarm" {
   default     = false
 }
 
+variable "certificate_arn" {
+  description = <<-EOT
+    ACM certificate for this environment's domain. Set it and every listener becomes HTTPS
+    (web moves to :443 and :80 redirects); leave it empty and nothing changes.
+
+    WHY IT IS AN ARN AND NOT A DOMAIN. Terraform can request an ACM cert, but DNS-validating one
+    it cannot create records for makes `apply` HANG until someone adds a CNAME by hand — a
+    twenty-minute wait that ends in a timeout and a half-applied environment. Issuing the cert is
+    a two-click job in the ACM console (or one `aws acm request-certificate` plus the CNAME), and
+    handing the finished ARN here keeps apply deterministic.
+
+    UNTIL THIS IS SET, SESSION TOKENS CROSS THE INTERNET IN CLEARTEXT. That is survivable while
+    the only user is you and unacceptable the moment anyone else signs in.
+
+    NOT AUTOMATIC: .github/workflows/deploy.yml bakes the client's API origins into the web image
+    and builds them from the ALB's hostname over http/ws. Turning TLS on here without updating
+    that step ships a page served over https whose first request is http — which the browser
+    blocks as mixed content, and which reads as "the backend is down". Set `domain_name` too and
+    change deploy.yml's build args in the SAME commit.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.certificate_arn == "" || can(regex("^arn:aws:acm:", var.certificate_arn))
+    error_message = "certificate_arn must be an ACM certificate ARN (arn:aws:acm:…), or empty."
+  }
+}
+
+variable "domain_name" {
+  description = "The hostname clients use (must match certificate_arn's cert). Only shapes the URLs in outputs — DNS itself is yours to point at the ALB. Empty = use the ALB's own hostname."
+  type        = string
+  default     = ""
+}
+
 variable "registry_publisher_key" {
   description = "Base64 ed25519 PUBLIC key that signed the marketplace index — the hosted daemon pins downloads to it. This is the public half; it is safe in state, in task env, and in git (the desktop flavors already carry the same string). Empty = unsigned mode: sha256 is still checked but a rewritten index.json would be accepted, so leave it empty only for a private registry you fully control."
   type        = string
@@ -395,6 +430,20 @@ variable "services" {
         AGENTD_WORKSPACE       = "/data/workspace"
         AGENTD_ACCOUNTS_URL    = "http://accounts.agentd.local:4100"
         AGENTD_MODEL_PROXY_URL = "http://model-proxy.agentd.local:4000"
+        # UNTRUSTED plugin tier -> a child process per tool call. This daemon serves many people
+        # off one filesystem, and a marketplace agent's own plugins (agents/<id>/plugins/) are
+        # code a stranger wrote. In-process, that code holds everything this task holds: the
+        # provider keys in its environment, the credential vault handle, and every other account's
+        # directory on the shared EFS mount.
+        #
+        # BOTH are needed, and this is the trap: AGENTD_SANDBOX_PLUGINS alone routes untrusted
+        # tools through the sandbox SEAM, whose default backend on a daemon that has not set
+        # AGENTD_MULTI_TENANT is the in-process passthrough — the boundary would be wired up and
+        # enforcing nothing, with no error to say so. Set explicitly rather than relying on the
+        # multi_tenant default, because this deployment does per-account isolation through the
+        # accounts/user_state overlay and does not flip that flag.
+        AGENTD_SANDBOX_PLUGINS = "1"
+        AGENTD_SANDBOX_BACKEND = "subprocess"
       }
       # WebSocket sessions are long-lived, so a replaced daemon gets a real drain window
       # (a 30s cut-off would drop live conversations mid-turn), and a longer boot grace

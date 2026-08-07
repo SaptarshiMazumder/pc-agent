@@ -23,6 +23,26 @@ from agent_runtime.presentation.gateway import Gateway
 log = logging.getLogger("agentd")
 
 
+def _account_agents_overlay(config: Config):
+    """The CURRENT connection's installed-agents directory, or None.
+
+    Returned as a callable because the answer changes per connection while the registry is built
+    once at boot: the account lives on a contextvar that `_handle_conn` pins for the life of a
+    socket, so calling this during a read gives that socket's account.
+
+    None on every desktop/local install (accounts off), which is what keeps the single-user path
+    exactly as it was — one catalogue, no overlay, no lookup.
+    """
+    from agent_runtime.infrastructure import accounts as _accounts
+    from agent_runtime.infrastructure import user_state as _user_state
+
+    def resolve():
+        acct = _accounts.account_id()
+        return _user_state.account_agents_dir(config.state_dir, acct) if acct else None
+
+    return resolve
+
+
 def build_browser_manager(config: Config):
     """Build the browser provider (Playwright today), or None if unavailable.
 
@@ -114,7 +134,7 @@ def build_service(
         discover_plugin_contributions,
     )
 
-    registry = registry or FileAgentRegistry(config)
+    registry = registry or FileAgentRegistry(config, overlay_dir=_account_agents_overlay(config))
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
     # entitle every compatible plugin; a distribution profile with a pinned publisher key
     # (a commercial build) switches on license-file enforcement (M7) — no core changes.
@@ -128,17 +148,18 @@ def build_service(
 
     # PLUGIN-SANDBOX seam: the UNTRUSTED tool tier (agents/<id>/plugins/ — tools that ship inside a
     # marketplace agent's package) runs behind a PluginSandbox instead of in-process. Dormant unless
-    # config.sandbox_untrusted_plugins is set; the default backend is an in-process passthrough
-    # (proves the boundary, no isolation) — swap for a container/microVM/remote backend later. The
-    # CapabilityResolver (what a run may touch) is the seam the approval layer plugs into later.
+    # config.sandbox_untrusted_plugins is set (which multi_tenant turns on for you). WHICH backend
+    # is `build_plugin_sandbox`'s decision, not this file's: in-process passthrough on the desktop,
+    # a child process per call when this daemon serves more than one person. The CapabilityResolver
+    # (what a run may touch) is the separate seam the approval layer plugs into later.
     from agent_runtime.infrastructure.tools.sandbox import (
         DefaultCapabilityResolver,
-        LocalPluginSandbox,
+        build_plugin_sandbox,
         wrap_untrusted,
     )
 
-    plugin_sandbox = LocalPluginSandbox()
-    capability_resolver = DefaultCapabilityResolver()
+    plugin_sandbox = build_plugin_sandbox(config)
+    capability_resolver = DefaultCapabilityResolver(config=config)
 
     def _wrap(raw_tools: list) -> list:
         out = []
@@ -498,7 +519,7 @@ def build_gateway(config: Config) -> Gateway:
     # gateway (drives the heartbeat scheduler).
     from agent_runtime.infrastructure.agents import FileAgentRegistry
 
-    registry = FileAgentRegistry(config)
+    registry = FileAgentRegistry(config, overlay_dir=_account_agents_overlay(config))
     task_store = build_task_store(config)  # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
     # Login vault + connect-token store — built ONCE and SHARED by the simple_login tool
