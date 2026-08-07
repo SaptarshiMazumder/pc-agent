@@ -1,7 +1,7 @@
 # Agent Builder — output quality plan (A–F)
 
-**Status:** A done. C done (C1/C2/C3). **F is next** (user proposal, supersedes B). D pending.
-B folded into F2. E dropped as overfitted — see below.
+**Status:** A done. C done (C1/C2/C3). F done (F1 + F2). **D is next.**
+B folded into F2 and shipped with it. E dropped as overfitted — see below.
 **Started:** 2026-08-06. Owner: the agent-builder workstream (phases 1–7 built the machinery;
 this plan is about the QUALITY of what it produces).
 
@@ -156,7 +156,7 @@ never consults them. That generalises; "use cron for 8am" does not. Reconsider a
 
 Two halves, proposed 2026-08-06 after test-driving C.
 
-**F1 — a new chat begins by choosing what it is about.** Today every conversation starts from
+**F1 — a new chat begins by choosing what it is about.** ✅ DONE. Today every conversation starts from
 nothing and the agent under discussion is inferred from prose, which is how "build me a
 linkedin job finder" three times produced one agent and a clobbering argument. Instead, a new
 chat asks up front:
@@ -170,14 +170,55 @@ as a VS Code workspace gives a coding agent its context. The model then reads an
 itself with the tools it already has (`read`/`ls`/`find`); the difference is that it is pointed
 at the right directory instead of guessing.
 
-*Most of the machinery exists*: the inspector already has an agent picker, `CROSS_AGENT_READS`
-already lets this window read other agents, and the model already has the file tools. What is
-missing is the onboarding step and the seeded context.
+*Most of the machinery existed*: the inspector already had an agent picker, `CROSS_AGENT_READS`
+already let this window read other agents, and the model already had the file tools. What was
+missing was the onboarding step and the seeded context.
 
-**F2 — start a UI from a template, not from a blank file.** The user picks from a small set of
-templates; begin with ONE and add more once the shape is proven. This SUPERSEDES B as
-originally written ("point the builder at an example to read") — a pickable starting artifact
-is a stronger form of the same idea, so B folds into F2.
+Shipped in `ui/`: a `#pickScope` block in the hero, hidden entirely when the only agent on the
+machine is Agent Builder itself (asking "existing or new?" with one meaningless answer is the
+same ceremony F2's picker avoids). Opening one points the inspector AND seeds the chat, and the
+seed is SHOWN as a `.scope-row` — a client that silently prepends instructions to your words
+leaves you unable to explain the model's behaviour later. It rides the first message only.
+
+*Found while doing it:* setting the "already sent" flag after the `await` left a synchronous
+window in which a second send still carried the preamble. It is set before the await and
+restored in `catch`, so a send that genuinely failed still owes the context on retry.
+
+**F2 — start a UI from a template, not from a blank file.** ✅ DONE. This SUPERSEDED B as
+originally written ("point the builder at an example to read") — a starting artifact is a
+stronger form of the same idea.
+
+Shipped as `skills/build-agent/templates/chat-app/` + a `scaffold_ui` tool:
+
+- **the template** — index.html · app.js · chat.js · settings.js · style.css · README.md. A
+  full conversation window (streaming, live tool rows, paste/drop images, saved history) plus
+  a settings page driven by `config.get`/`config.set`, which any agent app may call — so BYOK
+  works inside an agent a user built. `md.js` and `vendor/agentd-client.js` are NOT copies in
+  the template; `scaffold_ui` borrows them from agent-builder's live `ui/`, so the product has
+  exactly one of each and the SDK cannot drift from the daemon it talks to.
+- **the settings page ships three groups, not the full surface.** `config.set` edits the
+  DAEMON, shared by every agent — so a downloaded agent offering the daemon's port or state
+  directory is offering to break the user's install from inside a package they trusted for one
+  job. Keys · Model · Behaviour. The README names the rest and says to add only what is needed.
+- **the tool** — `ui_template.py` (registry, pure) → `scaffold_ui_service.py` (copies; resolves
+  every source before writing, so a broken install fails loudly instead of half-scaffolding) →
+  `scaffold_ui_tool.py`. Refuses to scaffold over an existing `ui/` without `confirm_overwrite`
+  and names the files at stake — the create_agent lesson, applied before it could be relearned.
+- **no picker yet.** One template; a dropdown with one option is ceremony. Add it at template
+  #2 — with the same tests, or it becomes the untested path everyone picks.
+
+Held correct by `tests/unit/test_ui_template.py`: the template must produce ZERO `UiRules`
+findings (the same validator that reads a generated UI), parse under `node --check`, and have
+every `getElementById` backed by an element in index.html.
+
+*Found while doing it, and fixed:* `UiRules` had no notion of comments, so it flagged the
+template for a mistake the template was WARNING about. A check that is wrong on the most
+carefully written code it will ever see is a check people switch off — and generated UIs are
+full of comments, so this would have hit real agents. New `js_comment_stripper.py` blanks
+comment bodies before the rules run, with a scanner rather than a regex because `'https://…'`,
+`` /`([^`]+)`/ `` and `` `${a ? 'x' : 'y'}` `` all contain something that looks like a comment
+and is not. Tested in both directions — comments must go, code that merely resembles one must
+stay, since over-stripping would silently turn the rule into decoration.
 
 **Relationship to D:** D is visual craft (layout, spacing, hierarchy, the empty/loading/error
 states everyone forgets). F2 is the starting point. A template embodies D's rules rather than

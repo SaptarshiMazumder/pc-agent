@@ -10,9 +10,12 @@ version = "1.0.0"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
 tagline = "build · validate · ship agents"
 color = "#5B4FCF"
+# Starter prompts on an empty chat. NEVER name a specific agent: these are clickable, and on a
+# machine that has never had that agent the click asks to work on something that does not
+# exist. Keep them about what the user wants DONE, not about which agent does it.
 suggestions = [
   "Build me an agent that tracks my gym sets",
-  "Give the weather agent its own app window",
+  "Give one of my agents its own app window",
   "Validate every agent I have",
 ]
 

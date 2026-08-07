@@ -538,6 +538,11 @@ EXPOSED_CONFIG_KEYS = (
     "skills_relevance_enabled",
     "plugins",
     "app_hosts",
+    # Per-agent overrides, {agent_id: {override_default, model, ...}}. Exposing it is the WHOLE
+    # backend change for per-agent settings: _config_get returns every key in this tuple and
+    # _config_set merges + hot-applies every writable one, so a settings page can read and
+    # write the agent layer through the calls it already makes.
+    "agents",
 )
 WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
 PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})

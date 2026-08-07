@@ -33,6 +33,7 @@
       agents = []
     }
     drawPicker()
+    drawScopePicker()
     if (selected && !agents.some((a) => a.id === selected.id)) select(null)
   }
 
@@ -193,6 +194,8 @@
   $('panelToggle').addEventListener('click', () =>
     document.querySelector('.shell').classList.toggle('no-panel'))
 
+  $('scopeGo').addEventListener('click', () => openScoped($('scopePick').value))
+
   $('newAgent').addEventListener('click', () => {
     show('build')
     Chat.reset()
@@ -200,9 +203,11 @@
   })
 
   // ── suggestions ───────────────────────────────────────────────────────────
+  // Starter prompts. NEVER name a specific agent — these are clickable, and on a machine that
+  // never had one, the click asks to work on something that does not exist.
   const SUGGESTIONS = [
     'Build an agent that summarises my YouTube history and charts it by month',
-    'Give the weather agent its own app window',
+    'Give one of my agents its own app window',
     'Validate every agent I have and tell me what is wrong',
   ]
   function drawSuggests() {
@@ -216,6 +221,39 @@
       b.addEventListener('click', () => Chat.ask(s))
       box.append(b)
     }
+    drawScopePicker()
+  }
+
+  // ── what is this conversation about? ──────────────────────────────────────
+  // Offered ONLY when there is something to open. On a fresh install the user has nothing
+  // but Agent Builder itself, and asking "existing or new?" with one meaningless answer is
+  // ceremony — so the whole block stays hidden and the chat behaves exactly as before.
+  function openable() {
+    return agents.filter((a) => a.id !== 'agent-builder')
+  }
+
+  function drawScopePicker() {
+    const wrap = $('pickScope')
+    const sel = $('scopePick')
+    if (!wrap || !sel) return
+    const list = openable()
+    wrap.hidden = list.length === 0
+    if (!list.length) return
+    sel.textContent = ''
+    for (const a of list) {
+      const opt = document.createElement('option')
+      opt.value = a.id
+      opt.textContent = a.name || a.id
+      sel.append(opt)
+    }
+  }
+
+  function openScoped(id) {
+    const agent = agents.find((a) => a.id === id)
+    if (!agent) return
+    select(agent)              // the inspector follows the conversation
+    Chat.setScope(agent)       // and the model is told what it is looking at
+    $('input').focus()
   }
 
   // ── boot ──────────────────────────────────────────────────────────────────

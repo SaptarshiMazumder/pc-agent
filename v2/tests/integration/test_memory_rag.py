@@ -234,7 +234,9 @@ class _FakeEngine:
     def __init__(self):
         self.system_prompt = None
 
-    async def run(self, *, messages, system_prompt, tools, on_event, abort, session, model):
+    async def run(
+        self, *, messages, system_prompt, tools, on_event, abort, session, model, model_router=None
+    ):
         self.system_prompt = system_prompt
 
 

@@ -399,6 +399,16 @@ class Config:
     #                       "vision_model": "gemini/gemini-3.1-pro-preview"}   # omit => keep normal brain
     # OFF (or both models unset) => no router => the agent's normal brain runs every turn, unchanged.
     cost_efficiency: dict = field(default_factory=dict)
+    # PER-AGENT OVERRIDES. Same nested-by-name shape as `plugins` above, so it needed no new
+    # machinery: config.get already returns every exposed key and config.set already merges and
+    # hot-applies every writable one. Shape:
+    #   "agents": {"agent-builder": {"override_default": true, "model": "openai/gpt-5"}}
+    # `override_default` (default TRUE) decides who wins, KEY BY KEY — the agent's value for
+    # each knob it set, the daemon's for the rest. An agent with no entry here resolves to the
+    # daemon's values exactly, which is how every agent behaves today. Only the knobs in
+    # domain/agent_config.OVERRIDABLE_KEYS are honoured; provider keys and machine-wide
+    # settings (port, paths) are deliberately absent. Resolved by agent_config.resolve().
+    agents: dict = field(default_factory=dict)
     # PLATFORM MODEL PROXY (platform-keys mode). Default OFF => every model call goes DIRECT to
     # the provider with the local/BYOK key, unchanged. When on, ALL model calls route through OUR
     # LiteLLM proxy (which holds our provider keys + meters per account). Shape:

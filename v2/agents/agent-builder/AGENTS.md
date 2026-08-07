@@ -12,7 +12,7 @@ they are the ONLY things guaranteed to exist on every install:
 | when you are unsure about | read |
 | --- | --- |
 | an event name, its payload shape | the `build-agent` skill's event table (kept true by a test) |
-| how a working agent UI is really built | **your own** `ui/app.js`, `ui/chat.js`, `ui/files.js` |
+| how a working agent UI is really built | `skills/build-agent/templates/chat-app/` — the app `scaffold_ui` copies |
 | what the SDK actually offers | **your own** `ui/vendor/agentd-client.js` |
 | what a tool takes | its `plugin.toml` and module |
 
@@ -24,6 +24,12 @@ Your own `ui/` ships with you, is checked by `validate_agent`, and is the refere
 A plausible-sounding event name that does not exist produces a UI where **every branch is
 dead**: the socket connects, the console logs, and the screen never changes. This has already
 happened. Guessing is the single most expensive shortcut available to you.
+
+**Never write an app UI from a blank file.** Call `scaffold_ui(agent_id=...)` first. It copies
+a complete working app — streaming, tool rows, attachments, saved conversations, and a settings
+page for the user's own API key — and then you edit it. Read the `ui/README.md` it writes
+before you change anything, and leave the event handling in `chat.js` alone; it is correct and
+it is tested. Hand-writing that file is how every broken UI so far got built.
 
 **Run what you write.** You have `exec`. Use it:
 
@@ -48,35 +54,39 @@ run what you wrote. Not when the files exist.
 2. `create_agent` **first**. It writes the skeleton (`agent.toml` + `IDENTITY.md`, plus
    `AGENTS.md` when you pass rules) and registers the agent live, so it is resolvable on the
    very next message with no restart. It writes only the skeleton — that is deliberate.
-3. `write` for everything else: the `[app]` table, `[tools]` allow/deny, the display keys,
-   `[plugins.<plugin>.tools.<tool>]` wiring, `ui/`, data files, and **`skills/<name>/SKILL.md`**.
-4. `create_tool(agent="<id>")` for the agent's own private tools. Without the `agent`
+3. `scaffold_ui(agent_id="<id>")` if the agent gets its own window — **before** any `ui/` file
+   exists. It refuses to scaffold over an existing app; if it does, ask the user rather than
+   passing `confirm_overwrite` yourself.
+4. `write` for everything else: the `[app]` table, `[tools]` allow/deny, the display keys,
+   `[plugins.<plugin>.tools.<tool>]` wiring, edits to the scaffolded `ui/`, data files, and
+   **`skills/<name>/SKILL.md`**.
+5. `create_tool(agent="<id>")` for the agent's own private tools. Without the `agent`
    argument the tool is created as a SHARED tool that every agent inherits — rarely what
    you want when building one specific agent.
-5. `validate_agent` when the files are written. Fix every `[x]` finding and re-run until clean.
-6. `reload_agent` last, so edits made to `agent.toml` after `create_agent` registered it
+6. `validate_agent` when the files are written. Fix every `[x]` finding and re-run until clean.
+7. `reload_agent` last, so edits made to `agent.toml` after `create_agent` registered it
    actually take effect and every client's sidebar refreshes.
 
 ## Hard rules
 
-7. **Never create, overwrite, or edit the agent `main`.** It is the default agent.
-8. **Never author `presentation.json`.** The daemon generates it. Display fields
+8. **Never create, overwrite, or edit the agent `main`.** It is the default agent.
+9. **Never author `presentation.json`.** The daemon generates it. Display fields
    (`tagline`, `color`, `suggestions`) are TOP-LEVEL keys in `agent.toml`.
-9. **Every top-level key must appear before the first `[table]`.** TOML scopes a key written
+10. **Every top-level key must appear before the first `[table]`.** TOML scopes a key written
    after `[app]` *into* `[app]`, where nothing reads it and the value is silently ignored.
-10. **Do not use `skill_workshop` to give another agent a skill.** It always writes into the
+11. **Do not use `skill_workshop` to give another agent a skill.** It always writes into the
     calling agent's own skills dir — yours. Author the target agent's playbooks with `write`
     at `agents/<id>/skills/<name>/SKILL.md`.
-11. **Always set `version`**, and bump it on every change you ship. Bundle installs supersede
+12. **Always set `version`**, and bump it on every change you ship. Bundle installs supersede
     an older copy by version; an agent without one cannot be updated.
 
 ## Honesty
 
-12. Do not say an agent is finished until `validate_agent` returns clean. If a finding is a
+13. Do not say an agent is finished until `validate_agent` returns clean. If a finding is a
     warning you are deliberately leaving, name it and say why.
-13. If the user asks for something the platform cannot do, say so in a sentence and offer the
+14. If the user asks for something the platform cannot do, say so in a sentence and offer the
     closest thing that works. Do not scaffold a tool that cannot function.
-14. An agent's private tools (`agents/<id>/plugins/`) are treated as **untrusted** code — the
+15. An agent's private tools (`agents/<id>/plugins/`) are treated as **untrusted** code — the
     same tier as a plugin that rode in inside a downloaded agent package. If a private tool
     needs the network, host files outside the workspace, or secrets, tell the user that up
     front rather than shipping something that will be denied at runtime.

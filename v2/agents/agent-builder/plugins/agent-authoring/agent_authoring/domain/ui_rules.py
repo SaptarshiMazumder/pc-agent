@@ -28,6 +28,9 @@ from __future__ import annotations
 import re
 
 from .finding import ERROR, WARN, Finding
+from .js_comment_stripper import JsCommentStripper
+
+_STRIPPER = JsCommentStripper()
 
 # `payload.type` / `p.type` etc. — reading the wrapper as if it were the event.
 _PAYLOAD_DOT_TYPE = re.compile(r"\b(\w+)\.type\b")
@@ -78,9 +81,13 @@ class UiRules:
                 continue
             if "/vendor/" in rel:
                 continue  # the SDK itself — vendored verbatim, not the agent's code
-            out += self._nested_payload(rel, src)
-            out += self._unknown_events(rel, src)
-            out += self._unknown_calls(rel, src)
+            # Comments are not code. Without this the rules fire on a file that WARNS about
+            # the very mistake they check for — which is the most careful code they will ever
+            # see, and exactly the false alarm that gets a check switched off.
+            code = _STRIPPER.strip(src)
+            out += self._nested_payload(rel, code)
+            out += self._unknown_events(rel, code)
+            out += self._unknown_calls(rel, code)
         return out
 
     # ---------------------------------------------------------------- payload shape

@@ -396,7 +396,7 @@ def build_service(
         return build_system_prompt(
             config,
             tools,
-            agent.model or config.model,
+            _prompt_model(agent),
             config.reasoning_effort,
             skills=skills,
             agent=agent,
@@ -471,6 +471,42 @@ def build_service(
             return _acct_workspace(agent)
         return str(projects_store.project_workspace_dir(proot, pid))
 
+    def _run_models(agent):
+        """``(model, model_router)`` for one run of ``agent``, after its own config block has
+        been layered over the daemon's (domain/agent_config.resolve).
+
+        Read HERE, per run, not captured at boot — which is the whole point. ``config`` is the
+        live object the gateway setattr()s on Save, so changing a model in Settings takes effect
+        on the very next message. The engine's boot-time router is left in place as the default
+        for callers that pass none, but every agent run now brings its own.
+
+        The pair is deliberate: a router overwrites the model on every turn, so an agent's model
+        without an agent's router is the exact bug this replaces."""
+        from agent_runtime.domain.agent_config import resolve
+        from agent_runtime.infrastructure.llm.model_router import router_for
+
+        values, _ = resolve(config, agent.id)
+        # agent.toml's `model` still wins over the config layer: it is part of the agent's
+        # DEFINITION ("this agent needs a vision model to work at all"), while the config block
+        # is the user's preference for it. A definition that names a model is not a default.
+        return agent.model or values.get("model"), router_for(values.get("cost_efficiency"))
+
+    def _prompt_model(agent):
+        """What to TELL the agent it is — the prompt line "If asked what model you are, answer
+        with this value."
+
+        It has to come from the SAME resolution the run uses. It did not: the prompt said
+        `agent.model or config.model` while a router quietly answered on something else, so
+        "what model are you?" returned a confident wrong answer — which is most of how a silent
+        model swap stayed invisible in the first place.
+
+        With a router active the answer varies by turn, and a prompt is built once. This names
+        the model that answers an ORDINARY turn, which is the turn the question is asked on and
+        the overwhelming majority of them; an image turn can still escalate to the vision model
+        without the prompt changing."""
+        model, router = _run_models(agent)
+        return router(model, []) if router else model
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -485,6 +521,7 @@ def build_service(
         # hot-reload seam, now also driven by marketplace installs (gateway after_change)
         plugin_reloader=register_plugin_live,
         resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
+        resolve_models=_run_models,  # this agent's own model + router, layered over the daemon's
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
     )

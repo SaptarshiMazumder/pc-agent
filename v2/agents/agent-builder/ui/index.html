@@ -65,6 +65,19 @@
             <h1>What should we build?</h1>
             <p>Describe an agent — what it does, what it needs access to — and I'll write it,
                check it, and make it shippable.</p>
+
+            <!-- Which agent this conversation is ABOUT, decided before it starts. Inferring it
+                 from prose is how three attempts at one agent produced one agent and an
+                 argument about overwriting. Hidden entirely when there is nothing to open. -->
+            <div class="pick-scope" id="pickScope" hidden>
+              <div class="pick-row">
+                <span class="pick-label">Work on an existing agent</span>
+                <select id="scopePick"></select>
+                <button class="ghost-btn sm" id="scopeGo">Open</button>
+              </div>
+              <div class="pick-or"><span>or describe something new below</span></div>
+            </div>
+
             <div class="suggests" id="suggests"></div>
           </div>
         </div>

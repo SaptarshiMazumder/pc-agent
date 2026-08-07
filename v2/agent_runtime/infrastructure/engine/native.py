@@ -631,8 +631,27 @@ class NativeEngine:
         self._model_trace = model_trace  # emit per-step model_trace events (default off)
 
     async def run(
-        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+        self,
+        *,
+        messages,
+        system_prompt,
+        tools,
+        on_event,
+        abort,
+        session=None,
+        model=None,
+        model_router=None,
     ):
+        """``model_router`` is the per-agent counterpart of ``model``, and it exists because
+        without it ``model`` did not actually work.
+
+        The router OVERWRITES the model on every turn (see run_agent_loop). While it was built
+        once at boot from the daemon's config and held here, an agent that named its own model
+        had that choice silently discarded the moment cost-efficiency was on anywhere. Passing
+        the agent's own router alongside its own model is what makes the pair coherent.
+
+        Both fall back to the engine's defaults, so a caller that passes neither — a sub-agent
+        run, a tool driving the engine directly — behaves exactly as before."""
         return await run_agent_loop(
             messages=messages,
             system_prompt=system_prompt,
@@ -646,6 +665,6 @@ class NativeEngine:
             observers=self._observers,
             context_policy=self._context_policy,
             execution_contract=self._execution_contract,
-            model_router=self._model_router,
+            model_router=model_router or self._model_router,
             model_trace=self._model_trace,
         )

@@ -18,8 +18,16 @@ flags were approximating from a distance.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 log = logging.getLogger("agentd")
+
+# agents/agent-builder/ — this file sits at <that>/plugins/agent-authoring/. Knowing the
+# product's layout is the composition root's job; the service below takes the two roots as
+# arguments so it can be pointed at a tmp dir in a test.
+AGENT_BUILDER_DIR = Path(__file__).resolve().parents[2]
+TEMPLATE_ROOT = AGENT_BUILDER_DIR / "skills" / "build-agent" / "templates"
+BORROW_ROOT = AGENT_BUILDER_DIR / "ui"
 
 
 def register(api, ctx):
@@ -29,17 +37,20 @@ def register(api, ctx):
 
     from agent_authoring.application.package_agent_service import PackageAgentService
     from agent_authoring.application.reload_agent_service import ReloadAgentService
+    from agent_authoring.application.scaffold_ui_service import ScaffoldUiService
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
+    from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
     from agent_authoring.infrastructure.agent_packer import AgentPacker
     from agent_authoring.infrastructure.registry_reload_adapter import RegistryReloadAdapter
     from agent_authoring.presentation.create_agent_tool import CreateAgentTool
     from agent_authoring.presentation.package_agent_tool import PackageAgentTool
     from agent_authoring.presentation.reload_agent_tool import ReloadAgentTool
+    from agent_authoring.presentation.scaffold_ui_tool import ScaffoldUiTool
     from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
 
     # --- AUTHOR ---------------------------------------------------------------------
@@ -55,6 +66,19 @@ def register(api, ctx):
     else:
         log.info("agent-authoring: no live-reload handle — create_tool not registered")
 
+    # --- START THE APP FROM SOMETHING THAT WORKS -------------------------------------
+    # Registered next to create_agent because it is the same kind of step: create_agent makes
+    # the agent exist, scaffold_ui makes its window exist. Both hand back a working starting
+    # point and say what to do next; neither tries to author the whole thing.
+    reader = AgentDirReader(registry)
+    templates = UiTemplates()
+    api.register_tool(
+        ScaffoldUiTool(
+            ScaffoldUiService(reader, templates, TEMPLATE_ROOT, BORROW_ROOT),
+            templates,
+        )
+    )
+
     # --- CHECK ----------------------------------------------------------------------
     # The UI rules are told the real vocabulary rather than keeping their own copy: event
     # names from the runtime's domain, callable methods from the gateway's app tier. A second
@@ -65,7 +89,6 @@ def register(api, ctx):
 
     from agent_authoring.domain.ui_rules import UiRules
 
-    reader = AgentDirReader(registry)
     validator = ValidateAgentService(
         reader,
         AgentLayoutRules(),

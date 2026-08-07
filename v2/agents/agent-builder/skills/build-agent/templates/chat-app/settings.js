@@ -1,44 +1,51 @@
-/* The settings view — the whole agentd surface, plus this agent's own overrides.
+/* Settings — this agent's own model, and the user's API key (BYOK).
 
-   TWO LAYERS, ONE PAGE.
+   ─────────────────────────────────────────────────────────────────────────────────────────
+   TWO LAYERS. UNDERSTAND THIS BEFORE ADDING A KNOB.
 
-     daemon    agentd.config.json + .env, shared by every agent on the machine
-     agent     config.agents["agent-builder"], this agent alone
+     daemon   agentd.config.json + .env — SHARED by every agent on the machine
+     agent    config.agents["<this-agent>"] — this agent alone
 
    `config.agents` is an ordinary config key (same nested shape as `plugins`), so both layers
-   arrive in ONE config.get and leave in ONE config.set. There is no second store.
+   arrive in ONE config.get and leave in ONE config.set. There is no second file.
 
-   The override flag decides which layer wins AT RUN TIME, key by key: for each knob this agent
-   has set, its value; for the rest, the daemon's. Off, and the agent's block is ignored
-   entirely — kept on disk, just dormant.
+   The "Override JARVIS settings" flag decides which wins at run time, KEY BY KEY: for each
+   knob this agent has set, its value; for the rest, the daemon's. Off, and this agent's block
+   is ignored entirely — kept on disk, just dormant.
 
-   EVERY OVERRIDABLE ROW SAYS WHICH LAYER IT CAME FROM. That is not decoration. This page once
-   showed "Model: GPT-5" while every turn was answered by gemini, because cost-efficiency was
-   silently overriding it — a value with no provenance is how that stayed invisible.
+   ─────────────────────────────────────────────────────────────────────────────────────────
+   WHY THE DAEMON LIST IS SHORT
 
-   Edits are held in `draft`, a copy of the daemon's values that dotted-key paths write into
-   (`cost_efficiency.enabled`, `agents.agent-builder.model`). The patch sent to the daemon is
-   the set of TOP-LEVEL keys that differ, which is exactly what config.set accepts.
+   Anything you add to the daemon groups is a knob THIS agent's window offers over the user's
+   whole install. The daemon exposes ~50 keys; three kinds belong on an agent's page:
 
-   Provider keys are the reason the page exists at all — BYOK. `env` says which are set;
-   `envValues` carries the actual strings and is ABSENT for an installed agent (the daemon
-   strips it), so the field renders as "•••• saved" with no way to read it back. Intended, not
-   a failure: a page that shipped inside someone else's package must never lift the user's key.
-   Keys are DAEMON-WIDE and deliberately not overridable — one .env, one source. */
+     • the provider key   — without it nothing works. This is the point of the page.
+     • the model          — the one choice that visibly changes how the agent behaves.
+     • a few behaviours   — self-verify, memory.
+
+   `port`, `state_dir`, `workspace`, `agents_dir`, `subagent_max` and the tool timeouts are
+   machine plumbing. An agent offering to change the daemon's port is offering to break the
+   user's install from inside a package they trusted for one job. Add a key only when THIS
+   agent needs it — `config.get` returns everything the daemon accepts, so log `data.values`
+   to see the list.
+
+   API KEYS ARE NEVER PER-AGENT. One shared .env, one source. `env` says which are set;
+   `envValues` carries the strings and is ABSENT once this agent has been installed from a
+   package — the daemon strips it — so the field shows "•••• saved" with no way to read it
+   back. Deliberate: a page that shipped inside someone else's download must never be able to
+   lift the user's key. */
 
 window.Settings = (function () {
   const $ = (id) => document.getElementById(id)
   let client = null
   let data = null
-  let draft = {}     // pending config edits, nested; seeded from data.values on every load
+  let draft = {}     // pending config edits, nested; reseeded from data.values on every load
   const keys = {}    // pending .env edits
 
   // Whose page this is. The connect URL carries `scope=agent:<id>` — the daemon strips that
   // prefix before it forces the agent onto our requests, so anything we key BY agent id has to
   // strip it too, or it writes a block under "agent:<id>" that the resolver never looks for.
-  const AGENT_ID =
-    (new URL(location.href).searchParams.get('scope') || '').replace(/^agent:/, '') ||
-    'agent-builder'
+  const AGENT_ID = (new URL(location.href).searchParams.get('scope') || '').replace(/^agent:/, '')
 
   // ── nested values, addressed by dotted path ───────────────────────────────
   // Agent ids are kebab-case slugs, so `agents.<id>.model` splits unambiguously.
@@ -59,16 +66,13 @@ window.Settings = (function () {
   }
 
   const OVERRIDE_PATH = `agents.${AGENT_ID}.override_default`
-  /** Default TRUE — the flag exists to be turned OFF, and must read the same way the resolver
-   *  does or the page would describe behaviour the daemon does not have. */
-  const overriding = () => getPath(draft, OVERRIDE_PATH) !== false
+  /** Default TRUE — the flag exists to be turned OFF, and this must read the same way the
+   *  daemon's resolver does, or the page describes behaviour the daemon does not have. */
+  const overriding = () => !!AGENT_ID && getPath(draft, OVERRIDE_PATH) !== false
 
-  /** Where a field's value lives. An agent-scoped field writes into this agent's own block
-   *  while the override is on; with it off the agent's block does nothing, so the row shows
-   *  the daemon's value and says so. */
   const pathFor = (f) => (f.agent && overriding() ? `agents.${AGENT_ID}.${f.key}` : f.key)
 
-  /** The value to SHOW: this agent's if it set one, else the daemon's. Mirrors resolve(). */
+  /** The value to SHOW: this agent's if it set one, else the daemon's. Mirrors the resolver. */
   function valueOf(f) {
     if (f.agent && overriding()) {
       const own = getPath(draft, `agents.${AGENT_ID}.${f.key}`)
@@ -77,27 +81,25 @@ window.Settings = (function () {
     return getPath(draft, f.key)
   }
 
-  /** "this agent" or "daemon" — the badge. */
   const sourceOf = (f) =>
     f.agent && overriding() && getPath(draft, `agents.${AGENT_ID}.${f.key}`) !== undefined
-      ? 'this agent'
+      ? 'agent'
       : 'daemon'
 
   const GROUPS = [
     {
       title: 'This agent',
-      help: `Settings for ${AGENT_ID} alone. With the override on, these win over the ` +
-            'daemon-wide values below — one knob at a time: anything left unset here keeps ' +
-            'using the daemon\'s. Turning the override off does not erase them.',
+      help: 'Settings for this agent alone. With the override on they win over the shared ' +
+            'values below — one knob at a time: anything left unset keeps using the shared ' +
+            'one. Turning the override off does not erase them.',
       agentToggle: true,
       agent: true,
       fields: [
-        { key: 'model', label: 'Model', type: 'select', catalog: 'models',
-          help: 'The brain for this agent\'s runs.' },
+        { key: 'model', label: 'Model', type: 'select', catalog: 'models' },
         { key: 'reasoning_effort', label: 'Reasoning effort', type: 'select',
           options: ['minimal', 'low', 'medium', 'high'] },
         { key: 'max_turns', label: 'Max turns per run', type: 'number',
-          help: 'Tool-call rounds before the run stops on its own.' },
+          help: 'Tool-call rounds before a run stops on its own.' },
         { key: 'verify_tool', label: 'Self-verify', type: 'toggle',
           help: 'Review its own draft before replying.' },
         { key: 'memory_enabled', label: 'Long-term memory', type: 'toggle' },
@@ -107,77 +109,18 @@ window.Settings = (function () {
     {
       title: 'API keys',
       help: 'Your own provider keys. Stored in the .env beside the config, never in the ' +
-            'config file itself, and read straight from the environment by the model layer. ' +
-            'Shared by every agent on this machine — keys are not per-agent.',
+            'config file itself. Shared by every agent on this machine.',
       secrets: true,
     },
     {
-      title: 'Daemon defaults',
-      help: 'What every agent uses unless it overrides it. This is the same surface the ' +
-            'JARVIS settings window edits.',
+      title: 'Shared defaults',
+      help: 'What every agent on this machine uses unless it overrides it.',
       fields: [
-        { key: 'agent_name', label: 'Assistant name', type: 'text' },
         { key: 'model', label: 'Model', type: 'select', catalog: 'models' },
         { key: 'reasoning_effort', label: 'Reasoning effort', type: 'select',
           options: ['minimal', 'low', 'medium', 'high'] },
-        { key: 'max_turns', label: 'Max turns per run', type: 'number' },
       ],
       costEfficiency: true,
-    },
-    {
-      title: 'Behaviour',
-      fields: [
-        { key: 'completeness_check', label: 'Completeness check', type: 'toggle' },
-        { key: 'execution_contract', label: 'Execution contract', type: 'toggle' },
-        { key: 'skill_workshop', label: 'Skill workshop', type: 'toggle',
-          help: 'Agents may author reusable SKILL.md playbooks at runtime.' },
-        { key: 'mcp_workshop', label: 'MCP workshop', type: 'toggle' },
-      ],
-    },
-    {
-      title: 'Memory & context',
-      fields: [
-        { key: 'memory_auto_recall', label: 'Auto-recall', type: 'toggle' },
-        { key: 'context_max_messages', label: 'Context window (messages)', type: 'number' },
-        { key: 'workspace_index_enabled', label: 'Workspace index', type: 'toggle' },
-      ],
-    },
-    {
-      title: 'Delegation',
-      fields: [
-        { key: 'subagents_enabled', label: 'Sub-agents', type: 'toggle' },
-        { key: 'subagent_max', label: 'Max concurrent', type: 'number' },
-        { key: 'subagent_max_depth', label: 'Max depth', type: 'number' },
-        { key: 'agent_messaging_enabled', label: 'Agent-to-agent messaging', type: 'toggle' },
-      ],
-    },
-    {
-      title: 'Autonomy',
-      help: 'Scheduled and self-woken runs.',
-      fields: [
-        { key: 'autonomy_enabled', label: 'Autonomy', type: 'toggle' },
-        { key: 'heartbeat_default_interval', label: 'Heartbeat interval', type: 'text' },
-        { key: 'heartbeat_active_hours', label: 'Active hours', type: 'text' },
-        { key: 'notify_enabled', label: 'Notifications', type: 'toggle' },
-      ],
-    },
-    {
-      title: 'Tools',
-      fields: [
-        { key: 'computer_enabled', label: 'Computer use', type: 'toggle' },
-        { key: 'tool_timeout_default', label: 'Default timeout (s)', type: 'number' },
-        { key: 'tool_retries_default', label: 'Default retries', type: 'number' },
-        { key: 'parallel_search_enabled', label: 'Parallel search', type: 'toggle' },
-      ],
-    },
-    {
-      title: 'Paths',
-      help: 'Where this daemon keeps things. Changing these takes effect on restart.',
-      fields: [
-        { key: 'workspace', label: 'Workspace', type: 'text' },
-        { key: 'state_dir', label: 'State directory', type: 'text' },
-        { key: 'agents_dir', label: 'Agents directory', type: 'text' },
-      ],
     },
   ]
 
@@ -188,11 +131,12 @@ window.Settings = (function () {
     try {
       data = await client.request('config.get')
     } catch (e) {
+      // Say what went wrong, in place. A settings page that silently shows nothing is
+      // indistinguishable from one with nothing to show.
       body.textContent = ''
       body.append(el('div', 'loading', `could not load settings: ${(e && e.message) || e}`))
       return
     }
-    // a fresh copy every load, so Save -> reload leaves nothing stale behind
     draft = JSON.parse(JSON.stringify(data.values || {}))
     render()
   }
@@ -211,6 +155,10 @@ window.Settings = (function () {
     const pinned = data.envOverrides || {}
 
     for (const group of GROUPS) {
+      // With no scope in the URL there is no agent to override for; showing the group would
+      // offer edits that land nowhere.
+      if (group.agent && !AGENT_ID) continue
+
       const sec = el('section', 'set-group')
       sec.append(el('h2', null, group.title))
       if (group.help) sec.append(el('p', 'ghelp', group.help))
@@ -229,8 +177,6 @@ window.Settings = (function () {
           if (group.costEfficiency && f.key === 'model' && ceEnabled(!!group.agent)) continue
           sec.append(row({ ...f, agent: !!group.agent }, pinned[f.key]))
         }
-        // Cost efficiency last in its group: it CHANGES what the Model row above means, so it
-        // reads as a modifier of the section rather than a knob of its own.
         if (group.costEfficiency) costEfficiencyRows(sec, !!group.agent)
       }
       body.append(sec)
@@ -250,20 +196,20 @@ window.Settings = (function () {
   }
 
   /** The override flag. Re-renders on change, because it moves every row in its group between
-   *  the two layers — showing the old layer's values afterwards would be a lie. */
+   *  the two layers — leaving the old layer's values on screen would be a lie. */
   function overrideRow() {
     const wrap = el('div', 'field override')
     const left = el('div')
     left.append(el('label', null, 'Override JARVIS settings'))
     left.append(el('span', 'fhelp', overriding()
       ? 'On — this agent\'s own values win, one knob at a time.'
-      : 'Off — the daemon\'s values are in force. Anything set here is kept, just dormant.'))
+      : 'Off — the shared values are in force. Anything set here is kept, just dormant.'))
     wrap.append(left)
 
     const t = el('button', `toggle ${overriding() ? 'on' : ''}`)
     t.addEventListener('click', () => {
       draft = setPath(draft, OVERRIDE_PATH, !overriding())
-      render()   // the whole group changes layer
+      render()
       dirty()
     })
     wrap.append(t)
@@ -272,9 +218,9 @@ window.Settings = (function () {
 
   /** Cost efficiency, and the Model row it overrules.
    *
-   *  When it is ON the daemon's `model` is NOT what runs — the router picks per turn. Showing
-   *  a Model dropdown beside it would be showing a value that has no effect, which is exactly
-   *  the confusion this whole change came from. So: on, and the two brains replace it. */
+   *  When this is ON, `model` is NOT what runs — a router picks per turn. Leaving a Model
+   *  dropdown visible beside it would display a value that has no effect, which is the exact
+   *  confusion this page exists to prevent. */
   /** Is cost efficiency on for this layer? Decides whether a `model` row means anything. */
   function ceEnabled(agentScoped) {
     return !!(valueOf({ agent: agentScoped, key: 'cost_efficiency' }) || {}).enabled
@@ -284,13 +230,12 @@ window.Settings = (function () {
     const base = { agent: agentScoped, type: 'select', catalog: 'models' }
     const on = ceEnabled(agentScoped)
 
-    const toggle = row({
+    sec.append(row({
       agent: agentScoped, key: 'cost_efficiency.enabled', label: 'Cost efficiency', type: 'toggle',
       help: 'Run a cheap model on ordinary turns and only switch to a stronger one when the ' +
             'turn actually involves an image.',
-      onChange: () => render(),   // the rows below it appear/disappear
-    })
-    sec.append(toggle)
+      onChange: () => render(),
+    }))
 
     if (!on) return
     sec.append(row({ ...base, key: 'cost_efficiency.text_model', label: 'Text model',
@@ -304,9 +249,9 @@ window.Settings = (function () {
     if (save) save.disabled = !(Object.keys(patch()).length || Object.keys(keys).length)
   }
 
-  /** What actually goes to the daemon: the TOP-LEVEL keys whose value differs from what was
-   *  loaded. Nested edits ride inside their own top-level key, which is why config.set needs
-   *  no notion of paths. */
+  /** What goes to the daemon: the TOP-LEVEL keys whose value differs from what was loaded.
+   *  Nested edits ride inside their own top-level key, which is why config.set needs no
+   *  notion of paths. */
   function patch() {
     const out = {}
     const values = data.values || {}
@@ -323,13 +268,13 @@ window.Settings = (function () {
     const left = el('div')
     left.append(el('label', null, f.label))
     if (f.help) left.append(el('span', 'fhelp', f.help))
-    // A value fixed by an environment variable cannot be changed from here. Say WHY it is
-    // disabled — a greyed-out control with no explanation reads as a bug.
+    // A value fixed by an environment variable cannot be changed here. Say WHY it is disabled
+    // — a greyed-out control with no explanation reads as a bug.
     if (pinnedBy) left.append(el('span', 'fhelp pinned', `pinned by ${pinnedBy} in .env`))
     else if (f.agent) {
       const src = sourceOf(f)
       left.append(el('span', `fhelp src ${src === 'daemon' ? 'from-daemon' : 'from-agent'}`,
-        src === 'daemon' ? 'using the daemon value' : 'set for this agent'))
+        src === 'daemon' ? 'using the shared value' : 'set for this agent'))
     }
     wrap.append(left)
 
@@ -362,8 +307,8 @@ window.Settings = (function () {
         opt.value = val
         input.append(opt)
       }
-      // a value the catalog does not list must still be shown, not silently swapped for the
-      // first option — that would change the setting just by rendering the page
+      // a current value the catalog does not list must still be shown, not silently swapped
+      // for the first option — that would change the setting just by rendering the page
       if (value != null && ![...input.options].some((o) => o.value === String(value))) {
         const opt = el('option', null, `${value} (current)`)
         opt.value = String(value)
@@ -388,7 +333,7 @@ window.Settings = (function () {
     const left = el('div')
     left.append(el('label', null, name.replace(/_API_KEY$|_KEY$|_API_TOKEN$/, '')))
     const isSet = (data.env || {})[name]
-    // envValues is absent for an installed agent — say "saved", never show the value
+    // envValues is absent for an installed agent — then say "saved", never show the value
     const revealable = Object.prototype.hasOwnProperty.call(data, 'envValues')
     left.append(el('span', 'fhelp', isSet
       ? (revealable ? name : `${name} · saved (hidden for installed agents)`)
@@ -422,7 +367,7 @@ window.Settings = (function () {
       msg.textContent = res && res.restartRequired
         ? 'Saved — restart the daemon for some of these to take effect.'
         : 'Saved.'
-      await load()   // reseeds draft from what the daemon actually stored
+      await load()
     } catch (e) {
       // Leave the edits in place and re-enable Save. Clearing the form on failure would throw
       // away what the user typed and tell them nothing.

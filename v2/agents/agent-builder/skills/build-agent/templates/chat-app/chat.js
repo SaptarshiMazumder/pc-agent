@@ -1,42 +1,55 @@
-/* The conversation with Agent Builder.
+/* The conversation.
 
-   Streaming is append-only into a per-message buffer, re-rendered on a frame. Autoscroll
-   FOLLOWS THE USER: the moment you scroll away from the bottom it stops, and it resumes when
-   you come back. A chat that yanks you to the bottom mid-read is unusable.
+   ─────────────────────────────────────────────────────────────────────────────────────────
+   THIS FILE IS THE PROTOCOL. It is correct against the daemon as shipped, and it is checked
+   in CI. Change the WORDS (labels, the hero, the bot's name) and the LOOK (style.css).
+   Do not change how events are read — every past hand-written chat view got that wrong in
+   the same two ways, and both are invisible at runtime:
 
-   Tool activity is shown as it happens — that is how you watch an agent being built. When a
-   file-writing tool finishes, the inspector refreshes so the new file appears (and flashes). */
+     1. the event arrives WRAPPED — `{sessionKey, runId, agentId, ts, event}`. The type you
+        switch on is `payload.event.type`, one level down. Reading `payload.type` makes every
+        branch miss and the screen simply never updates.
+     2. streamed text is `message_update` with `kind: 'text_delta'`. There is no
+        `message_delta` event. A branch on one can never run.
+
+   ─────────────────────────────────────────────────────────────────────────────────────────
+   No agent id appears anywhere below. The window is opened with `?scope=<agent-id>` and the
+   daemon FORCES that agent onto every request the page makes — so `sessions()`, `history()`
+   and `send()` are already about this agent, and naming it would only be a second copy of the
+   id to keep in sync with agent.toml.
+
+   Streaming is append-only into a buffer, re-rendered once per frame; deltas arrive far
+   faster than the screen refreshes. Autoscroll FOLLOWS THE READER: it stops the moment you
+   scroll up and resumes when you come back, because a view that yanks you to the bottom
+   mid-read cannot be read. */
 
 window.Chat = (function () {
   const $ = (id) => document.getElementById(id)
-  const AGENT = 'agent-builder'   // whose transcripts these are; the window is scoped to it
+
+  // CHANGE ME: what the assistant's messages are labelled.
+  const BOT_NAME = 'Agent'
+
   let client = null
   let sessionKey = null
   let running = false
-  let onToolDone = null
-  let onSession = null            // tell the rail which chat is open / that a new one started
+  let onToolDone = null   // a tool finished — refresh whatever the page shows about its work
+  let onSession = null    // which conversation is live, so the history rail can highlight it
 
-  // The agent this conversation is ABOUT (null = we are creating something new). Carried into
-  // the FIRST message only; after that it is in the transcript and repeating it is noise.
-  let scope = null
-  let scopeSent = false
-
-  let node = null          // the assistant bubble being streamed into
-  let buf = ''             // its markdown so far
+  let node = null         // the assistant bubble being streamed into
+  let buf = ''            // its markdown so far
   let thinkNode = null
   let thinkBuf = ''
   let frame = 0
-  const tools = new Map()  // toolCallId -> its row
+  const tools = new Map() // toolCallId -> its row
 
   // ── attachments ───────────────────────────────────────────────────────────
-  // Screenshots are how you show an agent what is wrong with an agent, so this window needs
-  // them. Three routes, because people reach for all three: paste, drag-drop, and a button.
+  // Three routes, because people reach for all three: paste, drag-and-drop, and the button.
   const MAX_FILES = 10
-  let pending = []   // [{name, mimeType, dataBase64}]
+  let pending = []  // [{name, mimeType, dataBase64}]
 
-  /** A clipboard image usually has no usable filename ('' or no extension). The daemon then
-   *  stores it as literally "attachment", which — having no extension — is not classified as
-   *  an image, so a vision model never receives it as one. Name it from its mime type. */
+  /** A pasted screenshot usually has no usable filename. The daemon would then store it as
+   *  literally "attachment" — no extension, so it is not classified as an image, so a vision
+   *  model never receives it as one. Name it from its mime type instead. */
   function fileName(f) {
     if (f.name && f.name.includes('.')) return f.name
     const ext = ((f.type.split('/')[1] || 'bin').split('+')[0]).replace(/[^a-z0-9]/gi, '')
@@ -66,6 +79,13 @@ window.Chat = (function () {
     drawAttachments()
   }
 
+  function text(tag, cls, value) {
+    const n = document.createElement(tag)
+    n.className = cls
+    n.textContent = value
+    return n
+  }
+
   function drawAttachments() {
     const box = $('attachments')
     box.textContent = ''
@@ -90,14 +110,7 @@ window.Chat = (function () {
     })
   }
 
-  function text(tag, cls, value) {
-    const n = document.createElement(tag)
-    n.className = cls
-    n.textContent = value
-    return n
-  }
-
-  // ── autoscroll that respects the reader ────────────────────────────────────
+  // ── autoscroll that respects the reader ───────────────────────────────────
   let stick = true
   function nearBottom() {
     const t = $('thread')
@@ -109,7 +122,7 @@ window.Chat = (function () {
     client = c
     onToolDone = opts.onToolDone || null
     onSession = opts.onSession || null
-    sessionKey = `builder-${Date.now().toString(36)}`
+    sessionKey = newKey()
 
     $('thread').addEventListener('scroll', () => { stick = nearBottom() })
 
@@ -124,9 +137,9 @@ window.Chat = (function () {
     $('send').addEventListener('click', () => (running ? abort() : send()))
     $('newChat').addEventListener('click', reset)
 
-    // paste: `files` covers a copied FILE, but a copied IMAGE (screenshot tool, "copy image")
-    // can arrive ONLY in `items` with `files` empty — read both or pasting a screenshot
-    // silently does nothing. A plain text paste falls through untouched.
+    // Paste. `files` covers a copied FILE, but a copied IMAGE (a screenshot tool, "copy
+    // image") can arrive ONLY in `items` with `files` empty — read both, or pasting a
+    // screenshot silently does nothing. A plain text paste falls through untouched.
     input.addEventListener('paste', (e) => {
       const dt = e.clipboardData
       if (!dt) return
@@ -142,11 +155,11 @@ window.Chat = (function () {
 
     // Drop a file anywhere in the window to attach it.
     //
-    // No overlay. The only feedback is a tint on the composer's own border, cleared by a
-    // self-expiring timer — `dragover` fires continuously while a drag is live, so "no
-    // dragover recently" reliably means it ended, however it ended. Counting
-    // dragenter/dragleave instead looks correct and is not: they fire per child element, and
-    // a drop landing outside the counted subtree never decrements.
+    // The only feedback is a tint on the composer's border, cleared by a self-expiring timer:
+    // `dragover` fires continuously while a drag is live, so "no dragover recently" reliably
+    // means it ended, however it ended. Counting dragenter/dragleave instead looks correct
+    // and is not — they fire per child element, and a drop outside the counted subtree never
+    // decrements, which leaves the drop state stuck on forever.
     const DRAG_IDLE_MS = 700
     const hasFiles = (dt) => !!dt && Array.from(dt.types || []).includes('Files')
     let dragTimer = null
@@ -161,8 +174,8 @@ window.Chat = (function () {
       dragTimer = setTimeout(dragOff, DRAG_IDLE_MS)
     }
 
-    // Window level, not a zone: preventDefault is REQUIRED or Electron navigates the whole
-    // window to the dropped file:// URL and the UI is replaced by the image.
+    // Window level, not a drop zone: preventDefault is REQUIRED, or the window navigates to
+    // the dropped file:// URL and your whole UI is replaced by the image.
     window.addEventListener('dragover', (e) => {
       if (!hasFiles(e.dataTransfer)) return
       e.preventDefault()
@@ -182,15 +195,17 @@ window.Chat = (function () {
     $('attach').addEventListener('click', () => picker.click())
     picker.addEventListener('change', () => { void addFiles(picker.files); picker.value = '' })
 
-    client.on('chat.event', (p) => {
-      if (p.sessionKey === sessionKey) handle(p.event || {})
+    // THE EVENT FEED. Every run event for every session of this agent arrives here; the
+    // sessionKey check is what keeps another window's run out of this thread.
+    client.on('chat.event', (payload) => {
+      if (payload.sessionKey === sessionKey) handle(payload.event || {})
     })
   }
 
+  const newKey = () => `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+
   function reset() {
-    sessionKey = `builder-${Date.now().toString(36)}`
-    scope = null           // a fresh chat is about nothing until told
-    scopeSent = false
+    sessionKey = newKey()
     $('thread').textContent = ''
     $('thread').append(hero())
     node = thinkNode = null
@@ -204,38 +219,34 @@ window.Chat = (function () {
    *  sessionKey goes back out on the next send, so the thread continues rather than forking. */
   async function open(key) {
     sessionKey = key
-    // a resumed chat already carries its context in message 1 of the transcript
-    scope = null
-    scopeSent = true
     $('thread').textContent = ''
     node = thinkNode = null
     buf = thinkBuf = ''
     tools.clear()
     try {
-      const res = await client.history(key, AGENT)
+      const res = await client.history(key)
       for (const m of (res && res.messages) || []) replay(m)
     } catch (e) {
-      const b = bubble('bot')
-      b.innerHTML = MD.render(`**Could not load this chat.** ${(e && e.message) || e}`)
+      bubble('bot').innerHTML = MD.render(`**Could not load this chat.** ${(e && e.message) || e}`)
     }
     stick = true
     follow()
     if (onSession) onSession(sessionKey)
   }
 
-  /** One stored message -> the same shapes a live run produces. A user message's `content` is
-   *  a plain string; an assistant's is a list of typed blocks. */
+  /** One STORED message -> the same shapes a live run produces. Note the difference: a user
+   *  message's `content` is a plain string, an assistant's is a list of typed blocks. */
   function replay(m) {
     if (m.role === 'user') {
-      const text = typeof m.content === 'string'
+      const body = typeof m.content === 'string'
         ? m.content
         : (m.content || []).map((c) => c.text || '').join('')
-      if (text.trim()) bubble('user').textContent = text
+      if (body.trim()) bubble('user').textContent = body
       return
     }
     if (m.role !== 'assistant') return
     const blocks = Array.isArray(m.content) ? m.content : []
-    const text = blocks.filter((c) => c.type === 'text').map((c) => c.text || '').join('')
+    const body = blocks.filter((c) => c.type === 'text').map((c) => c.text || '').join('')
     for (const c of blocks) {
       if (c.type !== 'tool_use' && c.type !== 'toolcall') continue
       const row = document.createElement('div')
@@ -246,9 +257,11 @@ window.Chat = (function () {
         `<span class="targs">${MD.esc(summarize(c.input || c.arguments))}</span>`
       $('thread').append(row)
     }
-    if (text.trim()) bubble('bot').innerHTML = MD.render(text)
+    if (body.trim()) bubble('bot').innerHTML = MD.render(body)
   }
 
+  /** The empty state. It is rebuilt rather than kept hidden, so "new chat" always looks new.
+   *  CHANGE ME — this is the first thing anyone sees. */
   function hero() {
     const h = $('hero')
     if (h) return h
@@ -256,9 +269,9 @@ window.Chat = (function () {
     d.className = 'hero'
     d.id = 'hero'
     d.innerHTML =
-      '<h1>What should we build?</h1>' +
-      "<p>Describe an agent — what it does, what it needs access to — and I'll write it, " +
-      'check it, and make it shippable.</p><div class="suggests" id="suggests"></div>'
+      '<h1>What can I do for you?</h1>' +
+      "<p>Ask me anything, and I'll get to work.</p>" +
+      '<div class="suggests" id="suggests"></div>'
     return d
   }
 
@@ -267,39 +280,8 @@ window.Chat = (function () {
     if (h) h.remove()
   }
 
-  /** Point this conversation at an existing agent. `null` clears it (building something new). */
-  function setScope(agent) {
-    scope = agent
-    scopeSent = false
-    if (!agent) return
-    dropHero()
-    const row = document.createElement('div')
-    row.className = 'scope-row'
-    row.innerHTML =
-      `<span class="scope-dot"></span>Working on <b>${MD.esc(agent.name || agent.id)}</b>` +
-      `<span class="scope-path">agents/${MD.esc(agent.id)}/</span>`
-    $('thread').append(row)
-    follow()
-  }
-
-  /** What the model is told about the subject, the first time we send.
-   *
-   *  It goes in the MESSAGE because chat.send has no system/context parameter — and it is
-   *  SHOWN, because a client that silently prepends instructions to your words leaves you
-   *  unable to explain the model's behaviour later. The last line is load-bearing: without
-   *  it, "add pagination to the job finder" has previously been answered by building a
-   *  second job finder. */
-  function preamble(agent) {
-    return (
-      `[context] We are working on the EXISTING agent \`${agent.id}\`, which lives at ` +
-      `\`agents/${agent.id}/\`. Read its agent.toml, IDENTITY.md, AGENTS.md and any ` +
-      `skills/, plugins/ and ui/ before proposing changes, so you are working from what is ` +
-      `actually there. Do NOT create a new agent unless I explicitly ask for one.`
-    )
-  }
-
-  /** What the user just attached, shown on their own bubble — an image as a thumbnail so
-   *  they can see WHICH screenshot they sent, anything else as a named chip. */
+  /** What the user just attached, shown on their own bubble — an image as a thumbnail, so
+   *  they can see WHICH screenshot they sent; anything else as a named chip. */
   function userAttachments(atts) {
     const box = document.createElement('div')
     box.className = 'msg-files'
@@ -322,7 +304,7 @@ window.Chat = (function () {
     wrap.className = `msg ${role}`
     const label = document.createElement('div')
     label.className = 'role'
-    label.textContent = role === 'user' ? 'You' : 'Agent Builder'
+    label.textContent = role === 'user' ? 'You' : BOT_NAME
     const body = document.createElement('div')
     body.className = role === 'user' ? 'bubble' : 'bubble md'
     wrap.append(label, body)
@@ -350,30 +332,24 @@ window.Chat = (function () {
     running = true
     setSending(true)
     try {
-      // The scope preamble rides on the FIRST message only — afterwards it is in the
-      // transcript, and repeating it every turn would just crowd the context.
-      const withScope = scope && !scopeSent ? `${preamble(scope)}\n\n${body}` : body
-      // Marked BEFORE the await, not after: everything up to the await runs synchronously, so
-      // a flag set afterwards is still false for anything that reaches send() in the same
-      // tick, and the preamble goes out twice. The catch below puts the debt back.
-      scopeSent = true
       // `message`, not `text` — chat.send reads params.message and rejects an empty one.
+      // No agentId: the daemon forces this window's own agent onto the request.
       await client.send({
         sessionKey,
-        message: withScope,
+        message: body,
         ...(sending.length ? { attachments: sending } : {}),
       })
     } catch (e) {
-      scopeSent = false   // it never reached the daemon; the retry must still carry it
+      // The send never left. Say so IN THE THREAD and unlock the composer — a silent failure
+      // here looks exactly like a slow model, and the user waits forever.
       running = false
       setSending(false)
-      const b = bubble('bot')
-      b.innerHTML = MD.render(`**Could not send.** ${(e && e.message) || e}`)
+      bubble('bot').innerHTML = MD.render(`**Could not send.** ${(e && e.message) || e}`)
     }
   }
 
   async function abort() {
-    try { await client.abort(sessionKey) } catch { /* the run may have just ended */ }
+    try { await client.abort(sessionKey) } catch { /* the run may have just ended on its own */ }
   }
 
   function setSending(on) {
@@ -381,13 +357,13 @@ window.Chat = (function () {
     s.textContent = on ? '■' : '↑'
     s.classList.toggle('stop', on)
     s.title = on ? 'Stop' : 'Send'
-    $('hint').textContent = on ? 'running…' : 'Enter to send · Shift+Enter for a new line'
   }
 
-  /** Re-render the streaming bubble at most once per frame — deltas arrive far faster.
+  /** Re-render the streaming bubble at most once per frame.
+   *
    *  The guard is raised BEFORE scheduling, not from the callback's return value: if the
-   *  callback ever runs synchronously, assigning the handle afterwards would overwrite the
-   *  0 it just set and wedge every later repaint. */
+   *  callback ever runs synchronously, assigning the handle afterwards overwrites the 0 it
+   *  just set, and every later repaint is wedged. */
   function paint() {
     if (frame) return
     frame = 1
@@ -400,8 +376,8 @@ window.Chat = (function () {
   }
 
   /** Commit whatever is streaming and drop the caret. Called whenever the assistant STOPS
-   *  writing prose — a tool starting counts, and forgetting it left a blinking caret
-   *  stranded on every bubble that was interrupted by a tool call. */
+   *  writing prose — a tool starting counts, and forgetting that leaves a blinking caret
+   *  stranded on every bubble a tool call interrupted. */
   function settle() {
     if (node) { node.innerHTML = MD.render(buf); node = null }
     buf = ''
@@ -409,20 +385,20 @@ window.Chat = (function () {
     thinkBuf = ''
   }
 
+  /** One line describing what a tool is doing. Tool args have no common shape, so this picks
+   *  the most identifying field it recognises and falls back to the first value. */
   function summarize(args) {
     if (!args || typeof args !== 'object') return ''
-    for (const k of ['agent_id', 'id', 'path', 'name', 'query', 'file']) {
+    for (const k of ['path', 'id', 'name', 'query', 'url', 'file']) {
       if (args[k]) return String(args[k]).slice(0, 70)
     }
     const first = Object.values(args)[0]
     return first == null ? '' : String(first).slice(0, 70)
   }
 
-  // tools that change an agent on disk — the inspector should re-read after these
-  const WRITES = /^(write|edit|create_agent|create_tool|skill_workshop|reload_agent)$/
-
   function handle(ev) {
     switch (ev.type) {
+      // STREAMED OUTPUT. `kind` distinguishes the visible answer from the model's reasoning.
       case 'message_update': {
         dropHero()
         if (ev.kind === 'thinking_delta') {
@@ -440,6 +416,9 @@ window.Chat = (function () {
         paint()
         break
       }
+
+      // TOOL ACTIVITY. Showing it is most of what makes an agent feel like it is working
+      // rather than hanging.
       case 'tool_execution_start': {
         dropHero()
         const row = document.createElement('div')
@@ -450,8 +429,8 @@ window.Chat = (function () {
           `<span class="targs">${MD.esc(summarize(ev.args))}</span>`
         $('thread').append(row)
         tools.set(ev.toolCallId || ev.toolName, row)
-        // The assistant stopped writing to start a tool. Commit the bubble (and lose the
-        // caret) — the next delta opens a fresh one below the tool row.
+        // The assistant stopped writing in order to run something. Commit the bubble (and
+        // lose the caret); the next delta opens a fresh one below this row.
         settle()
         follow()
         break
@@ -468,21 +447,23 @@ window.Chat = (function () {
           }
           if (ev.isError) row.classList.add('err')
         }
-        if (WRITES.test(ev.toolName || '') && onToolDone) onToolDone(ev)
+        if (onToolDone) onToolDone(ev)
         break
       }
+
       // A run is MANY turns — the model answers, calls a tool, answers again. `turn_end`
-      // fires after each one, so it must only settle the current bubble; treating it as the
-      // end would flip the composer back to idle while the run is still going.
+      // fires after each one, so it may only settle the current bubble. Treating it as the
+      // end of the run flips the composer back to idle while the agent is still working.
       case 'message_end':
       case 'turn_end': {
         settle()
         follow()
         break
       }
-      // The configured model could not answer and another one took over. Never silent:
-      // "the model you chose is not the one replying" is the fact that turns an unpaid API
-      // key from a mystery into a one-line fix.
+
+      // The configured model could not answer and another took over. Never swallow this:
+      // "the model you picked is not the one replying" is the fact that turns an unpaid API
+      // key from an unexplained hang into a one-line fix.
       case 'model_fallback': {
         dropHero()
         settle()
@@ -491,37 +472,38 @@ window.Chat = (function () {
         row.innerHTML =
           '<span class="fail">⚠</span>' +
           `<span class="tname">${MD.esc(ev.from || '?')} unavailable</span>` +
-          `<span class="targs">→ ${MD.esc(ev.to || '?')} · ${MD.esc((ev.reason || '').slice(0, 120))}</span>`
+          `<span class="targs">→ ${MD.esc(ev.to || '?')} · ` +
+          `${MD.esc((ev.reason || '').slice(0, 120))}</span>`
         $('thread').append(row)
         follow()
         break
       }
-      // `agent_end` is the run terminal (stopReason, and `error` when it failed).
+
+      // THE RUN TERMINAL. `stopReason` says how it ended, `error` is present when it failed.
       case 'agent_end': {
         running = false
         setSending(false)
         settle()
-        if (ev.error) {
-          const b = bubble('bot')
-          b.innerHTML = MD.render(`**Run failed.** ${ev.error}`)
-        }
+        if (ev.error) bubble('bot').innerHTML = MD.render(`**Run failed.** ${ev.error}`)
         follow()
         break
       }
+
+      // A transport-level failure, outside any run.
       case 'error': {
         running = false
         setSending(false)
-        const b = bubble('bot')
-        b.innerHTML = MD.render(`**Error.** ${ev.message || 'the run failed'}`)
+        bubble('bot').innerHTML = MD.render(`**Error.** ${ev.message || 'the run failed'}`)
         break
       }
     }
   }
 
-  function ask(text) {
-    $('input').value = text
+  /** Put text in the box and send it — what a suggestion chip calls. */
+  function ask(body) {
+    $('input').value = body
     void send()
   }
 
-  return { init, reset, open, ask, setScope, get sessionKey() { return sessionKey } }
+  return { init, reset, open, ask, get sessionKey() { return sessionKey } }
 })()

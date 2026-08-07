@@ -83,6 +83,12 @@ class AgentService:
         # the EFFECTIVE working dir for this run's file/exec tools. Injected by the composition
         # root so a PROJECT chat binds to the project's shared workspace (plan §11: file ownership
         # follows context, not identity). None => the agent's own workspace, exactly as before.
+        resolve_models: Callable[[AgentSpec], tuple] | None = None,  # (agent) -> (model, router)
+        # for THIS run, after the agent's own config has been layered over the daemon's. An
+        # injected callable rather than a Config handle, matching build_prompt / recall /
+        # resolve_workspace above: the service only knows "something decides which brain runs",
+        # never how the layering works. None => the agent.toml model and the engine's own
+        # router, exactly as before.
         mention_routing: str = "direct",  # what a user @mention of ANOTHER agent does: "direct"
         # (the mentioned agent answers the turn AS ITSELF, one-off) | "delegate" (this agent
         # orchestrates it via message_agent). Injected from Config; single unambiguous mentions
@@ -101,7 +107,18 @@ class AgentService:
         self._recall = recall  # auto-recall: prepends relevant memories on user turns
         self.plugin_reloader = plugin_reloader
         self._resolve_workspace = resolve_workspace
+        self._resolve_models = resolve_models
         self._mention_routing = (mention_routing or "direct").strip().lower()
+
+    def _models_for(self, agent) -> tuple:
+        """``(model, model_router)`` for one run of ``agent``.
+
+        Both together or neither: a router overwrites the model on every turn, so handing the
+        engine an agent's model while it keeps a daemon-wide router is how a per-agent model
+        came to be silently discarded in the first place."""
+        if self._resolve_models is None:
+            return agent.model, None
+        return self._resolve_models(agent)
 
     def _resolve_agent(self, session_id: str, agent_id: str | None):
         """Explicit agent_id wins (a client naming the agent); else resolve from the
@@ -371,6 +388,7 @@ class AgentService:
 
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)
+        run_model, run_router = self._models_for(agent)
         await self._engine.run(
             messages=messages,
             system_prompt=system_prompt,
@@ -378,7 +396,8 @@ class AgentService:
             on_event=on_event,
             abort=abort,
             session=session,
-            model=agent.model,  # per-agent override (None = the engine default)
+            model=run_model,  # per-agent override (None = the engine default)
+            model_router=run_router,  # ...and the router that would otherwise overwrite it
         )
         # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
         # calling report_outcome (common: it did the work but skipped the bookkeeping), force
@@ -402,5 +421,6 @@ class AgentService:
                 on_event=on_event,
                 abort=abort,
                 session=session,
-                model=agent.model,
+                model=run_model,
+                model_router=run_router,
             )

@@ -40,7 +40,7 @@ agents/<id>/
 └── workspace/            runtime user files — NEVER packaged
 ```
 
-`<id>` is kebab-case (`expense-summarizer`, `support-bot`). It is the agent's permanent
+`<id>` is kebab-case (`note-taker`, `support-bot`). It is the agent's permanent
 identity: the session key, the app URL, and the installer name all derive from it.
 
 ## agent.toml
@@ -50,7 +50,7 @@ identity: the session key, the app URL, and the installer name all derive from i
 
 ```toml
 # top-level keys FIRST
-name = "Expense Summarizer"        # display name (required)
+name = "Note Taker"                # display name (required)
 version = "1.0.0"                  # bump on every change you ship — installs supersede by version
 description = "One line: what this agent is for."   # shown to orchestrators choosing a delegate
 model = "gemini/gemini-2.5-pro"    # optional per-agent brain override
@@ -61,7 +61,7 @@ google_account = "me@example.com"  # optional; the ONE Google account this agent
 # DISPLAY fields are TOP-LEVEL, not inside [app]. The registry reads them via
 # data.get(...), falling back to the generated presentation.json sidecar. Putting
 # them under [app] means they are SILENTLY IGNORED.
-tagline = "expenses · charts"      # short picker line
+tagline = "notes · summaries"      # short picker line
 color = "#2E7D32"                  # avatar/dot colour (hex)
 suggestions = [                    # max 3 kept; shown on an empty chat
   "Summarize my spending this month",
@@ -71,11 +71,11 @@ suggestions = [                    # max 3 kept; shown on an empty chat
 # ---- its own app window (omit entirely for a chat-only agent) ----
 # This table accepts EXACTLY these five keys — nothing else is read.
 [app]
-title = "Expense Summarizer"       # defaults to `name`, then the id
+title = "Note Taker"               # defaults to `name`, then the id
 mode = "window"                    # "window" = chromeless product window | "browser" = a tab
 entry = "ui/index.html"            # optional; default shown
 public = false                     # hosted daemons only: allow tokenless visitors
-public_tools = ["get_weather"]     # what those visitors may invoke (never chat)
+public_tools = ["lookup_entry"]    # what those visitors may invoke (never chat)
 # icon = "icon.ico"                # read by the INSTALLER build only, not the daemon
 
 # ---- tool scope (omit BOTH keys to grant the full catalog) ----
@@ -100,12 +100,12 @@ allow = ["check-*", "researcher"]  # ids/globs this agent may delegate to
 # Shape: [plugins.<plugin-id>.tools.<tool-name>], then any knob that tool reads.
 # This is how an agent tunes shared tools WITHOUT touching global config.
 # agent.toml ALWAYS wins over agentd.config.json.
-[plugins.figure-art.tools.generate_artwork]
+[plugins.<plugin-id>.tools.<tool-name>]
 provider = "gemini"
 model = "gemini/gemini-3-pro-image"
-resolution = "1K"
+resolution = "1K"                  # whatever knobs THAT tool documents
 
-[plugins.vision.tools.verify_figure]
+[plugins.<other-plugin>.tools.<other-tool>]
 model = "gemini/gemini-2.5-flash"
 ```
 
@@ -160,10 +160,10 @@ this agent. Two files minimum:
 
 **`plugin.toml`**
 ```toml
-id = "weather-kit"
-name = "Weather Kit"
+id = "example-kit"
+name = "Example Kit"
 kind = "native"                  # "native" | "mcp"
-entry = "weather_kit:register"   # "<module>:<callable>" — module is in THIS folder
+entry = "example_kit:register"   # "<module>:<callable>" — module is in THIS folder
 # description = "..."            # optional one-liner
 # scripts = ["helper.py"]        # optional declared helper files
 # data    = ["table.json"]       # optional declared data files
@@ -172,18 +172,18 @@ entry = "weather_kit:register"   # "<module>:<callable>" — module is in THIS f
 # env  = ["SOME_API_KEY"]        # env vars that must be set
 ```
 
-**`weather_kit.py`** — the plugin folder is added to `sys.path`, so import siblings by
+**`example_kit.py`** — the plugin folder is added to `sys.path`, so import siblings by
 bare module name.
 
 ```python
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
-class GetWeatherTool(Tool):
-    name = "get_weather"                  # what the model calls
-    label = "Get Weather"                 # UI label
+class LookupEntryTool(Tool):
+    name = "lookup_entry"                 # what the model calls
+    label = "Lookup Entry"                # UI label
     default_retryable = True              # False for anything side-effecting
-    description = "Current conditions for a city. Use when asked about weather."
+    description = "Look one entry up by name. Use when asked about a stored item."
     parameters = {
         "type": "object",
         "required": ["city"],
@@ -196,11 +196,11 @@ class GetWeatherTool(Tool):
             ...
             return ToolResult.text(f"{city}: 21C, clear")
         except Exception as e:  # never let a tool crash the loop
-            return ToolResult.text(f"get_weather failed: {e}", is_error=True)
+            return ToolResult.text(f"lookup_entry failed: {e}", is_error=True)
 
 
 def register(api, ctx):
-    api.register_tool(GetWeatherTool())
+    api.register_tool(LookupEntryTool())
 ```
 
 ### An agent's own tools become UNTRUSTED once someone installs the agent
@@ -261,12 +261,33 @@ if it exists; otherwise tell the user a restart is needed.
 Requires an `[app]` section. Served by the daemon at `/apps/<id>/` on the **same origin as
 the WebSocket**, straight from disk on every request — edit a file, reload the window, done.
 
+### Start with `scaffold_ui`. Do not write these files by hand.
+
+```
+scaffold_ui(agent_id='<id>')      →  a complete, working app in agents/<id>/ui/
+```
+
+It copies a chat app that already streams replies, shows live tool rows, takes pasted
+screenshots, remembers conversations, and has a settings page where the user pastes their own
+API key. Then you **edit** it — the title, the hero text, the suggestions, the accent colour —
+and add whatever surface this particular agent needs.
+
+Read the `ui/README.md` it writes before changing anything. It marks every spot to edit.
+
+The rest of this section is what that app is built from — read it to modify the app, not to
+retype it. Writing `ui/app.js` from scratch is the single most reliable way to ship an agent
+that looks finished and does nothing: the two mistakes below are invisible at runtime, and
+every hand-written app so far has made at least one of them.
+
 ```
 ui/
 ├── index.html                  the entry (default "ui/index.html")
 ├── app.js
+├── chat.js
+├── settings.js
+├── md.js
 ├── style.css
-└── vendor/agentd-client.js     COPY from another agent's ui/vendor/ — do not rewrite
+└── vendor/agentd-client.js     the SDK, verbatim — never edit or rewrite it
 ```
 
 `index.html` loads the SDK as a plain script (it is an IIFE exposing a global `agentd`,
@@ -283,13 +304,17 @@ ui/
 const client = agentd.fromPage({ clientName: 'my-app/1' })
 
 client.onStatus((s) => { /* 'connecting' | 'open' | 'closed' */ })
-await client.send({ message, sessionKey, agentId: 'my-agent' })
+await client.send({ message, sessionKey })
 await client.abort(sessionKey)
-const { sessions } = await client.sessions('my-agent')
-const { messages } = await client.history(sessionKey, 'my-agent')
+const { sessions } = await client.sessions()
+const { messages } = await client.history(sessionKey)
 const res = await client.invokeTool('my_tool', { arg: 1 })
 const url = client.fileUrl(artifactPath)   // authenticated URL for an artifact
 ```
+
+**Pass no agent id.** The window is opened with `?scope=<agent-id>` and the daemon forces that
+agent onto every request the page makes, so these calls are already about this agent. Writing
+the id in the page just creates a second copy to keep in sync with `agent.toml`.
 
 ### Reading run events — THE PAYLOAD IS NESTED
 

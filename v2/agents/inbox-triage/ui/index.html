@@ -16,6 +16,7 @@
     .results li { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #f0f0f0; }
     .results li:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
     .results strong { color: #D32F2F; }
+    .tool-activity { margin-top: 0.5rem; font-size: 0.85rem; color: #1976D2; font-style: italic; min-height: 1.2em; }
     .settings { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #eee; }
     input[type="time"] { padding: 8px; font-size: 1rem; margin-right: 10px; }
   </style>
@@ -25,9 +26,16 @@
     <h1>Inbox Triage</h1>
     
     <div class="settings">
-      <h3>Daily Schedule</h3>
-      <input type="time" id="triage-time" value="08:00">
-      <button id="save-time">Save Time</button>
+      <h3>Configuration</h3>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; font-weight: bold; margin-bottom: 0.5rem;">Daily Schedule:</label>
+        <input type="time" id="triage-time" value="08:00">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; font-weight: bold; margin-bottom: 0.5rem;">Triage Rules (What needs a reply?):</label>
+        <textarea id="triage-rules" rows="4" style="width: 100%; padding: 8px; font-family: inherit; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 4px;" placeholder="e.g., Only flag emails directly addressed to me. Ignore marketing and Jira tickets."></textarea>
+      </div>
+      <button id="save-time">Save Settings</button>
       <div id="save-status" class="status"></div>
     </div>
     
@@ -35,6 +43,7 @@
       <h3>Run Manually</h3>
       <button id="run-now">Triage Inbox Now</button>
       <div id="run-status" class="status"></div>
+      <div id="tool-activity" class="tool-activity"></div>
     </div>
     
     <div id="results" class="results"></div>
