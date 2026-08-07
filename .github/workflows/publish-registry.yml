@@ -1,0 +1,167 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Publish the marketplace registry — pack agents, sign the index, upload to S3.
+#
+# WHY THIS EXISTS. Publishing used to need three things on ONE machine: the repo, the private
+# signing key, and AWS credentials. That made the laptop a single point of failure for the whole
+# marketplace — and not a recoverable one. Every installed client pins the PUBLIC half of that key
+# (distribution.toml `publisher_key`), so losing the private half does not mean "generate a new
+# one": it means nothing can ever be published to this registry again that existing installs will
+# accept. One key file, in one place, with no copy.
+#
+# MANUAL ON PURPOSE. This is a release, not a build. A push trigger on `v2/agents/**` would publish
+# every work-in-progress edit to the public registry the moment it merged. If you later want that,
+# add a `push:` block with those paths — the job below needs no changes.
+#
+# ONE-TIME SETUP
+#   1. agentd bundle keygen --out agentd-publisher-key.json     (keep it OUT of the repo)
+#   2. repo secret AGENTD_PUBLISHER_KEYPAIR = the whole contents of that JSON file
+#   3. repo secret AWS_DEPLOY_ROLE_ARN — already set if Deploy works; re-apply
+#      v2/infra/github-oidc so the role gains the S3 registry grants.
+#
+# The public half must match `publisher_key` in v2/clients/desktop/flavors/*/distribution.toml and
+# `registry_publisher_key` in v2/infra/environments/<env>/main.tf. `bundle publish` refuses to
+# publish with a key the registry does not already use, so a mismatch fails here rather than
+# silently shipping a registry no client will trust.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Publish registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment's registry to publish to"
+        type: choice
+        options: [dev, staging, production]
+        default: dev
+      agents:
+        description: "Space/comma separated agent ids under v2/agents (blank = every agent with a bundle.toml)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Build and print the index, upload nothing"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write # OIDC to AWS — no long-lived keys stored in GitHub
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Same gate as Deploy: publishing to production's registry goes through whatever reviewers
+    # that GitHub Environment requires. `inputs.*` is readable here (unlike a computed step
+    # output), so this needs no resolve job.
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # The FULL package, not `--no-deps`. `bundle publish` reaches load_config() to resolve
+      # vendored plugin roots, so it needs the real import graph; a trimmed install would fail
+      # somewhere inside packing, after the run looked like it was working.
+      - name: Install agentd
+        run: pip install ./v2
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # The bucket name carries a random suffix (registry.tf: S3 names are globally unique), so it
+      # is DISCOVERED from the API — same approach Deploy uses for the ALB hostname, and the reason
+      # this workflow needs no Terraform state and no hardcoded name.
+      - name: Find the registry bucket
+        id: bucket
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          NAMES=$(aws s3api list-buckets \
+            --query "Buckets[?starts_with(Name, 'agentd-${ENVIRONMENT}-registry-')].Name" \
+            --output text)
+          COUNT=$(printf '%s\n' $NAMES | grep -c . || true)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::no bucket named agentd-${ENVIRONMENT}-registry-* — provision the environment first (terraform apply)"; exit 1
+          fi
+          if [ "$COUNT" -gt 1 ]; then
+            # Two matches means an orphan from a recreated bucket. Publishing into the wrong one
+            # succeeds silently and nothing ever shows up in the app, so stop and let a human pick.
+            echo "::error::$COUNT buckets match agentd-${ENVIRONMENT}-registry-*: $NAMES — remove the stale one"; exit 1
+          fi
+          echo "name=$NAMES" >> "$GITHUB_OUTPUT"
+          echo "publishing to s3://$NAMES"
+
+      # Which agents. Blank input = every directory under v2/agents that declares a bundle.toml,
+      # so adding a new publishable agent needs no edit here.
+      - name: Resolve agent list
+        id: agents
+        env:
+          REQUESTED: ${{ inputs.agents }}
+        run: |
+          cd v2
+          if [ -n "$(printf '%s' "$REQUESTED" | tr -d '[:space:],')" ]; then
+            DIRS=""
+            for id in $(printf '%s' "$REQUESTED" | tr ',' ' '); do
+              if [ ! -f "agents/${id}/bundle.toml" ]; then
+                echo "::error::agents/${id}/bundle.toml not found — every published agent declares one"; exit 1
+              fi
+              DIRS="$DIRS agents/${id}"
+            done
+          else
+            DIRS=$(find agents -mindepth 2 -maxdepth 2 -name bundle.toml -printf '%h ')
+          fi
+          if [ -z "$(printf '%s' "$DIRS" | tr -d '[:space:]')" ]; then
+            echo "::error::no agents with a bundle.toml under v2/agents"; exit 1
+          fi
+          echo "dirs=$DIRS" >> "$GITHUB_OUTPUT"
+          echo "publishing:$DIRS"
+
+      # Written to a file rather than passed as a flag: an argument is visible in the process list,
+      # and `env:` keeps the value out of the command line the runner echoes.
+      - name: Stage the signing key
+        env:
+          KEYPAIR: ${{ secrets.AGENTD_PUBLISHER_KEYPAIR }}
+        run: |
+          if [ -z "$KEYPAIR" ]; then
+            echo "::error::repo secret AGENTD_PUBLISHER_KEYPAIR is not set — see this workflow's header"; exit 1
+          fi
+          printf '%s' "$KEYPAIR" > "$RUNNER_TEMP/publisher-key.json"
+          chmod 600 "$RUNNER_TEMP/publisher-key.json"
+          python -c "import json,os,sys; d=json.load(open(os.environ['RUNNER_TEMP']+'/publisher-key.json')); sys.exit(0 if d.get('private_key') and d.get('public_key') else 'AGENTD_PUBLISHER_KEYPAIR is not an agentd keypair JSON (needs private_key + public_key)')"
+
+      # `bundle publish` READS the current index.json first and carries forward every bundle it is
+      # not republishing, so publishing one agent does not unpublish the others. It also refuses on
+      # a key mismatch. Both guards live in the command, not here, so a local publish behaves
+      # identically to this one.
+      - name: Publish
+        env:
+          BUCKET: ${{ steps.bucket.outputs.name }}
+          DIRS: ${{ steps.agents.outputs.dirs }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          cd v2
+          # `if`, not `[ … ] && EXTRA=…`. A `run:` block is `bash -e`, and that one-liner evaluates
+          # to FALSE whenever dry_run is off — which aborts the step with no output and no error,
+          # exactly the way an unchecked command once killed the deploy workflow at exit 254.
+          EXTRA=""
+          if [ "$DRY" = "true" ]; then EXTRA="--dry-run"; fi
+          agentd bundle publish $DIRS \
+            --to "s3://${BUCKET}" \
+            --key "$RUNNER_TEMP/publisher-key.json" \
+            $EXTRA
+
+      - name: Show the published index
+        if: ${{ !inputs.dry_run }}
+        env:
+          BUCKET: ${{ steps.bucket.outputs.name }}
+        run: |
+          echo "index url: https://${BUCKET}.s3.${AWS_REGION}.amazonaws.com/index.json"
+          aws s3 cp "s3://${BUCKET}/index.json" - | python -m json.tool

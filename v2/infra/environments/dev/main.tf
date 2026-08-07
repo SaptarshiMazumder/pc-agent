@@ -91,6 +91,18 @@ module "stack" {
   scheduled_job_overrides = {
     subscription-renewals = { schedule = "cron(0 0 * * ? *)" }
   }
+
+  # THE MARKETPLACE's trust anchor: the public half of the keypair that signs index.json. The
+  # hosted daemon pins downloads to it, so browsers get the same guarantee the desktop already
+  # has (whose installer bakes this identical string into distribution.toml).
+  #
+  # Public by nature — it can only VERIFY, never sign — which is why it lives in git next to the
+  # flavors rather than in Secrets Manager. The private half never leaves the publisher: a local
+  # file for `agentd bundle publish`, a repo secret for the publish-registry workflow.
+  #
+  # It must match `publisher_key` in v2/clients/desktop/flavors/*/distribution.toml. A mismatch
+  # is silent until someone installs, then reads as "the bundle is corrupt".
+  registry_publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
 }
 
 # ── Pass-through outputs (push-images.ps1 and the desktop flavors read these) ──

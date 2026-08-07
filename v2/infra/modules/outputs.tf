@@ -46,7 +46,7 @@ output "ingest_url" {
 
 output "registry_url" {
   description = "[store] registry_url for the desktop flavors (public marketplace index)."
-  value       = "https://${aws_s3_bucket.registry.bucket}.s3.${var.region}.amazonaws.com/index.json"
+  value       = local.registry_index_url
 }
 
 output "registry_bucket" {

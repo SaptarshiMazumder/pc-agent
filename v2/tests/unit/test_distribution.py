@@ -97,3 +97,41 @@ def test_enabled_gate_still_applies_after_provisioning():
     assert not _passes_gates(config, _manifest("figures"), None), (
         "provisioned but config-disabled must stay off"
     )
+
+
+# ── the marketplace's two env doors (a CONTAINER has no installer to bake a profile) ──
+#
+# The hosted daemon is configured entirely by task env, so both halves of "which registry, signed
+# by whom" must be reachable that way. Only the url used to be, which meant the one way to give a
+# container a store also turned signature verification off.
+
+_PUBLIC_KEY = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+
+
+def test_publisher_key_env_pins_the_profile(monkeypatch):
+    from agent_runtime.config import load_config
+
+    monkeypatch.setenv("AGENTD_PUBLISHER_KEY", _PUBLIC_KEY)
+    assert load_config().distribution.publisher_key == _PUBLIC_KEY
+
+
+def test_registry_and_publisher_key_arrive_together(monkeypatch):
+    """The pair a hosted daemon needs: a store to list, and a key to verify downloads against."""
+    from agent_runtime.config import load_config
+
+    monkeypatch.setenv("AGENTD_REGISTRY", "https://example.invalid/index.json")
+    monkeypatch.setenv("AGENTD_PUBLISHER_KEY", _PUBLIC_KEY)
+    config = load_config()
+    assert config.registry_url == "https://example.invalid/index.json"
+    assert config.distribution.publisher_key == _PUBLIC_KEY
+
+
+def test_publisher_key_env_absent_leaves_the_profile_alone(monkeypatch):
+    from agent_runtime.config import load_config
+
+    monkeypatch.delenv("AGENTD_PUBLISHER_KEY", raising=False)
+    # Whatever the ambient profile says, an unset variable must not blank it — that would silently
+    # unpin every desktop build, whose key comes from its baked distribution.toml.
+    before = load_config().distribution.publisher_key
+    monkeypatch.setenv("AGENTD_PUBLISHER_KEY", "   ")  # whitespace is not a key
+    assert load_config().distribution.publisher_key == before

@@ -16,6 +16,8 @@
 
 import { useSyncExternalStore } from 'react'
 
+import { randomUuid } from './platform'
+
 export interface Session {
   token: string
   accountId: string
@@ -262,12 +264,11 @@ export async function purchase(productId: string): Promise<Purchase> {
   }
 }
 
-/** crypto.randomUUID is unavailable on insecure origins (the HTTP-only dev ALB), so fall back
- *  rather than throwing on the one platform we actually test against today. */
+/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/platform.ts for why
+ *  crypto.randomUUID cannot be called directly. This used to carry its own weaker fallback;
+ *  two answers to the same host limitation is how one of them stays broken. */
 function newIdempotencyKey(): string {
-  const c = globalThis.crypto
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
-  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  return randomUuid()
 }
 
 // A balance can change without this tab doing anything that re-renders it: a purchase on the

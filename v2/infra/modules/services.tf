@@ -4,6 +4,32 @@
 #   • an ECS service (keeps N copies alive, registered with its ALB target group)
 # Adding a container to the platform = adding an entry to local.services. That's it.
 
+locals {
+  # Env a service needs that CANNOT be written in var.services: a variable's default cannot
+  # reference a resource attribute, and these values are only known once the resource exists.
+  #
+  # Kept out of local.services on purpose, even though merging it there would read better. That
+  # map drives `for_each` on five resources, and a for_each whose contents depend on a
+  # not-yet-created resource fails the plan outright ("Invalid for_each argument … cannot be
+  # determined until apply") — on a FRESH apply, where the bucket name derives from an unborn
+  # random_id. Merging here instead keeps the computed value inside a resource ARGUMENT, which is
+  # allowed to be unknown at plan time. Any service can take computed env by adding a key.
+  computed_env = {
+    # THE MARKETPLACE, for the hosted daemon. Browsers talk to this daemon, and a daemon can only
+    # list a store it has been told the url of — nothing discovers it. Without these two the web
+    # client's Store renders "no registry configured" while the desktop's works, because the
+    # desktop's installer bakes the same pair into its distribution.toml.
+    #
+    # Both, never just the url: AGENTD_REGISTRY alone leaves publisher_key empty, which turns off
+    # signature verification and leaves only the checksum — see the comment on AGENTD_PUBLISHER_KEY
+    # in agent_runtime/config.py for why that is a downgrade and not a shortcut.
+    daemon = {
+      AGENTD_REGISTRY      = local.registry_index_url
+      AGENTD_PUBLISHER_KEY = var.registry_publisher_key
+    }
+  }
+}
+
 resource "aws_ecs_task_definition" "svc" {
   for_each = local.services
 
@@ -36,7 +62,7 @@ resource "aws_ecs_task_definition" "svc" {
     image        = "${aws_ecr_repository.this[each.key].repository_url}:${var.image_tag}"
     essential    = true
     portMappings = [{ containerPort = each.value.port }]
-    environment  = [for k, v in each.value.env : { name = k, value = v }]
+    environment  = [for k, v in merge(each.value.env, lookup(local.computed_env, each.key, {})) : { name = k, value = v }]
     # secret_keys: container env var -> JSON key inside the app secret.
     secrets = [for k, v in each.value.secret_keys : {
       name      = k
