@@ -78,10 +78,23 @@ def test_a_mention_in_prose_is_not_a_call():
         ("k = os.getenv('SOME_KEY')", "ENV_READ"),
         ("import requests", "NET_IMPORT"),
         ("from httpx import AsyncClient", "NET_IMPORT"),
+        ('subprocess.Popen(["explorer.exe", p])', "SPAWN"),
+        ('os.system("ffmpeg -i in.mp4 out.mp4")', "SPAWN"),
     ],
 )
 def test_the_unambiguous_defects_block(code, expected):
     assert [c for c, _w, _f in blocking_defects(code)] == [expected]
+
+
+def test_the_host_brokered_fetch_route_does_not_block():
+    """The call an author SHOULD write for an API. If the refusal caught this there would be no
+    legal way to reach a network at all, and the declaration mechanism would be pointless."""
+    code = (
+        "from agent_runtime.infrastructure.net.outbound import fetch\n"
+        "res = fetch('https://api.acme.com/x', headers={'Authorization': 'Bearer ${K}'})\n"
+        "return ToolResult.text(res.text)"
+    )
+    assert blocking_defects(code) == []
 
 
 def test_a_url_in_a_string_does_not_block():
@@ -242,12 +255,13 @@ def test_a_SHARED_tool_is_not_refused(tmp_path):
 # --- SandboxRules: the same defect, in code create_tool did not write --------
 
 
-def _check(source: str):
+def _check(source: str, plugin_toml: str = ""):
     files = ["plugins/hand-written/plugin.toml", "plugins/hand-written/mod.py"]
     spec = type("Spec", (), {"id": "note-taker"})()
-    return {
-        f.code for f in SandboxRules().check(spec, {}, files, {"plugins/hand-written/mod.py": source})
-    }
+    sources = {"plugins/hand-written/mod.py": source}
+    if plugin_toml:
+        sources["plugins/hand-written/plugin.toml"] = plugin_toml
+    return {f.code for f in SandboxRules().check(spec, {}, files, sources)}
 
 
 def test_a_hand_written_model_call_without_the_flag_is_reported():
@@ -263,6 +277,47 @@ def test_declaring_the_flag_clears_it():
 def test_a_plugin_with_no_model_call_is_never_flagged_for_it():
     codes = _check("return ToolResult.text('ok')")
     assert "UNTRUSTED_MODEL_UNDECLARED" not in codes
+
+
+def test_prose_does_not_trigger_the_secrets_rule():
+    """THE cry-wolf regression. A plugin whose DOCSTRING mentioned `${SECRET}` was flagged for
+    describing the correct behaviour — the most carefully written line in the file. A report that
+    is wrong about good code is one authors learn to skip."""
+    assert "UNTRUSTED_WANTS_SECRETS" not in _check(
+        '"""Uses the ${SECRET} placeholder route; never reads os.environ."""\nreturn 1'
+    )
+
+
+def test_a_real_env_read_still_triggers_it():
+    """...and stripping must not have turned the rule into decoration. A string VALUE is kept."""
+    assert "UNTRUSTED_WANTS_SECRETS" in _check('k = os.environ["ACME_API_KEY"]')
+
+
+def test_a_declared_fetch_is_not_reported_as_wanting_network():
+    """A plugin using the brokered route AND declaring its hosts is doing the right thing.
+    Warning about it would be warning about the fix."""
+    src = (
+        "from agent_runtime.infrastructure.net.outbound import fetch\n"
+        "res = fetch('https://api.acme.com/x')"
+    )
+    codes = _check(src, plugin_toml='[sandbox]\nnet = ["api.acme.com"]\n')
+    assert "UNTRUSTED_WANTS_NETWORK" not in codes
+
+
+def test_an_undeclared_url_is_still_reported():
+    src = "res = fetch('https://api.acme.com/x')"
+    assert "UNTRUSTED_WANTS_NETWORK" in _check(src)
+
+
+def test_a_raw_client_is_reported_even_when_hosts_are_declared():
+    """Declaring hosts does not buy you a socket. `import requests` cannot work, ever."""
+    codes = _check("import requests", plugin_toml='[sandbox]\nnet = ["api.acme.com"]\n')
+    assert "UNTRUSTED_WANTS_NETWORK" in codes
+
+
+def test_a_spawn_is_reported():
+    """The comfyui case: a shipped agent revealed files with subprocess.Popen(['explorer.exe'])."""
+    assert "UNTRUSTED_WANTS_SPAWN" in _check('subprocess.Popen(["explorer.exe", "/select,", p])')
 
 
 def test_undeclared_model_call_is_the_shared_predicate():

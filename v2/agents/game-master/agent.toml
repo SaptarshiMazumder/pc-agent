@@ -2,8 +2,25 @@
 # exercise the plugin-sandbox seam: roll_dice (no LLM) + narrate_scene (needs an LLM call).
 
 name = "Game Master"
-description = "A playful tabletop RPG referee: rolls dice and narrates fantasy scenes."
-version = "0.1.0"
+description = "A playful tabletop RPG referee: rolls dice, looks up monsters, and narrates scenes."
+version = "0.2.0"
+tagline = "roll · look up · narrate"
+color = "#B5453C"
+suggestions = [
+  "Roll 4d6 and drop the lowest",
+  "Look up the owlbear",
+  "Narrate our party entering a flooded crypt",
+]
+
+# Its own window. This agent is the SANDBOX TEST RIG: its three private tools cover all three
+# capability paths a marketplace agent can need — pure compute, a host-brokered MODEL call, and a
+# host-brokered NETWORK call — so opening this app after installing the agent from a package
+# exercises the whole untrusted-plugin surface by hand, in one place.
+[app]
+title = "Game Master"
+mode = "window"
+entry = "ui/index.html"
+public = false
 
 # Tight scope: this agent needs nothing from the shared catalog. Its OWN tools (roll_dice,
 # narrate_scene — shipped in plugins/game-kit) are implicitly allowed and never named here.

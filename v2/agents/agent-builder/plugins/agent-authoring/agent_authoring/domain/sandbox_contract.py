@@ -42,10 +42,20 @@ import re
 #: — the tool does not error, it silently behaves as if the key were unset.
 ENV_READ = re.compile(r"\bos\.environ\b|\bos\.getenv\s*\(|\bgetenv\s*\(|\benvironb\b")
 
-#: Importing a network client. The grant is ``net_allowlist = ()``.
+#: Importing a network client. A sandboxed plugin never gets a socket — outbound is INVERTED, the
+#: same as model calls: it declares hosts in ``[sandbox] net`` and the host performs the request.
 NET_IMPORT = re.compile(
     r"^\s*(?:import|from)\s+(?:httpx|requests|aiohttp|urllib|urllib3|http\.client|socket)\b",
     re.MULTILINE,
+)
+
+#: Starting another process. Denied by ``child_guard._SPAWN``. Found in the wild: a shipped agent
+#: had a tool that called ``subprocess.Popen(["explorer.exe", ...])`` to reveal a file — fine for
+#: its author, a hard denial for everyone who installs the agent, and nothing warned about it.
+SPAWN = re.compile(
+    r"\bsubprocess\.(?:Popen|run|call|check_output|check_call)\s*\(|"
+    r"\bos\.(?:system|popen|exec\w*|spawn\w*|posix_spawn\w*)\s*\(|"
+    r"\bpty\.spawn\s*\("
 )
 
 # --- tier 2: COARSE. Advisory only — these appear in working code often enough to matter. -----
@@ -120,9 +130,20 @@ def blocking_defects(code: str) -> list[tuple[str, str, str]]:
             (
                 "NET_IMPORT",
                 "imports a network client",
-                "an installed tool is granted no network. Call a model with "
-                "oneshot.text_complete (the host performs it for you), or use a SHARED tool "
-                "that already owns the network path",
+                "an installed tool never gets a socket. Use "
+                "`from agent_runtime.infrastructure.net.outbound import fetch` and declare the "
+                'hosts in the plugin.toml:  [sandbox]  net = ["api.example.com"].  The host makes '
+                "the request, so a credential can ride as ${NAME} without the tool ever seeing it",
+            )
+        )
+    if SPAWN.search(code or ""):
+        out.append(
+            (
+                "SPAWN",
+                "starts another process",
+                "an installed tool may not spawn anything — the sandbox denies subprocess.Popen, "
+                "os.system and os.exec*. Do the work in Python, or use a SHARED tool that already "
+                "owns that capability (a private plugin cannot shell out on a buyer's machine)",
             )
         )
     return out

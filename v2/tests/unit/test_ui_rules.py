@@ -14,10 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agent_authoring.domain.ui_rules import UiRules
+
 from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
 from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
-
-from agent_authoring.domain.ui_rules import UiRules
 
 RULES = UiRules(
     events=APP_FACING_EVENTS,

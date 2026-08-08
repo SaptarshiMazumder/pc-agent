@@ -359,6 +359,19 @@ class Config:
     # chain (what that tool would have used anyway), which is what you want; set it to pin the
     # whole deployment to an explicit list. Only tools declaring `needs_model` get any at all.
     sandbox_models: tuple = ()
+    # OUTBOUND NETWORK for sandboxed plugins. The plugin declares the hosts it calls in its own
+    # plugin.toml ([sandbox] net); these NARROW that declaration and can never widen it — an
+    # operator allowlist that added hosts would grant reach the installed package never disclosed.
+    #   sandbox_net_allow  non-empty => a declared host must ALSO match one of these
+    #   sandbox_net_deny   removes matching hosts; a bare "*" switches outbound off entirely
+    # Both accept exact hosts or a leading "*." subdomain wildcard.
+    # AGENTD_SANDBOX_NET_ALLOW / AGENTD_SANDBOX_NET_DENY (comma-separated).
+    sandbox_net_allow: tuple = ()
+    sandbox_net_deny: tuple = ()
+    # Ceilings for ONE tool run's host-brokered fetches; same shape and spirit as
+    # sandbox_model_limits. Keys: max_calls, max_bytes, timeout_s. Defaults in
+    # infrastructure/tools/sandbox/fetch_broker.DEFAULT_FETCH_LIMITS.
+    sandbox_fetch_limits: dict = field(default_factory=dict)
     # ── MULTI-TENANCY (hosted only) ──────────────────────────────────────────────────────────
     # multi_tenant: this daemon serves MANY accounts, so state_dir/agents_dir/workspace/plugins_dir
     # are resolved PER CONNECTION under tenant_root/<account_id>/ instead of being process-global,
@@ -397,6 +410,20 @@ class Config:
     # DERIVED (an agent is untrusted iff the marketplace ledger says it arrived in a .agentpkg), so
     # this is only for vouching for a specific publisher's agent. AGENTD_SANDBOX_TRUSTED_AGENTS.
     sandbox_trusted_agents: tuple = ()
+    # sandbox_untrusted_agents: FORCE these agents' private tools to be treated as if they had been
+    # installed from a package. A DEVELOPMENT switch, and the only knob here that TIGHTENS.
+    #
+    # It exists because trust is derived from the marketplace ledger, so the only way to see what a
+    # buyer gets was to pack and install your own agent before every run — enough friction that the
+    # sandbox stopped being exercised while it was being built. This makes the same code path run
+    # against a local agent.
+    #
+    # It cannot weaken anything: the only transition it can cause is FIRST_PARTY ->
+    # THIRD_PARTY_BUNDLE. Left on in production the worst case is an agent that is sandboxed when it
+    # did not need to be — a capability that fails loudly, never an exposure. Operator-only
+    # (config/env), like every sandbox knob: nothing inside a package can reach it.
+    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids.
+    sandbox_untrusted_agents: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -921,6 +948,27 @@ def load_config(path: Path | None = None) -> Config:
             )
         else:
             cfg.sandbox_untrusted_plugins = True
+    for _env, _field in (
+        ("AGENTD_SANDBOX_NET_ALLOW", "sandbox_net_allow"),
+        ("AGENTD_SANDBOX_NET_DENY", "sandbox_net_deny"),
+    ):
+        if os.environ.get(_env):
+            setattr(cfg, _field, tuple(s.strip() for s in os.environ[_env].split(",") if s.strip()))
+    if os.environ.get("AGENTD_SANDBOX_UNTRUSTED_AGENTS"):
+        cfg.sandbox_untrusted_agents = tuple(
+            s.strip()
+            for s in os.environ["AGENTD_SANDBOX_UNTRUSTED_AGENTS"].split(",")
+            if s.strip()
+        )
+    if cfg.sandbox_untrusted_agents:
+        # LOUD, once, at boot. This is a development switch and the failure mode of forgetting it
+        # is an agent that mysteriously cannot reach its own files — a message here is the
+        # difference between a five-second fix and an afternoon.
+        logging.getLogger("agentd").warning(
+            "sandbox: FORCING untrusted classification for agent(s) %s (development switch "
+            "sandbox_untrusted_agents) — their private tools run sandboxed as if installed",
+            ", ".join(cfg.sandbox_untrusted_agents),
+        )
     if os.environ.get("AGENTD_SANDBOX_TRUSTED_AGENTS"):
         cfg.sandbox_trusted_agents = tuple(
             s.strip()

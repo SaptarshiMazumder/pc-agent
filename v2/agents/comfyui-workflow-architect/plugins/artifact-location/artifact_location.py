@@ -12,7 +12,6 @@ class GeneratedTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
-            import os
             import subprocess
             import sys
             from pathlib import Path

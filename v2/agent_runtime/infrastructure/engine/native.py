@@ -43,13 +43,13 @@ from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, v
 
 from .incomplete_turn import (
     INCOMPLETE_TURN_FALLBACK_TEXT,
-    describe_empty_run,
     MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
     RETRY_INSTRUCTIONS,
     RETRY_LIMITS,
     PlanningContext,
     build_before_finalize_retry_prompt,
     classify_incomplete_turn,
+    describe_empty_run,
     is_injected_prompt,
     resolve_max_run_loop_iterations,
 )

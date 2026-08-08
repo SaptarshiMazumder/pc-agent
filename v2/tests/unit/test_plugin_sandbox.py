@@ -12,11 +12,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pytest
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import RunContext, set_run_context
-from agent_runtime.domain.sandbox import DENY_ALL, CapabilityGrant, PluginOrigin
+from agent_runtime.application.run_context import RunContext
+from agent_runtime.domain.sandbox import DENY_ALL, PluginOrigin
 from agent_runtime.infrastructure.tools.sandbox import (
     DefaultCapabilityResolver,
     LocalPluginSandbox,

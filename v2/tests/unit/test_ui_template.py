@@ -25,13 +25,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
-
-from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
-from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
-
 from agent_authoring.application.scaffold_ui_service import ScaffoldError, ScaffoldUiService
 from agent_authoring.domain.ui_rules import UiRules
 from agent_authoring.domain.ui_template import CHAT_APP, UiTemplates
+
+from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
+from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "agents" / "agent-builder"

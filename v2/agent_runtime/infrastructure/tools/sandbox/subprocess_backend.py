@@ -49,6 +49,7 @@ from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.tools.sandbox import protocol, stdout_capture
+from agent_runtime.infrastructure.tools.sandbox.fetch_broker import SandboxFetchBroker
 from agent_runtime.infrastructure.tools.sandbox.model_broker import SandboxModelBroker
 
 log = logging.getLogger("agentd")
@@ -134,6 +135,10 @@ class SubprocessPluginSandbox:
         # own directory. The tool object itself never crosses; the child imports the code afresh,
         # exactly as a container backend would.
         self._plugins: dict[tuple[str, str], tuple[str, str]] = {}
+        # (plugin_id, tool_name) -> the credential NAMES its plugin.toml declared. Kept beside the
+        # recipe rather than in the grant: grant.secrets becomes the child's environment, and a
+        # declared name exists precisely so the VALUE never travels there.
+        self._secrets: dict[tuple[str, str], tuple[str, ...]] = {}
 
     # ------------------------------------------------------------------ wiring
 
@@ -146,6 +151,9 @@ class SubprocessPluginSandbox:
         entry = getattr(tool, "_plugin_entry", "") or ""
         root = getattr(tool, "_plugin_root", "") or ""
         self._plugins[(plugin_id, tool_name)] = (str(entry), str(root))
+        self._secrets[(plugin_id, tool_name)] = tuple(
+            str(s) for s in (getattr(tool, "_sandbox_secrets", ()) or ())
+        )
 
     # ------------------------------------------------------------------ the call
 
@@ -227,6 +235,16 @@ class SubprocessPluginSandbox:
         broker = SandboxModelBroker(
             self._config, plugin_id=plugin_id, tool_name=tool_name, grant=grant
         )
+        # The declared secret NAMES travel with the recipe, not the grant: grant.secrets is
+        # injected into the child's environment, and the entire point of naming a credential is
+        # that its value never gets there. The broker resolves it host-side, per request.
+        fetcher = SandboxFetchBroker(
+            self._config,
+            plugin_id=plugin_id,
+            tool_name=tool_name,
+            grant=grant,
+            declared_secrets=self._secrets.get((plugin_id, tool_name), ()),
+        )
         # The deadline is on the TOOL's own time, not on ours. A model call the host is serving can
         # legitimately take a minute, and charging that to the tool's budget would kill healthy
         # runs under load — the kind of failure that looks random and never reproduces.
@@ -234,7 +252,9 @@ class SubprocessPluginSandbox:
         killer = asyncio.create_task(self._kill_on_abort(abort, proc))
         watchdog = asyncio.create_task(self._watch_deadline(deadline, proc))
         try:
-            payload, stderr_text = await self._collect(proc, job, on_update, broker, deadline)
+            payload, stderr_text = await self._collect(
+                proc, job, on_update, broker, deadline, fetcher
+            )
         finally:
             for task in (killer, watchdog):
                 task.cancel()
@@ -279,7 +299,9 @@ class SubprocessPluginSandbox:
 
     # ------------------------------------------------------------------ plumbing
 
-    async def _collect(self, proc, job, on_update, broker, deadline) -> tuple[dict | None, str]:
+    async def _collect(
+        self, proc, job, on_update, broker, deadline, fetcher=None
+    ) -> tuple[dict | None, str]:
         """Read the protocol from stdout and drain stderr CONCURRENTLY.
 
         Concurrently and not in sequence: the pipes are fixed-size, so a plugin that writes more to
@@ -325,6 +347,15 @@ class SubprocessPluginSandbox:
                 )
                 served.add(task)
                 task.add_done_callback(served.discard)
+            elif kind == "fetch_request" and fetcher is not None:
+                # Its own task, and the deadline pauses, for exactly the reasons the model branch
+                # does: an HTTP round-trip the HOST is performing is not the tool spending its
+                # budget, and awaiting it inline would back up the child's stderr behind it.
+                task = asyncio.create_task(
+                    self._serve_fetch(proc, payload, fetcher, deadline, writes)
+                )
+                served.add(task)
+                task.add_done_callback(served.discard)
             elif kind == "result":
                 final = payload
         for task in list(served):
@@ -344,6 +375,25 @@ class SubprocessPluginSandbox:
             response = {
                 "t": "model_response", "id": str(request.get("id") or ""),
                 "ok": False, "text": "", "error": f"the host failed to serve the call: {e}",
+            }
+        finally:
+            deadline.resume()
+        async with writes:
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError, OSError):
+                proc.stdin.write(protocol.encode_job(response))
+                await proc.stdin.drain()
+
+    async def _serve_fetch(self, proc, request, fetcher, deadline, writes) -> None:
+        """Answer one `fetch_request`. Never raises into the read loop."""
+        deadline.pause()  # the child is blocked on US now; its own clock stops
+        try:
+            response = await fetcher.serve(request)
+        except Exception as e:  # noqa: BLE001 — a broker bug must still unblock the child
+            log.exception("sandbox: fetch broker failed")
+            response = {
+                "t": "fetch_response", "id": str(request.get("id") or ""),
+                "status": 0, "headers": {}, "text": "", "url": "",
+                "error": f"the host failed to serve the request: {e}",
             }
         finally:
             deadline.resume()

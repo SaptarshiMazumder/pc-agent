@@ -15,9 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from agent_authoring.presentation.create_agent_tool import CreateAgentTool
 
 from agent_runtime.application.interfaces.tool import ToolArgError, validate_args
-from agent_authoring.presentation.create_agent_tool import CreateAgentTool
 
 
 class _Registry:

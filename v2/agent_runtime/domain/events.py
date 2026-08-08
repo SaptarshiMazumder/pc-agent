@@ -36,7 +36,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # The events an AGENT APP may build its UI on — the published contract, as opposed to every
 # name the engine happens to emit. ONE definition, because three things need the same answer
 # and drifting between them is how a generated UI ends up listening for an event that will

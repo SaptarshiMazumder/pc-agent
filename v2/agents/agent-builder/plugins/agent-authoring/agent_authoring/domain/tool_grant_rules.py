@@ -26,7 +26,7 @@ cannot quietly rot into naming tools nobody ships.
 
 from __future__ import annotations
 
-from .finding import Finding, WARN
+from .finding import WARN, Finding
 
 # tool -> (companion it cannot work without, why)
 COMPANION_TOOLS: dict[str, tuple[str, str]] = {

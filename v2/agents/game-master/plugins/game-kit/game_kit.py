@@ -1,16 +1,21 @@
 """game-kit — the Game Master agent's OWN tools (agent-private plugin).
 
-Ships INSIDE agents/game-master/plugins/ and travels with the agent in its .agentpkg. Two tools,
-deliberately one of each kind so the sandbox seam can be exercised end-to-end:
+Ships INSIDE agents/game-master/plugins/ and travels with the agent in its .agentpkg. THREE tools,
+deliberately one of each kind, so this one small agent exercises every capability path an
+untrusted plugin can take:
 
-  * ``roll_dice``     — a NORMAL tool: pure computation, no LLM, no network, no secrets. Parses
-                        RPG dice notation ("2d6", "1d20+3", "d20") and returns the rolls + total.
-  * ``narrate_scene`` — a MODEL-BEARING tool: ``needs_model = True``. It resolves its text model the
-                        uniform way (``resolve_model`` → inherits the brain when unset) and makes a
-                        single ``text_complete`` call to turn a bare setup into vivid prose.
+  * ``roll_dice``      — PURE: computation only, no LLM, no network, no secrets. Parses RPG dice
+                         notation ("2d6", "1d20+3", "d20") and returns the rolls + total.
+  * ``narrate_scene``  — MODEL: ``needs_model = True``. Resolves its text model the uniform way
+                         and makes one ``text_complete`` call. Sandboxed, that call is served by
+                         the HOST (model_broker) — the child holds no key and no socket.
+  * ``lookup_monster`` — NETWORK: one ``fetch`` to the host-brokered outbound seam, against the
+                         host its plugin.toml declares in ``[sandbox] net``. No credential, on
+                         purpose: an open API keeps this runnable by anyone with no signup, and
+                         the ``${SECRET}`` path has its own tests.
 
-Both are agent-private, so with ``AGENTD_SANDBOX_PLUGINS=1`` they run behind the PluginSandbox
-(today: in-process passthrough) while the shared/built-in tools keep running in-process directly.
+Nothing here changes between sandboxed and not — that is the point of both brokers. Install this
+agent from a package and all three keep working; the only difference is who makes the call.
 """
 
 from __future__ import annotations
@@ -140,6 +145,73 @@ class NarrateSceneTool(Tool):
         return ToolResult.text(narration, details={"model": model, "setup": setup, "tone": tone})
 
 
+# ── lookup_monster ─────────────────────────────────────────────────────────────────────────────
+# The NETWORK path. A sandboxed plugin never opens a socket: it calls `fetch`, which resolves to a
+# shim that asks the host, and the host checks the URL against the hosts this plugin declared in
+# plugin.toml. Unsandboxed the very same call goes direct — one code path, both worlds, which is
+# the only reason an author will actually write it this way.
+_API = "https://www.dnd5eapi.co/api/2014/monsters"
+
+
+class LookupMonsterTool(Tool):
+    name = "lookup_monster"
+    plugin = "game-kit"
+    label = "Look up monster"
+    concurrency = "parallel"
+    default_retryable = True  # read-only GET
+    description = (
+        "Look up a D&D 5e monster's stat block by name (e.g. 'owlbear', 'goblin', 'adult red "
+        "dragon') and return its size, type, AC, HP, speed and challenge rating. Reads a public "
+        "reference API — no account and no key."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+            "name": {"type": "string", "description": "monster name, e.g. 'owlbear'"},
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        raw = str(params.get("name") or "").strip().lower()
+        if not raw:
+            return ToolResult.text("lookup_monster needs a 'name'", is_error=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+
+        from agent_runtime.infrastructure.net.outbound import fetch
+
+        # to_thread because fetch is synchronous by contract (sandboxed it blocks on the host's
+        # answer), and blocking the event loop would stall this run's streaming.
+        res = await asyncio.to_thread(fetch, f"{_API}/{slug}")
+        if res.error:
+            # The host's refusals arrive here too ("host X is not one this plugin may reach"),
+            # which is exactly what an author needs to see rather than a silent empty result.
+            return ToolResult.text(f"lookup failed: {res.error}", is_error=True)
+        if res.status == 404:
+            return ToolResult.text(f"no monster called '{raw}' in the 5e reference.", is_error=True)
+        if not res.ok:
+            return ToolResult.text(f"lookup failed (HTTP {res.status})", is_error=True)
+        try:
+            m = res.json()
+        except ValueError:
+            return ToolResult.text("the reference API returned something that is not JSON", is_error=True)
+
+        speed = ", ".join(f"{k} {v}" for k, v in (m.get("speed") or {}).items())
+        lines = [
+            f"{m.get('name', raw)} — {m.get('size', '?')} {m.get('type', '?')}, "
+            f"{m.get('alignment', 'unaligned')}",
+            f"AC {m.get('armor_class', [{}])[0].get('value', '?') if isinstance(m.get('armor_class'), list) else m.get('armor_class', '?')}"
+            f"  ·  HP {m.get('hit_points', '?')} ({m.get('hit_dice', '?')})"
+            f"  ·  CR {m.get('challenge_rating', '?')}",
+            f"Speed: {speed or 'unknown'}",
+        ]
+        return ToolResult.text(
+            "\n".join(lines),
+            details={"slug": slug, "cr": m.get("challenge_rating"), "source": "dnd5eapi.co"},
+        )
+
+
 def register(api, ctx):
     api.register_tool(RollDiceTool(ctx.config))
     api.register_tool(NarrateSceneTool(ctx.config))
+    api.register_tool(LookupMonsterTool())

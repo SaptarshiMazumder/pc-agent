@@ -268,24 +268,59 @@ sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
 |         |                                                            |
 | ------- | ---------------------------------------------------------- |
 | files   | the run's workspace only                                   |
-| network | **none**                                                   |
+| network | no socket — outbound goes **through the host**, to declared hosts only |
 | secrets | **`{}` — always.** It never sees a provider key.           |
 | models  | only if the tool declares `needs_model = True` — see below |
 
-So the question to ask while writing a private plugin is _"will this still work after someone
-downloads it?"_:
+The rule that follows: **a private plugin never opens a socket and never reads a key.** It asks
+the host to do both. `import requests` and `os.environ[...]` work perfectly for the author and are
+dead for every buyer — so `create_tool` refuses to write either into an agent-scoped tool. That is
+not style; it is the difference between a tool that ships and one that is dead on arrival.
 
-- **Do not read API keys from the environment.** Take the value as a tool _parameter_, or use a
-  shared tool that already owns that capability. A plugin that reads `os.environ` works
-  perfectly for its author and silently reads nothing for every user — the worst failure shape.
-- **Do not assume network access.**
-- If it genuinely needs either, the person installing it can vouch for the agent:
-  `sandbox_trusted_agents = ["<agent-id>"]` in their config. Never suggest that for code the
-  user did not author.
+### Calling an external API from a private tool
 
-`create_tool` **refuses** to write an agent-scoped tool that does either. That is not a style
-preference it is enforcing — it is the difference between a tool that ships and one that is dead
-on arrival.
+Declare the hosts and the credential NAMES in the plugin's own `plugin.toml`:
+
+```toml
+[sandbox]
+net     = ["api.acme.com"]     # or "*.acme.com" for subdomains
+secrets = ["ACME_API_KEY"]     # names only — the value never reaches the plugin
+```
+
+Then call it:
+
+```python
+from agent_runtime.infrastructure.net.outbound import fetch
+
+res = fetch(
+    "https://api.acme.com/v1/things",
+    headers={"Authorization": "Bearer ${ACME_API_KEY}"},
+)
+if not res.ok:
+    return ToolResult.text(f"acme failed ({res.status}): {res.error or res.text}", is_error=True)
+data = res.json()
+```
+
+`${ACME_API_KEY}` is a **placeholder, not a value**. The host substitutes it at the last moment
+and makes the request itself, so the plugin cannot read the key, keep it, or send it anywhere it
+did not declare. Unsandboxed the same call runs directly and reads the name from the environment —
+one code path, both worlds.
+
+`[sandbox]` is **not** `[requires]`. `[requires]` is a gate: _skip this plugin unless present_.
+`[sandbox]` is a request: _when you box me in, leave these open_.
+
+Three things to tell the user when you write one:
+
+- The declaration is **public**. Anyone can read which hosts the agent contacts before installing
+  it — write the narrowest list that works, never a wildcard you do not need.
+- **Where the key comes from**: the daemon's environment, or the agent's own settings page writing
+  `plugins.<plugin-id>.secrets.<NAME>`. That is how BYOK works inside a shipped agent.
+- An operator can narrow the list further (`sandbox_net_allow` / `sandbox_net_deny`) and can never
+  widen it. A host that is missing at runtime produces a refusal naming it, not silence.
+
+If a plugin genuinely needs more than this, the person installing it can vouch for the whole agent
+with `sandbox_trusted_agents = ["<agent-id>"]`. Never suggest that for code the user did not
+author.
 
 ### Calling a model from a private tool
 

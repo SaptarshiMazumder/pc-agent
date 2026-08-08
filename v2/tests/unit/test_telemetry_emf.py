@@ -16,7 +16,6 @@ import importlib
 import json
 
 import pytest
-
 from agentd_telemetry import emf
 
 

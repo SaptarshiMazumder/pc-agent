@@ -131,6 +131,12 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
                     # subprocess backend has no recipe and (correctly) refuses to run the tool.
                     ("_plugin_entry", m.entry),
                     ("_plugin_root", str(m.root) if m.root is not None else ""),
+                    # What the plugin DECLARED it needs while sandboxed ([sandbox] in its toml).
+                    # Carried on the tool because the capability resolver is handed a tool, not a
+                    # manifest — the same reason _plugin_entry rides here. A declaration is a
+                    # CEILING: the resolver narrows it by operator config and never widens it.
+                    ("_sandbox_net", tuple(m.sandbox.get("net") or ())),
+                    ("_sandbox_secrets", tuple(m.sandbox.get("secrets") or ())),
                 ):
                     try:
                         setattr(t, attr, val)
