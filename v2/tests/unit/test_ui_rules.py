@@ -136,3 +136,79 @@ def test_an_app_tier_rpc_is_fine():
     await client.request('config.get')
     """
     assert not check(js)
+
+
+# --- hosted sign-in ---------------------------------------------------------
+# An app agent with no login works fine on the author's machine and is UNUSABLE on a hosted
+# install: every model call fails with a provider error and nothing on screen explains why. That
+# shipped, and the only reason it was found is that someone tried to sign in and could not.
+#
+# The scaffolded template already awaits the gate, so this rule exists for the agents that did not
+# come from it — and, as always here, for staying quiet on the ones that are fine.
+
+APP = {"app": {"width": 1100}}
+SDK = "ui/vendor/agentd-client.js"
+
+
+def sign_in(js: str, vendored: str = "function mountSignInGate(){}"):
+    sources = {"ui/app.js": js}
+    if vendored is not None:
+        sources[SDK] = vendored
+    return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
+
+
+def test_an_app_agent_with_no_sign_in_is_flagged():
+    found = sign_in("const client = agentd.fromPage()")
+    assert "UI_NO_SIGN_IN" in found
+    assert found["UI_NO_SIGN_IN"].level == "warn", "it works locally — broken only once hosted"
+    assert "mountSignInGate" in found["UI_NO_SIGN_IN"].fix
+
+
+def test_calling_the_gate_is_clean():
+    assert "UI_NO_SIGN_IN" not in sign_in("await agentd.mountSignInGate()")
+
+
+def test_using_the_mechanism_directly_is_also_clean():
+    """figure-creator drives its own sign-in surface with resolveAuth/signIn instead of the modal.
+    That is a legitimate choice, and forcing the drop-in gate on it would be the rule dictating
+    design rather than catching a defect."""
+    js = """
+    const auth = await agentd.resolveAuth()
+    if (auth.needsSignIn) await agentd.signIn({ email, password })
+    """
+    assert "UI_NO_SIGN_IN" not in sign_in(js)
+
+
+def test_a_gate_call_against_an_SDK_without_it_is_an_error():
+    """The drift case: app.js was updated, ui/vendor/agentd-client.js was not. Guaranteed
+    'agentd.mountSignInGate is not a function' on load — a dead window, every launch."""
+    found = sign_in("await agentd.mountSignInGate()", vendored="function fromPage(){}")
+    assert found["UI_SDK_PREDATES_SIGN_IN"].level == "error"
+    assert "re-vendor" in found["UI_SDK_PREDATES_SIGN_IN"].fix
+
+
+def test_no_vendored_sdk_present_is_not_an_error():
+    """An agent may load the SDK from somewhere else. Absence is unknown, not wrong."""
+    found = sign_in("await agentd.mountSignInGate()", vendored=None)
+    assert not found
+
+
+def test_an_agent_with_no_app_window_is_never_asked_to_sign_in():
+    """No [app] table means no page exists to put a gate on."""
+    sources = {"ui/app.js": "const client = agentd.fromPage()"}
+    assert not RULES.check(None, {}, list(sources), sources)
+
+
+def test_an_agent_with_no_ui_code_is_not_flagged():
+    """Not scaffolded yet. Warning here would fire on every agent before its UI exists."""
+    assert not RULES.check(None, APP, [], {})
+
+
+def test_a_commented_out_gate_does_not_count():
+    """The cry-wolf inverse: prose ABOUT the gate must not satisfy the rule, or a file that only
+    mentions it in a comment would pass while shipping no login at all."""
+    js = """
+    // await agentd.mountSignInGate()   <- add this
+    const client = agentd.fromPage()
+    """
+    assert "UI_NO_SIGN_IN" in sign_in(js)

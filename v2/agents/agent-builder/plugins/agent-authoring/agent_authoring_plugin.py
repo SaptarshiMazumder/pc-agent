@@ -122,6 +122,13 @@ def register(api, ctx):
         )
     )
 
+    # Publishing is the same artifact going one step further — to the registry other people
+    # install from. It reuses the CLI's publisher (guards and all) rather than owning a second
+    # one, gates on the SAME validator instance, and previews unless told twice to upload.
+    from agent_authoring.presentation.publish_agent_tool import PublishAgentTool
+
+    api.register_tool(PublishAgentTool(ctx.config, registry, validator))
+
     # --- ACTIVATE -------------------------------------------------------------------
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
     # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
