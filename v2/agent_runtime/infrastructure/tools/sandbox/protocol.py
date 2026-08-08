@@ -101,12 +101,20 @@ def grant_payload(grant: CapabilityGrant) -> dict:
     }
 
 
-def ctx_payload(ctx) -> dict:
+def ctx_payload(ctx, plugin_id: str = "") -> dict:
     """The run's identity, carried explicitly — contextvars do not survive a process boundary, so
-    without this the child's work would show up in the logs as an orphan."""
+    without this the child's work would show up in the logs as an orphan.
+
+    ``plugins`` rides along for the same reason and matters more than it looks: it is the agent's
+    own per-tool overrides (agent.toml ``[plugins.*]``), which ``resolve_tool_model`` layers ABOVE
+    global config. Drop it and the child re-resolves without that layer and silently lands a step
+    further down the chain — on the house brain model instead of the one the agent asked for. It is
+    narrowed to the calling plugin on the same principle as ``config_projection``: a plugin's
+    settings are its own business.
+    """
     if ctx is None:
         return {}
-    return {
+    payload = {
         "agent_id": getattr(ctx, "agent_id", ""),
         "session_key": getattr(ctx, "session_key", ""),
         "mode": getattr(ctx, "mode", ""),
@@ -114,6 +122,15 @@ def ctx_payload(ctx) -> dict:
         "run_id": getattr(ctx, "run_id", ""),
         "turn_id": getattr(ctx, "turn_id", ""),
     }
+    own = (getattr(ctx, "plugins", None) or {}).get(plugin_id)
+    if isinstance(own, dict):
+        try:
+            json.dumps(own)
+        except (TypeError, ValueError):
+            own = None  # not transportable => not projected, same rule as config_projection
+        if own is not None:
+            payload["plugins"] = {plugin_id: own}
+    return payload
 
 
 def result_payload(result: ToolResult, kind: str = "result") -> dict:

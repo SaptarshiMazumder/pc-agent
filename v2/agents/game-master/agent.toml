@@ -10,3 +10,15 @@ version = "0.1.0"
 # report_outcome is the one shared tool a scheduled run uses to declare done/blocked/failed.
 [tools]
 allow = ["report_outcome"]
+
+# The AGENT AUTHOR's say over which model its own tool calls. narrate_scene declares
+# default_model = "" (inherit the brain), and the brain is whatever the operator configured —
+# so without this line the narration rides on the house model and the house's spend caps.
+# This is the right home for the choice: the model belongs to how THIS agent uses the tool,
+# not to the tool's identity (plugin.toml), and not to the whole machine (agentd.config.json).
+# resolve_tool_model layers it ABOVE global config, so it wins without touching anything global.
+#
+# The sandbox follows automatically: CapabilityGrant.models is derived from this same chain, so
+# the child is granted exactly what it will ask for — no separate allowlist to keep in sync.
+[plugins.game-kit.tools.narrate_scene]
+model = "deepseek/deepseek-v4-pro"
