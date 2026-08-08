@@ -35,7 +35,44 @@ BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX = (
     "revised final answer. Do not repeat completed work or rerun tools unless the request "
     "explicitly requires it."
 )
-INCOMPLETE_TURN_FALLBACK_TEXT = "⚠️ Agent couldn't generate a response. Please try again."
+INCOMPLETE_TURN_FALLBACK_TEXT = "⚠️ Agent couldn't generate a response."
+
+# What each failure mode MEANS, in the words a user can act on. "Please try again" was the
+# entire message here once, which is advice to repeat something that will fail identically —
+# a dead API key looked like flakiness for days because of it.
+_EMPTY_RUN_CAUSE = {
+    "reasoning_only": (
+        "The model kept returning its reasoning without ever producing an answer or calling "
+        "a tool. This usually means the model is too small for the size of this request."
+    ),
+    "planning_only": (
+        "The model described a plan but never carried it out, on every attempt."
+    ),
+    "empty_response": ("The model returned an entirely empty response on every attempt."),
+}
+
+
+def describe_empty_run(kind: str | None, served_by: tuple[str, str] | None) -> str:
+    """One honest paragraph about why a run ended with nothing to show.
+
+    ``kind`` is the last incomplete-turn classification; ``served_by`` is ``(from, to)`` when
+    model failover put a different model in charge. The pair is what makes the failure
+    diagnosable: "reasoning only" alone reads as a model quirk, but "reasoning only, and your
+    configured model was swapped out because it errored" names the actual thing to fix.
+    """
+    parts = []
+    if kind:
+        parts.append(_EMPTY_RUN_CAUSE.get(kind, f"The run ended incomplete ({kind})."))
+    if served_by:
+        origin, took_over = served_by
+        parts.append(
+            f"Note: `{origin}` could not serve this request, so `{took_over}` answered instead. "
+            f"Fix `{origin}` — the fallback is not equivalent."
+        )
+    if not parts:
+        return ""
+    parts.append("Re-sending the same message will most likely fail the same way.")
+    return " ".join(parts)
 
 # --- Verbatim limits ---------------------------------------------------------
 
@@ -259,6 +296,29 @@ def _planning_only_guards_pass(ctx: PlanningContext | None) -> bool:
     if ctx.user_prompt and not is_likely_actionable_user_prompt(ctx.user_prompt):
         return False
     return True
+
+
+def is_injected_prompt(text: str) -> bool:
+    """Was this 'user' message written by the RUNTIME rather than the user?
+
+    Retry nudges and liveness steering are persisted as UserMessages — that is how the model
+    receives them. The cost is that they then look like things the user said, and the
+    planning-only guard decides whether to nudge by reading the last user message. So one
+    nudge made the next one look unwarranted, and the recovery layer switched itself off for
+    the rest of the session. (A real transcript had five of them stacked up, and had not been
+    able to nudge since the first.)
+
+    Matched against the instruction constants themselves, not copies, so editing one keeps
+    this correct — and so transcripts ALREADY on disk are recognised without a migration.
+    """
+    s = (text or "").strip()
+    if not s:
+        return False
+    if s.startswith("[liveness]"):  # steering from a liveness observer
+        return True
+    if s.startswith(BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX):
+        return True
+    return any(s == instruction.strip() for instruction in RETRY_INSTRUCTIONS.values())
 
 
 def classify_incomplete_turn(m: AssistantMessage, ctx: PlanningContext | None = None) -> str | None:

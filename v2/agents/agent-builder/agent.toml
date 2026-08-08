@@ -1,0 +1,53 @@
+# Agent Builder — the agent that builds agents.
+#
+# Ships with every install (staged into the wheel by scripts/hatch_build.py, seeded to
+# ~/.agentd/agents/ on first run). It OWNS the build-agent skill: that folder moved here out
+# of agents/main/skills/, which is the shared library every agent reads — so authoring an
+# agent is now this agent's job alone, not something JARVIS does on the side.
+
+name = "Agent Builder"
+version = "1.0.0"
+description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
+tagline = "build · validate · ship agents"
+color = "#5B4FCF"
+# Starter prompts on an empty chat. NEVER name a specific agent: these are clickable, and on a
+# machine that has never had that agent the click asks to work on something that does not
+# exist. Keep them about what the user wants DONE, not about which agent does it.
+suggestions = [
+  "Build me an agent that tracks my gym sets",
+  "Give one of my agents its own app window",
+  "Validate every agent I have",
+]
+
+# Its own window: a workbench over every agent on the machine — validate one, package one.
+# `public = false` is not a default being restated; it is the point. This surface can author
+# and package agents, so it must never admit a tokenless visitor on a hosted daemon.
+[app]
+title = "Agent Builder"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+# The SHARED tools this agent may reach.
+#
+# This list once read "no shell, no browser, no web: building an agent is a filesystem job",
+# which optimised for least privilege and removed the two abilities that most separate good
+# agent output from bad — PLANNING and VERIFYING. An agent that cannot run what it wrote
+# cannot discover that it was wrong, so it shipped a UI whose every event branch was dead.
+#   update_plan   keep a live checklist while building (the user watches it tick over)
+#   exec          RUN what was written: node --check on generated JS, import a new plugin
+#   verify_answer self-review before declaring done — it catches, in its own words, "an
+#                 answer that only promises instead of delivering"
+#
+# `exec` is not a new risk class here: this agent already has unsandboxed `write` (any path)
+# and `create_tool`, which writes Python AND hot-loads it into the running process. It could
+# always execute arbitrary code — it just could not check its own work first.
+#
+# Its OWN tools (create_agent, create_tool, validate_agent, reload_agent, package_agent —
+# from plugins/agent-authoring/ below) are deliberately absent: an agent's private tools are
+# IMPLICITLY allowed and never need naming here. That is also why `main` cannot call them.
+[tools]
+allow = [
+  "read", "write", "edit", "ls", "find", "skill_workshop",
+  "update_plan", "exec", "verify_answer",
+]

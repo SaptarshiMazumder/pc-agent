@@ -1,0 +1,18 @@
+name = "Inbox Triage"
+version = "1.0.0"
+description = "Watches your inbox and tells you what needs a reply every morning."
+heartbeat = "10m"
+tagline = "Your morning inbox review"
+color = "#D32F2F"
+
+[app]
+title = "Inbox Triage"
+mode = "window"
+entry = "ui/index.html"
+
+[tools]
+allow = ["read", "write", "exec", "report_outcome", "browser"]
+
+[capabilities]
+autonomy = true
+notify = true

@@ -99,13 +99,20 @@ def build_service(
     memory_bank=None,
     credential_store=None,
     connect_token_store=None,
+    late: dict | None = None,
 ) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
 
     `registry` (the agent registry) and `task_store` (the cron ledger) are injected so
     the gateway and service share them; if omitted, a file-backed registry is built
     here (single-agent / tests) and there is no task ledger. `memory_bank` is the durable
-    long-term memory (None unless memory is enabled)."""
+    long-term memory (None unless memory is enabled).
+
+    `late` is the LATE-BINDING dict shared with the caller: things built AFTER plugin
+    discovery (the AgentService itself, and the Gateway — which `build_gateway` only has
+    once this returns) are stashed there, so the thunks handed to plugins can resolve them
+    at call time. Owned by the caller rather than module-level state: two containers in one
+    process (tests do this) must not share one."""
     from agent_runtime.infrastructure.resources import build_resource_manager
     from agent_runtime.infrastructure.tools.guard import GuardedTool, resolve_policy
 
@@ -144,7 +151,7 @@ def build_service(
     # the AgentService once it exists (it's built below). `register_plugin_live` re-scans, loads
     # only NEW plugins, and merges their tools+sections into the LIVE catalog (create_tool uses it).
     loaded_plugin_ids: set = set()
-    _late: dict = {}
+    _late: dict = late if late is not None else {}
 
     # PLUGIN-SANDBOX seam: the UNTRUSTED tool tier (agents/<id>/plugins/ — tools that ship inside a
     # marketplace agent's package) runs behind a PluginSandbox instead of in-process. Dormant unless
@@ -160,6 +167,16 @@ def build_service(
 
     plugin_sandbox = build_plugin_sandbox(config)
     capability_resolver = DefaultCapabilityResolver(config=config)
+
+    # The sandbox's UNTRUSTED SET, resolved here because the composition root owns the
+    # marketplace store: an agent is untrusted iff the installer's ledger says it arrived in a
+    # .agentpkg. Read fresh on every call — an install lands in the ledger and _agent_private_tools
+    # is recomputed right after, so a downloaded agent is sandboxed without a restart.
+    from pathlib import Path
+
+    from agent_runtime.infrastructure.marketplace.installed_store import JsonInstalledStore
+
+    installed_store = JsonInstalledStore(Path(config.state_dir) / "installed_bundles.json")
 
     def _wrap(raw_tools: list) -> list:
         out = []
@@ -183,9 +200,10 @@ def build_service(
     def _agent_private_tools() -> dict:
         """Discover + sandbox/gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
         WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
-        idempotent — the service replaces its map instead of appending. This tier is UNTRUSTED, so
-        it is routed through the plugin sandbox FIRST (a no-op passthrough unless enabled), then
-        guarded — giving Guard(Sandbox(inner))."""
+        idempotent — the service replaces its map instead of appending. Tools from an INSTALLED
+        agent are untrusted, so they are routed through the plugin sandbox FIRST (a no-op
+        passthrough unless enabled), then guarded — giving Guard(Sandbox(inner))."""
+        installed = installed_store.installed_ids()  # None => unreadable ledger => fail closed
         return {
             aid: _gate_and_wrap(
                 wrap_untrusted(
@@ -193,6 +211,7 @@ def build_service(
                     sandbox=plugin_sandbox,
                     resolver=capability_resolver,
                     config=config,
+                    installed_agent_ids=installed,
                 )
             )
             for aid, tlist in discover_agent_plugins(
@@ -221,6 +240,14 @@ def build_service(
             "sections": len(new_sections),
         }
 
+    def broadcast_agents_changed() -> None:
+        """Fan `agents.changed` out to every client. A THUNK because plugins are discovered
+        before the Gateway is constructed — it resolves through _late at call time, exactly
+        like register_plugin_live resolves the service. No-op until the gateway exists."""
+        gateway = _late.get("gateway")
+        if gateway is not None:
+            gateway.broadcast_agents_changed()
+
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     plugin_deps = {
@@ -233,6 +260,7 @@ def build_service(
         "connect_token_store": connect_token_store,
         "registry": registry,
         "register_plugin_live": register_plugin_live,
+        "broadcast_agents_changed": broadcast_agents_changed,
     }
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
@@ -368,7 +396,7 @@ def build_service(
         return build_system_prompt(
             config,
             tools,
-            agent.model or config.model,
+            _prompt_model(agent),
             config.reasoning_effort,
             skills=skills,
             agent=agent,
@@ -443,6 +471,42 @@ def build_service(
             return _acct_workspace(agent)
         return str(projects_store.project_workspace_dir(proot, pid))
 
+    def _run_models(agent):
+        """``(model, model_router)`` for one run of ``agent``, after its own config block has
+        been layered over the daemon's (domain/agent_config.resolve).
+
+        Read HERE, per run, not captured at boot — which is the whole point. ``config`` is the
+        live object the gateway setattr()s on Save, so changing a model in Settings takes effect
+        on the very next message. The engine's boot-time router is left in place as the default
+        for callers that pass none, but every agent run now brings its own.
+
+        The pair is deliberate: a router overwrites the model on every turn, so an agent's model
+        without an agent's router is the exact bug this replaces."""
+        from agent_runtime.domain.agent_config import resolve
+        from agent_runtime.infrastructure.llm.model_router import router_for
+
+        values, _ = resolve(config, agent.id)
+        # agent.toml's `model` still wins over the config layer: it is part of the agent's
+        # DEFINITION ("this agent needs a vision model to work at all"), while the config block
+        # is the user's preference for it. A definition that names a model is not a default.
+        return agent.model or values.get("model"), router_for(values.get("cost_efficiency"))
+
+    def _prompt_model(agent):
+        """What to TELL the agent it is — the prompt line "If asked what model you are, answer
+        with this value."
+
+        It has to come from the SAME resolution the run uses. It did not: the prompt said
+        `agent.model or config.model` while a router quietly answered on something else, so
+        "what model are you?" returned a confident wrong answer — which is most of how a silent
+        model swap stayed invisible in the first place.
+
+        With a router active the answer varies by turn, and a prompt is built once. This names
+        the model that answers an ORDINARY turn, which is the turn the question is asked on and
+        the overwhelming majority of them; an image turn can still escalate to the vision model
+        without the prompt changing."""
+        model, router = _run_models(agent)
+        return router(model, []) if router else model
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -457,6 +521,7 @@ def build_service(
         # hot-reload seam, now also driven by marketplace installs (gateway after_change)
         plugin_reloader=register_plugin_live,
         resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
+        resolve_models=_run_models,  # this agent's own model + router, layered over the daemon's
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
     )
@@ -529,6 +594,9 @@ def build_gateway(config: Config) -> Gateway:
 
     credential_store = build_credential_store(config)
     connect_token_store = ConnectTokenStore() if credential_store is not None else None
+    # The late-binding dict is OURS: build_service stashes the AgentService in it, and we add
+    # the Gateway below — both exist only after plugin discovery has already handed thunks out.
+    late: dict = {}
     service = build_service(
         config,
         browser_manager,
@@ -538,11 +606,12 @@ def build_gateway(config: Config) -> Gateway:
         memory_bank=memory_bank,
         credential_store=credential_store,
         connect_token_store=connect_token_store,
+        late=late,
     )
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
 
-    return Gateway(
+    gateway = Gateway(
         config=config,
         service=service,
         browser_manager=browser_manager,
@@ -557,3 +626,9 @@ def build_gateway(config: Config) -> Gateway:
             config
         ),  # egress privacy gate (None unless enabled)
     )
+    # LATE-BIND the roster broadcast (same pattern as late["service"] inside build_service):
+    # plugins are discovered long before the Gateway exists, so the handle passed to them is a
+    # thunk that resolves once it does. A plugin that changes the agent roster (agent-builder's
+    # reload_agent) uses this to refresh every client's sidebar.
+    late["gateway"] = gateway
+    return gateway

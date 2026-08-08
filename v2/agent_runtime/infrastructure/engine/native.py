@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import time
 import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -42,12 +43,14 @@ from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, v
 
 from .incomplete_turn import (
     INCOMPLETE_TURN_FALLBACK_TEXT,
+    describe_empty_run,
     MAX_BEFORE_AGENT_FINALIZE_REVISIONS,
     RETRY_INSTRUCTIONS,
     RETRY_LIMITS,
     PlanningContext,
     build_before_finalize_retry_prompt,
     classify_incomplete_turn,
+    is_injected_prompt,
     resolve_max_run_loop_iterations,
 )
 
@@ -136,9 +139,26 @@ async def run_agent_loop(
     retry_counts = {k: 0 for k in RETRY_LIMITS}
     finalize_revisions = 0
     produced_visible_text = False
-    # the user's triggering request, captured BEFORE any steering/retry injection — used to
-    # gate the planning-only nudge (OpenClaw: only fire it when the user asked the agent to act).
-    user_prompt = next((mm.content for mm in reversed(messages) if isinstance(mm, UserMessage)), "")
+    # Why a run ended empty, and who was actually answering when it did. Carried to the end
+    # so the closing message can NAME the failure instead of apologising for it.
+    incomplete_kind: str | None = None
+    served_by: tuple[str, str] | None = None  # (from, to) when failover took over
+    # The user's triggering request — used to gate the planning-only nudge (OpenClaw: only fire
+    # it when the user asked the agent to ACT).
+    #
+    # Injected messages are SKIPPED. Retry nudges and liveness steering are persisted as
+    # UserMessages (that is how the model receives them), so on the next run the newest "user
+    # message" is the runtime's own last nudge — which does not read as a request to act. The
+    # guard then refused to nudge, meaning the recovery layer disabled itself permanently after
+    # its first use. Reading past them restores the real question: what did the HUMAN ask for?
+    user_prompt = next(
+        (
+            mm.content
+            for mm in reversed(messages)
+            if isinstance(mm, UserMessage) and not is_injected_prompt(mm.content)
+        ),
+        "",
+    )
 
     # --- decoupled liveness seam (default off => unchanged behavior) ---
     observers = observers or []
@@ -238,6 +258,24 @@ async def run_agent_loop(
                             {"kind": "toolcall", "toolCall": ev.get("toolCall")},
                         )
                     )
+                elif kind == "fallback":
+                    # The configured model could not serve this turn and another one took
+                    # over (infrastructure/llm/failover.py). Surfaced as a first-class event
+                    # so every client can say so — the run is fine, but the user is no longer
+                    # talking to the model they chose, and that is not a log-file fact.
+                    # (failover.py already logged this with the provider's own error text —
+                    # what is missing is telling the USER, which is what the event does.)
+                    served_by = (ev.get("from", ""), ev.get("to", ""))
+                    await on_event(
+                        AgentEvent(
+                            "model_fallback",
+                            {
+                                "from": ev.get("from", ""),
+                                "to": ev.get("to", ""),
+                                "reason": ev.get("reason", ""),
+                            },
+                        )
+                    )
                 elif kind == "done":
                     assistant = ev["message"]
 
@@ -265,7 +303,14 @@ async def run_agent_loop(
                         "model_trace",
                         {
                             "step": iterations,
-                            "model": active_model,
+                            # WHO ANSWERED, not who we asked. These differ whenever failover
+                            # fired, and reporting only the request made a dead primary look
+                            # like it was serving every turn — the trace said 'openai/gpt-5'
+                            # while gemini-2.5-flash was actually producing the (empty) replies.
+                            "model": getattr(assistant, "model", "") or active_model,
+                            # kept alongside, because the GAP between the two is the signal:
+                            # requested != model means a fallback is carrying the run.
+                            "requestedModel": active_model,
                             "tokensIn": int(u.get("input") or 0),
                             "tokensOut": int(u.get("output") or 0),
                             # cache-read subset of tokensIn; tokensCached/tokensIn = cache hit rate
@@ -323,6 +368,11 @@ async def run_agent_loop(
                     execution_contract=execution_contract,
                 ),
             )
+            if kind is not None:
+                # remember WHY, even on the attempt that exhausts the budget — this is the
+                # only place the run knows what went wrong, and without it the ending is a
+                # shrug ("couldn't generate a response") instead of a diagnosis.
+                incomplete_kind = kind
             if kind is not None and retry_counts[kind] < RETRY_LIMITS[kind]:
                 retry_counts[kind] += 1
                 await on_event(
@@ -373,13 +423,38 @@ async def run_agent_loop(
     # were cut off. `run_duration_ms` in the gateway already covers the aborted case.
     telemetry.timing("model_time_ms", _model_time_ms, source="stream")
 
-    # Fallback text when a run produced no user-visible answer at all.
+    # A run that produced NO user-visible answer. Say what actually happened: "couldn't
+    # generate a response, please try again" is advice to repeat something that will fail the
+    # same way, and it hid a dead API key behind days of retrying. The two facts that explain
+    # essentially every empty run are WHICH failure mode repeated (the retry classifier
+    # already knows) and WHETHER a fallback model was carrying the run.
     if not produced_visible_text and stop_reason not in ("aborted",):
+        # ONLY replace the generic "stop". `error`, `length` and friends already say
+        # something specific and truer — overwriting them with `no_output` would be trading a
+        # precise cause for a vague symptom, which is the whole failure this change exists to
+        # undo. `stop` is the only value that actively claims success it did not achieve.
+        if stop_reason == "stop":
+            stop_reason = "no_output"
+        detail = describe_empty_run(incomplete_kind, served_by)
+        persist_text = f"{INCOMPLETE_TURN_FALLBACK_TEXT}\n\n{detail}" if detail else (
+            INCOMPLETE_TURN_FALLBACK_TEXT
+        )
         fallback = AssistantMessage(
-            content=[TextContent(text=INCOMPLETE_TURN_FALLBACK_TEXT)], stop_reason=stop_reason
+            content=[TextContent(text=persist_text)], stop_reason=stop_reason
         )
         persist(fallback)
+        # STREAM it, then end it. Clients build the transcript from `text_delta`; `message_end`
+        # only closes the streaming state (see clients/ui store.ts). A message announced solely
+        # via message_end is therefore persisted, logged — and invisible, which is exactly the
+        # silence this whole change exists to remove. Emitting it the way a real answer arrives
+        # makes every client render it with no client-side change at all.
+        await on_event(
+            AgentEvent("message_update", {"kind": "text_delta", "delta": persist_text})
+        )
         await on_event(AgentEvent("message_end", {"message": message_to_dict(fallback)}))
+        logging.getLogger("agentd").warning(
+            "run produced no visible output — %s", detail or "no diagnosis available"
+        )
 
     end_payload = {"stopReason": stop_reason}
     if error_text:
@@ -556,8 +631,27 @@ class NativeEngine:
         self._model_trace = model_trace  # emit per-step model_trace events (default off)
 
     async def run(
-        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+        self,
+        *,
+        messages,
+        system_prompt,
+        tools,
+        on_event,
+        abort,
+        session=None,
+        model=None,
+        model_router=None,
     ):
+        """``model_router`` is the per-agent counterpart of ``model``, and it exists because
+        without it ``model`` did not actually work.
+
+        The router OVERWRITES the model on every turn (see run_agent_loop). While it was built
+        once at boot from the daemon's config and held here, an agent that named its own model
+        had that choice silently discarded the moment cost-efficiency was on anywhere. Passing
+        the agent's own router alongside its own model is what makes the pair coherent.
+
+        Both fall back to the engine's defaults, so a caller that passes neither — a sub-agent
+        run, a tool driving the engine directly — behaves exactly as before."""
         return await run_agent_loop(
             messages=messages,
             system_prompt=system_prompt,
@@ -571,6 +665,6 @@ class NativeEngine:
             observers=self._observers,
             context_policy=self._context_policy,
             execution_contract=self._execution_contract,
-            model_router=self._model_router,
+            model_router=model_router or self._model_router,
             model_trace=self._model_trace,
         )

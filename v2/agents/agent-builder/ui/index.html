@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Builder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+  <div class="shell">
+    <!-- ══════════════════ LEFT: rail ══════════════════ -->
+    <aside class="rail glass" id="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <span class="mark">◈</span>
+          <span class="brand-name">Agent Builder</span>
+        </div>
+        <button class="icon-btn" id="railToggle" title="Collapse sidebar">‹</button>
+      </div>
+
+      <!-- ONE button for starting a conversation, and it lives here. It is "New chat", not
+           "New agent", because the screen it opens offers BOTH paths — work on an existing
+           agent, or describe a new one. There used to be a second copy of this in the topbar
+           under the other name; two names for one action is what made the chrome unreadable. -->
+      <button class="new-btn" id="newChat">
+        <span class="plus">+</span> New chat
+      </button>
+
+      <!-- ONE place to switch views. The topbar carried a duplicate settings gear, justified
+           by "the rail folds on a small window" — but it folds to a 62px icon strip, so this
+           stays clickable and the duplicate was guarding nothing. -->
+      <nav class="rail-nav">
+        <button class="nav-item active" data-view="build"><span class="ico">✦</span>Build</button>
+        <button class="nav-item" data-view="settings"><span class="ico">⚙</span>Settings</button>
+      </nav>
+
+      <div class="rail-section">
+        <span class="rail-label">Chats</span>
+        <span class="count" id="chatCount"></span>
+      </div>
+      <ul class="agent-list" id="chatList"></ul>
+
+      <div class="rail-foot">
+        <span class="status" id="status">connecting…</span>
+        <span class="ver" id="daemonVer"></span>
+      </div>
+    </aside>
+
+    <!-- ══════════════════ CENTER ══════════════════ -->
+    <main class="main">
+      <header class="topbar glass">
+        <div class="crumbs">
+          <span class="crumb-root" id="crumbRoot">Agent Builder</span>
+          <span class="sep" id="crumbSep" hidden>·</span>
+          <span class="crumb-leaf" id="crumbLeaf" title="the agent shown in the inspector"></span>
+        </div>
+        <!-- The topbar holds only what is about THIS VIEW. Actions live in the rail. -->
+        <div class="topbar-actions">
+          <button class="icon-btn" id="panelToggle" title="Toggle inspector">▤</button>
+        </div>
+      </header>
+
+      <!-- BUILD view: the conversation -->
+      <section class="view" id="view-build">
+        <div class="thread" id="thread"></div>
+
+        <div class="composer-wrap">
+          <div class="composer glass" id="composer">
+            <div class="attachments" id="attachments" hidden></div>
+            <textarea id="input" rows="1" placeholder="Describe the agent you want…"></textarea>
+            <div class="composer-foot">
+              <button class="attach-btn" id="attach" title="Attach files">+</button>
+              <span class="hint" id="hint">Enter to send · Shift+Enter for a new line · paste or drop images</span>
+              <button class="send" id="send" title="Send">↑</button>
+            </div>
+            <input type="file" id="filePicker" multiple hidden />
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS view -->
+      <section class="view" id="view-settings" hidden>
+        <div class="settings-scroll">
+          <div class="settings-inner" id="settingsBody">
+            <div class="loading">loading settings…</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ══════════════════ RIGHT: inspector ══════════════════ -->
+    <aside class="panel glass" id="panel">
+      <!-- WHAT THIS PANEL IS FOR: watching the files appear as an agent gets built.
+           A conversation is about ONE agent, decided when it starts — in the hero, or by the
+           agent this chat just created. There is no chooser here: a panel you can re-point
+           mid-chat is a panel that can disagree with the conversation. To work on something
+           else, start a new chat. The whole panel is hidden until an agent is in focus. -->
+      <div class="panel-head">
+        <span class="panel-label">Working on</span>
+        <h2 class="panel-agent" id="panelAgent"></h2>
+        <p class="panel-sub" id="panelSub"></p>
+      </div>
+
+      <div class="panel-actions">
+        <button class="ghost-btn sm" id="btnValidate">Validate</button>
+        <button class="prime-btn sm" id="btnPackage">Package</button>
+      </div>
+
+      <div class="tree-head">
+        <span class="rail-label">Files</span>
+        <!-- The tree re-reads itself after every tool, but a file can also change from
+             outside this window — an editor, another run. This is the way to be sure. -->
+        <button class="link-btn" id="btnRefresh" title="Re-read from disk">refresh</button>
+      </div>
+      <div class="tree" id="tree"></div>
+
+      <div class="panel-out" id="panelOut" hidden>
+        <div class="panel-out-head">
+          <span id="outTitle">Output</span>
+          <button class="link-btn" id="outClear">clear</button>
+        </div>
+        <pre id="outBody"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ══════════════════ file viewer ══════════════════ -->
+  <div class="viewer-back" id="viewerBack" hidden>
+    <div class="viewer glass">
+      <header>
+        <div class="viewer-title">
+          <span class="vname" id="viewerName"></span>
+          <span class="vpath" id="viewerPath"></span>
+        </div>
+        <button class="icon-btn" id="viewerClose">✕</button>
+      </header>
+      <div class="viewer-body" id="viewerBody"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ the empty state, defined ONCE ══════════════════
+
+       A <template> rather than markup inside #thread, because "new chat" WIPES the thread and
+       has to put this back. It used to live in two places — here, and as an HTML string inside
+       chat.js — and they drifted: the string had no agent picker, so starting a new chat
+       silently dropped the "work on an existing agent" choice. One definition, cloned. -->
+  <template id="heroTpl">
+    <div class="hero" id="hero">
+      <h1>What should we build?</h1>
+      <p>Describe an agent — what it does, what it needs access to — and I'll write it,
+         check it, and make it shippable.</p>
+
+      <!-- Which agent this conversation is ABOUT, decided before it starts. Inferring it from
+           prose is how three attempts at one agent produced one agent and an argument about
+           overwriting. Hidden entirely when there is nothing to open. -->
+      <div class="pick-scope" id="pickScope" hidden>
+        <div class="pick-row">
+          <span class="pick-label">Work on an existing agent</span>
+          <select id="scopePick"></select>
+          <button class="ghost-btn sm" id="scopeGo">Open</button>
+        </div>
+        <div class="pick-or"><span>or describe something new below</span></div>
+      </div>
+
+      <div class="suggests" id="suggests"></div>
+    </div>
+  </template>
+
+  <script src="vendor/agentd-client.js"></script>
+  <script src="md.js"></script>
+  <script src="files.js"></script>
+  <script src="settings.js"></script>
+  <script src="chat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

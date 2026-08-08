@@ -46,7 +46,30 @@ def resolve_subprocess(cfg):
 
     command = [expand(c) for c in (cfg.command or [])]
     overlay = {k: expand(v) for k, v in (cfg.env or {}).items()}
-    return command, {**os.environ, **overlay}
+    child_path = _launcher_path(overlay.get("PATH"))
+    env = {**os.environ, **overlay, "PATH": child_path}
+
+    # RESOLVE THE LAUNCHER OURSELVES. Handing the child a PATH is not enough: the OS looks the
+    # executable up using the SPAWNING process's PATH (CreateProcess on Windows, execvp
+    # semantics elsewhere) — the env we pass only affects the child once it is already running.
+    # So a bare `uvx` installed in our own Scripts dir still failed with "file not found",
+    # even with that dir first in the PATH we handed over. Substituting the absolute path is
+    # what actually makes a declared, pip-installed launcher runnable.
+    if command:
+        import shutil
+
+        resolved = shutil.which(command[0], path=child_path)
+        if resolved:
+            command = [resolved, *command[1:]]
+    return command, env
+
+
+def _launcher_path(overlay_path: str | None = None) -> str:
+    """PATH for the child — see ``runtime_paths.launcher_path``. Defined THERE, not here,
+    because the plugin-compatibility gate has to resolve the same launcher the same way."""
+    from agent_runtime.runtime_paths import launcher_path
+
+    return launcher_path(overlay_path)
 
 
 class _RunnerMcpSession:

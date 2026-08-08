@@ -224,9 +224,10 @@ export const SETTINGS_TABS: TabDef[] = [
         help: 'Let the agent extend itself by chatting. Each writes to disk; enable only what you trust.',
         fields: [
           { key: 'skill_workshop', label: 'Skill workshop', help: 'Author reusable SKILL.md playbooks at runtime.', type: 'toggle' },
-          { key: 'agent_workshop', label: 'Agent workshop', help: 'Author new agent definitions and register them live.', type: 'toggle' },
-          { key: 'mcp_workshop', label: 'MCP workshop', help: 'Connect an MCP server by chatting.', type: 'toggle' },
-          { key: 'tool_workshop', label: 'Tool workshop', help: 'Author and hot-load new Python tools in-process (RCE by design).', type: 'toggle' }
+          { key: 'mcp_workshop', label: 'MCP workshop', help: 'Connect an MCP server by chatting.', type: 'toggle' }
+          // Agent/tool authoring has no toggle: create_agent + create_tool are private to the
+          // Agent Builder agent, so the agent boundary is the switch. Removing that agent
+          // removes the capability.
         ]
       },
       {

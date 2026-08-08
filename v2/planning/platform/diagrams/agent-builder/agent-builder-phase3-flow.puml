@@ -1,0 +1,244 @@
+@startuml agent-builder-phase3-flow
+' ============================================================================
+'  AGENT BUILDER - PHASE 3 (validate + reload)
+'  Read the ACT brackets down the middle; the notes on the right explain, in
+'  plain english, what is happening and why.
+'  Render (from this folder):
+'    java -jar ../../../../plantuml.jar -tpng agent-builder-phase3-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFFDF0
+skinparam NoteBorderColor #C9B458
+skinparam NoteFontSize 12
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Agent Builder - PHASE 3: validate + reload\nThe story: the model wrote some files. Now we MARK them, then we MAKE THEM REAL.
+
+start
+
+group ACT 0 . Where we are when phase 3 begins
+  partition "already done in phases 1 + 2" #EDE7F6 {
+    :model read the spec, then wrote files with `write`\nagents/<id>/ : agent.toml, IDENTITY.md, skills/, ui/;
+    :model called create_tool(agent=<id>)\n-> agents/<id>/plugins/<pid>/;
+  }
+  note right
+    **PLAIN ENGLISH**
+    The model has just finished writing a pile of files.
+    Think of it as homework handed in, but nobody has
+    marked it yet.
+
+    Three things are wrong at this moment:
+      1. Nothing has checked the files are correct.
+      2. agent.toml is not live - the daemon read the
+         agent list at startup and still has the old one.
+      3. Your sidebar has no idea this agent exists.
+
+    Phase 3 fixes exactly these three.
+  end note
+end group
+
+group ACT 1 . MARK THE HOMEWORK  (validate_agent)
+  partition "the model asks for a check  <<NEW>>" #C8E6C9 {
+    :model calls **validate_agent**{agent_id};
+    :ValidateAgentTool -> ValidateAgentService.validate();
+  }
+
+  partition "we do NOT re-invent the rules  <<NEW>>" #C8E6C9 {
+    :**AgentDirReader** hands the folder to the CORE parser;
+  }
+
+  partition "the same parser the daemon uses at boot" #F3E8FF {
+    :**FileAgentRegistry._load_dir()**\nagent.toml -> AgentSpec;
+  }
+  note right
+    **PLAIN ENGLISH**
+    First question: does this folder even load?
+
+    We deliberately do NOT write our own agent.toml
+    reader. We hand the folder to the exact same code
+    the daemon runs at startup. If it produces an
+    AgentSpec, the folder is structurally fine.
+
+    Why it matters: two readers would drift apart, and
+    then "valid" would mean two different things.
+  end note
+
+  if (did it parse?) then (no)
+    :Finding(error, "agent.toml is broken / has no name");
+  else (yes)
+  endif
+
+  partition "three sets of extra rules  <<NEW>>" #C8E6C9 {
+    :**AgentLayoutRules** - is it built correctly?\ndisplay keys NOT inside [app]\n[app] holds only its five keys\nskills/ and plugins/ shaped right;
+    :**PackageabilityRules** - can it ship as an .exe?\nhas [app], has version,\nui/ entry exists, nothing vital in workspace/;
+    :**SandboxRules** - will its tools actually run?\nanything in agents/<id>/plugins/ is UNTRUSTED\nwarn if it needs network or API keys;
+    :collect everything -> **Report**;
+  }
+  note right
+    **PLAIN ENGLISH - why three separate rule sets**
+
+    The parser only answers "does it load". These answer
+    "is it any GOOD", and they are three different
+    questions:
+
+    * LAYOUT - things the daemon shrugs at but that are
+      still wrong. Real example: expense-summarizer had
+      colour/tagline/suggestions inside [app]. Perfectly
+      valid TOML, silently ignored, so the agent showed a
+      purple dot instead of the green one that was written.
+      Nobody noticed for weeks.
+
+    * PACKAGEABLE - things that only explode LATER, when
+      you run the installer build. Better to hear it now
+      than five minutes into gen:app.
+
+    * SANDBOX - a tool the agent owns is treated as
+      untrusted code (see the note further down). If it
+      needs an API key it will quietly get nothing. The
+      author should learn that while writing it, not in
+      production.
+  end note
+end group
+
+group ACT 2 . THE FIX LOOP  (this is the whole point)
+  partition "findings go back to the model" #EDE7F6 {
+    :ToolResult.text(Report.as_text());
+  }
+
+  if (any errors?) then (yes)
+    partition "model repairs its own work" #EDE7F6 {
+      :model reads each finding (file + what is wrong);
+      :model calls **write** to fix it;
+    }
+    note right
+      **PLAIN ENGLISH**
+      This loop is the actual value of phase 3.
+
+      Without it, a mistake shows up minutes later at
+      build time - or never, silently, like the purple-dot
+      bug did.
+
+      With it, the model gets told "line X is wrong,
+      here is why", fixes it, and asks again - all inside
+      the same turn, before you ever see it.
+    end note
+    -[#C9A227]-> check again;
+  else (no - clean)
+  endif
+end group
+
+group ACT 3 . MAKE IT REAL  (reload_agent)
+  partition "the model asks to activate it  <<NEW>>" #C8E6C9 {
+    :model calls **reload_agent**{agent_id};
+    :ReloadAgentService -> RegistryReloadAdapter;
+  }
+
+  partition "re-read the definition + find new tools" #F3E8FF {
+    :**FileAgentRegistry.refresh() / add()**\nre-read agent.toml -> fresh AgentSpec;
+    :**register_plugin_live()**\nre-scans agents/*/plugins/ from scratch\nand replaces the private-tool map;
+  }
+  note right
+    **PLAIN ENGLISH**
+    The daemon caches two things: the agent DEFINITION
+    and its PRIVATE TOOLS. Writing files does not update
+    either, so we ask it to re-read them.
+
+    Note what is NOT here:
+      * skills - re-read on every single turn already
+      * ui/    - served straight off disk every request
+    Those are live the moment you save. Only these two
+    needed a nudge, which is why this tool is small.
+  end note
+
+  partition "trust check on the agent's own tools" #FFF4E5 {
+    :**classify_origin()**\ntool came from agents/<id>/plugins/\n=> THIRD_PARTY_BUNDLE (untrusted);
+    if (sandboxing switched on?) then (yes)
+      :wrap it: no secrets, no network by default;
+    else (no - today's default)
+      :runs normally, in-process;
+    endif
+  }
+  note right
+    **PLAIN ENGLISH - the "third party" thing**
+    An agent can be DOWNLOADED from the marketplace, and
+    it can carry its own Python code inside it. That code
+    would then run on your machine with your API keys.
+
+    So the rule is by LOCATION, not by author: anything
+    under agents/<id>/plugins/ is treated as a stranger's
+    code. It cannot tell "I wrote this by chat" apart from
+    "I installed this from the store".
+
+    That folder is exactly where phase 2 writes. So your
+    own tools get treated as untrusted too. Switched OFF
+    by default today - but this is why SandboxRules warns
+    you up front.
+  end note
+end group
+
+group ACT 4 . TELL EVERYONE
+  partition "announce the change  <<MODIFIED>>" #FFE0B2 {
+    :**Gateway.broadcast_agents_changed()**\n(new: pulled out of _agents_create so a\nplugin can trigger the same announcement);
+    :`agents.changed` sent to every open window;
+  }
+  note right
+    **PLAIN ENGLISH**
+    The agent now works - but your sidebar was drawn
+    before it existed, so it still looks empty.
+
+    The daemon already knows how to shout "the agent list
+    changed" (the + button uses it). We just need a plugin
+    to be able to shout the same thing.
+
+    That is the ONE change to core code in this phase:
+    give plugins a handle to that shout.
+  end note
+
+  partition "the client is already listening" #E8F0FE {
+    :store.ts `gateway.on('agents.changed')`\n-> sidebar redraws;
+  }
+}
+
+group ACT 5 . YOU CAN NOW USE IT
+  partition "test it for real" #E0F2F1 {
+    :open a NEW chat with the new agent\n(runs alongside the builder chat - the lock is per chat);
+    :or click it open as its own app window (if it has ui/);
+  }
+  note right
+    **PLAIN ENGLISH**
+    You describe -> it builds -> it checks itself ->
+    it goes live -> you try it in a second chat ->
+    you come back and say what is wrong.
+
+    When you are happy:
+      build-agent-installer.sh <id>   ->  a shippable .exe
+  end note
+end group
+
+stop
+
+legend left
+  | Colour | Meaning |
+  |<#C8E6C9> | **NEW in phase 3** - the plugins/agent-builder/ bundle |
+  |<#FFE0B2> | **MODIFIED** - Gateway + PluginContext + container (one additive field) |
+  |<#EDE7F6> | Existing - the model's tool-calling loop |
+  |<#F3E8FF> | Existing - registry, parser, hot-reload |
+  |<#FFF4E5> | Existing - sandbox trust classification |
+  |<#E8F0FE> | Existing - desktop client (needs NO work this phase) |
+  |<#E0F2F1> | The outcome |
+endlegend
+
+@enduml

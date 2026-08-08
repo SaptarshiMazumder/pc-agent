@@ -159,3 +159,56 @@ def test_actionable_prompt_helper():
     assert is_likely_actionable_user_prompt("やって")
     assert not is_likely_actionable_user_prompt("thanks so much")
     assert not is_likely_actionable_user_prompt("")
+
+
+# --- the runtime's own nudges must not count as things the user said ---------
+# A retry nudge is persisted as a UserMessage (that is how the model receives it). The
+# planning-only guard decides whether to nudge by reading the last user message — so after
+# one nudge, the newest "user message" was the runtime's own last nudge, which does not read
+# as a request to act. The guard then refused, and the recovery layer switched itself off for
+# the rest of the session. A real transcript had five stacked up and had not nudged since.
+
+from agent_runtime.infrastructure.engine.incomplete_turn import (  # noqa: E402
+    BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX,
+    RETRY_INSTRUCTIONS,
+    is_injected_prompt,
+)
+
+
+def test_every_retry_instruction_is_recognised_as_injected():
+    """Matched against the constants themselves, so editing one keeps this true."""
+    for kind, instruction in RETRY_INSTRUCTIONS.items():
+        assert is_injected_prompt(instruction), f"{kind} nudge would be read as user intent"
+
+
+def test_liveness_steering_is_injected():
+    assert is_injected_prompt("[liveness] the run appears stuck")
+
+
+def test_finalize_retry_prompt_is_injected():
+    assert is_injected_prompt(f"{BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX}\n\nplease revise")
+
+
+def test_real_user_messages_are_not_injected():
+    for text in (
+        "heres my resume. find me suitable jobs",
+        "stuck?",
+        "get on with it then",
+        "",
+    ):
+        assert not is_injected_prompt(text)
+
+
+def test_the_guard_reads_past_stacked_nudges():
+    """The actual regression: five nudges between the user's request and 'now'."""
+    from agent_runtime.domain.messages import UserMessage
+
+    history = [
+        UserMessage(content="okay, so heres my resume. find me suitable jobs"),
+        *[UserMessage(content=RETRY_INSTRUCTIONS["reasoning_only"]) for _ in range(3)],
+        *[UserMessage(content=RETRY_INSTRUCTIONS["empty_response"]) for _ in range(2)],
+    ]
+    resolved = next(
+        (m.content for m in reversed(history) if not is_injected_prompt(m.content)), ""
+    )
+    assert resolved == "okay, so heres my resume. find me suitable jobs"

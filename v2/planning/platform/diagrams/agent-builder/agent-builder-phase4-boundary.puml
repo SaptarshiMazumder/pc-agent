@@ -1,0 +1,186 @@
+@startuml agent-builder-phase4-boundary
+' ============================================================================
+'  AGENT BUILDER - PHASE 4 (freeze create_agent)
+'  The substance of this phase is a BOUNDARY, not new machinery: which tool owns
+'  which part of an agent. Read the four columns.
+'  Render (from this folder):
+'    java -jar ../../../../plantuml.jar -tpng agent-builder-phase4-boundary.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam packageStyle rectangle
+skinparam class {
+  BorderColor #444
+  ArrowColor #555
+}
+
+title Agent Builder - PHASE 4: who writes WHAT\nfreezing create_agent at the skeleton, so the open-ended schema stays with `write`
+
+legend top left
+  |<#C8E6C9> | **NEW / changed** in phase 4 |
+  |<#FFE0B2> | the tool being MODIFIED |
+  |<#E0E0E0> | unchanged - shown for the boundary |
+endlegend
+
+' ══════════════════ THE ARTEFACT BEING BUILT ══════════════════
+package "agents/<id>/  — one agent on disk" #FFFDF0 {
+
+  class "agent.toml  (SKELETON)" as SKEL #FFE0B2 {
+    name
+    version          <<NEW in phase 4>>
+    description
+    model
+    heartbeat
+    [capabilities]
+    [subagents]
+  }
+
+  class "agent.toml  (EVERYTHING ELSE)" as REST #E0E0E0 {
+    tagline / color / suggestions
+    skills = [...]
+    audience / google_account
+    [app] title/mode/entry/public/public_tools
+    [tools] allow / deny
+    --
+    **[plugins.<p>.tools.<t>]**
+    provider / model / resolution / ...
+    .. UNBOUNDED: any plugin x any tool x ..
+    .. any knob. Cannot be enumerated as ..
+    .. tool parameters, ever. ..
+  }
+
+  class "IDENTITY.md / AGENTS.md / HEARTBEAT.md" as MD #FFE0B2 {
+    the three prose files
+  }
+
+  class "skills/<name>/SKILL.md" as SKILLS #E0E0E0
+  class "plugins/<pid>/" as PLUGS #E0E0E0 {
+    plugin.toml + module.py
+  }
+  class "ui/ , templates/ , data files" as MISC #E0E0E0 {
+    index.html / app.js / style.css
+    vendor/agentd-client.js
+    templates/*.toml
+  }
+}
+
+' ══════════════════ THE TOOLS ══════════════════
+package "plugins/authoring" #F5F5F5 {
+  class CreateAgentTool #FFE0B2 {
+    name = "create_agent"
+    __ params (FROZEN at the skeleton) __
+    action / id / name / identity
+    rules / model / description
+    subagents_allow / heartbeat
+    heartbeat_md / capabilities
+    <color:#1B5E20>+ version   <<NEW>></color>
+    __ does __
+    writes the skeleton files
+    registry.add() -> LIVE now
+    <color:#1B5E20>+ hands off: says what is written,</color>
+    <color:#1B5E20>  what is missing, what to call next</color>
+    __ NEVER gains __
+    <color:#B71C1C>app / tools / display keys /</color>
+    <color:#B71C1C>plugin-tool wiring params</color>
+  }
+  class CreateToolTool #E0E0E0 {
+    name = "create_tool"
+    agent="<id>" -> agents/<id>/plugins/
+    compile-checks + hot-loads
+  }
+}
+
+package "plugins/skills" #F5F5F5 {
+  class SkillTool #E0E0E0 {
+    name = "create_skill"
+    -> agents/<id>/skills/<name>/
+  }
+}
+
+package "plugins/core_fs" #F5F5F5 {
+  class WriteTool #E0E0E0 {
+    name = "write"
+    ANY file, ANY path
+    .. the open-ended half ..
+  }
+}
+
+package "plugins/agent-builder  (phase 3)" #F5F5F5 {
+  class ValidateAgentTool #E0E0E0 {
+    name = "validate_agent"
+    catches what write got wrong
+  }
+  class ReloadAgentTool #E0E0E0 {
+    name = "reload_agent"
+    makes agent.toml edits live
+  }
+}
+
+package "agents/main/skills" #F5F5F5 {
+  class "build-agent/SKILL.md" as SPEC #E0E0E0 {
+    the full agent.toml grammar
+    .. what makes `write` viable ..
+  }
+}
+
+' ══════════════════ OWNERSHIP ══════════════════
+CreateAgentTool ==> SKEL : writes
+CreateAgentTool ==> MD : writes
+WriteTool ==> REST : writes
+WriteTool ==> MISC : writes
+SkillTool ==> SKILLS : writes
+CreateToolTool ==> PLUGS : writes
+
+SPEC ..> WriteTool : the model follows this grammar
+CreateAgentTool ..> ValidateAgentTool : hand-off: "now validate"
+WriteTool ..> ValidateAgentTool : checks the result
+ValidateAgentTool ..> ReloadAgentTool : once clean, activate
+
+note as N1 #E3F2FD
+  **WHY FREEZE, RATHER THAN KEEP ADDING PARAMS**
+
+  Look at the right-hand column: [plugins.<p>.tools.<t>] is any
+  plugin x any tool x any knob. It is not a long list - it has no
+  list. figure-creator's whole engine (Nano Banana Pro, default
+  template, resolution, two vision models) lives there.
+
+  Enumerating that as tool parameters is impossible, so a
+  parameterised create_agent can never be complete. Every new
+  agent.toml feature would need: a new param, a description
+  rewrite, and a model that learns a SECOND grammar for something
+  it can already express directly in TOML.
+
+  The model already has `write` + the full spec (phase 1) +
+  validate_agent (phase 3). Those three cover the open half
+  properly. So create_agent keeps the half that genuinely needs
+  code - the skeleton and, crucially, registry.add() - and stops
+  competing with `write` for the rest.
+end note
+
+note as N2 #FFF3E0
+  **WHY create_agent STILL EXISTS**
+  It is not just file writing. It:
+    * guarantees a VALID skeleton (correct TOML key order -
+      top-level keys before the first [table])
+    * refuses to clobber 'main'
+    * registers the agent LIVE via registry.add(), so it is
+      resolvable on the very next message
+  `write` can do none of that.
+end note
+
+note as N3 #E8F5E9
+  **THE ONE PARAM BEING ADDED: version**
+  Not schema-chasing - a top-level scalar with real
+  consequences: bundle installs supersede BY VERSION, and
+  validate_agent already warns when it is missing. Every
+  agent scaffolded from now on ships packageable.
+end note
+
+N1 .. REST
+N2 .. CreateAgentTool
+N3 .. SKEL
+
+@enduml

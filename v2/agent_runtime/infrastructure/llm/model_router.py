@@ -63,12 +63,16 @@ class CostEfficiencyRouter:
         return self.text_model or default_model
 
 
-def build_model_router(config):
-    """Build the cost-efficiency router from config, or None (=> unchanged: one brain every turn).
+def router_for(cost_efficiency):
+    """A router from a cost-efficiency BLOCK, or None (=> unchanged: one brain every turn).
 
-    Reads ``config.cost_efficiency = {enabled, text_model, vision_model}``. Returns None when the
-    block is absent, disabled, or names no models — so the default is always "no routing"."""
-    ce = getattr(config, "cost_efficiency", None) or {}
+    Takes the plain ``{enabled, text_model, vision_model}`` dict rather than a Config, because
+    the block that matters may be an AGENT's rather than the daemon's — ``agent_config.resolve``
+    hands back resolved values, not a Config object. ``build_model_router`` below is this same
+    function reading the daemon's block, kept as the boot-time entry point.
+
+    None when the block is absent, disabled, or names no models: the default is no routing."""
+    ce = cost_efficiency or {}
     if not isinstance(ce, dict) or not ce.get("enabled"):
         return None
     text_model = ce.get("text_model")
@@ -76,3 +80,9 @@ def build_model_router(config):
     if not text_model and not vision_model:
         return None
     return CostEfficiencyRouter(text_model, vision_model)
+
+
+def build_model_router(config):
+    """The DAEMON's router, built once at boot. Kept because the engine still needs a default
+    for callers that pass none — a sub-agent run, a tool that drives the engine directly."""
+    return router_for(getattr(config, "cost_efficiency", None))
