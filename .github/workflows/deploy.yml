@@ -43,10 +43,6 @@ on:
         type: choice
         options: [all, model-proxy, accounts, daemon, web, ingest]
         default: all
-      skip_tests:
-        description: "Emergency only: deploy WITHOUT the test gate (e.g. rolling back past a broken commit)"
-        type: boolean
-        default: false
   push:
     branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
     paths: # only rebuild when something that ships actually changed
@@ -98,58 +94,16 @@ jobs:
           echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
           echo "Resolved environment: **$ENV**; service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Job 2: the GATE. ci-fast-tests.yml already runs on every push to develop, but it runs
-  # ALONGSIDE this workflow, not before it — so without this job a red suite and a shipped image
-  # are the same push. Anything that reaches AWS has passed the tests first.
-  #
-  # Deliberately NOT the whole of ci-fast-tests: this mirrors its `backend` job minus the
-  # informational linters (ruff/mypy/import-linter are continue-on-error there — a gate that
-  # cannot fail is not a gate, and one that blocks a deploy on style would get switched off).
-  # Its `clients` job is skipped for a different reason: the web image build runs the client
-  # build INSIDE Docker, so a broken client already fails the deploy a few steps later.
-  test:
-    name: Tests (gate)
-    runs-on: ubuntu-latest
-    if: ${{ !inputs.skip_tests }}
-    defaults:
-      run:
-        working-directory: v2 # conftest.py builds sys.path from here; pytest MUST run in v2/
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            v2/pyproject.toml
-            v2/monitoring/pyproject.toml
-
-      - name: Install (editable + dev extras)
-        run: pip install -e ".[dev]"
-
-      # Its own distribution, not an extra of agentd (see ci-fast-tests.yml). Every import site
-      # has an optional-import no-op fallback, so without this the suite silently tests the
-      # fallbacks — and the sandbox's own telemetry assertions would pass against nothing.
-      - name: Install telemetry library (v2/monitoring)
-        run: pip install -e monitoring
-
-      - name: Unit tests (pytest)
-        run: pytest tests/unit -q
-
-      - name: Integration tests (pytest)
-        run: pytest tests/integration -m "not live and not browser and not computer" -q
-
-  # ── Job 3: the actual deploy. `environment:` binds it to the matching GitHub Environment,
+  # ── Job 2: the actual deploy. `environment:` binds it to the matching GitHub Environment,
   # so its protection rules (reviewers for staging/production, branch policy for production)
   # pause/authorize THIS job before any step runs.
+  #
+  # NO TEST GATE, deliberately (user's call, 2026-08-08). The tests still run on every push to
+  # develop in ci-fast-tests.yml — they just don't block the deploy, so a red suite and a shipped
+  # image can be the same push. To make it a gate later: add a `test` job mirroring
+  # ci-fast-tests.yml's `backend` job, then `needs: [resolve, test]` here.
   deploy:
-    # An explicit status check rather than the default: `test` is SKIPPED when skip_tests is set,
-    # and a skipped dependency would otherwise skip this job with it. `!failure()` is a status
-    # function, so GitHub does NOT also insert the implicit success() — a skipped gate lets the
-    # deploy through, a red one does not.
-    needs: [resolve, test]
-    if: ${{ !failure() && !cancelled() }}
+    needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
     env:
