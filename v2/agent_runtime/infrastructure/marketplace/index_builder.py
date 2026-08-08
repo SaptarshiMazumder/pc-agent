@@ -28,6 +28,71 @@ from agent_runtime.infrastructure.marketplace import bundle_io
 
 log = logging.getLogger("agentd")
 
+# ── Installers ──────────────────────────────────────────────────────────────────────────
+#
+# A .agentpkg only reaches someone who ALREADY runs agentd — a daemon installs it. The
+# marketplace also has to serve a person on a bare machine, and what they need is an installer.
+# Both live in the same directory and go up to the same static host; the index just describes
+# them separately.
+#
+# The link between an installer file and its bundle is a NAMING CONVENTION, because there is
+# nothing inside a .exe to read an agent id out of:
+#
+#     <bundle-id>-<version>-setup<ext>        e.g. game-master-0.2.0-setup.exe
+#
+# The publisher tooling renames electron-builder's output ("Game Master Setup 0.2.0.exe") into
+# this shape. Anything in the directory that does not match is ignored rather than guessed at —
+# a mis-attached installer would offer one agent's download on another agent's card.
+PLATFORM_BY_EXT = {
+    ".exe": "win",
+    ".msi": "win",
+    ".dmg": "mac",
+    ".pkg": "mac",
+    ".appimage": "linux",
+    ".deb": "linux",
+    ".rpm": "linux",
+}
+
+INSTALLER_MARKER = "-setup"
+
+
+def installer_name(bundle_id: str, version: str, suffix: str) -> str:
+    """The one place the convention is spelled, so the writer and the reader cannot drift."""
+    return f"{bundle_id}-{version}{INSTALLER_MARKER}{suffix.lower()}"
+
+
+def _installers(directory: Path, bundle_id: str, version: str, private_key_b64: str) -> list[dict]:
+    """Installer rows for one bundle, discovered in `directory` by the convention above.
+
+    Each row's digest is signed SEPARATELY from the bundle's. The entry `sig` covers only the
+    .agentpkg digest, so unsigned installer rows would let anyone able to write to the registry
+    point the download at a different executable without breaking a single signature.
+    """
+    rows: list[dict] = []
+    for suffix, platform in sorted(PLATFORM_BY_EXT.items()):
+        path = directory / installer_name(bundle_id, version, suffix)
+        if not path.is_file():
+            continue
+        digest = bundle_io.sha256_file(path)
+        row = {
+            "platform": platform,
+            "url": path.name,  # relative, exactly like the bundle url
+            "size": path.stat().st_size,
+            "sha256": digest,
+        }
+        if private_key_b64:
+            row["sig"] = signing.sign(private_key_b64, digest.encode("ascii"))
+        rows.append(row)
+        log.info(
+            "  installer %s %s -> %s (%s, %.1f MB)",
+            bundle_id,
+            version,
+            path.name,
+            platform,
+            path.stat().st_size / 1048576,
+        )
+    return rows
+
 
 def build_index(
     directory: Path,
@@ -80,6 +145,9 @@ def build_index(
             entry["publisher_id"] = publisher_id
         if private_key_b64:
             entry["sig"] = signing.sign(private_key_b64, digest.encode("ascii"))
+        installers = _installers(directory, manifest.id, manifest.version, private_key_b64)
+        if installers:
+            entry["installers"] = installers
         entries.append(entry)
         log.info("indexed %s %s (%s)", manifest.id, manifest.version, package_path.name)
 

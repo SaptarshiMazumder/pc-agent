@@ -68,12 +68,13 @@ class MarketplaceService:
             }
         index = await self._registry.fetch_index()
         installed = {b.id: b for b in self._store.list()}
+        resolve = getattr(self._registry, "asset_url", None)
         bundles = []
         for entry in index.bundles:
             have = installed.get(entry.id)
             bundles.append(
                 {
-                    **_entry_dict(entry),
+                    **_entry_dict(entry, resolve),
                     "compatible": compat_ok(self._version, entry.agentd_compat),
                     "installed": have is not None,
                     "installedVersion": have.version if have else "",
@@ -190,8 +191,15 @@ class MarketplaceService:
             log.debug("marketplace progress emit failed", exc_info=True)
 
 
-def _entry_dict(entry: RegistryEntry) -> dict:
-    return {
+def _entry_dict(entry: RegistryEntry, resolve=None) -> dict:
+    """One catalog row. `resolve` turns a registry-relative url into an absolute one.
+
+    Installer urls are resolved HERE rather than in the client because the registry base url is
+    the daemon's knowledge (config / distribution profile), and a client that had to join them
+    itself would need the base url shipped to it just to build a link — one more thing to keep in
+    sync for no gain. What the client receives is a url it can hand straight to the browser.
+    """
+    out = {
         "id": entry.id,
         "name": entry.name,
         "version": entry.version,
@@ -202,3 +210,14 @@ def _entry_dict(entry: RegistryEntry) -> dict:
         "size": entry.size,
         "icon": entry.icon,
     }
+    if entry.installers:
+        out["installers"] = [
+            {
+                "platform": a.platform,
+                "url": resolve(a.url) if resolve else a.url,
+                "size": a.size,
+                "sha256": a.sha256,
+            }
+            for a in entry.installers
+        ]
+    return out

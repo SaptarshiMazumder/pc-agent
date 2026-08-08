@@ -47,6 +47,26 @@ const bridge = (globalThis as { agentd?: AgentdPlatform }).agentd
 export const isDesktop = !!bridge
 
 /**
+ * The viewer's OS, using the same tags the registry stamps on an installer
+ * ('win' | 'mac' | 'linux'; '' when it cannot be told).
+ *
+ * Lives here because it is a fact about the host, and this module is the one place that reads
+ * host facts. Used to pick which installer to offer — offering the wrong one hands someone a
+ * file their machine cannot run, which is worse than offering none.
+ *
+ * ORDER MATTERS: "darwin" contains the substring "win", so a naive /win/ test first would send
+ * every Mac user a .exe. macOS is therefore matched before Windows.
+ */
+export function hostOs(): string {
+  const nav = (globalThis as { navigator?: { userAgent?: string; platform?: string } }).navigator
+  const s = `${nav?.platform || ''} ${nav?.userAgent || ''}`.toLowerCase()
+  if (/mac|darwin|iphone|ipad/.test(s)) return 'mac'
+  if (/win/.test(s)) return 'win'
+  if (/linux|android|x11/.test(s)) return 'linux'
+  return ''
+}
+
+/**
  * A v4 UUID, on every origin we actually ship to.
  *
  * `crypto.randomUUID` exists ONLY in a secure context — HTTPS or localhost. The desktop app

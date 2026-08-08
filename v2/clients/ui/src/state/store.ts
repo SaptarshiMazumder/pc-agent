@@ -64,7 +64,7 @@ export interface OutgoingAttachment {
 
 export type View =
   | 'chat'
-  | 'store'
+  | 'marketplace' // the agent marketplace (was 'store')
   | 'settings'
   | 'account'
   | 'subscription'
@@ -879,7 +879,7 @@ export const useApp = create<AppState>((set, get) => {
 
     setView(view) {
       set({ view })
-      if (view === 'store') void get().refreshCatalog()
+      if (view === 'marketplace') void get().refreshCatalog()
     },
 
     openToolConfig(toolName) {

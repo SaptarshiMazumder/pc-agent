@@ -19,7 +19,8 @@ import { Supervisor } from './supervisor'
 
 let flavor: Flavor = {
   productId: 'agentd', productName: 'agentd', defaultAgent: '', appAgent: '', storeEnabled: true,
-  preinstalledBundles: [], accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: []
+  preinstalledBundles: [], accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: [],
+  payloadDir: '', iconPath: '', appUserModelId: ''
 }
 const supervisor = new Supervisor(() => flavor.sourcePath)
 let mainWindow: BrowserWindow | null = null
@@ -27,11 +28,18 @@ let mainWindow: BrowserWindow | null = null
 // The nakama-link app icon (green, transparent). In dev __dirname is out/main, so
 // ../../resources reaches the project's resources/; packaged builds get it from
 // electron-builder's win.icon + the exe, but the explicit path keeps dev identical.
-const appIcon = path.join(
+const engineIcon = path.join(
   __dirname,
   '../../resources',
   process.platform === 'win32' ? 'icon.ico' : 'icon.png'
 )
+
+/** The icon for THIS product. One engine serves many products (flavor.payloadDir), so the
+ *  window icon has to come from the payload — the executable's own icon is only the fallback
+ *  for the engine's plain desktop client. Resolved per call: flavor loads asynchronously. */
+function appIconPath(): string {
+  return flavor.iconPath || engineIcon
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -40,7 +48,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: flavor.productName,
-    icon: appIcon,
+    icon: appIconPath(),
     backgroundColor: '#f4f2ea',   // matches the LIGHT theme surface (the default theme)
     autoHideMenuBar: true,
     webPreferences: {
@@ -229,7 +237,7 @@ function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
     minWidth: 480,
     minHeight: 360,
     title: String(title || 'agent app'),
-    icon: appIcon,
+    icon: appIconPath(),
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
@@ -293,7 +301,7 @@ function createSplash(): BrowserWindow {
     resizable: false,
     autoHideMenuBar: true,
     title: flavor.productName,
-    icon: appIcon,
+    icon: appIconPath(),
     backgroundColor: '#f4f2ea',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
@@ -378,6 +386,14 @@ function readPicked(paths: string[]): Array<{ name: string; size: number; dataBa
 
 app.whenReady().then(async () => {
   flavor = await loadFlavor()
+  // Windows taskbar identity. With ONE shared executable the OS cannot tell products apart by
+  // path, so without this every agent app collapses into a single taskbar button and a pinned
+  // shortcut relaunches whichever product was installed last. Must match the AUMID the
+  // launching shortcut sets. No-op on other platforms.
+  if (flavor.appUserModelId) app.setAppUserModelId(flavor.appUserModelId)
+  if (flavor.payloadDir) {
+    console.log(`flavor: product "${flavor.productName}" from payload ${flavor.payloadDir}`)
+  }
   registerIpc()
   if (flavor.appAgent) {
     // AGENT-APP shell: this build IS one agent's product — its own UI, no JARVIS renderer

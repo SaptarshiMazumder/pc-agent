@@ -105,6 +105,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "(multi-creator) index. Omit to keep the roster already on the registry.",
     )
     publish.add_argument(
+        "--no-installers",
+        action="store_true",
+        help="publish only the .agentpkg bundles. By default any installer already delivered to "
+        "agents/<id>/clients/desktop/ is published too, so someone with no agentd yet has "
+        "something to download.",
+    )
+    publish.add_argument(
         "--dry-run", action="store_true", help="build everything, upload nothing, print the plan"
     )
     publish.set_defaults(func=run_publish)
@@ -179,6 +186,25 @@ def _load_bundle_toml(agent_dir: Path) -> dict:
     return tomllib.loads(path.read_text(encoding="utf-8")).get("bundle") or {}
 
 
+def _load_agent_toml(agent_dir: Path) -> dict:
+    """The agent's own declaration. ``{}`` when absent or unparseable — packing a directory
+    without a readable agent.toml must still work, it just has fewer defaults to draw on."""
+    path = agent_dir / "agent.toml"
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _first(*values) -> str:
+    """The first non-empty, stripped value — the precedence chain in one place."""
+    for v in values:
+        s = str(v or "").strip()
+        if s:
+            return s
+    return ""
+
+
 def _pack_agent_dir(
     agent_dir: Path,
     out_dir: Path,
@@ -198,8 +224,21 @@ def _pack_agent_dir(
     if not agent_dir.is_dir():
         raise ValueError(f"not a directory: {agent_dir}")
     declared = _load_bundle_toml(agent_dir)
-    bundle_id = str(declared.get("id") or agent_dir.name)
-    version = version or str(declared.get("version") or "1.0.0")
+    # agent.toml is the SECOND tier of every identity field. Without it, an agent whose
+    # agent.toml says version = "2.3.0" packed as 1.0.0 — and since installs supersede BY
+    # VERSION, every later release silently failed to replace the first one on a buyer's
+    # machine. That bites hardest through gen-app-flavor.mjs, which calls this CLI to build
+    # the payload for a per-agent installer: the author bumps a version, ships, and nobody
+    # ever receives it.
+    #
+    # PRECEDENCE (matches agent-authoring's BundleDefaults, which fixed the same bug on the
+    # chat path only):  explicit argument > bundle.toml > agent.toml > fallback
+    # bundle.toml stays on top because it is the PUBLISHER-facing file — publisher name,
+    # entitlement SKU, a bundle id that differs from the agent id. It just stops being the
+    # only source of what agent.toml already states.
+    agent_toml = _load_agent_toml(agent_dir)
+    bundle_id = _first(declared.get("id"), agent_dir.name)
+    version = _first(version, declared.get("version"), agent_toml.get("version"), "1.0.0")
 
     deps: list[PluginDep] = []
     if declared:  # bundle.toml is the source of truth for declared deps
@@ -238,9 +277,9 @@ def _pack_agent_dir(
 
     manifest = BundleManifest(
         id=bundle_id,
-        name=str(declared.get("name") or bundle_id),
+        name=_first(declared.get("name"), agent_toml.get("name"), bundle_id),
         version=version,
-        description=str(declared.get("description") or ""),
+        description=_first(declared.get("description"), agent_toml.get("description")),
         agentd_compat=str(declared.get("agentd_compat") or ""),
         entitlement=str(declared.get("entitlement") or ""),
         publisher=str(declared.get("publisher") or ""),
@@ -368,11 +407,75 @@ def _read_registry_index(target: str, is_s3: bool) -> dict | None:
     return data
 
 
+def _stage_installers(agent_dir: Path, staging: Path, bundle_id: str, version: str) -> list[Path]:
+    """Copy this agent's DELIVERED installer(s) into the registry staging dir, renamed to the
+    convention `index_builder` discovers.
+
+    Discovered rather than passed as a flag, so one publish command works whether or not an
+    installer was ever built for the agent. `dist-app.mjs` delivers to
+    ``agents/<id>/clients/desktop/<Product> Setup <ver>.exe`` — a product-name-shaped filename
+    with nothing in it to key on, and ``clients/`` is excluded from the .agentpkg, so the file is
+    neither inside the bundle nor findable by id without this step.
+
+    A file whose name contains the version being published WINS. Otherwise the newest is used and
+    a warning is printed: silently renaming last month's 0.2.0 build to `…-0.3.0-setup.exe` would
+    publish an installer that lies about its own version, and the download would then install an
+    agent the store card says is newer.
+    """
+    import shutil
+
+    from agent_runtime.infrastructure.marketplace.index_builder import (
+        PLATFORM_BY_EXT,
+        installer_name,
+    )
+
+    source_dir = agent_dir / "clients" / "desktop"
+    if not source_dir.is_dir():
+        return []
+    staged: list[Path] = []
+    for suffix in sorted(PLATFORM_BY_EXT):
+        found = [p for p in source_dir.glob(f"*{suffix}") if p.is_file()]
+        if not found:
+            continue
+        exact = [p for p in found if version in p.name]
+        if exact:
+            chosen = max(exact, key=lambda p: p.stat().st_mtime)
+        else:
+            chosen = max(found, key=lambda p: p.stat().st_mtime)
+            print(
+                f"  WARNING: no {suffix} installer in {source_dir} names version {version}; "
+                f"using the newest ({chosen.name}). Rebuild it if that is not {version}."
+            )
+        dest = staging / installer_name(bundle_id, version, suffix)
+        shutil.copy2(chosen, dest)
+        staged.append(dest)
+        print(f"  staged installer {chosen.name} -> {dest.name} ({dest.stat().st_size:,} bytes)")
+    return staged
+
+
+def _installer_files(staging: Path) -> list[Path]:
+    """Installer artifacts in the staging dir — everything build_index may have referenced."""
+    from agent_runtime.infrastructure.marketplace.index_builder import (
+        INSTALLER_MARKER,
+        PLATFORM_BY_EXT,
+    )
+
+    return sorted(
+        p
+        for p in staging.iterdir()
+        if p.is_file()
+        and p.suffix.lower() in PLATFORM_BY_EXT
+        and INSTALLER_MARKER in p.stem.lower()
+    )
+
+
 def _upload_registry(staging: Path, target: str, is_s3: bool) -> int:
     """Push the built registry. Artifacts first, index.json LAST — always."""
     import shutil
 
-    packages = sorted(staging.glob("*.agentpkg"))
+    # Installers ride with the bundles: same ordering rule, same reason. The index is what makes a
+    # download URL public, so every artifact it names must already be there.
+    packages = sorted(staging.glob("*.agentpkg")) + _installer_files(staging)
     index = staging / "index.json"
     # The index is how a client FINDS an artifact, so publishing it before its artifacts exist
     # opens a window where the store lists a bundle whose download 404s. Ordering the writes costs
@@ -483,6 +586,7 @@ def run_publish(args: argparse.Namespace) -> int:
     import os
     import tempfile
 
+    from agent_runtime.infrastructure.marketplace import bundle_io
     from agent_runtime.infrastructure.marketplace.index_builder import build_index
 
     target = (args.to or os.environ.get("AGENTD_PUBLISH_TARGET", "")).strip()
@@ -566,13 +670,17 @@ def run_publish(args: argparse.Namespace) -> int:
         staging = Path(work)
         packed: list[Path] = []
         for raw_dir in args.agent_dir:
+            agent_dir = Path(raw_dir).resolve()
             try:
-                package = _pack_agent_dir(Path(raw_dir).resolve(), staging, args.version)
+                package = _pack_agent_dir(agent_dir, staging, args.version)
             except ValueError as e:
                 print(e)
                 return 1
             packed.append(package)
             print(f"packed {package.name}  ({package.stat().st_size:,} bytes)")
+            if not args.no_installers:
+                manifest = bundle_io.read_manifest(package)
+                _stage_installers(agent_dir, staging, manifest.id, manifest.version)
 
         index_path = build_index(
             staging,

@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
 import AppView from './components/AppView'
-import StoreView from './components/StoreView'
+import MarketplaceView from './components/MarketplaceView'
 import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useMode } from './lib/mode'
@@ -75,7 +75,7 @@ export default function App() {
           </div>
         )}
         {view === 'chat' && <ChatView />}
-        {view === 'store' && <StoreView />}
+        {view === 'marketplace' && <MarketplaceView />}
         {view === 'settings' && <SettingsView />}
         {view === 'datasources' && <DataSourcesView />}
         {view === 'account' && <AccountView />}

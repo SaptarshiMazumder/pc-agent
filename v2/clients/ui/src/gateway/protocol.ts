@@ -107,6 +107,16 @@ export interface AgentEvent {
   [key: string]: any
 }
 
+/** A standalone INSTALLER for one platform — what someone with no agentd yet downloads.
+ *  Distinct from installing the bundle, which needs a daemon already running. `url` arrives
+ *  ABSOLUTE (the daemon joins it against the registry base), so it can be linked as-is. */
+export interface InstallerAsset {
+  platform: string // 'win' | 'mac' | 'linux'
+  url: string
+  size: number
+  sha256: string
+}
+
 export interface CatalogBundle {
   id: string
   name: string
@@ -121,6 +131,8 @@ export interface CatalogBundle {
   entitlement: string
   /** glyph name declared in the bundle manifest ('' => client default glyph) */
   icon?: string
+  /** absent when the publisher shipped no installer for this bundle */
+  installers?: InstallerAsset[]
 }
 
 export interface InstalledBundle {
