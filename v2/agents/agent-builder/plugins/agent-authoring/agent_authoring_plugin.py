@@ -84,10 +84,10 @@ def register(api, ctx):
     # names from the runtime's domain, callable methods from the gateway's app tier. A second
     # copy would be one more thing to drift — which is the exact class of bug they exist to
     # catch (a skill that listed an event nobody emits produced a UI with every branch dead).
+    from agent_authoring.domain.ui_rules import UiRules
+
     from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
     from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
-
-    from agent_authoring.domain.ui_rules import UiRules
 
     validator = ValidateAgentService(
         reader,

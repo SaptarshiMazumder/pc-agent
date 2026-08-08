@@ -29,20 +29,24 @@ backend lands, and it breaks on the machine of anyone who installs the agent.
 
 from __future__ import annotations
 
-import re
-
 from .finding import INFO, WARN, Finding
+from .sandbox_contract import (
+    ENV_READ,
+    NET_IMPORT,
+    SECRET_NAME,
+    URL_LITERAL,
+    undeclared_model_call,
+)
 
 # Signals that a private plugin wants something the untrusted grant denies. Deliberately a
 # coarse source scan: the point is to prompt a human decision, not to prove anything.
-SECRET_PATTERNS = (
-    re.compile(r"os\.environ|getenv|environb", re.I),
-    re.compile(r"[A-Z0-9_]*(API_KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*"),
-)
-NETWORK_PATTERNS = (
-    re.compile(r"\b(?:import|from)\s+(?:httpx|requests|aiohttp|urllib|http\.client|socket)\b"),
-    re.compile(r"https?://"),
-)
+#
+# The patterns themselves live in sandbox_contract, because create_tool needs the same answers
+# and can act on them EARLIER — it refuses to write the unambiguous ones at all. Two copies of
+# "what breaks under the sandbox" would eventually disagree, and then the tool and the validator
+# would be telling an author different things about the same code.
+SECRET_PATTERNS = (ENV_READ, SECRET_NAME)
+NETWORK_PATTERNS = (NET_IMPORT, URL_LITERAL)
 
 
 class SandboxRules:
@@ -104,6 +108,25 @@ class SandboxRules:
                         path=f"plugins/{pid}/",
                         fix=f"use a shared tool that already owns the network path, or have "
                         f'whoever installs it set sandbox_trusted_agents = ["{spec.id}"]',
+                    )
+                )
+            # A model call with no `needs_model = True` is not a judgement call like the two
+            # above — it is a certain refusal. `needs_model` is the ONLY thing that puts models
+            # on the sandbox grant, so the broker answers "not granted" to every call this tool
+            # makes, on every machine that installs the agent. `create_tool` derives the flag,
+            # so this only ever fires on a plugin authored with `write`.
+            if undeclared_model_call(text):
+                out.append(
+                    Finding(
+                        level=WARN,
+                        code="UNTRUSTED_MODEL_UNDECLARED",
+                        message=f"plugins/{pid}/ calls a model but does not declare "
+                        f"needs_model = True. Sandboxed, the host refuses every one of those "
+                        f"calls with 'not granted' — silently working for you and failing for "
+                        f"everyone who installs this agent",
+                        path=f"plugins/{pid}/",
+                        fix="add `needs_model = True` (and `model_kind = \"vision\"` if it reads "
+                        "images) as class attributes on the Tool, next to `parameters`",
                     )
                 )
         return out

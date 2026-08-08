@@ -57,6 +57,7 @@ model = "gemini/gemini-2.5-pro"    # optional per-agent brain override
 heartbeat = "30m"                  # optional; autonomous self-wake interval
 audience = "external"              # optional; applies the safe-to-send privacy gate to replies
 google_account = "me@example.com"  # optional; the ONE Google account this agent acts as
+requires_local = false             # optional; true = a HOSTED daemon never offers this agent
 
 # DISPLAY fields are TOP-LEVEL, not inside [app]. The registry reads them via
 # data.get(...), falling back to the generated presentation.json sidecar. Putting
@@ -111,6 +112,22 @@ model = "gemini/gemini-2.5-flash"
 
 An agent's private tools (in `plugins/` below) are **implicitly allowed** and never need
 naming in `[tools] allow`.
+
+### `requires_local` — when an agent must not run on a shared server
+
+The same daemon runs on a desktop (one owner, their own machine) and hosted (many strangers, one
+container). An agent that runs a shell, writes outside its workspace, or loads code into the
+process is the owner exercising their own computer in the first case and a visitor reaching into
+everyone else's files in the second.
+
+Set `requires_local = true` when the agent needs any of that. A hosted daemon then does not offer
+it **at all** — absent from the roster, unresolvable, no app served, its private tools never
+discovered. Nothing to bypass, because there is nothing there.
+
+Use it for an agent that needs `exec`, unsandboxed `write`, or its own code-loading tools. Do NOT
+use it as a general precaution: an agent that only chats, reads its workspace, and calls models is
+fine hosted, and marking it local-only just hides it from half your users. Agent Builder itself
+declares it, for exactly the reason above.
 
 ## The markdown files
 
@@ -219,6 +236,7 @@ sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
 | files | the run's workspace only |
 | network | **none** |
 | secrets | **`{}` — always.** It never sees a provider key. |
+| models | only if the tool declares `needs_model = True` — see below |
 
 So the question to ask while writing a private plugin is *"will this still work after someone
 downloads it?"*:
@@ -231,8 +249,40 @@ downloads it?"*:
   `sandbox_trusted_agents = ["<agent-id>"]` in their config. Never suggest that for code the
   user did not author.
 
-Today the flag is off by default and the shipped backend does not enforce the grant, so nothing
-breaks immediately — but such a plugin will break the day real isolation lands, and on the
+`create_tool` **refuses** to write an agent-scoped tool that does either. That is not a style
+preference it is enforcing — it is the difference between a tool that ships and one that is dead
+on arrival.
+
+### Calling a model from a private tool
+
+A sandboxed tool has no network and no keys, so it cannot reach a provider. It does not need to:
+the call is **inverted** — the tool asks, and the host performs it. Use the one route that works
+in every mode (hosted, BYOK, and a local model):
+
+```python
+from agent_runtime.infrastructure.llm.oneshot import text_complete   # or vision_complete
+
+summary = text_complete(model=None, prompt=prompt, max_tokens=400)
+```
+
+Inside the sandbox that name resolves to a shim that hands the request to the host. Same
+signature, same return type, so the tool behaves identically whether or not it is sandboxed.
+`model=None` lets the host use the model this tool resolves to — pin one with
+`[plugins.<pid>.tools.<tool>] model = "..."` in the agent's `agent.toml`.
+
+The tool must also carry **`needs_model = True`** as a class attribute. That flag is the entire
+authorisation: without it the sandbox grants zero models and the host refuses every call with
+*"not granted"*. Add `model_kind = "vision"` too if it reads images.
+
+`create_tool` sets both for you by reading the code — you never declare them. If you author a
+plugin by hand with `write`, you must add them yourself, and `validate_agent` will tell you
+(`UNTRUSTED_MODEL_UNDECLARED`) when you forget.
+
+Spend goes to the account running the agent, attributed to your plugin, and is capped per tool
+run (`sandbox_model_limits`: 8 calls, 4096 output tokens, 120s by default).
+
+Today the sandbox flag is off by default and the shipped backend does not enforce the grant, so
+nothing breaks immediately — but such a plugin will break the day real isolation lands, and on the
 machine of anyone who installs the agent.
 
 ### Python library dependencies

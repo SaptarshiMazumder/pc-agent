@@ -370,6 +370,19 @@ class Config:
     # property of the DEPLOYMENT, which is why it is env-settable on the hosted task and nowhere
     # else. AGENTD_MULTI_TENANT=1.
     multi_tenant: bool = False
+    # hosted: is this daemon serving people OTHER than its operator? DERIVED at load time from the
+    # things that actually imply it (multi_tenant, an accounts URL), so every caller reads one
+    # answer instead of re-deriving it and drifting. AGENTD_HOSTED forces it either way.
+    #
+    # It exists because a desktop install and a hosted one differ in KIND, not degree: on a desktop
+    # an agent that runs a shell or hot-loads Python is the owner acting on their own machine; on a
+    # shared container it is a stranger acting on everyone's. See domain/agent_availability.py.
+    hosted: bool = False  # AGENTD_HOSTED
+    # Which agents a HOSTED daemon withholds / permits, by id or trailing-* glob. Deny wins, then
+    # allow, then the agent's own `requires_local` declaration. Both empty (the default) means the
+    # authors' declarations decide alone. AGENTD_HOSTED_AGENTS_DENY / _ALLOW (comma-separated).
+    hosted_agents_deny: tuple = ()
+    hosted_agents_allow: tuple = ()
     # Where tenant homes live. Empty = <AGENTD_HOME>/users. AGENTD_TENANT_ROOT.
     tenant_root: str = ""
     # How many tenants may be resident at once. A tenant costs MEMORY (its own loaded plugin
@@ -867,6 +880,26 @@ def load_config(path: Path | None = None) -> Config:
         cfg.multi_tenant = os.environ["AGENTD_MULTI_TENANT"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TENANT_ROOT"):
         cfg.tenant_root = os.environ["AGENTD_TENANT_ROOT"].strip()
+    for _env, _field in (
+        ("AGENTD_HOSTED_AGENTS_DENY", "hosted_agents_deny"),
+        ("AGENTD_HOSTED_AGENTS_ALLOW", "hosted_agents_allow"),
+    ):
+        if os.environ.get(_env):
+            setattr(cfg, _field, tuple(s.strip() for s in os.environ[_env].split(",") if s.strip()))
+    # DERIVED LAST, so it sees every override above. An accounts URL means somebody signs in to
+    # this daemon, which is the definition of serving people other than the operator; multi_tenant
+    # means it per-connection as well. The explicit env var is the escape hatch in both directions
+    # — a private daemon behind accounts that is genuinely single-user can set AGENTD_HOSTED=0.
+    _accounts = cfg.accounts if isinstance(cfg.accounts, dict) else {}
+    _accounts_url = (
+        os.environ.get("AGENTD_ACCOUNTS_URL") or str(_accounts.get("api_base") or "")
+    ).strip()
+    cfg.hosted = cfg.multi_tenant or bool(
+        _accounts_url
+        and (os.environ.get("AGENTD_ACCOUNTS_URL") is not None or _accounts.get("enabled"))
+    )
+    if os.environ.get("AGENTD_HOSTED"):
+        cfg.hosted = os.environ["AGENTD_HOSTED"].lower() not in ("0", "false", "no", "")
     for _env, _field in (
         ("AGENTD_MAX_TENANTS", "max_tenants"),
         ("AGENTD_TENANT_IDLE_SECONDS", "tenant_idle_seconds"),

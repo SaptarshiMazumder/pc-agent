@@ -12,9 +12,8 @@ template's own README for the rest.
 
 from __future__ import annotations
 
-from agent_runtime.application.interfaces.tool import Tool, ToolResult
-
 from agent_authoring.application.scaffold_ui_service import ScaffoldError
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class ScaffoldUiTool(Tool):
