@@ -1,14 +1,16 @@
-# Stage 1 - Validate. Runs on every push / PR to develop or main.
+# Stage 1 - Validate. MANUAL ONLY — this never starts by itself.
 # This mirrors `v2/scripts/verify.ps1` exactly: if verify.ps1 is green locally, this goes green too.
+#
+# NO automatic trigger (2026-08-08, user's call): not on push, not on pull_request. A push to
+# develop is a DEPLOY, and nothing test-shaped should run beside it or on the PR that leads to it.
+# Testing happens locally via verify.ps1, or here when you click Run workflow.
+# To restore automation, add back a `pull_request:` (and/or `push:`) block with:
+#     branches: [develop, main]
+#     paths: ["v2/**", ".github/workflows/ci-fast-tests.yml"]
 name: CI fast tests
 
 on:
-  push:
-    branches: [develop, main]
-    paths: ["v2/**", ".github/workflows/ci-fast-tests.yml"]
-  pull_request:
-    branches: [develop, main]
-    paths: ["v2/**", ".github/workflows/ci-fast-tests.yml"]
+  workflow_dispatch: {} # the ONLY trigger — Actions tab -> this workflow -> Run workflow
 
 # Cancel an in-progress run when a newer commit lands on the same branch/PR (saves minutes).
 concurrency:
