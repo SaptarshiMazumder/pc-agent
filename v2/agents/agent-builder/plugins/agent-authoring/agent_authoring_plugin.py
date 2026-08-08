@@ -1,0 +1,129 @@
+"""agent-authoring — the bundle's COMPOSITION ROOT.
+
+The only place in this bundle that wires anything: it reads the handles off PluginContext, builds
+the rules -> services -> adapters -> tools chain, and registers the four tools. Every class below
+is constructor-injected, so each is unit-testable without a daemon.
+
+Layout note: the layered code lives under the ``agent_authoring/`` package rather than bare
+``domain/`` + ``application/`` folders, because the loader does ``sys.path.insert(0, <plugin dir>)``
+for EVERY plugin — generic top-level package names would collide between bundles. One uniquely
+named package keeps the layering visible and the namespace safe.
+
+All four tools are ungated. The two that AUTHOR (create_agent, create_tool) used to sit behind
+the agent_workshop / tool_workshop config flags; they no longer need to, because this bundle is
+PRIVATE to the agent-builder agent — only that agent can call them, which is the boundary those
+flags were approximating from a distance.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+log = logging.getLogger("agentd")
+
+# agents/agent-builder/ — this file sits at <that>/plugins/agent-authoring/. Knowing the
+# product's layout is the composition root's job; the service below takes the two roots as
+# arguments so it can be pointed at a tmp dir in a test.
+AGENT_BUILDER_DIR = Path(__file__).resolve().parents[2]
+TEMPLATE_ROOT = AGENT_BUILDER_DIR / "skills" / "build-agent" / "templates"
+BORROW_ROOT = AGENT_BUILDER_DIR / "ui"
+
+
+def register(api, ctx):
+    registry = getattr(ctx, "registry", None)
+    if registry is None:
+        return  # every tool here is meaningless without the agent roster
+
+    from agent_authoring.application.package_agent_service import PackageAgentService
+    from agent_authoring.application.reload_agent_service import ReloadAgentService
+    from agent_authoring.application.scaffold_ui_service import ScaffoldUiService
+    from agent_authoring.application.validate_agent_service import ValidateAgentService
+    from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
+    from agent_authoring.domain.bundle_defaults import BundleDefaults
+    from agent_authoring.domain.packageability_rules import PackageabilityRules
+    from agent_authoring.domain.sandbox_rules import SandboxRules
+    from agent_authoring.domain.ui_template import UiTemplates
+    from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
+    from agent_authoring.infrastructure.agent_packer import AgentPacker
+    from agent_authoring.infrastructure.registry_reload_adapter import RegistryReloadAdapter
+    from agent_authoring.presentation.create_agent_tool import CreateAgentTool
+    from agent_authoring.presentation.package_agent_tool import PackageAgentTool
+    from agent_authoring.presentation.reload_agent_tool import ReloadAgentTool
+    from agent_authoring.presentation.scaffold_ui_tool import ScaffoldUiTool
+    from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
+
+    # --- AUTHOR ---------------------------------------------------------------------
+    api.register_tool(CreateAgentTool(registry))
+
+    # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
+    # the tool would write a file that never becomes callable. Register nothing rather than that.
+    register_plugin_live = getattr(ctx, "register_plugin_live", None)
+    if register_plugin_live is not None:
+        from agent_authoring.presentation.create_tool_tool import CreateToolTool
+
+        api.register_tool(CreateToolTool(ctx.config, register_plugin_live, registry))
+    else:
+        log.info("agent-authoring: no live-reload handle — create_tool not registered")
+
+    # --- START THE APP FROM SOMETHING THAT WORKS -------------------------------------
+    # Registered next to create_agent because it is the same kind of step: create_agent makes
+    # the agent exist, scaffold_ui makes its window exist. Both hand back a working starting
+    # point and say what to do next; neither tries to author the whole thing.
+    reader = AgentDirReader(registry)
+    templates = UiTemplates()
+    api.register_tool(
+        ScaffoldUiTool(
+            ScaffoldUiService(reader, templates, TEMPLATE_ROOT, BORROW_ROOT),
+            templates,
+        )
+    )
+
+    # --- CHECK ----------------------------------------------------------------------
+    # The UI rules are told the real vocabulary rather than keeping their own copy: event
+    # names from the runtime's domain, callable methods from the gateway's app tier. A second
+    # copy would be one more thing to drift — which is the exact class of bug they exist to
+    # catch (a skill that listed an event nobody emits produced a UI with every branch dead).
+    from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
+
+    from agent_authoring.domain.ui_rules import UiRules
+
+    validator = ValidateAgentService(
+        reader,
+        AgentLayoutRules(),
+        PackageabilityRules(),
+        SandboxRules(),
+        UiRules(
+            events=APP_FACING_EVENTS,
+            kinds=MESSAGE_UPDATE_KINDS,
+            methods=frozenset(APP_SCOPED_METHODS),
+            sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
+        ),
+    )
+    api.register_tool(ValidateAgentTool(validator))
+
+    # --- SHIP -----------------------------------------------------------------------
+    # The SAME validator instance the tool exposes — packaging gates on it, so "what
+    # validate_agent told you" and "what package_agent refuses on" can never diverge.
+    api.register_tool(
+        PackageAgentTool(
+            PackageAgentService(
+                reader,
+                AgentPacker(ctx.config),
+                BundleDefaults(),
+                validator,
+            )
+        )
+    )
+
+    # --- ACTIVATE -------------------------------------------------------------------
+    # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
+    # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
+    # and reports honestly which steps it managed.
+    broadcast = getattr(ctx, "broadcast_agents_changed", None)
+    reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
+    api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
+
+    if broadcast is None:
+        log.info("agent-authoring: no broadcast handle — reload_agent will not refresh clients")

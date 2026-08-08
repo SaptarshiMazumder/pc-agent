@@ -1,0 +1,237 @@
+@startuml llm-path-local-vs-cloud
+title agentd — reaching the LLM: **Local (BYOK)** vs **Cloud (platform keys)**\nSame classes. Same wiring. One flag differs.
+
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam class {
+  BackgroundColor White
+  BorderColor #444
+  ArrowColor #444
+}
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #999
+}
+
+' ─────────────────────────── PRESENTATION ───────────────────────────
+package "presentation/" #EAF3FB {
+  class Gateway {
+    +serve()
+    -_handle_conn(ws)
+    -_run(handle, message)
+    --
+    websockets.serve(:8787)
+    transport only
+  }
+}
+
+' ─────────────────────────── APPLICATION ────────────────────────────
+package "application/  «no infrastructure imports»" #EEF7EE {
+  interface AgentEngine <<port>> {
+    +run(messages, system_prompt, tools, model, on_event, abort)
+  }
+
+  class AgentService {
+    -_engine : AgentEngine
+    -_tools
+    -_registry
+    +handle(message, session_key, agent_id)
+    --
+    orchestration only:
+    load history → prompt → run → persist
+  }
+
+  class tool_models <<module>> {
+    +brain_model(config) : str
+    CONFIG-ONLY
+  }
+}
+
+' ───────────────────────────── DOMAIN ───────────────────────────────
+package "domain/" #FDF6E3 {
+  class Message
+  class ImageContent
+  class AgentSpec
+  class AgentEvent
+}
+
+' ────────────────────────── INFRASTRUCTURE ──────────────────────────
+package "infrastructure/engine/" #FBEEF3 {
+  class NativeEngine <<adapter>> {
+    -_stream_fn : StreamFn
+    -_model : str
+    -_model_router
+    +run(...)
+    --
+    run_agent_loop():
+    active_model = model_router(model, msgs)
+    async for ev in stream_fn(...)
+  }
+}
+
+package "infrastructure/llm/" #FBEEF3 {
+  class CostEfficiencyRouter {
+    -text_model
+    -vision_model
+    +__call__(default_model, messages) : str
+    --
+    image in outgoing ctx ?
+      vision_model : text_model
+  }
+
+  class failover <<module>> {
+    +make_failover_stream(inner, fallbacks) : StreamFn
+    --
+    clean error before any output
+    → retry next candidate model
+  }
+
+  class litellm_stream <<function>> {
+    +(model, system_prompt, messages, tools, abort)
+    --
+    1. messages_to_litellm(...)
+    2. build kwargs{model, messages, tools, stream}
+    3. model_gateway.apply(kwargs)   ← THE SEAM
+    4. await litellm.acompletion(**kwargs)
+    5. chunks → text_delta/thinking_delta/
+       toolcall_end/done
+  }
+
+  class model_gateway <<module>> {
+    -_enabled : bool
+    -_api_base : str
+    -_api_key : str
+    +configure(config)
+    +apply(kwargs) : dict
+    --
+    process-wide, set ONCE at boot
+  }
+
+  class oneshot <<module>> {
+    +text_complete(...)
+    +vision_complete(...)
+    also calls model_gateway.apply()
+  }
+}
+
+' ───────────────────────── COMPOSITION ROOT ─────────────────────────
+package "main/container.py  «composition root»" #F2F2F2 {
+  class build_gateway <<function>> {
+    stream_fn = partial(litellm_stream, ...)
+    stream_fn = make_failover_stream(stream_fn, fallbacks)
+    model_gateway.configure(config)      ← decides the mode
+    engine = NativeEngine(stream_fn, brain_model(config),
+                          model_router=build_model_router(config))
+    AgentService(engine=engine, ...)
+  }
+}
+
+' ───────────────────────── EXTERNAL / VENDOR ────────────────────────
+package "vendor (pip: litellm>=1.60)" #F5F5F5 {
+  class "litellm library" as LIB {
+    +acompletion(**kwargs)
+    --
+    model prefix → provider
+    reads KEY from os.environ
+  }
+}
+
+' ══════════════════ THE ONLY DIVERGENCE — SIDE BY SIDE ══════════════
+package "◀ LOCAL  (BYOK — default)" #E8F5E9 {
+  class ".env on the user's machine" as LOCALENV {
+    GEMINI_API_KEY=...
+    ANTHROPIC_API_KEY=...
+  }
+  class "Provider API" as PROV1 {
+    generativelanguage.googleapis.com
+    api.anthropic.com
+  }
+}
+
+package "▶ CLOUD  (platform keys)" #E3F2FD {
+  class "gateway container\n«separate microservice»" as PROXY {
+    litellm[proxy]==1.88.1
+    :4000
+    --
+    litellm.config.yaml:
+      model_list: "*" → "*"   (pure passthrough)
+    custom_auth.py:
+      master key | accounts session token
+      AccountsUsageLogger → POST /usage
+    --
+    holds OUR provider keys
+  }
+  class "accounts container" as ACCT {
+    :4100  /resolve  /usage
+  }
+  class "Provider API" as PROV2 {
+    same providers, our keys
+  }
+}
+
+' ───────────────────────────── RELATIONS ────────────────────────────
+Gateway --> AgentService : delegates chat.send
+AgentService o--> AgentEngine : injected «port»
+NativeEngine ..|> AgentEngine : implements
+AgentService ..> Message
+AgentService ..> AgentSpec
+Gateway ..> AgentEvent : broadcasts chat.event
+
+NativeEngine --> CostEfficiencyRouter : active_model per iteration
+CostEfficiencyRouter ..> ImageContent : trigger to escalate
+NativeEngine --> litellm_stream : stream_fn(...)
+failover ..> litellm_stream : wraps
+litellm_stream ..> Message : messages_to_litellm()
+
+litellm_stream --> model_gateway : apply(kwargs)
+oneshot --> model_gateway : apply(kwargs)
+litellm_stream --> LIB : acompletion(**kwargs)
+
+build_gateway ..> NativeEngine : constructs
+build_gateway ..> AgentService : constructs
+build_gateway ..> model_gateway : configure(config)
+build_gateway ..> tool_models : brain_model(config)
+build_gateway ..> failover : make_failover_stream
+
+' ---- LOCAL tail ----
+model_gateway -[#2E7D32,bold]-> LIB : **_enabled = False**\n**kwargs UNTOUCHED**
+LIB -[#2E7D32,bold]-> LOCALENV : reads user's key
+LIB -[#2E7D32,bold]-> PROV1 : direct HTTPS
+
+' ---- CLOUD tail ----
+model_gateway -[#1565C0,bold]-> LIB : **_enabled = True**\nmodel → litellm_proxy/<model>\napi_base → _api_base\napi_key → session token\nuser → account_id
+LIB -[#1565C0,bold]-> PROXY : HTTPS (OpenAI wire format)
+PROXY -[#1565C0,bold]-> ACCT : GET /resolve (authN)\nPOST /usage (metering)
+PROXY -[#1565C0,bold]-> PROV2 : HTTPS with OUR key
+
+note as N1
+  **What actually differs between the two modes**
+  Exactly one thing: the value of ``model_gateway._enabled``.
+
+  Every class above the seam — Gateway, AgentService, AgentEngine,
+  NativeEngine, CostEfficiencyRouter, failover, litellm_stream —
+  is byte-identical in both modes and cannot observe which is active.
+  That is why "desktop and hosted run the SAME code".
+end note
+
+note as N2
+  **Model SELECTION is never duplicated.**
+  The daemon decides *which* model (brain_model → CostEfficiencyRouter → failover).
+  The proxy decides *whether you may* and *who pays* — its model_list is "*" → "*".
+  No routing logic exists on both sides.
+end note
+
+note as N3
+  **"Cloud" ≠ "daemon runs in AWS".**
+  A LOCAL desktop daemon that signed in (platform.connect wrote the
+  session token to ~/.agentd/.env) takes the BLUE path to the hosted
+  gateway container. The switch is BYOK-vs-platform-keys, not where
+  the daemon runs.
+end note
+
+N1 .. model_gateway
+N2 .. PROXY
+N3 .. PROXY
+
+@enduml

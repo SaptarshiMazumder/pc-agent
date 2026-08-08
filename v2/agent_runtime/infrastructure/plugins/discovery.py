@@ -208,7 +208,14 @@ def _compatible(manifest) -> bool:
     oses = req.get("os") or []
     if oses and sys.platform not in oses and _os_family(sys.platform) not in oses:
         return False
-    if any(shutil.which(b) is None for b in req.get("bins", [])):
+    # Resolve declared binaries against the SAME PATH the plugin's subprocess will get —
+    # which includes this interpreter's script dir, where a pip-installed launcher lands.
+    # Checking the ambient PATH instead would judge a correctly-installed `uvx` missing and
+    # skip the plugin, while the spawner would have found it perfectly well.
+    from agent_runtime.runtime_paths import launcher_path
+
+    child_path = launcher_path()
+    if any(shutil.which(b, path=child_path) is None for b in req.get("bins", [])):
         return False
     if any(not os.environ.get(e) for e in req.get("env", [])):
         return False

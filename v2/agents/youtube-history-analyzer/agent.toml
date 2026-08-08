@@ -1,0 +1,14 @@
+name = "YouTube History Analyzer"
+version = "1.0.0"
+description = "Finds and visualizes your YouTube watch history over any time range."
+tagline = "Let's turn your watch time into beautiful insights."
+color = "#FF0000"
+suggestions = [
+  "Graph my YouTube watch history from last month",
+  "Show my top 5 watched channels for this year",
+  "How much YouTube did I watch last week?"
+]
+
+[tools]
+# Ensure the agent has standard tools enabled
+allow = ["*"]

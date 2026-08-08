@@ -1,0 +1,42 @@
+@startuml agent-builder-config
+' Render (from this folder):
+'   java -jar ../../../../plantuml.jar -tpng agent-builder-config.puml
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 13
+skinparam ArrowColor #555555
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+
+title Which model actually runs?
+
+start
+
+:agent X gets a message;
+
+if (does X have its own settings,\nwith "override JARVIS" ON?) then (yes)
+  #C8E6C9:use **X's** settings;
+else (no)
+  :use **JARVIS's** settings;
+endif
+
+if (cost efficiency ON?) then (yes)
+  :use the **cheap model**\nfrom those settings;
+else (no)
+  :use the **model**\nfrom those settings;
+endif
+
+if (that model failed?) then (yes)
+  :try the **fallback models**;
+else (no)
+endif
+
+:answer;
+
+stop
+
+@enduml

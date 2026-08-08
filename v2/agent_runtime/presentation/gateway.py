@@ -104,8 +104,44 @@ APP_SCOPED_METHODS = frozenset(
         "platform.setModelProxyUrl",
         # Deprecated compatibility method for pre-rename desktop clients.
         "platform.setGatewayUrl",
+        # SETTINGS. An agent app renders its own settings page — above all BYOK: the user
+        # pastes their provider key and the agent works. That is configuration OF the local
+        # daemon by its own user, not administration of the backend, so it belongs here.
+        # config.get REDACTS its secret-bearing fields for an INSTALLED agent (see
+        # _config_get): a page that ships inside a downloaded package must never be able to
+        # read the key back out and post it somewhere — there is no CSP on /apps/ pages.
+        # config.set needs no such split; its allowlist already ignores everything outside
+        # EXPOSED_CONFIG_KEYS.
+        "config.get",
+        "config.set",
     }
 )
+
+# CROSS-AGENT READS — the ONE exception to "an app can never act as another agent".
+#
+# Every scoped request normally has its `agentId` OVERWRITTEN with the connection's own agent
+# (see _handle_request), which is what stops a product window — weather's dashboard, a
+# downloaded agent's UI — from reading anything else on the machine. Agent Builder is the one
+# window whose entire job is looking at OTHER agents: it has to show you the agent it just
+# built. So it, and only it, may name a different agent on these methods.
+#
+# HARDCODED ON PURPOSE. Not config, not env, not agent.toml — there is no input an agent could
+# write to add itself here. Changing this list means changing this file.
+#
+# READS ONLY. chat.send, sessions.delete, workspace.delete/upload/mkdir are deliberately
+# absent: reading about another agent is the feature, acting or destroying as one is not.
+CROSS_AGENT_READS: dict[str, frozenset[str]] = {
+    "agent-builder": frozenset(
+        {
+            "agents.detail",
+            "sessions.list",
+            "sessions.history",
+            "workspace.list",
+            "tools.list",
+            "capabilities.list",
+        }
+    ),
+}
 
 # The PUBLIC tier (hosted deployments): what an UNAUTHENTICATED connection scoped to an
 # agent whose [app] declares `public = true` may call. A strict subset of the scoped tier —
@@ -479,9 +515,7 @@ EXPOSED_CONFIG_KEYS = (
     "memory_auto_recall",
     "memory_auto_recall_limit",
     "skill_workshop",
-    "agent_workshop",
     "mcp_workshop",
-    "tool_workshop",
     "agent_messaging_enabled",
     "autonomy_enabled",
     "heartbeat_default_interval",
@@ -504,6 +538,11 @@ EXPOSED_CONFIG_KEYS = (
     "skills_relevance_enabled",
     "plugins",
     "app_hosts",
+    # Per-agent overrides, {agent_id: {override_default, model, ...}}. Exposing it is the WHOLE
+    # backend change for per-agent settings: _config_get returns every key in this tuple and
+    # _config_set merges + hot-applies every writable one, so a settings page can read and
+    # write the agent layer through the calls it already makes.
+    "agents",
 )
 WRITABLE_CONFIG_KEYS = frozenset(EXPOSED_CONFIG_KEYS)
 PATH_CONFIG_KEYS = frozenset({"workspace", "state_dir", "skills_dir", "agents_dir"})
@@ -540,9 +579,7 @@ EXPOSED_KEY_ENV = {
     "memory_auto_recall": "AGENTD_MEMORY_AUTO_RECALL",
     "memory_auto_recall_limit": "AGENTD_MEMORY_AUTO_RECALL_LIMIT",
     "skill_workshop": "AGENTD_SKILL_WORKSHOP",
-    "agent_workshop": "AGENTD_AGENT_WORKSHOP",
     "mcp_workshop": "AGENTD_MCP_WORKSHOP",
-    "tool_workshop": "AGENTD_TOOL_WORKSHOP",
     "agent_messaging_enabled": "AGENTD_AGENT_MESSAGING",
     "autonomy_enabled": "AGENTD_AUTONOMY",
     "heartbeat_default_interval": "AGENTD_HEARTBEAT_INTERVAL",
@@ -570,6 +607,17 @@ EXPOSED_KEY_ENV = {
 # extends this, and whatever models are actually in use are always merged in (below), so a
 # custom/uncommon model never disappears from the picker.
 DEFAULT_MODEL_CATALOG = (
+    {"value": "gemini/gemini-pro-latest", "label": "Gemini Pro (latest)"},
+    {"value": "gemini/gemini-flash-latest", "label": "Gemini Flash (latest)"},
+    {"value": "gemini/gemini-flash-lite-latest", "label": "Gemini Flash Lite (latest)"},
+    {"value": "gemini/gemini-3.6-flash", "label": "Gemini 3.6 Flash"},
+    {"value": "gemini/gemini-3.5-flash", "label": "Gemini 3.5 Flash"},
+    {"value": "gemini/gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash Lite"},
+    {"value": "gemini/gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite"},
+    {"value": "gemini/gemini-3-pro-preview", "label": "Gemini 3 Pro"},
+    {"value": "gemini/gemini-3-flash-preview", "label": "Gemini 3 Flash"},
+    {"value": "gemini/gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite"},
+    {"value": "gemini/gemini-2.0-flash-lite", "label": "Gemini 2.0 Flash Lite"},
     {"value": "gemini/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro"},
     {"value": "gemini/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
     {"value": "gemini/gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
@@ -578,6 +626,19 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5"},
     {"value": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5"},
     {"value": "anthropic/claude-3-5-sonnet-latest", "label": "Claude 3.5 Sonnet"},
+    {"value": "openai/gpt-5.6-sol", "label": "GPT-5.6 Sol"},
+    {"value": "openai/gpt-5.6-luna", "label": "GPT-5.6 Luna"},
+    {"value": "openai/gpt-5.6-terra", "label": "GPT-5.6 Terra"},
+    {"value": "openai/gpt-5.5-pro", "label": "GPT-5.5 Pro"},
+    {"value": "openai/gpt-5.5", "label": "GPT-5.5"},
+    {"value": "openai/gpt-5.4-pro", "label": "GPT-5.4 Pro"},
+    {"value": "openai/gpt-5.4", "label": "GPT-5.4"},
+    {"value": "openai/gpt-5.4-mini", "label": "GPT-5.4 mini"},
+    {"value": "openai/gpt-5.4-nano", "label": "GPT-5.4 nano"},
+    {"value": "openai/gpt-5.2-pro", "label": "GPT-5.2 Pro"},
+    {"value": "openai/gpt-5.2", "label": "GPT-5.2"},
+    {"value": "openai/gpt-5.1", "label": "GPT-5.1"},
+    {"value": "openai/gpt-5-pro", "label": "GPT-5 Pro"},
     {"value": "openai/gpt-5", "label": "GPT-5"},
     {"value": "openai/gpt-5-mini", "label": "GPT-5 mini"},
     {"value": "openai/gpt-4.1", "label": "GPT-4.1"},
@@ -2092,7 +2153,11 @@ class Gateway:
                         "error": f"method '{req.method}' is not available to app connections"
                     },
                 )
-            req.params["agentId"] = scope
+            # …unless this (agent, method) pair is an explicit CROSS_AGENT_READ, in which case
+            # the caller's own agentId stands. Everything else — and every write, for everyone —
+            # is forced back to self.
+            if req.method not in CROSS_AGENT_READS.get(scope, ()):
+                req.params["agentId"] = scope
         try:
             if req.method == "chat.send":
                 payload = await self._chat_send(req.params, client_id, account)
@@ -2101,7 +2166,7 @@ class Gateway:
             elif req.method == "hello":
                 payload = self._hello(req.params)
             elif req.method == "config.get":
-                payload = self._config_get()
+                payload = self._config_get(scope)
             elif req.method == "config.set":
                 payload = self._config_set(req.params)
             elif req.method == "sessions.list":
@@ -3222,7 +3287,15 @@ class Gateway:
 
     def _workspace_root(self, params: dict):
         """(root Path, error) — the workspace root these ops act on: projectId wins, else
-        agentId (default main). None root + a message when the entity doesn't exist."""
+        agentId (default main). None root + a message when the entity doesn't exist.
+
+        ``root="definition"`` switches from the agent's WORKSPACE (its output, user data) to
+        its DEFINITION directory — agent.toml, IDENTITY.md, skills/, plugins/, ui/. Those are
+        the files that appear while an agent is being BUILT, and they live one level ABOVE the
+        workspace, so no amount of browsing the workspace ever reaches them. Read-only in
+        practice: the mutating ops (mkdir/upload/delete) all resolve through here too, but
+        only Agent Builder can point them at another agent, and CROSS_AGENT_READS grants it
+        no mutating method."""
         project_id = (params.get("projectId") or "").strip()
         if project_id:
             from agent_runtime.infrastructure.memory import projects_store
@@ -3231,6 +3304,16 @@ class Gateway:
                 return None, "unknown project"
             return projects_store.project_workspace_dir(self._projects_root(), project_id), ""
         agent_id = (params.get("agentId") or "").strip() or "main"
+        if (params.get("root") or "").strip() == "definition":
+            if self.registry is None:
+                return None, "no agent registry"
+            try:
+                agent_dir = getattr(self.registry.get(agent_id), "dir", None)
+            except KeyError:
+                return None, f"unknown agent: {agent_id}"
+            if not agent_dir:
+                return None, f"agent '{agent_id}' has no directory on disk"
+            return Path(agent_dir), ""
         acct = accounts.account_id()
         if acct:  # HOSTED: browse THIS account's own per-agent workspace
             return user_state.account_workspace(self.config.state_dir, acct, agent_id), ""
@@ -3251,6 +3334,10 @@ class Gateway:
             return None
         return p
 
+    # Never shown when browsing an agent's DEFINITION: `workspace/` is the other root and has
+    # its own listing, and the caches are noise nobody authored.
+    DEFINITION_HIDDEN = frozenset({"workspace", "__pycache__", ".git", ".pytest_cache"})
+
     def _workspace_list(self, params: dict) -> dict:
         """One directory's entries (lazy tree node): dirs first, then files, name-sorted.
         Each entry: {name, kind(folder|image|video|audio|file), size, modified, rel, path}.
@@ -3264,6 +3351,11 @@ class Gateway:
         d = self._ws_resolve(root, rel)
         if d is None or not d.is_dir():
             return {"entries": [], "error": "not a directory"}
+        hidden = (
+            self.DEFINITION_HIDDEN
+            if (params.get("root") or "").strip() == "definition"
+            else frozenset()
+        )
         dirs: list = []
         files: list = []
         try:
@@ -3271,6 +3363,8 @@ class Gateway:
         except OSError:
             children = []
         for p in children[:500]:
+            if p.name in hidden:
+                continue
             try:
                 st = p.stat()
             except OSError:
@@ -3504,10 +3598,27 @@ class Gateway:
         except ValueError as e:
             return {"created": False, "error": str(e)}
         # show it right away, then fill colour/tagline in the background
-        await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
+        await self._broadcast_agents_changed()
         asyncio.create_task(self._maybe_generate_presentations())
         log.info("agents.create %s (%s)", spec.id, name or spec.id)
         return {"created": True, "agentId": spec.id, "name": spec.name}
+
+    async def _broadcast_agents_changed(self) -> None:
+        """Tell every connected client the agent ROSTER changed, so it redraws its list."""
+        await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
+
+    def broadcast_agents_changed(self) -> None:
+        """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
+
+        A plugin that alters the roster (agent-builder's reload_agent) runs inside ordinary
+        synchronous tool code, so it cannot await. The send is scheduled on the running loop
+        instead — a notification nobody waits on. Outside a loop (unit tests) it is a no-op,
+        which is why the plugin treats the handle as best-effort."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self._broadcast_agents_changed())
 
     def _workspace_cleanup(self, params: dict) -> dict:
         """Tidy an agent's workspace: delete scratch (all of <workspace>/tmp/) + any file
@@ -3823,10 +3934,32 @@ class Gateway:
         except Exception:
             return False
 
-    def _config_get(self) -> dict:
+    def _is_installed_agent(self, agent_id: str) -> bool:
+        """Did this agent arrive inside a downloaded .agentpkg, rather than ship with the
+        product / get authored here? The installer's ledger decides — never the agent's own
+        files — so a package cannot vouch for itself. Same rule the plugin sandbox uses.
+
+        FAILS CLOSED: an unreadable ledger returns True, so a broken ledger redacts rather
+        than leaks."""
+        if not agent_id:
+            return False  # a host connection, not an app
+        from pathlib import Path
+
+        from agent_runtime.infrastructure.marketplace.installed_store import JsonInstalledStore
+
+        ids = JsonInstalledStore(
+            Path(self.config.state_dir) / "installed_bundles.json"
+        ).installed_ids()
+        return True if ids is None else agent_id in ids
+
+    def _config_get(self, scope: str | None = None) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
         of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
-        UI can reveal a saved key), the config file path, and the raw file text (Advanced editor)."""
+        UI can reveal a saved key), the config file path, and the raw file text (Advanced editor).
+
+        ``scope`` is the agent id when this comes from an APP window. A window belonging to an
+        INSTALLED agent gets the settings surface with every secret-bearing field removed — see
+        _redact_for_installed_agent for what and why."""
         import json
 
         cfg = self.config
@@ -3847,7 +3980,7 @@ class Gateway:
                 raw = json.dumps(json.loads(raw), indent=2) + "\n"
             except ValueError:
                 pass
-        return {
+        payload = {
             "path": str(path),
             "exists": path.is_file(),
             "envPath": str(path.parent / ".env"),
@@ -3873,6 +4006,34 @@ class Gateway:
             # API-Keys section read-only. Edits are also refused server-side (see _config_set (c)).
             "keysLocked": self._platform_keys_locked(),
         }
+        return self._redact_for_installed_agent(payload, scope)
+
+    @staticmethod
+    def _redact_secret_fields(payload: dict) -> dict:
+        """Strip every field that hands out a secret or the shape of this machine.
+
+        Not just `envValues`. An app window is a page that may have shipped inside someone
+        else's package, and /apps/ pages have no CSP — so anything readable is exfiltratable:
+
+          envValues  the provider keys themselves
+          raw        the WHOLE config file text (the Advanced editor's payload — whatever the
+                     user keeps in there, including keys they pasted by hand)
+          path       absolute path of the config file
+          envPath    absolute path of the .env
+
+        What survives is what a settings page actually needs: `values` (the curated
+        EXPOSED_CONFIG_KEYS), `env` presence booleans, catalogs, and the platform indicators.
+        So BYOK still works — the page can say "no key set", take one, and save it through
+        config.set. It just can never read one back.
+        """
+        return {k: v for k, v in payload.items() if k not in ("envValues", "raw", "path", "envPath")}
+
+    def _redact_for_installed_agent(self, payload: dict, scope: str | None) -> dict:
+        """Host connections and locally-authored agents get everything; a DOWNLOADED agent's
+        window gets the redacted surface."""
+        if scope and self._is_installed_agent(scope):
+            return self._redact_secret_fields(payload)
+        return payload
 
     def _config_set(self, params: dict) -> dict:
         """Persist config edits. Three independent, composable inputs:

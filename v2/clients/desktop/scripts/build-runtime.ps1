@@ -58,9 +58,15 @@ if (-not (Test-Path $Python)) {
 # 3. install agentd (+ the mcp extra) straight INTO the standalone interpreter's
 #    site-packages. --force-reinstall so a re-run picks up a rebuilt wheel of the
 #    same version (the cpython dir is cached across runs).
+#
+#    The extra is requested BY NAME off the wheel — never by re-typing its contents here.
+#    This line used to read `pip install "mcp>=1.0"`, a hand-copied duplicate of the extra,
+#    and it silently drifted: pyproject's `mcp` extra gained the `uv` launcher, the Docker
+#    image installed it, and the desktop runtime kept installing only the client SDK. Result:
+#    every stdio MCP plugin (Gmail, Drive, Calendar) worked in the container and died in the
+#    shipped exe. One source of truth, so that cannot happen again.
 & $Python -m pip install --quiet --upgrade pip
-& $Python -m pip install --quiet --force-reinstall "$Wheel"
-& $Python -m pip install --quiet "mcp>=1.0"
+& $Python -m pip install --quiet --force-reinstall "${Wheel}[mcp]"
 
 # 4. smoke: the embedded runtime must import + report its version
 $version = & $Python -c "import agent_runtime; print(agentd.__version__)"

@@ -1,4 +1,12 @@
-"""Contract tests for the independently packaged ``v2/model_proxy`` service."""
+"""Contract tests for ``custom_auth`` — the model_proxy service's auth + metering hooks.
+
+These live WITH the service, not in v2/tests, because custom_auth imports litellm's PROXY
+internals (``litellm.proxy._types``). They must run against this service's pinned
+requirements.txt, not agentd's floating ``litellm`` (which carries no proxy extra).
+Run them from this directory:
+``pip install -r requirements.txt pytest pytest-asyncio && pytest`` — the same install the
+`model-proxy` CI job performs.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +18,8 @@ import pytest
 
 
 def _load_auth_module():
-    path = Path(__file__).resolve().parents[2] / "model_proxy" / "custom_auth.py"
+    # tests/ lives INSIDE the service, so the module is one level up.
+    path = Path(__file__).resolve().parents[1] / "custom_auth.py"
     spec = importlib.util.spec_from_file_location("agentd_model_proxy_custom_auth", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

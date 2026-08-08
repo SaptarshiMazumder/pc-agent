@@ -37,6 +37,36 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# The events an AGENT APP may build its UI on — the published contract, as opposed to every
+# name the engine happens to emit. ONE definition, because three things need the same answer
+# and drifting between them is how a generated UI ends up listening for an event that will
+# never fire: the build-agent skill teaches it, its drift test guards it against the source,
+# and validate_agent checks generated app.js against it.
+#
+# Excluded on purpose: `message_start` (bookkeeping), `subagent_event` and `safe_to_send`
+# (internal relay/gating). Adding a name here publishes it — the skill must then document it.
+APP_FACING_EVENTS = frozenset(
+    {
+        "agent_start",
+        "turn_start",
+        "message_update",
+        "tool_execution_start",
+        "tool_progress",
+        "tool_execution_end",
+        "message_end",
+        "model_trace",
+        "model_fallback",
+        "continuation",
+        "turn_end",
+        "agent_end",
+    }
+)
+
+# The `kind` discriminator on a message_update — the second thing a UI switches on, and the
+# one a generated UI got wrong by inventing "message_delta" as a top-level event instead.
+MESSAGE_UPDATE_KINDS = frozenset({"text_delta", "thinking_delta", "toolcall"})
+
+
 @dataclass
 class AgentEvent:
     """One progress notification.

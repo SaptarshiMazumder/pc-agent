@@ -1,0 +1,150 @@
+@startuml agent-builder-phase1-flow
+' ============================================================================
+'  AGENT BUILDER - PHASE 1 (the conventions spec)
+'  Activity-flowchart view of ONE "build me an agent" request through the layers.
+'  GREEN partitions/steps = NEW in this phase. Everything else already exists.
+'  Render (from this folder):
+'    java -jar ../../../../plantuml.jar -tpng agent-builder-phase1-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Agent Builder - PHASE 1: the conventions spec\nHow "build me an agent" reaches the model, and how the spec gets into its context
+
+start
+
+partition "1 . DESKTOP CLIENT - React UI" #E8F0FE {
+  :User types "build me an agent that summarizes expenses";
+  :**store.ts :: sendMessage()**\nGatewayClient.request("chat.send")\n{sessionKey, message, agentId: "main"};
+}
+
+partition "2 . PRESENTATION - Gateway (gateway.py)" #FDECEA {
+  :**Gateway._chat_send()**\nidempotency + ACTIVE-RUN check\n(one run per sessionKey);
+  :create **RunHandle** {runId, sessionKey, abort};
+  :`asyncio.create_task(Gateway._run(...))`\nreturn `res {runId}` immediately;
+}
+
+partition "3 . APPLICATION - AgentService" #E6F4EA {
+  :**AgentService.handle_message()**;
+  :resolve agent via injected **AgentRegistry** port;
+}
+
+partition "4 . INFRASTRUCTURE - registry" #F3E8FF {
+  :**FileAgentRegistry.get("main")**  (file_registry.py)\n-> **AgentSpec** {skills_dir, skills_allow};
+}
+
+partition "5 . INFRASTRUCTURE - skill discovery  (READ FRESH EVERY TURN)" #F3E8FF {
+  :**container.resolve_skills(agent)**  (container.py)\n"a new SKILL.md takes effect next message";
+  :**load_skills_dir(agents/main/skills/)**  (file_skills.py)\nwalk every <name>/SKILL.md;
+}
+
+partition "5a . THE NEW ARTIFACT  <<PHASE 1>>" #C8E6C9 {
+  :**skills/build-agent/SKILL.md**\n<<NEW - the only thing this phase adds>>\n(authored under agents/main/; phase 5 moved it\nto the agents/agent-builder/ agent);
+  :**_parse_frontmatter()** reads\nname: build-agent\ndescription: use when asked to create an agent\nalways: false;
+  :-> **Skill**{name, description, path, always=false, body};
+}
+
+partition "6 . DOMAIN - pure selection rules (no I/O)" #FFF4E5 {
+  :**merge_skills(global, own)**  (agent.py)\nown overrides a global of the same name;
+  :**select_skills(skills, spec)**\nfilter by spec.skills_allow;
+  :**skill_eligible(skill, config)**\nrequires{bins, env, config} gate;
+}
+
+partition "7 . INFRASTRUCTURE - prompt assembly" #F3E8FF {
+  if (skill.always == true?) then (yes)
+    :inline the FULL body every turn;
+    note right
+      NOT used for build-agent.
+      The spec is long; inlining it
+      would burn context on every
+      unrelated chat.
+    end note
+  else (no  <-- build-agent)
+    :**_advertise_skills()**  (prompt.py)\nemit ONLY name + description + PATH\n+ "Do not guess a skill's contents from its name";
+  endif
+  :**build_system_prompt()**\nidentity + context + skill ADVERTS + tool schemas;
+}
+
+partition "8 . INFRASTRUCTURE - NativeEngine reason <-> act loop" #EDE7F6 {
+  :**run_agent_loop()**  (native.py);
+  :**litellm_stream()** -> provider completion args;
+}
+
+partition "9 . EXTERNAL MODEL PROVIDER" #E0F2F1 {
+  :`litellm.acompletion(stream=true)`;
+  :model sees: "build-agent - use when the user\nasks to create an agent -> <path>";
+}
+
+repeat
+switch (Model's next action?)
+
+case ( needs the spec )
+  partition "10 . INFRASTRUCTURE - local tool execution" #EDE7F6 {
+    :model emits tool call **read**{path: ".../build-agent/SKILL.md"};
+    :**ReadTool.execute()**  (core_fs/fs_tools.py)\n_resolve() -> absolute path, UNSANDBOXED;
+  }
+  partition "10a . THE SPEC ENTERS CONTEXT  <<PHASE 1>>" #C8E6C9 {
+    :**full SKILL.md body returned as ToolResultMessage**;
+    :model NOW knows:\nagent.toml schema ([app] / [tools] /\n[capabilities] / [subagents] /\n[plugins.<p>.tools.<t>])\nplugin.toml + entry="mod:register"\nskills/ and ui/ layout\nEXCLUDED_DIRS on packing;
+  }
+
+case ( already has the spec )
+  partition "11 . INFRASTRUCTURE - authoring" #EDE7F6 {
+    :model emits **write**{path, content} - one call per file;
+    :**WriteTool.execute()**\n`path.write_text(...)` - absolute paths pass\nstraight through, no sandbox;
+    :agents/<new-id>/ agent.toml | IDENTITY.md | AGENTS.md\n| skills/<n>/SKILL.md | ui/* | plugins/<pid>/*;
+  }
+
+endswitch
+
+repeat while (more files to author?) is (yes) not (no)
+
+partition "12 . LIVE OUTPUT - Presentation -> Desktop" #E3F2FD {
+  :every tool call broadcasts `tool_execution_start/end`\nas a `chat.event` frame to EVERY connected socket;
+  :user watches "read", "write", "write"... stream in;
+}
+
+stop
+
+note right
+  **PHASE 1 BOUNDARY**
+  What works after this phase:
+   - the model authors a COMPLETE, correctly-shaped agent
+   - skills it writes are live NEXT MESSAGE (read fresh per turn)
+   - a ui/ it writes is live PER REQUEST (_serve_app, no-store)
+
+  What is still MISSING (later phases):
+   - nothing CHECKS the result      -> phase 3 `validate_agent`
+   - agent.toml is not live yet     -> phase 3 `reload_agent`
+   - sidebar does not refresh       -> phase 3 broadcasts agents.changed
+   - a new tool lands GLOBALLY      -> phase 2 create_tool `agent` param
+end note
+
+legend left
+  | Colour | Meaning |
+  |<#C8E6C9> | **NEW in phase 1** - one markdown file, zero code |
+  |<#E8F0FE> | Desktop client (React, GatewayClient) |
+  |<#FDECEA> | Presentation - Gateway, RunHandle |
+  |<#E6F4EA> | Application - AgentService, injected ports |
+  |<#FFF4E5> | Domain - pure rules, no I/O |
+  |<#F3E8FF> | Infrastructure - registry, skills, prompt |
+  |<#EDE7F6> | Infrastructure - NativeEngine + tool execution |
+  |<#E0F2F1> | External model provider |
+endlegend
+
+@enduml

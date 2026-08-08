@@ -25,4 +25,7 @@ class AgentEngine(Protocol):
         abort,
         session=None,
         model: str | None = None,  # per-turn model override (None = the engine's default)
+        model_router=None,  # per-turn brain ROUTER (None = the engine's default). Its partner:
+        # a router overwrites `model` on every turn, so passing one without the other means the
+        # override above is silently discarded. Callers that need neither pass neither.
     ) -> list[Message]: ...

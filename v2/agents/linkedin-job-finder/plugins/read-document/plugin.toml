@@ -1,0 +1,4 @@
+id = "read-document"
+name = "read_document"
+kind = "native"
+entry = "read_document:register"

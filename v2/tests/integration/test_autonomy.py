@@ -160,7 +160,8 @@ async def test_service_heartbeat_mode_assembly():
 
     class FakeEngine:
         async def run(
-            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None,
+            model_router=None,
         ):
             captured["tools"] = [getattr(t, "name", "") for t in tools]
 

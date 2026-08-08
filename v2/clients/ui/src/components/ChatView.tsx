@@ -21,10 +21,21 @@ const SUGGESTION_ICONS = [<Terminal size={15} key="t" />, <Check size={15} key="
 // how many attachments may ride a single message — enforced across picker, drop, and paste
 const MAX_ATTACHMENTS = 10
 
+// A file PASTED from the clipboard often has no usable name — a screenshot arrives as ''
+// or 'image.png'. The daemon falls back to the literal name "attachment", which has no
+// extension, so the saved file is not classified as an image and a vision model never sees
+// it AS one. Give it a name derived from its mime type instead.
+function attachmentName(f: File): string {
+  if (f.name && f.name.includes('.')) return f.name
+  const ext = (f.type.split('/')[1] || 'bin').split('+')[0].replace(/[^a-z0-9]/gi, '')
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  return `${f.name || 'pasted'}-${stamp}.${ext}`
+}
+
 function fileToAttachment(f: File): Promise<OutgoingAttachment> {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
-    r.onload = () => resolve({ name: f.name, mimeType: f.type || 'application/octet-stream', dataBase64: String(r.result).split(',')[1] || '' })
+    r.onload = () => resolve({ name: attachmentName(f), mimeType: f.type || 'application/octet-stream', dataBase64: String(r.result).split(',')[1] || '' })
     r.onerror = () => reject(r.error)
     r.readAsDataURL(f)
   })
@@ -156,7 +167,7 @@ export default function ChatView() {
     void sendMessage(text, atts.length ? atts : undefined)
   }
 
-  async function pickFiles(list: FileList | null) {
+  async function pickFiles(list: FileList | File[] | null) {
     if (!list || list.length === 0) return
     const room = MAX_ATTACHMENTS - pending.length
     if (room <= 0) return // already at the cap — the "Max N files" hint explains why
@@ -196,12 +207,21 @@ export default function ChatView() {
     void pickFiles(e.dataTransfer.files)
   }
 
-  // paste an image/file straight from the clipboard (Ctrl/Cmd+V) — text pastes unaffected
+  // paste an image/file straight from the clipboard (Ctrl/Cmd+V) — text pastes unaffected.
+  // `files` covers a copied FILE; a copied IMAGE (screenshot tool, "copy image" in a browser)
+  // can arrive only in `items` as a file-kind entry, with `files` empty — so read both, or
+  // pasting a screenshot silently does nothing.
   function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
-    if (e.clipboardData?.files?.length) {
-      e.preventDefault()
-      void pickFiles(e.clipboardData.files)
-    }
+    const dt = e.clipboardData
+    if (!dt) return
+    const fromItems = Array.from(dt.items || [])
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f)
+    const files = dt.files?.length ? Array.from(dt.files) : fromItems
+    if (!files.length) return // a plain text paste — leave it to the textarea
+    e.preventDefault()
+    void pickFiles(files)
   }
 
   // Safety net: without this, dropping a file that MISSES the chat area makes Electron
