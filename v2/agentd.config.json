@@ -7,6 +7,50 @@
   "_section_model_catalog": "The MENU of models the desktop Settings > Models dropdowns offer \u2014 the source of truth for the picker. Each entry: {value: litellm 'provider/model' id, label: display name}. The UI shows only entries whose provider API key is set in v2/.env (add a key to unlock its models); your currently-configured models always appear regardless. Edit freely \u2014 add, remove, relabel.",
   "model_catalog": [
     {
+      "value": "gemini/gemini-pro-latest",
+      "label": "Gemini Pro (latest)"
+    },
+    {
+      "value": "gemini/gemini-flash-latest",
+      "label": "Gemini Flash (latest)"
+    },
+    {
+      "value": "gemini/gemini-flash-lite-latest",
+      "label": "Gemini Flash Lite (latest)"
+    },
+    {
+      "value": "gemini/gemini-3.6-flash",
+      "label": "Gemini 3.6 Flash"
+    },
+    {
+      "value": "gemini/gemini-3.5-flash",
+      "label": "Gemini 3.5 Flash"
+    },
+    {
+      "value": "gemini/gemini-3.5-flash-lite",
+      "label": "Gemini 3.5 Flash Lite"
+    },
+    {
+      "value": "gemini/gemini-3.1-flash-lite",
+      "label": "Gemini 3.1 Flash Lite"
+    },
+    {
+      "value": "gemini/gemini-3-pro-preview",
+      "label": "Gemini 3 Pro"
+    },
+    {
+      "value": "gemini/gemini-3-flash-preview",
+      "label": "Gemini 3 Flash"
+    },
+    {
+      "value": "gemini/gemini-2.5-flash-lite",
+      "label": "Gemini 2.5 Flash Lite"
+    },
+    {
+      "value": "gemini/gemini-2.0-flash-lite",
+      "label": "Gemini 2.0 Flash Lite"
+    },
+    {
       "value": "gemini/gemini-3.1-pro-preview",
       "label": "Gemini 3.1 Pro"
     },
@@ -45,6 +89,58 @@
     {
       "value": "anthropic/claude-haiku-4-5",
       "label": "Claude Haiku 4.5"
+    },
+    {
+      "value": "openai/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol"
+    },
+    {
+      "value": "openai/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna"
+    },
+    {
+      "value": "openai/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra"
+    },
+    {
+      "value": "openai/gpt-5.5-pro",
+      "label": "GPT-5.5 Pro"
+    },
+    {
+      "value": "openai/gpt-5.5",
+      "label": "GPT-5.5"
+    },
+    {
+      "value": "openai/gpt-5.4-pro",
+      "label": "GPT-5.4 Pro"
+    },
+    {
+      "value": "openai/gpt-5.4",
+      "label": "GPT-5.4"
+    },
+    {
+      "value": "openai/gpt-5.4-mini",
+      "label": "GPT-5.4 mini"
+    },
+    {
+      "value": "openai/gpt-5.4-nano",
+      "label": "GPT-5.4 nano"
+    },
+    {
+      "value": "openai/gpt-5.2-pro",
+      "label": "GPT-5.2 Pro"
+    },
+    {
+      "value": "openai/gpt-5.2",
+      "label": "GPT-5.2"
+    },
+    {
+      "value": "openai/gpt-5.1",
+      "label": "GPT-5.1"
+    },
+    {
+      "value": "openai/gpt-5-pro",
+      "label": "GPT-5 Pro"
     },
     {
       "value": "openai/gpt-5",
@@ -411,7 +507,8 @@
     "agent-builder": {
       "model": "deepseek/deepseek-v4-pro",
       "cost_efficiency": {
-        "enabled": true
+        "enabled": true,
+        "text_model": "openai/gpt-5.6-sol"
       }
     }
   }

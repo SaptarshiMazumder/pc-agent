@@ -1,18 +1,21 @@
-/* The inspector's file tree + viewer.
+/* The file tree + viewer — what a build is PRODUCING, as it happens.
 
-   Two roots per agent, because an agent is two different things on disk:
-     definition — agent.toml, IDENTITY.md, skills/, plugins/, ui/  (what BUILDING writes)
-     workspace  — what the agent PRODUCES when it runs
+   ONE root, on purpose: `definition`, i.e. `agents/<id>/` — agent.toml, IDENTITY.md, skills/,
+   plugins/, ui/. That is what building an agent writes, and watching those files appear (and
+   flash) is this panel's entire job.
 
-   Both come from workspace.list; `root` picks which. This window may point them at ANY
-   agent because the daemon lists agent-builder in CROSS_AGENT_READS — a privilege no other
-   agent app has, and one that covers reads only. */
+   The daemon's other root, `workspace`, is what an agent produces when it RUNS. It used to be
+   a second tab here and it did not belong: nothing in the build writes there, so it was a
+   tab you would only ever open by mistake.
+
+   It can point at ANY agent because the daemon lists agent-builder in CROSS_AGENT_READS — a
+   privilege no other agent app has, and one that covers reads only. */
 
 window.Files = (function () {
   const $ = (id) => document.getElementById(id)
+  const ROOT = 'definition'       // the agent's own files. There is no other view here.
   let client = null
   let agentId = null
-  let root = 'definition'
   const open = new Set()          // expanded dirs, by rel path
   let known = new Set()           // files seen last render — anything new gets flashed
 
@@ -31,28 +34,20 @@ window.Files = (function () {
     $('viewerClose').addEventListener('click', close)
     $('viewerBack').addEventListener('click', (e) => { if (e.target === $('viewerBack')) close() })
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close() })
-    for (const tab of document.querySelectorAll('#fileTabs .tab')) {
-      tab.addEventListener('click', () => {
-        for (const t of document.querySelectorAll('#fileTabs .tab')) t.classList.toggle('active', t === tab)
-        root = tab.dataset.root
-        open.clear()
-        known = new Set()
-        void refresh()
-      })
-    }
   }
 
+  /** Point the tree at an agent. `null` clears it — there is nothing to show when the
+   *  conversation is not about an agent yet. */
   function select(id) {
     if (agentId !== id) { open.clear(); known = new Set() }
     agentId = id
-    $('fileTabs').hidden = !id
     return refresh()
   }
 
   /** One directory. Errors render as a line, never as an exception — the panel is secondary. */
   async function list(path) {
     try {
-      const res = await client.request('workspace.list', { agentId, path, root })
+      const res = await client.request('workspace.list', { agentId, path, root: ROOT })
       if (res.error) return { entries: [], error: res.error }
       return { entries: res.entries || [], error: '' }
     } catch (e) {
@@ -119,7 +114,7 @@ window.Files = (function () {
     if (!tree.children.length) {
       const empty = document.createElement('div')
       empty.className = 'tree-empty'
-      empty.textContent = root === 'workspace' ? 'no files produced yet' : 'nothing here'
+      empty.textContent = 'no files yet'
       tree.append(empty)
     }
     // snapshot AFTER drawing, so the next refresh can tell what is new

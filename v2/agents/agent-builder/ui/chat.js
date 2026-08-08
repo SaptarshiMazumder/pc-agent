@@ -15,6 +15,7 @@ window.Chat = (function () {
   let running = false
   let onToolDone = null
   let onSession = null            // tell the rail which chat is open / that a new one started
+  let onReset = null              // the hero is back and EMPTY — app.js fills it from the roster
 
   // The agent this conversation is ABOUT (null = we are creating something new). Carried into
   // the FIRST message only; after that it is in the transcript and repeating it is noise.
@@ -109,7 +110,13 @@ window.Chat = (function () {
     client = c
     onToolDone = opts.onToolDone || null
     onSession = opts.onSession || null
+    onReset = opts.onReset || null
     sessionKey = `builder-${Date.now().toString(36)}`
+    // The thread starts EMPTY in the markup; the hero is planted here, by the same path a
+    // later "new chat" uses. One code path for the empty state, so it cannot differ between
+    // the first one you see and every one after it.
+    $('thread').append(hero())
+    if (onReset) onReset()
 
     $('thread').addEventListener('scroll', () => { stick = nearBottom() })
 
@@ -122,7 +129,6 @@ window.Chat = (function () {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
     })
     $('send').addEventListener('click', () => (running ? abort() : send()))
-    $('newChat').addEventListener('click', reset)
 
     // paste: `files` covers a copied FILE, but a copied IMAGE (screenshot tool, "copy image")
     // can arrive ONLY in `items` with `files` empty — read both or pasting a screenshot
@@ -187,6 +193,12 @@ window.Chat = (function () {
     })
   }
 
+  /** Wipe the thread back to the empty state.
+   *
+   *  `onReset` is not optional decoration: the hero's agent picker and suggestions are FILLED
+   *  by app.js from the live roster, and cloning the template gives you the empty shells. With
+   *  nothing telling app.js to repaint, a new chat showed a picker with no agents in it — the
+   *  half of the bug that survived after the two hero copies were merged. */
   function reset() {
     sessionKey = `builder-${Date.now().toString(36)}`
     scope = null           // a fresh chat is about nothing until told
@@ -198,6 +210,7 @@ window.Chat = (function () {
     tools.clear()
     stick = true
     if (onSession) onSession(sessionKey)
+    if (onReset) onReset()
   }
 
   /** Open a saved conversation: render its transcript, then keep talking INTO it — the same
@@ -249,17 +262,14 @@ window.Chat = (function () {
     if (text.trim()) bubble('bot').innerHTML = MD.render(text)
   }
 
+  /** The empty state, cloned from the ONE definition in index.html (`#heroTpl`).
+   *
+   *  This used to build its own copy from an HTML string. The two drifted — the string never
+   *  got the agent picker F1 added — so "new chat" quietly produced a hero missing the "work
+   *  on an existing agent" choice. A template cannot drift from itself. */
   function hero() {
-    const h = $('hero')
-    if (h) return h
-    const d = document.createElement('div')
-    d.className = 'hero'
-    d.id = 'hero'
-    d.innerHTML =
-      '<h1>What should we build?</h1>' +
-      "<p>Describe an agent — what it does, what it needs access to — and I'll write it, " +
-      'check it, and make it shippable.</p><div class="suggests" id="suggests"></div>'
-    return d
+    const tpl = $('heroTpl')
+    return tpl.content.firstElementChild.cloneNode(true)
   }
 
   function dropHero() {
@@ -418,9 +428,6 @@ window.Chat = (function () {
     return first == null ? '' : String(first).slice(0, 70)
   }
 
-  // tools that change an agent on disk — the inspector should re-read after these
-  const WRITES = /^(write|edit|create_agent|create_tool|skill_workshop|reload_agent)$/
-
   function handle(ev) {
     switch (ev.type) {
       case 'message_update': {
@@ -468,7 +475,12 @@ window.Chat = (function () {
           }
           if (ev.isError) row.classList.add('err')
         }
-        if (WRITES.test(ev.toolName || '') && onToolDone) onToolDone(ev)
+        // EVERY tool, not a list of the ones that write. This used to test the name against
+        // /^(write|edit|create_agent|...)$/ — and when scaffold_ui was added nobody extended
+        // it, so a whole generated ui/ folder could land with the tree showing none of it.
+        // A re-read is a handful of small directory listings; a list you must remember to
+        // extend is a bug waiting for the next tool.
+        if (onToolDone) onToolDone(ev)
         break
       }
       // A run is MANY turns — the model answers, calls a tool, answers again. `turn_end`

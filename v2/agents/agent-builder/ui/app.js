@@ -25,6 +25,8 @@
     return a.color || COLORS[i % COLORS.length] || '#8b74ff'
   }
 
+  let seenIds = null   // null until the first load, so a cold start is not "everything is new"
+
   async function loadAgents() {
     try {
       const res = await client.agents()
@@ -32,24 +34,18 @@
     } catch {
       agents = []
     }
-    drawPicker()
-    drawScopePicker()
-    if (selected && !agents.some((a) => a.id === selected.id)) select(null)
-  }
-
-  /** The inspector's agent chooser. The rail belongs to this agent's own conversations, so
-   *  picking a DIFFERENT agent to look at is a control on the panel that shows it. */
-  function drawPicker() {
-    const sel = $('agentPick')
-    const keep = selected && selected.id
-    sel.textContent = ''
-    for (const a of agents) {
-      const opt = document.createElement('option')
-      opt.value = a.id
-      opt.textContent = (a.name || a.id) + (a.app ? '  ·  app' : '')
-      sel.append(opt)
+    // An agent that did not exist a moment ago was just BUILT — in this window, by this
+    // conversation. Focus it, because watching its files appear is what the panel is for and
+    // making the user go and pick it would be asking them to find what they just asked for.
+    const ids = new Set(openable().map((a) => a.id))
+    if (seenIds && !selected) {
+      const born = [...ids].filter((id) => !seenIds.has(id))
+      if (born.length === 1) select(agents.find((a) => a.id === born[0]) || null)
     }
-    if (keep) sel.value = keep
+    seenIds = ids
+
+    drawScopePicker()
+    if (selected && !ids.has(selected.id)) select(null)
   }
 
   // ── chat history (the rail) ───────────────────────────────────────────────
@@ -117,27 +113,30 @@
     }
   }
 
-  // ── selection → inspector ─────────────────────────────────────────────────
+  // ── focus → the panel ─────────────────────────────────────────────────────
+  /** Point the panel at an agent, or at nothing.
+   *
+   *  With nothing focused the tree is EMPTY and says what to do, rather than falling back to
+   *  showing something. There is no "default agent to look at" — the panel is about the agent
+   *  being built, and before one is chosen there is no answer. */
   function select(a) {
     selected = a
-    if (a) $('agentPick').value = a.id
-    // The crumb names the agent being INSPECTED, not a chat target — the conversation is
-    // always with Agent Builder. "· inspecting X" instead of "/ X", which read like a
-    // breadcrumb into a different chat.
+    // NOTHING IN FOCUS -> NO PANEL. Not an empty panel with a placeholder in it: there is no
+    // question for the panel to answer yet, and a column of dashes is furniture.
+    document.querySelector('.shell').classList.toggle('no-panel', !a)
+    $('panelToggle').hidden = !a
+    // The crumb names what the conversation is working on. The chat is always WITH Agent
+    // Builder, so "· building X" rather than "/ X", which read like a breadcrumb into
+    // someone else's thread.
     $('crumbSep').hidden = !a
-    $('crumbLeaf').textContent = a ? `inspecting ${a.name || a.id}` : ''
-    $('panelActions').hidden = !a
+    $('crumbLeaf').textContent = a ? `building ${a.name || a.id}` : ''
+    $('panelAgent').textContent = a ? (a.name || a.id) : ''
     $('panelSub').textContent = a
       ? [a.tagline || a.description || a.id, a.version && `v${a.version}`]
           .filter(Boolean).join('  ·  ')
-      : '—'
-    if (!a) { $('tree').textContent = ''; $('fileTabs').hidden = true; return }
-    void Files.select(a.id)
+      : ''
+    void Files.select(a ? a.id : null)
   }
-
-  $('agentPick').addEventListener('change', (e) => {
-    select(agents.find((a) => a.id === e.target.value) || null)
-  })
 
   // ── panel actions ─────────────────────────────────────────────────────────
   function showOut(title, text, cls) {
@@ -165,6 +164,9 @@
     }
   }
 
+  // The tree re-reads after every tool, but a file can change from outside this window too.
+  $('btnRefresh').addEventListener('click', () => void Files.refresh())
+
   $('btnValidate').addEventListener('click', () => void runTool('validate_agent', 'Validation'))
   $('btnPackage').addEventListener('click', () => void runTool('package_agent', 'Package'))
   $('outClear').addEventListener('click', () => { $('panelOut').hidden = true })
@@ -183,22 +185,23 @@
   for (const b of document.querySelectorAll('.nav-item')) {
     b.addEventListener('click', () => show(b.dataset.view))
   }
-  $('settingsBtn').addEventListener('click', () => show(view === 'settings' ? 'build' : 'settings'))
-
   // ── chrome toggles ────────────────────────────────────────────────────────
   $('railToggle').addEventListener('click', () => {
     const shell = document.querySelector('.shell')
     shell.classList.toggle('no-rail')
     $('railToggle').textContent = shell.classList.contains('no-rail') ? '›' : '‹'
   })
-  $('panelToggle').addEventListener('click', () =>
-    document.querySelector('.shell').classList.toggle('no-panel'))
+  $('panelToggle').addEventListener('click', () => {
+    if (!selected) return   // nothing to show; the button is hidden anyway
+    document.querySelector('.shell').classList.toggle('no-panel')
+  })
 
-  $('scopeGo').addEventListener('click', () => openScoped($('scopePick').value))
-
-  $('newAgent').addEventListener('click', () => {
+  // ONE handler for the ONE button. chat.js used to wire a second listener to a second
+  // button under a different name ("New agent" here, "New chat" in the topbar) — same action,
+  // two names, and only one of them switched the view.
+  $('newChat').addEventListener('click', () => {
     show('build')
-    Chat.reset()
+    Chat.reset()        // fires onReset -> drawSuggests() repaints the hero
     $('input').focus()
   })
 
@@ -246,6 +249,11 @@
       opt.textContent = a.name || a.id
       sel.append(opt)
     }
+    // BOUND HERE, not once at boot: "new chat" clones a fresh hero out of the template, so a
+    // listener attached to the old Open button is attached to a node that no longer exists —
+    // the button would render and do nothing. `onclick =` rather than addEventListener so
+    // redrawing on a roster change cannot stack duplicates.
+    $('scopeGo').onclick = () => openScoped($('scopePick').value)
   }
 
   function openScoped(id) {
@@ -262,10 +270,14 @@
   Chat.init(client, {
     // a build wrote something — re-read the tree so the new file shows up (and flashes)
     onToolDone: () => { if (selected) void Files.refresh() },
-    // which conversation is live, so the rail highlights it; a brand-new one has no row yet
-    onSession: (key) => { openKey = key; drawChats() },
+    // The conversation CHANGED — a new one, or a saved one reopened. Focus belongs to a
+    // conversation, so it goes with it: carrying the last chat's agent into the next one is
+    // the drift this panel is not allowed to have. A new chat re-chooses in the hero.
+    onSession: (key) => { openKey = key; drawChats(); select(null) },
+    // the hero was just re-planted from the template, so its picker and suggestions are empty
+    // shells — this is what puts the live roster back into them
+    onReset: () => drawSuggests(),
   })
-  drawSuggests()
 
   let started = false
   client.onStatus((s) => {
@@ -280,8 +292,10 @@
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''
         } catch { /* advisory only */ }
         await loadAgents()
-        // select agent-builder itself so the panel is never empty on open
-        select(agents.find((a) => a.id === 'agent-builder') || agents[0] || null)
+        // Nothing is focused on open. This used to select agent-builder itself "so the panel
+        // is never empty" — which meant the window booted showing you its own guts instead of
+        // the agent you came to build. An empty panel that says why is the honest state.
+        select(null)
         await loadChats()
       })()
     }
