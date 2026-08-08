@@ -1,0 +1,22 @@
+name = "ComfyUI Workflow Architect"
+version = "1.3.0"
+description = "Researches models and custom nodes, then builds, validates, and iteratively revises importable ComfyUI workflows."
+tagline = "research · build · validate · iterate"
+color = "#A66CFF"
+suggestions = [
+  "Build a current FLUX text-to-image workflow for my VRAM budget",
+  "Create a Z-Image Turbo workflow and verify every required model file",
+  "Design an image-to-video workflow using models that are available now",
+]
+
+[app]
+title = "ComfyUI Workflow Architect"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+[tools]
+allow = ["read", "write", "edit", "find", "ls", "exec", "process", "web_search", "web_fetch", "browser"]
+
+[subagents]
+allow = ["*"]

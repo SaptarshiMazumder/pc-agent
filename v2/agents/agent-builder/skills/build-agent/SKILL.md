@@ -80,8 +80,10 @@ public_tools = ["lookup_entry"]    # what those visitors may invoke (never chat)
 
 # ---- tool scope (omit BOTH keys to grant the full catalog) ----
 [tools]
-allow = ["read", "write", "exec", "report_outcome"]
+allow = ["read", "write", "exec", "process", "report_outcome"]
 deny  = ["computer_use"]           # deny always wins
+# `exec` and `process` are a PAIR — see "Long-running work" below. validate_agent reports it
+# if you grant one without the other.
 
 # ---- skill scope (omit to inherit every global skill) ----
 # skills = ["monthly-report"]      # top-level key, not a table — keep it above [app]
@@ -111,6 +113,37 @@ model = "gemini/gemini-2.5-flash"
 
 An agent's private tools (in `plugins/` below) are **implicitly allowed** and never need
 naming in `[tools] allow`.
+
+### Long-running work — grant `exec` and `process` together
+
+An agent has no timer and does not run between turns. Nothing can wake it up. So there are
+exactly two ways to handle something slow — a download, a render, a training run:
+
+```
+BAD    exec("sleep 90; check")     blocks the whole turn, shows no output for 90s,
+                                    and dies at the exec timeout
+GOOD   exec(command=..., background=true)   -> returns a session id, immediately
+       process(action="poll", session_id=...) -> "[running] …new output" | "[exited(0)]"
+```
+
+`exec`'s own description points the model at `process`. **If you grant `exec`, grant
+`process`** — otherwise `background=true` hands back a session id that nothing can read, and
+the agent's only remaining option is to block a turn on a sleep.
+
+This is not theoretical. An agent built here was given `exec` without `process`, then had to
+babysit a 20GB download: it ran `Start-Sleep -Seconds 90; ssh …` over and over, showed the
+user nothing for 90 seconds at a time, and tripped the runtime's "you are repeating yourself"
+nudge. It was reasoning correctly about a toolbox missing half a pair.
+
+**And write the rule into the agent's own `AGENTS.md`**, not just here. This skill is read
+while you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Something like:
+
+> Long jobs: start them with `exec(background=true)` and poll with `process`. Never `sleep`
+> inside a foreground `exec` — it blocks the turn and shows the user nothing.
+
+**Polling still costs a turn.** Nothing arrives on its own, so between polls the agent should
+do useful work, not spin. If a job runs for hours, the right shape is usually a `cron` or
+`heartbeat` run that checks and reports, not one conversation held open.
 
 ## The markdown files
 

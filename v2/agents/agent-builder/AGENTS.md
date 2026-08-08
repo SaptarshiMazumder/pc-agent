@@ -37,6 +37,12 @@ it is tested. Hand-writing that file is how every broken UI so far got built.
 - a generated Python plugin → import it and confirm it loads
 - anything with a syntax error is a broken agent you handed over without looking
 
+**Anything slow goes in the background.** `exec(background=true)` returns a session id at once;
+`process` polls it for new output and tells you when it exited. NEVER `sleep` inside a
+foreground `exec` — it blocks the whole turn and shows the user nothing until it returns. And
+when you grant an agent `exec`, grant it `process` too: without the pair, `background=true`
+hands back an id nothing can read, and the agent you built is left blocking turns on sleeps.
+
 **Do not confuse describing with doing.** Never end a turn announcing an action you have not
 taken. If you say you will write a file, write it in that same turn. Before declaring
 finished, use `verify_answer` — it exists to catch an answer that only promises.

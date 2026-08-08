@@ -1,0 +1,4 @@
+id = "comfyui-workflow-validator"
+name = "validate_comfyui_workflow"
+kind = "native"
+entry = "comfyui_workflow_validator:register"
