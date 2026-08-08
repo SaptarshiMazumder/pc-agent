@@ -68,10 +68,13 @@ class _FakeTool:
         self._plugin_root = root
 
 
-async def _run(sandbox, grant, workspace, params=None, on_update=None):
+async def _run(sandbox, grant, workspace, params=None, on_update=None, plugins=None):
     return await sandbox.run_tool(
         "probeplug", "probe", "call-1", params or {}, asyncio.Event(), on_update,
-        grant=grant, ctx=RunContext(agent_id="a", session_key="a:1", mode="chat", workspace=str(workspace)),
+        grant=grant,
+        ctx=RunContext(
+            agent_id="a", session_key="a:1", mode="chat", workspace=str(workspace), plugins=plugins
+        ),
     )
 
 
@@ -457,6 +460,54 @@ def test_the_child_config_cannot_be_asked_for_a_key(tmp_path, workspace):
     )
     assert "key=ABSENT" in _text(result)
     assert "sk-real-key" not in _text(result)
+
+
+def test_the_agents_own_model_override_reaches_the_child(tmp_path, workspace):
+    """agent.toml's `[plugins.<p>.tools.<t>].model` is layered ABOVE global config by
+    resolve_tool_model — but it travels in a CONTEXTVAR, and a contextvar does not survive a
+    process boundary. While the job payload dropped it the child re-resolved as if the agent had
+    configured nothing and silently landed on the house brain model: the agent asked for one
+    provider and the account was billed on another, with no error anywhere to say so.
+    """
+    config = SimpleNamespace(workspace=str(workspace), plugins={}, multi_tenant=False)
+    entry, root = _plugin(
+        tmp_path,
+        """
+        from agent_runtime.application.tool_models import resolve_tool_model
+        cfg = getattr(self, "_ctx").config
+        return ToolResult.text("model=" + str(resolve_tool_model(cfg, "probeplug", "probe", kind="text")))
+        """,
+    )
+    result = asyncio.run(
+        _run(
+            _sandbox(entry, root, config),
+            CapabilityGrant(fs_paths=(str(workspace),)),
+            workspace,
+            plugins={"probeplug": {"tools": {"probe": {"model": "deepseek/deepseek-v4-pro"}}}},
+        )
+    )
+    assert "model=deepseek/deepseek-v4-pro" in _text(result)
+
+
+def test_another_plugins_overrides_are_not_carried_to_the_child(tmp_path, workspace):
+    """Same narrowing rule as the config projection: the run's override map names every plugin the
+    agent configured, and a plugin has no business reading its neighbours' settings."""
+    payload = protocol.ctx_payload(
+        RunContext(
+            agent_id="a", session_key="a:1", mode="chat", workspace="/w",
+            plugins={"probeplug": {"model": "x"}, "secretplug": {"token": "t"}},
+        ),
+        "probeplug",
+    )
+    assert payload["plugins"] == {"probeplug": {"model": "x"}}
+    assert "secretplug" not in str(payload)
+
+
+def test_a_run_that_configured_nothing_carries_no_plugins_key(tmp_path, workspace):
+    """Absent, not an empty dict: the child's resolution should be byte-for-byte what it was before
+    the override rode along, so a run with no agent.toml block cannot be changed by this path."""
+    ctx = RunContext(agent_id="a", session_key="a:1", mode="chat", workspace="/w")
+    assert "plugins" not in protocol.ctx_payload(ctx, "probeplug")
 
 
 def test_the_child_gets_no_runtime_handles(tmp_path, workspace):

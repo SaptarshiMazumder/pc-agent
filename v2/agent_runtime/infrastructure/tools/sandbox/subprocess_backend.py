@@ -185,7 +185,7 @@ class SubprocessPluginSandbox:
                 "plugin_root": root,
                 "params": params or {},
                 "grant": protocol.grant_payload(grant),
-                "ctx": protocol.ctx_payload(ctx),
+                "ctx": protocol.ctx_payload(ctx, plugin_id),
                 "config": protocol.config_projection(
                     self._config, plugin_id, self._setting("sandbox_config_fields", ())
                 )
