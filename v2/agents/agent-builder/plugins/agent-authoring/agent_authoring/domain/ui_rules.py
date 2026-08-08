@@ -32,6 +32,20 @@ from .js_comment_stripper import JsCommentStripper
 
 _STRIPPER = JsCommentStripper()
 
+# ── hosted sign-in ─────────────────────────────────────────────────────────────────────
+# An app agent on a hosted install needs the user signed in or EVERY model call fails. The
+# scaffolded template already awaits `mountSignInGate()`, so this rule is about the agents that
+# did not come from it: one whose ui/ predates the gate, or whose app.js was hand-written.
+#
+# The failure it catches is silent and total. The window opens, the composer works, the daemon
+# has no platform credential, and every send comes back as a provider error — which reads as "the
+# model is down", not "this app never asks anyone to log in". That is exactly how an agent shipped
+# and could not be used in cloud mode at all.
+_GATE_CALL = re.compile(r"\bmountSignInGate\s*\(")
+# Using the mechanism directly is a legitimate alternative to the drop-in modal.
+_GATE_MECHANISM = re.compile(r"\b(?:resolveAuth|platformStatus|signIn)\s*\(")
+_SDK_VENDOR_SUFFIX = "vendor/agentd-client.js"
+
 # `payload.type` / `p.type` etc. — reading the wrapper as if it were the event.
 _PAYLOAD_DOT_TYPE = re.compile(r"\b(\w+)\.type\b")
 # The handler shapes that hand you the WRAPPER, so we know which identifier is the payload.
@@ -88,7 +102,76 @@ class UiRules:
             out += self._nested_payload(rel, code)
             out += self._unknown_events(rel, code)
             out += self._unknown_calls(rel, code)
+        out += self._sign_in(raw_toml, sources)
         return out
+
+    # ---------------------------------------------------------------- hosted sign-in
+    def _sign_in(self, raw_toml: dict, sources: dict) -> list[Finding]:
+        """Whole-agent check (not per-file): does this app ever ask anyone to sign in, and can
+        the SDK it ships actually do it?
+
+        Two findings, at two severities, because they fail differently:
+
+          * no sign-in anywhere -> WARN. The agent works locally on the author's own keys; it is
+            only unusable on a HOSTED install. Not broken today, broken the moment it ships.
+          * calls the gate, but the vendored SDK predates it -> ERROR. That is a guaranteed
+            `agentd.mountSignInGate is not a function` on load: a dead window, every time.
+
+        Deliberately quiet otherwise. An agent with no `[app]` has no page to sign in on, and one
+        with no ui/*.js has not been scaffolded yet — neither is a mistake, and warning about
+        either is how a check earns its way into being ignored.
+        """
+        if not isinstance(raw_toml.get("app"), dict):
+            return []
+        own = {
+            rel: src
+            for rel, src in sources.items()
+            if rel.startswith("ui/") and rel.endswith(".js") and "/vendor/" not in rel
+        }
+        if not own:
+            return []
+
+        calls_gate = False
+        uses_mechanism = False
+        for src in own.values():
+            code = _STRIPPER.strip(src)
+            if _GATE_CALL.search(code):
+                calls_gate = True
+            if _GATE_MECHANISM.search(code):
+                uses_mechanism = True
+
+        if not calls_gate and not uses_mechanism:
+            return [
+                Finding(
+                    WARN,
+                    "UI_NO_SIGN_IN",
+                    "this app never signs the user in, so on a hosted install (one with platform "
+                    "keys) every model call will fail with a provider error and nothing will "
+                    "explain why.",
+                    path="ui/app.js",
+                    fix="await agentd.mountSignInGate() once the socket is open — it renders "
+                    "NOTHING on a local/BYOK install, so it is safe to add unconditionally. Pass "
+                    "a `blurb` to say why an account is needed.",
+                )
+            ]
+
+        vendored = next(
+            (src for rel, src in sources.items() if rel.endswith(_SDK_VENDOR_SUFFIX)), ""
+        )
+        if calls_gate and vendored and "mountSignInGate" not in vendored:
+            return [
+                Finding(
+                    ERROR,
+                    "UI_SDK_PREDATES_SIGN_IN",
+                    "ui/app.js calls agentd.mountSignInGate(), but the vendored SDK in "
+                    "ui/vendor/agentd-client.js does not have it — the app will die on load with "
+                    "'agentd.mountSignInGate is not a function'.",
+                    path=_SDK_VENDOR_SUFFIX,
+                    fix="re-vendor the SDK: `npm run build` in v2/clients/sdk-js (its vendor step "
+                    "refreshes every agent's copy).",
+                )
+            ]
+        return []
 
     # ---------------------------------------------------------------- payload shape
     def _nested_payload(self, rel: str, src: str) -> list[Finding]:

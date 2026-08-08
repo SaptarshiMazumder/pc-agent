@@ -147,21 +147,51 @@
     body.textContent = text
   }
 
-  async function runTool(tool, title) {
-    if (!selected) return
+  const ACTION_BTNS = () => [$('btnValidate'), $('btnPackage'), $('btnPublish')]
+
+  async function runTool(tool, title, extra) {
+    if (!selected) return null
     showOut(title, `running ${tool} on ${selected.id}…`)
-    for (const b of [$('btnValidate'), $('btnPackage')]) b.disabled = true
+    for (const b of ACTION_BTNS()) b.disabled = true
     try {
-      const res = await client.invokeTool(tool, { agent_id: selected.id })
-      showOut(title, agentd.resultText(res) || '(no output)')
+      const res = await client.invokeTool(tool, { agent_id: selected.id, ...(extra || {}) })
+      const text = agentd.resultText(res) || '(no output)'
+      showOut(title, text)
       void Files.refresh()
+      return text
     } catch (e) {
       // the daemon throws with the tool's own report text when a tool reports an error —
       // that IS the result, so show it rather than a generic failure line
       showOut(title, String((e && e.message) || e), 'bad')
+      return null
     } finally {
-      for (const b of [$('btnValidate'), $('btnPackage')]) b.disabled = false
+      for (const b of ACTION_BTNS()) b.disabled = false
     }
+  }
+
+  /* Publish is TWO steps on purpose.
+     A publish uploads a public artifact and rewrites the registry index every client reads, so
+     one click must not be enough. The first call is the tool's default dry run: it prints the
+     exact index that would be published — which is where you notice a bundle you did not expect
+     is about to change. Only then do we ask, and only a yes sends dry_run=false + confirm=true
+     (the tool requires BOTH, so nothing here can publish by accident either).
+     A dry run that FAILED returns null — usually "not configured to publish", already on screen
+     — and we stop rather than asking the user to confirm something that cannot work. */
+  async function publishFlow() {
+    if (!selected) return
+    const preview = await runTool('publish_agent', 'Publish — preview', { dry_run: true })
+    if (preview === null) return
+    const ok = window.confirm(
+      `Publish ${selected.id} to the marketplace?\n\n` +
+        'This uploads a PUBLIC artifact and rewrites the registry index.\n' +
+        'Check the preview behind this dialog first — it lists every bundle that will be in the ' +
+        'published index.'
+    )
+    if (!ok) {
+      showOut('Publish', 'cancelled — nothing was uploaded.\n\n' + preview)
+      return
+    }
+    await runTool('publish_agent', 'Publish', { dry_run: false, confirm: true })
   }
 
   // The tree re-reads after every tool, but a file can change from outside this window too.
@@ -169,6 +199,7 @@
 
   $('btnValidate').addEventListener('click', () => void runTool('validate_agent', 'Validation'))
   $('btnPackage').addEventListener('click', () => void runTool('package_agent', 'Package'))
+  $('btnPublish').addEventListener('click', () => void publishFlow())
   $('outClear').addEventListener('click', () => { $('panelOut').hidden = true })
 
   // ── views ─────────────────────────────────────────────────────────────────

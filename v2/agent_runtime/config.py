@@ -170,6 +170,20 @@ class Config:
     # local directory. Resolution: AGENTD_REGISTRY > JSON config > distribution profile.
     registry_url: str = ""
 
+    # --- PUBLISHING (the write side of the registry above) ----------------------
+    # Where `publish_agent` / `agentd bundle publish` send a built bundle: an s3:// target
+    # (s3://bucket[/prefix]) or a plain local directory. EMPTY BY DEFAULT, and that default is
+    # load-bearing: an install with no target cannot publish anywhere, so a downloaded copy of
+    # this product can never push to someone else's marketplace just because the tool exists.
+    # AGENTD_PUBLISH_TARGET overrides (same name the deploy script already reads).
+    publish_target: str = ""
+    # PATH to the ed25519 keypair from `agentd bundle keygen` — never the key itself, and never
+    # logged. Signing is what makes a bundle verifiable against the publisher_key that installed
+    # clients pin; without it a publish is refused rather than silently unsigned.
+    # AGENTD_PUBLISHER_KEYFILE overrides. (Distinct from AGENTD_PUBLISHER_KEY, which is the
+    # PUBLIC half used to verify downloads — see the note further down.)
+    publisher_keyfile: str = ""
+
     # --- reliability / guardrails (applied to EVERY tool via GuardedTool) -------
     # Per-tool effective values resolve: tool_overrides[name] > the tool's own
     # declared default (default_* class attr) > these globals.
@@ -1015,6 +1029,12 @@ def load_config(path: Path | None = None) -> Config:
         cfg.registry_url = os.environ["AGENTD_REGISTRY"].strip()
     elif not cfg.registry_url:
         cfg.registry_url = cfg.distribution.registry_url or default_local_registry(cfg.state_dir)
+    # The PUBLISH side. Same env names the publisher tooling already documents, so a machine set
+    # up to publish from the CLI needs nothing new for the tool to work.
+    if os.environ.get("AGENTD_PUBLISH_TARGET"):
+        cfg.publish_target = os.environ["AGENTD_PUBLISH_TARGET"].strip()
+    if os.environ.get("AGENTD_PUBLISHER_KEYFILE"):
+        cfg.publisher_keyfile = os.environ["AGENTD_PUBLISHER_KEYFILE"].strip()
     # The publisher key needs the SAME env door as the url above, and for a specific reason.
     #
     # Both values normally arrive together, baked into a distribution profile by an installer. The
