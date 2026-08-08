@@ -106,6 +106,13 @@ jobs:
       DEPLOY_SERVICE: ${{ needs.resolve.outputs.service }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, because the next step diffs this push against its predecessor to decide
+          # which images actually need rebuilding. The default shallow clone has no predecessor to
+          # diff against, and `fetch-depth: 2` is not enough either: a push can carry several
+          # commits, and diffing only against HEAD~1 would miss files changed earlier in the same
+          # push — silently skipping an image that needed rebuilding.
+          fetch-depth: 0
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -115,6 +122,82 @@ jobs:
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
+
+      # Buildx, for one reason: a LAYER CACHE. A GitHub runner is a fresh VM, so plain
+      # `docker build` starts with an empty cache on every run and rebuilds every layer from
+      # scratch — apt upgrades, pip installs, `npm ci`, `uv tool install`. The Dockerfiles are
+      # already written to be cacheable (web copies package.json before `npm ci` precisely so npm
+      # can be cached); there was simply no cache for them to hit.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # WHICH IMAGES ACTUALLY NEED BUILDING. The `paths:` filter at the top decides whether this
+      # workflow RUNS; it says nothing about which of the five images a change affects. So a
+      # one-line edit in agent_runtime/ used to rebuild web, ingest, accounts and model-proxy too,
+      # and then roll all five and wait for each to stabilize.
+      #
+      # THE SAFETY RULE, applied everywhere below: when in doubt, BUILD. Skipping an image that
+      # needed rebuilding ships stale code and reports success — the worst failure this workflow
+      # has. An unnecessary build only costs minutes.
+      - name: Decide which images to build
+        id: changed
+        run: |
+          emit() { echo "build=$1" >> "$GITHUB_OUTPUT"; echo "$2"; }
+
+          # A manual run states exactly what it wants; there is no diff to consult.
+          if [ "$DEPLOY_SERVICE" != "all" ]; then
+            emit "$DEPLOY_SERVICE" "manual run: building $DEPLOY_SERVICE only"; exit 0
+          fi
+          if [ "${{ github.event_name }}" != "push" ]; then
+            emit "$SERVICES" "manual 'all' run: building every image"; exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          case "$BEFORE" in
+            ""|0000000000000000000000000000000000000000)
+              emit "$SERVICES" "no diff base (new branch or force push): building every image"; exit 0 ;;
+          esac
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            emit "$SERVICES" "diff base ${BEFORE} unreachable: building every image"; exit 0
+          fi
+          if ! CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+            emit "$SERVICES" "git diff failed: building every image"; exit 0
+          fi
+          echo "changed files:"; echo "$CHANGED" | sed 's/^/  /'
+
+          # `if`, never `cmd && VAR=...`: this step runs under `bash -e`, where a false `&&`
+          # chain is a failing command and aborts the whole step. That exact shape has broken
+          # this workflow before.
+          touched() { echo "$CHANGED" | grep -qE "$1"; }
+
+          # The path->image map is read off each Dockerfile's COPY lines, not guessed:
+          #   model-proxy  model_proxy/requirements.txt, litellm.config.yaml, custom_auth, metering
+          #   accounts     accounts/requirements.txt, app.py, ledger.py, payments.py
+          #   ingest       ingest/requirements.txt, app.py
+          #   web          the whole clients/ npm workspace (root + ui/ + web/ + desktop manifest)
+          #   daemon       the WHEEL, so effectively all of v2 the .dockerignore lets through:
+          #                agent_runtime/, plugins/, agents/, scripts/, pyproject.toml, deploy/docker/
+          # monitoring/ is pip-installed INTO four of the five images, so it rebuilds all but web.
+          # This workflow file changes HOW everything is built, so it rebuilds everything.
+          WF='^\.github/workflows/deploy\.yml$'
+          SHARED="^v2/monitoring/|$WF"
+          TO_BUILD=""
+          if touched "$SHARED|^v2/model_proxy/"; then TO_BUILD="$TO_BUILD model-proxy"; fi
+          if touched "$SHARED|^v2/accounts/";    then TO_BUILD="$TO_BUILD accounts"; fi
+          if touched "$SHARED|^v2/ingest/";      then TO_BUILD="$TO_BUILD ingest"; fi
+          if touched "^v2/clients/|$WF";         then TO_BUILD="$TO_BUILD web"; fi
+          if touched "$SHARED|^v2/agent_runtime/|^v2/plugins/|^v2/agents/|^v2/scripts/|^v2/pyproject\.toml$|^v2/deploy/docker/"; then
+            TO_BUILD="$TO_BUILD daemon"
+          fi
+
+          TO_BUILD=$(echo "$TO_BUILD" | xargs || true)
+          if [ -z "$TO_BUILD" ]; then
+            # Reachable: the `paths:` filter is coarser than this map (a v2/agents/ change with no
+            # bundle impact, say). Nothing to build is a legitimate outcome, not an error.
+            emit "" "no image is affected by these changes — nothing to build or roll"
+          else
+            emit "$TO_BUILD" "building: $TO_BUILD"
+          fi
 
       # Resolve the registry + THIS env's public ALB hostname straight from the AWS API.
       - name: Resolve registry + ALB url
@@ -130,8 +213,8 @@ jobs:
           echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
           echo "alb=$ALB_DNS"       >> "$GITHUB_OUTPUT"
 
-      # Build + push all 4 images, tagged with the git SHA (immutable) AND :latest.
-      # `web` bakes the ALB url in at build time; the other three don't.
+      # Build + push the AFFECTED images, tagged with the git SHA (immutable) AND :latest.
+      # `web` bakes the ALB url in at build time; the other four don't.
       - name: Build and push images
         run: |
           REG="${{ steps.aws.outputs.registry }}"
@@ -141,12 +224,30 @@ jobs:
             local name="$1" ctx="$2" df="$3"; shift 3
             local uri="${REG}/agentd-${ENVIRONMENT}/${name}"
             echo "::group::build $name"
-            docker build -t "${uri}:${SHA}" -t "${uri}:latest" -f "$df" "$@" "$ctx"
-            docker push "${uri}:${SHA}"
-            docker push "${uri}:latest"
+            # ONE buildx invocation replaces build + two pushes: `--push` uploads both tags in a
+            # single pass, and the cache flags are only available on buildx anyway.
+            #
+            # The cache lives in the service's OWN ECR repo under a `:buildcache` tag, so it needs
+            # no extra infrastructure and is naturally per-environment.
+            #
+            # `image-manifest=true,oci-mediatypes=true` is REQUIRED for ECR: it rejects buildkit's
+            # default cache manifest type, and without these the export fails on every run.
+            #
+            # `ignore-error=true` is the load-bearing one. Populating a cache is an optimisation,
+            # and an optimisation must never be able to fail a deploy — an environment built with
+            # image_tag_mutability = IMMUTABLE cannot accept a repeated `:buildcache` push at all,
+            # and that must degrade to "no cache", not to a red build.
+            docker buildx build \
+              --push \
+              -t "${uri}:${SHA}" -t "${uri}:latest" \
+              --cache-from "type=registry,ref=${uri}:buildcache" \
+              --cache-to "type=registry,ref=${uri}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true" \
+              -f "$df" "$@" "$ctx"
             echo "::endgroup::"
           }
-          want() { [ "$DEPLOY_SERVICE" = "all" ] || [ "$DEPLOY_SERVICE" = "$1" ]; }
+          BUILD_LIST="${{ steps.changed.outputs.build }}"
+          want() { case " $BUILD_LIST " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+          if [ -z "$BUILD_LIST" ]; then echo "nothing to build"; fi
           # NOTE: model-proxy and accounts build from the v2/ context (not their own folder)
           # so both images can install the shared telemetry library at v2/monitoring/. Their
           # Dockerfiles still COPY only the handful of files each service needs.
@@ -177,9 +278,17 @@ jobs:
       # roll back (see below), and the id is the only thing that tells them apart.
       - name: Roll ECS services
         run: |
-          TARGET_SERVICES="$SERVICES"
-          if [ "$DEPLOY_SERVICE" != "all" ]; then TARGET_SERVICES="$DEPLOY_SERVICE"; fi
+          # Roll exactly what was rebuilt. Rolling a service whose image did not change is not
+          # harmful — it restarts on the same image — but it is where the wall clock goes: the
+          # daemon alone takes ~3 minutes to drain and pass health checks, and the wait step then
+          # blocks on it. This is the other half of "build only what changed".
+          TARGET_SERVICES="${{ steps.changed.outputs.build }}"
           : > deployments.txt
+          if [ -z "$TARGET_SERVICES" ]; then
+            echo "::notice::no image changed — nothing to roll"
+            echo "Nothing to deploy to **$ENVIRONMENT**: no image was affected by these changes ⏭" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           for svc in $TARGET_SERVICES; do
             name="agentd-${ENVIRONMENT}-${svc}"
             # HIBERNATED ENVIRONMENTS HAVE NO ECS SERVICES. `terraform apply -var hibernate=true`
@@ -219,31 +328,48 @@ jobs:
             echo "nothing rolled; skipping the stability wait"
             exit 0
           fi
-          SVC_NAMES=$(while read -r svc _; do echo "${CLUSTER}-${svc}"; done < deployments.txt)
-
-          # Don't fail here: the waiter's own timeout is a far worse error message than the
-          # per-service verdict below, which can say WHICH service and WHY.
+          # WAIT BY POLLING OUR OWN DEPLOYMENT IDS, not with `aws ecs wait services-stable`.
           #
-          # LOOPED, because `wait services-stable` has a FIXED, non-configurable budget of
-          # 40 attempts x 15s = 10 minutes, and the daemon legitimately needs more than that:
-          # health_check_grace 120s + two ALB checks 30s apart + deregistration_delay 120s for
-          # its long-lived WebSocket sessions, on top of loading the whole agent runtime. Ten
-          # minutes was enough until a fifth service joined the roll; then the daemon was still
-          # in its final drain when the waiter gave up, and a deploy that worked was reported
-          # as a failure. Three passes = a 30-minute ceiling, and it exits as soon as ECS says
-          # stable, so a fast deploy costs nothing extra.
-          for attempt in 1 2 3; do
-            if aws ecs wait services-stable --cluster "$CLUSTER" --services $SVC_NAMES --region "$AWS_REGION"; then
-              break
-            fi
-            echo "waiter pass $attempt timed out; services still settling"
-          done
+          # The waiter was here and was replaced, because it can report "not stable" — or return
+          # early — for reasons that have nothing to do with our rollout, and the verdict below
+          # then read rolloutState ONCE, immediately, and called a healthy deploy a failure. That
+          # happened: four services showed COMPLETED, the daemon showed IN_PROGRESS, the job went
+          # red, and the deployment finished normally three minutes later. A CI check that cries
+          # wolf is worse than no check, because the next real failure gets ignored too.
+          #
+          # Polling the DEPLOYMENT ID answers the actual question ("did the thing we just started
+          # finish?") instead of a proxy for it, needs no fixed 40x15s budget, and reports per
+          # service. It costs one describe-services per service per 15s, and it exits the moment
+          # every deployment has settled.
+          #
+          # The daemon is the slow one by design: health_check_grace 120s + two ALB checks 30s
+          # apart + deregistration_delay 120s for its long-lived WebSocket sessions, on top of
+          # loading the whole agent runtime. VERDICT_TIMEOUT_S is the ceiling per service.
+          VERDICT_TIMEOUT_S=${VERDICT_TIMEOUT_S:-1200}
+
+          settle_state() {
+            _name="$1"; _id="$2"
+            _deadline=$(( $(date +%s) + VERDICT_TIMEOUT_S ))
+            while :; do
+              # Only a SUCCESSFUL call is allowed to conclude anything. An API error returns
+              # nothing too, and treating that as "the deployment vanished" would turn a throttle
+              # into a reported rollback.
+              if _raw=$(aws ecs describe-services --cluster "$CLUSTER" --services "$_name" \
+                          --region "$AWS_REGION" \
+                          --query "services[0].deployments[?id=='${_id}'].rolloutState" \
+                          --output text 2>/dev/null); then
+                # Empty from a successful call = our deployment is gone: superseded by a rollback.
+                [ "$_raw" = "IN_PROGRESS" ] || { echo "$_raw"; return 0; }
+              fi
+              [ "$(date +%s)" -lt "$_deadline" ] || { echo "IN_PROGRESS"; return 0; }
+              sleep 15
+            done
+          }
 
           failed=0
           while read -r svc id; do
             name="${CLUSTER}-${svc}"
-            state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$name" --region "$AWS_REGION" \
-              --query "services[0].deployments[?id=='${id}'].rolloutState" --output text)
+            state=$(settle_state "$name" "$id")
             # Empty means our deployment is gone entirely — superseded by a rollback.
             if [ "$state" = "COMPLETED" ]; then
               echo "✅ $name — $state"
