@@ -321,6 +321,13 @@ with no provider keys in its environment, no live handles to anything, a redacte
 working directory inside the caller's own workspace. The residual risk is reading files owned by
 the same OS user — which is what the uid drop closes.
 
+**Model calls are inverted, not excepted** (2026-08-08). No network and no credentials meant an
+untrusted plugin could not call a model — which would have banned the interesting half of the
+marketplace and created steady pressure to switch the sandbox off. So the tool ASKS and the host
+performs, checks, clamps and meters against the account running the agent. `net_allowlist` stays
+empty; a sandboxed tool can obtain a completion and still cannot open a socket. See
+[sandboxed-model-calls-plan.md](sandboxed-model-calls-plan.md).
+
 **Deny beats allow, except for the grant.** The child must be able to read the interpreter's path
 roots or it cannot import at all, and in a source checkout that root is the repository, which holds
 `.env`. So the daemon names its own secret paths (`config_path`, `state_dir`, `tenant_root`, the

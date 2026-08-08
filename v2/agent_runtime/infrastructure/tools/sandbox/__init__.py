@@ -7,6 +7,8 @@ in-process.
   * ``LocalPluginSandbox``      — in-process passthrough (no isolation). The desktop default.
   * ``SubprocessPluginSandbox`` — one child process per tool call: no runtime handles, scrubbed
                                   env, redacted config, audit-hook enforcement. The hosted default.
+  * ``SandboxModelBroker``      — serves a sandboxed tool's model calls from the HOST, so the tool
+                                  needs neither network nor a credential to use a model.
   * ``build_plugin_sandbox``    — the ONE place a backend is chosen (config-driven).
   * ``SandboxedTool``           — the transparent wrapper that routes execute() through a backend.
   * ``DefaultCapabilityResolver``— the conservative, non-interactive grant (approval layer later).
@@ -23,12 +25,14 @@ from .backends import build_plugin_sandbox, resolve_backend_name
 from .capabilities import DefaultCapabilityResolver
 from .classify import classify_origin, wrap_untrusted
 from .local import LocalPluginSandbox
+from .model_broker import SandboxModelBroker
 from .sandboxed_tool import SandboxedTool
 from .subprocess_backend import SubprocessPluginSandbox
 
 __all__ = [
     "DefaultCapabilityResolver",
     "LocalPluginSandbox",
+    "SandboxModelBroker",
     "SandboxedTool",
     "SubprocessPluginSandbox",
     "build_plugin_sandbox",

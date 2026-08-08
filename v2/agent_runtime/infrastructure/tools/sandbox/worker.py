@@ -1,8 +1,12 @@
 """The CHILD: runs exactly one untrusted plugin tool call and exits. `python -m …sandbox.worker`.
 
-    stdin  <- one JSON job (protocol.py)
-    fd 1   -> JSON lines: zero or more {"t":"update"}, then exactly one {"t":"result"}
+    stdin  <- one JSON job LINE, then {"t":"model_response"} frames for as long as the call runs
+    fd 1   -> JSON lines: {"t":"update"} / {"t":"model_request"}, then exactly one {"t":"result"}
     stderr -> whatever the plugin printed; the parent scrubs, caps and logs it
+
+The channel is bidirectional because a sandboxed tool has no network and no credentials, so a model
+call has to be asked of the host rather than made here (see child_models.py). stdin is therefore
+read a LINE at a time and left open, not drained to EOF.
 
 WHY FD 1 IS CLAIMED IMMEDIATELY. A plugin's `print` goes to stdout, and stdout is where the
 protocol lives. One stray print would land in the middle of our JSON and the parent would read a
@@ -26,6 +30,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 import types
 
 
@@ -71,8 +76,9 @@ def _load_tool(entry: str, plugin_root: str, tool_name: str, config, plugin_id: 
 
 def main() -> int:
     protocol = _claim_protocol_stream()
+    # ONE LINE, not read-to-EOF: stdin stays open afterwards so the host can answer model requests.
     try:
-        job = json.loads(sys.stdin.read() or "{}")
+        job = json.loads(sys.stdin.readline() or "{}")
     except ValueError as e:
         _emit(protocol, _error(f"sandbox worker: unreadable job ({e})"))
         return 2
@@ -83,7 +89,7 @@ def main() -> int:
 
     # Imported before the guard: our own modules, and the ones the run needs.
     from agent_runtime.application.run_context import RunContext, set_run_context, set_trace_ids
-    from agent_runtime.infrastructure.tools.sandbox import child_guard
+    from agent_runtime.infrastructure.tools.sandbox import child_guard, child_models
     from agent_runtime.infrastructure.tools.sandbox import protocol as wire
 
     raw_ctx = job.get("ctx") or {}
@@ -112,6 +118,22 @@ def main() -> int:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    # The model bridge goes in BEFORE the plugin is loaded, for the same reason the guard does: a
+    # plugin that did `from ...oneshot import text_complete` at module scope would otherwise bind
+    # the real function, import litellm into this process, and try to dial out — which the guard
+    # would then deny, correctly but uselessly.
+    protocol_lock = threading.Lock()
+
+    def send(frame: dict) -> None:
+        with protocol_lock:  # the tool thread and the event loop can both write
+            _emit(protocol, frame)
+
+    bridge = child_models.ModelBridge(send)
+    child_models.install(bridge)
+    # `sys.stdin`, the SAME buffered object the job line was read from — a second wrapper over the
+    # same fd would not see bytes already sitting in this one's buffer.
+    child_models.start_reader(sys.stdin, bridge)
+
     denials = child_guard.install(
         fs_paths=grant.get("fs_paths") or (),
         net_allowlist=grant.get("net_allowlist") or (),
@@ -130,12 +152,12 @@ def main() -> int:
             plugin_id,
         )
     except Exception as e:  # noqa: BLE001 — every load failure is the child's answer
-        _emit(protocol, _error(f"sandbox: {type(e).__name__}: {e}", denials))
+        send(_error(f"sandbox: {type(e).__name__}: {e}", denials))
         return 1
 
     def on_update(partial) -> None:
         try:
-            _emit(protocol, wire.result_payload(partial, kind="update"))
+            send(wire.result_payload(partial, kind="update"))
         except (OSError, ValueError):
             pass  # a broken pipe on progress must not abort the actual call
 
@@ -147,7 +169,7 @@ def main() -> int:
     try:
         result = loop.run_until_complete(run())
     except Exception as e:  # noqa: BLE001 — the plugin's exception is the tool's error result
-        _emit(protocol, _error(f"{type(e).__name__}: {e}", denials))
+        send(_error(f"{type(e).__name__}: {e}", denials))
         return 1
     finally:
         loop.close()
@@ -155,7 +177,7 @@ def main() -> int:
     payload = wire.result_payload(result)
     if denials:
         payload["denials"] = denials
-    _emit(protocol, payload)
+    send(payload)
     return 0
 
 

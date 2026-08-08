@@ -19,6 +19,12 @@ network, spawning helpers, ctypes. Read that module's header for exactly how far
 where it stops — the honest summary is that it is an interpreter-level control, not a kernel one,
 and `sandbox_child_uid` (POSIX, daemon running as root) is what turns it into a kernel one.
 
+MODEL CALLS ARE INVERTED, not excepted. A tool with no network and no credentials cannot call a
+model, and most plugins worth installing want to. Rather than punch a hole in the grant, the child
+ASKS: it sends a `model_request` frame and this process makes the call, checks it against the
+grant, clamps it and meters it against the account running the agent (`model_broker.py`). So the
+channel here is bidirectional — the child's stdin stays open for the answers.
+
 COST. A child process per tool call is roughly 40-120ms of interpreter start plus the plugin's own
 import time. That is the trade: it is charged only on the UNTRUSTED tier (a marketplace agent's
 own plugins), never on built-ins, and `outcome=timeout` plus the elapsed timing are emitted so the
@@ -43,6 +49,7 @@ from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.tools.sandbox import protocol, stdout_capture
+from agent_runtime.infrastructure.tools.sandbox.model_broker import SandboxModelBroker
 
 log = logging.getLogger("agentd")
 
@@ -70,6 +77,52 @@ DEFAULT_TIMEOUT_S = 120.0
 #: Max bytes in one protocol line. A tool returning a base64 image easily passes asyncio's 64KB
 #: default, and the failure mode there is a ValueError mid-stream that looks like a protocol bug.
 STREAM_LIMIT = 32 * 1024 * 1024
+
+#: How often the watchdog checks the deadline. Fine-grained enough that an overrun is stopped
+#: promptly, coarse enough that a mostly-idle daemon is not waking up constantly.
+_DEADLINE_TICK_S = 0.5
+
+
+class _Deadline:
+    """The tool's own wall clock, which STOPS while the host is doing work on its behalf.
+
+    A sandboxed tool has no network, so its model calls are served by us — and a 60s model call
+    would otherwise eat a 120s tool budget that was never meant to cover it. Charging the child for
+    time it spent blocked on the parent produces kills that look random and depend on how busy the
+    model provider is, which is close to unreproducible. So the clock pauses for exactly the
+    interval the child is waiting on us.
+
+    Reentrant by depth, because several model requests can be in flight at once and the clock must
+    not restart when the first of them finishes.
+    """
+
+    def __init__(self, timeout_s: float) -> None:
+        self._timeout = timeout_s
+        self._start = time.monotonic()
+        self._paused_total = 0.0
+        self._paused_at: float | None = None
+        self._depth = 0
+
+    def pause(self) -> None:
+        self._depth += 1
+        if self._depth == 1:
+            self._paused_at = time.monotonic()
+
+    def resume(self) -> None:
+        self._depth = max(0, self._depth - 1)
+        if self._depth == 0 and self._paused_at is not None:
+            self._paused_total += time.monotonic() - self._paused_at
+            self._paused_at = None
+
+    def charged(self) -> float:
+        """Seconds of the tool's OWN time used so far."""
+        paused = self._paused_total
+        if self._paused_at is not None:
+            paused += time.monotonic() - self._paused_at
+        return time.monotonic() - self._start - paused
+
+    def expired(self) -> bool:
+        return self._timeout > 0 and self.charged() > self._timeout
 
 
 class SubprocessPluginSandbox:
@@ -171,22 +224,31 @@ class SubprocessPluginSandbox:
         except OSError as e:
             return self._fail(plugin_id, tool_name, "spawn-failed", f"sandbox: cannot start the sandbox process: {e}")
 
+        broker = SandboxModelBroker(
+            self._config, plugin_id=plugin_id, tool_name=tool_name, grant=grant
+        )
+        # The deadline is on the TOOL's own time, not on ours. A model call the host is serving can
+        # legitimately take a minute, and charging that to the tool's budget would kill healthy
+        # runs under load — the kind of failure that looks random and never reproduces.
+        deadline = _Deadline(timeout)
         killer = asyncio.create_task(self._kill_on_abort(abort, proc))
+        watchdog = asyncio.create_task(self._watch_deadline(deadline, proc))
         try:
-            payload, stderr_text = await asyncio.wait_for(
-                self._collect(proc, job, on_update), timeout=timeout
-            )
-        except TimeoutError:
+            payload, stderr_text = await self._collect(proc, job, on_update, broker, deadline)
+        finally:
+            for task in (killer, watchdog):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await self._terminate(proc)
+
+        if deadline.expired():
             return self._fail(
                 plugin_id, tool_name, "timeout",
-                f"sandbox: '{tool_name}' exceeded its {timeout:.0f}s limit and was stopped.",
+                f"sandbox: '{tool_name}' exceeded its {timeout:.0f}s limit and was stopped."
+                + (f" ({broker.calls_made} model call(s) were not counted against it.)"
+                   if broker.calls_made else ""),
             )
-        finally:
-            killer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await killer
-            await self._terminate(proc)
 
         elapsed_ms = int((time.monotonic() - started) * 1000)
         if stderr_text.strip():
@@ -217,18 +279,25 @@ class SubprocessPluginSandbox:
 
     # ------------------------------------------------------------------ plumbing
 
-    async def _collect(self, proc, job, on_update) -> tuple[dict | None, str]:
+    async def _collect(self, proc, job, on_update, broker, deadline) -> tuple[dict | None, str]:
         """Read the protocol from stdout and drain stderr CONCURRENTLY.
 
         Concurrently and not in sequence: the pipes are fixed-size, so a plugin that writes more to
         stderr than the buffer holds blocks forever while we sit reading stdout. That is a hang
         with no error, triggered by a chatty plugin, and it is the classic way to get one.
+
+        A `model_request` is served on its OWN task for the same reason. Awaiting the model call
+        inline would stop this loop, so the child's progress updates and its stderr would back up
+        behind a network round-trip it is itself waiting on.
         """
         stderr_task = asyncio.create_task(self._drain(proc.stderr))
+        writes = asyncio.Lock()  # the read loop and every broker task share one stdin
+        served: set = set()
         try:
             proc.stdin.write(protocol.encode_job(job))
             await proc.stdin.drain()
-            proc.stdin.close()
+            # stdin is NOT closed: it is how model responses get back to the child. It closes when
+            # the process ends, which the child reads as "the host is gone" and unblocks any waiter.
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass  # the child died early; the result below will be None and reported as such
         final: dict | None = None
@@ -245,14 +314,52 @@ class SubprocessPluginSandbox:
             payload = protocol.decode_line(raw.decode("utf-8", "replace"))
             if payload is None:
                 continue
-            if payload.get("t") == "update":
+            kind = payload.get("t")
+            if kind == "update":
                 if on_update is not None:
                     with contextlib.suppress(Exception):  # noqa: BLE001 — a UI callback must not kill the run
                         on_update(protocol.payload_result(payload))
-            elif payload.get("t") == "result":
+            elif kind == "model_request":
+                task = asyncio.create_task(
+                    self._serve_model(proc, payload, broker, deadline, writes)
+                )
+                served.add(task)
+                task.add_done_callback(served.discard)
+            elif kind == "result":
                 final = payload
+        for task in list(served):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
         await proc.wait()
         return final, await stderr_task
+
+    async def _serve_model(self, proc, request, broker, deadline, writes) -> None:
+        """Answer one `model_request`. Never raises into the read loop."""
+        deadline.pause()  # the child is blocked on US now; its own clock stops
+        try:
+            response = await broker.serve(request)
+        except Exception as e:  # noqa: BLE001 — a broker bug must still unblock the child
+            log.exception("sandbox: model broker failed")
+            response = {
+                "t": "model_response", "id": str(request.get("id") or ""),
+                "ok": False, "text": "", "error": f"the host failed to serve the call: {e}",
+            }
+        finally:
+            deadline.resume()
+        async with writes:
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError, OSError):
+                proc.stdin.write(protocol.encode_job(response))
+                await proc.stdin.drain()
+
+    async def _watch_deadline(self, deadline, proc) -> None:
+        """Kill the child once it has used its OWN time up. Polling rather than one `wait_for`,
+        because the deadline pauses while the host is serving a model call for it."""
+        while True:
+            await asyncio.sleep(_DEADLINE_TICK_S)
+            if deadline.expired():
+                await self._terminate(proc)
+                return
 
     @staticmethod
     async def _drain(stream) -> str:

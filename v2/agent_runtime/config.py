@@ -348,7 +348,19 @@ class Config:
     # Ceilings for ONE untrusted tool call: {"timeout_s": 120, "cpu_ms": 0, "mem_mb": 0} (0 = no
     # limit). Wall clock is enforced everywhere; cpu/mem are POSIX rlimits, so they do nothing on
     # Windows — a memory bomb in a plugin is survivable on the hosted task and is not on a desktop.
+    # NOTE the wall clock counts the TOOL's own time: it pauses while the host is serving a model
+    # call for it, so a slow provider cannot kill an otherwise healthy tool.
     sandbox_limits: dict = field(default_factory=dict)
+    # A sandboxed tool has no network and no keys, so it cannot call a model itself — it asks the
+    # HOST to, and the host checks, clamps and meters the call against the account running the
+    # agent. Ceilings per tool invocation: {"max_calls": 8, "max_output_tokens": 4096,
+    # "timeout_s": 120}. Cost is the realistic failure mode here — a plugin stuck in a retry loop
+    # spends real money — so these are finite by default rather than opt-in.
+    sandbox_model_limits: dict = field(default_factory=dict)
+    # Model ids a sandboxed tool may ask for. Empty = DERIVED per tool from the normal resolution
+    # chain (what that tool would have used anyway), which is what you want; set it to pin the
+    # whole deployment to an explicit list. Only tools declaring `needs_model` get any at all.
+    sandbox_models: tuple = ()
     # ── MULTI-TENANCY (hosted only) ──────────────────────────────────────────────────────────
     # multi_tenant: this daemon serves MANY accounts, so state_dir/agents_dir/workspace/plugins_dir
     # are resolved PER CONNECTION under tenant_root/<account_id>/ instead of being process-global,

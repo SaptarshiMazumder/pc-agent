@@ -68,6 +68,14 @@ class CapabilityResolver(Protocol):
         plugin_id: str,
         origin: PluginOrigin,
         ctx: RunContext | None,
+        tool: object = None,
     ) -> CapabilityGrant:
-        """Return the rights this plugin's tool may use for this run (default-deny on doubt)."""
+        """Return the rights this plugin's tool may use for this run (default-deny on doubt).
+
+        ``tool`` is the tool being run, duck-typed and optional. It is here because rights are a
+        property of the TOOL, not only of the plugin: one plugin can ship a pure function and a
+        model-calling one, and granting both what the second needs would be wrong. The tool already
+        self-describes (``needs_model``, ``model_kind``), so the resolver reads that rather than
+        requiring a second declaration somewhere else that could disagree with it.
+        """
         ...
