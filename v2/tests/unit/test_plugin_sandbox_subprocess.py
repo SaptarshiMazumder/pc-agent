@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -548,9 +549,28 @@ def test_a_denied_reach_is_recorded_for_the_metric(tmp_path, workspace):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX rlimits")
 def test_rlimits_are_applied_where_the_platform_has_them():
-    from agent_runtime.infrastructure.tools.sandbox import child_guard
+    """In a CHILD, never in the test process.
 
-    child_guard.apply_rlimits(cpu_ms=5000, mem_mb=0)  # must not raise
+    `apply_rlimits` is called between fork and exec, and RLIMIT_CPU binds whoever calls it. Calling
+    it here capped the pytest runner itself at 5s of CPU, and the whole suite died mid-run with
+    SIGXCPU — `CPU time limit exceeded (core dumped)`, exit 152. It only reproduces on POSIX CI,
+    because on Windows this test is skipped, so it went straight through local runs and broke CI.
+
+    Asserting the limits are actually SET is also a stronger claim than the old "must not raise".
+    """
+    code = (
+        "import resource;"
+        "from agent_runtime.infrastructure.tools.sandbox import child_guard;"
+        "child_guard.apply_rlimits(cpu_ms=5000, mem_mb=512);"
+        "print(resource.getrlimit(resource.RLIMIT_CPU)[0], resource.getrlimit(resource.RLIMIT_AS)[0])"
+    )
+    done = subprocess.run(  # noqa: S603 — sys.executable, fixed argv
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+    )
+    assert done.returncode == 0, done.stderr
+    cpu, mem = done.stdout.split()
+    assert int(cpu) == 5
+    assert int(mem) == 512 * 1024 * 1024
 
 
 # ─────────────────────────── the seam, end to end ───────────────────────────
