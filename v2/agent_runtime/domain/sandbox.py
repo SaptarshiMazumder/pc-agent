@@ -55,6 +55,14 @@ class CapabilityGrant:
     ``secrets``       env/secret values injected INTO the sandbox. {} by default — the sandbox is
                       blind to platform keys and other users' tokens unless a grant opts specific
                       values in. This is the single most important default in the whole design.
+    ``models``        model ids this tool may ask the host to run on its behalf. () = none.
+
+    ON ``models`` BEING A CAPABILITY RATHER THAN A KEY. A sandboxed tool never receives a provider
+    credential and never opens a socket; it asks the HOST to make the call (see the sandbox model
+    broker). So the right to use a model is expressed the same way as the right to read a path — a
+    list on the grant, default empty — instead of by handing over something the tool then owns.
+    The list is also the CLAMP: naming an expensive model would otherwise be a cost attack, so the
+    broker refuses anything not on it.
     """
 
     fs_paths: tuple[str, ...] = ()
@@ -63,6 +71,7 @@ class CapabilityGrant:
     mem_mb: int = 0
     timeout_s: float = 0.0
     secrets: Mapping[str, str] = field(default_factory=dict)
+    models: tuple[str, ...] = ()
 
 
 # The deny-all grant: nothing readable, nothing reachable, no secrets. The safe fallback anywhere a

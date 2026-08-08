@@ -78,7 +78,9 @@ class SandboxedTool(Tool):
     ) -> ToolResult:
         ctx = current_run_context()
         try:
-            grant = self._resolver.resolve(self._plugin_id, self._origin, ctx)
+            # The inner tool goes to the resolver: rights are per-TOOL, not per-plugin (a plugin
+            # can ship one pure function and one that calls a model).
+            grant = self._resolver.resolve(self._plugin_id, self._origin, ctx, self._inner)
         except Exception:  # noqa: BLE001 — a resolver bug must never widen access
             grant = DENY_ALL
         return await self._sandbox.run_tool(

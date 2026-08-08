@@ -1,9 +1,23 @@
 """The parent<->child wire format for the subprocess sandbox. Pure functions, no I/O.
 
-ONE JSON object goes in (the job, on the child's stdin), a stream of JSON LINES comes back (progress
-updates, then exactly one result). It lives in its own module because both sides must agree on it and
-only one side is ever under test at a time — a parent test can build a job and assert on a payload
-without spawning anything, and the worker can be exercised with a hand-written job.
+The job goes in on the child's stdin as ONE JSON line, and JSON LINES come back on its stdout:
+progress updates, model requests, then exactly one result. stdin then STAYS OPEN, because the
+channel is bidirectional — the parent answers model requests on it. It lives in its own module
+because both sides must agree on it and only one side is ever under test at a time: a parent test
+can build a job and assert on a payload without spawning anything, and the worker can be exercised
+with a hand-written job.
+
+FRAME KINDS (`t`):
+
+    parent -> child     job (the first line), `model_response`
+    child  -> parent    `update`, `model_request`, `result` (exactly one, last)
+
+WHY MODEL CALLS COME BACK HERE INSTEAD OF GOING OUT THERE. A sandboxed tool has no network and no
+credentials, and a model call needs both — so instead of weakening the grant to let it dial out, it
+asks the host to make the call. The credential never crosses, the grant stays `net_allowlist = ()`,
+and the host is the one place that can meter the spend and clamp the model. The same channel works
+in hosted, BYOK and local-model modes, because the side that decides HOW to fulfil the call is the
+side that knows.
 
 TWO THINGS DELIBERATELY DO NOT TRAVEL IN THE JOB:
 
@@ -40,6 +54,13 @@ DEFAULT_CONFIG_FIELDS: tuple[str, ...] = (
     "model_defaults",
     "model_catalog",
     "agent_name",
+    # A model-bearing tool resolves its own model id before asking the host to run it, and the
+    # resolution chain reads these. They are model NAMES, not credentials — knowing that this
+    # deployment's brain is some particular id grants nothing. `config_path` is here because
+    # `brain_model` refuses to answer when it is empty (a missing config must be loud, not
+    # silently defaulted); the child cannot read the file it names, the guard denies that.
+    "model",
+    "config_path",
 )
 
 
@@ -73,6 +94,10 @@ def grant_payload(grant: CapabilityGrant) -> dict:
         "cpu_ms": int(grant.cpu_ms),
         "mem_mb": int(grant.mem_mb),
         "timeout_s": float(grant.timeout_s),
+        # Model ids, not keys. The child is told what it may ASK for so it can fail fast with a
+        # useful message; the parent re-checks every request against its own copy, because a value
+        # that has been inside the sandbox is a claim, not a fact.
+        "models": list(grant.models),
     }
 
 
