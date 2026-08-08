@@ -119,10 +119,19 @@ class RegistryClient:
             len(roster.revoked),
         )
 
+    def asset_url(self, relative: str) -> str:
+        """Absolute url for a registry-relative artifact path.
+
+        Index urls are relative so the same folder works from disk and from a CDN; joining them is
+        this client's job because it is what knows where the index came from. Exposed for assets a
+        client links to rather than downloads through us — installers, which a browser fetches
+        directly. An already-absolute url passes through (urljoin's own rule)."""
+        return urljoin(self._index_url, relative) if relative else ""
+
     async def download(self, entry: RegistryEntry, dest_dir: Path) -> Path:
         if not entry.url:
             raise BundleError(f"registry entry '{entry.id}' has no artifact url")
-        artifact_url = urljoin(self._index_url, entry.url)
+        artifact_url = self.asset_url(entry.url)
         dest = dest_dir / f"{entry.id}-{entry.version}.agentpkg"
         data = await self._read_bytes(artifact_url)
         dest.parent.mkdir(parents=True, exist_ok=True)

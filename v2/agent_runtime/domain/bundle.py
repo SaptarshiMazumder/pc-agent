@@ -72,6 +72,29 @@ class BundleManifest:
 
 
 @dataclass(frozen=True)
+class InstallerAsset:
+    """A downloadable INSTALLER for one platform — the artifact a person with no agentd yet runs.
+
+    Distinct from ``RegistryEntry.url`` (the .agentpkg), and the distinction is the whole point:
+    a .agentpkg is installed BY a running daemon, so it only reaches someone who already has the
+    product. An installer is what a browser downloads on a bare machine. Without this the
+    marketplace could only ever sell to existing users.
+
+    ``sha256`` is signed separately from the bundle's (see index_builder) because the entry
+    signature covers only the .agentpkg digest — leaving the installer rows unsigned would let
+    anyone who can write to the registry swap the executable without breaking any signature.
+    Note the limit honestly: a BROWSER download verifies nothing. Only a client that downloads
+    through the daemon checks this. Code signing the executable is the real fix for browsers.
+    """
+
+    platform: str  # "win" | "mac" | "linux" — matched against the client's own platform
+    url: str = ""  # absolute, or relative to the index location (same rule as the bundle url)
+    size: int = 0
+    sha256: str = ""
+    sig: str = ""  # base64 ed25519 over THIS asset's sha256
+
+
+@dataclass(frozen=True)
 class RegistryEntry:
     """One row of a registry index.json — enough to render a store card and to
     download + verify the artifact."""
@@ -89,6 +112,38 @@ class RegistryEntry:
     icon: str = ""  # store-card glyph name ("" => client default)
     sig: str = ""  # base64 ed25519 over the sha256 digest (M7)
     publisher_id: str = ""  # schema 2: WHOSE key signed it (a roster id). "" => the index's own key
+    installers: tuple[InstallerAsset, ...] = ()  # standalone downloads, one per platform
+
+
+def _parse_installers(raw) -> tuple[InstallerAsset, ...]:
+    """Parse the optional ``installers`` array. Malformed or url-less rows are DROPPED, not
+    raised on: this key was added after clients shipped, so tolerating junk in it is what keeps a
+    future registry from blanking the store on an older install. A row with no platform or no url
+    could not be offered as a download anyway."""
+    if not isinstance(raw, list):
+        return ()
+    out = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        platform = str(row.get("platform") or "").strip().lower()
+        url = str(row.get("url") or "").strip()
+        if not platform or not url:
+            continue
+        try:
+            size = int(row.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        out.append(
+            InstallerAsset(
+                platform=platform,
+                url=url,
+                size=size,
+                sha256=str(row.get("sha256") or ""),
+                sig=str(row.get("sig") or ""),
+            )
+        )
+    return tuple(out)
 
 
 # ── The trust roster (schema 2) ─────────────────────────────────────────────────────────
@@ -301,6 +356,7 @@ def parse_registry_index(data: dict) -> RegistryIndex:
                 icon=str(raw.get("icon") or ""),
                 sig=str(raw.get("sig") or ""),
                 publisher_id=str(raw.get("publisher_id") or ""),
+                installers=_parse_installers(raw.get("installers")),
             )
         )
     publishers = None

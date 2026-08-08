@@ -68,6 +68,11 @@ def _args(**over) -> argparse.Namespace:
         "dry_run": False,
         "publisher_id": "",
         "roster": "",
+        # Installers are published by DEFAULT (a marketplace has to serve people who have nothing
+        # installed yet). These tests build bare agent dirs with no clients/desktop/ to discover,
+        # so the default is already a no-op for them — it is spelled out because this namespace
+        # stands in for the real parser, and a missing key here is an AttributeError, not a skip.
+        "no_installers": False,
     }
     base.update(over)
     return argparse.Namespace(**base)
