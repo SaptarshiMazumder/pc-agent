@@ -84,6 +84,50 @@ break the user's install from inside a package they trusted for one job.
 Add a key only when this agent needs it. `config.get` returns everything the daemon will
 accept — log `data.values` to see the list.
 
+## Sign-in is already handled — do not write your own
+
+`app.js` awaits `agentd.mountSignInGate()` as the first thing it does once the socket opens.
+That is the whole login. It comes from the SDK (`vendor/agentd-client.js`), so it is one
+implementation shared by every agent rather than a copy per app.
+
+**It renders nothing unless a sign-in is actually needed.** Three cases where it is a no-op:
+
+- the install is BYOK (the daemon reports no `accountsUrl`) — there are no accounts to sign in to
+- the daemon already holds a live platform credential
+- a stored session from last time still works, so it re-binds silently
+
+That conditionality is why it can sit in this template unconditionally. Do not add an `if` around
+it, and do not gate it on a flag: the daemon is the thing that knows whether this install is
+hosted, and it is asked at runtime.
+
+**Leave the call as it is —** `await agentd.mountSignInGate()` — unless this agent needs different
+copy. The heading already comes from the page `<title>`, which is this agent's name, so passing a
+`product` would be a second copy of the name to keep in sync with `agent.toml`.
+
+The one thing worth adding is a `blurb`, because only you know what this agent does with a login:
+
+```js
+await agentd.mountSignInGate({
+  blurb: '<one line: why this agent needs an account>'
+})
+```
+
+**Theme it with tokens, never by editing the gate's markup.** Set any of these in `style.css`
+under `:root` — the gate reads them and falls back to a neutral light card:
+
+```
+--gate-bg  --gate-card  --gate-fg  --gate-muted  --gate-border  --gate-input
+--gate-accent  --gate-on-accent  --gate-error-bg  --gate-error-fg
+```
+
+Forking the markup instead would mean your copy stops matching the gate the next time the SDK is
+re-vendored, and the element ids are load-bearing: the desktop shell's `AGENTD_E2E_LOGIN` hook
+drives `gateEmail` / `gatePass` / `gateForm` by id to test packaged builds with nobody at the
+keyboard. Renaming them disables that test silently — it fills nothing and still passes.
+
+If this agent needs its own sign-in surface rather than a modal, use the mechanism directly:
+`agentd.resolveAuth()`, `agentd.signIn({email, password})`, `agentd.signOut()`.
+
 ## The states
 
 `style.css` ends with a `states` section: empty, loading, error, and connection. They are

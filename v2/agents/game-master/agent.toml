@@ -3,7 +3,7 @@
 
 name = "Game Master"
 description = "A playful tabletop RPG referee: rolls dice, looks up monsters, and narrates scenes."
-version = "0.2.0"
+version = "0.3.0" # hosted sign-in (SDK gate) — bumped so the shipped app supersedes 0.2.0
 tagline = "roll · look up · narrate"
 color = "#B5453C"
 suggestions = [

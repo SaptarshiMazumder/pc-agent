@@ -193,6 +193,17 @@ ${(e && e.message) || String(e)}`
     if (s === 'open' && !started) {
       started = true
       void (async () => {
+        // Hosted sign-in — no-op on a BYOK build or an already-connected device. Awaited first
+        // so narrate_scene (which needs a model) never runs without platform keys.
+        try {
+          // No `product`: the heading uses the page <title>, which is already this agent's name.
+          // Only the blurb is ours to write — it is the one line that says why an account is asked for.
+          await agentd.mountSignInGate({
+            blurb: 'Sign in to play — the referee runs on our servers, no API keys needed.'
+          })
+        } catch (e) {
+          console.warn('[sign-in]', (e && e.message) || e)
+        }
         try {
           const hello = await client.hello()
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''

@@ -387,9 +387,26 @@ scaffold_ui(agent_id='<id>')      →  a complete, working app in agents/<id>/ui
 ```
 
 It copies a chat app that already streams replies, shows live tool rows, takes pasted
-screenshots, remembers conversations, and has a settings page where the user pastes their own
-API key. Then you **edit** it — the title, the hero text, the suggestions, the accent colour —
-and add whatever surface this particular agent needs.
+screenshots, remembers conversations, **signs the user in on a hosted install**, and has a
+settings page where the user pastes their own API key. Then you **edit** it — the title, the hero
+text, the suggestions, the accent colour — and add whatever surface this particular agent needs.
+
+### Sign-in comes with the template — never hand-write a login
+
+An agent that runs on platform keys needs the user signed in, or every model call fails. The
+scaffolded `app.js` already awaits `agentd.mountSignInGate()` on connect, and that is all a login
+takes. It lives in the SDK, so it is one implementation for every agent.
+
+It **shows nothing** unless a sign-in is genuinely needed — no `accountsUrl` (a BYOK install), keys
+already live, or a stored session that still works. So it is correct to leave in place for an agent
+that will only ever run locally; it costs one status call and renders nothing.
+
+Theme it from `style.css` with `--gate-accent`, `--gate-card`, `--gate-fg` and friends. Never fork
+its markup, and never rename `gateEmail` / `gatePass` / `gateForm` — the packaged-build login test
+drives those ids.
+
+For an agent that wants sign-in somewhere other than a modal, the mechanism is exposed directly:
+`agentd.resolveAuth()`, `agentd.signIn({email, password, signup})`, `agentd.signOut()`.
 
 Read the `ui/README.md` it writes before changing anything. It marks every spot to edit.
 

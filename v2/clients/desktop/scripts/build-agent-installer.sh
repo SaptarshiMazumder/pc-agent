@@ -36,8 +36,17 @@ set -euo pipefail
 
 DESKTOP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # clients/desktop
 V2="$(cd "$DESKTOP/../.." && pwd)"                            # v2/
-VENV_PY="$V2/.venv/Scripts/python.exe"
+REPO="$(cd "$V2/.." && pwd)"                                  # pc-agent/
 AGENTS_DIR="$V2/agents"
+
+# The venv is DISCOVERED, not assumed. It has lived at both v2/.venv and the repo root, and
+# hardcoding one meant this script died with "no venv" on a working checkout while every other
+# tool (gen-app-flavor, pytest) found it fine.
+VENV_PY=""
+for candidate in "$V2/.venv/Scripts/python.exe" "$REPO/.venv/Scripts/python.exe" \
+                 "$V2/.venv/bin/python" "$REPO/.venv/bin/python"; do
+  if [[ -x "$candidate" ]]; then VENV_PY="$candidate"; break; fi
+done
 
 # -- args ---------------------------------------------------------------------------
 SKIP_RUNTIME=0
@@ -87,7 +96,10 @@ echo
 
 # -- stages 1-2: wheel + embedded runtime (ONCE, shared by every agent) ---------------
 if (( ! SKIP_RUNTIME )); then
-  [[ -x "$VENV_PY" ]] || { echo "ERROR: no venv at $VENV_PY — create it first (see v2/README.md)"; exit 1; }
+  [[ -n "$VENV_PY" ]] || {
+    echo "ERROR: no venv found (looked in $V2/.venv and $REPO/.venv) — create it first (see v2/README.md)"
+    exit 1
+  }
   echo "== [1/3] building the agentd wheel =="
   "$VENV_PY" -m pip install --quiet build
   (cd "$V2" && "$VENV_PY" -m build --wheel --outdir "$V2/dist")
@@ -100,7 +112,39 @@ if (( ! SKIP_RUNTIME )); then
 else
   [[ -f "$DESKTOP/runtime/cpython/python.exe" ]] \
     || { echo "ERROR: --skip-runtime given but runtime/cpython does not exist yet — run once without it"; exit 1; }
-  echo "== [1-2/3] skipped (reusing runtime/cpython) =="
+
+  # STALENESS GUARD. --skip-runtime reuses whatever agentd was baked into runtime/cpython, and
+  # nothing about the resulting installer looks wrong: it builds, installs, and launches. The
+  # daemon then dies on the FIRST import that changed since the runtime was assembled.
+  #
+  # That is exactly what shipped once: a runtime built 2026-07-24 was reused after the
+  # agentd -> agent_runtime package rename on 07-30, so a freshly downloaded installer crashed
+  # with `ModuleNotFoundError: No module named 'agentd'` — in code the repo had fixed weeks
+  # earlier. A stale runtime cannot be caught by a version check either; the version was 0.1.5
+  # on both sides. mtime is the only honest signal.
+  #
+  # REFUSES rather than warns: the flag exists to save minutes, and the failure it hides is a
+  # broken installer published to real users. A warning in a hundred lines of build output is
+  # not a defence. The check is precise (it fires only when source really is newer), so it
+  # stays quiet on the correct case.
+  RUNTIME_MARK="$DESKTOP/runtime/cpython/Lib/site-packages/agent_runtime/__init__.py"
+  if [[ -f "$RUNTIME_MARK" ]]; then
+    NEWER=$(find "$V2/agent_runtime" "$V2/plugins" -name '*.py' -newer "$RUNTIME_MARK" -print -quit 2>/dev/null || true)
+    if [[ -n "$NEWER" ]]; then
+      echo "ERROR: --skip-runtime, but runtime/cpython is OLDER than your Python source."
+      echo "  runtime baked: $(date -r "$RUNTIME_MARK" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?')"
+      echo "  newer source : ${NEWER#$V2/}"
+      echo
+      echo "Reusing it would ship a daemon that crashes on the first changed import, in an"
+      echo "installer that otherwise looks fine. Re-run WITHOUT --skip-runtime to rebuild it."
+      exit 1
+    fi
+  else
+    echo "ERROR: runtime/cpython has no agent_runtime installed (pre-rename or broken build)."
+    echo "Re-run WITHOUT --skip-runtime."
+    exit 1
+  fi
+  echo "== [1-2/3] skipped (runtime/cpython is newer than your source) =="
 fi
 echo
 

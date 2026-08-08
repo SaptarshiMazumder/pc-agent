@@ -69,6 +69,33 @@ def write_gateway_file(info: GatewayInfo) -> Path:
     return path
 
 
+def heal_gateway_file(info: GatewayInfo) -> bool:
+    """Re-write the rendezvous if it has gone missing (or now describes someone else).
+
+    THE FAILURE THIS ENDS. The rendezvous is the ONLY way a client discovers the daemon — url
+    and bearer token both. It is written once, at bind. If the state directory is cleared while
+    the daemon is alive (a reset, a "start clean", a moved ~/.agentd), the file disappears but the
+    daemon keeps serving and keeps holding the port. From then on every launch is unrecoverable:
+    the shell cannot find the daemon, so it starts one; that one cannot bind, so it dies; the
+    orphan survives, so the next launch does it all again. Forever, until someone finds the pid.
+    That loop cost a whole evening of "why is this every time".
+
+    Re-asserting the file makes the daemon self-healing: the next launch discovers it and connects.
+    Idempotent and cheap — same port, same token, so a client that already had it is unaffected.
+
+    Returns True when it actually rewrote something (worth logging; it means state was lost).
+    """
+    current = read_gateway_file()
+    if current is not None and current.pid == info.pid and current.port == info.port:
+        return False  # ours and current — nothing to do
+    if current is not None and current.pid != info.pid and pid_alive(current.pid):
+        # Someone else's LIVE daemon owns the rendezvous. Never steal it: whoever holds the port
+        # is the one clients should reach, and overwriting would point them at us instead.
+        return False
+    write_gateway_file(info)
+    return True
+
+
 def read_gateway_file() -> GatewayInfo | None:
     path = runtime_paths.gateway_file()
     try:

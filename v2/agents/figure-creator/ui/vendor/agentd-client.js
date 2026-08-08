@@ -23,8 +23,18 @@ var agentd = (() => {
   __export(src_exports, {
     AgentdClient: () => AgentdClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
+    agentIdFromPage: () => agentIdFromPage,
     fromPage: () => fromPage,
-    resultText: () => resultText
+    loadSession: () => loadSession,
+    mountSignInGate: () => mountSignInGate,
+    platformConnect: () => platformConnect,
+    platformStatus: () => platformStatus,
+    resolveAuth: () => resolveAuth,
+    resultText: () => resultText,
+    saveSession: () => saveSession,
+    signIn: () => signIn,
+    signOut: () => signOut,
+    signOutAndGate: () => signOutAndGate
   });
 
   // src/protocol.ts
@@ -221,8 +231,8 @@ var agentd = (() => {
     /** Build the authenticated GET /file URL for a server-side artifact path. */
     fileUrl(path) {
       if (!this.lastTarget) throw new Error("not connected");
-      const origin = toHttpOrigin(new URL(this.lastTarget.url).toString());
-      const u = new URL("/file", origin);
+      const origin2 = toHttpOrigin(new URL(this.lastTarget.url).toString());
+      const u = new URL("/file", origin2);
       u.searchParams.set("path", path);
       if (this.lastTarget.token) u.searchParams.set("token", this.lastTarget.token);
       return u.toString();
@@ -235,6 +245,316 @@ var agentd = (() => {
     const client = new AgentdClient(options);
     client.connect({ url: here.origin, token: token || void 0, scope: scope || void 0 });
     return client;
+  }
+
+  // src/platform.ts
+  var DEFAULTS = {
+    timeoutMs: 15e3,
+    confirmAttempts: 6,
+    confirmDelayMs: 1e3
+  };
+  var SERVER_SIDE_KEYS = "server-side";
+  function origin(opts = {}) {
+    if (opts.origin) return opts.origin.replace(/\/$/, "");
+    if (typeof location === "undefined") throw new Error("no origin: pass options.origin");
+    return location.origin;
+  }
+  function agentIdFromPage() {
+    if (typeof location === "undefined") return "";
+    const here = new URL(location.href);
+    const scope = here.searchParams.get("scope") || "";
+    const scoped = /^agent:(.+)$/.exec(scope);
+    if (scoped) return scoped[1];
+    const path = /\/apps\/([^/]+)/.exec(here.pathname);
+    return path ? decodeURIComponent(path[1]) : "";
+  }
+  function daemonToken(opts = {}) {
+    if (typeof opts.token === "string") return opts.token;
+    if (typeof location === "undefined") return "";
+    try {
+      return new URL(location.href).searchParams.get("token") || "";
+    } catch {
+      return "";
+    }
+  }
+  function daemonUrl(path, params, opts = {}) {
+    const u = new URL(path, `${origin(opts)}/`);
+    const token = daemonToken(opts);
+    if (token) u.searchParams.set("token", token);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    return u.toString();
+  }
+  function storageKey(opts = {}) {
+    if (opts.storageKey) return opts.storageKey;
+    const id = agentIdFromPage();
+    return `agentd.session.${id || "app"}`;
+  }
+  async function withTimeout(p, ms, what) {
+    let timer;
+    const guard = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([p, guard]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function getJson(url, timeoutMs, what) {
+    const r = await withTimeout(fetch(url, { cache: "no-store" }), timeoutMs, what);
+    const text = await r.text();
+    let body = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+    }
+    if (!r.ok) throw new Error(String(body?.error || `HTTP ${r.status}`));
+    return body;
+  }
+  async function postJson(url, payload, timeoutMs, what) {
+    const r = await withTimeout(
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      }),
+      timeoutMs,
+      what
+    );
+    const text = await r.text();
+    let body = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+    }
+    if (!r.ok) throw new Error(String(body?.error || body?.detail || `HTTP ${r.status}`));
+    return body;
+  }
+  function proxyOf(raw) {
+    return raw && (raw.modelProxy || raw.modelGateway) || null;
+  }
+  function shape(raw) {
+    const accountsUrl = String(raw?.accountsUrl || "").replace(/\/$/, "");
+    return {
+      accountsUrl,
+      hosted: !!accountsUrl,
+      keysLive: !!proxyOf(raw)?.enabled,
+      raw: raw || {}
+    };
+  }
+  async function platformStatus(opts = {}) {
+    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+    return shape(await getJson(daemonUrl("/platform/status", {}, opts), timeoutMs, "platform status"));
+  }
+  async function platformConnect(session, opts = {}) {
+    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+    const attempts = opts.confirmAttempts ?? DEFAULTS.confirmAttempts;
+    const delay = opts.confirmDelayMs ?? DEFAULTS.confirmDelayMs;
+    const url = daemonUrl("/platform/connect", { session }, opts);
+    try {
+      const status = shape(await getJson(url, timeoutMs, "platform connect"));
+      if (status.keysLive) return status;
+    } catch (e) {
+      const message = String(e?.message || e).toLowerCase();
+      if (message.includes(SERVER_SIDE_KEYS)) {
+        const status = await platformStatus(opts);
+        return { ...status, keysLive: true };
+      }
+    }
+    for (let i = 0; i < attempts; i++) {
+      await new Promise((r) => setTimeout(r, delay));
+      try {
+        const status = await platformStatus(opts);
+        if (status.keysLive) return status;
+      } catch {
+      }
+    }
+    throw new Error("signed in, but this device did not activate \u2014 try again");
+  }
+  function loadSession(opts = {}) {
+    try {
+      const raw = localStorage.getItem(storageKey(opts));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.token ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  function saveSession(value, opts = {}) {
+    try {
+      if (value) localStorage.setItem(storageKey(opts), JSON.stringify(value));
+      else localStorage.removeItem(storageKey(opts));
+    } catch {
+    }
+  }
+  async function signIn(args, opts = {}) {
+    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+    const status = await platformStatus(opts);
+    if (!status.hosted) throw new Error("this build has no sign-in server configured");
+    const email = args.email.trim().toLowerCase();
+    if (args.signup) {
+      await postJson(`${status.accountsUrl}/signup`, { email, password: args.password }, timeoutMs, "signup");
+    }
+    const login = await postJson(
+      `${status.accountsUrl}/login`,
+      { email, password: args.password },
+      timeoutMs,
+      "login"
+    );
+    const token = String(login?.token || login?.session || "");
+    if (!token) throw new Error("the accounts server returned no session token");
+    const connected = await platformConnect(token, opts);
+    saveSession({ token, email }, opts);
+    return { ...connected, token };
+  }
+  function signOut(opts = {}) {
+    saveSession(null, opts);
+  }
+  async function resolveAuth(opts = {}) {
+    const status = await platformStatus(opts);
+    if (!status.hosted || status.keysLive) {
+      return { needsSignIn: false, status, token: loadSession(opts)?.token || "" };
+    }
+    const stored = loadSession(opts);
+    if (stored?.token) {
+      try {
+        const reconnected = await platformConnect(stored.token, opts);
+        if (reconnected.keysLive) {
+          return { needsSignIn: false, status: reconnected, token: stored.token };
+        }
+      } catch {
+      }
+      saveSession(null, opts);
+    }
+    return { needsSignIn: true, status, token: "" };
+  }
+
+  // src/gate.ts
+  var STYLE_ID = "agentd-gate-style";
+  var CSS = `
+.agentd-gate{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;
+  background:var(--gate-bg,rgba(20,20,22,.72));backdrop-filter:blur(6px);
+  font-family:var(--gate-font,system-ui,-apple-system,Segoe UI,sans-serif)}
+.agentd-gate[hidden]{display:none}
+.agentd-gate-card{width:min(92vw,360px);padding:26px 24px;border-radius:14px;
+  background:var(--gate-card,#fff);color:var(--gate-fg,#16161a);
+  box-shadow:0 18px 50px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:10px}
+.agentd-gate-mark{font-size:26px;line-height:1;text-align:center;color:var(--gate-accent,#4f46e5)}
+.agentd-gate-title{margin:2px 0 0;font-size:19px;font-weight:650;text-align:center}
+.agentd-gate-sub{margin:0 0 6px;font-size:12.5px;line-height:1.45;text-align:center;
+  color:var(--gate-muted,#6b6b76)}
+.agentd-gate-label{font-size:11.5px;font-weight:600;color:var(--gate-muted,#6b6b76)}
+.agentd-gate-input{padding:9px 11px;border-radius:8px;font-size:13.5px;
+  border:1px solid var(--gate-border,#d8d8e0);background:var(--gate-input,#fff);
+  color:var(--gate-fg,#16161a)}
+.agentd-gate-input:focus{outline:2px solid var(--gate-accent,#4f46e5);outline-offset:1px}
+.agentd-gate-btn{margin-top:6px;padding:10px 12px;border:0;border-radius:8px;cursor:pointer;
+  font-size:13.5px;font-weight:600;color:var(--gate-on-accent,#fff);
+  background:var(--gate-accent,#4f46e5)}
+.agentd-gate-btn[disabled]{opacity:.6;cursor:default}
+.agentd-gate-toggle{padding:4px;border:0;background:none;cursor:pointer;font-size:12px;
+  color:var(--gate-muted,#6b6b76);text-decoration:underline}
+.agentd-gate-error{padding:7px 9px;border-radius:7px;font-size:12px;
+  background:var(--gate-error-bg,#fdeaea);color:var(--gate-error-fg,#a3232b)}
+.agentd-gate-error[hidden]{display:none}
+`;
+  function injectStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    const el = document.createElement("style");
+    el.id = STYLE_ID;
+    el.textContent = CSS;
+    document.head.appendChild(el);
+  }
+  function build(product, blurb, allowSignup) {
+    const wrap = document.createElement("div");
+    wrap.className = "agentd-gate";
+    wrap.id = "gate";
+    wrap.innerHTML = `
+    <form class="agentd-gate-card" id="gateForm" autocomplete="on">
+      <div class="agentd-gate-mark" aria-hidden="true">&#9681;</div>
+      <h1 class="agentd-gate-title" id="gateTitle">Sign in</h1>
+      <p class="agentd-gate-sub" id="gateSub"></p>
+      <label class="agentd-gate-label" for="gateEmail">Email</label>
+      <input class="agentd-gate-input" id="gateEmail" type="email" autocomplete="email"
+             required placeholder="you@example.com" />
+      <label class="agentd-gate-label" for="gatePass">Password</label>
+      <input class="agentd-gate-input" id="gatePass" type="password"
+             autocomplete="current-password" required minlength="8" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" />
+      <div class="agentd-gate-error" id="gateError" hidden></div>
+      <button class="agentd-gate-btn" id="gateBtn" type="submit">Sign in</button>
+      ${allowSignup ? '<button class="agentd-gate-toggle" id="gateToggle" type="button">New here? Create an account</button>' : ""}
+    </form>`;
+    const title = wrap.querySelector("#gateTitle");
+    const sub = wrap.querySelector("#gateSub");
+    title.textContent = `Sign in to ${product}`;
+    sub.textContent = blurb;
+    return wrap;
+  }
+  async function mountSignInGate(options = {}) {
+    const allowSignup = options.allowSignup !== false;
+    const product = options.product || typeof document !== "undefined" && document.title || "this app";
+    const blurb = options.blurb || "Runs on our servers \u2014 no API keys to set up.";
+    const auth = await resolveAuth(options);
+    if (!auth.needsSignIn) {
+      return { hosted: auth.status.hosted, token: auth.token, signedInHere: false };
+    }
+    injectStyle();
+    const gate = build(product, blurb, allowSignup);
+    (options.mount || document.body).appendChild(gate);
+    const $ = (id) => gate.querySelector(`#${id}`);
+    const emailEl = $("gateEmail");
+    const passEl = $("gatePass");
+    const btn = $("gateBtn");
+    const errorEl = $("gateError");
+    const subEl = $("gateSub");
+    const titleEl = $("gateTitle");
+    const toggle = allowSignup ? $("gateToggle") : null;
+    let signup = false;
+    const say = (text) => subEl.textContent = text;
+    const fail = (text) => {
+      errorEl.textContent = text;
+      errorEl.hidden = !text;
+    };
+    const stored = loadSession(options);
+    if (stored?.email) emailEl.value = stored.email;
+    setTimeout(() => emailEl.focus(), 0);
+    toggle?.addEventListener("click", () => {
+      signup = !signup;
+      titleEl.textContent = signup ? "Create your account" : `Sign in to ${product}`;
+      btn.textContent = signup ? "Create account" : "Sign in";
+      toggle.textContent = signup ? "Have an account? Sign in" : "New here? Create an account";
+      passEl.setAttribute("autocomplete", signup ? "new-password" : "current-password");
+      say(blurb);
+      fail("");
+    });
+    return new Promise((resolve) => {
+      const form = $("gateForm");
+      say(blurb);
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const email = emailEl.value.trim().toLowerCase();
+        const password = passEl.value;
+        if (!email || !password) return;
+        btn.disabled = true;
+        fail("");
+        say(signup ? "Creating your account\u2026" : "Signing in\u2026");
+        try {
+          const result = await signIn({ email, password, signup }, options);
+          gate.remove();
+          resolve({ hosted: true, token: result.token, signedInHere: true });
+        } catch (e) {
+          btn.disabled = false;
+          say(blurb);
+          fail(String(e?.message || e));
+        }
+      });
+    });
+  }
+  async function signOutAndGate(options = {}) {
+    signOut(options);
+    const status = await platformStatus(options);
+    if (!status.hosted) return { hosted: false, token: "", signedInHere: false };
+    return mountSignInGate(options);
   }
   return __toCommonJS(src_exports);
 })();

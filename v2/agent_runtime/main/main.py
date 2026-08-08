@@ -66,7 +66,7 @@ def main() -> None:
         import os
         import time as _time
 
-        from agent_runtime import lifecycle
+        from agent_runtime import lifecycle, runtime_paths
 
         me = os.getpid()
         for _ in range(15):
@@ -80,4 +80,33 @@ def main() -> None:
                 )
                 return
             _time.sleep(0.2)
+
+        # Nobody claimed the port through the rendezvous, but the bind still failed. Two real
+        # causes, and a raw OSError traceback names neither:
+        #
+        #   * an agentd is serving without a discoverable rendezvous (its state dir was cleared
+        #     while it ran) — the loop that makes every subsequent launch fail identically
+        #   * a FOREIGN process holds the port, which is the version a real user hits
+        #
+        # The traceback that used to land here is unreadable to a user of a downloaded app and
+        # tells a developer nothing about which case it is. Say what happened and what to do,
+        # then exit non-zero — the supervisor surfaces the message, and its circuit breaker stops
+        # respawning into a port that is never going to free itself.
+        host = getattr(config, "host", "127.0.0.1")
+        port = getattr(config, "port", "?")
+        occupied = lifecycle.port_open(host, int(port)) if str(port).isdigit() else True
+        log = logging.getLogger("agentd")
+        if occupied:
+            log.error(
+                "cannot start: %s:%s is already in use, and whatever holds it did not publish a "
+                "rendezvous at %s. Either another agentd is running from a state directory that "
+                "has since been cleared, or another program owns the port. Close it (Windows: "
+                "`netstat -ano | findstr :%s` then `taskkill /PID <pid> /F`), or set a different "
+                "port with AGENTD_PORT.",
+                host,
+                port,
+                runtime_paths.gateway_file(),
+                port,
+            )
+            raise SystemExit(1)
         raise

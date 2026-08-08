@@ -321,14 +321,63 @@ function createSplash(): BrowserWindow {
 /** First-run: install any bundled .agentpkg the daemon doesn't have yet — the same flow
  *  the JARVIS renderer runs (store.ts preinstallBundles), mirrored here because an
  *  app-shell build never loads that renderer. Idempotent via the installed ledger. */
+/** `<id>-<version>.agentpkg` -> its two parts. The version is the artifact's own claim; the
+ *  installer re-reads the manifest, so this is only used to decide WHETHER to install. */
+function splitPackageName(fileName: string): { id: string; version: string } {
+  const m = /^(.*)-([0-9][^-]*)\.agentpkg$/.exec(fileName)
+  if (!m) return { id: fileName.replace(/\.agentpkg$/, ''), version: '' }
+  return { id: m[1], version: m[2] }
+}
+
+/** True when `candidate` is a newer version than `installed`. Numeric-dotted compare with a
+ *  string tiebreak, matching how the daemon supersedes installs. An unparseable or equal
+ *  version is NOT an update — re-installing on every launch would wipe the agent's directory
+ *  (and its user's edits) each time the app opened. */
+function isNewer(candidate: string, installed: string): boolean {
+  if (!candidate) return false
+  if (!installed) return true
+  const a = candidate.split('.')
+  const b = installed.split('.')
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = parseInt(a[i] ?? '0', 10)
+    const y = parseInt(b[i] ?? '0', 10)
+    if (Number.isNaN(x) || Number.isNaN(y)) return candidate > installed
+    if (x !== y) return x > y
+  }
+  return false
+}
+
+/** First run AND every upgrade: install any bundled .agentpkg the daemon doesn't have, or has
+ *  at an OLDER version.
+ *
+ *  The version check is the point. This used to skip on bundle ID alone, which meant a shipped
+ *  app-agent product could never deliver a new version of its own agent: the user installs
+ *  "Game Master 0.2.0", you ship 0.3.0 with a fix, they run the new installer — and the shell
+ *  sees game-master already present and installs nothing. The app updates, the agent inside it
+ *  never does, and the symptom is a fixed bug that is still there.
+ *
+ *  Equal versions must NOT reinstall: `install_files` replaces the agent's definition, so doing
+ *  it on every launch would discard whatever the user changed under agents/<id>/. */
 async function ensureBundlesInstalled(wsUrl: string): Promise<void> {
   if (flavor.bundledPackages.length === 0) return
   const { bundles } = await gatewayRequest(wsUrl, 'marketplace.installed')
-  const have = new Set(((bundles as Array<{ id: string }>) || []).map((b) => b.id))
+  const installed = new Map<string, string>(
+    ((bundles as Array<{ id: string; version?: string }>) || []).map((b) => [
+      b.id,
+      String(b.version || '')
+    ])
+  )
   for (const packagePath of flavor.bundledPackages) {
     const fileName = packagePath.replace(/\\/g, '/').split('/').pop() || ''
-    const bundleId = fileName.replace(/-[0-9][^-]*\.agentpkg$/, '')
-    if (!bundleId || have.has(bundleId)) continue
+    const { id, version } = splitPackageName(fileName)
+    if (!id) continue
+    const have = installed.get(id)
+    if (have !== undefined && !isNewer(version, have)) continue
+    console.log(
+      have === undefined
+        ? `bundles: installing ${id} ${version}`
+        : `bundles: upgrading ${id} ${have} -> ${version}`
+    )
     // generous timeout: an install may pip-install the agent's plugin deps
     await gatewayRequest(wsUrl, 'marketplace.install', { file: packagePath }, 600_000)
   }

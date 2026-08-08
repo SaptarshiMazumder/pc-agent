@@ -34,6 +34,20 @@
   --bad:  #e8737f;
   --warn: #e2a75a;
 
+  /* Sign-in gate (the SDK's gate.ts). Themed with tokens rather than by forking its markup,
+     so the shared gate keeps matching this app after the SDK is re-vendored. Without these it
+     falls back to a light card, which would read as a different product on this dark shell. */
+  --gate-bg:        rgba(10, 11, 14, 0.78);
+  --gate-card:      #191b21;
+  --gate-fg:        #e8e9ee;
+  --gate-muted:     #9ea3b3;
+  --gate-border:    rgba(255, 255, 255, 0.13);
+  --gate-input:     #14151a;
+  --gate-accent:    #b5453c;
+  --gate-on-accent: #ffffff;
+  --gate-error-bg:  rgba(181, 69, 60, 0.15);
+  --gate-error-fg:  #f0a6a0;
+
   --s-1: 4px;  --s-2: 8px;  --s-3: 12px;
   --s-4: 16px; --s-5: 24px; --s-6: 32px;
 

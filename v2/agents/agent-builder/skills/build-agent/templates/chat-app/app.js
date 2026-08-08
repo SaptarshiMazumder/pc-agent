@@ -156,6 +156,20 @@
     if (s === 'open' && !started) {
       started = true
       void (async () => {
+        // HOSTED SIGN-IN, awaited before anything else so the rest of the boot can assume the
+        // daemon has model access. Renders NOTHING on a BYOK build, or when this device is
+        // already connected, or when a stored session still works — so it is safe to call
+        // unconditionally and there is nothing to configure. (SDK: gate.ts / platform.ts.)
+        //
+        // Note this is about MODEL access, not socket access: the token in the page URL already
+        // authorized the WebSocket, which is why the gate belongs here rather than before connect.
+        try {
+          await agentd.mountSignInGate()
+        } catch (e) {
+          // The daemon itself is unreachable. Not fatal here — the chat surface reports it too,
+          // and blocking the whole window on a status probe would hide that message.
+          console.warn('[sign-in]', (e && e.message) || e)
+        }
         try {
           const hello = await client.hello()
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''
