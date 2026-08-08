@@ -21,6 +21,7 @@ from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
 from agent_runtime.domain.agent import AgentSpec, agent_id_from_session_key
+from agent_runtime.domain.agent_availability import withheld_reason
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
 from agent_runtime.infrastructure.agents.presentation import MAIN_COLOR, read_sidecar
 
@@ -144,9 +145,23 @@ class FileAgentRegistry:
                 log.warning("agents: skipping invalid dir name %r", d.name)
                 continue
             try:
-                specs[agent_id] = self._load_dir(agent_id, d)
+                spec = self._load_dir(agent_id, d)
             except Exception as e:  # noqa: BLE001 — one bad agent must not break the rest
                 log.warning("agents: failed to load '%s': %s", agent_id, e)
+                continue
+            # WITHHOLD, at the only choke point there is. An agent absent from the registry has
+            # no roster entry, no session key, no app to serve and no private tools discovered —
+            # rather than being present everywhere and refused at each surface, which is a list
+            # of surfaces somebody eventually forgets to extend. Applied to BOTH layers (shared
+            # and a per-account overlay), so installing a local-only agent from the marketplace
+            # does not smuggle it onto a hosted daemon either.
+            reason = withheld_reason(agent_id, spec.requires_local, self._config)
+            if reason:
+                # LOUD. An agent that quietly fails to appear looks like a broken install, and
+                # the operator who set the policy is rarely the person looking at the sidebar.
+                log.info("agents: withholding '%s' on this hosted daemon — %s", agent_id, reason)
+                continue
+            specs[agent_id] = spec
         return specs
 
     def _discover(self) -> dict[str, AgentSpec]:
@@ -354,6 +369,7 @@ class FileAgentRegistry:
             heartbeat_instructions=load_heartbeat(d),
             version=str(data.get("version") or "1"),
             app=app,
+            requires_local=bool(data.get("requires_local")),
         )
 
     @property

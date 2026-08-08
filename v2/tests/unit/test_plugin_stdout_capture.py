@@ -15,15 +15,14 @@ What these pin:
 from __future__ import annotations
 
 import asyncio
-import io
 import sys
 
 import pytest
 
 from agent_runtime.application.interfaces.tool import ToolResult
+from agent_runtime.domain.sandbox import DENY_ALL
 from agent_runtime.infrastructure.tools.sandbox import stdout_capture
 from agent_runtime.infrastructure.tools.sandbox.local import LocalPluginSandbox
-from agent_runtime.domain.sandbox import DENY_ALL
 
 
 class _PrintingTool:

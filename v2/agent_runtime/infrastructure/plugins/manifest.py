@@ -33,6 +33,14 @@ class PluginManifest:
     # binaries / env are present. Keys: "os" (platform allowlist, e.g. ["windows","linux"]),
     # "bins" (all on PATH), "env" (all set). Empty => always compatible. From [requires] in the toml.
     requires: dict = field(default_factory=dict)
+    # SANDBOX GRANTS — what this plugin needs when it runs UNTRUSTED, from [sandbox] in the toml.
+    # Deliberately NOT folded into `requires`: that is a GATE ("skip me unless this is present"),
+    # this is a REQUEST ("when you box me in, leave these open"). One table answering both
+    # questions would make "declared but missing" mean two incompatible things.
+    #   net     -> hosts the DAEMON will call on the plugin's behalf (it never gets a socket)
+    #   secrets -> credential NAMES it may reference as ${NAME}; it never receives the values
+    # Empty/absent => no network and no credentials, which is the default and stays the default.
+    sandbox: dict = field(default_factory=dict)
     # DISTRIBUTION metadata (tiers doc §4) — pure description, no loader behavior:
     # tier: "core" | "bundled" | "addon" ("" = unspecified); entitlement: the license SKU
     # that unlocks this plugin ("" = free — every entitlement policy allows it). From
@@ -76,6 +84,14 @@ def load_manifest(path: Path) -> PluginManifest | None:
         for k in ("os", "bins", "env")
     }
     requires = {k: v for k, v in requires.items() if v}  # keep only declared keys
+    raw_sbx = dict(data.get("sandbox") or {})
+    sandbox = {
+        # hosts are lowercased here so every later comparison is against one canonical form;
+        # secret NAMES are not, because an env var name is case-sensitive on POSIX.
+        "net": [str(x).strip().lower() for x in (raw_sbx.get("net") or []) if str(x).strip()],
+        "secrets": [str(x).strip() for x in (raw_sbx.get("secrets") or []) if str(x).strip()],
+    }
+    sandbox = {k: v for k, v in sandbox.items() if v}
     distribution = dict(data.get("distribution") or {})
     return PluginManifest(
         id=pid,
@@ -89,6 +105,7 @@ def load_manifest(path: Path) -> PluginManifest | None:
         data=files,
         root=root,
         requires=requires,
+        sandbox=sandbox,
         tier=str(distribution.get("tier") or "").strip().lower(),
         entitlement=str(distribution.get("entitlement") or "").strip(),
     )

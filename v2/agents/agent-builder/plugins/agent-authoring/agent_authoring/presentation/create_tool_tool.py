@@ -9,7 +9,24 @@ DANGER — this writes and runs NEW Python in-process (RCE by design). It used t
 ``AGENTD_TOOL_WORKSHOP``; the gate is now the AGENT BOUNDARY. This bundle is private to
 agents/agent-builder/, so only that agent can call it, and an install without that agent has no
 route to it at all. Prefer a skill (no code) or add_mcp (a server) when they fit; reach for
-create_tool only when a genuinely new in-process capability is needed."""
+create_tool only when a genuinely new in-process capability is needed.
+
+SANDBOX-CORRECTNESS IS DECIDED HERE, NOT BY THE CALLER. An agent-scoped tool is trusted on this
+machine and UNTRUSTED on every machine that installs the agent, so the shape it must have to work
+after shipping is knowable and finite — and leaving it to the model to remember produced exactly
+the failure you would expect. Two mechanisms, both mechanical (``domain/sandbox_contract.py``):
+
+  * ``needs_model`` is DERIVED from the code. A body that calls ``text_complete`` /
+    ``vision_complete`` gets the attribute stamped on the class, because that flag is the only
+    thing that puts models on the sandbox grant — without it the broker refuses every call with
+    "not granted", for every buyer, silently for the author.
+  * The two shapes that CANNOT work once installed — reading ``os.environ`` and importing a
+    network client — are REFUSED before anything is written, with the fix in the message. Same
+    handling as the existing compile-check: a defect the caller can act on beats a file on disk
+    that only breaks somewhere else.
+
+The refusal applies to AGENT-SCOPED tools only. A shared tool (no ``agent``) lives in the
+operator's own catalog, is never classified untrusted, and may legitimately do both."""
 
 from __future__ import annotations
 
@@ -17,6 +34,7 @@ import re
 import textwrap
 from pathlib import Path
 
+from agent_authoring.domain.sandbox_contract import blocking_defects, derive_model_need
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
@@ -42,6 +60,12 @@ class GeneratedTool(Tool):
     default_retryable = False
     description = {description!r}
     parameters = {parameters!r}
+    # DERIVED from the code below by create_tool, not chosen by hand. `plugin` is the config
+    # grouping this tool is addressable under ([plugins.<plugin>.tools.<name>] in agent.toml or
+    # agentd.config.json); `needs_model` is what puts models on the sandbox grant at all.
+    plugin = {plugin!r}
+    needs_model = {needs_model!r}
+    model_kind = {model_kind!r}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -69,7 +93,14 @@ class CreateToolTool(Tool):
         "folder, is offered only to it, and needs no [tools] allow entry); omit `agent` for a "
         "SHARED tool every agent inherits. Prefer create_skill (no code) or add_mcp (a server) "
         "when they fit — this runs NEW code in-process, so use it only for a genuinely new "
-        "capability."
+        "capability.\n"
+        "TO CALL A MODEL from the tool, use `from agent_runtime.infrastructure.llm.oneshot "
+        "import text_complete` (or vision_complete) inside the code — that is the ONE route "
+        "that also works once the agent is installed, because the host makes the call on the "
+        "tool's behalf. This tool then sets needs_model itself; you do not declare it. Never "
+        "call a provider's HTTP API directly and never read a key from the environment: an "
+        "agent-scoped tool that does either is REFUSED here, because it would work for you and "
+        "silently do nothing for everyone who downloads the agent."
     )
     parameters = {
         "type": "object",
@@ -153,6 +184,35 @@ class CreateToolTool(Tool):
                 f"a plugin '{pid}' already exists at {d} — pick a different id", is_error=True
             )
 
+        # An AGENT-SCOPED tool becomes untrusted the moment someone installs the agent, so the
+        # shapes that cannot survive that are refused now, before the file exists. Checked only
+        # for the scoped tier: a shared tool is the operator's own code and is never sandboxed.
+        if agent_id:
+            defects = blocking_defects(code)
+            if defects:
+                lines = [
+                    f"REFUSING to write '{tool_name}' — this code cannot work once someone "
+                    f"installs agent '{agent_id}'. A private tool is UNTRUSTED on their machine:",
+                    "",
+                ]
+                for _code, what, fix in defects:
+                    lines += [f"  • it {what}", f"    -> {fix}", ""]
+                lines.append(
+                    "Rewrite the code and call create_tool again. If this tool is genuinely "
+                    "local-only and will never be shipped, ask the USER whether to make it a "
+                    "SHARED tool instead (omit `agent`) — do not decide that for them."
+                )
+                return ToolResult.text(
+                    "\n".join(lines),
+                    is_error=True,
+                    details={"refused": [c for c, _w, _f in defects], "agent": agent_id},
+                )
+
+        # needs_model is read OFF THE CODE. It is the whole authorisation for a sandboxed model
+        # call, and asking the caller to remember an attribute it has no reason to know about is
+        # how tools shipped that were refused by the broker on every buyer's machine.
+        needs_model, model_kind = derive_model_need(code)
+
         module = _ident(pid)
         body = textwrap.indent(textwrap.dedent(code), " " * 12)
         source = _MODULE_TEMPLATE.format(
@@ -160,6 +220,9 @@ class CreateToolTool(Tool):
             label=tool_name.replace("_", " ").title(),
             description=description,
             parameters=schema,
+            plugin=pid,
+            needs_model=needs_model,
+            model_kind=model_kind,
             body=body,
         )
         # Compile-check the generated module BEFORE writing it, so a syntax error is reported
@@ -199,9 +262,26 @@ class CreateToolTool(Tool):
         else:
             loaded = tool_name in (result.get("tools") or [])
             where = "shared (every agent inherits it)"
+        # Say that the model wiring was decided FOR the caller, and how to change it. A tool that
+        # silently acquires an attribute is one nobody knows to configure later.
+        model_note = (
+            f"\nIt calls a model, so needs_model=True and model_kind='{model_kind}' were set for "
+            f"you — that is what lets the host serve its model calls when the agent is installed "
+            f"and sandboxed. Pin which model with "
+            f"[plugins.{pid}.tools.{tool_name}] model = \"...\" in the agent's agent.toml."
+            if needs_model
+            else ""
+        )
         return ToolResult.text(
             f"Created tool '{tool_name}' (plugin '{pid}') at {d} — {where} — and loaded it live"
             + ("" if loaded else " (note: not visible in the catalog — check enablement)")
-            + " — callable next turn.",
-            details={"id": pid, "tool": tool_name, "agent": agent_id or ""},
+            + " — callable next turn."
+            + model_note,
+            details={
+                "id": pid,
+                "tool": tool_name,
+                "agent": agent_id or "",
+                "needsModel": needs_model,
+                "modelKind": model_kind,
+            },
         )

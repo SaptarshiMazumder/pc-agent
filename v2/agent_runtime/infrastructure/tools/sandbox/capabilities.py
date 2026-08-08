@@ -24,6 +24,7 @@ import logging
 
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant, PluginOrigin
+from agent_runtime.domain.sandbox_net import resolve_allowlist
 
 log = logging.getLogger("agentd")
 
@@ -49,13 +50,35 @@ class DefaultCapabilityResolver:
     ) -> CapabilityGrant:
         workspace = ctx.workspace if (ctx is not None and ctx.workspace) else ""
         fs_paths = (workspace,) if workspace else ()
-        # secrets deliberately omitted => {} (default-deny). No network. Workspace-only FS.
+        # `secrets` STAYS EMPTY even for a plugin that declared some. Those are host-held: the
+        # grant's secrets are injected into the child's ENVIRONMENT (see protocol.grant_payload),
+        # and the whole point of declaring a credential by NAME is that the value never gets
+        # there. The fetch broker substitutes it into the outbound request instead.
         return CapabilityGrant(
             fs_paths=fs_paths,
             timeout_s=self._timeout_s,
             cpu_ms=self._cpu_ms,
             mem_mb=self._mem_mb,
             models=self._models_for(plugin_id, tool),
+            net_allowlist=self._net_for(tool),
+        )
+
+    # ------------------------------------------------------------------ network
+
+    def _net_for(self, tool: object) -> tuple[str, ...]:
+        """Hosts the HOST will call for this tool. () unless its plugin.toml declared some.
+
+        Read off the tool because discovery stamps the manifest's `[sandbox] net` there. The
+        declaration is a ceiling: `resolve_allowlist` narrows it by operator config and cannot
+        widen it, so what a user read in the package before installing stays the upper bound.
+        """
+        declared = getattr(tool, "_sandbox_net", ()) or ()
+        if not declared:
+            return ()
+        return resolve_allowlist(
+            declared,
+            getattr(self._config, "sandbox_net_allow", ()) if self._config is not None else (),
+            getattr(self._config, "sandbox_net_deny", ()) if self._config is not None else (),
         )
 
     # ------------------------------------------------------------------ models

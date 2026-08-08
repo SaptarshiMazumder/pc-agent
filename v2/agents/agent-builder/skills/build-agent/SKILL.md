@@ -16,9 +16,9 @@ Author files with the `write` tool. Paths may be absolute; `write` is not sandbo
 
 The agents directory is `config.agents_dir`:
 
-| mode | path |
-| --- | --- |
-| repo checkout | `<repo>/v2/agents/` |
+| mode            | path                |
+| --------------- | ------------------- |
+| repo checkout   | `<repo>/v2/agents/` |
 | installed build | `~/.agentd/agents/` |
 
 If you are unsure which applies, call `agents_list` — or read an existing agent's path
@@ -57,6 +57,7 @@ model = "gemini/gemini-2.5-pro"    # optional per-agent brain override
 heartbeat = "30m"                  # optional; autonomous self-wake interval
 audience = "external"              # optional; applies the safe-to-send privacy gate to replies
 google_account = "me@example.com"  # optional; the ONE Google account this agent acts as
+requires_local = false             # optional; true = a HOSTED daemon never offers this agent
 
 # DISPLAY fields are TOP-LEVEL, not inside [app]. The registry reads them via
 # data.get(...), falling back to the generated presentation.json sidecar. Putting
@@ -80,8 +81,10 @@ public_tools = ["lookup_entry"]    # what those visitors may invoke (never chat)
 
 # ---- tool scope (omit BOTH keys to grant the full catalog) ----
 [tools]
-allow = ["read", "write", "exec", "report_outcome"]
+allow = ["read", "write", "exec", "process", "report_outcome"]
 deny  = ["computer_use"]           # deny always wins
+# `exec` and `process` are a PAIR — see "Long-running work" below. validate_agent reports it
+# if you grant one without the other.
 
 # ---- skill scope (omit to inherit every global skill) ----
 # skills = ["monthly-report"]      # top-level key, not a table — keep it above [app]
@@ -112,14 +115,61 @@ model = "gemini/gemini-2.5-flash"
 An agent's private tools (in `plugins/` below) are **implicitly allowed** and never need
 naming in `[tools] allow`.
 
+### `requires_local` — when an agent must not run on a shared server
+
+The same daemon runs on a desktop (one owner, their own machine) and hosted (many strangers, one
+container). An agent that runs a shell, writes outside its workspace, or loads code into the
+process is the owner exercising their own computer in the first case and a visitor reaching into
+everyone else's files in the second.
+
+Set `requires_local = true` when the agent needs any of that. A hosted daemon then does not offer
+it **at all** — absent from the roster, unresolvable, no app served, its private tools never
+discovered. Nothing to bypass, because there is nothing there.
+
+Use it for an agent that needs `exec`, unsandboxed `write`, or its own code-loading tools. Do NOT
+use it as a general precaution: an agent that only chats, reads its workspace, and calls models is
+fine hosted, and marking it local-only just hides it from half your users. Agent Builder itself
+declares it, for exactly the reason above.
+
+### Long-running work — grant `exec` and `process` together
+
+An agent has no timer and does not run between turns. Nothing can wake it up. So there are
+exactly two ways to handle something slow — a download, a render, a training run:
+
+```
+BAD    exec("sleep 90; check")     blocks the whole turn, shows no output for 90s,
+                                    and dies at the exec timeout
+GOOD   exec(command=..., background=true)   -> returns a session id, immediately
+       process(action="poll", session_id=...) -> "[running] …new output" | "[exited(0)]"
+```
+
+`exec`'s own description points the model at `process`. **If you grant `exec`, grant
+`process`** — otherwise `background=true` hands back a session id that nothing can read, and
+the agent's only remaining option is to block a turn on a sleep.
+
+This is not theoretical. An agent built here was given `exec` without `process`, then had to
+babysit a 20GB download: it ran `Start-Sleep -Seconds 90; ssh …` over and over, showed the
+user nothing for 90 seconds at a time, and tripped the runtime's "you are repeating yourself"
+nudge. It was reasoning correctly about a toolbox missing half a pair.
+
+**And write the rule into the agent's own `AGENTS.md`**, not just here. This skill is read
+while you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Something like:
+
+> Long jobs: start them with `exec(background=true)` and poll with `process`. Never `sleep`
+> inside a foreground `exec` — it blocks the turn and shows the user nothing.
+
+**Polling still costs a turn.** Nothing arrives on its own, so between polls the agent should
+do useful work, not spin. If a job runs for hours, the right shape is usually a `cron` or
+`heartbeat` run that checks and reports, not one conversation held open.
+
 ## The markdown files
 
 Three files, three distinct jobs. Do not merge them.
 
-- **IDENTITY.md** — *who it is.* Role, voice, boundaries. Injected every turn. Keep it short.
-- **AGENTS.md** — *how it operates.* Numbered hard rules, data locations, output format,
+- **IDENTITY.md** — _who it is._ Role, voice, boundaries. Injected every turn. Keep it short.
+- **AGENTS.md** — _how it operates._ Numbered hard rules, data locations, output format,
   red lines. This is where behaviour actually gets specified; be concrete and testable.
-- **HEARTBEAT.md** — *what to check on an autonomous tick.* Only injected on heartbeat runs.
+- **HEARTBEAT.md** — _what to check on an autonomous tick._ Only injected on heartbeat runs.
   Requires `heartbeat` + `[capabilities] autonomy = true`.
 
 Never author `presentation.json` — the daemon fills in tagline/suggestions itself.
@@ -134,7 +184,7 @@ Never author `presentation.json` — the daemon fills in tagline/suggestions its
 name: monthly-report
 description: Use when the user asks for a monthly spending summary or chart.
 always: false
-requires_bins: ffmpeg          # optional gates — skill hidden unless satisfied
+requires_bins: ffmpeg # optional gates — skill hidden unless satisfied
 requires_env: SOME_API_KEY
 requires_config: memory_enabled
 ---
@@ -143,12 +193,12 @@ requires_config: memory_enabled
 
 1. Read every CSV under bank/ and cards/.
 2. Dedupe on (date, amount, merchant).
-...
+   ...
 ```
 
 `always: true` inlines the full body **every turn** — use only for short routing rules.
 Everything else stays `false` and is read on demand. Write the description as a
-*trigger condition* ("Use when…"), because that line is all the model sees before choosing.
+_trigger condition_ ("Use when…"), because that line is all the model sees before choosing.
 
 **Skills are re-read every turn.** A new SKILL.md takes effect on the next message — no
 reload, no restart.
@@ -159,6 +209,7 @@ reload, no restart.
 this agent. Two files minimum:
 
 **`plugin.toml`**
+
 ```toml
 id = "example-kit"
 name = "Example Kit"
@@ -214,25 +265,93 @@ The catch is what happens on **someone else's machine**. Installing your agent r
 their ledger, so every tool under `agents/<id>/plugins/` is untrusted over there. When
 sandboxing is enabled (`AGENTD_SANDBOX_PLUGINS=1`), such a tool is granted:
 
-| | |
-| --- | --- |
-| files | the run's workspace only |
-| network | **none** |
-| secrets | **`{}` — always.** It never sees a provider key. |
+|         |                                                            |
+| ------- | ---------------------------------------------------------- |
+| files   | the run's workspace only                                   |
+| network | no socket — outbound goes **through the host**, to declared hosts only |
+| secrets | **`{}` — always.** It never sees a provider key.           |
+| models  | only if the tool declares `needs_model = True` — see below |
 
-So the question to ask while writing a private plugin is *"will this still work after someone
-downloads it?"*:
+The rule that follows: **a private plugin never opens a socket and never reads a key.** It asks
+the host to do both. `import requests` and `os.environ[...]` work perfectly for the author and are
+dead for every buyer — so `create_tool` refuses to write either into an agent-scoped tool. That is
+not style; it is the difference between a tool that ships and one that is dead on arrival.
 
-- **Do not read API keys from the environment.** Take the value as a tool *parameter*, or use a
-  shared tool that already owns that capability. A plugin that reads `os.environ` works
-  perfectly for its author and silently reads nothing for every user — the worst failure shape.
-- **Do not assume network access.**
-- If it genuinely needs either, the person installing it can vouch for the agent:
-  `sandbox_trusted_agents = ["<agent-id>"]` in their config. Never suggest that for code the
-  user did not author.
+### Calling an external API from a private tool
 
-Today the flag is off by default and the shipped backend does not enforce the grant, so nothing
-breaks immediately — but such a plugin will break the day real isolation lands, and on the
+Declare the hosts and the credential NAMES in the plugin's own `plugin.toml`:
+
+```toml
+[sandbox]
+net     = ["api.acme.com"]     # or "*.acme.com" for subdomains
+secrets = ["ACME_API_KEY"]     # names only — the value never reaches the plugin
+```
+
+Then call it:
+
+```python
+from agent_runtime.infrastructure.net.outbound import fetch
+
+res = fetch(
+    "https://api.acme.com/v1/things",
+    headers={"Authorization": "Bearer ${ACME_API_KEY}"},
+)
+if not res.ok:
+    return ToolResult.text(f"acme failed ({res.status}): {res.error or res.text}", is_error=True)
+data = res.json()
+```
+
+`${ACME_API_KEY}` is a **placeholder, not a value**. The host substitutes it at the last moment
+and makes the request itself, so the plugin cannot read the key, keep it, or send it anywhere it
+did not declare. Unsandboxed the same call runs directly and reads the name from the environment —
+one code path, both worlds.
+
+`[sandbox]` is **not** `[requires]`. `[requires]` is a gate: _skip this plugin unless present_.
+`[sandbox]` is a request: _when you box me in, leave these open_.
+
+Three things to tell the user when you write one:
+
+- The declaration is **public**. Anyone can read which hosts the agent contacts before installing
+  it — write the narrowest list that works, never a wildcard you do not need.
+- **Where the key comes from**: the daemon's environment, or the agent's own settings page writing
+  `plugins.<plugin-id>.secrets.<NAME>`. That is how BYOK works inside a shipped agent.
+- An operator can narrow the list further (`sandbox_net_allow` / `sandbox_net_deny`) and can never
+  widen it. A host that is missing at runtime produces a refusal naming it, not silence.
+
+If a plugin genuinely needs more than this, the person installing it can vouch for the whole agent
+with `sandbox_trusted_agents = ["<agent-id>"]`. Never suggest that for code the user did not
+author.
+
+### Calling a model from a private tool
+
+A sandboxed tool has no network and no keys, so it cannot reach a provider. It does not need to:
+the call is **inverted** — the tool asks, and the host performs it. Use the one route that works
+in every mode (hosted, BYOK, and a local model):
+
+```python
+from agent_runtime.infrastructure.llm.oneshot import text_complete   # or vision_complete
+
+summary = text_complete(model=None, prompt=prompt, max_tokens=400)
+```
+
+Inside the sandbox that name resolves to a shim that hands the request to the host. Same
+signature, same return type, so the tool behaves identically whether or not it is sandboxed.
+`model=None` lets the host use the model this tool resolves to — pin one with
+`[plugins.<pid>.tools.<tool>] model = "..."` in the agent's `agent.toml`.
+
+The tool must also carry **`needs_model = True`** as a class attribute. That flag is the entire
+authorisation: without it the sandbox grants zero models and the host refuses every call with
+_"not granted"_. Add `model_kind = "vision"` too if it reads images.
+
+`create_tool` sets both for you by reading the code — you never declare them. If you author a
+plugin by hand with `write`, you must add them yourself, and `validate_agent` will tell you
+(`UNTRUSTED_MODEL_UNDECLARED`) when you forget.
+
+Spend goes to the account running the agent, attributed to your plugin, and is capped per tool
+run (`sandbox_model_limits`: 8 calls, 4096 output tokens, 120s by default).
+
+Today the sandbox flag is off by default and the shipped backend does not enforce the grant, so
+nothing breaks immediately — but such a plugin will break the day real isolation lands, and on the
 machine of anyone who installs the agent.
 
 ### Python library dependencies
@@ -250,7 +369,7 @@ except ImportError:
     )
 ```
 
-(A plugin distributed *as* a pip package is a different thing, declared at the bundle level
+(A plugin distributed _as_ a pip package is a different thing, declared at the bundle level
 with `source = "pip"` — not applicable to an agent-private plugin.)
 
 **New private plugins are discovered at startup.** After writing one, call `reload_agent`
@@ -301,15 +420,17 @@ ui/
 `app.js` connects with one line — the opener already put `token` and `scope` in the page URL:
 
 ```js
-const client = agentd.fromPage({ clientName: 'my-app/1' })
+const client = agentd.fromPage({ clientName: "my-app/1" });
 
-client.onStatus((s) => { /* 'connecting' | 'open' | 'closed' */ })
-await client.send({ message, sessionKey })
-await client.abort(sessionKey)
-const { sessions } = await client.sessions()
-const { messages } = await client.history(sessionKey)
-const res = await client.invokeTool('my_tool', { arg: 1 })
-const url = client.fileUrl(artifactPath)   // authenticated URL for an artifact
+client.onStatus((s) => {
+  /* 'connecting' | 'open' | 'closed' */
+});
+await client.send({ message, sessionKey });
+await client.abort(sessionKey);
+const { sessions } = await client.sessions();
+const { messages } = await client.history(sessionKey);
+const res = await client.invokeTool("my_tool", { arg: 1 });
+const url = client.fileUrl(artifactPath); // authenticated URL for an artifact
 ```
 
 **Pass no agent id.** The window is opened with `?scope=<agent-id>` and the daemon forces that
@@ -324,17 +445,23 @@ switch on lives one level down, in `.event`:
 ```js
 client.onRun(sessionKey, (payload) => {
   // payload = { sessionKey, runId, agentId, ts, event: { type, ... } }
-  const ev = payload.event                    // <-- NOT payload.type
+  const ev = payload.event; // <-- NOT payload.type
   switch (ev.type) {
-    case 'message_update':
-      if (ev.kind === 'text_delta') append(ev.delta)
-      else if (ev.kind === 'thinking_delta') showThinking(ev.delta)
-      break
-    case 'tool_execution_start': startRow(ev.toolCallId, ev.toolName, ev.args); break
-    case 'tool_execution_end':   endRow(ev.toolCallId, ev.isError); break
-    case 'agent_end':            done(ev.stopReason, ev.error); break
+    case "message_update":
+      if (ev.kind === "text_delta") append(ev.delta);
+      else if (ev.kind === "thinking_delta") showThinking(ev.delta);
+      break;
+    case "tool_execution_start":
+      startRow(ev.toolCallId, ev.toolName, ev.args);
+      break;
+    case "tool_execution_end":
+      endRow(ev.toolCallId, ev.isError);
+      break;
+    case "agent_end":
+      done(ev.stopReason, ev.error);
+      break;
   }
-})
+});
 ```
 
 Reading `payload.type` is the single most common way an agent UI ends up silently doing
@@ -400,7 +527,7 @@ platform.disconnect
 `config.get` / `config.set` ARE available, so an agent MAY offer its own settings screen —
 that is how a shipped agent asks its user for their own API key (BYOK). One limit: for an
 agent installed from a package, `config.get` omits the secret-bearing fields (`envValues`,
-`raw`, `path`) — you can see *that* a key is set and write a new one, never read one back.
+`raw`, `path`) — you can see _that_ a key is set and write a new one, never read one back.
 Everything else — installs, projects, automation — is host-only and denied.
 
 Plain HTML/CSS/JS needs no build. For React, build into `ui/` with Vite using
@@ -422,7 +549,7 @@ needs node + electron-builder + a repo checkout, so it is not a chat operation.
 Author with packaging in mind:
 
 - `workspace/`, `sessions/` and `clients/` are **excluded** from the package. Never put
-  anything the agent *needs* in `workspace/` — that is user data, and on upgrade it is the one
+  anything the agent _needs_ in `workspace/` — that is user data, and on upgrade it is the one
   directory preserved while the rest of the definition is replaced.
 - The agent's own `plugins/` **are** included — they live inside the agent directory.
 - Only agents with an `[app]` section can become a product exe.

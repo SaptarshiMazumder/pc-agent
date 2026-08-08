@@ -89,7 +89,7 @@ def main() -> int:
 
     # Imported before the guard: our own modules, and the ones the run needs.
     from agent_runtime.application.run_context import RunContext, set_run_context, set_trace_ids
-    from agent_runtime.infrastructure.tools.sandbox import child_guard, child_models
+    from agent_runtime.infrastructure.tools.sandbox import child_guard, child_models, child_net
     from agent_runtime.infrastructure.tools.sandbox import protocol as wire
 
     raw_ctx = job.get("ctx") or {}
@@ -134,9 +134,17 @@ def main() -> int:
 
     bridge = child_models.ModelBridge(send)
     child_models.install(bridge)
+    # The fetch bridge, on the same reasoning and the same channel: a plugin that imported
+    # `outbound.fetch` at module scope would otherwise bind the real one, open a socket, and be
+    # denied by the guard — correctly and uselessly, since the host will happily make the call.
+    net_bridge = child_net.NetBridge(send)
+    child_net.install(net_bridge)
     # `sys.stdin`, the SAME buffered object the job line was read from — a second wrapper over the
-    # same fd would not see bytes already sitting in this one's buffer.
-    child_models.start_reader(sys.stdin, bridge)
+    # same fd would not see bytes already sitting in this one's buffer. ONE reader dispatches BOTH
+    # brokers by frame type; two threads on one pipe would interleave partial lines.
+    child_models.start_reader(
+        sys.stdin, bridge, on_unknown=net_bridge.deliver, on_close=net_bridge.fail_all
+    )
 
     denials = child_guard.install(
         fs_paths=grant.get("fs_paths") or (),

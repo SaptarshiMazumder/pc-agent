@@ -8,6 +8,18 @@
 name = "Agent Builder"
 version = "1.0.0"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
+
+# LOCAL ONLY — a HOSTED daemon does not offer this agent at all (not listed, not resolvable, no
+# app served, its private tools never discovered). Desktop is unaffected.
+#
+# Not caution: `create_tool` writes Python and hot-loads it INTO THE RUNNING PROCESS, and `exec`
+# runs a shell. On a desktop that is the owner acting on their own machine, which is the entire
+# product. On one container shared by strangers it is any signed-in visitor acting on everyone
+# else's files — the same code, a different blast radius, because the boundary moved.
+#
+# Lifting this needs a runtime per user, not a config change. An operator who has one can say so
+# with `hosted_agents_allow = ["agent-builder"]`; nothing this agent ships can grant it itself.
+requires_local = true
 tagline = "build · validate · ship agents"
 color = "#5B4FCF"
 # Starter prompts on an empty chat. NEVER name a specific agent: these are clickable, and on a
@@ -36,6 +48,10 @@ public = false
 # cannot discover that it was wrong, so it shipped a UI whose every event branch was dead.
 #   update_plan   keep a live checklist while building (the user watches it tick over)
 #   exec          RUN what was written: node --check on generated JS, import a new plugin
+#   process       poll/kill what `exec` started with background=true. exec's own description
+#                 sends the model here, so granting one without the other leaves it blocking a
+#                 whole turn on a sleep — which is exactly what an agent built WITHOUT the pair
+#                 ended up doing while babysitting a 20GB download
 #   verify_answer self-review before declaring done — it catches, in its own words, "an
 #                 answer that only promises instead of delivering"
 #
@@ -49,5 +65,5 @@ public = false
 [tools]
 allow = [
   "read", "write", "edit", "ls", "find", "skill_workshop",
-  "update_plan", "exec", "verify_answer",
+  "update_plan", "exec", "process", "verify_answer",
 ]

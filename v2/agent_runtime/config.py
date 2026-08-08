@@ -359,6 +359,19 @@ class Config:
     # chain (what that tool would have used anyway), which is what you want; set it to pin the
     # whole deployment to an explicit list. Only tools declaring `needs_model` get any at all.
     sandbox_models: tuple = ()
+    # OUTBOUND NETWORK for sandboxed plugins. The plugin declares the hosts it calls in its own
+    # plugin.toml ([sandbox] net); these NARROW that declaration and can never widen it — an
+    # operator allowlist that added hosts would grant reach the installed package never disclosed.
+    #   sandbox_net_allow  non-empty => a declared host must ALSO match one of these
+    #   sandbox_net_deny   removes matching hosts; a bare "*" switches outbound off entirely
+    # Both accept exact hosts or a leading "*." subdomain wildcard.
+    # AGENTD_SANDBOX_NET_ALLOW / AGENTD_SANDBOX_NET_DENY (comma-separated).
+    sandbox_net_allow: tuple = ()
+    sandbox_net_deny: tuple = ()
+    # Ceilings for ONE tool run's host-brokered fetches; same shape and spirit as
+    # sandbox_model_limits. Keys: max_calls, max_bytes, timeout_s. Defaults in
+    # infrastructure/tools/sandbox/fetch_broker.DEFAULT_FETCH_LIMITS.
+    sandbox_fetch_limits: dict = field(default_factory=dict)
     # ── MULTI-TENANCY (hosted only) ──────────────────────────────────────────────────────────
     # multi_tenant: this daemon serves MANY accounts, so state_dir/agents_dir/workspace/plugins_dir
     # are resolved PER CONNECTION under tenant_root/<account_id>/ instead of being process-global,
@@ -370,6 +383,19 @@ class Config:
     # property of the DEPLOYMENT, which is why it is env-settable on the hosted task and nowhere
     # else. AGENTD_MULTI_TENANT=1.
     multi_tenant: bool = False
+    # hosted: is this daemon serving people OTHER than its operator? DERIVED at load time from the
+    # things that actually imply it (multi_tenant, an accounts URL), so every caller reads one
+    # answer instead of re-deriving it and drifting. AGENTD_HOSTED forces it either way.
+    #
+    # It exists because a desktop install and a hosted one differ in KIND, not degree: on a desktop
+    # an agent that runs a shell or hot-loads Python is the owner acting on their own machine; on a
+    # shared container it is a stranger acting on everyone's. See domain/agent_availability.py.
+    hosted: bool = False  # AGENTD_HOSTED
+    # Which agents a HOSTED daemon withholds / permits, by id or trailing-* glob. Deny wins, then
+    # allow, then the agent's own `requires_local` declaration. Both empty (the default) means the
+    # authors' declarations decide alone. AGENTD_HOSTED_AGENTS_DENY / _ALLOW (comma-separated).
+    hosted_agents_deny: tuple = ()
+    hosted_agents_allow: tuple = ()
     # Where tenant homes live. Empty = <AGENTD_HOME>/users. AGENTD_TENANT_ROOT.
     tenant_root: str = ""
     # How many tenants may be resident at once. A tenant costs MEMORY (its own loaded plugin
@@ -384,6 +410,20 @@ class Config:
     # DERIVED (an agent is untrusted iff the marketplace ledger says it arrived in a .agentpkg), so
     # this is only for vouching for a specific publisher's agent. AGENTD_SANDBOX_TRUSTED_AGENTS.
     sandbox_trusted_agents: tuple = ()
+    # sandbox_untrusted_agents: FORCE these agents' private tools to be treated as if they had been
+    # installed from a package. A DEVELOPMENT switch, and the only knob here that TIGHTENS.
+    #
+    # It exists because trust is derived from the marketplace ledger, so the only way to see what a
+    # buyer gets was to pack and install your own agent before every run — enough friction that the
+    # sandbox stopped being exercised while it was being built. This makes the same code path run
+    # against a local agent.
+    #
+    # It cannot weaken anything: the only transition it can cause is FIRST_PARTY ->
+    # THIRD_PARTY_BUNDLE. Left on in production the worst case is an agent that is sandboxed when it
+    # did not need to be — a capability that fails loudly, never an exposure. Operator-only
+    # (config/env), like every sandbox knob: nothing inside a package can reach it.
+    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids.
+    sandbox_untrusted_agents: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
     model_fallbacks: list = field(default_factory=list)
@@ -868,6 +908,26 @@ def load_config(path: Path | None = None) -> Config:
     if os.environ.get("AGENTD_TENANT_ROOT"):
         cfg.tenant_root = os.environ["AGENTD_TENANT_ROOT"].strip()
     for _env, _field in (
+        ("AGENTD_HOSTED_AGENTS_DENY", "hosted_agents_deny"),
+        ("AGENTD_HOSTED_AGENTS_ALLOW", "hosted_agents_allow"),
+    ):
+        if os.environ.get(_env):
+            setattr(cfg, _field, tuple(s.strip() for s in os.environ[_env].split(",") if s.strip()))
+    # DERIVED LAST, so it sees every override above. An accounts URL means somebody signs in to
+    # this daemon, which is the definition of serving people other than the operator; multi_tenant
+    # means it per-connection as well. The explicit env var is the escape hatch in both directions
+    # — a private daemon behind accounts that is genuinely single-user can set AGENTD_HOSTED=0.
+    _accounts = cfg.accounts if isinstance(cfg.accounts, dict) else {}
+    _accounts_url = (
+        os.environ.get("AGENTD_ACCOUNTS_URL") or str(_accounts.get("api_base") or "")
+    ).strip()
+    cfg.hosted = cfg.multi_tenant or bool(
+        _accounts_url
+        and (os.environ.get("AGENTD_ACCOUNTS_URL") is not None or _accounts.get("enabled"))
+    )
+    if os.environ.get("AGENTD_HOSTED"):
+        cfg.hosted = os.environ["AGENTD_HOSTED"].lower() not in ("0", "false", "no", "")
+    for _env, _field in (
         ("AGENTD_MAX_TENANTS", "max_tenants"),
         ("AGENTD_TENANT_IDLE_SECONDS", "tenant_idle_seconds"),
     ):
@@ -888,6 +948,27 @@ def load_config(path: Path | None = None) -> Config:
             )
         else:
             cfg.sandbox_untrusted_plugins = True
+    for _env, _field in (
+        ("AGENTD_SANDBOX_NET_ALLOW", "sandbox_net_allow"),
+        ("AGENTD_SANDBOX_NET_DENY", "sandbox_net_deny"),
+    ):
+        if os.environ.get(_env):
+            setattr(cfg, _field, tuple(s.strip() for s in os.environ[_env].split(",") if s.strip()))
+    if os.environ.get("AGENTD_SANDBOX_UNTRUSTED_AGENTS"):
+        cfg.sandbox_untrusted_agents = tuple(
+            s.strip()
+            for s in os.environ["AGENTD_SANDBOX_UNTRUSTED_AGENTS"].split(",")
+            if s.strip()
+        )
+    if cfg.sandbox_untrusted_agents:
+        # LOUD, once, at boot. This is a development switch and the failure mode of forgetting it
+        # is an agent that mysteriously cannot reach its own files — a message here is the
+        # difference between a five-second fix and an afternoon.
+        logging.getLogger("agentd").warning(
+            "sandbox: FORCING untrusted classification for agent(s) %s (development switch "
+            "sandbox_untrusted_agents) — their private tools run sandboxed as if installed",
+            ", ".join(cfg.sandbox_untrusted_agents),
+        )
     if os.environ.get("AGENTD_SANDBOX_TRUSTED_AGENTS"):
         cfg.sandbox_trusted_agents = tuple(
             s.strip()

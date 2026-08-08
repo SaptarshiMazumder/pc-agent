@@ -1,0 +1,150 @@
+<!doctype html>
+<!-- The agent's own window.
+
+     Served by the daemon at /apps/<agent-id>/ straight from disk, on the SAME ORIGIN as the
+     WebSocket. Edit a file, reload the window — there is no build step and no bundler.
+
+     Two views: the conversation, and the settings the user needs to make this agent work
+     (above all their own API key). Both are wired already; change the words and the colours,
+     not the plumbing. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game Master</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="shell">
+    <!-- ═══════════════ LEFT: conversations ═══════════════ -->
+    <aside class="rail" id="rail">
+      <div class="rail-head">
+        <div class="brand">
+          <span class="mark" id="brandMark">⚔</span>
+          <span class="brand-name" id="brandName">Game Master</span>
+        </div>
+        <button class="icon-btn" id="railToggle" title="Collapse sidebar">‹</button>
+      </div>
+
+      <button class="new-btn" id="newChat"><span class="plus">+</span> New chat</button>
+
+      <nav class="rail-nav">
+        <button class="nav-item active" data-view="chat"><span class="ico">✦</span>Chat</button>
+        <button class="nav-item" data-view="tools"><span class="ico">⚒</span>Tools</button>
+        <button class="nav-item" data-view="settings"><span class="ico">⚙</span>Settings</button>
+      </nav>
+
+      <div class="rail-section">
+        <span class="rail-label">History</span>
+        <span class="count" id="chatCount"></span>
+      </div>
+      <ul class="chat-list" id="chatList"></ul>
+
+      <div class="rail-foot">
+        <span class="status" id="status">connecting…</span>
+        <span class="ver" id="daemonVer"></span>
+      </div>
+    </aside>
+
+    <!-- ═══════════════ CENTER ═══════════════ -->
+    <main class="main">
+      <header class="topbar">
+        <div class="crumbs">
+          <span class="crumb-root" id="crumbRoot">Chat</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+        </div>
+      </header>
+
+      <!-- CHAT -->
+      <section class="view" id="view-chat">
+        <div class="thread" id="thread">
+          <div class="hero" id="hero">
+            <h1>Roll. Look up. Narrate.</h1>
+            <p>I referee the table — dice, monster stat blocks, and scene description.</p>
+            <div class="suggests" id="suggests"></div>
+          </div>
+        </div>
+
+        <div class="composer-wrap">
+          <div class="composer" id="composer">
+            <div class="attachments" id="attachments" hidden></div>
+            <textarea id="input" rows="1" placeholder="Send a message…"></textarea>
+            <div class="composer-foot">
+              <button class="attach-btn" id="attach" title="Attach files">+</button>
+              <span class="hint">Enter to send · Shift+Enter for a new line · paste or drop images</span>
+              <button class="send" id="send" title="Send">↑</button>
+            </div>
+            <input type="file" id="filePicker" multiple hidden />
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <!-- TOOLS — invoke this agent's own tools DIRECTLY, with no model in the loop.
+           That is what makes it a sandbox test surface: when this agent is installed from a
+           package its three tools run in a child process behind the capability grant, and each
+           button below exercises a different path through it — pure compute, a host-brokered
+           NETWORK call, and a host-brokered MODEL call. A refusal shows up here verbatim. -->
+      <section class="view" id="view-tools" hidden>
+        <div class="settings-scroll">
+          <div class="settings-inner">
+            <h2 class="probe-title">Tools</h2>
+            <p class="probe-sub">Run a tool directly — no model, no conversation. Each one takes a
+              different route through the sandbox, so this page is how you check all three.</p>
+
+            <div class="probe">
+              <div class="probe-head"><strong>roll_dice</strong><span class="tag">pure</span></div>
+              <p class="probe-why">Computation only. Works everywhere; if this fails the sandbox
+                cannot run the plugin at all.</p>
+              <div class="probe-row">
+                <input id="diceIn" value="2d6+1" spellcheck="false" />
+                <button class="probe-go" data-tool="roll_dice" data-arg="notation" data-src="diceIn">Roll</button>
+              </div>
+            </div>
+
+            <div class="probe">
+              <div class="probe-head"><strong>lookup_monster</strong><span class="tag">network</span></div>
+              <p class="probe-why">Calls an API. Sandboxed it has no socket — the daemon makes the
+                request, and only to the host declared in <code>plugin.toml [sandbox] net</code>.</p>
+              <div class="probe-row">
+                <input id="monIn" value="owlbear" spellcheck="false" />
+                <button class="probe-go" data-tool="lookup_monster" data-arg="name" data-src="monIn">Look up</button>
+              </div>
+            </div>
+
+            <div class="probe">
+              <div class="probe-head"><strong>narrate_scene</strong><span class="tag">model</span></div>
+              <p class="probe-why">Calls an LLM. Sandboxed it holds no key — it asks the daemon,
+                which is also what meters the spend.</p>
+              <div class="probe-row">
+                <input id="sceneIn" value="the party enters a flooded crypt" spellcheck="false" />
+                <button class="probe-go" data-tool="narrate_scene" data-arg="setup" data-src="sceneIn">Narrate</button>
+              </div>
+            </div>
+
+            <pre class="probe-out" id="probeOut" hidden></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings" hidden>
+        <div class="settings-scroll">
+          <div class="settings-inner" id="settingsBody">
+            <div class="loading">loading settings…</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- The SDK is a plain script exposing a global `agentd` — NOT an ES module, so no `type`
+       attribute and no `import`. Load order matters: every file below reads the one above. -->
+  <script src="vendor/agentd-client.js"></script>
+  <script src="md.js"></script>
+  <script src="chat.js"></script>
+  <script src="settings.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

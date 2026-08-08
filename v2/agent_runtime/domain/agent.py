@@ -68,6 +68,11 @@ class AgentSpec:
     # None = a plain chat agent (rendered by the shared client). The definition stays pure
     # data — the gateway does the serving; nothing here executes.
     app: dict | None = None
+    # requires_local — the AUTHOR declaring "this agent needs a machine of its own". A hosted
+    # daemon does not offer it AT ALL: not listed, not resolvable, no app served, its private
+    # tools never discovered (see domain/agent_availability.py). Meaningless on a desktop
+    # install, which is every install that is not serving strangers.
+    requires_local: bool = False
 
 
 def agent_id_from_session_key(session_key: str) -> str:

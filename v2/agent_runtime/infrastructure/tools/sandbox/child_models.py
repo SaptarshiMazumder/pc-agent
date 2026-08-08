@@ -119,11 +119,18 @@ def install(bridge: ModelBridge) -> None:
     sys.modules[_MODULE] = stub
 
 
-def start_reader(stream, bridge: ModelBridge, on_unknown=None) -> threading.Thread:
-    """Read `model_response` frames off the child's stdin, forever, on a daemon thread.
+def start_reader(stream, bridge: ModelBridge, on_unknown=None, on_close=None) -> threading.Thread:
+    """Read host frames off the child's stdin, forever, on a daemon thread.
+
+    ONE reader for every frame type. `model_response` is delivered here; anything else goes to
+    `on_unknown` (the fetch bridge takes its own). Two threads on one pipe would interleave
+    partial lines, so a second broker gets a dispatch branch, never a second reader.
 
     A daemon thread so a plugin that leaves work behind cannot keep the child alive: the process
     exits when the tool call is done, answered or not.
+
+    `on_close` releases any OTHER bridge's waiters when the channel dies — without it a fetch in
+    flight would block for its full timeout after the host had already gone.
     """
 
     def run() -> None:
@@ -148,6 +155,8 @@ def start_reader(stream, bridge: ModelBridge, on_unknown=None) -> threading.Thre
             # stdin closed => the parent is gone or finished. Anyone still waiting must be told,
             # or they block until RESPONSE_TIMEOUT_S for no reason.
             bridge.fail_all("the sandbox host closed the channel")
+            if on_close is not None:
+                on_close("the sandbox host closed the channel")
 
     thread = threading.Thread(target=run, name="agentd-sandbox-host-reader", daemon=True)
     thread.start()

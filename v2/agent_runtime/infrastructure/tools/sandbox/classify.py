@@ -11,11 +11,19 @@ never by the package, so an agent cannot vouch for itself: nothing in its ``agen
 consulted. (Bundle id IS agent id — ``unpack_bundle`` writes to ``agents_dir/<manifest.id>``.)
 
 Order of decision:
-  1. ``config.sandbox_trusted_plugins`` names the plugin  -> FIRST_PARTY  (operator override)
-  2. no ``_agent_id`` tag (an ordinary shared plugin)     -> FIRST_PARTY
-  3. ``config.sandbox_trusted_agents`` names the agent    -> FIRST_PARTY  (operator override)
-  4. the agent is in the installed ledger                 -> THIRD_PARTY_BUNDLE
-  5. otherwise (shipped with the product, or authored here) -> FIRST_PARTY
+  1. no ``_agent_id`` tag (an ordinary shared plugin)     -> FIRST_PARTY  (not a sandboxed tier)
+  2. ``config.sandbox_untrusted_agents`` names the agent  -> THIRD_PARTY_BUNDLE  (forced; below)
+  3. ``config.sandbox_trusted_plugins`` names the plugin  -> FIRST_PARTY  (operator override)
+  4. ``config.sandbox_trusted_agents`` names the agent    -> FIRST_PARTY  (operator override)
+  5. the agent is in the installed ledger                 -> THIRD_PARTY_BUNDLE
+  6. otherwise (shipped with the product, or authored here) -> FIRST_PARTY
+
+``sandbox_untrusted_agents`` OUTRANKS every exemption, and that is the one asymmetry worth
+stating: every other knob here RELAXES, so allowing one of them to beat it would produce a switch
+whose whole purpose — "show me what a buyer gets" — silently does nothing. It can only ever
+tighten, so nothing about it is a security decision; without it the only way to exercise the
+sandbox on your own agent is to pack and install it before every run, which is enough friction
+that the sandbox stops being tested.
 
 FAIL CLOSED: the ledger is supplied by the composition root. When it cannot be read the caller
 passes ``None``, and every agent-private tool is treated as untrusted — a ledger that fails to
@@ -52,11 +60,14 @@ def classify_origin(
     ``.agentpkg``. ``None`` means "unknown", and every agent-private tool is then untrusted.
     """
     plugin_id = getattr(tool, "_plugin_id", "") or ""
-    if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):
-        return PluginOrigin.FIRST_PARTY
     agent_id = getattr(tool, "_agent_id", "") or ""
     if not agent_id:
-        return PluginOrigin.FIRST_PARTY  # an ordinary shared plugin
+        return PluginOrigin.FIRST_PARTY  # an ordinary shared plugin — never a sandboxed tier
+    if config is not None and agent_id in _config_ids(config, "sandbox_untrusted_agents"):
+        # FORCED, ahead of every exemption. Tightening only, so there is nothing to weigh.
+        return PluginOrigin.THIRD_PARTY_BUNDLE
+    if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):
+        return PluginOrigin.FIRST_PARTY
     if config is not None and agent_id in _config_ids(config, "sandbox_trusted_agents"):
         return PluginOrigin.FIRST_PARTY  # the operator vouches for this agent
     if installed_agent_ids is None:

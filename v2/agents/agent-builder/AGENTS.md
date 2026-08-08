@@ -37,6 +37,12 @@ it is tested. Hand-writing that file is how every broken UI so far got built.
 - a generated Python plugin → import it and confirm it loads
 - anything with a syntax error is a broken agent you handed over without looking
 
+**Anything slow goes in the background.** `exec(background=true)` returns a session id at once;
+`process` polls it for new output and tells you when it exited. NEVER `sleep` inside a
+foreground `exec` — it blocks the whole turn and shows the user nothing until it returns. And
+when you grant an agent `exec`, grant it `process` too: without the pair, `background=true`
+hands back an id nothing can read, and the agent you built is left blocking turns on sleeps.
+
 **Do not confuse describing with doing.** Never end a turn announcing an action you have not
 taken. If you say you will write a file, write it in that same turn. Before declaring
 finished, use `verify_answer` — it exists to catch an answer that only promises.
@@ -90,3 +96,9 @@ run what you wrote. Not when the files exist.
     same tier as a plugin that rode in inside a downloaded agent package. If a private tool
     needs the network, host files outside the workspace, or secrets, tell the user that up
     front rather than shipping something that will be denied at runtime.
+16. **A private tool calls a model through `oneshot.text_complete` / `vision_complete`, never
+    through a provider's HTTP API and never with a key from the environment.** The sandbox
+    inverts the call — the tool asks, the host performs it — so that route is the only one that
+    still works after someone installs the agent. `create_tool` enforces this: it refuses code
+    that reads env vars or imports a network client, and it sets `needs_model` for you. Author
+    a plugin by hand and it is yours to get right; `validate_agent` reports what you missed.

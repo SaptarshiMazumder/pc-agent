@@ -69,8 +69,12 @@ class AgentDirReader:
     def sources(self, agent_dir: Path, files: list[str]) -> dict:
         """Text of the agent's own CODE, for the rules that read it:
 
-            plugins/**/*.py   the sandbox source scan (secrets / network reach)
-            ui/**/*.js        the app checks (event shapes, callable methods)
+            plugins/**/*.py         the sandbox source scan (secrets / network reach)
+            plugins/**/plugin.toml  what that plugin DECLARED it needs ([sandbox] net/secrets) —
+                                    without it the network rule cannot tell a plugin doing the
+                                    right thing from one reaching out with no declaration, and
+                                    would warn about the fix
+            ui/**/*.js              the app checks (event shapes, callable methods)
 
         The vendored SDK under ui/vendor/ is included — the UI rules skip it themselves, and
         reading it is how a check could later confirm which methods really exist.
@@ -78,9 +82,9 @@ class AgentDirReader:
         Unreadable or oversized files are skipped: a source scan is guidance, never a gate."""
         out: dict[str, str] = {}
         for rel in files:
-            wanted = (rel.startswith("plugins/") and rel.endswith(".py")) or (
-                rel.startswith("ui/") and rel.endswith(".js")
-            )
+            wanted = (
+                rel.startswith("plugins/") and (rel.endswith(".py") or rel.endswith("plugin.toml"))
+            ) or (rel.startswith("ui/") and rel.endswith(".js"))
             if not wanted:
                 continue
             p = agent_dir / rel

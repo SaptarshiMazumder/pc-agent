@@ -1,7 +1,8 @@
 """Agent-authored tool (created at runtime by create_tool). Edit with care."""
 
-from agent_runtime.application.interfaces.tool import Tool, ToolResult
 import os
+
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class GeneratedTool(Tool):
@@ -45,7 +46,7 @@ class GeneratedTool(Tool):
                     return ToolResult.error(f"Error reading DOCX: {e}")
             elif file_extension == ".txt":
                 try:
-                    with open(file_path, "r", encoding="utf-8") as file:
+                    with open(file_path, encoding="utf-8") as file:
                         text = file.read()
                     return ToolResult.text(text)
                 except Exception as e:
