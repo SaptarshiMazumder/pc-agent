@@ -354,10 +354,23 @@ def _aws(*args: str) -> tuple[int | None, str]:
     it, publishers already have the CLI configured (it is how the registry bucket got made), and a
     ~15MB dependency on every desktop install to serve a publisher-only command is a bad trade.
     """
+    import os
     import subprocess
 
+    # Publishing an INSTALLER means a ~250MB multipart upload, and a single dropped part fails the
+    # whole command ("Connection was closed before we received a valid response ... partNumber=14")
+    # after minutes of transfer. The default retry mode gives up early on exactly this.
+    #
+    # `adaptive` retries individual parts with backoff, so a brief network blip costs seconds
+    # instead of the whole upload. Set in the child's environment rather than as flags because
+    # these are config knobs, not `s3 cp` arguments, and the caller's own AWS_* settings still
+    # win — an operator who has tuned this deliberately is not overridden.
+    env = dict(os.environ)
+    env.setdefault("AWS_RETRY_MODE", "adaptive")
+    env.setdefault("AWS_MAX_ATTEMPTS", "10")
+
     try:
-        done = subprocess.run(["aws", *args], capture_output=True, text=True)  # noqa: S603
+        done = subprocess.run(["aws", *args], capture_output=True, text=True, env=env)  # noqa: S603
     except FileNotFoundError:
         print(
             "the `aws` CLI is not on PATH, and an s3:// target needs it.\n"

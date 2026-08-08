@@ -17,7 +17,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/vendor.mjs",
+    "vendor": "node scripts/vendor.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
