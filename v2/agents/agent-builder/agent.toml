@@ -48,6 +48,10 @@ public = false
 # cannot discover that it was wrong, so it shipped a UI whose every event branch was dead.
 #   update_plan   keep a live checklist while building (the user watches it tick over)
 #   exec          RUN what was written: node --check on generated JS, import a new plugin
+#   process       poll/kill what `exec` started with background=true. exec's own description
+#                 sends the model here, so granting one without the other leaves it blocking a
+#                 whole turn on a sleep — which is exactly what an agent built WITHOUT the pair
+#                 ended up doing while babysitting a 20GB download
 #   verify_answer self-review before declaring done — it catches, in its own words, "an
 #                 answer that only promises instead of delivering"
 #
@@ -61,5 +65,5 @@ public = false
 [tools]
 allow = [
   "read", "write", "edit", "ls", "find", "skill_workshop",
-  "update_plan", "exec", "verify_answer",
+  "update_plan", "exec", "process", "verify_answer",
 ]

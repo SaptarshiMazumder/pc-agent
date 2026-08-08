@@ -43,6 +43,7 @@ def register(api, ctx):
     from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
+    from agent_authoring.domain.tool_grant_rules import ToolGrantRules
     from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
     from agent_authoring.infrastructure.agent_packer import AgentPacker
@@ -100,6 +101,10 @@ def register(api, ctx):
             methods=frozenset(APP_SCOPED_METHODS),
             sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
         ),
+        # Half a tool pair: `exec` without `process` leaves the model unable to poll a
+        # background job, so it blocks a turn on a sleep instead. Caught here rather than
+        # discovered during a 20GB download.
+        ToolGrantRules(),
     )
     api.register_tool(ValidateAgentTool(validator))
 

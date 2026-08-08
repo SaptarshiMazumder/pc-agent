@@ -26,8 +26,8 @@
 window.Chat = (function () {
   const $ = (id) => document.getElementById(id)
 
-  // CHANGE ME: what the assistant's messages are labelled.
-  const BOT_NAME = 'Agent'
+  // Label shown above assistant messages.
+  const BOT_NAME = 'Workflow Architect'
 
   let client = null
   let sessionKey = null
@@ -135,6 +135,7 @@ window.Chat = (function () {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
     })
     $('send').addEventListener('click', () => (running ? abort() : send()))
+    $('fork').addEventListener('click', () => void fork())
     $('newChat').addEventListener('click', reset)
 
     // Paste. `files` covers a copied FILE, but a copied IMAGE (a screenshot tool, "copy
@@ -260,8 +261,7 @@ window.Chat = (function () {
     if (body.trim()) bubble('bot').innerHTML = MD.render(body)
   }
 
-  /** The empty state. It is rebuilt rather than kept hidden, so "new chat" always looks new.
-   *  CHANGE ME — this is the first thing anyone sees. */
+  /** The empty state. It is rebuilt rather than kept hidden, so "new chat" always looks new. */
   function hero() {
     const h = $('hero')
     if (h) return h
@@ -269,8 +269,8 @@ window.Chat = (function () {
     d.className = 'hero'
     d.id = 'hero'
     d.innerHTML =
-      '<h1>What can I do for you?</h1>' +
-      "<p>Ask me anything, and I'll get to work.</p>" +
+      '<h1>Build a runnable ComfyUI workflow</h1>' +
+      '<p>Describe the result, models, constraints, or workflow changes you want. I’ll research current components, generate the graph, and validate it.</p>' +
       '<div class="suggests" id="suggests"></div>'
     return d
   }
@@ -387,40 +387,13 @@ window.Chat = (function () {
 
   /** One line describing what a tool is doing. Tool args have no common shape, so this picks
    *  the most identifying field it recognises and falls back to the first value. */
-  /** One line describing what a tool is doing.
-   *
-   *  Tool arguments have no common shape, so this picks the most identifying SCALAR it
-   *  recognises. The "scalar" part is load-bearing: this used to end with
-   *  `String(Object.values(args)[0])`, and for a tool whose first argument is a list — a plan,
-   *  a batch of files — that renders "[object Object],[object Object]". Which one you got
-   *  depended on the key order in the model's JSON, so the same tool looked fine on one call
-   *  and broken on the next.
-   */
-  function describe(v) {
-    if (v == null) return ''
-    if (typeof v !== 'object') return String(v)
-    if (Array.isArray(v)) {
-      // A checklist: the step being worked on is the useful line, not the whole list.
-      const doing = v.find((x) => x && typeof x === 'object' && x.status === 'in_progress')
-      const label = (x) => x && (x.step || x.title || x.name || x.text)
-      if (doing && label(doing)) return label(doing)
-      if (v.length && typeof v[0] !== 'object') return v.join(', ')
-      return `${v.length} item${v.length === 1 ? '' : 's'}`
-    }
-    return ''   // a nested object says nothing useful in one line
-  }
-
   function summarize(args) {
     if (!args || typeof args !== 'object') return ''
-    for (const k of ['path', 'id', 'name', 'query', 'url', 'file', 'explanation']) {
-      const s = describe(args[k])
-      if (s) return s.slice(0, 70)
+    for (const k of ['path', 'id', 'name', 'query', 'url', 'file']) {
+      if (args[k]) return String(args[k]).slice(0, 70)
     }
-    for (const v of Object.values(args)) {
-      const s = describe(v)
-      if (s) return s.slice(0, 70)
-    }
-    return ''
+    const first = Object.values(args)[0]
+    return first == null ? '' : String(first).slice(0, 70)
   }
 
   function handle(ev) {
@@ -532,5 +505,44 @@ window.Chat = (function () {
     void send()
   }
 
-  return { init, reset, open, ask, get sessionKey() { return sessionKey } }
+  /** Fork the conversation: start a new chat with the current history transcribed as context. */
+  async function fork() {
+    if (running) {
+      try { await client.abort(sessionKey) } catch { /* ok */ }
+      running = false
+      setSending(false)
+    }
+    const oldKey = sessionKey
+    let transcript = ''
+    try {
+      const res = await client.history(oldKey)
+      const msgs = (res && res.messages) || []
+      if (msgs.length) {
+        transcript = msgs.map((m) => {
+          const role = m.role === 'user' ? 'User' : 'Assistant'
+          const body = typeof m.content === 'string'
+            ? m.content
+            : (Array.isArray(m.content) ? m.content.filter((c) => c.type === 'text').map((c) => c.text || '').join('') : '')
+          return `### ${role}\n${body.trim()}`
+        }).join('\n\n')
+      }
+    } catch { /* fork works even without history — it just starts clean */ }
+
+    // Now reset
+    reset()
+    $('input').value = ''
+    input.style.height = 'auto'
+
+    if (transcript) {
+      const header = '---\nThe conversation above was forked. Use its context to continue.\n---\n\n'
+      $('input').value = header + transcript
+      // Show a brief info bubble so the user knows it worked
+      const info = bubble('bot')
+      info.innerHTML = MD.render('**Conversation forked.** The history has been copied into the input below. Edit or clarify, then send.')
+    }
+    stick = true
+    follow()
+  }
+
+  return { init, reset, open, ask, fork, get sessionKey() { return sessionKey } }
 })()

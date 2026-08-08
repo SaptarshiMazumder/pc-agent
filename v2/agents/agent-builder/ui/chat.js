@@ -419,13 +419,43 @@ window.Chat = (function () {
     thinkBuf = ''
   }
 
+  /** One line describing what a tool is doing.
+   *
+   *  Tool arguments have no common shape, so this picks the most identifying SCALAR it
+   *  recognises. The "scalar" part is load-bearing: this used to end with
+   *  `String(Object.values(args)[0])`, and for a tool whose first argument is a list — a plan,
+   *  a batch of files — that renders "[object Object],[object Object]". Which one you got
+   *  depended on the key order in the model's JSON, so the same tool looked fine on one call
+   *  and broken on the next.
+   *
+   *  `explanation` is in the list for `update_plan`, whose whole point is the note about what
+   *  just changed — it is the most useful thing that tool can show while a build runs.
+   */
+  function describe(v) {
+    if (v == null) return ''
+    if (typeof v !== 'object') return String(v)
+    if (Array.isArray(v)) {
+      // A checklist: the step being worked on is the useful line, not the whole list.
+      const doing = v.find((x) => x && typeof x === 'object' && x.status === 'in_progress')
+      const label = (x) => x && (x.step || x.title || x.name || x.text)
+      if (doing && label(doing)) return label(doing)
+      if (v.length && typeof v[0] !== 'object') return v.join(', ')
+      return `${v.length} item${v.length === 1 ? '' : 's'}`
+    }
+    return ''   // a nested object says nothing useful in one line
+  }
+
   function summarize(args) {
     if (!args || typeof args !== 'object') return ''
-    for (const k of ['agent_id', 'id', 'path', 'name', 'query', 'file']) {
-      if (args[k]) return String(args[k]).slice(0, 70)
+    for (const k of ['agent_id', 'id', 'path', 'name', 'query', 'file', 'explanation']) {
+      const s = describe(args[k])
+      if (s) return s.slice(0, 70)
     }
-    const first = Object.values(args)[0]
-    return first == null ? '' : String(first).slice(0, 70)
+    for (const v of Object.values(args)) {
+      const s = describe(v)
+      if (s) return s.slice(0, 70)
+    }
+    return ''
   }
 
   function handle(ev) {
