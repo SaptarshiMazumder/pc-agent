@@ -109,6 +109,14 @@ def test_unknown_tier_name_fails_open(metering, monkeypatch):
 
 
 def test_grant_then_spend_then_hard_stop(accounts):
+    """The cap: spend down, DRAIN on the boundary call, refuse from zero.
+
+    The middle step is the one with an incident behind it. /debit used to REFUSE a charge the
+    balance could not fully cover — and since every real charge exceeded the small balance, the
+    balance never moved, the pre-call gate (which closes at zero) never engaged, and a 13-credit
+    account chatted for free indefinitely. Draining bounds the leak to one call's shortfall and
+    guarantees the next call is refused BEFORE the provider is touched.
+    """
     client, account_id = accounts
     client.post("/grant", json={"account_id": account_id, "credits": 100}, headers=INTERNAL)
 
@@ -119,15 +127,25 @@ def test_grant_then_spend_then_hard_stop(accounts):
     ok = client.post("/debit", json={"account_id": account_id, "credits": 60}, headers=INTERNAL)
     assert ok.status_code == 200
     assert ok.json()["credits_remaining"] == 40
+    assert ok.json()["ok"] is True
+    assert ok.json()["shortfall"] == 0
 
-    # NO OVERDRAFT. This is the invariant the business rests on: because the allowance cannot be
-    # exceeded, worst-case cost per subscription is knowable on day one.
+    # The boundary call: 41 against 40. The call already ran, so the money is spent either way —
+    # the balance is drained to zero and the uncovered credit is REPORTED, never overdrafted.
     over = client.post("/debit", json={"account_id": account_id, "credits": 41}, headers=INTERNAL)
-    assert over.status_code == 402
+    assert over.status_code == 200
+    body = over.json()
+    assert body["ok"] is False
+    assert body["drained"] == 40
+    assert body["shortfall"] == 1
+    assert body["credits_remaining"] == 0
 
-    # ...and the refused debit must not have partially consumed anything.
+    # NO OVERDRAFT, still: zero is the floor, and from zero a debit is refused outright. This is
+    # the invariant the business rests on — worst-case cost per subscription stays knowable.
+    from_zero = client.post("/debit", json={"account_id": account_id, "credits": 1}, headers=INTERNAL)
+    assert from_zero.status_code == 402
     after = client.get("/funding", params={"account_id": account_id}, headers=INTERNAL).json()
-    assert after["credits_remaining"] == 40
+    assert after["credits_remaining"] == 0
 
 
 def test_expired_grants_are_not_spendable(accounts):

@@ -468,13 +468,24 @@ class AccountsUsageLogger(CustomLogger):
                 if d.status_code == 200:
                     body = d.json() or {}
                     funding_source = str(body.get("funding_source") or "")
-                    count("debit_applied_total", outcome="ok")
                     gauge("credits_remaining", int(body.get("credits_remaining") or 0))
+                    shortfall = int(body.get("shortfall") or 0)
+                    if shortfall > 0:
+                        # The balance covered only part of this call: accounts DRAINED it to zero
+                        # (so the pre-call gate closes on the very next call) and reported what
+                        # went uncovered. The overspend is the uncovered FRACTION of the cost,
+                        # not the whole call — the drained part was paid for.
+                        count("debit_applied_total", outcome="drained")
+                        money(
+                            "overspend_usd",
+                            cost * (shortfall / max(1, charged)),
+                            _props={"model": model},
+                        )
+                    else:
+                        count("debit_applied_total", outcome="ok")
                 elif d.status_code == 402:
-                    # The call already ran, so this is spend we cannot recover — it means the
-                    # pre-call gate let something through (a cache-window race, or a single call
-                    # costing more than the whole remaining balance). Worth its own metric: it
-                    # is the exact measure of how leaky the cap is.
+                    # Zero balance before this call even started billing — the pre-call gate let
+                    # something through (a cache-window race). The whole call is unrecovered.
                     count("debit_applied_total", outcome="overspend")
                     money("overspend_usd", cost, _props={"model": model})
                 else:

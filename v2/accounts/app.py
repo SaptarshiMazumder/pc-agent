@@ -761,13 +761,23 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
     with _db() as c:
         grants = _live_grants(c, account_id, agent_id)
         available = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
-        if credits > available:
+        if available <= 0:
             count("debit_total", outcome="insufficient")
             raise HTTPException(
                 status_code=402,
-                detail=f"insufficient credits: need {credits}, have {available}",
+                detail=f"insufficient credits: need {credits}, have 0",
             )
-        left = credits
+        # DRAIN, never refuse, when the balance covers only part of the charge. The call this
+        # bills for ALREADY RAN — refusing changes nothing about the money spent, it only leaves
+        # the balance untouched, and an untouched balance never reaches zero, so the pre-call
+        # gate (which closes at zero) never engages. That was a live incident: a 13-credit
+        # account chatted for free indefinitely, every call 402ing here and every 402 leaving
+        # the 13 intact. Draining bounds the leak to ONE call's shortfall; the next call finds
+        # zero and is refused before the provider is touched. `shortfall` is reported so the
+        # caller can meter exactly how much this account overshot.
+        drained = min(credits, available)
+        shortfall = credits - drained
+        left = drained
         for g in grants:
             if left <= 0:
                 break
@@ -778,10 +788,10 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
             )
             left -= take
         view = _funding_view(c, account_id, agent_id)
-    count("debit_total", outcome="ok")
+    count("debit_total", outcome="drained" if shortfall else "ok")
     # The single number that says "are we selling faster than we are serving?"
-    count("credits_consumed_total", credits, _props={"account_id": account_id})
-    return {"ok": True, **view}
+    count("credits_consumed_total", drained, _props={"account_id": account_id})
+    return {"ok": shortfall == 0, "drained": drained, "shortfall": shortfall, **view}
 
 
 @app.post("/grant")
