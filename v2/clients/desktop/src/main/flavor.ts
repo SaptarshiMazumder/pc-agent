@@ -134,8 +134,14 @@ function candidatePaths(payload: string): string[] {
     const flavorName = devFlavorName()
     // authored flavors (core, studio, …)
     out.push(path.join(app.getAppPath(), 'flavors', flavorName, 'distribution.toml'))
-    // GENERATED per-agent product flavors (gen-app-flavor.mjs) — build output, not authored
-    out.push(path.join(app.getAppPath(), 'dist', 'app-flavors', flavorName, 'distribution.toml'))
+    // GENERATED per-agent product flavors (gen-app-flavor.mjs) — build output, not authored.
+    // The payload/ subdirectory is the current layout: it is EXACTLY the directory an engine
+    // consumes with --app-dir, so the same folder serves dev and a real product. The bare-root
+    // path stays as a fallback for a flavor generated before that move — otherwise
+    // `AGENTD_FLAVOR=x npm run dev` fails with "no distribution.toml" on an existing dist/.
+    const generated = path.join(app.getAppPath(), 'dist', 'app-flavors', flavorName)
+    out.push(path.join(generated, 'payload', 'distribution.toml'))
+    out.push(path.join(generated, 'distribution.toml'))
   }
   return out
 }
@@ -155,7 +161,20 @@ async function packagesIn(dir: string): Promise<string[]> {
 async function bundledPackages(payload: string): Promise<string[]> {
   if (payload) return packagesIn(path.join(payload, 'bundles'))
   if (app.isPackaged) return packagesIn(path.join(process.resourcesPath, 'bundles'))
-  return packagesIn(path.join(app.getAppPath(), 'flavors', devFlavorName(), 'bundles'))
+  // DEV: whichever of the two flavor layouts this name resolved to, matching candidatePaths().
+  // Without the generated one, `AGENTD_FLAVOR=<agent> npm run dev` opened the product shell with
+  // no bundle to install — the window came up pointed at an agent that was never there.
+  const name = devFlavorName()
+  const generated = path.join(app.getAppPath(), 'dist', 'app-flavors', name)
+  for (const dir of [
+    path.join(app.getAppPath(), 'flavors', name, 'bundles'),
+    path.join(generated, 'payload', 'bundles'),
+    path.join(generated, 'bundles'),
+  ]) {
+    const found = await packagesIn(dir)
+    if (found.length) return found
+  }
+  return []
 }
 
 /** The product's icon: the payload's own, else '' (the caller uses the engine default). */

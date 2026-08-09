@@ -196,9 +196,8 @@ ${(e && e.message) || String(e)}`
         // Hosted sign-in — no-op on a BYOK build or an already-connected device. Awaited first
         // so narrate_scene (which needs a model) never runs without platform keys.
         try {
-          // No `product`: the heading uses the page <title>, which is already this agent's name.
-          // Only the blurb is ours to write — it is the one line that says why an account is asked for.
           await agentd.mountSignInGate({
+            product: 'Game Master',
             blurb: 'Sign in to play — the referee runs on our servers, no API keys needed.'
           })
         } catch (e) {

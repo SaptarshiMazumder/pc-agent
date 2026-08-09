@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
+from agent_runtime.domain import product
 from agent_runtime.infrastructure import signing
 from agent_runtime.infrastructure.marketplace import bundle_io
 
@@ -53,12 +55,11 @@ PLATFORM_BY_EXT = {
     ".rpm": "linux",
 }
 
-INSTALLER_MARKER = "-setup"
-
-
-def installer_name(bundle_id: str, version: str, suffix: str) -> str:
-    """The one place the convention is spelled, so the writer and the reader cannot drift."""
-    return f"{bundle_id}-{version}{INSTALLER_MARKER}{suffix.lower()}"
+# The convention itself is stated in ``domain/product.py`` — the same rule the product BUILDER
+# names its output by. Re-exported here because this module is the reader and its callers know it
+# by this name; what must never happen is two spellings of one convention.
+INSTALLER_MARKER = product.INSTALLER_MARKER
+installer_name = product.installer_filename
 
 
 def _installers(directory: Path, bundle_id: str, version: str, private_key_b64: str) -> list[dict]:
@@ -94,6 +95,69 @@ def _installers(directory: Path, bundle_id: str, version: str, private_key_b64: 
     return rows
 
 
+# ── The shared ENGINE ───────────────────────────────────────────────────────────────────
+#
+# The engine is the ~250 MB client+runtime that every per-agent app shares. A per-agent installer
+# is a ~200 KB stub, and it needs a url and a digest to fetch the engine on a machine that has
+# none. Publishing that here — rather than baking it into each stub's source — means one engine
+# release is followed by every stub built afterwards, with no rebuild of anything.
+#
+# Discovered by the same naming convention as an agent's installer, under a reserved bundle id:
+#
+#     agentd-engine-<version>-setup.exe
+#
+# The id is reserved: nothing else may publish under it, because a stub that trusted an
+# attacker-supplied "engine" row would download and run whatever it named.
+ENGINE_BUNDLE_ID = product.ENGINE_BUNDLE_ID
+_ENGINE_VERSION = re.compile(
+    rf"^{re.escape(ENGINE_BUNDLE_ID)}-(.+){re.escape(product.INSTALLER_MARKER)}$"
+)
+
+
+def _engines(directory: Path, private_key_b64: str) -> list[dict]:
+    """Engine rows found in `directory`. One per platform; the NEWEST wins if several are present.
+
+    Signed per row, exactly like installer rows and for the same reason: the entry signatures cover
+    only .agentpkg digests, so an unsigned engine row would let anyone able to write to the registry
+    repoint the engine download without breaking a signature.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    best: dict[str, tuple[object, dict]] = {}
+    for suffix, platform in sorted(PLATFORM_BY_EXT.items()):
+        for path in sorted(directory.glob(f"{ENGINE_BUNDLE_ID}-*{product.INSTALLER_MARKER}{suffix}")):
+            match = _ENGINE_VERSION.match(path.stem)
+            if not match:
+                continue
+            version = match.group(1)
+            digest = bundle_io.sha256_file(path)
+            row = {
+                "platform": platform,
+                "version": version,
+                "url": path.name,  # relative, exactly like a bundle url
+                "size": path.stat().st_size,
+                "sha256": digest,
+            }
+            if private_key_b64:
+                row["sig"] = signing.sign(private_key_b64, digest.encode("ascii"))
+            try:
+                rank: object = Version(version)
+            except InvalidVersion:
+                rank = version  # unparseable: fall back to string order rather than dropping it
+            current = best.get(platform)
+            if current is None or _newer(rank, current[0]):
+                best[platform] = (rank, row)
+            log.info("engine %s %s -> %s (%.1f MB)", platform, version, path.name, path.stat().st_size / 1048576)
+    return [row for _, row in best.values()]
+
+
+def _newer(candidate, incumbent) -> bool:
+    try:
+        return candidate > incumbent
+    except TypeError:  # a Version and a str are not comparable — prefer the parseable one
+        return not isinstance(incumbent, str)
+
+
 def build_index(
     directory: Path,
     name: str = "",
@@ -104,6 +168,7 @@ def build_index(
     publisher_id: str = "",
     roster: dict | None = None,
     root_key_b64: str = "",
+    carry_engines: tuple = (),
 ) -> Path:
     """-> writes <directory>/index.json and returns its path.
 
@@ -188,6 +253,27 @@ def build_index(
     }
     if multi:
         index["publishers"] = roster
+
+    # The engine block, with the SAME carry-forward rule as the bundle entries and for the same
+    # reason: an index is the registry's entire contents. Publishing one agent from a directory that
+    # holds no engine installer would otherwise drop the engine row, and every per-agent stub built
+    # after that would have nothing to point at — a silent, total break of new installs.
+    engines = _engines(directory, private_key_b64)
+    fresh_platforms = {str(e["platform"]) for e in engines}
+    for prior in carry_engines:
+        if not isinstance(prior, dict):
+            continue
+        platform = str(prior.get("platform") or "")
+        if not platform or platform in fresh_platforms:
+            continue  # this publish supersedes it
+        if not prior.get("url") or not prior.get("sha256"):
+            log.warning("dropping unusable prior engine row %r (no url/sha256)", platform)
+            continue
+        engines.append(dict(prior))
+        log.info("carried engine %s %s (already published)", platform, prior.get("version") or "?")
+    if engines:
+        engines.sort(key=lambda e: str(e.get("platform") or ""))
+        index["engine"] = engines
     index_path = directory / "index.json"
     index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     return index_path

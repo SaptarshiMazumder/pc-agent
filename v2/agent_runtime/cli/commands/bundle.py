@@ -19,11 +19,10 @@ command; supplying `--roster` is what switches the output to schema 2."""
 from __future__ import annotations
 
 import argparse
-import tomllib
 from datetime import UTC
 from pathlib import Path
 
-from agent_runtime.domain.bundle import BundleManifest, PluginDep, parse_bundle_manifest
+from agent_runtime.infrastructure.marketplace import packer
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -64,7 +63,24 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description="Release an agent to a marketplace in one command: pack each agent dir, merge "
         "into the registry's EXISTING index (so this adds rather than replaces), sign, and upload.",
     )
-    publish.add_argument("agent_dir", nargs="+", help="agent directories to publish")
+    publish.add_argument(
+        "agent_dir",
+        nargs="*",
+        help="agent directories to publish (may be empty when only --engine is given)",
+    )
+    publish.add_argument(
+        "--engine",
+        default="",
+        help="ALSO publish this shared-engine installer (the core build's Setup exe). Per-agent "
+        "stub installers download the engine from the registry, so it has to be listed there. "
+        "Renamed to the registry convention on the way in.",
+    )
+    publish.add_argument(
+        "--engine-version",
+        default="",
+        help="the engine's version (required unless the file is already named "
+        "agentd-engine-<version>-setup.exe)",
+    )
     publish.add_argument(
         "--to",
         default="",
@@ -139,6 +155,46 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     roster_revoke.add_argument("--file", default="registry-roster.json", help="the roster file")
     roster_revoke.set_defaults(func=run_roster_revoke)
 
+    # The publish SERVICE mints a creator identity on someone's first upload and records it as
+    # PENDING, because admitting them means re-signing the roster with the offline root key — which
+    # cannot be automated without putting that key online. These two commands are that review step.
+    roster_pending = roster_sub.add_parser(
+        "pending",
+        help="list creators awaiting admission (reads the publish service's table)",
+        description="Who has tried to publish and is waiting to be let onto the roster. Their "
+        "bundles are already uploaded and signed with their own key; nothing verifies until the "
+        "roster names them.",
+    )
+    roster_pending.add_argument(
+        "--creators-table",
+        default="",
+        help="DynamoDB table name (default: $AGENTD_CREATORS_TABLE; terraform output "
+        "publish_creators_table)",
+    )
+    roster_pending.add_argument("--region", default="", help="AWS region (default: the profile's)")
+    roster_pending.set_defaults(func=run_roster_pending)
+
+    roster_admit = roster_sub.add_parser(
+        "admit",
+        help="admit pending creators: add them to the roster, re-sign it, and mark them listed",
+        description="ONE command for the whole review step. It reads the pending creators, adds "
+        "each to the roster file with the public key the service generated for them, re-signs the "
+        "roster with the ROOT key, and only then marks them listed in the table — in that order, "
+        "because a creator marked listed before the roster is published would have their bundles "
+        "advertised with a key no client trusts yet.",
+    )
+    roster_admit.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_admit.add_argument(
+        "--id", default="", action="append", help="admit only this creator id (repeatable)"
+    )
+    roster_admit.add_argument("--file", default="registry-roster.json", help="the roster file")
+    roster_admit.add_argument("--creators-table", default="", help="DynamoDB table name")
+    roster_admit.add_argument("--region", default="", help="AWS region")
+    roster_admit.add_argument(
+        "--dry-run", action="store_true", help="show who would be admitted, change nothing"
+    )
+    roster_admit.set_defaults(func=run_roster_admit)
+
     roster_show = roster_sub.add_parser("show", help="print a roster and check its signature")
     roster_show.add_argument("file", nargs="?", default="registry-roster.json")
     roster_show.add_argument(
@@ -179,114 +235,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     keygen.set_defaults(func=run_keygen)
 
 
-def _load_bundle_toml(agent_dir: Path) -> dict:
-    path = agent_dir / "bundle.toml"
-    if not path.is_file():
-        return {}
-    return tomllib.loads(path.read_text(encoding="utf-8")).get("bundle") or {}
-
-
-def _load_agent_toml(agent_dir: Path) -> dict:
-    """The agent's own declaration. ``{}`` when absent or unparseable — packing a directory
-    without a readable agent.toml must still work, it just has fewer defaults to draw on."""
-    path = agent_dir / "agent.toml"
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
-def _first(*values) -> str:
-    """The first non-empty, stripped value — the precedence chain in one place."""
-    for v in values:
-        s = str(v or "").strip()
-        if s:
-            return s
-    return ""
-
-
-def _pack_agent_dir(
-    agent_dir: Path,
-    out_dir: Path,
-    version: str = "",
-    vendor_plugins: str = "",
-    builtin_plugins: str = "",
-) -> Path:
-    """agent directory -> .agentpkg in out_dir. Raises ValueError with a user-facing message.
-
-    Shared by `pack` and `publish`. Publishing assembling its own manifest would mean two
-    definitions of what a bundle IS, and they would drift — so what gets published is
-    byte-for-byte what `pack` produces.
-    """
-    from agent_runtime.config import load_config
-    from agent_runtime.infrastructure.marketplace import bundle_io
-
-    if not agent_dir.is_dir():
-        raise ValueError(f"not a directory: {agent_dir}")
-    declared = _load_bundle_toml(agent_dir)
-    # agent.toml is the SECOND tier of every identity field. Without it, an agent whose
-    # agent.toml says version = "2.3.0" packed as 1.0.0 — and since installs supersede BY
-    # VERSION, every later release silently failed to replace the first one on a buyer's
-    # machine. That bites hardest through gen-app-flavor.mjs, which calls this CLI to build
-    # the payload for a per-agent installer: the author bumps a version, ships, and nobody
-    # ever receives it.
-    #
-    # PRECEDENCE (matches agent-authoring's BundleDefaults, which fixed the same bug on the
-    # chat path only):  explicit argument > bundle.toml > agent.toml > fallback
-    # bundle.toml stays on top because it is the PUBLISHER-facing file — publisher name,
-    # entitlement SKU, a bundle id that differs from the agent id. It just stops being the
-    # only source of what agent.toml already states.
-    agent_toml = _load_agent_toml(agent_dir)
-    bundle_id = _first(declared.get("id"), agent_dir.name)
-    version = _first(version, declared.get("version"), agent_toml.get("version"), "1.0.0")
-
-    deps: list[PluginDep] = []
-    if declared:  # bundle.toml is the source of truth for declared deps
-        deps = list(
-            parse_bundle_manifest(
-                {"bundle": {**declared, "id": bundle_id, "version": version}}
-            ).plugins
-        )
-    vendor_ids = [p for p in (vendor_plugins or "").split(",") if p.strip()]
-    builtin_ids = [p for p in (builtin_plugins or "").split(",") if p.strip()]
-    have = {d.id for d in deps}
-    deps += [
-        PluginDep(id=p.strip(), source="vendored") for p in vendor_ids if p.strip() not in have
-    ]
-    deps += [
-        PluginDep(id=p.strip(), source="builtin") for p in builtin_ids if p.strip() not in have
-    ]
-
-    # Only VENDORED deps need this install's plugin roots, so only they need the config. Loading it
-    # unconditionally made packing depend on the ambient environment for no reason — a bundle with
-    # no vendored plugins is a pure function of its directory.
-    vendored_dirs: dict[str, Path] = {}
-    vendored = [d for d in deps if d.source == "vendored"]
-    if vendored:
-        config = load_config()
-        plugin_roots = [Path(config.plugins_dir), Path(config.builtin_plugins_dir)]
-        for dep in vendored:
-            source_dir = next(
-                (r / dep.id for r in plugin_roots if (r / dep.id / "plugin.toml").is_file()), None
-            )
-            if source_dir is None:
-                raise ValueError(
-                    f"vendored plugin '{dep.id}' not found in {', '.join(map(str, plugin_roots))}"
-                )
-            vendored_dirs[dep.id] = source_dir
-
-    manifest = BundleManifest(
-        id=bundle_id,
-        name=_first(declared.get("name"), agent_toml.get("name"), bundle_id),
-        version=version,
-        description=_first(declared.get("description"), agent_toml.get("description")),
-        agentd_compat=str(declared.get("agentd_compat") or ""),
-        entitlement=str(declared.get("entitlement") or ""),
-        publisher=str(declared.get("publisher") or ""),
-        icon=str(declared.get("icon") or ""),
-        plugins=tuple(deps),
-    )
-    return bundle_io.pack_bundle(agent_dir, out_dir, manifest, vendored_dirs)
+# Packing itself lives in infrastructure/marketplace/packer.py, not here. It was private to this
+# module until the product builder and the publish service needed the same function; a command
+# module is not somewhere an application service can import from. These aliases keep the existing
+# call sites (and their tests) working while there is exactly one implementation.
+_load_bundle_toml = packer.load_bundle_toml
+_load_agent_toml = packer.load_agent_toml
+_first = packer.first
+_pack_agent_dir = packer.pack_agent_dir
 
 
 def run_pack(args: argparse.Namespace) -> int:
@@ -466,6 +422,57 @@ def _stage_installers(agent_dir: Path, staging: Path, bundle_id: str, version: s
     return staged
 
 
+def _stage_engine(source: str, version: str, staging: Path) -> int:
+    """Copy the shared-engine installer into staging under the registry's naming convention.
+
+    The engine is what a per-agent STUB downloads on a machine with no agentd, so it has to be an
+    artifact in the registry like any other. Renaming happens here rather than asking the publisher
+    to rename by hand, because the convention is what `_engines` matches on and a near-miss
+    (`agentd Setup 0.2.0.exe`) is silently ignored — publishing would look like it worked and every
+    stub built afterwards would have no engine to fetch.
+    """
+    import re
+    import shutil
+
+    from agent_runtime.infrastructure.marketplace.index_builder import (
+        ENGINE_BUNDLE_ID,
+        PLATFORM_BY_EXT,
+        installer_name,
+    )
+
+    path = Path(source).expanduser().resolve()
+    if not path.is_file():
+        print(f"--engine: no such file: {path}")
+        return 1
+    suffix = path.suffix.lower()
+    if suffix not in PLATFORM_BY_EXT:
+        print(f"--engine: {path.name} is not an installer (want one of {', '.join(sorted(PLATFORM_BY_EXT))})")
+        return 1
+
+    if not version:
+        # Already conventionally named? Then its version is not something to ask for twice.
+        match = re.match(rf"^{re.escape(ENGINE_BUNDLE_ID)}-(.+)-setup$", path.stem)
+        if match:
+            version = match.group(1)
+        else:
+            # electron-builder's default output is "agentd Setup 0.2.0.exe" — the number is right
+            # there, and guessing it wrong would publish an engine that a payload's minimum-version
+            # check then rejects. So it is read, and refused when it cannot be.
+            loose = re.search(r"(\d+\.\d+[\w.\-+]*)", path.stem)
+            if not loose:
+                print(
+                    f"--engine: cannot tell what version {path.name} is. Pass --engine-version."
+                )
+                return 1
+            version = loose.group(1)
+            print(f"  engine version read from the file name: {version}")
+
+    dest = staging / installer_name(ENGINE_BUNDLE_ID, version, suffix)
+    shutil.copy2(path, dest)
+    print(f"  staged engine {path.name} -> {dest.name} ({dest.stat().st_size:,} bytes)")
+    return 0
+
+
 def _installer_files(staging: Path) -> list[Path]:
     """Installer artifacts in the staging dir — everything build_index may have referenced."""
     from agent_runtime.infrastructure.marketplace.index_builder import (
@@ -599,8 +606,12 @@ def run_publish(args: argparse.Namespace) -> int:
     import os
     import tempfile
 
-    from agent_runtime.infrastructure.marketplace import bundle_io
+    from agent_runtime.infrastructure.marketplace import bundle_io, index_builder
     from agent_runtime.infrastructure.marketplace.index_builder import build_index
+
+    if not args.agent_dir and not getattr(args, "engine", ""):
+        print("nothing to publish: give one or more agent directories, and/or --engine <installer>.")
+        return 1
 
     target = (args.to or os.environ.get("AGENTD_PUBLISH_TARGET", "")).strip()
     if not target:
@@ -638,6 +649,11 @@ def run_publish(args: argparse.Namespace) -> int:
         return 1
     prior_key = str(existing.get("publisher_key") or "")
     prior_entries = tuple(existing.get("bundles") or [])
+    # The engine rows get carried for exactly the reason the bundle entries do. Publishing one
+    # agent from a staging directory with no engine installer in it would otherwise drop the
+    # `engine` block, and every per-agent STUB built after that would have no engine to fetch —
+    # new installs break completely, with nothing in the output to say so.
+    prior_engines = tuple(existing.get("engine") or [])
 
     # Is this a multi-creator registry? Either because a roster was passed, or because the registry
     # already is one — in which case publishing WITHOUT the roster would drop it and demote the
@@ -695,6 +711,10 @@ def run_publish(args: argparse.Namespace) -> int:
                 manifest = bundle_io.read_manifest(package)
                 _stage_installers(agent_dir, staging, manifest.id, manifest.version)
 
+        if getattr(args, "engine", ""):
+            if _stage_engine(args.engine, getattr(args, "engine_version", ""), staging) != 0:
+                return 1
+
         index_path = build_index(
             staging,
             # Default to the registry's existing identity: publishing an agent should not quietly
@@ -707,13 +727,29 @@ def run_publish(args: argparse.Namespace) -> int:
             publisher_id=args.publisher_id if roster_block is not None else "",
             roster=roster_block,
             root_key_b64=root_key_b64,
+            carry_engines=prior_engines,
         )
         index = json.loads(index_path.read_text(encoding="utf-8"))
         listed = [f"{b.get('id')} {b.get('version')}" for b in index.get("bundles", [])]
+        engines = index.get("engine") or []
         print(
             f"\nindex: {len(listed)} bundle(s) — {', '.join(listed)}"
             + ("  (signed)" if private_b64 else "  (UNSIGNED)")
         )
+        if engines:
+            print(
+                "engine: "
+                + ", ".join(f"{e.get('platform')} {e.get('version') or '?'}" for e in engines)
+                + "  (per-agent stubs install this)"
+            )
+        else:
+            # Said out loud because it is invisible otherwise and it disables the whole small-stub
+            # path: `agentd product build` will write payloads and no installers.
+            print(
+                "engine: NONE in this registry — per-agent stub installers cannot be built against "
+                f"it. Publish one by putting {index_builder.ENGINE_BUNDLE_ID}-<version>-setup.exe in "
+                "the staging directory."
+            )
 
         if args.dry_run:
             print(f"\n--dry-run: nothing uploaded. Would publish to {target}")
@@ -779,6 +815,112 @@ def run_roster_add(args: argparse.Namespace) -> int:
     roster_builder.write_roster_file(Path(args.file), block)
     print(f"roster updated: {args.id} is now trusted ({len(block.get('roster') or [])} creator(s))")
     print(f"wrote {args.file} — publish it with:  agentd bundle publish ... --roster {args.file}")
+    return 0
+
+
+def _creator_directory(args: argparse.Namespace):
+    """The publish service's creator table, as a directory object. Operator-side only.
+
+    boto3 is imported HERE rather than at module scope: `agentd bundle pack` must keep working on a
+    machine that has never heard of AWS, and it is the same module.
+    """
+    import os
+
+    table_name = (args.creators_table or os.environ.get("AGENTD_CREATORS_TABLE", "")).strip()
+    if not table_name:
+        raise ValueError(
+            "no creators table. Pass --creators-table, or set AGENTD_CREATORS_TABLE "
+            "(terraform output publish_creators_table)."
+        )
+    try:
+        import boto3
+    except ImportError as e:
+        raise ValueError("boto3 is not installed — `pip install boto3` to run operator commands") from e
+
+    from agent_runtime.infrastructure.publish.creator_directory import DynamoCreatorDirectory
+
+    kwargs = {"region_name": args.region} if getattr(args, "region", "") else {}
+    dynamodb = boto3.resource("dynamodb", **kwargs)
+    return DynamoCreatorDirectory(dynamodb.Table(table_name), dynamodb.Table(table_name))
+
+
+def run_roster_pending(args: argparse.Namespace) -> int:
+    try:
+        directory = _creator_directory(args)
+        waiting = directory.pending()
+    except ValueError as e:
+        print(e)
+        return 1
+    if not waiting:
+        print("no creators are waiting for admission.")
+        return 0
+    print(f"{len(waiting)} creator(s) awaiting admission:\n")
+    for creator in waiting:
+        print(f"  {creator.id}  {creator.name}")
+        print(f"      key {creator.public_key}")
+    print("\nAdmit them with:  agentd bundle roster admit --root-key <keypair>")
+    return 0
+
+
+def run_roster_admit(args: argparse.Namespace) -> int:
+    """Add pending creators to the roster, re-sign it, then mark them listed. In that order."""
+    from agent_runtime.domain.bundle import BundleError
+    from agent_runtime.infrastructure.marketplace import roster_builder
+
+    try:
+        directory = _creator_directory(args)
+        waiting = directory.pending()
+    except ValueError as e:
+        print(e)
+        return 1
+
+    wanted = {i for i in (args.id or []) if i}
+    if wanted:
+        waiting = [c for c in waiting if c.id in wanted]
+        missing = wanted - {c.id for c in waiting}
+        if missing:
+            print(f"not pending (or unknown): {', '.join(sorted(missing))}")
+            return 1
+    if not waiting:
+        print("nothing to admit.")
+        return 0
+
+    for creator in waiting:
+        print(f"  admitting {creator.id}  {creator.name}")
+    if args.dry_run:
+        print(f"\n--dry-run: the roster and the table are unchanged.")
+        return 0
+
+    try:
+        root_private, root_public = _read_keypair(args.root_key)
+        block = _load_roster(args.file)
+        for creator in waiting:
+            if not creator.public_key:
+                raise ValueError(f"{creator.id} has no public key recorded — cannot admit them")
+            block = roster_builder.with_publisher(
+                block,
+                publisher_id=creator.id,
+                name=creator.name,
+                key=creator.public_key,
+                issued=_now_iso(),
+                root_private_b64=root_private,
+                root_public_b64=root_public,
+            )
+    except (OSError, ValueError, KeyError, BundleError) as e:
+        print(f"cannot update the roster: {e}")
+        return 1
+    roster_builder.write_roster_file(Path(args.file), block)
+
+    # ONLY NOW mark them listed. A creator flipped to `listed` before the roster reaches the
+    # registry would have the service sign and publish their bundles against a key no installed
+    # client trusts yet — every download of theirs would fail verification, fail-closed, with
+    # nothing to point at.
+    for creator in waiting:
+        directory.admit(creator.id)
+
+    print(f"\nroster updated: {len(block.get('roster') or [])} creator(s) — wrote {args.file}")
+    print("NOW PUBLISH IT, or their bundles still will not verify:")
+    print(f"    agentd bundle roster publish --file {args.file} --to <registry>")
     return 0
 
 

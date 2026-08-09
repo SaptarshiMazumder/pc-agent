@@ -504,3 +504,15 @@ button:disabled { cursor: default; opacity: 0.45; }
   .shell { grid-template-columns: 0 1fr; }
   .rail { opacity: 0; pointer-events: none; }
 }
+
+/* sign-in (added by add_ui_component) — the gate reads these, so it matches this app's theme
+   instead of looking bolted on. Change the values, keep the names. */
+:root {
+  --gate-bg: rgba(12, 14, 18, 0.72);
+  --gate-card: #14171d;
+  --gate-text: #e8eaed;
+  --gate-muted: #9aa0a6;
+  --gate-accent: #8ab4f8;
+  --gate-border: rgba(255, 255, 255, 0.12);
+  --gate-radius: 14px;
+}

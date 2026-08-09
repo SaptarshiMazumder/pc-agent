@@ -28,3 +28,7 @@ nsis:
   oneClick: false
   perMachine: false # per-user install: runtime pip-plugins can write, no admin, avoids the Program Files cache-permission errors
   allowToChangeInstallationDirectory: true
+  # THIS is what makes per-agent installers possible. The core build IS the shared engine, and it
+  # records where it landed under HKCU\Software\agentd\Engine so a ~200 KB stub can find it instead
+  # of shipping its own 250 MB copy of the runtime. See the file — it is the whole contract.
+  include: build/engine-register.nsh

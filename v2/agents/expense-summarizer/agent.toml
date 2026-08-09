@@ -7,7 +7,7 @@
 # want it locked down.
 
 name = "Expense Summarizer"
-version = "1.0.0"
+version = "1.0.2"
 
 # DISPLAY fields are TOP-LEVEL keys, NOT part of [app]. The registry reads them with
 # data.get(...) and falls back to the generated presentation.json sidecar — so writing

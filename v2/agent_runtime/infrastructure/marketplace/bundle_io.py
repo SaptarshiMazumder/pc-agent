@@ -54,6 +54,28 @@ def read_manifest(package_path: Path) -> BundleManifest:
         raise BundleError(f"bundle.toml is not valid TOML: {e}") from e
 
 
+def read_agent_file(package_path: Path, relative: str) -> bytes | None:
+    """One file out of a package's ``agent/`` tree, or None when it is not in there.
+
+    Building a PRODUCT from a published .agentpkg (the only thing a publish service ever has) needs
+    the agent's own declaration and icon, and both are inside the zip. Reading them without
+    unpacking to a temp dir keeps that path from needing somewhere writable.
+
+    Returns None rather than raising for a missing member: "this agent ships no icon" is an
+    ordinary answer. A corrupt or unreadable archive still raises, because that is not.
+    """
+    member = f"agent/{relative.strip().lstrip('/').replace(chr(92), '/')}"
+    try:
+        with zipfile.ZipFile(package_path) as zf:
+            _safe_members(zf)  # same path-traversal refusal as unpacking
+            try:
+                return zf.read(member)
+            except KeyError:
+                return None
+    except (zipfile.BadZipFile, OSError) as e:
+        raise BundleError(f"not a readable .agentpkg: {package_path}") from e
+
+
 def _safe_members(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     members = []
     for info in zf.infolist():

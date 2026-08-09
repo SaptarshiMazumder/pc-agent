@@ -184,6 +184,30 @@ class Config:
     # PUBLIC half used to verify downloads — see the note further down.)
     publisher_keyfile: str = ""
 
+    # --- PRODUCTS (one agent, shipped as its own app: `agentd product build`) ----
+    # A per-agent installer is a small STUB that ensures the shared ENGINE is present, writes a
+    # ~50 KB payload, and makes a shortcut. So a stub has to know which engine to fetch and how to
+    # verify it. All four are EMPTY BY DEFAULT and there is no baked fallback anywhere: a default
+    # url would produce installers that download from a host this build has never heard of and
+    # fail only on a stranger's machine.
+    #
+    # Normally these stay empty and the engine is read from the registry index's `engine` block
+    # (published once per engine release, so stubs follow it without being rebuilt). Set them to
+    # override that — e.g. to test an engine that is not published yet.
+    # AGENTD_ENGINE_URL / AGENTD_ENGINE_SHA256 / AGENTD_ENGINE_VERSION override.
+    engine_installer_url: str = ""
+    engine_installer_sha256: str = ""  # a stub REFUSES to run a download it cannot verify
+    engine_installer_platform: str = "win"  # which platform the two values above describe
+    engine_version: str = ""  # what that installer installs, for the min-version check
+    # The lowest engine that can run payloads built by THIS install. Empty means "any", which is
+    # correct because the engine<->payload contract is additive-only. Set it only when a payload
+    # genuinely needs something a specific engine introduced — it makes a stub update the engine
+    # instead of opening a window that half works.
+    engine_min_version: str = ""
+    # Explicit path to makensis; "" => discovered on PATH. Set it when NSIS is installed somewhere
+    # unusual, never as a way to bake in one machine's layout.
+    makensis_path: str = ""
+
     # --- reliability / guardrails (applied to EVERY tool via GuardedTool) -------
     # Per-tool effective values resolve: tool_overrides[name] > the tool's own
     # declared default (default_* class attr) > these globals.
@@ -1031,10 +1055,32 @@ def load_config(path: Path | None = None) -> Config:
         cfg.registry_url = cfg.distribution.registry_url or default_local_registry(cfg.state_dir)
     # The PUBLISH side. Same env names the publisher tooling already documents, so a machine set
     # up to publish from the CLI needs nothing new for the tool to work.
+    # PUBLISH TARGET, same three-tier resolution as registry_url above and for the same reason:
+    #   AGENTD_PUBLISH_TARGET  >  config.json  >  the DISTRIBUTION PROFILE
+    #
+    # That third tier is the one that matters, and it was missing. An author installs the desktop
+    # app, signs in, and presses Publish — they never open a .env and have no idea a publish
+    # service exists. Requiring them to set this made the whole feature unreachable for exactly
+    # the person it is for. The build already knows where its own marketplace is (it is the same
+    # profile that carries accounts_url and registry_url), so the product supplies it.
+    #
+    # The env and file tiers stay on top for operators: publishing to an s3:// bucket or a local
+    # directory is a release job, and it must be able to override whatever a build was baked with.
     if os.environ.get("AGENTD_PUBLISH_TARGET"):
         cfg.publish_target = os.environ["AGENTD_PUBLISH_TARGET"].strip()
+    elif not cfg.publish_target:
+        cfg.publish_target = cfg.distribution.publish_url
     if os.environ.get("AGENTD_PUBLISHER_KEYFILE"):
         cfg.publisher_keyfile = os.environ["AGENTD_PUBLISHER_KEYFILE"].strip()
+    # The ENGINE a per-agent stub installs. Env doors for the same reason the registry has one: a
+    # CI job or a container is configured by environment, not by editing a JSON file it does not
+    # have. Empty stays empty — the registry index is the normal source.
+    if os.environ.get("AGENTD_ENGINE_URL"):
+        cfg.engine_installer_url = os.environ["AGENTD_ENGINE_URL"].strip()
+    if os.environ.get("AGENTD_ENGINE_SHA256"):
+        cfg.engine_installer_sha256 = os.environ["AGENTD_ENGINE_SHA256"].strip().lower()
+    if os.environ.get("AGENTD_ENGINE_VERSION"):
+        cfg.engine_version = os.environ["AGENTD_ENGINE_VERSION"].strip()
     # The publisher key needs the SAME env door as the url above, and for a specific reason.
     #
     # Both values normally arrive together, baked into a distribution profile by an installer. The

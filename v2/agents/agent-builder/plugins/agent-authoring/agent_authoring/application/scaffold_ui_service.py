@@ -36,6 +36,10 @@ class ScaffoldResult:
     ui_dir: Path
     written: list[str] = field(default_factory=list)
     replaced: list[str] = field(default_factory=list)
+    # Components composed in during the same call, as "<id>: <what happened>". Through the SAME
+    # AddComponentService the standalone tool uses — a second code path for "scaffold WITH sign-in"
+    # would be a second place for the snippet to live.
+    components: list[str] = field(default_factory=list)
 
     @property
     def readme_path(self) -> str:
@@ -55,14 +59,29 @@ class ScaffoldUiService:
     the whole thing at a tmp_path.
     """
 
-    def __init__(self, reader, templates: UiTemplates, template_root: Path, borrow_root: Path):
+    def __init__(
+        self,
+        reader,
+        templates: UiTemplates,
+        template_root: Path,
+        borrow_root: Path,
+        components=None,
+    ):
         self._reader = reader
         self._templates = templates
         self._template_root = Path(template_root)
         self._borrow_root = Path(borrow_root)
+        # The AddComponentService, or None. Optional so scaffolding still works in a build without
+        # the component tier wired up; when present, a new agent can be born with components
+        # already composed in rather than needing a second call.
+        self._components = components
 
     def scaffold(
-        self, agent_id: str, template_id: str = "", confirm_overwrite: bool = False
+        self,
+        agent_id: str,
+        template_id: str = "",
+        confirm_overwrite: bool = False,
+        components: tuple[str, ...] = (),
     ) -> ScaffoldResult:
         template = self._templates.get(template_id)
         if template is None:
@@ -117,13 +136,42 @@ class ScaffoldUiService:
             shutil.copyfile(src, dest)
             written.append(rel)
 
-        return ScaffoldResult(
+        result = ScaffoldResult(
             agent_id=agent_id,
             template=template,
             ui_dir=ui_dir,
             written=sorted(written),
             replaced=replaced,
         )
+        result.components = self._compose(agent_id, components)
+        return result
+
+    def _compose(self, agent_id: str, components: tuple[str, ...]) -> list[str]:
+        """Apply components onto the app just written. Reports per component; never fails the
+        scaffold — a working app plus "that component could not be added" is strictly better than
+        no app at all, and the caller can retry the component on its own."""
+        if not components:
+            return []
+        if self._components is None:
+            return [f"{c}: NOT ADDED (this build has no component support)" for c in components]
+        from agent_authoring.application.add_component_service import ComponentError
+
+        out = []
+        for component_id in components:
+            try:
+                plan = self._components.plan(agent_id, component_id)
+                self._components.apply(plan)
+            except ComponentError as e:
+                out.append(f"{component_id}: NOT ADDED — {e}")
+                continue
+            if plan.nothing_to_do:
+                out.append(f"{component_id}: already present in the template")
+            else:
+                changed = ", ".join(s.target for s in plan.changes) or "nothing"
+                out.append(f"{component_id}: added ({changed})")
+            for step in plan.manual:
+                out.append(f"{component_id}: place by hand in ui/{step.target} — {step.detail}")
+        return out
 
     @staticmethod
     def _existing(ui_dir: Path) -> list[str]:

@@ -330,7 +330,11 @@ function onEvent(payload) {
   lastEventAt = Date.now()
   const e = payload.event || {}
   switch (e.type) {
-    case 'message_delta': assistant().textContent += e.delta || ''; if (atBottom()) scroll(); break
+    // Streamed text is message_update with kind 'text_delta'. There is NO 'message_delta'
+    // event — a branch on one is dead code, and this window showed nothing until message_end.
+    case 'message_update':
+      if (e.kind === 'text_delta') { assistant().textContent += e.delta || ''; if (atBottom()) scroll() }
+      break
     case 'message_end': endAssistant(); break
     case 'tool_execution_start': addStep(e.toolName || 'tool'); break
     case 'tool_execution_end': finishStep(e.toolName || 'tool', !!e.isError); takeArtifacts(e.artifacts); break

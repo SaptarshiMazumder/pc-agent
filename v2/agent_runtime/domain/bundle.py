@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
+from agent_runtime.domain.product import EngineRef
+
 VALID_PLUGIN_SOURCES = ("vendored", "pip", "builtin")
 
 
@@ -241,6 +243,45 @@ def parse_publisher_roster(data: dict) -> PublisherRoster:
     )
 
 
+def _parse_engines(raw) -> tuple[EngineRef, ...]:
+    """Parse the optional ``engine`` array: the shared ENGINE builds, one row per platform.
+
+    Why the registry describes the engine at all. A per-agent installer is a small stub that has to
+    be able to fetch the shared engine on a machine that has none — so it needs a url and a digest,
+    and those change every engine release while stubs built last month keep circulating. Publishing
+    them here means a stub is built against whatever is current at BUILD time, and the engine can be
+    re-released without rebuilding a single stub.
+
+    Same tolerance as ``installers`` and for the same reason: this key was added after clients
+    shipped, so junk in it must not blank the store on an older install.
+    """
+    if not isinstance(raw, list):
+        return ()
+    out = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        platform = str(row.get("platform") or "").strip().lower()
+        url = str(row.get("url") or "").strip()
+        if not platform or not url:
+            continue
+        try:
+            size = int(row.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        out.append(
+            EngineRef(
+                platform=platform,
+                version=str(row.get("version") or ""),
+                url=url,
+                size=size,
+                sha256=str(row.get("sha256") or ""),
+                sig=str(row.get("sig") or ""),
+            )
+        )
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class RegistryIndex:
     name: str = ""
@@ -249,6 +290,11 @@ class RegistryIndex:
     bundles: tuple[RegistryEntry, ...] = ()
     schema: int = 1
     publishers: PublisherRoster | None = None  # schema 2 only
+    engines: tuple[EngineRef, ...] = ()  # the shared engine builds a stub can install
+
+    def engine_for(self, platform: str) -> EngineRef | None:
+        want = (platform or "").strip().lower()
+        return next((e for e in self.engines if e.platform == want), None)
 
 
 @dataclass(frozen=True)
@@ -369,6 +415,7 @@ def parse_registry_index(data: dict) -> RegistryIndex:
         bundles=tuple(entries),
         schema=schema,
         publishers=publishers,
+        engines=_parse_engines(data.get("engine")),
     )
 
 

@@ -133,11 +133,7 @@ function onEvent(payload) {
   lastEventAt = Date.now()
   const e = payload.event || {}
   switch (e.type) {
-    case 'message_delta':
-      assistant().textContent += e.delta || ''
-      if (atBottom()) scroll()
-      break
-    case 'message_update': // engine-shaped fallback: {kind, delta}
+    case 'message_update': // streamed text: {kind, delta}. There is no 'message_delta' event.
       if (e.kind === 'text_delta') { assistant().textContent += e.delta || ''; if (atBottom()) scroll() }
       break
     case 'message_end': endAssistant(); break
@@ -270,10 +266,27 @@ $('newChat').addEventListener('click', () => {
   void loadSessions()
 })
 
+let booted = false
 client.onStatus((s) => {
   wsOpen = s === 'open'
   if (wsOpen) { void loadSuggestions(); void loadSessions() }
   refreshComposer()
+  // Once per page, not once per reconnect.
+  if (wsOpen && !booted) {
+    booted = true
+    void (async () => {
+      // AGENTD:COMPONENTS — add_ui_component inserts after this line. Keep the marker.
+      try {
+        // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected, or
+        // when a stored session still works — so it is safe to call unconditionally.
+        await agentd.mountSignInGate()
+      } catch (e) {
+        // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and blocking
+        // the whole window on a status probe would hide the better message.
+        console.warn('[sign-in]', (e && e.message) || e)
+      }
+    })()
+  }
 })
 
 // Surface any uncaught error — never a silent frozen screen.

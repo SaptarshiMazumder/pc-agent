@@ -49,6 +49,35 @@ def _check_playwright_browsers() -> tuple[str, str]:
     return WARN, "no chromium — run `playwright install chromium` to enable the browser tool"
 
 
+def _check_engine() -> tuple[str, str]:
+    """Is the SHARED ENGINE registered, and is the file it points at still there?
+
+    This is the first question every "my agent app won't open" report needs answered, and the
+    half-removed state (key present, executable gone) is both common and invisible: a stub that
+    trusted the key would make a shortcut to nothing.
+    """
+    import sys
+
+    from agent_runtime.infrastructure.products.engine_registry import ENGINE_KEY, installed_engine
+
+    if sys.platform != "win32":
+        return WARN, "not applicable on this platform (per-agent stub installers are Windows)"
+    engine = installed_engine()
+    if engine is None:
+        return (
+            WARN,
+            f"no engine registered under HKCU\\{ENGINE_KEY} — per-agent app installers will install "
+            "one on first run",
+        )
+    if not engine.present:
+        return (
+            FAIL,
+            f"registered ({engine.scope}) as {engine.exe} but that file is GONE — a half-removed "
+            "install. Reinstall the engine, or delete the key.",
+        )
+    return OK, f"{engine.version or 'unversioned'} ({engine.scope}) {engine.exe}"
+
+
 def run(args: argparse.Namespace) -> int:
     from agent_runtime import lifecycle, runtime_paths
     from agent_runtime.config import load_config
@@ -93,6 +122,8 @@ def run(args: argparse.Namespace) -> int:
             else "not running — starts automatically with `agentd`",
         )
     )
+
+    rows.append(("engine", *_check_engine()))
 
     rows.append(("playwright", *_check_playwright_browsers()))
     for binary, why in (

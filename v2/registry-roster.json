@@ -1,0 +1,20 @@
+{
+  "roster": [
+    {
+      "id": "agentd",
+      "name": "agentd",
+      "key": "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY=",
+      "added": "2026-08-09T05:47:51Z"
+    },
+    {
+      "id": "c-15ceb28fc444bf0102",
+      "name": "abc@example.com",
+      "key": "iMFEk4q/rOHpv567I3P0lA2UPD+XVcs5k+JxyEdKo/A=",
+      "added": "2026-08-09T06:08:09Z"
+    }
+  ],
+  "revoked": [],
+  "issued": "2026-08-09T06:08:09Z",
+  "root_key": "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY=",
+  "sig": "pIQnDruPBaVCwIZGmzbkX2pBedAEyn+bPQfjMeih24oTPVBuvO2+89ulkD+f+R8cPWAzoqRiNJD6mqmI05WBDQ=="
+}

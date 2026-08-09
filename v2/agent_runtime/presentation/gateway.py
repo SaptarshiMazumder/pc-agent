@@ -975,6 +975,19 @@ class Gateway:
                 f"agentd is already running (pid {existing.pid}, {existing.ws_url}) — "
                 f"attach with `agentd chat` or stop it with `agentd stop`."
             )
+        # THE FILE CAN LIE BY BEING ABSENT. find_running() reads the rendezvous file, so a daemon
+        # whose file was removed while it still holds the port is invisible to the guard above —
+        # and we then bind, fail, and print a 30-line traceback whose real cause (errno 10048) is
+        # the last line. Ask the PORT as well, and say the one useful thing instead.
+        if existing is None and lifecycle.port_open(self.config.host, self.config.port):
+            from agent_runtime import runtime_paths
+
+            raise SystemExit(
+                f"port {self.config.port} on {self.config.host} is already in use, but "
+                f"{runtime_paths.gateway_file()} does not describe a running agentd. Almost "
+                f"always another agentd whose rendezvous file was deleted: stop it (Task Manager: "
+                f"python.exe / agentd) and start again, or set AGENTD_PORT to a free port."
+            )
         # M2 auth: mint (or adopt) the bearer token clients must present. The token
         # travels ONLY via the 0600 rendezvous file — never argv, never logs.
         if getattr(self.config, "gateway_auth", False):

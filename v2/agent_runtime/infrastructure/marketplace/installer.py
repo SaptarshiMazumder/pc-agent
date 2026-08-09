@@ -17,6 +17,26 @@ from agent_runtime.infrastructure.marketplace import bundle_io
 log = logging.getLogger("agentd")
 
 
+def _git_tracked_root(directory: Path) -> Path | None:
+    """The git work tree ``directory`` lives in, or None.
+
+    Cheap and dependency-free: walk up looking for ``.git``. A file rather than a directory is a
+    worktree/submodule pointer and counts just the same — the files are still tracked somewhere.
+
+    Only used to REFUSE deletions. Nothing about installing consults it, because installing into a
+    checkout is a legitimate development setup; it is the *removal* that cannot tell a source tree
+    from an installed copy.
+    """
+    try:
+        current = directory.resolve()
+    except OSError:
+        return None
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 class FileBundleInstaller:
     def __init__(
         self,
@@ -32,6 +52,11 @@ class FileBundleInstaller:
 
     def read_manifest(self, package_path: Path) -> BundleManifest:
         return bundle_io.read_manifest(package_path)
+
+    @staticmethod
+    def git_tracked_root(directory: Path) -> Path | None:
+        """Exposed so callers can WARN before offering an uninstall they know will be refused."""
+        return _git_tracked_root(directory)
 
     async def install_files(self, package_path: Path, manifest: BundleManifest) -> list[str]:
         self._check_builtin_deps(manifest)
@@ -54,6 +79,22 @@ class FileBundleInstaller:
         self, installed: InstalledBundle, keep_plugin_ids: set[str], purge_state: bool = False
     ) -> None:
         agent_dir = self._agents_dir / installed.id
+        tracked = _git_tracked_root(agent_dir)
+        if tracked is not None:
+            # REFUSE. This has already destroyed work once: a development install pointed
+            # `agents_dir` at the repo's own v2/agents, an install wrote a bundle's agent into it,
+            # and a later Uninstall click deleted twelve tracked files that were the SOURCE of that
+            # agent, not a copy of it.
+            #
+            # A git work tree is a precise signal — a normal install under ~/.agentd never has one —
+            # so this cannot fire on a real user's machine, which is what keeps it from being a
+            # check people learn to work around.
+            raise BundleError(
+                f"refusing to uninstall '{installed.id}': {agent_dir} is inside a git work tree "
+                f"({tracked}), so it is SOURCE, not an installed copy. Deleting it would destroy "
+                "tracked files. Remove the ledger entry instead, or point agents_dir somewhere "
+                "that is not a checkout."
+            )
         if agent_dir.is_dir():
             for child in agent_dir.iterdir():
                 # the user's files survive a plain uninstall; --purge removes everything
