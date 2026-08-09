@@ -172,6 +172,20 @@ resource "aws_iam_role_policy" "publish" {
         Resource = "${aws_s3_bucket.registry.arn}/*"
       },
       {
+        # The intake parking area, and ONLY it: listing is how admission finds a creator's parked
+        # uploads, deleting is how a completed (or definitively refused) upload leaves the queue.
+        # Delete stays scoped to pending/* — a bug still cannot unpublish anything public.
+        Effect    = "Allow"
+        Action    = "s3:ListBucket"
+        Resource  = aws_s3_bucket.registry.arn
+        Condition = { StringLike = { "s3:prefix" = "pending/*" } }
+      },
+      {
+        Effect   = "Allow"
+        Action   = "s3:DeleteObject"
+        Resource = "${aws_s3_bucket.registry.arn}/pending/*"
+      },
+      {
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
@@ -250,7 +264,12 @@ resource "aws_lambda_function" "publish" {
       AGENTD_ENGINE_URL     = var.publish_engine_url
       AGENTD_ENGINE_SHA256  = var.publish_engine_sha256
       AGENTD_ENGINE_VERSION = var.publish_engine_version
-      LOG_LEVEL             = "INFO"
+      # Who may call /registry/admin/* (admit, revoke, pending). Account ids and/or emails,
+      # matched case-insensitively. EMPTY MEANS NOBODY - the admin door fails closed on a
+      # deployment that never configured admins, rather than opening to anyone signed in.
+      ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
+      PENDING_PREFIX   = "pending"
+      LOG_LEVEL        = "INFO"
     }
   }
 

@@ -190,36 +190,61 @@ Then: install the build (or `npm run dev`), sign in, Agent Builder → **Publish
 
 **Expected first result: `202`** —
 
-> accepted, awaiting review. Your first publish admits you to the creator roster…
+> accepted, awaiting review. Your first publish admits you to the creator roster. Your upload of
+> `<agent> <version>` is held and will be published automatically the moment you are approved…
 
-That is not a failure. The roster is signed by the root key, which is offline, so admitting a
-creator is an operator action by construction.
+That is not a failure, and the author is DONE — the package is parked (privately, under the
+registry bucket's `pending/` prefix, which the bucket policy keeps out of the public grant).
+Admission completes their publish for them.
 
-## 5. Admit the creator (operator, once per author)
+## 5. Admit the creator (any admin, once per author)
+
+> The full admin manual — day-to-day approval/revocation, troubleshooting, the security model —
+> is **[REGISTRY-ADMIN.md](REGISTRY-ADMIN.md)**. This section is just the first-time bring-up.
+
+Admission is a SERVICE call, so it works from any machine and any admin — no root-key file on a
+laptop in the loop. Two one-time setup steps first:
+
+**(a) Name your admins** — `infra\environments\dev\dev.auto.tfvars`:
+
+```hcl
+publish_admin_identities = ["<your-account-email>"]
+```
+
+then `terraform apply`. Empty list = the admin door refuses everyone, fail-closed.
+
+**(b) Vault the root key** — run once, on the machine that holds the offline keypair file:
 
 ```powershell
 cd v2
 $env:AGENTD_CREATORS_TABLE = (terraform -chdir=infra\environments\dev output -raw publish_creators_table)
-
-..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster pending
-..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster admit `
-  --root-key <your-keypair>.json --file registry-roster.json
+..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster upload-root `
+  --root-key <your-keypair>.json `
+  --kms-key (terraform -chdir=infra\environments\dev output -raw publish_kms_key)
 ```
 
-Then **publish the roster**, or their bundles still will not verify on any client:
+The private half lands KMS-wrapped; every decrypt is IAM-gated and in CloudTrail. KEEP the offline
+file — the vault holds a copy, and that file is your recovery anchor if the account is ever lost.
+
+Then the review step is two commands, from anywhere, signed in as an admin:
 
 ```powershell
-..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster publish `
-  --file registry-roster.json --to s3://<registry-bucket>
+..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster pending
+..\.venv\Scripts\python.exe -m agent_runtime.cli.main bundle roster admit
 ```
 
-**Success:** `roster updated: N creator(s)`. Order matters and the tool enforces it — a creator
-marked *listed* before the roster is published would have their bundles advertised against a key no
-installed client trusts yet, and every download would fail verification with nothing to point at.
+**Success:** `admitted 1 creator(s). Published from parking: <agent> <version>.` One call did all
+of it, in the only safe order: roster re-signed and written → creator flipped to listed → their
+parked upload published. There is no separate `roster publish` step on this path.
 
-## 6. Author publishes for real
+(The OFFLINE flow still exists for operators who keep the root key off the cloud entirely: pass
+`--root-key <file>` to `admit`/`revoke` and the old sign-locally-then-`roster publish` behaviour
+is unchanged. Revoking works the same two ways: `bundle roster revoke --id <creator>` remotely, or
+with `--root-key` locally.)
 
-Same Publish button. **Expected: `200`**, with two URLs — the bundle and the installer.
+## 6. Verify the listing
+
+The author does nothing further — their 202 upload is now live.
 
 Verify as a stranger would:
 
@@ -232,7 +257,9 @@ curl -s "https://<registry-bucket>.s3.<region>.amazonaws.com/index.json" | Conve
 
 ## 7. Be Sally
 
-Download the installer URL in a browser, on a machine with **no agentd**. Run it.
+Download the installer URL in a browser, on a machine with **no agentd**. Run it. (Testing on
+your own dev machine? Clean it first — **[CLEAN-MACHINE.md](CLEAN-MACHINE.md)** — or the app will
+quietly attach to your dev daemon and the test proves nothing.)
 
 **Success:** it fetches the engine once, verifies its sha256, installs it silently, and puts the
 agent's own name in the Start menu. Clicking it opens the author's UI.

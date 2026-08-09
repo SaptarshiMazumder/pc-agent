@@ -42,6 +42,7 @@ from agent_runtime.application.interfaces.publish_intake import (
     FORBIDDEN,
     OK,
     PENDING,
+    SERVER_ERROR,
     TOO_LARGE,
     UNAUTHORIZED,
     IntakeResult,
@@ -66,9 +67,13 @@ class PublishIntakeService:
         lock,
         product_service=None,
         max_bytes: int = MAX_PACKAGE_BYTES,
+        parker=None,
     ):
         """:param product_service: a BuildProductService. None => publish bundles only, no
-        installers, reported as a warning on every publish rather than silently."""
+        installers, reported as a warning on every publish rather than silently.
+        :param parker: an IntakeParker. None => a pending creator's upload is dropped and they
+        must publish again after admission — the degraded pre-parking behaviour, kept working so
+        a deployment without private storage still functions."""
         self._auth = authenticator
         self._creators = creators
         self._signer = signer
@@ -76,6 +81,7 @@ class PublishIntakeService:
         self._lock = lock
         self._products = product_service
         self._max_bytes = max_bytes
+        self._parker = parker
 
     # ================================================================== entry point
     def submit(self, submission: Submission) -> IntakeResult:
@@ -103,21 +109,87 @@ class PublishIntakeService:
         if creator.state == "revoked":
             return IntakeResult(FORBIDDEN, "this account may not publish.", creator_id=creator.id)
         if not creator.may_publish:
-            # NOT an error. The roster is signed by an offline root key, so admitting a creator is
-            # an operator action by construction. Saying "failed" here sends authors looking for a
-            # bug in an agent that is fine.
-            return IntakeResult(
-                PENDING,
-                "accepted, awaiting review. Your first publish admits you to the creator roster; "
-                "once an operator approves it, this and every later publish list automatically. "
-                "You do not need to publish again.",
-                creator_id=creator.id,
-            )
+            return self._pend(submission, creator)
 
         import tempfile
 
         with tempfile.TemporaryDirectory(prefix="agentd-intake-") as work:
             return self._publish(submission, creator, Path(work))
+
+    def complete_parked(self, creator) -> list[IntakeResult]:
+        """Publish everything a just-admitted creator parked. Called by admission, AFTER the
+        roster naming them is live — the same ordering rule as everywhere else, because a bundle
+        signed by a key no client has been told about fails verification on every machine.
+
+        Each package runs the FULL publish path (ownership, version, build, sign, index-under-
+        lock); admission grants no shortcuts. One bad parked package must not strand the rest, so
+        results are per-package and a failure is a result, not an exception."""
+        import tempfile
+
+        results: list[IntakeResult] = []
+        if self._parker is None:
+            return results
+        for parked in self._parker.parked(creator.id):
+            data = self._parker.retrieve(creator.id, parked.bundle_id)
+            if not data:
+                continue  # vanished between list and read — nothing to do, nothing to report
+            submission = Submission(package=data, token="")
+            try:
+                with tempfile.TemporaryDirectory(prefix="agentd-intake-") as work:
+                    result = self._publish(submission, creator, Path(work))
+            except Exception as e:  # noqa: BLE001 — one package must not strand the others
+                log.warning("parked publish of %s failed: %s", parked.bundle_id, e)
+                results.append(
+                    IntakeResult(
+                        SERVER_ERROR,
+                        f"publishing parked {parked.bundle_id} failed: {e}",
+                        bundle_id=parked.bundle_id,
+                        creator_id=creator.id,
+                    )
+                )
+                continue
+            results.append(result)
+            # The slot is cleared on ANY final answer, success or refusal: a package the service
+            # has definitively refused (bad version, someone else's id) would otherwise be retried
+            # on every admission forever. SERVER_ERROR above keeps the slot — that one is worth a
+            # retry once whatever broke is fixed.
+            self._parker.remove(creator.id, parked.bundle_id)
+        return results
+
+    # ================================================================== pending
+    def _pend(self, submission: Submission, creator) -> IntakeResult:
+        """First publish: identity minted, package PARKED, 202. Not an error — the roster is
+        signed by the platform root key, so listing a creator is an operator action by
+        construction. Saying "failed" here sends authors hunting bugs in an agent that is fine."""
+        from agent_runtime.infrastructure.marketplace import bundle_io
+
+        head = "accepted, awaiting review. Your first publish admits you to the creator roster."
+        if self._parker is None:
+            return IntakeResult(
+                PENDING,
+                head + " Once an operator approves you, publish again to be listed.",
+                creator_id=creator.id,
+            )
+
+        # Read the manifest NOW, not at admission: a broken zip parked silently would turn into a
+        # failure weeks later on the operator's screen, where the author cannot see it.
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="agentd-park-") as work:
+            package = Path(work) / "upload.agentpkg"
+            package.write_bytes(submission.package)
+            try:
+                manifest = bundle_io.read_manifest(package)
+            except BundleError as e:
+                return IntakeResult(BAD_REQUEST, str(e), creator_id=creator.id)
+        self._parker.park(creator.id, manifest.id, submission.package)
+        return IntakeResult(
+            PENDING,
+            head
+            + f" Your upload of {manifest.id} {manifest.version} is held and will be published "
+            "automatically the moment you are approved — you do not need to publish again.",
+            creator_id=creator.id,
+        )
 
     # ================================================================== the real work
     def _publish(self, submission: Submission, creator, work: Path) -> IntakeResult:
