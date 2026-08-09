@@ -13,6 +13,14 @@
 
 alert_email = "you@example.com"
 
+# The publish service (see deploy/PUBLISH-SERVICE.md). The tag here rather than -var for the same
+# reason as alert_email: forgetting the flag on a later apply would DESTROY the Lambda.
+publish_image_tag = "v2"
+
+# Who may call the publish service's admin endpoints (bundle roster pending/admit/revoke):
+# account ids and/or emails of the accounts they sign in with. EMPTY = admin door closed.
+publish_admin_identities = ["you@example.com"]
+
 # Optional — the module defaults are fine for dev. Uncomment to override:
 # cost_per_hour_alarm_usd    = 5
 # proxy_5xx_threshold        = 5

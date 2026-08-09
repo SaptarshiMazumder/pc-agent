@@ -147,3 +147,8 @@ output "publish_creators_table" {
   description = "DynamoDB table holding creator identities - the table `agentd bundle roster admit` reads."
   value       = aws_dynamodb_table.creators.name
 }
+
+output "publish_kms_key" {
+  description = "KMS key that wraps creator signing keys - what `agentd bundle roster upload-root` wraps the vaulted root key with."
+  value       = aws_kms_alias.publish.name
+}

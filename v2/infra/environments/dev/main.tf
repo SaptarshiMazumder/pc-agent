@@ -68,14 +68,24 @@ variable "publish_image_tag" {
   default     = ""
 }
 
+# Who may admit/revoke creators through the publish service's admin endpoints. A variable rather
+# than a literal so the operator's email is not committed; put it in dev.auto.tfvars. Empty =
+# the admin door refuses everyone (fail-closed) and only the offline --root-key flow works.
+variable "publish_admin_identities" {
+  description = "Registry admins for the publish service: account ids and/or emails."
+  type        = list(string)
+  default     = []
+}
+
 module "stack" {
   source = "../../modules"
 
   environment = "dev"
   paused      = var.paused
   # Publishing (see modules/publish.tf and deploy/PUBLISH-SERVICE.md).
-  publish_image_tag = var.publish_image_tag
-  hibernate         = var.hibernate
+  publish_image_tag        = var.publish_image_tag
+  publish_admin_identities = var.publish_admin_identities
+  hibernate                = var.hibernate
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -203,4 +213,9 @@ output "publish_url" {
 output "publish_creators_table" {
   description = "Creator identities awaiting admission; `agentd bundle roster pending/admit` reads it."
   value       = module.stack.publish_creators_table
+}
+
+output "publish_kms_key" {
+  description = "KMS alias for `agentd bundle roster upload-root --kms-key`."
+  value       = module.stack.publish_kms_key
 }

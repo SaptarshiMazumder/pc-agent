@@ -27,19 +27,26 @@ log = logging.getLogger("agentd")
 logging.getLogger().setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 PUBLISH_ROUTE = "/registry/publish"
+ADMIN_PENDING_ROUTE = "/registry/admin/pending"
+ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
+ADMIN_REVOKE_ROUTE = "/registry/admin/revoke"
 
 
 # ────────────────────────────── composition ──────────────────────────────
 
 
-def build_service():
-    """Wire the intake service from environment. Cached across invocations by the module scope."""
+def build_services():
+    """Wire the intake AND admin services from environment. They share every adapter — same
+    tables, same store, same lock — because they are two doors into one registry."""
     import boto3
 
     from agent_runtime.application.services.publish_intake_service import PublishIntakeService
+    from agent_runtime.application.services.roster_admin_service import RosterAdminService
     from agent_runtime.infrastructure.publish.authenticator import AccountsAuthenticator
     from agent_runtime.infrastructure.publish.creator_directory import DynamoCreatorDirectory
     from agent_runtime.infrastructure.publish.index_store import DynamoIndexLock, S3IndexStore
+    from agent_runtime.infrastructure.publish.parked_store import S3ParkedStore
+    from agent_runtime.infrastructure.publish.root_vault import DynamoRootKeyVault
     from agent_runtime.infrastructure.publish.signer import DirectoryBundleSigner, KmsEnvelopeSigner
 
     def required(name: str) -> str:
@@ -63,27 +70,47 @@ def build_service():
         )
         envelope._directory = directory  # noqa: SLF001 — the pair is mutually recursive by design
         signer = envelope
+        vault = DynamoRootKeyVault(creators_table, decrypt=envelope.decrypt)
     else:
         log.warning("KMS_KEY_ID unset — creator private keys are stored UNENCRYPTED")
         directory = DynamoCreatorDirectory(creators_table, owners_table)
         signer = DirectoryBundleSigner(directory)
+        vault = DynamoRootKeyVault(creators_table)
 
+    bucket = required("REGISTRY_BUCKET")
+    s3 = boto3.client("s3")
     store = S3IndexStore(
-        boto3.client("s3"),
-        bucket=required("REGISTRY_BUCKET"),
+        s3,
+        bucket=bucket,
         prefix=os.environ.get("REGISTRY_PREFIX", ""),
         public_base=os.environ.get("REGISTRY_PUBLIC_BASE", ""),
     )
     lock = DynamoIndexLock(locks_table, ttl_seconds=int(os.environ.get("LOCK_TTL_SECONDS", "900")))
+    parker = S3ParkedStore(s3, bucket, prefix=os.environ.get("PENDING_PREFIX", "pending"))
+    authenticator = AccountsAuthenticator(required("ACCOUNTS_URL"))
 
-    return PublishIntakeService(
-        authenticator=AccountsAuthenticator(required("ACCOUNTS_URL")),
+    intake = PublishIntakeService(
+        authenticator=authenticator,
         creators=directory,
         signer=signer,
         index_store=store,
         lock=lock,
         product_service=_product_service(store),
+        parker=parker,
     )
+    admin = RosterAdminService(
+        authenticator=authenticator,
+        # Fail-closed: nobody configured => nobody may administer. Set via terraform
+        # (publish_admin_identities), so who runs this registry is deploy data, never code.
+        admins=[a for a in os.environ.get("ADMIN_IDENTITIES", "").split(",") if a.strip()],
+        creators=directory,
+        vault=vault,
+        index_store=store,
+        lock=lock,
+        intake=intake,
+        parker=parker,
+    )
+    return intake, admin
 
 
 def _product_service(store):
@@ -115,14 +142,19 @@ def _product_service(store):
     return build_product_service(config)
 
 
-_SERVICE = None
+_SERVICES = None
+
+
+def services():
+    global _SERVICES
+    if _SERVICES is None:
+        _SERVICES = build_services()
+    return _SERVICES
 
 
 def service():
-    global _SERVICE
-    if _SERVICE is None:
-        _SERVICE = build_service()
-    return _SERVICE
+    """The intake service alone — kept because tests and older callers monkeypatch it."""
+    return services()[0]
 
 
 # ────────────────────────────── HTTP ──────────────────────────────
@@ -137,6 +169,8 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
     )
 
     path = _path(event)
+    if _is_admin_route(path):
+        return _admin(event, path)
     if not path.endswith(PUBLISH_ROUTE):
         return _json(404, {"message": f"no route {path}"})
     if _method(event) != "POST":
@@ -168,6 +202,57 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
         log.exception("publish failed")
         return _json(SERVER_ERROR, {"message": "the publish service failed. Nothing was published."})
     return _json(result.status, result.body())
+
+
+def _is_admin_route(path: str) -> bool:
+    return any(
+        path.endswith(r) for r in (ADMIN_PENDING_ROUTE, ADMIN_ADMIT_ROUTE, ADMIN_REVOKE_ROUTE)
+    )
+
+
+def _admin(event, path: str) -> dict:
+    """The admin door: JSON in, JSON out. AuthZ lives in RosterAdminService — this function must
+    stay too thin to get a security decision wrong."""
+    from agent_runtime.application.interfaces.publish_intake import SERVER_ERROR
+
+    token = _bearer(event)
+    _, admin = services()
+    try:
+        if path.endswith(ADMIN_PENDING_ROUTE):
+            if _method(event) != "GET":
+                return _json(405, {"message": "GET this route"})
+            refusal, waiting = admin.pending(token)
+            if refusal:
+                return _json(refusal.status, refusal.body())
+            return _json(200, {"pending": waiting})
+
+        if _method(event) != "POST":
+            return _json(405, {"message": "POST a JSON body to this route"})
+        body = _json_body(event)
+        if path.endswith(ADMIN_ADMIT_ROUTE):
+            ids = body.get("creator_ids") or ([body["creator_id"]] if body.get("creator_id") else [])
+            result = admin.admit(token, [str(i) for i in ids])
+        else:
+            result = admin.revoke(token, str(body.get("creator_id") or ""))
+        return _json(result.status, result.body())
+    except TimeoutError as e:
+        return _json(503, {"message": str(e)})
+    except Exception:  # noqa: BLE001 — never leak a traceback to a caller
+        log.exception("admin call failed")
+        return _json(SERVER_ERROR, {"message": "the admin call failed. The registry is unchanged."})
+
+
+def _json_body(event) -> dict:
+    import base64
+
+    raw = event.get("body") or ""
+    if event.get("isBase64Encoded"):
+        raw = base64.b64decode(raw).decode("utf-8", "replace")
+    try:
+        data = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _json(status: int, body: dict) -> dict:

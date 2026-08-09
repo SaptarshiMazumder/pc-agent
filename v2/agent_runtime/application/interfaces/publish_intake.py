@@ -112,6 +112,21 @@ class IntakeResult:
         return payload
 
 
+@dataclass(frozen=True)
+class ParkedPackage:
+    """A first-publish upload waiting for its creator to be admitted.
+
+    The upload used to be DISCARDED on 202, which quietly turned "publish" into a two-click flow:
+    the author had to notice they were approved and press Publish again. Parking is what lets
+    admission COMPLETE the publish instead — one click for the author, and the review step stays.
+    """
+
+    creator_id: str
+    bundle_id: str
+    size: int = 0
+    parked_at: str = ""
+
+
 @runtime_checkable
 class Authenticator(Protocol):
     """Session token -> the account it belongs to, or None."""
@@ -119,6 +134,46 @@ class Authenticator(Protocol):
     def account(self, token: str) -> dict | None:
         """Never raises: an unreachable accounts service is None, i.e. unauthorized."""
         ...
+
+
+@runtime_checkable
+class IntakeParker(Protocol):
+    """Holds not-yet-approved uploads, PRIVATELY — never in the world-readable registry space.
+
+    One slot per (creator, bundle id): a re-upload before admission replaces the previous attempt,
+    which is the only sane reading of an author pressing Publish twice while waiting.
+    """
+
+    def park(self, creator_id: str, bundle_id: str, package: bytes) -> None: ...
+
+    def parked(self, creator_id: str) -> list[ParkedPackage]: ...
+
+    def retrieve(self, creator_id: str, bundle_id: str) -> bytes:
+        """b'' when gone — a parked package disappearing is handled, never fatal."""
+        ...
+
+    def remove(self, creator_id: str, bundle_id: str) -> None:
+        """Idempotent. Called after the parked publish completed (or was refused for good)."""
+        ...
+
+
+@runtime_checkable
+class RootKeyVault(Protocol):
+    """The platform ROOT key, for the ONE thing it signs: the roster.
+
+    This port exists so admission can run as a service. The offline-file deployment stays possible
+    (the CLI reads the keypair file directly and never touches this), but a vault adapter holding
+    the key KMS-wrapped is what removes the single operator laptop from the loop: any authorised
+    admin triggers a re-sign, the plaintext exists only inside the signing call, and every use is
+    in the audit trail.
+    """
+
+    def private_key(self) -> str:
+        """The base64 private half, decrypted in memory. Raises when the vault holds no key —
+        callers must fail loudly; a roster signed with the wrong key bricks the registry."""
+        ...
+
+    def public_key(self) -> str: ...
 
 
 @runtime_checkable

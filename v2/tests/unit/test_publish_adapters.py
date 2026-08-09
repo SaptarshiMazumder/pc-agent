@@ -409,3 +409,107 @@ def test_a_build_with_no_marketplace_publishes_nowhere():
     from agent_runtime.infrastructure.marketplace.publisher_factory import publisher_for
 
     assert publisher_for(SimpleNamespace(publish_target="")) is None
+
+
+# ────────────────────────────── the parking area ──────────────────────────────
+
+
+class ListingS3(FakeS3):
+    """FakeS3 plus the three calls S3ParkedStore needs (list/delete, paged)."""
+
+    def list_objects_v2(self, Bucket, Prefix="", ContinuationToken=None):  # noqa: N803
+        keys = sorted(k for k in self.objects if k.startswith(Prefix))
+        return {
+            "Contents": [{"Key": k, "Size": len(self.objects[k]), "LastModified": "t"} for k in keys],
+            "IsTruncated": False,
+        }
+
+    def delete_object(self, Bucket, Key):  # noqa: N803
+        self.objects.pop(Key, None)  # deleting a missing key succeeds — S3's own semantics
+
+
+def parked_store():
+    from agent_runtime.infrastructure.publish.parked_store import S3ParkedStore
+
+    s3 = ListingS3()
+    return S3ParkedStore(s3, "bucket"), s3
+
+
+def test_parked_packages_live_under_the_private_pending_prefix():
+    """The key shape IS the security boundary: the bucket policy carves `pending/*` out of the
+    public-read grant, so a parked key anywhere else would be world-readable."""
+    store, s3 = parked_store()
+    store.park("c-bob", "weather", b"PKG")
+    assert list(s3.objects) == ["pending/c-bob/weather.agentpkg"]
+
+
+def test_a_reupload_before_admission_replaces_the_previous_attempt():
+    store, s3 = parked_store()
+    store.park("c-bob", "weather", b"OLD")
+    store.park("c-bob", "weather", b"NEW")
+    assert s3.objects["pending/c-bob/weather.agentpkg"] == b"NEW"
+    assert len(store.parked("c-bob")) == 1
+
+
+def test_parked_lists_only_that_creators_packages():
+    store, _ = parked_store()
+    store.park("c-bob", "weather", b"PKG")
+    store.park("c-eve", "other", b"PKG2")
+    assert [p.bundle_id for p in store.parked("c-bob")] == ["weather"]
+
+
+def test_retrieve_of_a_vanished_package_is_empty_not_an_error():
+    store, _ = parked_store()
+    assert store.retrieve("c-bob", "gone") == b""
+
+
+def test_remove_is_idempotent():
+    store, _ = parked_store()
+    store.park("c-bob", "weather", b"PKG")
+    store.remove("c-bob", "weather")
+    store.remove("c-bob", "weather")  # second time: nothing to delete, still fine
+    assert store.parked("c-bob") == []
+
+
+# ────────────────────────────── the root key vault ──────────────────────────────
+
+
+def vault(with_kms=True):
+    from agent_runtime.infrastructure.publish.root_vault import DynamoRootKeyVault
+
+    table = FakeTable("account_id")
+    if not with_kms:
+        return DynamoRootKeyVault(table), table
+    envelope = KmsEnvelopeSigner(None, FakeKms(), "key-1")
+    return DynamoRootKeyVault(table, decrypt=envelope.decrypt, encrypt=envelope.encrypt), table
+
+
+def test_the_vaulted_root_key_is_wrapped_at_rest_and_round_trips():
+    v, table = vault()
+    v.store("ROOT-PRIVATE", "ROOT-PUBLIC")
+
+    row = table.items["__root__"]
+    assert "ROOT-PRIVATE" not in str(row["private_key"]), "the plaintext root key reached the table"
+    assert v.private_key() == "ROOT-PRIVATE"
+    assert v.public_key() == "ROOT-PUBLIC"
+
+
+def test_the_root_row_can_never_publish():
+    """It sits in the creators table, so it MUST be shaped so no publish path treats it as a
+    creator: state `root` is not `listed`, and pending() must not offer it for admission."""
+    v, table = vault()
+    v.store("ROOT-PRIVATE", "ROOT-PUBLIC")
+
+    d = DynamoCreatorDirectory(table, FakeTable("bundle_id"), now=lambda: "t")
+    assert d.pending() == []
+    root_as_creator = d.for_account("__root__")
+    assert not root_as_creator.may_publish
+
+
+def test_an_empty_vault_names_the_command_that_fills_it():
+    v, _ = vault()
+    try:
+        v.private_key()
+        raise AssertionError("an empty vault must refuse, not return ''")
+    except RuntimeError as e:
+        assert "upload-root" in str(e)

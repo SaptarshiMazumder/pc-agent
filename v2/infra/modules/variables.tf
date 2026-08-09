@@ -533,3 +533,9 @@ variable "publish_engine_version" {
   type        = string
   default     = ""
 }
+
+variable "publish_admin_identities" {
+  description = "Who may call the publish service's admin endpoints (roster admit/revoke/pending): account ids and/or emails, matched case-insensitively. EMPTY = the admin door is closed to everyone (fail-closed), which is the right state for a deployment that has not decided its admins yet."
+  type        = list(string)
+  default     = []
+}

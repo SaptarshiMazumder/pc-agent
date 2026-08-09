@@ -208,3 +208,101 @@ def test_an_unexpected_failure_never_leaks_a_traceback(monkeypatch):
     body = json.loads(response["body"])
     assert "secret internal detail" not in body["message"]
     assert "Nothing was published" in body["message"]
+
+
+# ────────────────────────────── the admin door ──────────────────────────────
+
+
+class FakeAdmin:
+    """Records calls; decisions (auth included) are the service's and are tested there."""
+
+    def __init__(self):
+        from agent_runtime.application.interfaces.publish_intake import IntakeResult
+
+        self.calls = []
+        self._result = IntakeResult(200, "admitted 1 creator(s).")
+
+    def pending(self, token):
+        self.calls.append(("pending", token))
+        return None, [{"creator_id": "c-bob", "name": "Bob", "parked": []}]
+
+    def admit(self, token, creator_ids=None):
+        self.calls.append(("admit", token, list(creator_ids or [])))
+        return self._result
+
+    def revoke(self, token, creator_id):
+        self.calls.append(("revoke", token, creator_id))
+        return self._result
+
+
+@pytest.fixture
+def admin(monkeypatch):
+    a = FakeAdmin()
+    monkeypatch.setattr(publish_handler, "services", lambda: (None, a))
+    return a
+
+
+def admin_event(path, method="POST", body=None, token="admin-tok"):
+    return {
+        "path": path,
+        "httpMethod": method,
+        "headers": {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        "isBase64Encoded": False,
+        "body": json.dumps(body or {}),
+    }
+
+
+def test_pending_is_a_get_that_lists_the_queue(admin):
+    response = publish_handler.handler(admin_event("/registry/admin/pending", method="GET"))
+    assert response["statusCode"] == 200
+    assert json.loads(response["body"])["pending"][0]["creator_id"] == "c-bob"
+    assert admin.calls == [("pending", "admin-tok")]
+
+
+def test_admit_posts_the_ids_and_relays_the_result(admin):
+    response = publish_handler.handler(
+        admin_event("/registry/admin/admit", body={"creator_ids": ["c-bob"]})
+    )
+    assert response["statusCode"] == 200
+    assert "admitted" in json.loads(response["body"])["message"]
+    assert admin.calls == [("admit", "admin-tok", ["c-bob"])]
+
+
+def test_admit_accepts_the_single_id_shorthand(admin):
+    publish_handler.handler(admin_event("/registry/admin/admit", body={"creator_id": "c-bob"}))
+    assert admin.calls == [("admit", "admin-tok", ["c-bob"])]
+
+
+def test_revoke_posts_the_id(admin):
+    publish_handler.handler(admin_event("/registry/admin/revoke", body={"creator_id": "c-bob"}))
+    assert admin.calls == [("revoke", "admin-tok", "c-bob")]
+
+
+def test_admin_routes_reject_the_wrong_method(admin):
+    assert publish_handler.handler(admin_event("/registry/admin/pending"))["statusCode"] == 405
+    assert (
+        publish_handler.handler(admin_event("/registry/admin/admit", method="GET"))["statusCode"]
+        == 405
+    )
+    assert admin.calls == []
+
+
+def test_admin_routes_survive_a_stage_prefix(admin):
+    """Same suffix-matching rule as the publish route: ALBs and API Gateway stages prepend."""
+    response = publish_handler.handler(
+        admin_event("/prod/registry/admin/pending", method="GET")
+    )
+    assert response["statusCode"] == 200
+
+
+def test_an_admin_failure_never_leaks_a_traceback(monkeypatch):
+    class Boom:
+        def pending(self, token):
+            raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(publish_handler, "services", lambda: (None, Boom()))
+    response = publish_handler.handler(admin_event("/registry/admin/pending", method="GET"))
+    assert response["statusCode"] == 500
+    body = json.loads(response["body"])
+    assert "secret internal detail" not in body["message"]
+    assert "unchanged" in body["message"]

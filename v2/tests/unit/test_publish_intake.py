@@ -32,6 +32,7 @@ from agent_runtime.application.interfaces.publish_intake import (
     PENDING,
     PENDING_REVIEW,
     REVOKED,
+    SERVER_ERROR,
     TOO_LARGE,
     UNAUTHORIZED,
     Creator,
@@ -149,6 +150,31 @@ class FakeProducts:
         return SimpleNamespace(stub=stub, warnings=self._warnings)
 
 
+class FakeParker:
+    """In-memory IntakeParker: one slot per (creator, bundle id), like the S3 adapter."""
+
+    def __init__(self):
+        self.slots: dict[tuple[str, str], bytes] = {}
+
+    def park(self, creator_id, bundle_id, package):
+        self.slots[(creator_id, bundle_id)] = package
+
+    def parked(self, creator_id):
+        from agent_runtime.application.interfaces.publish_intake import ParkedPackage
+
+        return [
+            ParkedPackage(creator_id=c, bundle_id=b, size=len(data))
+            for (c, b), data in sorted(self.slots.items())
+            if c == creator_id
+        ]
+
+    def retrieve(self, creator_id, bundle_id):
+        return self.slots.get((creator_id, bundle_id), b"")
+
+    def remove(self, creator_id, bundle_id):
+        self.slots.pop((creator_id, bundle_id), None)
+
+
 def service(**kw):
     parts = {
         "authenticator": FakeAuth(),
@@ -199,18 +225,90 @@ def test_a_revoked_creator_is_403():
 
 
 def test_a_first_publish_is_pending_review_and_builds_nothing():
-    """202, and it is a SUCCESS. The roster is signed by an offline root key, so admitting a
-    creator is an operator action by construction — calling it a failure sends an author looking
-    for a bug in an agent that is fine."""
+    """202, and it is a SUCCESS. Listing a creator is an operator decision by construction —
+    calling it a failure sends an author looking for a bug in an agent that is fine."""
     svc, parts = service(creators=FakeCreators(state=PENDING_REVIEW))
     result = svc.submit(Submission(package=agentpkg(), token="tok"))
 
     assert result.status == PENDING
     assert result.ok and result.pending
     assert "awaiting review" in result.message
-    assert "do not need to publish again" in result.message
     assert parts["index_store"].artifacts == {}  # nothing uploaded
     assert parts["lock"].entered == 0  # the index was never touched
+
+
+def test_a_first_publish_parks_the_package_for_admission_to_complete():
+    """The upload used to be THROWN AWAY on 202 — while the message told the author they would
+    not need to publish again. Parking is what makes that sentence true: admission completes the
+    publish, and the author's single click is the whole flow."""
+    parker = FakeParker()
+    svc, parts = service(creators=FakeCreators(state=PENDING_REVIEW), parker=parker)
+
+    result = svc.submit(Submission(package=agentpkg(), token="tok"))
+
+    assert result.status == PENDING
+    assert parker.slots == {("c-abc", "weather"): agentpkg()}
+    assert "published automatically" in result.message
+    assert "do not need to publish again" in result.message
+    assert parts["index_store"].artifacts == {}  # parked is NOT published
+
+
+def test_a_broken_zip_is_refused_at_parking_time_not_at_admission():
+    """The author is on the other end NOW. Park garbage silently and it fails weeks later on the
+    operator's screen, where the one person who can fix it cannot see it."""
+    parker = FakeParker()
+    svc, _ = service(creators=FakeCreators(state=PENDING_REVIEW), parker=parker)
+
+    result = svc.submit(Submission(package=b"PK\x03\x04 not a zip", token="tok"))
+
+    assert result.status == BAD_REQUEST
+    assert parker.slots == {}
+
+
+def test_admission_publishes_what_was_parked_and_clears_the_slot():
+    parker = FakeParker()
+    parker.slots[("c-abc", "weather")] = agentpkg()
+    svc, parts = service(parker=parker)  # creator now LISTED
+
+    results = svc.complete_parked(parts["creators"].creator)
+
+    assert [r.status for r in results] == [OK]
+    assert "weather-1.2.0.agentpkg" in parts["index_store"].artifacts
+    assert parker.slots == {}  # the queue drains
+
+
+def test_a_definitively_refused_parked_package_is_dropped_not_retried_forever():
+    """CONFLICT is a final answer. Keeping the slot would retry it on every admission, forever,
+    and the operator would read the same failure line each time."""
+    parker = FakeParker()
+    parker.slots[("c-abc", "weather")] = agentpkg(version="1.0.0")
+    store = FakeStore(
+        {"schema": 2, "bundles": [{"id": "weather", "version": "2.0.0"}], "publishers": {}}
+    )
+    svc, parts = service(parker=parker, index_store=store)
+
+    results = svc.complete_parked(parts["creators"].creator)
+
+    assert [r.status for r in results] == [CONFLICT]
+    assert parker.slots == {}
+
+
+def test_an_infrastructure_failure_keeps_the_parked_package_for_a_retry():
+    """A store outage is not a verdict on the package — the slot survives so the next admission
+    (or a manual retry) publishes it once whatever broke is fixed."""
+
+    class ExplodingStore(FakeStore):
+        def put_artifact(self, name, data, content_type):
+            raise RuntimeError("S3 is down")
+
+    parker = FakeParker()
+    parker.slots[("c-abc", "weather")] = agentpkg()
+    svc, parts = service(parker=parker, index_store=ExplodingStore())
+
+    results = svc.complete_parked(parts["creators"].creator)
+
+    assert [r.status for r in results] == [SERVER_ERROR]
+    assert ("c-abc", "weather") in parker.slots
 
 
 # ────────────────────────────── the package itself ──────────────────────────────

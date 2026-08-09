@@ -149,51 +149,97 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     roster_add.add_argument("--file", default="registry-roster.json", help="the roster file")
     roster_add.set_defaults(func=run_roster_add)
 
-    roster_revoke = roster_sub.add_parser("revoke", help="revoke a creator, then re-sign")
-    roster_revoke.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_revoke = roster_sub.add_parser(
+        "revoke",
+        help="revoke a creator, then re-sign (remote by default; --root-key for the local flow)",
+    )
+    roster_revoke.add_argument(
+        "--root-key", default="", help="PLATFORM ROOT keypair file — switches to the LOCAL flow"
+    )
+    roster_revoke.add_argument(
+        "--service", default="", help="publish service url (default: this install's publish_url)"
+    )
     roster_revoke.add_argument("--id", required=True, help="the creator id to revoke")
-    roster_revoke.add_argument("--file", default="registry-roster.json", help="the roster file")
+    roster_revoke.add_argument("--file", default="registry-roster.json", help="the roster file (local flow)")
     roster_revoke.set_defaults(func=run_roster_revoke)
 
     # The publish SERVICE mints a creator identity on someone's first upload and records it as
-    # PENDING, because admitting them means re-signing the roster with the offline root key — which
-    # cannot be automated without putting that key online. These two commands are that review step.
+    # PENDING. These commands are the review step, and each runs in one of TWO MODES:
+    #
+    #   remote (default)  the command calls the publish service's admin endpoints. The root key
+    #                     lives in its vault; any admin on the service's allowlist can admit,
+    #                     from any machine, and admission COMPLETES the author's parked publish.
+    #   local (--root-key) the original offline flow: sign the roster file here, publish it
+    #                     yourself. The mode for operators who keep the root key off the cloud.
+    #
+    # The presence of --root-key IS the mode switch: holding the key file means you intend to
+    # sign locally; not holding it means the vault signs for you.
     roster_pending = roster_sub.add_parser(
         "pending",
-        help="list creators awaiting admission (reads the publish service's table)",
-        description="Who has tried to publish and is waiting to be let onto the roster. Their "
-        "bundles are already uploaded and signed with their own key; nothing verifies until the "
-        "roster names them.",
+        help="list creators awaiting admission",
+        description="Who has tried to publish and is waiting to be let onto the roster. Remote by "
+        "default (asks the publish service); pass --creators-table to read the table directly.",
+    )
+    roster_pending.add_argument(
+        "--service", default="", help="publish service url (default: this install's publish_url)"
     )
     roster_pending.add_argument(
         "--creators-table",
         default="",
-        help="DynamoDB table name (default: $AGENTD_CREATORS_TABLE; terraform output "
-        "publish_creators_table)",
+        help="read the DynamoDB table directly instead of asking the service "
+        "(default: $AGENTD_CREATORS_TABLE; terraform output publish_creators_table)",
     )
     roster_pending.add_argument("--region", default="", help="AWS region (default: the profile's)")
     roster_pending.set_defaults(func=run_roster_pending)
 
     roster_admit = roster_sub.add_parser(
         "admit",
-        help="admit pending creators: add them to the roster, re-sign it, and mark them listed",
-        description="ONE command for the whole review step. It reads the pending creators, adds "
-        "each to the roster file with the public key the service generated for them, re-signs the "
-        "roster with the ROOT key, and only then marks them listed in the table — in that order, "
-        "because a creator marked listed before the roster is published would have their bundles "
-        "advertised with a key no client trusts yet.",
+        help="admit pending creators: roster re-signed, creator listed, parked publishes complete",
+        description="ONE command for the whole review step. Remote by default: the publish "
+        "service re-signs the roster with the vaulted root key, marks the creator listed, and "
+        "publishes what they parked — their Publish click finishes here, they do nothing. With "
+        "--root-key it is the offline flow instead: sign the roster file locally, then `roster "
+        "publish` it yourself.",
     )
-    roster_admit.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_admit.add_argument(
+        "--root-key", default="", help="PLATFORM ROOT keypair file — switches to the LOCAL flow"
+    )
+    roster_admit.add_argument(
+        "--service", default="", help="publish service url (default: this install's publish_url)"
+    )
     roster_admit.add_argument(
         "--id", default="", action="append", help="admit only this creator id (repeatable)"
     )
-    roster_admit.add_argument("--file", default="registry-roster.json", help="the roster file")
-    roster_admit.add_argument("--creators-table", default="", help="DynamoDB table name")
+    roster_admit.add_argument("--file", default="registry-roster.json", help="the roster file (local flow)")
+    roster_admit.add_argument("--creators-table", default="", help="DynamoDB table name (local flow)")
     roster_admit.add_argument("--region", default="", help="AWS region")
     roster_admit.add_argument(
         "--dry-run", action="store_true", help="show who would be admitted, change nothing"
     )
     roster_admit.set_defaults(func=run_roster_admit)
+
+    roster_upload_root = roster_sub.add_parser(
+        "upload-root",
+        help="copy the root key into the service's vault (KMS-wrapped) so admins can admit remotely",
+        description="One-time (per rotation) operator action, run on the machine that holds the "
+        "offline keypair file. The private half is encrypted with the publish service's KMS key "
+        "and stored in the creators table; from then on `roster admit` needs no local key. Keep "
+        "the offline file — it is the recovery anchor, and this vault copy is exactly that: a copy.",
+    )
+    roster_upload_root.add_argument("--root-key", required=True, help="the PLATFORM ROOT keypair file")
+    roster_upload_root.add_argument(
+        "--creators-table",
+        default="",
+        help="DynamoDB table (default: $AGENTD_CREATORS_TABLE; terraform output publish_creators_table)",
+    )
+    roster_upload_root.add_argument(
+        "--kms-key",
+        default="",
+        help="KMS key id/alias to wrap with (default: $AGENTD_PUBLISH_KMS_KEY; terraform output "
+        "publish_kms_key). Empty stores the key UNENCRYPTED and says so — local registries only.",
+    )
+    roster_upload_root.add_argument("--region", default="", help="AWS region")
+    roster_upload_root.set_defaults(func=run_roster_upload_root)
 
     roster_show = roster_sub.add_parser("show", help="print a roster and check its signature")
     roster_show.add_argument("file", nargs="?", default="registry-roster.json")
@@ -844,7 +890,60 @@ def _creator_directory(args: argparse.Namespace):
     return DynamoCreatorDirectory(dynamodb.Table(table_name), dynamodb.Table(table_name))
 
 
+def _admin_client(args: argparse.Namespace):
+    """The remote-mode client, or None with the reason printed. Url resolution mirrors
+    publish_agent exactly: explicit flag > this install's own publish target — so the registry an
+    admin administers is the one this build publishes to, never a guess."""
+    import os
+
+    from agent_runtime.config import load_config
+    from agent_runtime.infrastructure.marketplace.http_publisher import platform_session_token
+    from agent_runtime.infrastructure.marketplace.publisher_factory import is_service_target
+    from agent_runtime.infrastructure.publish.roster_admin_client import RosterAdminClient
+
+    config = load_config()
+    url = (
+        getattr(args, "service", "")
+        or os.environ.get("AGENTD_PUBLISH_TARGET", "")
+        or str(getattr(config, "publish_target", "") or "")
+    ).strip()
+    if not is_service_target(url):
+        print(
+            "no publish service to talk to. Pass --service <url>, or run against the table/file "
+            "directly (--creators-table / --root-key)."
+        )
+        return None
+    token = platform_session_token(config)
+    if not token:
+        print("not signed in on this install - the admin endpoints authenticate your account.")
+        return None
+    return RosterAdminClient(url, token)
+
+
 def run_roster_pending(args: argparse.Namespace) -> int:
+    from agent_runtime.infrastructure.publish.roster_admin_client import RosterAdminError
+
+    # Direct table access only when explicitly asked for — the service is the normal door.
+    if not (args.creators_table or "").strip():
+        client = _admin_client(args)
+        if client is None:
+            return 1
+        try:
+            waiting = client.pending()
+        except RosterAdminError as e:
+            print(e)
+            return 1
+        if not waiting:
+            print("no creators are waiting for admission.")
+            return 0
+        print(f"{len(waiting)} creator(s) awaiting admission:\n")
+        for row in waiting:
+            print(f"  {row.get('creator_id')}  {row.get('name')}")
+            for parked in row.get("parked") or []:
+                print(f"      parked: {parked.get('bundle_id')} ({parked.get('size'):,} bytes)")
+        print("\nAdmit them with:  agentd bundle roster admit")
+        return 0
+
     try:
         directory = _creator_directory(args)
         waiting = directory.pending()
@@ -858,14 +957,38 @@ def run_roster_pending(args: argparse.Namespace) -> int:
     for creator in waiting:
         print(f"  {creator.id}  {creator.name}")
         print(f"      key {creator.public_key}")
-    print("\nAdmit them with:  agentd bundle roster admit --root-key <keypair>")
+    print("\nAdmit them with:  agentd bundle roster admit")
     return 0
 
 
 def run_roster_admit(args: argparse.Namespace) -> int:
-    """Add pending creators to the roster, re-sign it, then mark them listed. In that order."""
+    """Remote by default; the original local signing flow when --root-key is given."""
     from agent_runtime.domain.bundle import BundleError
     from agent_runtime.infrastructure.marketplace import roster_builder
+    from agent_runtime.infrastructure.publish.roster_admin_client import RosterAdminError
+
+    if not (args.root_key or "").strip():
+        client = _admin_client(args)
+        if client is None:
+            return 1
+        wanted = [i for i in (args.id or []) if i]
+        if args.dry_run:
+            try:
+                waiting = client.pending()
+            except RosterAdminError as e:
+                print(e)
+                return 1
+            chosen = [w for w in waiting if not wanted or w.get("creator_id") in wanted]
+            for row in chosen:
+                print(f"  would admit {row.get('creator_id')}  {row.get('name')}")
+            print("\n--dry-run: nothing was changed.")
+            return 0
+        try:
+            print(client.admit(wanted))
+        except RosterAdminError as e:
+            print(e)
+            return 1
+        return 0
 
     try:
         directory = _creator_directory(args)
@@ -888,7 +1011,7 @@ def run_roster_admit(args: argparse.Namespace) -> int:
     for creator in waiting:
         print(f"  admitting {creator.id}  {creator.name}")
     if args.dry_run:
-        print(f"\n--dry-run: the roster and the table are unchanged.")
+        print("\n--dry-run: the roster and the table are unchanged.")
         return 0
 
     try:
@@ -927,6 +1050,18 @@ def run_roster_admit(args: argparse.Namespace) -> int:
 def run_roster_revoke(args: argparse.Namespace) -> int:
     from agent_runtime.domain.bundle import BundleError
     from agent_runtime.infrastructure.marketplace import roster_builder
+    from agent_runtime.infrastructure.publish.roster_admin_client import RosterAdminError
+
+    if not (args.root_key or "").strip():
+        client = _admin_client(args)
+        if client is None:
+            return 1
+        try:
+            print(client.revoke(args.id))
+        except RosterAdminError as e:
+            print(e)
+            return 1
+        return 0
 
     try:
         root_private, root_public = _read_keypair(args.root_key)
@@ -947,6 +1082,53 @@ def run_roster_revoke(args: argparse.Namespace) -> int:
         "This takes effect for a client on its next index fetch — bundles ALREADY installed from "
         "them stay installed. Revocation stops new installs; it is not a remote uninstall."
     )
+    return 0
+
+
+def run_roster_upload_root(args: argparse.Namespace) -> int:
+    """Copy the offline root keypair into the service's vault, KMS-wrapped. One-time, operator-run,
+    from the machine that legitimately holds the file — after this, admits need no local key."""
+    import os
+
+    try:
+        root_private, root_public = _read_keypair(args.root_key)
+    except (OSError, ValueError) as e:
+        print(f"cannot read the keypair: {e}")
+        return 1
+
+    table_name = (args.creators_table or os.environ.get("AGENTD_CREATORS_TABLE", "")).strip()
+    if not table_name:
+        print(
+            "no creators table. Pass --creators-table, or set AGENTD_CREATORS_TABLE "
+            "(terraform output publish_creators_table)."
+        )
+        return 1
+    try:
+        import boto3
+    except ImportError:
+        print("boto3 is not installed - `pip install boto3` to run operator commands")
+        return 1
+
+    from agent_runtime.infrastructure.publish.root_vault import DynamoRootKeyVault
+    from agent_runtime.infrastructure.publish.signer import KmsEnvelopeSigner
+
+    region = {"region_name": args.region} if args.region else {}
+    table = boto3.resource("dynamodb", **region).Table(table_name)
+
+    kms_key = (args.kms_key or os.environ.get("AGENTD_PUBLISH_KMS_KEY", "")).strip()
+    if kms_key:
+        envelope = KmsEnvelopeSigner(None, boto3.client("kms", **region), kms_key)
+        vault = DynamoRootKeyVault(table, encrypt=envelope.encrypt)
+    else:
+        # Loud, not fatal: a local/dev registry without KMS is a stated mode everywhere else in
+        # this stack, and refusing here would make the plaintext path impossible rather than opt-in.
+        print("WARNING: no --kms-key - the root key will be stored UNENCRYPTED in the table.")
+        vault = DynamoRootKeyVault(table)
+
+    vault.store(root_private, root_public)
+    print(f"root key stored in the vault ({table_name}).")
+    print("Remote admits work from now on. KEEP the offline keypair file - it is the recovery")
+    print("anchor; the vault holds a copy, not the original.")
     return 0
 
 
