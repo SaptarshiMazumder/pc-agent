@@ -21,9 +21,10 @@ class ScaffoldUiTool(Tool):
     label = "Scaffold App UI"
     default_retryable = False  # side-effecting (writes files); never auto-retry
 
-    def __init__(self, service, templates):
+    def __init__(self, service, templates, components=None):
         self._service = service
         self._templates = templates
+        self._components = components
         # Built from the catalogue rather than typed out, so a template added to the registry
         # is offered here automatically instead of existing but being un-nameable.
         self.description = (
@@ -62,6 +63,23 @@ class ScaffoldUiTool(Tool):
                     "after the user has said to replace their existing app — it overwrites "
                     "files they may have edited by hand. Never set it on your own initiative",
                 },
+                "components": {
+                    "type": "array",
+                    "items": (
+                        {"type": "string", "enum": list(self._components.ids())}
+                        if self._components is not None
+                        else {"type": "string"}
+                    ),
+                    "description": "reusable pieces to compose in during this same call, so the app "
+                    "is born with them instead of needing a second step. "
+                    + (
+                        "Available: " + ", ".join(self._components.ids()) + ". "
+                        if self._components is not None
+                        else ""
+                    )
+                    + "Include 'sign-in' for any agent meant to be published — without it the app "
+                    "cannot be used on hosted keys. Add later with add_ui_component",
+                },
             },
         }
 
@@ -70,11 +88,16 @@ class ScaffoldUiTool(Tool):
         if not agent_id:
             return ToolResult.text("scaffold_ui needs an 'agent_id'", is_error=True)
 
+        requested = params.get("components")
+        chosen = tuple(
+            str(c).strip() for c in requested if str(c).strip()
+        ) if isinstance(requested, list) else ()
         try:
             res = self._service.scaffold(
                 agent_id,
                 (params.get("template") or "").strip(),
                 bool(params.get("confirm_overwrite")),
+                chosen,
             )
         except ScaffoldError as e:
             # The service's message IS the answer — it names the files at stake and the
@@ -89,6 +112,8 @@ class ScaffoldUiTool(Tool):
         ]
         if res.replaced:
             lines.append(f"REPLACED (the previous app's files): {', '.join(res.replaced)}.")
+        if res.components:
+            lines.append("Components: " + "; ".join(res.components) + ".")
         lines += [
             "",
             "THIS ALREADY WORKS. It connects, streams replies, shows tool calls, saves and "
@@ -115,6 +140,7 @@ class ScaffoldUiTool(Tool):
                 "template": res.template.id,
                 "written": res.written,
                 "replaced": res.replaced,
+                "components": res.components,
                 "readme": res.readme_path,
             },
         )

@@ -32,19 +32,26 @@ from .js_comment_stripper import JsCommentStripper
 
 _STRIPPER = JsCommentStripper()
 
-# ── hosted sign-in ─────────────────────────────────────────────────────────────────────
-# An app agent on a hosted install needs the user signed in or EVERY model call fails. The
-# scaffolded template already awaits `mountSignInGate()`, so this rule is about the agents that
-# did not come from it: one whose ui/ predates the gate, or whose app.js was hand-written.
+# ── UI components ──────────────────────────────────────────────────────────────────────
+# What a component IS, how to tell it is present, and which SDK symbols it needs are all declared
+# ONCE, in `ui_component.py`, and this rule is GIVEN that catalogue. It used to keep its own
+# regexes for sign-in, which meant the snippet existed in three unshared places — the chat-app
+# template, here, and the tool that inserts it. Three copies of one fact is exactly the drift these
+# rules exist to catch, and it is the same argument the module docstring already makes for event
+# names: told the real vocabulary rather than keeping a copy.
 #
-# The failure it catches is silent and total. The window opens, the composer works, the daemon
-# has no platform credential, and every send comes back as a provider error — which reads as "the
-# model is down", not "this app never asks anyone to log in". That is exactly how an agent shipped
-# and could not be used in cloud mode at all.
-_GATE_CALL = re.compile(r"\bmountSignInGate\s*\(")
-# Using the mechanism directly is a legitimate alternative to the drop-in modal.
-_GATE_MECHANISM = re.compile(r"\b(?:resolveAuth|platformStatus|signIn)\s*\(")
+# Two findings come out of it, and they fail differently:
+#
+#   * sign-in missing -> WARN. The agent works on the author's own keys; it is unusable only on a
+#     HOSTED install. The failure there is silent and total: the window opens, the composer works,
+#     the daemon has no platform credential, and every send returns a provider error that reads as
+#     "the model is down" rather than "this app never asks anyone to log in".
+#   * a component present whose SDK symbol is missing -> ERROR. A guaranteed "not a function" on
+#     load: a dead window, every time. ONE rule for N components, driven by `requires`.
 _SDK_VENDOR_SUFFIX = "vendor/agentd-client.js"
+# The component whose absence is worth warning about. Others are opt-in features; this one is the
+# difference between an agent that can be sold and one that cannot.
+_REQUIRED_COMPONENT = "sign-in"
 
 # `payload.type` / `p.type` etc. — reading the wrapper as if it were the event.
 _PAYLOAD_DOT_TYPE = re.compile(r"\b(\w+)\.type\b")
@@ -81,11 +88,16 @@ class UiRules:
     name = "ui"
 
     def __init__(self, events: frozenset[str], kinds: frozenset[str], methods: frozenset[str],
-                 sdk_methods: frozenset[str]):
+                 sdk_methods: frozenset[str], components=()):
+        """:param components: the UiComponent catalogue. Injected for the same reason `events` is —
+        so "what a component looks like in code" has exactly one definition, in the module that
+        also inserts it. Defaults to empty so a caller that does not care about components (a test
+        of the event rules, say) needs no extra argument."""
         self._events = events
         self._kinds = kinds
         self._methods = methods
         self._sdk = sdk_methods
+        self._components = tuple(components)
 
     def check(self, spec, raw_toml: dict, files: list[str], sources: dict) -> list[Finding]:
         """`sources` maps an agent-relative path -> its text. Only ui/*.js is considered."""
@@ -105,21 +117,14 @@ class UiRules:
         out += self._sign_in(raw_toml, sources)
         return out
 
-    # ---------------------------------------------------------------- hosted sign-in
+    # ---------------------------------------------------------------- UI components
     def _sign_in(self, raw_toml: dict, sources: dict) -> list[Finding]:
-        """Whole-agent check (not per-file): does this app ever ask anyone to sign in, and can
-        the SDK it ships actually do it?
-
-        Two findings, at two severities, because they fail differently:
-
-          * no sign-in anywhere -> WARN. The agent works locally on the author's own keys; it is
-            only unusable on a HOSTED install. Not broken today, broken the moment it ships.
-          * calls the gate, but the vendored SDK predates it -> ERROR. That is a guaranteed
-            `agentd.mountSignInGate is not a function` on load: a dead window, every time.
+        """Whole-agent check (not per-file): which components does this app use, and can the SDK it
+        ships actually run them?
 
         Deliberately quiet otherwise. An agent with no `[app]` has no page to sign in on, and one
-        with no ui/*.js has not been scaffolded yet — neither is a mistake, and warning about
-        either is how a check earns its way into being ignored.
+        with no ui/*.js has not been scaffolded yet — neither is a mistake, and warning about either
+        is how a check earns its way into being ignored.
         """
         if not isinstance(raw_toml.get("app"), dict):
             return []
@@ -131,16 +136,10 @@ class UiRules:
         if not own:
             return []
 
-        calls_gate = False
-        uses_mechanism = False
-        for src in own.values():
-            code = _STRIPPER.strip(src)
-            if _GATE_CALL.search(code):
-                calls_gate = True
-            if _GATE_MECHANISM.search(code):
-                uses_mechanism = True
+        code = "\n".join(_STRIPPER.strip(src) for src in own.values())
+        installed = [c for c in self._components if self._present(c, code)]
 
-        if not calls_gate and not uses_mechanism:
+        if not any(c.id == _REQUIRED_COMPONENT for c in installed):
             return [
                 Finding(
                     WARN,
@@ -149,29 +148,39 @@ class UiRules:
                     "keys) every model call will fail with a provider error and nothing will "
                     "explain why.",
                     path="ui/app.js",
-                    fix="await agentd.mountSignInGate() once the socket is open — it renders "
-                    "NOTHING on a local/BYOK install, so it is safe to add unconditionally. Pass "
-                    "a `blurb` to say why an account is needed.",
+                    fix=f"add_ui_component('{{agent}}', '{_REQUIRED_COMPONENT}') — it does every "
+                    "step (SDK, script tag, theme tokens, the call itself) and is safe to re-run. "
+                    "The panel renders NOTHING on a local/BYOK install.",
                 )
             ]
 
+        # ONE rule for every component, driven by its declared `requires`. Adding component #2
+        # needs no new rule here — which is the point of the catalogue being injected.
         vendored = next(
             (src for rel, src in sources.items() if rel.endswith(_SDK_VENDOR_SUFFIX)), ""
         )
-        if calls_gate and vendored and "mountSignInGate" not in vendored:
-            return [
-                Finding(
-                    ERROR,
-                    "UI_SDK_PREDATES_SIGN_IN",
-                    "ui/app.js calls agentd.mountSignInGate(), but the vendored SDK in "
-                    "ui/vendor/agentd-client.js does not have it — the app will die on load with "
-                    "'agentd.mountSignInGate is not a function'.",
-                    path=_SDK_VENDOR_SUFFIX,
-                    fix="re-vendor the SDK: `npm run build` in v2/clients/sdk-js (its vendor step "
-                    "refreshes every agent's copy).",
-                )
-            ]
+        if not vendored:
+            return []
+        for component in installed:
+            missing = [symbol for symbol in component.requires if symbol not in vendored]
+            if missing:
+                return [
+                    Finding(
+                        ERROR,
+                        "UI_SDK_PREDATES_COMPONENT",
+                        f"this app uses the '{component.id}' component, but the vendored SDK in "
+                        f"ui/vendor/agentd-client.js has no {', '.join(missing)} — the app will die "
+                        f"on load with 'agentd.{missing[0]} is not a function'.",
+                        path=_SDK_VENDOR_SUFFIX,
+                        fix="re-vendor the SDK: `npm run build` in v2/clients/sdk-js (its vendor "
+                        "step refreshes every agent's copy).",
+                    )
+                ]
         return []
+
+    @staticmethod
+    def _present(component, code: str) -> bool:
+        return any(re.search(insertion.detect, code) for insertion in component.insert)
 
     # ---------------------------------------------------------------- payload shape
     def _nested_payload(self, rel: str, src: str) -> list[Finding]:

@@ -58,12 +58,24 @@ variable "hibernate" {
   default     = false
 }
 
+# The publish service's image tag. EMPTY creates only its ECR repo, tables and KMS key — an
+# image-based Lambda cannot be created before its image exists, so a single apply would fail
+# halfway. Apply once, push an image, then set this (`-var publish_image_tag=v1`, or put it in
+# dev.auto.tfvars so it sticks) and apply again.
+variable "publish_image_tag" {
+  description = "Image tag for the publish Lambda. Empty = do not create the function yet."
+  type        = string
+  default     = ""
+}
+
 module "stack" {
   source = "../../modules"
 
   environment = "dev"
   paused      = var.paused
-  hibernate   = var.hibernate
+  # Publishing (see modules/publish.tf and deploy/PUBLISH-SERVICE.md).
+  publish_image_tag = var.publish_image_tag
+  hibernate         = var.hibernate
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -174,4 +186,21 @@ output "scheduled_jobs" {
 output "scheduled_jobs_log_group" {
   description = "Where each scheduled run's result is logged."
   value       = module.stack.scheduled_jobs_log_group
+}
+
+# ── the publish service (modules/publish.tf) ────────────────────────────────────────────
+
+output "publish_ecr_repository" {
+  description = "Push the publish image here, then apply again with -var publish_image_tag=<tag>."
+  value       = module.stack.publish_ecr_repository
+}
+
+output "publish_url" {
+  description = "[store] publish_url for the desktop flavors - where Agent Builder's Publish button posts. sync-platform-urls.mjs reads this. Empty until publish_image_tag is set."
+  value       = module.stack.publish_url
+}
+
+output "publish_creators_table" {
+  description = "Creator identities awaiting admission; `agentd bundle roster pending/admit` reads it."
+  value       = module.stack.publish_creators_table
 }

@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agent_authoring.domain.ui_component import UiComponents
 from agent_authoring.domain.ui_rules import UiRules
 
 from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
@@ -24,6 +25,10 @@ RULES = UiRules(
     kinds=MESSAGE_UPDATE_KINDS,
     methods=frozenset(APP_SCOPED_METHODS),
     sdk_methods=frozenset(),
+    # The REAL catalogue, exactly as the composition root passes it. Injecting it here rather than
+    # hand-writing the patterns is the whole point of the refactor these tests cover: if a
+    # component's `detect` changes, this suite follows it instead of asserting a stale copy.
+    components=UiComponents().all(),
 )
 
 
@@ -161,7 +166,12 @@ def test_an_app_agent_with_no_sign_in_is_flagged():
     found = sign_in("const client = agentd.fromPage()")
     assert "UI_NO_SIGN_IN" in found
     assert found["UI_NO_SIGN_IN"].level == "warn", "it works locally — broken only once hosted"
-    assert "mountSignInGate" in found["UI_NO_SIGN_IN"].fix
+    # The fix names the TOOL, not the line to type. Ranked by strength: a tool that does every
+    # step (SDK refresh, script tag, theme tokens, the call) and is safe to re-run beats an
+    # instruction to hand-write one of the four and forget the rest — which is how an agent ends
+    # up calling a gate its year-old vendored SDK cannot run.
+    assert "add_ui_component" in found["UI_NO_SIGN_IN"].fix
+    assert "sign-in" in found["UI_NO_SIGN_IN"].fix
 
 
 def test_calling_the_gate_is_clean():
@@ -179,12 +189,19 @@ def test_using_the_mechanism_directly_is_also_clean():
     assert "UI_NO_SIGN_IN" not in sign_in(js)
 
 
-def test_a_gate_call_against_an_SDK_without_it_is_an_error():
+def test_a_component_whose_sdk_symbol_is_missing_is_an_error():
     """The drift case: app.js was updated, ui/vendor/agentd-client.js was not. Guaranteed
-    'agentd.mountSignInGate is not a function' on load — a dead window, every launch."""
+    'agentd.mountSignInGate is not a function' on load — a dead window, every launch.
+
+    ONE rule for every component now, driven by each component's declared `requires`. Adding a
+    second component needs no second rule, which is why the catalogue is injected rather than
+    copied into this module.
+    """
     found = sign_in("await agentd.mountSignInGate()", vendored="function fromPage(){}")
-    assert found["UI_SDK_PREDATES_SIGN_IN"].level == "error"
-    assert "re-vendor" in found["UI_SDK_PREDATES_SIGN_IN"].fix
+    assert found["UI_SDK_PREDATES_COMPONENT"].level == "error"
+    assert "sign-in" in found["UI_SDK_PREDATES_COMPONENT"].message
+    assert "mountSignInGate" in found["UI_SDK_PREDATES_COMPONENT"].message
+    assert "re-vendor" in found["UI_SDK_PREDATES_COMPONENT"].fix
 
 
 def test_no_vendored_sdk_present_is_not_an_error():

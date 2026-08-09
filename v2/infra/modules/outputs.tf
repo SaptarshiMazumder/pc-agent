@@ -126,3 +126,24 @@ output "dashboard_urls" {
     business       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.business.dashboard_name}"
   }
 }
+
+# ── the publish service ─────────────────────────────────────────────────────────────────
+
+output "publish_ecr_repository" {
+  description = "Push the publish image here, then set publish_image_tag and apply again."
+  value       = aws_ecr_repository.publish.repository_url
+}
+
+output "publish_url" {
+  description = "What an author's client sets as publish_target. Empty until publish_image_tag is set."
+  value = (
+    local.publish_enabled && local.public_host != ""
+    ? "${local.url_scheme}://${local.public_host}:${var.publish_listener_port}"
+    : ""
+  )
+}
+
+output "publish_creators_table" {
+  description = "DynamoDB table holding creator identities - the table `agentd bundle roster admit` reads."
+  value       = aws_dynamodb_table.creators.name
+}

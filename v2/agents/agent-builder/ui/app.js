@@ -318,6 +318,16 @@
     if (s === 'open' && !started) {
       started = true
       void (async () => {
+        // AGENTD:COMPONENTS — add_ui_component inserts after this line. Keep the marker.
+        try {
+          // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected, or
+          // when a stored session still works — so it is safe to call unconditionally.
+          await agentd.mountSignInGate()
+        } catch (e) {
+          // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and blocking
+          // the whole window on a status probe would hide the better message.
+          console.warn('[sign-in]', (e && e.message) || e)
+        }
         try {
           const hello = await client.hello()
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''

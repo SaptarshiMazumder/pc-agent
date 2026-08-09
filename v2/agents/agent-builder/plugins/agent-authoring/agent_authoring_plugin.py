@@ -71,14 +71,33 @@ def register(api, ctx):
     # Registered next to create_agent because it is the same kind of step: create_agent makes
     # the agent exist, scaffold_ui makes its window exist. Both hand back a working starting
     # point and say what to do next; neither tries to author the whole thing.
+    #
+    # TWO TIERS OF REUSE, and they are different operations rather than one with a flag:
+    #   templates  a WHOLE app, copied. Refuses over an existing ui/ — that is somebody's work.
+    #   components a PIECE, patched into an app that already exists. Idempotent, so it can be
+    #              applied whenever the model is unsure.
+    # ONE AddComponentService instance serves both, which is what stops "scaffold with sign-in"
+    # and "add sign-in later" from becoming two definitions of the same snippet.
+    from agent_authoring.application.add_component_service import AddComponentService
+    from agent_authoring.domain.ui_component import UiComponents
+    from agent_authoring.presentation.add_ui_component_tool import AddUiComponentTool
+
     reader = AgentDirReader(registry)
     templates = UiTemplates()
+    components = UiComponents()
+    component_service = AddComponentService(
+        reader, components, TEMPLATE_ROOT / "components", BORROW_ROOT
+    )
     api.register_tool(
         ScaffoldUiTool(
-            ScaffoldUiService(reader, templates, TEMPLATE_ROOT, BORROW_ROOT),
+            ScaffoldUiService(
+                reader, templates, TEMPLATE_ROOT, BORROW_ROOT, components=component_service
+            ),
             templates,
+            components,
         )
     )
+    api.register_tool(AddUiComponentTool(component_service, components))
 
     # --- CHECK ----------------------------------------------------------------------
     # The UI rules are told the real vocabulary rather than keeping their own copy: event
@@ -100,6 +119,10 @@ def register(api, ctx):
             kinds=MESSAGE_UPDATE_KINDS,
             methods=frozenset(APP_SCOPED_METHODS),
             sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
+            # The SAME catalogue the component tool inserts from. So "is sign-in present?" and
+            # "what does adding sign-in write?" are one definition — three unshared copies of that
+            # snippet is what this replaces.
+            components=components.all(),
         ),
         # Half a tool pair: `exec` without `process` leaves the model unable to poll a
         # background job, so it blocks a turn on a sleep instead. Caught here rather than

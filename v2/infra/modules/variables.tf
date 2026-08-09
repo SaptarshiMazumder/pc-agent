@@ -479,3 +479,57 @@ locals {
     ManagedBy   = "terraform"
   }
 }
+
+# ── the PUBLISH SERVICE (see publish.tf) ────────────────────────────────────────────────
+
+variable "publish_image_tag" {
+  description = <<-EOT
+    Image tag for the publish Lambda, e.g. "v1" or a git sha. EMPTY (the default) creates only the
+    ECR repo, the tables and the key — not the function.
+
+    That two-step is deliberate, not a limitation: an image-based Lambda cannot be created before
+    its image exists, so a single apply would fail halfway with the repo created and the function
+    not. Apply once, push an image, set this, apply again.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "publish_listener_port" {
+  description = "ALB listener port for POST /registry/publish. Its own port, matching how every other service here is exposed; a path rule on the web listener is the natural move once a domain lands."
+  type        = number
+  default     = 4300
+}
+
+variable "publish_timeout_seconds" {
+  description = "Lambda timeout. It compiles a Windows installer and uploads two artifacts; the index lease is set to twice this, so an overrun can never let two publishes into the index at once."
+  type        = number
+  default     = 300
+}
+
+variable "publish_memory_mb" {
+  description = "Lambda memory. makensis is CPU-bound and Lambda scales CPU with memory, so this is really a speed dial."
+  type        = number
+  default     = 2048
+}
+
+# The ENGINE a published stub installs. Normally all three stay EMPTY and the service reads the
+# registry's own `engine` block — publish an engine once and every stub built afterwards follows it
+# with no redeploy. Set them only to point at an engine that is not in the registry yet.
+variable "publish_engine_url" {
+  description = "Override: absolute URL of the engine installer a stub should download. Empty => read from the registry index."
+  type        = string
+  default     = ""
+}
+
+variable "publish_engine_sha256" {
+  description = "Override: sha256 of that installer. A stub REFUSES to run a download it cannot verify, so this is required whenever publish_engine_url is set."
+  type        = string
+  default     = ""
+}
+
+variable "publish_engine_version" {
+  description = "Override: the engine version that installer installs (used for a payload's minimum-version check)."
+  type        = string
+  default     = ""
+}

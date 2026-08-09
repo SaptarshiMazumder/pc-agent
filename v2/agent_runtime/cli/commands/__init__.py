@@ -11,6 +11,7 @@ from agent_runtime.cli.commands import (
     license_,
     marketplace,
     plugins,
+    product,
     projects,
     serve,
     sessions,
@@ -28,5 +29,6 @@ ALL = [
     plugins,
     marketplace,
     bundle,
+    product,
     license_,
 ]

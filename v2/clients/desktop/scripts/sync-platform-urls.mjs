@@ -41,6 +41,10 @@ const SYNCED = {
   // Terraform-output compatibility during the rename rollout.
   model_gateway_url: 'model_proxy_url',
   registry_url: 'registry_url',
+  // The WRITE side of the registry — where Publish posts. Empty until the publish Lambda is
+  // deployed (terraform gates it on publish_image_tag), and an empty output is skipped below, so
+  // this row is inert until then rather than blanking a value.
+  publish_url: 'publish_url',
   // Opt-in diagnostics (plan 5.1). Rots the same way as the rest — it is the same ALB.
   ingest_url: 'ingest_url'
 }

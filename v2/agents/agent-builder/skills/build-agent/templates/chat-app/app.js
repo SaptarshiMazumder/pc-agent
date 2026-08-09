@@ -156,18 +156,20 @@
     if (s === 'open' && !started) {
       started = true
       void (async () => {
-        // HOSTED SIGN-IN, awaited before anything else so the rest of the boot can assume the
-        // daemon has model access. Renders NOTHING on a BYOK build, or when this device is
-        // already connected, or when a stored session still works — so it is safe to call
-        // unconditionally and there is nothing to configure. (SDK: gate.ts / platform.ts.)
+        // AGENTD:COMPONENTS — `add_ui_component` inserts after this line. Anything it adds runs
+        // before the first model call and after the socket is open, which is what every component
+        // so far needs. Keep the marker: without it the tool cannot place code deterministically
+        // and falls back to telling a human where to put it.
         //
-        // Note this is about MODEL access, not socket access: the token in the page URL already
-        // authorized the WebSocket, which is why the gate belongs here rather than before connect.
+        // Note the sign-in below is about MODEL access, not socket access: the token in the page
+        // URL already authorized the WebSocket, which is why it belongs here and not before connect.
         try {
+          // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected, or
+          // when a stored session still works — so it is safe to call unconditionally.
           await agentd.mountSignInGate()
         } catch (e) {
-          // The daemon itself is unreachable. Not fatal here — the chat surface reports it too,
-          // and blocking the whole window on a status probe would hide that message.
+          // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and blocking
+          // the whole window on a status probe would hide the better message.
           console.warn('[sign-in]', (e && e.message) || e)
         }
         try {
