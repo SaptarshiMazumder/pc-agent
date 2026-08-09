@@ -1,4 +1,0 @@
-id = "artifact-location"
-name = "open_artifact_location"
-kind = "native"
-entry = "artifact_location:register"

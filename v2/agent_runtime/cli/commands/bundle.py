@@ -132,6 +132,31 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     publish.set_defaults(func=run_publish)
 
+    unlist = sub.add_parser(
+        "unlist",
+        help="remove bundles from a registry's index (operator; optionally delete their artifacts)",
+        description="Takes bundles OFF the marketplace: their rows leave index.json, so no store "
+        "shows them and no client can resolve them. Artifacts are kept unless --purge-artifacts, "
+        "because an unlist is reversible (republish the same version) and a purge is not. Copies "
+        "already installed on machines are untouched — this is not a remote uninstall. The roster "
+        "and every other creator's rows are carried forward EXACTLY.",
+    )
+    unlist.add_argument("ids", nargs="+", help="bundle id(s) to remove, e.g. expense-summarizer")
+    unlist.add_argument(
+        "--to", default="", help="registry target: a directory, or s3://bucket[/prefix]"
+    )
+    unlist.add_argument(
+        "--purge-artifacts",
+        action="store_true",
+        help="also DELETE the .agentpkg and installer files the index rows point at",
+    )
+    unlist.add_argument(
+        "--yes",
+        action="store_true",
+        help="actually do it. Without this the command prints the plan and changes nothing.",
+    )
+    unlist.set_defaults(func=run_unlist)
+
     roster = sub.add_parser(
         "roster",
         help="manage the trusted-creator roster (signed by the PLATFORM ROOT key)",
@@ -1245,6 +1270,98 @@ def run_roster_publish(args: argparse.Namespace) -> int:
             print("upload FAILED — the registry's roster is unchanged.")
             return 1
     print("\nroster published. Clients pick it up on their next index fetch.")
+    return 0
+
+
+def run_unlist(args: argparse.Namespace) -> int:
+    """Drop bundle rows from a registry index; optionally delete the files they point at.
+
+    ORDER: index first, artifacts second — the exact reverse of publishing, for the same reason.
+    The index is what makes a URL public, so a row must stop being advertised before its file
+    disappears; the other way round leaves a listed download that 404s."""
+    import json
+    import os
+    import tempfile
+
+    target = (args.to or os.environ.get("AGENTD_PUBLISH_TARGET", "")).strip()
+    if not target:
+        print("no registry target. Pass --to <directory|s3://bucket[/prefix]>.")
+        return 1
+    if target.startswith(("http://", "https://")):
+        print("unlist is an OPERATOR command and needs the registry itself (a directory or "
+              "s3://bucket), not the publish service url.")
+        return 1
+    is_s3 = target.startswith(_S3_SCHEME)
+
+    index = _read_registry_index(target, is_s3)
+    if index is None:
+        return 1
+    rows = [b for b in (index.get("bundles") or []) if isinstance(b, dict)]
+    by_id = {str(b.get("id") or ""): b for b in rows}
+
+    wanted = list(dict.fromkeys(args.ids))  # de-duped, order kept
+    missing = [i for i in wanted if i not in by_id]
+    if missing:
+        known = ", ".join(sorted(by_id)) or "none"
+        print(f"not in this registry: {', '.join(missing)}  (it lists: {known})")
+        return 1
+
+    # Every file the doomed rows point at — the bundle itself and each platform installer.
+    artifacts: list[str] = []
+    for bundle_id in wanted:
+        entry = by_id[bundle_id]
+        artifacts += [str(entry.get("url") or "")]
+        artifacts += [str(row.get("url") or "") for row in entry.get("installers") or []]
+    artifacts = [a for a in artifacts if a and "/" not in a]  # registry-relative names only
+
+    for bundle_id in wanted:
+        entry = by_id[bundle_id]
+        print(f"  unlist {bundle_id} {entry.get('version')}")
+    if args.purge_artifacts:
+        for name in artifacts:
+            print(f"  delete {name}")
+    else:
+        print(f"  ({len(artifacts)} artifact file(s) kept — reversible; --purge-artifacts deletes them)")
+    if not args.yes:
+        print("\nnothing changed. Re-run with --yes to do it.")
+        return 0
+
+    index = dict(index)
+    index["bundles"] = [b for b in rows if str(b.get("id") or "") not in set(wanted)]
+    with tempfile.TemporaryDirectory(prefix="agentd-unlist-") as work:
+        staging = Path(work)
+        (staging / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+        # Only index.json is in staging, so nothing else is touched on the way up.
+        if _upload_registry(staging, target, is_s3) != 0:
+            print("upload FAILED — the registry is unchanged.")
+            return 1
+    print("index updated — the bundles are off the marketplace.")
+
+    if args.purge_artifacts:
+        failed = []
+        if is_s3:
+            bucket, prefix = _split_s3(target)
+            for name in artifacts:
+                code, _ = _aws("s3", "rm", _s3_uri(bucket, prefix, name))
+                (print(f"  deleted {name}") if code == 0 else failed.append(name))
+        else:
+            root = Path(target).expanduser().resolve()
+            for name in artifacts:
+                try:
+                    (root / name).unlink(missing_ok=True)
+                    print(f"  deleted {name}")
+                except OSError:
+                    failed.append(name)
+        if failed:
+            # The index no longer names these, so they are orphans, not listings — say so rather
+            # than failing a job whose visible goal (off the marketplace) already succeeded.
+            print(f"could not delete: {', '.join(failed)} (unlisted anyway; delete them by hand)")
+
+    print(
+        "\nNote: copies already installed keep working, and clients keep their trust state. "
+        "Republishing the same id needs a NEWER version than the one just removed if any client "
+        "saw it."
+    )
     return 0
 
 
