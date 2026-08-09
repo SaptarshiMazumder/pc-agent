@@ -143,7 +143,7 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
         return _json(405, {"message": "POST a multipart form with a `package` file"})
 
     try:
-        fields, files = _parse_multipart(event)
+        fields, files, filenames = _parse_multipart(event)
     except ValueError as e:
         return _json(BAD_REQUEST, {"message": str(e)})
 
@@ -152,7 +152,12 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
         package=package,
         token=_bearer(event),
         bundle_id=fields.get("bundle_id", ""),
-        filename=fields.get("filename", "") or files.get("__package_name__", "") or "upload.agentpkg",
+        # The PACKAGE part's own name — never "whichever file part came last".
+        filename=(
+            fields.get("filename", "")
+            or filenames.get("package", "")
+            or filenames.get("bundle", "")
+        ),
     )
     try:
         result = service().submit(submission)
@@ -195,11 +200,18 @@ def _bearer(event) -> str:
     return value.split(" ", 1)[1].strip() if value.lower().startswith("bearer ") else value.strip()
 
 
-def _parse_multipart(event) -> tuple[dict, dict]:
-    """-> (text fields, file fields). Uses the stdlib email parser rather than a dependency.
+def _parse_multipart(event) -> tuple[dict, dict, dict]:
+    """-> (text fields, file bytes by field, file NAMES by field). Uses the stdlib email parser
+    rather than a dependency.
 
     The body arrives base64-encoded whenever it is binary, which a .agentpkg always is; decoding it
     as text would corrupt the zip in a way that only shows up as "not a valid .agentpkg".
+
+    FILENAMES ARE KEYED BY FIELD, which is the whole reason this returns three dicts. They used to
+    share one `__package_name__` slot, so with more than one file part the LAST one won — and the
+    client posts `package` then `installer`, so the package inherited the installer's name. It
+    reached the payload as `bundles/<id>-<ver>-setup.exe`, which the engine (globbing `*.agentpkg`)
+    cannot see: an app that installs, opens, and has no agent in it.
     """
     import base64
     import email
@@ -218,7 +230,8 @@ def _parse_multipart(event) -> tuple[dict, dict]:
         policy=HTTP,
     )
     fields: dict[str, str] = {}
-    files: dict[str, bytes | str] = {}
+    files: dict[str, bytes] = {}
+    filenames: dict[str, str] = {}
     for part in message.walk():
         if part.get_content_maintype() == "multipart":
             continue
@@ -227,9 +240,9 @@ def _parse_multipart(event) -> tuple[dict, dict]:
         payload = part.get_payload(decode=True) or b""
         if filename:
             files[name] = payload
-            files["__package_name__"] = filename
+            filenames[name] = filename
         else:
             fields[name] = payload.decode("utf-8", "replace").strip()
     if not files:
         raise ValueError("the multipart body contained no file part named `package`")
-    return fields, files
+    return fields, files, filenames

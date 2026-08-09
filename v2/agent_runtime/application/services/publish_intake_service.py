@@ -126,7 +126,12 @@ class PublishIntakeService:
         # The uploaded bytes become a file because everything downstream — manifest reading, the
         # payload writer, makensis — is path-based, and reusing those exact code paths is what
         # keeps the service's output identical to `agentd bundle publish`'s.
-        package = work / (submission.filename or "upload.agentpkg")
+        # A NEUTRAL name, always. The client's filename never names a file here: it is
+        # attacker-controlled, it need not be unique, and anything it names TRAVELS — this path
+        # is also the payload writer's source, which copies it into `bundles/` under whatever it
+        # is called. A name that is not `*.agentpkg` there is invisible to the engine, which
+        # globs for exactly that: an app that installs, opens, and contains no agent.
+        package = work / "upload.agentpkg"
         package.write_bytes(submission.package)
 
         try:
@@ -161,6 +166,10 @@ class PublishIntakeService:
         # download for another's. `<id>-<version>.agentpkg` is the same convention `bundle pack`
         # writes, so the registry looks identical whichever tool published.
         artifact_name = f"{manifest.id}-{manifest.version}.agentpkg"
+        # Both `id` and `version` were validated by the manifest parser, so this is a safe file
+        # name as well as a safe S3 key — and using the SAME string for both is what makes the
+        # bundle inside the installer's payload identical to the one in the registry.
+        package = package.rename(work / artifact_name)
 
         index = self._store.read_index() or {}
         published = next(

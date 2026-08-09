@@ -121,6 +121,72 @@ def logs_dir() -> Path:
     return user_home() / "logs"
 
 
+def cache_dir() -> Path:
+    """Where third-party libraries may write their downloaded caches.
+
+    ALWAYS under the user home, because the alternative is the INSTALL directory and that is not
+    guaranteed writable. A per-machine install lands in C:\\Program Files (an enterprise HKLM
+    deployment does so by design, and a silent install can choose it), and the daemon runs as an
+    ordinary user — so anything caching next to its own code fails with EACCES on the first call
+    that needs it."""
+    return user_home() / "cache"
+
+
+def redirect_library_caches() -> None:
+    """Point libraries that cache into their own package directory at cache_dir() instead.
+
+    litellm is the one that bites: it sets TIKTOKEN_CACHE_DIR to
+    ``site-packages/litellm/litellm_core_utils/tokenizers`` at import time, and tiktoken then
+    writes each encoding it fetches there — via a `<uuid>.tmp` it renames. On a per-machine
+    install that is a read-only directory, so the FIRST message a user sends dies with
+    ``[Errno 13] Permission denied: ...\\tokenizers\\<uuid>.tmp``. litellm supports exactly one
+    override for this, CUSTOM_TIKTOKEN_CACHE_DIR, and honours it before touching its own folder.
+
+    `setdefault`, so an operator who has already pointed these somewhere (a shared read-only
+    cache baked into a container, say) keeps their choice. Must run BEFORE litellm is imported,
+    which is why it is called from the package __init__ rather than from an entry point: the
+    daemon, the CLI, the model proxy and the tests all reach litellm by different routes."""
+    if os.environ.get("CUSTOM_TIKTOKEN_CACHE_DIR", "").strip():
+        return
+    target = cache_dir() / "tiktoken"
+    os.environ["CUSTOM_TIKTOKEN_CACHE_DIR"] = str(target)
+    _seed_tiktoken_cache(target)
+
+
+def _seed_tiktoken_cache(target: Path) -> None:
+    """Copy litellm's SHIPPED encodings into the new cache the first time.
+
+    Redirecting the cache would otherwise cost the offline capability the bundled directory
+    exists to provide (litellm #1071): the encodings ride along in the wheel so a first token
+    count never has to reach openaipublic.blob.core.windows.net, which is exactly the host a
+    locked-down network blocks. Seeding keeps that property AND makes the location writable.
+
+    `find_spec` rather than `import litellm` — importing it here is what we are racing to get
+    ahead of. Best-effort throughout: a failure to seed leaves a cache that fills itself from the
+    network, which is the normal tiktoken behaviour, not a broken state."""
+    import importlib.util
+    import shutil
+
+    if target.exists():
+        return  # already seeded (or already in use) — never overwrite a live cache
+    try:
+        spec = importlib.util.find_spec("litellm")
+        origin = getattr(spec, "origin", None) if spec is not None else None
+        if not origin:
+            return
+        bundled = Path(origin).parent / "litellm_core_utils" / "tokenizers"
+        if not bundled.is_dir():
+            return
+        target.mkdir(parents=True, exist_ok=True)
+        for item in bundled.iterdir():
+            # The cache holds hash-named encoding blobs. Skip the package's own machinery
+            # (__init__.py, __pycache__) and the json litellm reads from its own path.
+            if item.is_file() and not item.suffix:
+                shutil.copyfile(item, target / item.name)
+    except OSError:
+        return
+
+
 def licenses_dir() -> Path:
     return user_home() / "licenses"
 

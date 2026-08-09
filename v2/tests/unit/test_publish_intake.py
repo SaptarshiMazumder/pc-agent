@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -130,10 +131,13 @@ class FakeProducts:
         self._name = stub_name
         self._warnings = list(warnings)
         self._boom = boom
+        #: every ProductSource it was handed — the payload's bundle name comes off this path
+        self.sources = []
 
     def build(self, source, payload_dir, stub_dir=None, overrides=None):
         from types import SimpleNamespace
 
+        self.sources.append(source)
         if self._boom:
             raise RuntimeError("makensis exploded")
         if self._name is None:
@@ -303,6 +307,42 @@ def test_a_publish_uploads_artifacts_then_the_index_under_the_lock():
     assert "weather-1.2.0.agentpkg" in store.order[:-1]
     assert "weather-1.2.0-setup.exe" in store.order[:-1]
     assert lock.entered == 1 and lock.exited == 1
+
+
+def test_the_clients_filename_never_names_the_file_the_payload_is_built_from():
+    """It shipped once and broke the product silently. The service wrote the upload to disk under
+    the CLIENT's filename; the payload writer then copied that path into `bundles/` under the same
+    name. A multipart bug made that name `weather-1.2.0-setup.exe`, the engine globs
+    `bundles/*.agentpkg`, and the installed app opened with no agent in it.
+
+    The manifest is the only authority on what anything is called — here, in S3, and in the
+    payload, all from one string."""
+    svc, parts = service()
+
+    result = svc.submit(
+        Submission(
+            package=agentpkg(),
+            token="tok",
+            filename="weather-1.2.0-setup.exe",  # what the broken client sent
+        )
+    )
+
+    assert result.status == OK
+    source = parts["product_service"].sources[0]
+    assert Path(source.package).name == "weather-1.2.0.agentpkg"
+    assert "weather-1.2.0.agentpkg" in parts["index_store"].artifacts
+
+
+def test_a_hostile_filename_cannot_escape_the_work_directory():
+    """`../` in a filename used to choose where bytes landed. Now it chooses nothing."""
+    svc, parts = service()
+
+    result = svc.submit(
+        Submission(package=agentpkg(), token="tok", filename="../../../evil.agentpkg")
+    )
+
+    assert result.status == OK
+    assert Path(parts["product_service"].sources[0].package).name == "weather-1.2.0.agentpkg"
 
 
 def test_the_entry_is_signed_with_the_creators_key_and_stamped_with_their_id():

@@ -1,7 +1,7 @@
 {
   "name": "agentd-clients",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "agentd client workspace — one shared renderer (ui), two shells: the Electron desktop app and the hosted web client.",
   "workspaces": [
     "ui",

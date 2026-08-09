@@ -254,6 +254,25 @@ def test_payload_writer_copies_a_prebuilt_package_instead_of_packing(tmp_path):
     assert (payload.dir / "bundles" / "weather-9.9.9.agentpkg").read_bytes() == b"PREBUILT"
 
 
+def test_a_copied_package_always_lands_with_a_agentpkg_suffix(tmp_path):
+    """The engine finds a payload's agent by globbing `bundles/*.agentpkg`. A source file called
+    anything else is INVISIBLE to it, and the failure is silent and total: the product installs,
+    the window opens, and there is no agent in it. That shipped once — the publish service named
+    the upload after the wrong multipart part and copied through `weather-1.0.0-setup.exe`."""
+    package = tmp_path / "weather-1.0.0-setup.exe"
+    package.write_bytes(b"PREBUILT")
+    spec = ProductRules().derive("weather", {"version": "1.0.0", "app": {}})
+
+    payload = FsPayloadWriter(FakePacker(), FakeReader()).write(
+        spec, ProductSource(package=package), tmp_path / "payload"
+    )
+
+    assert payload.package.endswith(".agentpkg")
+    assert [f for f in payload.files if f.startswith("bundles/")] == [
+        "bundles/weather-1.0.0-setup.exe.agentpkg"
+    ]
+
+
 # ────────────────────────────── engine catalogues ──────────────────────────────
 
 

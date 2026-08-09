@@ -101,19 +101,39 @@ def test_a_binary_package_survives_base64_transport_byte_for_byte():
     """The bug this pins: decoding the body as text corrupts the zip, and the author is told their
     package is invalid when it is not."""
     package = bytes(range(256)) * 4  # every byte value, including ones no text codec round-trips
-    fields, files = publish_handler._parse_multipart(
+    fields, files, filenames = publish_handler._parse_multipart(
         event(multipart({"package": ("x.agentpkg", package)}))
     )
     assert files["package"] == package
-    assert files["__package_name__"] == "x.agentpkg"
+    assert filenames["package"] == "x.agentpkg"
 
 
 def test_text_fields_come_through_alongside_the_file():
-    fields, files = publish_handler._parse_multipart(
+    fields, files, filenames = publish_handler._parse_multipart(
         event(multipart({"package": ("x.agentpkg", b"zip")}, {"bundle_id": "weather"}))
     )
     assert fields["bundle_id"] == "weather"
     assert files["package"] == b"zip"
+
+
+def test_each_file_part_keeps_its_own_name(recorder):
+    """The bug this pins, and it shipped: every file part wrote its name into ONE shared slot, so
+    with `package` followed by `installer` the package inherited `<id>-<ver>-setup.exe`. That name
+    became the payload's bundles/ entry, and the engine — which globs `*.agentpkg` — could not see
+    it. The installed app opened with no agent in it and nothing said why."""
+    body = multipart(
+        {
+            "package": ("weather-1.0.0.agentpkg", b"PK\x03\x04zip"),
+            "installer": ("weather-1.0.0-setup.exe", b"MZexe"),
+        }
+    )
+    fields, files, filenames = publish_handler._parse_multipart(event(body))
+    assert filenames["package"] == "weather-1.0.0.agentpkg"
+    assert filenames["installer"] == "weather-1.0.0-setup.exe"
+
+    publish_handler.handler(event(body))
+    assert recorder.seen.filename == "weather-1.0.0.agentpkg"
+    assert recorder.seen.package == b"PK\x03\x04zip"
 
 
 def test_a_body_with_no_file_part_is_refused():

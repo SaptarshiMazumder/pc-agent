@@ -46,17 +46,22 @@ const SPAWN_WAIT_MS = 300_000 // cold container builds (imports) can take minute
 function commandCandidates(): string[][] {
   const override = (process.env.AGENTD_DAEMON_CMD || '').trim()
   if (override) return [override.split(/\s+/)]
-  const candidates: string[][] = []
   if (app.isPackaged) {
     const embedded =
       process.platform === 'win32'
         ? path.join(process.resourcesPath, 'python', 'python.exe')
         : path.join(process.resourcesPath, 'python', 'bin', 'python')
-    if (fsSync.existsSync(embedded)) candidates.push([embedded, '-m', 'agent_runtime'])
+    // THE ONLY CANDIDATE when it exists. A shipped product carries the exact runtime it was
+    // tested against; falling through to whatever `agentd` or `python` a machine happens to have
+    // would run a DIFFERENT version against this user's state, and on a machine with neither it
+    // buries the real failure under `No module named agent_runtime` — which is what the daemon
+    // log said while the actual error (the port was taken) scrolled past above it.
+    if (fsSync.existsSync(embedded)) return [[embedded, '-m', 'agent_runtime']]
   }
-  candidates.push(['agentd', 'serve'])
-  candidates.push([process.platform === 'win32' ? 'python' : 'python3', '-m', 'agent_runtime'])
-  return candidates
+  return [
+    ['agentd', 'serve'],
+    [process.platform === 'win32' ? 'python' : 'python3', '-m', 'agent_runtime']
+  ]
 }
 
 export class Supervisor {
@@ -154,10 +159,17 @@ export class Supervisor {
     await fs.mkdir(logDir, { recursive: true })
     const logPath = path.join(logDir, 'daemon.log')
     const logFile = fsSync.openSync(logPath, 'a')
-    // clear any stale rendezvous first, so the file that (re)appears is unambiguously
-    // OUR new daemon's — the console-script wrapper (`agentd`) forks a child python
-    // with a different pid, so we can't match on the spawned pid.
-    await clearGatewayFile()
+    // REMEMBER the rendezvous, do not DELETE it. We still need to tell our daemon's file from a
+    // pre-existing one (the `agentd` console script forks a child python, so the spawned pid does
+    // not match), but deleting is the wrong way to get that: the file belongs to whatever daemon
+    // is alive, and one engine serves every agent app on the machine.
+    //
+    // What deleting it did, once: a product app launched while another agentd held the port,
+    // removed that daemon's file, and made it PERMANENTLY undiscoverable — the token lives in the
+    // file, so nothing can attach to it again. Every later launch then found no daemon, spawned
+    // one, failed to bind, and fell through to a python with no agent_runtime in it. A loop with
+    // no exit, caused entirely by the recovery step.
+    const before = await readGatewayFile()
 
     const env = { ...process.env }
     // A flavored build carries its distribution.toml; the daemon it spawns must be
@@ -187,7 +199,7 @@ export class Supervisor {
             }
           })
         })
-        const info = await Promise.race([this.waitForDaemon(), spawnFailed])
+        const info = await Promise.race([this.waitForDaemon(before), spawnFailed])
         this.consecutiveFailures = 0 // it came up — re-arm the breaker
         this.set('running', `agentd ${info.version} (pid ${info.pid})`, info)
         return info
@@ -200,14 +212,22 @@ export class Supervisor {
     throw new Error(lastError || 'could not start agentd')
   }
 
-  /** Wait for the rendezvous file to (re)appear with an open port. We cleared it
-   *  before spawning, so its reappearance is our daemon — no pid match needed
-   *  (the console-script wrapper's pid differs from the python server's). */
-  private async waitForDaemon(): Promise<GatewayInfo> {
+  /** Wait for a rendezvous that is NOT the one we saw before spawning, with an open port.
+   *
+   *  Identity is (pid, startedAt) rather than the spawned pid, because the `agentd` console
+   *  script forks a child python and the pid we hold is the wrapper's. Comparing against the
+   *  PREVIOUS file gives the same certainty deleting it used to, without destroying state that
+   *  belongs to a daemon which may still be alive and serving other apps.
+   *
+   *  A pre-existing file that is merely STALE costs nothing here: its port is closed, so it never
+   *  satisfies the wait, and our daemon's file replaces it on startup. */
+  private async waitForDaemon(before: GatewayInfo | null): Promise<GatewayInfo> {
+    const isOurs = (info: GatewayInfo): boolean =>
+      before === null || info.pid !== before.pid || info.startedAt !== before.startedAt
     const deadline = Date.now() + SPAWN_WAIT_MS
     while (Date.now() < deadline) {
       const info = await readGatewayFile()
-      if (info && (await portOpen(info.host, info.port))) {
+      if (info && isOurs(info) && (await portOpen(info.host, info.port))) {
         return info
       }
       await new Promise((resolve) => setTimeout(resolve, 400))

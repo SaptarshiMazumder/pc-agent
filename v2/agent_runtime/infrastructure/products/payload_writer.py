@@ -27,6 +27,13 @@ from agent_runtime.domain.product import ProductSpec
 PAYLOAD_ICON = "icon.ico"
 BUNDLES_DIR = "bundles"
 DISTRIBUTION_FILE = "distribution.toml"
+PACKAGE_SUFFIX = ".agentpkg"
+
+
+def _as_agentpkg(name: str) -> str:
+    """The name a package must have inside a payload. Appended rather than replaced, so a source
+    called `x-setup.exe` becomes `x-setup.exe.agentpkg` — visibly odd, which beats invisible."""
+    return name if name.endswith(PACKAGE_SUFFIX) else f"{name}{PACKAGE_SUFFIX}"
 
 _HEADER = """{name} — payload for the shared agentd engine. GENERATED; do not edit.
 
@@ -53,7 +60,12 @@ class FsPayloadWriter:
 
         if source.is_package:
             package_src = Path(source.package)
-            package = bundles / package_src.name
+            # THE SUFFIX IS THE CONTRACT, not a convention. The engine finds a payload's agent by
+            # globbing `bundles/*.agentpkg`; a file copied in under any other name is simply not
+            # there, and the failure is silent and total — the product installs, the window opens,
+            # and it has no agent. Forcing it here means no caller can get this wrong, whatever
+            # the source file happened to be called.
+            package = bundles / _as_agentpkg(package_src.name)
             shutil.copyfile(package_src, package)
         else:
             # The version is NOT passed through: the packer runs the same precedence chain

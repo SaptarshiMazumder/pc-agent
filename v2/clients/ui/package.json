@@ -1,7 +1,7 @@
 {
   "name": "@agentd/ui",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "The shared agentd renderer — ONE React app, built by both shells (Electron desktop + hosted web). Host capabilities are reached only through src/lib/platform.ts.",
   "type": "module",
   "scripts": {

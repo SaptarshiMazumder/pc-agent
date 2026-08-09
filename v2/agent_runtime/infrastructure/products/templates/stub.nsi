@@ -157,10 +157,36 @@ Function VerifySha256
   ${EndIf}
 FunctionEnd
 
-; Download ${ENGINE_URL} to $1. curl.exe ships with Windows 10 1803+ and handles redirects and
-; large files well; PowerShell is the fallback for older builds.
+; Download ${ENGINE_URL} to $1, WITH A PROGRESS BAR when the compiling NSIS ships the inetc
+; plugin (the platform's build image installs it, digest-pinned — see services/publish/Dockerfile).
+; curl is one opaque blocking instruction, so for the minutes a 250 MB download takes the page's
+; bar sits at zero and the installer reads as hung; inetc reports transfer progress live.
+;
+; GUARDED AT COMPILE TIME, because the plugin is a property of whichever NSIS is compiling: a
+; local `agentd product build` uses electron-builder's cached NSIS, which does not carry inetc,
+; and an unguarded plugin call fails that compile outright. Present -> progress; absent -> the
+; curl chain below, same behaviour as before. Both paths land on the same file and the same
+; sha256 gate, so trust never depends on which downloader ran.
+;
+; curl.exe ships with Windows 10 1803+ and handles redirects and large files well; PowerShell is
+; the fallback for older builds.
+!if /FileExists "${NSISDIR}\Plugins\x86-unicode\INetC.dll"
+  !define HAVE_INETC
+!endif
 Function DownloadEngine
   DetailPrint "Downloading the agentd engine — this happens once; every later agent installs in seconds."
+  !ifdef HAVE_INETC
+    ; /CAPTION names the dialog; /QUESTION guards the cancel button (an aborted download is a
+    ; missing file, which EnsureEngine already refuses on); /END terminates inetc's arg list.
+    inetc::get /CAPTION "Downloading the ${PRODUCT_NAME} runtime" \
+      /QUESTION "Stop downloading? ${PRODUCT_NAME} cannot be installed without it." \
+      "${ENGINE_URL}" "$1" /END
+    Pop $4   ; "OK" or a reason
+    ${If} $4 == "OK"
+      Return
+    ${EndIf}
+    DetailPrint "download failed ($4) — retrying with curl."
+  !endif
   nsExec::ExecToLog "curl.exe -fLsS --retry 3 --retry-delay 2 -o $\"$1$\" $\"${ENGINE_URL}$\""
   Pop $4
   ${If} $4 != 0
@@ -208,10 +234,16 @@ Function EnsureEngine
     ; way to run an attacker's executable, so a failure here is never "carry on anyway".
     Abort "The downloaded engine did not match its expected checksum ($3). Nothing was installed."
   ${EndIf}
-  DetailPrint "Engine verified. Installing it (once)…"
-  ; /S is the engine installer's silent switch. Its own installer is per-user, so no elevation
-  ; prompt appears here either.
-  ExecWait '"$1" /S' $4
+  ; The one long step, and the only one that looks like a hang: the engine is ~250 MB of solid
+  ; LZMA and takes MINUTES to unpack, during which ExecWait blocks and nothing here can move.
+  ; Saying so is the difference between "installing" and "frozen, kill it".
+  DetailPrint "Engine verified. Unpacking it — this takes a few minutes and happens only once."
+  DetailPrint "(The window will look idle while it runs. Please leave it open.)"
+  ; /S silent, /currentuser PER-USER. Without /currentuser a silent electron-builder install
+  ; chooses ALL-USERS whenever it can elevate — it landed in C:\Program Files on the first real
+  ; run — which needs admin, and the runtime's pip plugins then cannot write without it. This
+  ; stub is RequestExecutionLevel user, so a per-user engine is the only mode it can promise.
+  ExecWait '"$1" /S /currentuser' $4
   ${If} $4 != 0
     Abort "The agentd engine installer failed (exit $4). Nothing else was installed."
   ${EndIf}
@@ -240,9 +272,19 @@ Section "Install"
   ; from the payload's app_id ("${APP_ID}"). A .lnk can also carry that id, but setting it needs a
   ; shell-property plugin; without it, PINNING a shortcut before first run may group it under the
   ; engine. Running the app is what settles it.
+  ;
+  ; The icon is OPTIONAL — an agent that declares none ships a payload without one. Naming a file
+  ; that is not there gives the shortcut and the Add/Remove row a blank placeholder icon; an empty
+  ; icon argument makes both fall back to the engine's own, which is the honest default.
+  StrCpy $R0 ""
+  ${If} ${FileExists} "$INSTDIR\icon.ico"
+    StrCpy $R0 "$INSTDIR\icon.ico"
+  ${Else}
+    StrCpy $R0 "$EngineExe"
+  ${EndIf}
   CreateDirectory "$SMPROGRAMS"
-  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}.lnk" "$EngineExe" '--app-dir "$INSTDIR"' "$INSTDIR\icon.ico"
-  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$EngineExe" '--app-dir "$INSTDIR"' "$INSTDIR\icon.ico"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}.lnk" "$EngineExe" '--app-dir "$INSTDIR"' "$R0"
+  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$EngineExe" '--app-dir "$INSTDIR"' "$R0"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
@@ -253,7 +295,7 @@ Section "Install"
   WriteRegStr HKCU "${ARP_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "${ARP_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegStr HKCU "${ARP_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${ARP_KEY}" "DisplayIcon" "$INSTDIR\icon.ico"
+  WriteRegStr HKCU "${ARP_KEY}" "DisplayIcon" "$R0"
   WriteRegStr HKCU "${ARP_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKCU "${ARP_KEY}" "AgentId" "${AGENT_ID}"
   WriteRegDWORD HKCU "${ARP_KEY}" "NoModify" 1

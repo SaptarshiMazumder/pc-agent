@@ -29,6 +29,22 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends nsis ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# The inetc plugin — a REAL progress bar for the stub's engine download. curl works but is one
+# opaque blocking instruction, so the installer's bar sits at zero for minutes and reads as hung;
+# inetc reports transfer progress into a dialog the user can see (stub.nsi uses it when present
+# and falls back to curl when not, so local builds against a plugin-less NSIS still compile).
+#
+# VENDORED (services/publish/nsis-plugins/), not fetched: sourceforge 403s non-browser fetchers
+# (docker's ADD included), and a build that depends on a third party being up is a build that
+# fails the day it matters. The digest is still CHECKED here, because this DLL ends up inside
+# every installer the platform signs — a swapped binary must fail the build, never ship. It is
+# the x86-unicode build from Inetc.zip
+# (sha256 88d9dcffbe967df6ee9f5820f8199a673383e581bf650dbc35b94846314b1a4b), unchanged.
+COPY services/publish/nsis-plugins/x86-unicode/INetC.dll /tmp/INetC.dll
+RUN echo "85e03805f90f72257dd41bfdaa186237218bbb0ec410ad3b6576a88ea11dccb9  /tmp/INetC.dll" | sha256sum -c - \
+ && install -D /tmp/INetC.dll /usr/share/nsis/Plugins/x86-unicode/INetC.dll \
+ && rm /tmp/INetC.dll
+
 # awslambdaric is what makes an ordinary image a Lambda: it speaks the runtime API and calls the
 # handler. boto3 is NOT in this base (unlike the AWS one), so it is an explicit dependency.
 COPY services/publish/requirements.txt /tmp/requirements.txt
@@ -44,14 +60,20 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 COPY agent_runtime ${LAMBDA_TASK_ROOT}/agent_runtime
 COPY services/publish/handler.py ${LAMBDA_TASK_ROOT}/handler.py
 
-# Fail the BUILD, not the first publish, if NSIS is missing or the template did not get copied. A
-# service that starts and then cannot build installers looks healthy while silently publishing
-# bundles no stranger can install.
+# Fail the BUILD, not the first publish, if NSIS is missing, the template did not get copied, or
+# the template no longer compiles WITH THE PLUGIN — the smoke-compile is what pins "installers
+# built here show a download progress bar": inetc is present in this image, so the template's
+# HAVE_INETC branch is the one being compiled, and a missing DLL or a syntax slip in that branch
+# dies here instead of on the first author's publish.
 RUN makensis -VERSION \
- && python -c "import pathlib, sys; \
-p = pathlib.Path('/var/task/agent_runtime/infrastructure/products/templates/stub.nsi'); \
-sys.exit(0) if p.is_file() else sys.exit(f'missing {p}')" \
- && python -c "import handler; print('handler imports OK')"
+ && python -c "import handler; print('handler imports OK')" \
+ && mkdir -p /tmp/smoke/payload && echo smoke > /tmp/smoke/payload/distribution.toml \
+ && makensis -V2 \
+      -DPRODUCT_ID=smoke -DPRODUCT_NAME=Smoke -DPRODUCT_VERSION=0.0.1 -DAGENT_ID=smoke \
+      -DPAYLOAD_DIR=/tmp/smoke/payload -DOUT_FILE=/tmp/smoke/smoke-setup.exe \
+      -DENGINE_URL=https://example.invalid/engine.exe -DENGINE_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
+      /var/task/agent_runtime/infrastructure/products/templates/stub.nsi \
+ && test -s /tmp/smoke/smoke-setup.exe && rm -rf /tmp/smoke
 
 ENV PYTHONUNBUFFERED=1 \
     AGENTD_SERVICE=publish
