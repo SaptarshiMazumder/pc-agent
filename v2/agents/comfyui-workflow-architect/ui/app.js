@@ -213,25 +213,7 @@
       path.className = 'a-path'
       path.textContent = f.rel || ''
       text.append(name, path)
-      const open = document.createElement('button')
-      open.className = 'a-open'
-      open.textContent = 'Open location'
-      open.title = `Reveal ${f.name || 'artifact'} in the file manager`
-      open.addEventListener('click', async () => {
-        open.disabled = true
-        const label = open.textContent
-        open.textContent = 'Opening…'
-        try {
-          await client.invokeTool('open_artifact_location', { path: f.rel || '' })
-          open.textContent = 'Opened'
-          setTimeout(() => { open.textContent = label; open.disabled = false }, 1200)
-        } catch (e) {
-          open.textContent = 'Failed'
-          open.title = (e && e.message) || String(e)
-          setTimeout(() => { open.textContent = label; open.disabled = false }, 1800)
-        }
-      })
-      li.append(icon, text, open)
+      li.append(icon, text)
       list.append(li)
     }
     body.append(list)

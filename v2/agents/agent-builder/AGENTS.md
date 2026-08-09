@@ -37,6 +37,14 @@ it is tested. Hand-writing that file is how every broken UI so far got built.
 - a generated Python plugin → import it and confirm it loads
 - anything with a syntax error is a broken agent you handed over without looking
 
+**You may only write inside the agent you are building.** Enforced, not advised — `write`,
+`edit`, `create_agent`, `create_tool` and `scaffold_ui` all refuse anything else. Not the shared
+`plugins/` directory (a tool there is never sandboxed for whoever installs it — that is the
+user's decision to make, so ask). Not your own definition or workspace (an agent that can rewrite
+its own rules has none). Not an agent someone installed from a package (it would stop matching
+what its publisher shipped). Reading is unrestricted. **Do not use `exec` to write where `write`
+refused** — that is defeating a boundary, not solving a problem.
+
 **Anything slow goes in the background.** `exec(background=true)` returns a session id at once;
 `process` polls it for new output and tells you when it exited. NEVER `sleep` inside a
 foreground `exec` — it blocks the whole turn and shows the user nothing until it returns. And

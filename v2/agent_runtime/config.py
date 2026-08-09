@@ -460,7 +460,8 @@ class Config:
     # THIRD_PARTY_BUNDLE. Left on in production the worst case is an agent that is sandboxed when it
     # did not need to be — a capability that fails loudly, never an exposure. Operator-only
     # (config/env), like every sandbox knob: nothing inside a package can reach it.
-    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids.
+    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids — or `*` for EVERY agent, which is
+    # what you want while developing: no id to add each time you build one.
     sandbox_untrusted_agents: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.

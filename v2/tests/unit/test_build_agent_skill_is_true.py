@@ -139,3 +139,66 @@ def test_the_skill_warns_that_the_payload_is_nested():
     text = SKILL.read_text(encoding="utf-8")
     assert "payload.event" in text or "NOT payload.type" in text
     assert "event: { type" in text or "event: {type" in text
+
+
+# ── the sandbox contract: refused shapes must be DOCUMENTED, not just blocked ──
+# `create_tool` refuses four shapes outright and `package_agent` now blocks a release on them.
+# A refusal the skill never mentions is one the model meets for the first time as a rejection —
+# it burns a turn, then guesses at a replacement. This is the same drift guard as the event
+# fence above: the enforcement and the documentation have to name the same things.
+def test_every_shape_create_tool_refuses_is_explained_in_the_skill():
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "agents" / "agent-builder"
+                            / "plugins" / "agent-authoring"))
+    from agent_authoring.domain.sandbox_contract import blocking_defects
+
+    text = SKILL.read_text(encoding='utf-8').lower()
+    # one source sample per tier-1 pattern -> the (code, what, fix) it produces
+    samples = {
+        "ENV_READ": "import os\nk = os.environ['A']",
+        "NET_IMPORT": "import httpx",
+        "SPAWN": "import subprocess\nsubprocess.Popen(['x'])",
+    }
+    # the phrase the skill must contain for each, in the author's own words
+    explained = {
+        "ENV_READ": ["os.environ", "secrets"],
+        "NET_IMPORT": ["socket", "[sandbox]"],
+        "SPAWN": ["subprocess", "process"],
+    }
+    for code, src in samples.items():
+        assert blocking_defects(src), f"{code} sample no longer trips the contract"
+        missing = [w for w in explained[code] if w.lower() not in text]
+        assert not missing, (
+            f"create_tool refuses {code} but the build-agent skill never mentions {missing} — "
+            f"the model would meet this rule as a rejection instead of a rule"
+        )
+
+
+def test_the_skill_names_the_one_constraint_with_no_workaround():
+    """Network, secrets and models all invert. Spawning does not, and a model that assumes it
+    does will look for a broker call that is not there.
+
+    Checks the RULE, not a worked answer. An earlier version of this asserted the skill named
+    `show_files` — which pinned one specific remedy for one specific case, and the skill duly
+    grew a paragraph naming the exact agent and plugin it came from. The agent then recited it
+    back instead of reasoning, and the test that should have caught that was holding it in
+    place. A skill that answers the question you happen to ask is not teaching."""
+    text = SKILL.read_text(encoding="utf-8").lower()
+    assert "never sandboxed" in text or "not sandboxed" in text, (
+        "say that SHARED tools are the way out, or the constraint reads as 'you cannot do this'"
+    )
+    assert "before writing any private tool" in text, (
+        "the general rule — look at what already exists — is what transfers to the next agent"
+    )
+
+
+def test_the_skill_does_not_pre_answer_with_one_observed_case():
+    """No agent, plugin or filename from a case we happened to hit. A worked example teaches the
+    mechanism; naming the artifact teaches the answer to that artifact and nothing else."""
+    text = SKILL.read_text(encoding="utf-8")
+    for pinned in ("artifact-location", "explorer.exe", "comfyui", "inbox-triage", "weather"):
+        assert pinned.lower() not in text.lower(), (
+            f"the skill names '{pinned}' — that is pre-answering one case, not teaching a rule"
+        )

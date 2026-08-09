@@ -34,6 +34,7 @@ import re
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.write_scope import WriteRefused, check_write
 
 
 def _slug(name: str) -> str:
@@ -248,6 +249,12 @@ class CreateAgentTool(Tool):
                     f"confirm_overwrite=true.",
                     is_error=True,
                 )
+
+        # This tool writes files directly, so it carries the same scope `write` does.
+        try:
+            check_write(d)
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
 
         d.mkdir(parents=True, exist_ok=True)
         # TOML: top-level keys MUST precede any [table], so emit name/model/description/heartbeat
