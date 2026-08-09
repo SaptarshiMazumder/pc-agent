@@ -135,3 +135,48 @@ def test_publisher_key_env_absent_leaves_the_profile_alone(monkeypatch):
     before = load_config().distribution.publisher_key
     monkeypatch.setenv("AGENTD_PUBLISHER_KEY", "   ")  # whitespace is not a key
     assert load_config().distribution.publisher_key == before
+
+
+# ── a checkout runs as a real product, not as "no product" ──────────────────
+# The flavor files are tracked in the repo and baked into installers, and the desktop shell passes
+# the one it was built with via AGENTD_DISTRIBUTION. A daemon started straight from a checkout got
+# none of that and silently ran as the OPEN profile — so everything a profile carries was invisible
+# during development. That is not a cosmetic gap: with no accounts_url, every agent UI was told
+# this build has no sign-in and its login screen rendered nothing, on every developer machine.
+def test_a_checkout_falls_back_to_its_own_tracked_flavor(monkeypatch):
+    from agent_runtime import runtime_paths
+
+    monkeypatch.delenv("AGENTD_DISTRIBUTION", raising=False)
+    tracked = runtime_paths.checkout_distribution_file()
+    assert tracked.is_file(), "the core flavor profile is tracked in the repo"
+    assert runtime_paths.distribution_candidates()[-1] == tracked
+
+
+def test_it_is_the_LAST_resort(monkeypatch):
+    """An installed build's own baked profile must beat a repo file sitting next to it, and both
+    yield to an explicit override. Order is the whole safety property here."""
+    from agent_runtime import runtime_paths
+
+    monkeypatch.setenv("AGENTD_DISTRIBUTION", "/tmp/explicit.toml")
+    candidates = runtime_paths.distribution_candidates()
+    assert candidates[0] == Path("/tmp/explicit.toml")
+    assert candidates.index(runtime_paths.user_home() / "distribution.toml") < len(candidates) - 1
+    assert candidates[-1] == runtime_paths.checkout_distribution_file()
+
+
+def test_a_packaged_build_never_reaches_for_the_repo(monkeypatch):
+    """REPO_ROOT is site-packages/ in a wheel — a path there is not a flavor file, it is nothing."""
+    from agent_runtime import runtime_paths
+
+    monkeypatch.delenv("AGENTD_DISTRIBUTION", raising=False)
+    monkeypatch.setattr(runtime_paths, "is_packaged", lambda: True)
+    assert runtime_paths.checkout_distribution_file() not in runtime_paths.distribution_candidates()
+
+
+def test_the_checkout_profile_carries_the_accounts_url(monkeypatch):
+    """The specific value whose absence produced a login screen that never appeared."""
+    from agent_runtime.config import accounts_api_base, load_config
+
+    monkeypatch.delenv("AGENTD_DISTRIBUTION", raising=False)
+    monkeypatch.delenv("AGENTD_ACCOUNTS_URL", raising=False)
+    assert accounts_api_base(load_config()).startswith("http")

@@ -34,7 +34,8 @@ from agent_runtime.application.run_context import (
     take_run_outcome,
 )
 from agent_runtime.application.services.agent_service import AgentService
-from agent_runtime.config import Config
+from agent_runtime.config import Config, accounts_api_base
+from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
@@ -114,6 +115,20 @@ APP_SCOPED_METHODS = frozenset(
         # EXPOSED_CONFIG_KEYS.
         "config.get",
         "config.set",
+        # SIGN-IN. Identity, not billing — the pair above manages this install's model-key
+        # credential, which is a different question and used to be the same one.
+        #
+        # THE DAEMON MAKES THE CALL. The page hands over an email and a password and is told
+        # whether it worked; the accounts service's address and the session token it returns both
+        # stay in the daemon. Previously the browser POSTed the password itself, which is why
+        # every agent UI had to be told where to send it — and why that address ended up baked
+        # into the product's distribution profile, out of reach of the agent that needed it.
+        #
+        # Absent from PUBLIC_APP_METHODS: a tokenless visitor must not be able to drive password
+        # attempts through somebody else's daemon.
+        "auth.status",
+        "auth.login",
+        "auth.logout",
     }
 )
 
@@ -841,10 +856,7 @@ def _config_file_path():
     default write location when none exists yet. Same resolver load_config uses."""
     from agent_runtime import runtime_paths
 
-    for cand in runtime_paths.config_candidates():
-        if cand and Path(cand).is_file():
-            return Path(cand)
-    return runtime_paths.default_config_write_path()
+    return runtime_paths.active_config_file()
 
 
 def _json_safe(value):
@@ -877,42 +889,16 @@ def _persist_config_patch(patch: dict) -> tuple[bool, str]:
         return False, str(path)
 
 
-def _update_env_file(env_path: Path, keys: dict) -> bool:
-    """Set/clear provider keys in a .env file, preserving all other lines, and apply them
-    LIVE to os.environ (LiteLLM reads keys from the environment at call time, so a set key
-    works without a restart). An empty value removes the key."""
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
-    except OSError:
-        lines = []
-    remaining = dict(keys)
-    out: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            name = stripped.split("=", 1)[0].strip()
-            if name in remaining:
-                val = remaining.pop(name)
-                if val == "":
-                    continue  # delete this line
-                out.append(f"{name}={val}")
-                continue
-        out.append(line)
-    for name, val in remaining.items():
-        if val != "":
-            out.append(f"{name}={val}")
-    try:
-        env_path.parent.mkdir(parents=True, exist_ok=True)
-        env_path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
-    except OSError as e:  # noqa: BLE001
-        log.warning("could not write env file %s: %s", env_path, e)
-        return False
-    for name, val in keys.items():
-        if val == "":
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = val
-    return True
+def _user_env_file() -> EnvFile:
+    """The ``.env`` beside this daemon's config — the one secret channel.
+
+    The rewriting logic used to live here as a module function. It is infrastructure (it writes a
+    file), the gateway had four call sites reaching through it, and the sign-in store needs the
+    same behaviour, so it moved to ``infrastructure/env_file.py``. This is just where the path
+    comes from."""
+    from agent_runtime import runtime_paths
+
+    return EnvFile(runtime_paths.user_env_file())
 
 
 @dataclass
@@ -929,6 +915,7 @@ class Gateway:
     task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
     event_log: object | None = None  # injected; durable per-run event stream, or None
+    sign_in: object | None = None  # injected; SignInService — platform identity (auth.* methods)
     credential_store: object | None = None  # injected; login vault (/connect form writes here)
     connect_tokens: object | None = None  # injected; one-time /connect-link tokens
     safe_to_send_gate: object | None = None  # injected; out-of-band privacy gate on channel replies
@@ -2271,6 +2258,12 @@ class Gateway:
                 payload = await self._marketplace().uninstall(
                     (req.params.get("id") or "").strip(), purge_state=bool(req.params.get("purge"))
                 )
+            elif req.method == "auth.status":
+                payload = self._auth_status()
+            elif req.method == "auth.login":
+                payload = await self._auth_login(req.params)
+            elif req.method == "auth.logout":
+                payload = self._auth_logout()
             elif req.method == "platform.connect":
                 payload = self._platform_connect(req.params)
             elif req.method == "platform.disconnect":
@@ -3796,13 +3789,21 @@ class Gateway:
         return {"ok": True, "id": tid}
 
     def _platform_status(self) -> dict:
-        """Non-secret hosted-platform view: is this install a hosted flavor, is the model
-        proxy live (signed in), and where a client should send sign-in requests. Everything
-        comes from the distribution profile / seam state — nothing hardcoded."""
-        distribution = getattr(self.config, "distribution", None)
+        """Non-secret hosted-platform view: is this install a hosted flavor, and is the model
+        proxy live (i.e. are platform keys paying). Everything comes from resolved config /
+        seam state — nothing hardcoded.
+
+        `accountsUrl` is kept for the DESKTOP SHELL's Cloud switch, which still drives sign-in
+        through platform.connect. An agent's own UI should use `auth.status` instead: it answers
+        "can somebody sign in, and is anybody signed in" without exposing a service address to
+        page JavaScript, and without conflating either answer with billing."""
         proxy_status = model_proxy.status()
         return {
-            "accountsUrl": str(getattr(distribution, "accounts_url", "") or ""),
+            # The RESOLVED url (env > config > profile), not the profile's raw field. Reading the
+            # profile here was half of a two-halves-disagree bug: the accounts seam resolved this
+            # from env + config and ignored the profile, so a URL set in agentd.config.json ran the
+            # server side while every client was told this build had no sign-in.
+            "accountsUrl": accounts_api_base(self.config),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,
@@ -3814,6 +3815,48 @@ class Gateway:
                 **telemetry.upload_status(),
             },
         }
+
+    # ----------------------------------------------------------------- sign-in (identity)
+    # Transport shape only: parse params, call the use case, name the fields the wire uses.
+    # The service owns what signing in MEANS; these three own what it looks like over a socket.
+    #
+    # NO METHOD HERE RETURNS THE SESSION TOKEN. A caller learns whether somebody is signed in and
+    # who they are — never the credential. These pages are served over plain HTTP from the daemon
+    # with no CSP, and a downloaded agent's UI is a stranger's code; the token has no business
+    # being reachable from it.
+
+    def _require_sign_in(self):
+        if self.sign_in is None:
+            raise ValueError("this daemon was built without the sign-in service")
+        return self.sign_in
+
+    def _auth_status(self) -> dict:
+        service = self._require_sign_in()
+        session = service.session()
+        return {
+            # False => no accounts service is configured, so a UI should not offer a login. It is
+            # the ONE legitimate reason to hide the prompt; every other reason this used to hide
+            # (no distribution profile, the model proxy already paying) was about billing.
+            "available": service.available,
+            "signedIn": session.signed_in,
+            "email": session.email,
+            "accountId": session.account_id,
+        }
+
+    async def _auth_login(self, params: dict) -> dict:
+        session = await self._require_sign_in().login(
+            email=str(params.get("email") or ""),
+            password=str(params.get("password") or ""),
+            signup=bool(params.get("signup")),
+        )
+        return {"signedIn": True, "email": session.email, "accountId": session.account_id}
+
+    def _auth_logout(self) -> dict:
+        """Forget who is signed in. Does NOT touch the model-proxy credential: signing out of your
+        account and telling the platform to stop billing you are separate acts, and the second one
+        belongs to platform.disconnect."""
+        self._require_sign_in().logout()
+        return {"signedIn": False, "email": "", "accountId": ""}
 
     def _platform_connect(self, params: dict) -> dict:
         """Bind this install to a platform account: persist the caller's accounts session token
@@ -3829,14 +3872,12 @@ class Gateway:
         token = str(params.get("token") or "").strip()
         if not token:
             raise ValueError("platform.connect requires a token")
-        env_path = _config_file_path().parent / ".env"
-        _update_env_file(
-            env_path,
+        _user_env_file().update(
             {
                 "AGENTD_MODEL_PROXY_KEY": token,
                 # Prevent a stale legacy credential from becoming active after sign-out.
                 "AGENTD_MODEL_GATEWAY_KEY": "",
-            },
+            }
         )
         model_proxy.configure(self.config)
         # Sign-in success/failure is itself a signal we are blind to today: a desktop that cannot
@@ -3852,10 +3893,7 @@ class Gateway:
         (local provider keys) resumes live. No-op on a hosted daemon (nothing local to clear)."""
         if accounts.enabled():
             return self._platform_status()
-        env_path = _config_file_path().parent / ".env"
-        _update_env_file(
-            env_path, {"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""}
-        )
+        _user_env_file().update({"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""})
         model_proxy.configure(self.config)
         # Drop the identity from queued diagnostics too: after sign-out this machine's reports
         # must not still carry the account id of whoever was signed in.
@@ -4111,9 +4149,9 @@ class Gateway:
                     "saved": False,
                     "error": "provider keys are managed by the platform in cloud mode and cannot be changed here",
                 }
-            env_path = _config_file_path().parent / ".env"
-            wrote = _update_env_file(env_path, {k: str(v) for k, v in keys.items()})
-            result["envPath"] = str(env_path)
+            env_file = _user_env_file()
+            wrote = env_file.update({k: str(v) for k, v in keys.items()})
+            result["envPath"] = str(env_file.path)
             result["keysApplied"] = wrote
             result["saved"] = result["saved"] or wrote
 

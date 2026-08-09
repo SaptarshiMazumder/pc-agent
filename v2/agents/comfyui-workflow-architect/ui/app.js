@@ -213,7 +213,31 @@
       path.className = 'a-path'
       path.textContent = f.rel || ''
       text.append(name, path)
-      li.append(icon, text)
+
+      // Open-in-Explorer button — invokes the agent's exec tool
+      const openBtn = document.createElement('button')
+      openBtn.className = 'a-open'
+      openBtn.textContent = 'Open'
+      openBtn.title = 'Open in Explorer'
+      openBtn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        openBtn.disabled = true
+        openBtn.textContent = '…'
+        try {
+          const safeRel = String(f.rel || '').replace(/'/g, "''")
+          const cmd = `powershell -NoProfile -Command "explorer /select,(Resolve-Path '${safeRel}')"`
+          await client.invokeTool('exec', { command: cmd, timeout_sec: 10 })
+        } catch (err) {
+          console.error('open_in_explorer failed:', err)
+          openBtn.textContent = '✗'
+          setTimeout(() => { openBtn.textContent = 'Open'; openBtn.disabled = false }, 1500)
+          return
+        }
+        openBtn.textContent = 'Open'
+        openBtn.disabled = false
+      })
+
+      li.append(icon, text, openBtn)
       list.append(li)
     }
     body.append(list)

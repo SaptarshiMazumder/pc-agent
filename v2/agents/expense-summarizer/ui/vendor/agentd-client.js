@@ -24,6 +24,9 @@ var agentd = (() => {
     AgentdClient: () => AgentdClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
     agentIdFromPage: () => agentIdFromPage,
+    authLogin: () => authLogin,
+    authLogout: () => authLogout,
+    authStatus: () => authStatus,
     fromPage: () => fromPage,
     loadSession: () => loadSession,
     mountSignInGate: () => mountSignInGate,
@@ -247,6 +250,57 @@ var agentd = (() => {
     return client;
   }
 
+  // src/auth.ts
+  var CONNECT_TIMEOUT_MS = 1e4;
+  async function ask(method, params, opts) {
+    if (opts.client) return opts.client.request(method, params);
+    const client = fromPage({ clientName: "agentd-sdk-auth" });
+    try {
+      await opened(client, opts.timeoutMs ?? CONNECT_TIMEOUT_MS);
+      return await client.request(method, params);
+    } finally {
+      client.close();
+    }
+  }
+  function opened(client, timeoutMs) {
+    if (client.connected) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        stop();
+        reject(new Error(`the daemon did not answer within ${timeoutMs}ms`));
+      }, timeoutMs);
+      const stop = client.onStatus((status) => {
+        if (status !== "open") return;
+        clearTimeout(timer);
+        stop();
+        resolve();
+      });
+    });
+  }
+  function shape(raw) {
+    return {
+      available: !!raw?.available,
+      signedIn: !!raw?.signedIn,
+      email: String(raw?.email || ""),
+      accountId: String(raw?.accountId || "")
+    };
+  }
+  async function authStatus(opts = {}) {
+    return shape(await ask("auth.status", {}, opts));
+  }
+  async function authLogin(args, opts = {}) {
+    const raw = await ask(
+      "auth.login",
+      { email: args.email, password: args.password, signup: !!args.signup },
+      opts
+    );
+    return shape({ available: true, ...raw });
+  }
+  async function authLogout(opts = {}) {
+    const raw = await ask("auth.logout", {}, opts);
+    return shape({ available: true, ...raw });
+  }
+
   // src/platform.ts
   var DEFAULTS = {
     timeoutMs: 15e3,
@@ -333,7 +387,7 @@ var agentd = (() => {
   function proxyOf(raw) {
     return raw && (raw.modelProxy || raw.modelGateway) || null;
   }
-  function shape(raw) {
+  function shape2(raw) {
     const accountsUrl = String(raw?.accountsUrl || "").replace(/\/$/, "");
     return {
       accountsUrl,
@@ -344,7 +398,7 @@ var agentd = (() => {
   }
   async function platformStatus(opts = {}) {
     const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
-    return shape(await getJson(daemonUrl("/platform/status", {}, opts), timeoutMs, "platform status"));
+    return shape2(await getJson(daemonUrl("/platform/status", {}, opts), timeoutMs, "platform status"));
   }
   async function platformConnect(session, opts = {}) {
     const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
@@ -352,7 +406,7 @@ var agentd = (() => {
     const delay = opts.confirmDelayMs ?? DEFAULTS.confirmDelayMs;
     const url = daemonUrl("/platform/connect", { session }, opts);
     try {
-      const status = shape(await getJson(url, timeoutMs, "platform connect"));
+      const status = shape2(await getJson(url, timeoutMs, "platform connect"));
       if (status.keysLive) return status;
     } catch (e) {
       const message = String(e?.message || e).toLowerCase();
@@ -493,10 +547,10 @@ var agentd = (() => {
   async function mountSignInGate(options = {}) {
     const allowSignup = options.allowSignup !== false;
     const product = options.product || typeof document !== "undefined" && document.title || "this app";
-    const blurb = options.blurb || "Runs on our servers \u2014 no API keys to set up.";
-    const auth = await resolveAuth(options);
-    if (!auth.needsSignIn) {
-      return { hosted: auth.status.hosted, token: auth.token, signedInHere: false };
+    const blurb = options.blurb || "Sign in to continue.";
+    const state = await authStatus(options);
+    if (!state.available || state.signedIn) {
+      return { ...state, signedInHere: false };
     }
     injectStyle();
     const gate = build(product, blurb, allowSignup);
@@ -515,8 +569,7 @@ var agentd = (() => {
       errorEl.textContent = text;
       errorEl.hidden = !text;
     };
-    const stored = loadSession(options);
-    if (stored?.email) emailEl.value = stored.email;
+    if (state.email) emailEl.value = state.email;
     setTimeout(() => emailEl.focus(), 0);
     toggle?.addEventListener("click", () => {
       signup = !signup;
@@ -539,9 +592,9 @@ var agentd = (() => {
         fail("");
         say(signup ? "Creating your account\u2026" : "Signing in\u2026");
         try {
-          const result = await signIn({ email, password, signup }, options);
+          const result = await authLogin({ email, password, signup }, options);
           gate.remove();
-          resolve({ hosted: true, token: result.token, signedInHere: true });
+          resolve({ ...result, signedInHere: true });
         } catch (e) {
           btn.disabled = false;
           say(blurb);
@@ -551,9 +604,8 @@ var agentd = (() => {
     });
   }
   async function signOutAndGate(options = {}) {
-    signOut(options);
-    const status = await platformStatus(options);
-    if (!status.hosted) return { hosted: false, token: "", signedInHere: false };
+    const state = await authLogout(options);
+    if (!state.available) return { ...state, signedInHere: false };
     return mountSignInGate(options);
   }
   return __toCommonJS(src_exports);

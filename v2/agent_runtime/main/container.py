@@ -552,6 +552,28 @@ def build_task_store(config: Config):
     return SqliteTaskStore(config.state_dir / "autonomy.sqlite")
 
 
+def build_sign_in_service(config: Config):
+    """The platform-identity use case: who is signed in to this install.
+
+    Built unconditionally, even with no accounts service configured. The service answers
+    ``available: False`` in that case, which is a real answer a UI can act on — where returning
+    None here would make "this build has no sign-in" indistinguishable from "the daemon is
+    missing a component", and the agent UI would have to guess.
+    """
+    from agent_runtime import runtime_paths
+    from agent_runtime.application.services.sign_in_service import SignInService
+    from agent_runtime.config import accounts_api_base
+    from agent_runtime.infrastructure.env_file_session_token_store import (
+        EnvFileSessionTokenStore,
+    )
+    from agent_runtime.infrastructure.platform_accounts_http import PlatformAccountsHttp
+
+    return SignInService(
+        accounts=PlatformAccountsHttp(accounts_api_base(config)),
+        tokens=EnvFileSessionTokenStore(runtime_paths.user_env_file()),
+    )
+
+
 def build_mcp_provider(config: Config):
     """Build the MCP client provider (external tool connectors), or None if no
     servers are configured / the `mcp` SDK is absent. The gateway discovers its
@@ -633,6 +655,7 @@ def build_gateway(config: Config) -> Gateway:
         task_store=task_store,
         memory_bank=memory_bank,
         event_log=build_event_log(config),  # durable per-run event stream (None unless enabled)
+        sign_in=build_sign_in_service(config),  # platform identity — the auth.* methods
         credential_store=credential_store,  # /connect form writes here (shared with simple_login)
         connect_tokens=connect_token_store,
         safe_to_send_gate=build_safe_to_send_gate(

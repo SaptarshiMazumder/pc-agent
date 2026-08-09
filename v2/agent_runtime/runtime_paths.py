@@ -101,11 +101,30 @@ def default_config_write_path() -> Path:
     return user_config_file() if is_packaged() else REPO_ROOT / "agentd.config.json"
 
 
+def active_config_file() -> Path:
+    """The ``agentd.config.json`` this daemon actually reads (first existing candidate), or the
+    default write location when none exists yet. Same resolver ``load_config`` uses."""
+    for candidate in config_candidates():
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    return default_config_write_path()
+
+
 def env_files() -> list[Path]:
     """Dotenv files to load (no override): the checkout's .env, then the user's."""
     files = [] if is_packaged() else [REPO_ROOT / ".env"]
     files.append(user_home() / ".env")
     return files
+
+
+def user_env_file() -> Path:
+    """The ``.env`` this daemon WRITES to — beside the config file it read.
+
+    Read and write are not symmetrical here and that is intentional: ``env_files()`` LOADS several
+    (a checkout's, then the user's), while anything written at runtime — a provider key saved from
+    Settings, the session recorded at sign-in — belongs next to the config this install is
+    actually using."""
+    return active_config_file().parent / ".env"
 
 
 # ---- machine-level rendezvous + user-space folders (mode-independent) -------------
@@ -191,15 +210,43 @@ def licenses_dir() -> Path:
     return user_home() / "licenses"
 
 
+#: The flavor a CHECKOUT runs as when nothing else says otherwise. "core" is the open agentd
+#: product — every plugin provisioned, store on, no publisher pinning. Building a different
+#: flavor still overrides it (the desktop shell passes AGENTD_DISTRIBUTION for whatever it was
+#: built as), and so does dropping a file in ~/.agentd.
+CHECKOUT_FLAVOR = "core"
+
+
+def checkout_distribution_file() -> Path:
+    """The tracked flavor profile a checkout should run as."""
+    return REPO_ROOT / "clients" / "desktop" / "flavors" / CHECKOUT_FLAVOR / "distribution.toml"
+
+
 def distribution_candidates() -> list[Path]:
-    """distribution.toml search order: explicit env > user home > packaged flavor file.
-    No file at all => the open profile (everything provisioned, store enabled)."""
+    """distribution.toml search order:
+
+        explicit env  >  user home  >  packaged flavor file  >  the checkout's own flavor
+
+    THE LAST TIER EXISTS BECAUSE A CHECKOUT USED TO HAVE NO PROFILE AT ALL. The flavor files are
+    tracked in the repo and baked into installers, and the desktop shell passes the one it was
+    built with via AGENTD_DISTRIBUTION — but a daemon started straight from a checkout got none of
+    that and silently ran as the open profile. Everything a profile carries was therefore
+    invisible during development: no accounts URL, so agent UIs were told this build had no
+    sign-in and their login screens rendered nothing; no publish target, so publishing reported
+    that this build has no marketplace. All of it correct behaviour for a product that genuinely
+    has no profile, and all of it wrong for a checkout of the product that does.
+
+    LAST, not first: an installed build's own baked profile must always win over a repo file that
+    happens to be sitting next to it, and both yield to an explicit env override.
+    """
     candidates: list[Path] = []
     env = os.environ.get("AGENTD_DISTRIBUTION", "").strip()
     if env:
         candidates.append(Path(env))
     candidates.append(user_home() / "distribution.toml")
     candidates.append(PACKAGED_DATA_DIR / "distribution.toml")
+    if not is_packaged():
+        candidates.append(checkout_distribution_file())
     return candidates
 
 

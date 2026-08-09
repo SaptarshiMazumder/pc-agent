@@ -601,6 +601,9 @@ notifications.list
 notifications.ack
 config.get
 config.set
+auth.status
+auth.login
+auth.logout
 platform.status
 platform.connect
 platform.disconnect
@@ -611,6 +614,22 @@ that is how a shipped agent asks its user for their own API key (BYOK). One limi
 agent installed from a package, `config.get` omits the secret-bearing fields (`envValues`,
 `raw`, `path`) — you can see _that_ a key is set and write a new one, never read one back.
 Everything else — installs, projects, automation — is host-only and denied.
+
+### Sign-in
+
+`await agentd.mountSignInGate()` is the whole thing. It draws a login only when this daemon has
+an accounts service AND nobody is signed in; otherwise it returns immediately, so it is safe to
+call unconditionally in every agent you build.
+
+The `auth.*` methods above are what it uses, and an agent with its own login UI can call them
+directly. **The daemon performs the sign-in** — it holds the accounts address and keeps the
+session token. A page passes an email and a password and is told `{signedIn, email}`; it never
+receives a credential, and it never needs to be told where the accounts service lives.
+
+Do not confuse these with `platform.*`. Those are the **billing** switch: they decide whether
+model calls run on platform keys or on the user's own. Signing in does not change who pays, and
+an agent on the user's own API keys can still have users who log in. Treating those two as one
+question is what previously made a login impossible on a local install.
 
 Plain HTML/CSS/JS needs no build. For React, build into `ui/` with Vite using
 `base: './'` (an absolute base resolves outside `/apps/<id>/` and 404s).
