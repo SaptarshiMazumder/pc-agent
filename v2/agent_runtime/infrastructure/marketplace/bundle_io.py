@@ -170,6 +170,14 @@ def _manifest_toml(manifest: BundleManifest) -> str:
         f"agentd_compat = {_toml_str(manifest.agentd_compat)}",
         f"entitlement = {_toml_str(manifest.entitlement)}",
         f"publisher = {_toml_str(manifest.publisher)}",
+        f"icon = {_toml_str(manifest.icon)}",
+        # Always written, both keys, even at their defaults: the publish service re-reads THIS
+        # copy (not the author's file), so an omitted key here would silently reset an author's
+        # choice on every pack.
+        "",
+        "[bundle.delivery]",
+        f"web = {str(manifest.delivery.web).lower()}",
+        f"exe = {str(manifest.delivery.exe).lower()}",
     ]
     for dep in manifest.plugins:
         lines += [

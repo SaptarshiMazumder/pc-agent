@@ -79,6 +79,14 @@ public = false                     # hosted daemons only: allow tokenless visito
 public_tools = ["lookup_entry"]    # what those visitors may invoke (never chat)
 # icon = "icon.ico"                # read by the INSTALLER build only, not the daemon
 
+# ---- how this agent reaches people once published (omit for the default: exe only) ----
+# ASK the user which they want before publishing an app agent — this is a product decision.
+[delivery]
+web = false                        # true = the marketplace card gets "Open in browser": the
+                                   # hosted platform serves the app at /apps/<id>/, nothing to
+                                   # install. Requires [app]. Opt-in, never assumed.
+exe = true                         # false = skip the standalone Windows installer
+
 # ---- tool scope (omit BOTH keys to grant the full catalog) ----
 [tools]
 allow = ["read", "write", "exec", "process", "report_outcome"]

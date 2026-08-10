@@ -68,12 +68,15 @@ class PublishIntakeService:
         product_service=None,
         max_bytes: int = MAX_PACKAGE_BYTES,
         parker=None,
+        web_host: str = "",
     ):
         """:param product_service: a BuildProductService. None => publish bundles only, no
         installers, reported as a warning on every publish rather than silently.
         :param parker: an IntakeParker. None => a pending creator's upload is dropped and they
         must publish again after admission — the degraded pre-parking behaviour, kept working so
-        a deployment without private storage still functions."""
+        a deployment without private storage still functions.
+        :param web_host: the hosted deployment's base url, stamped into the index so stores can
+        render Open-in-browser links. "" => never stamped (a deployment with no web plane)."""
         self._auth = authenticator
         self._creators = creators
         self._signer = signer
@@ -82,6 +85,7 @@ class PublishIntakeService:
         self._products = product_service
         self._max_bytes = max_bytes
         self._parker = parker
+        self._web_host = web_host.strip()
 
     # ================================================================== entry point
     def submit(self, submission: Submission) -> IntakeResult:
@@ -211,6 +215,17 @@ class PublishIntakeService:
         except BundleError as e:
             return IntakeResult(BAD_REQUEST, str(e), creator_id=creator.id)
 
+        # The packer refuses this too, but an upload need not have come from our packer — and a
+        # web listing whose /apps/<id> has nothing to serve is a 404 a VISITOR sees, weeks after
+        # the author could have fixed it. Same rule, enforced where the bytes actually arrive.
+        if manifest.delivery.web and not self._has_app_table(package):
+            return IntakeResult(
+                BAD_REQUEST,
+                f"'{manifest.id}' declares web delivery but its agent.toml has no [app] table — "
+                "a web agent is its app UI. Add [app] (title/entry) or drop `web = true`.",
+                creator_id=creator.id,
+            )
+
         claimed = (submission.bundle_id or "").strip()
         if claimed and claimed != manifest.id:
             # A mismatch is how an id-squatting attempt would look, and it is also a plain client
@@ -281,7 +296,12 @@ class PublishIntakeService:
                 creator_id=creator.id,
             )
 
-        installer, warnings = self._build_installer(package, work)
+        if manifest.delivery.exe:
+            installer, warnings = self._build_installer(package, work)
+        else:
+            # The author opted out, so the absence of an installer is the product working — not
+            # the degraded-publish warning the missing-toolchain path emits.
+            installer, warnings = None, []
 
         # ---- artifacts, then the index. Under the lock, because the index is read-modify-write.
         with self._lock:
@@ -306,10 +326,15 @@ class PublishIntakeService:
             self._store.write_index(self._merge(index, entry))
 
         log.info("published %s %s for %s", manifest.id, manifest.version, creator.id)
+        if installer is not None:
+            tail = ""
+        elif not manifest.delivery.exe:
+            tail = " (no installer — this bundle does not offer exe delivery)"
+        else:
+            tail = " (bundle only — no installer, see warnings)"
         return IntakeResult(
             OK,
-            f"published {manifest.id} {manifest.version}."
-            + ("" if installer else " (bundle only — no installer, see warnings)"),
+            f"published {manifest.id} {manifest.version}." + tail,
             bundle_id=manifest.id,
             version=manifest.version,
             url=url,
@@ -319,6 +344,22 @@ class PublishIntakeService:
         )
 
     # ================================================================== helpers
+    @staticmethod
+    def _has_app_table(package: Path) -> bool:
+        """Does the packed agent declare [app]? Unreadable or missing agent.toml counts as no —
+        this gates a promise to VISITORS, so it fails closed."""
+        import tomllib
+
+        from agent_runtime.infrastructure.marketplace import bundle_io
+
+        raw = bundle_io.read_agent_file(package, "agent.toml")
+        if raw is None:
+            return False
+        try:
+            return isinstance(tomllib.loads(raw.decode("utf-8")).get("app"), dict)
+        except (ValueError, UnicodeDecodeError):
+            return False
+
     def _build_installer(self, package: Path, work: Path) -> tuple[Path | None, list[str]]:
         """The per-agent stub, or None with the reasons. Never raises — see the module docstring."""
         if self._products is None:
@@ -356,6 +397,8 @@ class PublishIntakeService:
             # that key — never against the pinned root key, which signs only the roster.
             "publisher_id": creator.id,
             "sig": self._signer.sign(creator.id, digest.encode("ascii")),
+            # The store renders exactly the doors the author opened (Open / Download / Install).
+            "delivery": {"web": manifest.delivery.web, "exe": manifest.delivery.exe},
         }
 
     def _installer_row(self, installer: Path, data: bytes, creator) -> dict:
@@ -375,8 +418,7 @@ class PublishIntakeService:
             "sig": self._signer.sign(creator.id, digest.encode("ascii")),
         }
 
-    @staticmethod
-    def _merge(index: dict, entry: dict) -> dict:
+    def _merge(self, index: dict, entry: dict) -> dict:
         """This entry replaces its own id; every other creator's rows are carried EXACTLY.
 
         Never a rebuild. Another creator's bundle is signed with a key this service does not have
@@ -384,6 +426,10 @@ class PublishIntakeService:
         from a directory holding one new package is how a whole marketplace gets unpublished.
         """
         merged = dict(index)
+        if self._web_host:
+            # Refreshed on every publish (not setdefault): when the deployment moves, the next
+            # publish heals every store's Open links without an operator index edit.
+            merged["web"] = {"host": self._web_host}
         rows = [
             b
             for b in (index.get("bundles") or [])

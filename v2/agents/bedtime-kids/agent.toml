@@ -1,0 +1,34 @@
+# bedtime-kids — tells bedtime stories for children based on a theme. Pure chat:
+# no files, no tools, all the intelligence is IDENTITY.md. The sample WEB-DELIVERED
+# agent: published with `web = true`, it needs no installer — the store card links
+# straight to the hosted app at /apps/bedtime-kids/.
+
+name = "Bedtime Kids"
+version = "1.0.1"
+
+# DISPLAY fields are TOP-LEVEL keys, NOT part of [app] (see expense-summarizer for why).
+description = "Tells gentle bedtime stories for kids — pick a theme, get a calm story that winds down to sleep."
+tagline = "stories · sleep"
+color = "#5B4B8A"
+
+# Quick prompts a client shows on an empty chat (max 3 are kept).
+suggestions = [
+  "A sleepy dragon who guards a lighthouse",
+  "Two rabbits camping under the stars",
+  "A story about my stuffed bear's day",
+]
+
+# Its OWN app UI (ui/), served by the daemon at /apps/bedtime-kids/.
+[app]
+title = "Bedtime Kids"
+mode = "window"
+
+# How this agent reaches people once published: browser only, no installer.
+[delivery]
+web = true
+exe = false
+
+# Tight scope: storytelling needs nothing from the shared catalog. report_outcome is
+# the one shared tool any scheduled run would use to declare done/blocked/failed.
+[tools]
+allow = ["report_outcome"]

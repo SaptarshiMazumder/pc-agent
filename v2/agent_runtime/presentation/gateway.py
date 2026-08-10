@@ -162,6 +162,12 @@ PUBLIC_APP_METHODS = frozenset(
 MAX_PUBLIC_CONNECTIONS = 256  # FD-exhaustion guard
 PUBLIC_INVOKE_CONCURRENCY = 8  # global in-flight cap for public tools.invoke
 
+# Hosted web delivery (`GET /apps/<id>` for an agent this daemon has not installed): the store
+# printed `<web host>/apps/<id>/` on every web-delivered bundle's card, so the FIRST VISITOR is
+# the install trigger. Both throttles bound what a stranger's URL bar can make the daemon do:
+WEB_SYNC_RETRY_SECONDS = 60  # a failed visitor-triggered sync answers with its error this long
+WEB_SYNC_REFRESH_SECONDS = 300  # how often an entry-page open re-checks the registry for updates
+
 
 def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
     """What an agent-scoped app connection may receive (docs/PROTOCOL.md §7): its OWN agent's
@@ -951,6 +957,10 @@ class Gateway:
     # each account composes the service against its OWN agents/plugins/state dirs. Empty on
     # desktop, where account_id() is never set. See _marketplace().
     account_marketplaces: dict = field(default_factory=dict)
+    # agent id -> {"task", "error", "at"} for visitor-triggered web-app installs/updates
+    # (hosted only; see _serve_app / _web_app_bootstrap). Installs land in the SHARED catalogue:
+    # /apps static serving is unauthenticated, so one copy serves every visitor.
+    web_app_syncs: dict = field(default_factory=dict)
     clients: set[ServerConnection] = field(default_factory=set)
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
     # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
@@ -1812,7 +1822,10 @@ class Gateway:
         try:
             spec = self.registry.get(agent_id)
         except KeyError:
-            return deny(404, "Not Found")
+            # Hosted: an unknown id may be a marketplace URL doing its job — a web-delivered
+            # bundle whose first visitor just arrived. None => not this daemon's business.
+            bootstrap = self._web_app_bootstrap(agent_id)
+            return bootstrap if bootstrap is not None else deny(404, "Not Found")
         app = getattr(spec, "app", None)
         base = getattr(spec, "dir", None)
         if not app or base is None:
@@ -1840,12 +1853,117 @@ class Gateway:
             if target.suffix:  # a missing real asset is a 404; a route path falls back
                 return deny(404, "Not Found")
             target = entry  # SPA fallback: extensionless path -> the app entry
+        if target == entry:
+            # An entry-page open is the natural heartbeat for keeping a hosted web app current:
+            # no cron, no watcher — an agent nobody visits is an agent nobody needs updated.
+            self._web_app_refresh(agent_id)
         body = target.read_bytes()
         hdrs = Headers()
         hdrs["Content-Type"] = guess_mime(target)
         hdrs["Content-Length"] = str(len(body))
         hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
         return HttpResponse(200, "OK", hdrs, body)
+
+    # ---------------------------------------------------------------- web delivery (hosted)
+
+    def _web_app_bootstrap(self, agent_id: str) -> HttpResponse | None:
+        """`/apps/<id>` for an agent this daemon does not have. Hosted deployments treat that as
+        install-on-first-open; everywhere else it stays the 404 it always was (None).
+
+        The sync runs as a TASK because this hook is synchronous handshake code — so the visitor
+        gets an immediate self-refreshing page, and the download/verify/unpack happens on the
+        loop. Whether the bundle may run here at all is decided by `sync_web_app`, which refuses
+        anything whose author did not declare web delivery — a URL guess must not conscript this
+        host into running arbitrary published bundles."""
+        if not getattr(self.config, "hosted", False):
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # no loop => nothing can be scheduled (unit tests, CLI paths)
+            return None
+        state = self.web_app_syncs.get(agent_id) or {}
+        if state.get("task") is None:
+            error = str(state.get("error") or "")
+            if error and time.monotonic() - float(state.get("at") or 0.0) < WEB_SYNC_RETRY_SECONDS:
+                # The error stands for a while instead of retrying per request: each retry is a
+                # registry fetch, and this path is reachable by anyone with a URL bar.
+                body = error.encode("utf-8")
+                return HttpResponse(
+                    404,
+                    "Not Found",
+                    Headers(
+                        {
+                            "Content-Type": "text/plain; charset=utf-8",
+                            "Content-Length": str(len(body)),
+                            "Cache-Control": "no-store",
+                        }
+                    ),
+                    body,
+                )
+            self._web_app_sync(agent_id, loop)
+        import html
+
+        page = (
+            "<!doctype html><meta charset='utf-8'><meta http-equiv='refresh' content='2'>"
+            "<title>Setting up…</title>"
+            "<body style='font-family:system-ui;display:grid;place-items:center;"
+            "height:100vh;margin:0'>"
+            f"<p>Setting up <b>{html.escape(agent_id)}</b>… this page refreshes itself.</p>"
+        ).encode()
+        return HttpResponse(
+            200,
+            "OK",
+            Headers(
+                {
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Content-Length": str(len(page)),
+                    "Cache-Control": "no-store",
+                }
+            ),
+            page,
+        )
+
+    def _web_app_refresh(self, agent_id: str) -> None:
+        """Throttled update check for an agent THIS daemon installed from the marketplace.
+        Curated first-party agents are deliberately skipped — they ship with the deployment and
+        are not the marketplace's to touch."""
+        if not getattr(self.config, "hosted", False):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        market = self._marketplace()
+        if not (hasattr(market, "has") and market.has(agent_id)):
+            return
+        state = self.web_app_syncs.get(agent_id) or {}
+        if state.get("task") is not None:
+            return
+        if time.monotonic() - float(state.get("at") or 0.0) < WEB_SYNC_REFRESH_SECONDS:
+            return
+        self._web_app_sync(agent_id, loop)
+
+    def _web_app_sync(self, agent_id: str, loop) -> None:
+        """One in-flight sync per agent id. Outcome (success or the user-renderable error) lands
+        in web_app_syncs for the next request to read."""
+
+        async def sync() -> None:
+            try:
+                await self._marketplace().sync_web_app(agent_id)
+                self.web_app_syncs[agent_id] = {"task": None, "error": "", "at": time.monotonic()}
+            except Exception as e:  # noqa: BLE001 — the error IS the answer the next open serves
+                log.warning("web app sync for %s failed: %s", agent_id, e)
+                self.web_app_syncs[agent_id] = {
+                    "task": None,
+                    "error": str(e),
+                    "at": time.monotonic(),
+                }
+
+        self.web_app_syncs[agent_id] = {
+            "task": loop.create_task(sync()),
+            "error": "",
+            "at": time.monotonic(),
+        }
 
     def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""

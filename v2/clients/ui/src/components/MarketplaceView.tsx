@@ -1,4 +1,4 @@
-import { RefreshCw, Check, Download } from 'lucide-react'
+import { RefreshCw, Check, Download, Globe } from 'lucide-react'
 import { useState } from 'react'
 
 import { glyph } from '../lib/glyphs'
@@ -10,16 +10,20 @@ import SearchBox from './SearchBox'
 /**
  * The Marketplace (formerly "Store").
  *
- * TWO WAYS TO GET AN AGENT, and they are not the same thing:
+ * THREE WAYS TO GET AN AGENT, and they are not the same thing:
  *
  *   Install   — the daemon this client is attached to unpacks the .agentpkg. Requires a daemon,
  *               so it only ever reaches someone who already runs the product.
- *   Download  — a standalone installer for your own machine. This is the one that works for a
- *               person who has nothing installed yet, which is most of the market.
+ *   Download  — a standalone installer for your own machine. Works for a person who has nothing
+ *               installed yet, which is most of the market.
+ *   Open      — the agent runs on the HOSTED deployment; the button is just a link. Works for a
+ *               person who will never install anything, which is most of the internet.
  *
  * Download appears only when the publisher actually shipped an installer for the viewer's OS
- * (`installers` on the catalog row). Nothing here knows which agents have one — the registry
- * index says, and an agent that ships none simply has no button.
+ * (`installers` on the catalog row); Open only when the author declared web delivery and the
+ * registry names a hosted deployment (`webUrl`, joined daemon-side). Nothing here knows which
+ * agents offer what — the registry index says, and a card renders exactly the doors its author
+ * opened.
  *
  * WHERE AN INSTALL LANDS depends on which daemon this client is attached to, and the two answers
  * are different enough that saying "this app" for both would be a lie.
@@ -35,8 +39,8 @@ import SearchBox from './SearchBox'
  * the accurate reading ("this server", shared by whoever is connected to it).
  */
 const SUBTITLE = isDesktop
-  ? 'Install agents into this app — live, no restart. Or download a standalone installer.'
-  : 'Install agents on this server — live, no restart. Installs are shared by everyone using it. Download gives you a standalone app for your own machine.'
+  ? 'Install agents into this app — live, no restart. Or download a standalone installer, or open one in your browser.'
+  : 'Install agents here — live, no restart. Download gives you a standalone app for your own machine; Open runs one in your browser with nothing to install.'
 
 const OS_LABEL: Record<string, string> = { win: 'Windows', mac: 'macOS', linux: 'Linux' }
 
@@ -102,6 +106,18 @@ export default function MarketplaceView() {
                     <button className="btn primary" disabled={!b.compatible} onClick={() => void installBundle(b.id)} title={b.compatible ? `Install ${b.name} ${b.version} ${isDesktop ? 'into this app' : 'on this server'}` : `${b.name} needs a newer agentd than this one`}>
                       {b.updateAvailable ? `Update to ${b.version}` : paid ? `Get — ${b.price}` : 'Install'}
                     </button>
+                  )}
+                  {b.webUrl && (
+                    <a
+                      className="btn ghost"
+                      href={b.webUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Open ${b.name} in your browser — runs hosted, nothing to install`}
+                    >
+                      <Globe size={15} />
+                      Open in browser
+                    </a>
                   )}
                   {installer && (
                     <a

@@ -97,6 +97,9 @@ def build_services():
         lock=lock,
         product_service=_product_service(store),
         parker=parker,
+        # The hosted web deployment's base url — stamped into the index so every store can
+        # render Open-in-browser links for web-delivered agents. Unset => no links, everywhere.
+        web_host=os.environ.get("WEB_HOST", ""),
     )
     admin = RosterAdminService(
         authenticator=authenticator,

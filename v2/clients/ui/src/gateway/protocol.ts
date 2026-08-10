@@ -133,6 +133,11 @@ export interface CatalogBundle {
   icon?: string
   /** absent when the publisher shipped no installer for this bundle */
   installers?: InstallerAsset[]
+  /** which doors the author opened (older daemons omit it: exe on, web off) */
+  delivery?: { web?: boolean; exe?: boolean }
+  /** finished Open-in-browser link — present only when the author declared web delivery AND
+   *  the registry names a hosted deployment. The daemon joins the two; never build this here. */
+  webUrl?: string
 }
 
 export interface InstalledBundle {

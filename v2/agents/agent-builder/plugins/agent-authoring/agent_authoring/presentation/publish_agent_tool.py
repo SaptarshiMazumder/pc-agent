@@ -42,7 +42,10 @@ class PublishAgentTool(Tool):
         "would be sent and sends nothing. To publish for real, pass BOTH dry_run=false and "
         "confirm=true. VALIDATES FIRST and refuses on errors. Bump `version` in agent.toml before "
         "publishing a change — installs supersede BY VERSION, so republishing the same number "
-        "reaches nobody."
+        "reaches nobody. DELIVERY: agent.toml's [delivery] table decides how the published agent "
+        "reaches people — `web = true` lists an Open-in-browser link (runs on the hosted platform, "
+        "requires [app]); `exe = false` skips the standalone installer. Ask the user which they "
+        "want before publishing an app agent."
     )
     parameters = {
         "type": "object",

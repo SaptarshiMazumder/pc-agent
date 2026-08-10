@@ -15,7 +15,12 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from agent_runtime.domain.bundle import BundleManifest, PluginDep, parse_bundle_manifest
+from agent_runtime.domain.bundle import (
+    BundleManifest,
+    DeliveryModes,
+    PluginDep,
+    parse_bundle_manifest,
+)
 
 
 def load_bundle_toml(agent_dir: Path) -> dict:
@@ -43,6 +48,29 @@ def first(*values) -> str:
         if s:
             return s
     return ""
+
+
+def _delivery(declared: dict, agent_toml: dict) -> DeliveryModes:
+    """Same precedence as every identity field: bundle.toml > agent.toml > defaults.
+
+    The author-facing spelling is a table with the same keys in either file:
+
+        [delivery]          # agent.toml (top level)
+        web = true
+        exe = false
+
+        [bundle.delivery]   # bundle.toml (publisher override)
+
+    A whole-table override, not per-key: a publisher writing [bundle.delivery] is stating the
+    modes, and inheriting an unmentioned key from agent.toml would make their statement mean
+    different things for different agents.
+    """
+    for source in (declared.get("delivery"), agent_toml.get("delivery")):
+        if isinstance(source, dict):
+            return DeliveryModes(
+                web=bool(source.get("web", False)), exe=bool(source.get("exe", True))
+            )
+    return DeliveryModes()
 
 
 def pack_agent_dir(
@@ -109,6 +137,15 @@ def pack_agent_dir(
                 )
             vendored_dirs[dep.id] = source_dir
 
+    delivery = _delivery(declared, agent_toml)
+    if delivery.web and not isinstance(agent_toml.get("app"), dict):
+        # Refused at PACK time, where the author is looking, rather than at publish or — worst —
+        # as a hosted 404 a visitor sees. An agent with no [app] has no UI to serve at /apps/<id>.
+        raise ValueError(
+            f"'{bundle_id}' declares web delivery but its agent.toml has no [app] table — "
+            "a web agent is its app UI. Add [app] (title/entry) or drop `web = true`."
+        )
+
     manifest = BundleManifest(
         id=bundle_id,
         name=first(declared.get("name"), agent_toml.get("name"), bundle_id),
@@ -119,5 +156,6 @@ def pack_agent_dir(
         publisher=str(declared.get("publisher") or ""),
         icon=str(declared.get("icon") or ""),
         plugins=tuple(deps),
+        delivery=delivery,
     )
     return bundle_io.pack_bundle(agent_dir, out_dir, manifest, vendored_dirs)

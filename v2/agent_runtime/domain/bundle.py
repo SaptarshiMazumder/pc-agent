@@ -22,6 +22,10 @@ bundle.toml shape:
     publisher = "agentd"
     icon = "sparkles"                # optional store-card glyph name ("" => client default)
 
+    [bundle.delivery]                # optional: HOW this agent reaches people (see DeliveryModes)
+    web = false                      # listed with an Open-in-browser link (requires [app] in agent.toml)
+    exe = true                       # a per-agent installer is built at publish
+
     [[bundle.plugins]]               # plugin dependencies, any mix of sources
     id = "figures"
     source = "vendored"              # "vendored" (in the zip) | "pip" | "builtin"
@@ -61,6 +65,33 @@ class PluginDep:
 
 
 @dataclass(frozen=True)
+class DeliveryModes:
+    """HOW an agent reaches people — the author's choice, carried from bundle.toml to the store.
+
+    Installing into a running agentd is not listed here because it is not optional: a bundle IS
+    the thing a daemon installs. These are the two EXTRA doors:
+
+      * ``web`` — the hosted deployment serves the agent's app at ``/apps/<id>`` and the store
+        shows **Open in browser**. Opt-in, never inferred: a web agent runs on the platform's
+        infrastructure, so silence must mean "no".
+      * ``exe`` — the publish service compiles a per-agent installer and the store shows
+        **Download**. Defaults on because it was the only behaviour before this field existed,
+        and every already-published bundle must keep meaning what it meant.
+    """
+
+    web: bool = False
+    exe: bool = True
+
+
+def _parse_delivery(raw) -> DeliveryModes:
+    """Tolerant like ``installers``: this key postdates shipped clients, so junk in it must
+    degrade to the defaults rather than blank a store."""
+    if not isinstance(raw, dict):
+        return DeliveryModes()
+    return DeliveryModes(web=bool(raw.get("web", False)), exe=bool(raw.get("exe", True)))
+
+
+@dataclass(frozen=True)
 class BundleManifest:
     id: str
     name: str
@@ -71,6 +102,7 @@ class BundleManifest:
     publisher: str = ""
     icon: str = ""  # store-card glyph name ("" => client default)
     plugins: tuple[PluginDep, ...] = ()
+    delivery: DeliveryModes = DeliveryModes()
 
 
 @dataclass(frozen=True)
@@ -115,6 +147,7 @@ class RegistryEntry:
     sig: str = ""  # base64 ed25519 over the sha256 digest (M7)
     publisher_id: str = ""  # schema 2: WHOSE key signed it (a roster id). "" => the index's own key
     installers: tuple[InstallerAsset, ...] = ()  # standalone downloads, one per platform
+    delivery: DeliveryModes = DeliveryModes()  # which store actions this bundle offers
 
 
 def _parse_installers(raw) -> tuple[InstallerAsset, ...]:
@@ -212,7 +245,10 @@ def roster_signing_payload(
         "issued": issued or "",
         "revoked": sorted(r for r in revoked if r),
         "roster": sorted(
-            ({"added": e.added or "", "id": e.id, "key": e.key, "name": e.name or ""} for e in entries),
+            (
+                {"added": e.added or "", "id": e.id, "key": e.key, "name": e.name or ""}
+                for e in entries
+            ),
             key=lambda e: e["id"],
         ),
     }
@@ -291,6 +327,12 @@ class RegistryIndex:
     schema: int = 1
     publishers: PublisherRoster | None = None  # schema 2 only
     engines: tuple[EngineRef, ...] = ()  # the shared engine builds a stub can install
+    # Where web-delivered agents run: the hosted deployment's base url ("" => none known, so no
+    # Open-in-browser links anywhere). Registry-level like `engine`, and for the same reason —
+    # the deployment moves independently of every published bundle, and clients (including the
+    # DESKTOP store, which is not that deployment) learn it from here rather than being built
+    # with it.
+    web_host: str = ""
 
     def engine_for(self, platform: str) -> EngineRef | None:
         want = (platform or "").strip().lower()
@@ -358,6 +400,7 @@ def parse_bundle_manifest(data: dict) -> BundleManifest:
         publisher=str(bundle.get("publisher") or ""),
         icon=str(bundle.get("icon") or ""),
         plugins=tuple(deps),
+        delivery=_parse_delivery(bundle.get("delivery")),
     )
 
 
@@ -403,6 +446,7 @@ def parse_registry_index(data: dict) -> RegistryIndex:
                 sig=str(raw.get("sig") or ""),
                 publisher_id=str(raw.get("publisher_id") or ""),
                 installers=_parse_installers(raw.get("installers")),
+                delivery=_parse_delivery(raw.get("delivery")),
             )
         )
     publishers = None
@@ -416,6 +460,9 @@ def parse_registry_index(data: dict) -> RegistryIndex:
         schema=schema,
         publishers=publishers,
         engines=_parse_engines(data.get("engine")),
+        web_host=str((data.get("web") or {}).get("host") or "")
+        if isinstance(data.get("web"), dict)
+        else "",
     )
 
 

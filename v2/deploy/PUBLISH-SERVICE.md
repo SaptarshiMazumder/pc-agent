@@ -261,6 +261,20 @@ Download the installer URL in a browser, on a machine with **no agentd**. Run it
 your own dev machine? Clean it first — **[CLEAN-MACHINE.md](CLEAN-MACHINE.md)** — or the app will
 quietly attach to your dev daemon and the test proves nothing.)
 
+**Or don't download anything.** An author whose agent.toml declares web delivery:
+
+```toml
+[delivery]
+web = true        # store card gains "Open in browser" (requires [app])
+exe = false       # optional: skip the installer entirely
+```
+
+publishes exactly the same way, and the store card links `<web host>/apps/<id>/` — the hosted
+daemon installs the bundle from the registry on the FIRST visit (signature-verified, sandboxed,
+web-opt-in only) and serves the app to every visitor after that. The link host comes from the
+index's `web.host`, stamped by this service from its `WEB_HOST` env (terraform derives it from
+the daemon's public url; nothing to configure by hand).
+
 **Success:** it fetches the engine once, verifies its sha256, installs it silently, and puts the
 agent's own name in the Start menu. Clicking it opens the author's UI.
 

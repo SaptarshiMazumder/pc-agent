@@ -74,7 +74,7 @@ class MarketplaceService:
             have = installed.get(entry.id)
             bundles.append(
                 {
-                    **_entry_dict(entry, resolve),
+                    **_entry_dict(entry, resolve, web_host=index.web_host),
                     "compatible": compat_ok(self._version, entry.agentd_compat),
                     "installed": have is not None,
                     "installedVersion": have.version if have else "",
@@ -150,6 +150,32 @@ class MarketplaceService:
             "reload": reload_result,
         }
 
+    def has(self, bundle_id: str) -> bool:
+        """Did THIS service's ledger install the bundle? Distinguishes a marketplace install
+        from a curated agent that merely shares the directory."""
+        return self._store.get(bundle_id) is not None
+
+    async def sync_web_app(self, bundle_id: str) -> dict:
+        """Make the hosted copy of a WEB-DELIVERED bundle current: install when missing, update
+        when the registry is newer, no-op when current.
+
+        This is the door a visitor's `GET /apps/<id>` opens, which is why it re-checks the
+        author's opt-in instead of trusting the caller: web delivery is what authorizes running
+        an agent on the PLATFORM's infrastructure, and a bare `install` here would let any URL
+        guess conscript the host into running any published bundle."""
+        if self._registry is None:
+            raise BundleError("no registry configured")
+        index = await self._registry.fetch_index()
+        entry = next((e for e in index.bundles if e.id == bundle_id), None)
+        if entry is None:
+            raise BundleError(f"'{bundle_id}' is not in the registry")
+        if not entry.delivery.web:
+            raise BundleError(f"'{bundle_id}' does not offer web delivery")
+        have = self._store.get(bundle_id)
+        if have is not None and not is_update(have.version, entry.version):
+            return {"installed": True, "id": bundle_id, "version": have.version, "current": True}
+        return await self.install(bundle_id)
+
     async def uninstall(self, bundle_id: str, purge_state: bool = False) -> dict:
         installed = self._store.get(bundle_id)
         if installed is None:
@@ -191,13 +217,15 @@ class MarketplaceService:
             log.debug("marketplace progress emit failed", exc_info=True)
 
 
-def _entry_dict(entry: RegistryEntry, resolve=None) -> dict:
+def _entry_dict(entry: RegistryEntry, resolve=None, web_host: str = "") -> dict:
     """One catalog row. `resolve` turns a registry-relative url into an absolute one.
 
     Installer urls are resolved HERE rather than in the client because the registry base url is
     the daemon's knowledge (config / distribution profile), and a client that had to join them
     itself would need the base url shipped to it just to build a link — one more thing to keep in
     sync for no gain. What the client receives is a url it can hand straight to the browser.
+    `webUrl` follows the same rule: the hosted deployment's address is registry knowledge
+    (index-level, like `engine`), so the client gets a finished link or nothing.
     """
     out = {
         "id": entry.id,
@@ -209,7 +237,10 @@ def _entry_dict(entry: RegistryEntry, resolve=None) -> dict:
         "entitlement": entry.entitlement,
         "size": entry.size,
         "icon": entry.icon,
+        "delivery": {"web": entry.delivery.web, "exe": entry.delivery.exe},
     }
+    if entry.delivery.web and web_host:
+        out["webUrl"] = f"{web_host.rstrip('/')}/apps/{entry.id}/"
     if entry.installers:
         out["installers"] = [
             {
