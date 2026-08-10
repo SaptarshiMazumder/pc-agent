@@ -122,7 +122,10 @@ def configure(config) -> None:
         os.environ.get("AGENTD_ACCOUNTS_URL") is not None or bool(acc.get("enabled"))
     )
     _resolve_cache.clear()
-    _client = httpx.AsyncClient(base_url=_api_base, timeout=5.0) if _enabled else None
+    # Built whenever a service is CONFIGURED, not only where sign-in is REQUIRED. Resolving a
+    # token answers "who is this?", and a laptop needs that answer too — it is what lets one
+    # identity mechanism serve both deployments instead of one each.
+    _client = httpx.AsyncClient(base_url=_api_base, timeout=5.0) if _api_base else None
     if _enabled:
         log.info("accounts: ENFORCED (%s)", _api_base)
     elif _api_base:
@@ -184,7 +187,7 @@ def reset_account(token) -> None:
 async def resolve(token: str) -> dict | None:
     """Session token -> account dict (or None if unknown/expired). Cached briefly. Never raises:
     a resolve failure (service down, bad token) is a None, which the caller treats as unauthorized."""
-    if not _enabled or not token or _client is None:
+    if not _api_base or not token or _client is None:
         return None
     now = time.time()
     hit = _resolve_cache.get(token)

@@ -30,7 +30,6 @@ import os
 from pathlib import Path
 
 from agent_runtime.application.interfaces.bundle_publisher import PublishRequest, PublishResult
-from agent_runtime.infrastructure.env_file_session_token_store import TOKEN_KEY
 
 log = logging.getLogger("agentd")
 
@@ -65,7 +64,7 @@ def platform_session_token(config) -> str:
             return str(current["session_token"])
     except Exception:  # noqa: BLE001 — accounts is optional; fall through to the local credential
         pass
-    for name in (TOKEN_KEY, "AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
+    for name in ("AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
         token = (os.environ.get(name) or "").strip()
         if token:
             return token

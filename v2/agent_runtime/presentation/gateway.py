@@ -35,7 +35,6 @@ from agent_runtime.application.run_context import (
 )
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config, accounts_api_base
-from agent_runtime.domain import platform_mode
 from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
@@ -116,20 +115,6 @@ APP_SCOPED_METHODS = frozenset(
         # EXPOSED_CONFIG_KEYS.
         "config.get",
         "config.set",
-        # SIGN-IN. Identity, not billing — the pair above manages this install's model-key
-        # credential, which is a different question and used to be the same one.
-        #
-        # THE DAEMON MAKES THE CALL. The page hands over an email and a password and is told
-        # whether it worked; the accounts service's address and the session token it returns both
-        # stay in the daemon. Previously the browser POSTed the password itself, which is why
-        # every agent UI had to be told where to send it — and why that address ended up baked
-        # into the product's distribution profile, out of reach of the agent that needed it.
-        #
-        # Absent from PUBLIC_APP_METHODS: a tokenless visitor must not be able to drive password
-        # attempts through somebody else's daemon.
-        "auth.status",
-        "auth.login",
-        "auth.logout",
     }
 )
 
@@ -186,12 +171,6 @@ def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
     if name in ("chat.event", "sessions.changed"):
         return payload.get("agentId") == agent_id
     if name == "agents.changed":
-        return True
-    # Identity + run mode are MACHINE-WIDE, so every window is affected by a change any window
-    # made. A scoped app has to hear it: it renders a sign-in state and a Local/Cloud control, and
-    # a window still showing an account the daemon has forgotten is worse than one showing none.
-    # Carries no token — the payload is the same non-secret view auth.status returns.
-    if name == "auth.changed":
         return True
     if name == "notification":
         return payload.get("agentId") in (agent_id, "", None)
@@ -922,8 +901,6 @@ class Gateway:
     task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
     event_log: object | None = None  # injected; durable per-run event stream, or None
-    sign_in: object | None = None  # injected; SignInService — platform identity (auth.* methods)
-    platform_mode: object | None = None  # injected; PlatformModeService — Local vs Cloud billing
     credential_store: object | None = None  # injected; login vault (/connect form writes here)
     connect_tokens: object | None = None  # injected; one-time /connect-link tokens
     safe_to_send_gate: object | None = None  # injected; out-of-band privacy gate on channel replies
@@ -1989,6 +1966,36 @@ class Gateway:
                 presented = auth_header[len("Bearer ") :].strip()
         return presented
 
+    def _presented_session(self, ws: ServerConnection) -> str:
+        """The client's ACCOUNT credential — who it claims to be.
+
+        `?session=` on the connect URL, falling back to `?token=`. The fallback keeps a hosted
+        client unchanged: there the session token has always been the only credential and rides in
+        `?token=`. A laptop client sends BOTH — `?token=` for the machine token that lets it
+        connect, `?session=` for the person using it — and the two must not be confused, since one
+        is a machine secret and the other identifies a human."""
+        return self._query(ws, "session") or self._presented_token(ws)
+
+    def _presented_mode(self, ws: ServerConnection) -> str:
+        """`?mode=local|cloud` — which keys this client wants its model calls to run on.
+
+        A preference, never a credential: the daemon pays with the session on this same
+        connection, so a client can only ever bill itself. Saying `local` opts out of the proxy
+        WITHOUT giving up identity — "use my own API keys" must not mean "log me out".
+
+        Lower-cased here rather than only where it is consumed: a token must never be case-folded,
+        so the shared reader cannot do it, and one caller normalising while another does not is
+        how `?mode=CLOUD` ends up meaning neither thing."""
+        return self._query(ws, "mode").lower()
+
+    @staticmethod
+    def _query(ws: ServerConnection, name: str) -> str:
+        request = getattr(ws, "request", None)
+        if request is None:
+            return ""
+        query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+        return (query.get(name) or [""])[0].strip()
+
     def _authorized(self, ws: ServerConnection) -> bool:
         """M2 auth: the client's token — `?token=` on the URL (the only slot browser
         WebSockets have) or an `Authorization: Bearer` header — must match ours."""
@@ -2076,15 +2083,22 @@ class Gateway:
         # the public tier (when its agent's [app] opted in) instead of refused outright.
         scope = self._connection_scope(ws)
         public = False
-        # HOSTED identity: when accounts are on, the session token IS the auth authority — it
-        # resolves to an account (State plane). When off (every desktop/local install), the
-        # single machine token gates exactly as before and `account` stays None.
-        account: dict | None = None
-        if accounts.enabled():
-            account = await accounts.resolve(self._presented_token(ws))
-            authed = account is not None
-        else:
-            authed = self._authorized(ws)
+        # WHO IS CONNECTING, AND ON WHOSE KEYS — both arrive with the connection, and the daemon
+        # stores neither. That is what lets one daemon serve a hundred people: a hundred sockets,
+        # a hundred resolved identities, no shared slot anywhere.
+        #
+        # ONE RULE FOR BOTH DEPLOYMENTS: a connection is allowed if it presents a valid MACHINE
+        # token or a valid SESSION token, and its identity always comes from the session.
+        #   * hosted — no machine token is configured, so only a session gets in; it authorises
+        #     and identifies, exactly as before.
+        #   * laptop — both exist. The machine token opens the socket before anyone has signed in
+        #     and while offline (a session cannot be resolved without reaching the accounts
+        #     service); the session, once presented, says who is there.
+        #
+        # The machine token must NOT authorise where sign-in is required, or it would be a bypass
+        # on a hosted deployment. That is the one thing `enabled` still gates.
+        account: dict | None = await accounts.resolve(self._presented_session(ws))
+        authed = account is not None or (not accounts.enabled() and self._authorized(ws))
         if not authed:
             if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
                 public = True
@@ -2112,6 +2126,9 @@ class Gateway:
         # account's subtree — the same account a run already sees. None (desktop/no-account)
         # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
         _conn_acct_tok = accounts.set_account(account)
+        # WHICH KEYS this connection's model calls run on. Pinned the same way and for the same
+        # reason: it is this client's choice, not the machine's, so two windows can differ.
+        _conn_bill_tok = model_proxy.set_billing(self._presented_mode(ws))
         try:
             async for raw in ws:
                 try:
@@ -2126,6 +2143,7 @@ class Gateway:
             pass
         finally:
             accounts.reset_account(_conn_acct_tok)
+            model_proxy.reset_billing(_conn_bill_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
@@ -2266,12 +2284,6 @@ class Gateway:
                 payload = await self._marketplace().uninstall(
                     (req.params.get("id") or "").strip(), purge_state=bool(req.params.get("purge"))
                 )
-            elif req.method == "auth.status":
-                payload = self._auth_status()
-            elif req.method == "auth.login":
-                payload = await self._auth_login(req.params)
-            elif req.method == "auth.logout":
-                payload = self._auth_logout()
             elif req.method == "auth.token":
                 payload = self._auth_token()
             elif req.method == "platform.connect":
@@ -3623,41 +3635,6 @@ class Gateway:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""
         await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
 
-    async def _broadcast_auth_changed(self) -> None:
-        """Tell EVERY connected client that identity or billing changed.
-
-        The daemon is the one place that knows who is signed in, but each window kept its own copy
-        — so signing out in one left every other window still showing an account, offering an
-        Account page, and able to switch billing back on for it. Two clients disagreeing about
-        whether you are logged in is not a rendering glitch; it is one of them acting as somebody
-        the daemon no longer recognises.
-
-        A push, not a poll: the change happens HERE, on a request one client made, and the others
-        have no reason to be asking. Payload is the merged auth + mode view, which is exactly what
-        `auth.status` and `platform.status` return, so a listener can apply it without a round trip
-        (and never carries the token — same rule as everywhere else)."""
-        await self._send_all(
-            dump_frame(Event(event="auth.changed", payload=self._auth_state()))
-        )
-
-    def _auth_state(self) -> dict:
-        """The merged who-you-are + who-pays view. One shape, two broadcasters."""
-        state = self._auth_status() if self.sign_in is not None else {
-            "available": False, "signedIn": False, "email": "", "accountId": ""
-        }
-        state["mode"] = self.platform_mode.mode() if self.platform_mode else platform_mode.LOCAL
-        state["canUseCloud"] = bool(self.platform_mode and self.platform_mode.can_use_cloud)
-        return state
-
-    def broadcast_auth_changed(self) -> None:
-        """Fire-and-forget wrapper — same pattern as the roster broadcast below. No-op outside a
-        running loop, so the sync handlers that trigger it stay callable from unit tests."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        asyncio.create_task(self._broadcast_auth_changed())
-
     def broadcast_agents_changed(self) -> None:
         """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
 
@@ -3834,35 +3811,30 @@ class Gateway:
         return {"ok": True, "id": tid}
 
     def _platform_status(self) -> dict:
-        """Non-secret hosted-platform view: is this install a hosted flavor, and is the model
-        proxy live (i.e. are platform keys paying). Everything comes from resolved config /
-        seam state — nothing hardcoded.
+        """What a client needs to know to sign in and to show its own mode.
 
-        `accountsUrl` is kept for the DESKTOP SHELL's Cloud switch, which still drives sign-in
-        through platform.connect. An agent's own UI should use `auth.status` instead: it answers
-        "can somebody sign in, and is anybody signed in" without exposing a service address to
-        page JavaScript, and without conflating either answer with billing."""
+        THE DAEMON ANSWERS TWO QUESTIONS AND OWNS NEITHER FACT. `accountsUrl` says where to log
+        in — the client POSTs there itself and keeps the token. `mode` and `signedIn` describe
+        THIS CONNECTION, because both arrive on it: a second window signed in as somebody else,
+        or on its own API keys, gets different answers from the same daemon at the same moment.
+
+        Nothing here is stored. An earlier version kept one session and one mode for the whole
+        machine, which is fine for one person on a laptop and wrong for everyone else — the
+        second person to sign in overwrote the first, and one window's Cloud switch moved every
+        other window's billing."""
         proxy_status = model_proxy.status()
+        account = accounts.current_account.get() or {}
         return {
-            # The RESOLVED url (env > config > profile), not the profile's raw field. Reading the
-            # profile here was half of a two-halves-disagree bug: the accounts seam resolved this
-            # from env + config and ignored the profile, so a URL set in agentd.config.json ran the
-            # server side while every client was told this build had no sign-in.
+            # Where to sign in. Resolved env > config > profile — one answer, so the client and
+            # the daemon can never disagree about which service this build talks to.
             "accountsUrl": accounts_api_base(self.config),
-            # LOCAL vs CLOUD, ANSWERED BY THE DAEMON. This used to be the desktop client's
-            # localStorage (clients/ui/src/lib/mode.ts), which no other page could read — an
-            # agent's own window is a different origin-scoped store, so changing mode meant
-            # leaving the agent and going back to agentd to do it. One machine-wide fact needs
-            # one machine-wide home.
-            #
-            #   mode           what is ACTUALLY happening right now
-            #   modePreference what the user CHOSE ("" => never chose, so the default applies)
-            #   canUseCloud    is Cloud even reachable (proxy configured AND somebody signed in)
-            "mode": self.platform_mode.mode() if self.platform_mode else platform_mode.LOCAL,
-            "modePreference": (
-                self.platform_mode.preference() if self.platform_mode else platform_mode.UNSET
-            ),
-            "canUseCloud": bool(self.platform_mode and self.platform_mode.can_use_cloud),
+            # WHO is on this connection, and WHICH KEYS its calls run on.
+            "signedIn": bool(account.get("account_id")),
+            "email": str(account.get("email") or ""),
+            "accountId": str(account.get("account_id") or ""),
+            "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
+            # Is there a Cloud to switch to at all on this build?
+            "canUseCloud": model_proxy.available(),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,
@@ -3875,157 +3847,21 @@ class Gateway:
             },
         }
 
-    # ----------------------------------------------------------------- sign-in (identity)
-    # Transport shape only: parse params, call the use case, name the fields the wire uses.
-    # The service owns what signing in MEANS; these three own what it looks like over a socket.
+    # platform.connect / platform.disconnect USED TO WRITE A CREDENTIAL — the caller's session
+    # token, persisted as AGENTD_MODEL_PROXY_KEY, one key for the whole daemon. That is why an
+    # unsigned window spent whoever had last pressed Cloud, and why two people on one machine
+    # could not choose differently.
     #
-    # NO METHOD HERE RETURNS THE SESSION TOKEN. A caller learns whether somebody is signed in and
-    # who they are — never the credential. These pages are served over plain HTTP from the daemon
-    # with no CSP, and a downloaded agent's UI is a stranger's code; the token has no business
-    # being reachable from it.
-
-    def _require_sign_in(self):
-        if self.sign_in is None:
-            raise ValueError("this daemon was built without the sign-in service")
-        return self.sign_in
-
-    def _auth_status(self) -> dict:
-        service = self._require_sign_in()
-        session = service.session()
-        return {
-            # False => no accounts service is configured, so a UI should not offer a login. It is
-            # the ONE legitimate reason to hide the prompt; every other reason this used to hide
-            # (no distribution profile, the model proxy already paying) was about billing.
-            "available": service.available,
-            "signedIn": session.signed_in,
-            "email": session.email,
-            "accountId": session.account_id,
-        }
-
-    async def _auth_login(self, params: dict) -> dict:
-        session = await self._require_sign_in().login(
-            email=str(params.get("email") or ""),
-            password=str(params.get("password") or ""),
-            signup=bool(params.get("signup")),
-        )
-        # THE MOMENT "DEFAULT CLOUD" BECOMES APPLICABLE. Before this line there was no token to
-        # pay with, so the mode rule could only resolve to local however the user had it set.
-        # Now it can, so re-assert it — an install with no stated preference lands in Cloud with
-        # nothing to press, and one that chose Local stays there.
-        mode = self.platform_mode.apply() if self.platform_mode else platform_mode.LOCAL
-        # Every other open window is still showing "not signed in".
-        self.broadcast_auth_changed()
-        return {
-            "signedIn": True,
-            "email": session.email,
-            "accountId": session.account_id,
-            "mode": mode,
-        }
-
-    def _auth_token(self) -> dict:
-        """The session token itself — HOST CONNECTIONS ONLY.
-
-        Deliberately absent from ``APP_SCOPED_METHODS``, so an agent window (which connects with
-        ``scope=agent:<id>``) is refused it by the scope gate. That boundary is the whole reason
-        this can exist: the product shell is first-party code we ship, while an agent's page may
-        have been downloaded from a marketplace and is served with no CSP.
-
-        WHY THE SHELL NEEDS IT AT ALL. The desktop client talks to the accounts service directly
-        for three things the daemon does not proxy — ``/resolve``, ``/me/credits`` and
-        ``/me/purchase`` — and on a WEB build the same token is its socket credential. Until those
-        move behind the daemon, the shell needs the value.
-
-        It is NOT the way to sign in. ``auth.login`` performs the exchange and returns nothing;
-        this hands back what the daemon already holds, so there is still exactly one place a
-        password is ever sent."""
-        session = self._require_sign_in().session()
-        return {
-            "token": session.token,
-            "email": session.email,
-            "accountId": session.account_id,
-        }
-
-    def _auth_logout(self) -> dict:
-        """Forget who is signed in, and stop billing — in that order.
-
-        The two are separate facts, and this method owns only the first. But there is no such
-        thing as "signed out and still metering somebody's account", so the mode is re-applied
-        afterwards: with no identity left, the rule resolves to local and the proxy is unbound."""
-        self._require_sign_in().logout()
-        if self.platform_mode is not None:
-            self.platform_mode.apply()
-        # THE ONE THAT MATTERS. Without it, the window that did not press the button keeps its own
-        # copy of the session and goes on presenting an account the daemon has forgotten.
-        self.broadcast_auth_changed()
-        return {"signedIn": False, "email": "", "accountId": ""}
-
-    def _remember_mode(self, mode: str) -> None:
-        """Persist an explicit Local/Cloud choice. Silent no-op when no mode service was injected
-        (unit tests that drive the platform methods directly) — the effect has already been
-        applied by the caller either way, so this only ever loses the memory of it."""
-        if self.platform_mode is not None:
-            self.platform_mode.remember(mode)
+    # Billing is now a property of the CONNECTION: the client says `?mode=` when it connects and
+    # pays with the session it already presented. Nothing to persist, so these two are kept only
+    # as a compatibility shim for older desktop shells that still call them on every handshake.
 
     def _platform_connect(self, params: dict) -> dict:
-        """Bind this install to a platform account: persist the caller's accounts session token
-        as the model-proxy credential (AGENTD_MODEL_PROXY_KEY in the user .env — the same
-        secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
-        model_proxy.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
-        the desktop shell calls it on every handshake to heal .env drift."""
-        # DESKTOP-ONLY: platform.connect manages the LOCAL daemon's model-key credential. On a
-        # hosted (accounts-mode) daemon the model key is server-owned (master key / accounts
-        # seam), so a per-connection sign-in must NOT rewrite it — refuse cleanly.
-        if accounts.enabled():
-            raise ValueError("this deployment manages platform keys server-side")
-        # NO TOKEN IS THE NORMAL CASE NOW. The daemon performs sign-in itself and keeps the
-        # session token, so an agent's settings screen has no credential to pass — and should
-        # not: handing one back in through a URL is a leftover from when identity and billing
-        # were the same value. An explicit token still wins, for the desktop shell's own flow.
-        token = str(params.get("token") or "").strip()
-        if not token and self.platform_mode is not None:
-            token = self.platform_mode.session_token()
-        if not token:
-            raise ValueError(
-                "platform.connect needs a session token, and none is stored — sign in first."
-            )
-        _user_env_file().update(
-            {
-                "AGENTD_MODEL_PROXY_KEY": token,
-                # Prevent a stale legacy credential from becoming active after sign-out.
-                "AGENTD_MODEL_GATEWAY_KEY": "",
-            }
-        )
-        model_proxy.configure(self.config)
-        # REMEMBER THE CHOICE, not just the effect. Without this, Cloud is re-derived from the
-        # default on the next boot, which happens to be right — but its opposite, disconnect,
-        # would be silently undone by it.
-        self._remember_mode(platform_mode.CLOUD)
-        # Sign-in success/failure is itself a signal we are blind to today: a desktop that cannot
-        # bind to its account produces no proxy traffic, which looks identical to an idle user.
-        telemetry.count("platform_connect_total", outcome="ok")
-        # The same token identifies diagnostics, so an opted-in user's reports stop being
-        # anonymous the moment they sign in. Only reaches the wire if they opted in.
-        telemetry.apply_diagnostics(self.config, token=token)
-        # Run mode is machine-wide, so a switch flipped in one window is a change in all of them.
-        self.broadcast_auth_changed()
+        """Deprecated. Mode arrives on the connection; this just reports where things stand."""
         return self._platform_status()
 
     def _platform_disconnect(self) -> dict:
-        """Sign out of platform keys: drop the persisted credential and reconfigure — BYOK
-        (local provider keys) resumes live. No-op on a hosted daemon (nothing local to clear)."""
-        if accounts.enabled():
-            return self._platform_status()
-        _user_env_file().update({"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""})
-        model_proxy.configure(self.config)
-        # THE LOAD-BEARING HALF OF "DEFAULT CLOUD". Cloud is what an install with no stated
-        # preference gets, so unless choosing Local is written down, the next boot — and the next
-        # sign-in — would put the user straight back into Cloud. A default that cannot be refused
-        # is not a default.
-        self._remember_mode(platform_mode.LOCAL)
-        # Drop the identity from queued diagnostics too: after sign-out this machine's reports
-        # must not still carry the account id of whoever was signed in.
-        telemetry.apply_diagnostics(self.config, token="")
-        self.broadcast_auth_changed()
+        """Deprecated. See _platform_connect."""
         return self._platform_status()
 
     def _platform_set_model_proxy_url(self, params: dict) -> dict:

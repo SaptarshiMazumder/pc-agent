@@ -1,101 +1,136 @@
 /**
- * Sign-in — IDENTITY, asked of the daemon.
+ * Sign-in — ORDINARY HTTP, from the client, exactly like any web app.
  *
- * Three request/response calls over the socket the app already has:
+ *   GET  <daemon>/platform/status     → where the accounts service is
+ *   POST <accountsUrl>/signup         (only when creating)
+ *   POST <accountsUrl>/login          → a session token
+ *   store it, reconnect
  *
- *   auth.status   ->  can anyone sign in here, and is anyone signed in
- *   auth.login    ->  {email, password, signup?}
- *   auth.logout
+ * The daemon is not in the middle of this. It answers one question — "where do people sign in?" —
+ * and is then told the answer on the next connection.
  *
- * WHY THE DAEMON AND NOT THIS FILE. `platform.ts` next door does it the other way round: it asks
- * the daemon where the accounts service lives and then POSTs the user's password there from the
- * page. Two consequences followed, and both are the reason this module exists.
+ * WHY NOT THROUGH THE DAEMON. It was, briefly: three socket methods, with the daemon performing
+ * the exchange and keeping the token. That put ONE session on the machine, and one session cannot
+ * serve two people — the second to sign in overwrote the first, signing out signed out everybody,
+ * and any way to read the token back handed one user another's credential. Routing it through a
+ * socket bought nothing this does not, and cost that.
  *
- *   1. Every agent UI had to be TOLD the accounts address. The only channel that carried it was
- *      the daemon's distribution profile — a property of the packaged product — so an agent could
- *      not give itself a login without the whole build being reconfigured as a hosted flavour.
- *   2. Page JavaScript held a session token. These pages are served over plain HTTP by the
- *      daemon with no CSP, and a downloaded agent's UI is a stranger's code.
+ * SO THE CLIENT DECIDES BOTH FACTS: who it is, and which keys pay. Both travel on the connection
+ * (`?session=`, `?mode=`), which is why a hundred users on one daemon is a hundred sockets each
+ * answering for itself.
  *
- * Asking the daemon to perform the sign-in collapses both: the address and the token stay on the
- * other side of the socket, and the page learns only whether it worked.
- *
- * NOT ABOUT BILLING. `platform.ts` answers "are platform keys paying for model calls". This
- * answers "who is this". They were the same question, which is why a perfectly good sign-in on a
- * BYOK install used to be reported as a failure — nothing was paying, so nothing counted.
+ * CHANGING EITHER RECONNECTS. The daemon reads them when the socket opens, so a sign-in that did
+ * not reconnect would leave it still seeing the old answer.
  */
 
-import { AgentdClient, fromPage } from './client'
+import { AgentdClient } from './client'
+import { type RunMode, effectiveMode, loadSession, saveMode, saveSession } from './session'
 
-/** What `auth.status` reports. */
 export interface AuthState {
-  /** Is an accounts service configured at all? false => this daemon has no sign-in to offer,
-   *  and a UI should not show a login. The ONE legitimate reason to hide the prompt. */
+  /** Is an accounts service configured on this daemon? false => no sign-in to offer. */
   available: boolean
-  /** Is somebody signed in on this install right now? */
+  /** Is THIS client signed in? */
   signedIn: boolean
-  /** Who — '' when signed out. */
   email: string
   accountId: string
+  /** Which keys this client's model calls run on. */
+  mode: RunMode
+  /** Is there a Cloud to switch to on this build? */
+  canUseCloud: boolean
 }
 
 export interface AuthOptions {
-  /** Reuse an already-connected client. Omit and a short-lived one is opened for the call —
-   *  which is what lets `mountSignInGate()` stay a zero-argument one-liner in every agent. */
+  /** The connected client, so a change can reconnect it and take effect at once. */
   client?: AgentdClient
-  /** How long to wait for a borrowed connection to come up. */
+  /** Daemon HTTP origin. Defaults to the page's own — an agent app is served BY the daemon. */
+  origin?: string
+  /** The daemon's bearer token. Defaults to `?token=` on the page URL. */
+  token?: string
   timeoutMs?: number
+  /** Storage key override; defaults to one derived from the agent id in the page URL. */
+  storageKey?: string
 }
 
-const CONNECT_TIMEOUT_MS = 10000
+const DEFAULT_TIMEOUT = 15000
 
-/**
- * Run one request against the caller's client, or against a throwaway connection.
- *
- * The throwaway is closed in a `finally`, including when the request rejects — a wrong password
- * is the single most likely outcome here, and leaking a socket per attempt would be a slow leak
- * in exactly the loop a user retries.
- */
-async function ask<T>(method: string, params: Record<string, unknown>, opts: AuthOptions): Promise<T> {
-  if (opts.client) return opts.client.request<T>(method, params)
+function origin(opts: AuthOptions): string {
+  if (opts.origin) return opts.origin.replace(/\/$/, '')
+  if (typeof location === 'undefined') throw new Error('no origin: pass options.origin')
+  return location.origin
+}
 
-  const client = fromPage({ clientName: 'agentd-sdk-auth' })
+function daemonToken(opts: AuthOptions): string {
+  if (typeof opts.token === 'string') return opts.token
+  if (typeof location === 'undefined') return ''
   try {
-    await opened(client, opts.timeoutMs ?? CONNECT_TIMEOUT_MS)
-    return await client.request<T>(method, params)
-  } finally {
-    client.close()
+    return new URL(location.href).searchParams.get('token') || ''
+  } catch {
+    return ''
   }
 }
 
-/** Resolve when the socket is open; reject if it does not come up in time. */
-function opened(client: AgentdClient, timeoutMs: number): Promise<void> {
-  if (client.connected) return Promise.resolve()
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      stop()
-      reject(new Error(`the daemon did not answer within ${timeoutMs}ms`))
-    }, timeoutMs)
-    const stop = client.onStatus((status) => {
-      if (status !== 'open') return
-      clearTimeout(timer)
-      stop()
-      resolve()
-    })
+async function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: any
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms)
   })
-}
-
-function shape(raw: Record<string, any>): AuthState {
-  return {
-    available: !!raw?.available,
-    signedIn: !!raw?.signedIn,
-    email: String(raw?.email || ''),
-    accountId: String(raw?.accountId || '')
+  try {
+    return await Promise.race([p, guard])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
+/** The daemon's own view: where sign-in lives, and whether a proxy exists to switch to. */
+async function platformStatus(opts: AuthOptions): Promise<Record<string, any>> {
+  const u = new URL('/platform/status', `${origin(opts)}/`)
+  const token = daemonToken(opts)
+  if (token) u.searchParams.set('token', token)
+  const r = await withTimeout(
+    fetch(u.toString(), { cache: 'no-store' }),
+    opts.timeoutMs ?? DEFAULT_TIMEOUT,
+    'platform status'
+  )
+  if (!r.ok) throw new Error(`platform status failed (HTTP ${r.status})`)
+  return (await r.json()) as Record<string, any>
+}
+
+async function post(url: string, body: unknown, timeoutMs: number, what: string): Promise<any> {
+  const r = await withTimeout(
+    fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
+    timeoutMs,
+    what
+  )
+  const text = await r.text()
+  let data: any = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    /* reported through the status check below */
+  }
+  if (!r.ok) {
+    throw new Error(String(data?.detail || data?.error || `${what} failed (HTTP ${r.status})`))
+  }
+  return data
+}
+
+/** What this client is, right now: its own state, plus what the daemon offers. */
 export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
-  return shape(await ask<Record<string, any>>('auth.status', {}, opts))
+  const status = await platformStatus(opts)
+  const stored = loadSession(opts.storageKey)
+  const canUseCloud = !!status.canUseCloud
+  return {
+    available: !!String(status.accountsUrl || ''),
+    signedIn: !!stored,
+    email: stored?.email || '',
+    accountId: stored?.accountId || '',
+    mode: effectiveMode(opts.storageKey, !!stored, canUseCloud),
+    canUseCloud
+  }
 }
 
 /**
@@ -103,23 +138,53 @@ export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
  *
  * REJECTS on a rejected credential, carrying the accounts service's own message ("incorrect
  * password") so a form has something to show. A failed attempt must never resolve to
- * `signedIn: false`: the caller cannot tell that apart from "signed out", and the user would be
- * shown a login form with no explanation of what just happened.
+ * `signedIn: false`: the caller cannot tell that apart from "signed out", and the user is left
+ * looking at a form that cleared itself.
  */
 export async function authLogin(
   args: { email: string; password: string; signup?: boolean },
   opts: AuthOptions = {}
 ): Promise<AuthState> {
-  const raw = await ask<Record<string, any>>(
-    'auth.login',
-    { email: args.email, password: args.password, signup: !!args.signup },
-    opts
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT
+  const status = await platformStatus(opts)
+  const accountsUrl = String(status.accountsUrl || '').replace(/\/$/, '')
+  if (!accountsUrl) throw new Error('this daemon has no accounts service configured')
+
+  const email = args.email.trim().toLowerCase()
+  if (args.signup) {
+    await post(`${accountsUrl}/signup`, { email, password: args.password }, timeoutMs, 'signup')
+  }
+  const login = await post(
+    `${accountsUrl}/login`,
+    { email, password: args.password },
+    timeoutMs,
+    'login'
   )
-  return shape({ available: true, ...raw })
+
+  const token = String(login?.token || login?.session || '')
+  if (!token) throw new Error('the accounts server returned no session token')
+  saveSession(
+    { token, email: String(login?.email || email), accountId: String(login?.account_id || '') },
+    opts.storageKey
+  )
+  opts.client?.reconnect() // the daemon reads identity when the socket opens
+  return authStatus(opts)
 }
 
-/** Forget the identity. Does NOT stop platform keys from paying — that is `platformDisconnect`. */
+/** Forget this client's session. Other windows keep theirs — each holds its own. */
 export async function authLogout(opts: AuthOptions = {}): Promise<AuthState> {
-  const raw = await ask<Record<string, any>>('auth.logout', {}, opts)
-  return shape({ available: true, ...raw })
+  saveSession(null, opts.storageKey)
+  saveMode(null, opts.storageKey)
+  opts.client?.reconnect()
+  return authStatus(opts)
+}
+
+/** Choose which keys pay for THIS client's model calls. Other clients are unaffected. */
+export async function setRunMode(mode: RunMode, opts: AuthOptions = {}): Promise<AuthState> {
+  if (mode === 'cloud' && !loadSession(opts.storageKey)) {
+    throw new Error('sign in first — Cloud mode meters model calls to your account')
+  }
+  saveMode(mode, opts.storageKey)
+  opts.client?.reconnect()
+  return authStatus(opts)
 }

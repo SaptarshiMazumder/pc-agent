@@ -151,20 +151,20 @@ def _no_ambient_credentials(monkeypatch):
     and loaded into the environment at boot — any developer who had signed in started seeing three
     failures here that had nothing to do with whatever they were working on.
     """
-    from agent_runtime.infrastructure.env_file_session_token_store import TOKEN_KEY
-
-    for name in (TOKEN_KEY, "AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
+    for name in ("AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 
-def test_the_identity_token_is_enough_to_publish(monkeypatch):
-    """Signing in is the requirement, not being a paying customer. Publishing used to look for
-    the MODEL-PROXY key, so an author on their own API keys was refused with 'you are not signed
-    in' — which they may well have been."""
-    from agent_runtime.infrastructure.env_file_session_token_store import TOKEN_KEY
+def test_the_connections_account_is_enough_to_publish():
+    """Signing in is the requirement, not being a paying customer. Identity comes from the TURN's
+    account — the one mechanism on a laptop and a shared server alike."""
+    from agent_runtime.infrastructure import accounts
 
-    monkeypatch.setenv(TOKEN_KEY, "sess_identity")
-    assert HttpRegistryPublisher("https://x", FakeConfig(), FakePacker()).requirements() == []
+    token = accounts.set_account({"account_id": "a1", "session_token": "sess_conn"})
+    try:
+        assert HttpRegistryPublisher("https://x", FakeConfig(), FakePacker()).requirements() == []
+    finally:
+        accounts.reset_account(token)
 
 
 def test_author_publisher_asks_for_sign_in_and_never_for_a_key():

@@ -887,7 +887,20 @@ export const useApp = create<AppState>((set, get) => {
       gateway.connect(async () => {
         const { url } = await platform.ensureDaemon()
         setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
-        return url
+        // WHO is connecting and WHICH KEYS pay, alongside the machine token already in `url` that
+        // says whether it MAY. Both are this client's own state and are re-read on every
+        // (re)connect, so signing in or flipping mode is carried by the next socket. The daemon
+        // stores neither — that is what lets two windows differ on one machine.
+        try {
+          const u = new URL(url)
+          const session = getSession()?.token
+          const mode = getMode()
+          if (session) u.searchParams.set('session', session)
+          if (mode) u.searchParams.set('mode', mode)
+          return u.toString()
+        } catch {
+          return url
+        }
       })
     },
 

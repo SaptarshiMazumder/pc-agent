@@ -601,9 +601,6 @@ notifications.list
 notifications.ack
 config.get
 config.set
-auth.status
-auth.login
-auth.logout
 platform.status
 platform.connect
 platform.disconnect

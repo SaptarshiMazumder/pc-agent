@@ -1,15 +1,14 @@
 export * from './protocol'
 export * from './client'
-// SIGN-IN, in two halves that answer two different questions.
+// SIGN-IN AND BILLING, both owned by the CLIENT.
 //
-//   auth.ts      WHO YOU ARE. Three daemon methods; the accounts address and the session token
-//                never reach page JavaScript. Works on any install with an accounts service,
-//                whoever is paying for the model calls.
-//   platform.ts  WHO PAYS. The desktop shell's Cloud switch: hand the daemon a token and it runs
-//                model calls on platform keys. Unrelated to being logged in, and keeping the two
-//                apart is why an agent can now have a login at all.
+//   session.ts  what this client stores: its token, and which keys it wants to pay with
+//   auth.ts     ordinary HTTP sign-in against the accounts service, then reconnect
+//   gate.ts     the one-line drop-in form over auth.ts
 //
-// gate.ts is the one-line drop-in form over auth.ts.
+// The daemon stores neither fact. It says where to sign in, and reads both off each connection —
+// which is what lets one daemon serve many people, and one machine run two windows on two
+// different accounts and two different billing modes at once.
+export * from './session'
 export * from './auth'
-export * from './platform'
 export * from './gate'

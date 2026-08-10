@@ -161,12 +161,11 @@ window.Settings = (function () {
   async function loadPlatform() {
     platformError = ''
     try {
-      const [status, who] = await Promise.all([
-        client.request('platform.status'),
-        client.request('auth.status'),
-      ])
-      platform = status
-      auth = who
+      // ONE call, and it is the SDK's: identity and run mode are this client's own state, so
+      // there is nothing to ask the daemon for beyond "is there an accounts service, and is there
+      // a proxy to switch to". Both used to be daemon methods, which made them machine-wide.
+      auth = await window.agentd.authStatus({ client })
+      platform = auth
     } catch (e) {
       platform = null
       auth = null
@@ -285,7 +284,7 @@ window.Settings = (function () {
   }
 
   async function doSignOut() {
-    await client.request('auth.logout')
+    await window.agentd.authLogout({ client })
     await loadPlatform()
     render()
   }
@@ -353,7 +352,7 @@ window.Settings = (function () {
     try {
       // No token is passed. The daemon signed the user in and kept the session token; a page
       // that never receives a credential cannot leak one.
-      await client.request(next === 'cloud' ? 'platform.connect' : 'platform.disconnect')
+      await window.agentd.setRunMode(next, { client })
       await loadPlatform()
       render()
       say('ok', `Now running in ${next === 'cloud' ? 'Cloud' : 'Local'} mode.`)
