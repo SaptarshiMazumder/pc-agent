@@ -631,6 +631,17 @@ model calls run on platform keys or on the user's own. Signing in does not chang
 an agent on the user's own API keys can still have users who log in. Treating those two as one
 question is what previously made a login impossible on a local install.
 
+**Listen for `auth.changed`** if your UI shows either fact:
+
+```js
+client.on('auth.changed', (s) => { /* s = {available, signedIn, email, accountId, mode, canUseCloud} */ })
+```
+
+Identity and run mode are machine-wide, so they can change in a window that is not yours — the
+user signs out in another agent, or flips Local/Cloud in agentd. The daemon pushes this to every
+connection when that happens. Without it a page keeps its own stale copy and goes on offering to
+sign out of an account that is already gone. It never carries the token.
+
 Plain HTML/CSS/JS needs no build. For React, build into `ui/` with Vite using
 `base: './'` (an absolute base resolves outside `/apps/<id>/` and 404s).
 

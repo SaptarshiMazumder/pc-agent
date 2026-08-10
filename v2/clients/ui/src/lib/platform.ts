@@ -44,7 +44,11 @@ export interface AgentdPlatform {
 }
 
 const bridge = (globalThis as { agentd?: AgentdPlatform }).agentd
-export const isDesktop = !!bridge
+// Both live in lib/host.ts — a LEAF that imports nothing, so lib/auth.ts can use them without
+// importing this module. It could not before: this module imports auth.ts (it reads the session
+// to build a daemon URL), so the two formed a cycle. Re-exported here, unchanged for every
+// existing importer.
+export { isDesktop, randomUuid } from './host'
 
 /**
  * The viewer's OS, using the same tags the registry stamps on an installer
@@ -66,51 +70,6 @@ export function hostOs(): string {
   return ''
 }
 
-/**
- * A v4 UUID, on every origin we actually ship to.
- *
- * `crypto.randomUUID` exists ONLY in a secure context — HTTPS or localhost. The desktop app
- * and `npm run dev` both qualify, so it is present everywhere we develop and absent on the
- * one place users hit first: the HTTP-only dev ALB. There it is not a degraded API, it is
- * `undefined`, so calling it throws `crypto.randomUUID is not a function` and takes the whole
- * send path down. That is the failure this exists to prevent, and no amount of local testing
- * would have found it.
- *
- * `crypto.getRandomValues` is NOT secure-context-gated, so the fallback is still real
- * randomness — it hand-assembles the same RFC 4122 v4 layout (version nibble in byte 6,
- * variant bits in byte 8) that randomUUID would have produced. The shape matters beyond
- * tidiness: `monitoring/trace.ps1` tells a browser-minted id from the daemon's fallback by
- * whether it is DASHED, so an id of a different shape would silently break that diagnostic.
- *
- * The Math.random branch is for a browser with no Web Crypto at all. Weak, and deliberately
- * last — these ids are correlation keys, never secrets or tokens.
- */
-export function randomUuid(): string {
-  const c = globalThis.crypto
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
-
-  const bytes = new Uint8Array(16)
-  if (c && typeof c.getRandomValues === 'function') {
-    c.getRandomValues(bytes)
-  } else {
-    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10x
-  const hex: string[] = []
-  for (let i = 0; i < 16; i++) hex.push(bytes[i].toString(16).padStart(2, '0'))
-  return (
-    hex.slice(0, 4).join('') +
-    '-' +
-    hex.slice(4, 6).join('') +
-    '-' +
-    hex.slice(6, 8).join('') +
-    '-' +
-    hex.slice(8, 10).join('') +
-    '-' +
-    hex.slice(10, 16).join('')
-  )
-}
 
 // --------------------------------------------------------------------------- web helpers
 

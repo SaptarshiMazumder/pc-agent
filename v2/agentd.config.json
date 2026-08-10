@@ -195,7 +195,7 @@
   "cost_efficiency": {
     "enabled": true,
     "text_model": "deepseek/deepseek-v4-pro",
-    "vision_model": "gemini/gemini-3.1-pro-preview"
+    "vision_model": "gemini/gemini-3.6-flash"
   },
   "_section_plugins": "THE control panel for every plugin + tool. A plugin is just a namespace + a set of tools; ALL knobs live on the tool (plugins.<plugin>.tools.<tool>.<knob>) \u2014 there is no plugin-level model/provider. enabled (plugin or tool level) toggles it off; model = the AI model a tool calls; provider = its backend/SDK/engine; plus any tool-specific knob. Resolves first-hit-wins: per-call > agent.toml tools[T].<knob> > this file's tools[T].<knob> > the tool's built-in default. `description` fields are ONLY for humans reading this file \u2014 the agent never sees them.",
   "plugins": {

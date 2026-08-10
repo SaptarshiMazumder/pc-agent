@@ -552,6 +552,31 @@ def build_task_store(config: Config):
     return SqliteTaskStore(config.state_dir / "autonomy.sqlite")
 
 
+def build_platform_mode_service(config: Config):
+    """Local vs Cloud — which keys pay for this machine's model calls.
+
+    Built unconditionally for the same reason the sign-in service is: "Cloud is unavailable here"
+    is a real answer a UI renders, and returning None would make it indistinguishable from a
+    daemon missing a component.
+    """
+    from agent_runtime import runtime_paths
+    from agent_runtime.application.services.platform_mode_service import PlatformModeService
+    from agent_runtime.infrastructure.env_file_model_proxy_binder import EnvFileModelProxyBinder
+    from agent_runtime.infrastructure.env_file_platform_mode_store import (
+        EnvFilePlatformModeStore,
+    )
+    from agent_runtime.infrastructure.env_file_session_token_store import (
+        EnvFileSessionTokenStore,
+    )
+
+    env_path = runtime_paths.user_env_file()
+    return PlatformModeService(
+        modes=EnvFilePlatformModeStore(env_path),
+        tokens=EnvFileSessionTokenStore(env_path),
+        proxy=EnvFileModelProxyBinder(env_path, config),
+    )
+
+
 def build_sign_in_service(config: Config):
     """The platform-identity use case: who is signed in to this install.
 
@@ -646,6 +671,13 @@ def build_gateway(config: Config) -> Gateway:
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
 
+    # LOCAL vs CLOUD, asserted at boot. AFTER build_service, which runs model_proxy.configure —
+    # this reads that seam to decide whether Cloud is reachable at all. Default is Cloud: a
+    # signed-in install with no stated preference comes up on platform keys with nothing pressed,
+    # and one that chose Local comes up exactly where it was left.
+    platform_mode_service = build_platform_mode_service(config)
+    platform_mode_service.apply()
+
     gateway = Gateway(
         config=config,
         service=service,
@@ -656,6 +688,7 @@ def build_gateway(config: Config) -> Gateway:
         memory_bank=memory_bank,
         event_log=build_event_log(config),  # durable per-run event stream (None unless enabled)
         sign_in=build_sign_in_service(config),  # platform identity — the auth.* methods
+        platform_mode=platform_mode_service,  # Local vs Cloud billing, already applied above
         credential_store=credential_store,  # /connect form writes here (shared with simple_login)
         connect_tokens=connect_token_store,
         safe_to_send_gate=build_safe_to_send_gate(

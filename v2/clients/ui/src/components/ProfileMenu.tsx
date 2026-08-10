@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CreditCard, LayoutGrid, LogOut, Monitor, User } from 'lucide-react'
 
+import { gateway } from '../gateway/client'
 import { signOut, useAuthSession } from '../lib/auth'
 import { setMode, useMode } from '../lib/mode'
 import { isDesktop } from '../lib/platform'
@@ -36,8 +37,25 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
     setMode(null) // App re-renders into the launcher to re-choose Local / Cloud
   }
 
-  function doSignOut(): void {
+  /**
+   * Sign out of BOTH halves. There used to be only one.
+   *
+   * `signOut()` clears this client's own stored session and nothing else, so the DAEMON kept its
+   * identity token and its model-proxy credential. The window said "signed out" while the daemon
+   * stayed authenticated and carried on metering the account — and because Cloud only needs the
+   * daemon's token, the run-mode switch happily turned platform billing back on for an account
+   * the UI insisted you had left.
+   *
+   * `auth.logout` is the half that means it: the daemon drops the identity and re-applies the run
+   * mode, which unbinds the proxy in the same step.
+   */
+  async function doSignOut(): Promise<void> {
     setOpen(false)
+    try {
+      await gateway.request('auth.logout')
+    } catch {
+      /* older daemon without auth.* — the local sign-out below still happens */
+    }
     signOut()
     setMode(null) // signing out leaves Cloud → back to the launcher to choose
     location.reload() // drop the account-scoped connection cleanly
@@ -99,7 +117,7 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
                 <CreditCard size={16} />
                 <span>Credits &amp; billing</span>
               </button>
-              <button className="app-menu-item" type="button" onClick={doSignOut}>
+              <button className="app-menu-item" type="button" onClick={() => void doSignOut()}>
                 <LogOut size={16} />
                 <span>Sign out</span>
               </button>

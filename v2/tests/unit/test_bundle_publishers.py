@@ -142,6 +142,31 @@ def test_operator_publisher_passes_the_installer_choice_through(monkeypatch, tmp
 # ── the AUTHOR adapter needs sign-in, NOT a key ──────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_credentials(monkeypatch):
+    """These tests describe PRECEDENCE, so the environment has to be STATED, not inherited.
+
+    They were passing by luck: the machines running them happened to have no platform credentials
+    in their `.env`. Once identity got a key of its own — AGENTD_SESSION_TOKEN, written at sign-in
+    and loaded into the environment at boot — any developer who had signed in started seeing three
+    failures here that had nothing to do with whatever they were working on.
+    """
+    from agent_runtime.infrastructure.env_file_session_token_store import TOKEN_KEY
+
+    for name in (TOKEN_KEY, "AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_identity_token_is_enough_to_publish(monkeypatch):
+    """Signing in is the requirement, not being a paying customer. Publishing used to look for
+    the MODEL-PROXY key, so an author on their own API keys was refused with 'you are not signed
+    in' — which they may well have been."""
+    from agent_runtime.infrastructure.env_file_session_token_store import TOKEN_KEY
+
+    monkeypatch.setenv(TOKEN_KEY, "sess_identity")
+    assert HttpRegistryPublisher("https://x", FakeConfig(), FakePacker()).requirements() == []
+
+
 def test_author_publisher_asks_for_sign_in_and_never_for_a_key():
     missing = HttpRegistryPublisher("https://api.example.com", FakeConfig(), FakePacker()).requirements()
     assert any("not signed in" in r for r in missing)

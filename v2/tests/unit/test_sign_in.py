@@ -236,8 +236,10 @@ def test_the_reply_never_carries_the_session_token():
     signed in, never the credential."""
     gateway = _gateway(accounts=_Accounts(), tokens=_Tokens())
     reply = asyncio.run(gateway._auth_login({"email": "a@b.c", "password": "pw"}))
-    assert reply == {"signedIn": True, "email": "a@b.c", "accountId": "acct_1"}
-    assert "sess_abc" not in str(reply)
+    assert reply["signedIn"] is True
+    assert reply["email"] == "a@b.c"
+    assert reply["accountId"] == "acct_1"
+    assert "sess_abc" not in str(reply), "the credential itself never crosses the wire"
 
 
 def test_status_says_whether_a_login_can_be_offered_at_all():

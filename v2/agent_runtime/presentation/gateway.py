@@ -35,6 +35,7 @@ from agent_runtime.application.run_context import (
 )
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config, accounts_api_base
+from agent_runtime.domain import platform_mode
 from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
@@ -185,6 +186,12 @@ def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
     if name in ("chat.event", "sessions.changed"):
         return payload.get("agentId") == agent_id
     if name == "agents.changed":
+        return True
+    # Identity + run mode are MACHINE-WIDE, so every window is affected by a change any window
+    # made. A scoped app has to hear it: it renders a sign-in state and a Local/Cloud control, and
+    # a window still showing an account the daemon has forgotten is worse than one showing none.
+    # Carries no token — the payload is the same non-secret view auth.status returns.
+    if name == "auth.changed":
         return True
     if name == "notification":
         return payload.get("agentId") in (agent_id, "", None)
@@ -916,6 +923,7 @@ class Gateway:
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
     event_log: object | None = None  # injected; durable per-run event stream, or None
     sign_in: object | None = None  # injected; SignInService — platform identity (auth.* methods)
+    platform_mode: object | None = None  # injected; PlatformModeService — Local vs Cloud billing
     credential_store: object | None = None  # injected; login vault (/connect form writes here)
     connect_tokens: object | None = None  # injected; one-time /connect-link tokens
     safe_to_send_gate: object | None = None  # injected; out-of-band privacy gate on channel replies
@@ -2264,6 +2272,8 @@ class Gateway:
                 payload = await self._auth_login(req.params)
             elif req.method == "auth.logout":
                 payload = self._auth_logout()
+            elif req.method == "auth.token":
+                payload = self._auth_token()
             elif req.method == "platform.connect":
                 payload = self._platform_connect(req.params)
             elif req.method == "platform.disconnect":
@@ -3613,6 +3623,41 @@ class Gateway:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""
         await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
 
+    async def _broadcast_auth_changed(self) -> None:
+        """Tell EVERY connected client that identity or billing changed.
+
+        The daemon is the one place that knows who is signed in, but each window kept its own copy
+        — so signing out in one left every other window still showing an account, offering an
+        Account page, and able to switch billing back on for it. Two clients disagreeing about
+        whether you are logged in is not a rendering glitch; it is one of them acting as somebody
+        the daemon no longer recognises.
+
+        A push, not a poll: the change happens HERE, on a request one client made, and the others
+        have no reason to be asking. Payload is the merged auth + mode view, which is exactly what
+        `auth.status` and `platform.status` return, so a listener can apply it without a round trip
+        (and never carries the token — same rule as everywhere else)."""
+        await self._send_all(
+            dump_frame(Event(event="auth.changed", payload=self._auth_state()))
+        )
+
+    def _auth_state(self) -> dict:
+        """The merged who-you-are + who-pays view. One shape, two broadcasters."""
+        state = self._auth_status() if self.sign_in is not None else {
+            "available": False, "signedIn": False, "email": "", "accountId": ""
+        }
+        state["mode"] = self.platform_mode.mode() if self.platform_mode else platform_mode.LOCAL
+        state["canUseCloud"] = bool(self.platform_mode and self.platform_mode.can_use_cloud)
+        return state
+
+    def broadcast_auth_changed(self) -> None:
+        """Fire-and-forget wrapper — same pattern as the roster broadcast below. No-op outside a
+        running loop, so the sync handlers that trigger it stay callable from unit tests."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self._broadcast_auth_changed())
+
     def broadcast_agents_changed(self) -> None:
         """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
 
@@ -3804,6 +3849,20 @@ class Gateway:
             # from env + config and ignored the profile, so a URL set in agentd.config.json ran the
             # server side while every client was told this build had no sign-in.
             "accountsUrl": accounts_api_base(self.config),
+            # LOCAL vs CLOUD, ANSWERED BY THE DAEMON. This used to be the desktop client's
+            # localStorage (clients/ui/src/lib/mode.ts), which no other page could read — an
+            # agent's own window is a different origin-scoped store, so changing mode meant
+            # leaving the agent and going back to agentd to do it. One machine-wide fact needs
+            # one machine-wide home.
+            #
+            #   mode           what is ACTUALLY happening right now
+            #   modePreference what the user CHOSE ("" => never chose, so the default applies)
+            #   canUseCloud    is Cloud even reachable (proxy configured AND somebody signed in)
+            "mode": self.platform_mode.mode() if self.platform_mode else platform_mode.LOCAL,
+            "modePreference": (
+                self.platform_mode.preference() if self.platform_mode else platform_mode.UNSET
+            ),
+            "canUseCloud": bool(self.platform_mode and self.platform_mode.can_use_cloud),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,
@@ -3849,14 +3908,63 @@ class Gateway:
             password=str(params.get("password") or ""),
             signup=bool(params.get("signup")),
         )
-        return {"signedIn": True, "email": session.email, "accountId": session.account_id}
+        # THE MOMENT "DEFAULT CLOUD" BECOMES APPLICABLE. Before this line there was no token to
+        # pay with, so the mode rule could only resolve to local however the user had it set.
+        # Now it can, so re-assert it — an install with no stated preference lands in Cloud with
+        # nothing to press, and one that chose Local stays there.
+        mode = self.platform_mode.apply() if self.platform_mode else platform_mode.LOCAL
+        # Every other open window is still showing "not signed in".
+        self.broadcast_auth_changed()
+        return {
+            "signedIn": True,
+            "email": session.email,
+            "accountId": session.account_id,
+            "mode": mode,
+        }
+
+    def _auth_token(self) -> dict:
+        """The session token itself — HOST CONNECTIONS ONLY.
+
+        Deliberately absent from ``APP_SCOPED_METHODS``, so an agent window (which connects with
+        ``scope=agent:<id>``) is refused it by the scope gate. That boundary is the whole reason
+        this can exist: the product shell is first-party code we ship, while an agent's page may
+        have been downloaded from a marketplace and is served with no CSP.
+
+        WHY THE SHELL NEEDS IT AT ALL. The desktop client talks to the accounts service directly
+        for three things the daemon does not proxy — ``/resolve``, ``/me/credits`` and
+        ``/me/purchase`` — and on a WEB build the same token is its socket credential. Until those
+        move behind the daemon, the shell needs the value.
+
+        It is NOT the way to sign in. ``auth.login`` performs the exchange and returns nothing;
+        this hands back what the daemon already holds, so there is still exactly one place a
+        password is ever sent."""
+        session = self._require_sign_in().session()
+        return {
+            "token": session.token,
+            "email": session.email,
+            "accountId": session.account_id,
+        }
 
     def _auth_logout(self) -> dict:
-        """Forget who is signed in. Does NOT touch the model-proxy credential: signing out of your
-        account and telling the platform to stop billing you are separate acts, and the second one
-        belongs to platform.disconnect."""
+        """Forget who is signed in, and stop billing — in that order.
+
+        The two are separate facts, and this method owns only the first. But there is no such
+        thing as "signed out and still metering somebody's account", so the mode is re-applied
+        afterwards: with no identity left, the rule resolves to local and the proxy is unbound."""
         self._require_sign_in().logout()
+        if self.platform_mode is not None:
+            self.platform_mode.apply()
+        # THE ONE THAT MATTERS. Without it, the window that did not press the button keeps its own
+        # copy of the session and goes on presenting an account the daemon has forgotten.
+        self.broadcast_auth_changed()
         return {"signedIn": False, "email": "", "accountId": ""}
+
+    def _remember_mode(self, mode: str) -> None:
+        """Persist an explicit Local/Cloud choice. Silent no-op when no mode service was injected
+        (unit tests that drive the platform methods directly) — the effect has already been
+        applied by the caller either way, so this only ever loses the memory of it."""
+        if self.platform_mode is not None:
+            self.platform_mode.remember(mode)
 
     def _platform_connect(self, params: dict) -> dict:
         """Bind this install to a platform account: persist the caller's accounts session token
@@ -3869,9 +3977,17 @@ class Gateway:
         # seam), so a per-connection sign-in must NOT rewrite it — refuse cleanly.
         if accounts.enabled():
             raise ValueError("this deployment manages platform keys server-side")
+        # NO TOKEN IS THE NORMAL CASE NOW. The daemon performs sign-in itself and keeps the
+        # session token, so an agent's settings screen has no credential to pass — and should
+        # not: handing one back in through a URL is a leftover from when identity and billing
+        # were the same value. An explicit token still wins, for the desktop shell's own flow.
         token = str(params.get("token") or "").strip()
+        if not token and self.platform_mode is not None:
+            token = self.platform_mode.session_token()
         if not token:
-            raise ValueError("platform.connect requires a token")
+            raise ValueError(
+                "platform.connect needs a session token, and none is stored — sign in first."
+            )
         _user_env_file().update(
             {
                 "AGENTD_MODEL_PROXY_KEY": token,
@@ -3880,12 +3996,18 @@ class Gateway:
             }
         )
         model_proxy.configure(self.config)
+        # REMEMBER THE CHOICE, not just the effect. Without this, Cloud is re-derived from the
+        # default on the next boot, which happens to be right — but its opposite, disconnect,
+        # would be silently undone by it.
+        self._remember_mode(platform_mode.CLOUD)
         # Sign-in success/failure is itself a signal we are blind to today: a desktop that cannot
         # bind to its account produces no proxy traffic, which looks identical to an idle user.
         telemetry.count("platform_connect_total", outcome="ok")
         # The same token identifies diagnostics, so an opted-in user's reports stop being
         # anonymous the moment they sign in. Only reaches the wire if they opted in.
         telemetry.apply_diagnostics(self.config, token=token)
+        # Run mode is machine-wide, so a switch flipped in one window is a change in all of them.
+        self.broadcast_auth_changed()
         return self._platform_status()
 
     def _platform_disconnect(self) -> dict:
@@ -3895,9 +4017,15 @@ class Gateway:
             return self._platform_status()
         _user_env_file().update({"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""})
         model_proxy.configure(self.config)
+        # THE LOAD-BEARING HALF OF "DEFAULT CLOUD". Cloud is what an install with no stated
+        # preference gets, so unless choosing Local is written down, the next boot — and the next
+        # sign-in — would put the user straight back into Cloud. A default that cannot be refused
+        # is not a default.
+        self._remember_mode(platform_mode.LOCAL)
         # Drop the identity from queued diagnostics too: after sign-out this machine's reports
         # must not still carry the account id of whoever was signed in.
         telemetry.apply_diagnostics(self.config, token="")
+        self.broadcast_auth_changed()
         return self._platform_status()
 
     def _platform_set_model_proxy_url(self, params: dict) -> dict:

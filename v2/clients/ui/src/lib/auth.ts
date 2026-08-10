@@ -16,7 +16,8 @@
 
 import { useSyncExternalStore } from 'react'
 
-import { randomUuid } from './platform'
+import { gateway } from '../gateway/client'
+import { isDesktop, randomUuid } from './host'
 
 export interface Session {
   token: string
@@ -89,16 +90,74 @@ async function post(path: string, body: unknown): Promise<Record<string, string>
   return data
 }
 
+/**
+ * Sign in THROUGH THE DAEMON (desktop), so it is the daemon that knows.
+ *
+ * This window used to POST /login itself and keep the result to itself. The daemon therefore had
+ * no idea anyone had signed in — so it could not tell the other windows, and Agent Builder went
+ * on showing "Not signed in" after you signed in here. Sign-OUT already went through the daemon,
+ * which is why that direction propagated and this one did not.
+ *
+ * The token is then read back with `auth.token`, a HOST-ONLY method: an agent window is refused
+ * it by the scope gate. This client still needs the value because it calls the accounts service
+ * directly for /resolve, /me/credits and /me/purchase. When those move behind the daemon, this
+ * second call goes away.
+ */
+async function daemonLogin(email: string, password: string, signup: boolean): Promise<Session> {
+  await gateway.request('auth.login', { email, password, signup })
+  const d = await gateway.request<{ token: string; email: string; accountId: string }>('auth.token')
+  const s: Session = { token: d.token, accountId: d.accountId, email: d.email || email }
+  setSession(s)
+  return s
+}
+
 export async function login(email: string, password: string): Promise<Session> {
-  const d = await post('/login', { email: email.trim().toLowerCase(), password })
+  const clean = email.trim().toLowerCase()
+  if (isDesktop) return daemonLogin(clean, password, false)
+  // WEB: the session token IS this client's socket credential, so there is no daemon connection
+  // to sign in through until we already have one. The direct call is not a shortcut here, it is
+  // the only order that works.
+  const d = await post('/login', { email: clean, password })
   const s: Session = { token: d.token, accountId: d.account_id, email: d.email }
   setSession(s)
   return s
 }
 
+/**
+ * Adopt a sign-in that happened SOMEWHERE ELSE — another agent's window, or a second client.
+ *
+ * The daemon is the one that knows who is signed in, and it announces changes with
+ * `auth.changed`. Sign-out propagated from the start, because forgetting needs no credential.
+ * Signing in did not: this client's Session carries the token itself (it calls the accounts
+ * service directly for /resolve, /me/credits and /me/purchase), and there was no way to obtain
+ * one it had not minted. So signing in inside Agent Builder left agentd still showing signed out.
+ *
+ * `auth.token` closes that. It is host-only, so this shell can read the daemon's stored token
+ * while an agent's page is refused it by the scope gate.
+ *
+ * Returns null when there is nothing to adopt — no daemon support, no session, or this client
+ * already holds the same one.
+ */
+export async function adoptDaemonSession(): Promise<Session | null> {
+  if (!isDesktop) return null
+  try {
+    const d = await gateway.request<{ token: string; email: string; accountId: string }>('auth.token')
+    if (!d?.token) return null
+    const current = getSession()
+    if (current && current.token === d.token) return null
+    const s: Session = { token: d.token, accountId: d.accountId, email: d.email }
+    setSession(s)
+    return s
+  } catch {
+    return null // older daemon, or a connection that may not ask
+  }
+}
+
 export async function signup(email: string, password: string): Promise<Session> {
-  await post('/signup', { email: email.trim().toLowerCase(), password })
-  return login(email, password)
+  const clean = email.trim().toLowerCase()
+  if (isDesktop) return daemonLogin(clean, password, true)
+  await post('/signup', { email: clean, password })
+  return login(clean, password)
 }
 
 /**
@@ -264,7 +323,7 @@ export async function purchase(productId: string): Promise<Purchase> {
   }
 }
 
-/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/platform.ts for why
+/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/host.ts for why
  *  crypto.randomUUID cannot be called directly. This used to carry its own weaker fallback;
  *  two answers to the same host limitation is how one of them stays broken. */
 function newIdempotencyKey(): string {

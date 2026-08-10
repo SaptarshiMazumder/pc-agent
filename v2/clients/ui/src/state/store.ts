@@ -23,8 +23,8 @@ import type {
 import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
-import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
-import { getMode } from '../lib/mode'
+import { adoptDaemonSession, getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
+import { getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
 import { reportReconnect, reportRun } from '../lib/rum'
@@ -601,6 +601,11 @@ export const useApp = create<AppState>((set, get) => {
 
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
+    // Pick up a session the DAEMON already holds — signed in from another window, or before this
+    // one was opened. The broadcast only reaches clients that were connected when it happened, so
+    // without this a restart of agentd would come back up signed out while the daemon was not.
+    // Ordered before connectPlatform: that decides Local/Cloud, and Cloud needs an identity.
+    await adoptDaemonSession()
     await connectPlatform()
     const flavor = get().flavor
     const preferred = get().currentAgentId || flavor?.defaultAgent || hello.agentId
@@ -623,18 +628,18 @@ export const useApp = create<AppState>((set, get) => {
    *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
   async function connectPlatform(): Promise<void> {
     if (!isDesktop) return
-    if (getMode() !== 'cloud') {
-      try {
-        await gateway.request('platform.disconnect')
-      } catch {
-        /* older daemon without platform.* — BYOK is already the default */
-      }
-      return
-    }
-    const session = getSession()
-    if (!session) return
+    const chosen = getMode()
+    // NO CHOICE YET => LEAVE THE DAEMON ALONE. It applies its own preference at boot, and the
+    // default is Cloud once somebody is signed in. Forcing `platform.disconnect` here is what
+    // used to override that on every single reconnect — including the reconnect that follows a
+    // user switching to Cloud from an agent's own settings page, which is why that setting
+    // appeared not to stick.
+    if (chosen === null) return
     try {
-      await gateway.request('platform.connect', { token: session.token })
+      // No token. The daemon signs the user in itself and keeps the session token, so it can
+      // bind the proxy from what it already holds; passing a credential back in through a
+      // request was a leftover from when identity and billing were the same value.
+      await gateway.request(chosen === 'cloud' ? 'platform.connect' : 'platform.disconnect')
     } catch {
       /* older daemon without platform.* — BYOK keeps working; nothing to surface */
     }
@@ -777,6 +782,28 @@ export const useApp = create<AppState>((set, get) => {
       if (cur && agents.length && !agents.some((a) => a.id === cur)) {
         void get().selectAgent('main')
       }
+    })
+    // Identity + run mode changed SOMEWHERE — this window, an agent's settings page, another
+    // client. Both are machine-wide facts the daemon owns, and this window used to keep its own
+    // private copy of each: signing out inside an agent left agentd still showing the account,
+    // and signing in there left it still showing signed out.
+    //
+    // BOTH directions now. Out is a local forget; in adopts the daemon's stored token through the
+    // host-only auth.token, which is the piece that made this direction possible at all.
+    gateway.on('auth.changed', (payload) => {
+      if (payload.signedIn === false) {
+        if (getSession()) {
+          signOut()
+          setMode(null) // no account => Cloud is gone; back to the launcher to choose
+        }
+        return
+      }
+      void adoptDaemonSession().then((s) => {
+        // Mirror the run mode the daemon reports, so this window does not re-assert a stale
+        // choice over the one just made elsewhere (connectPlatform pushes on every reconnect).
+        const mode = String(payload.mode || '')
+        if (s && (mode === 'cloud' || mode === 'local')) setMode(mode)
+      })
     })
     gateway.on('sessions.changed', () => {
       // renamed / auto-titled / deleted (possibly by another client) — refresh both the
