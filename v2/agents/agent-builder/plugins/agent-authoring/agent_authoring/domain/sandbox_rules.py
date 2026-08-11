@@ -125,10 +125,14 @@ class SandboxRules:
             # when the plugin never declared where it goes — a plugin that uses the brokered
             # `fetch` and lists its hosts in [sandbox] net is doing the correct thing, and
             # warning about it would be warning about the fix.
-            reaches_out = NET_IMPORT.search(text) or (
-                URL_LITERAL.search(text) and not declared.get("net")
+            # TWO codes, because only one of them is safe to BLOCK on. An `import httpx` is
+            # unambiguous; a bare `https://` could be a docs link in a docstring. package_agent
+            # refuses the first and ignores the second — a gate that fires on a comment is a
+            # gate people learn to route around.
+            calls_out = NET_IMPORT.search(text) or (
+                URL_LITERAL.search(text) and "fetch(" in text and not declared.get("net")
             )
-            if reaches_out:
+            if calls_out:
                 out.append(
                     Finding(
                         level=WARN,
@@ -140,6 +144,21 @@ class SandboxRules:
                         'and declare the hosts in plugin.toml:  [sandbox]  net = ["api.example.'
                         'com"].  A credential rides as ${NAME} listed under [sandbox] secrets, '
                         "and the plugin never sees its value",
+                    )
+                )
+            elif URL_LITERAL.search(text) and not declared.get("net"):
+                # A URL and no request in sight — a docstring link, a default in a comment the
+                # stripper left, an example. Reported, never blocking.
+                out.append(
+                    Finding(
+                        level=WARN,
+                        code="UNTRUSTED_MAYBE_NETWORK",
+                        message=f"plugins/{pid}/ mentions a URL but declares no [sandbox] net "
+                        f"hosts. If it really calls out, an installed copy cannot — if it is a "
+                        f"docs link, ignore this",
+                        path=f"plugins/{pid}/",
+                        fix="if it makes a request, use the brokered `fetch` and declare the "
+                        'hosts:  [sandbox]  net = ["api.example.com"]',
                     )
                 )
             # Spawning is a hard denial (child_guard._SPAWN), not a degradation. Found in the

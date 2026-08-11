@@ -212,26 +212,25 @@ $('newChat').addEventListener('click', () => {
   void loadSessions()
 })
 
-let booted = false
 client.onStatus((s) => {
   wsOpen = s === 'open'
   if (wsOpen) { void loadSuggestions(); void loadSessions() }
   refreshComposer()
-  // Once per page, not once per reconnect.
-  if (wsOpen && !booted) {
-    booted = true
-    void (async () => {
-      try {
-        // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected,
-        // or when a stored session still works — so it is safe to call unconditionally.
-        await agentd.mountSignInGate()
-      } catch (e) {
-        // The daemon itself is unreachable. Not fatal: the chat surface reports that too.
-        console.warn('[sign-in]', (e && e.message) || e)
-      }
-    })()
-  }
 })
+
+// SIGN-IN RUNS BEFORE THE SOCKET. This agent is web-delivered, so its normal entrance is a
+// marketplace card linking to `/apps/bedtime-kids/` with no credential in the url — and on a
+// hosted daemon the session token IS the socket credential. Waiting for `status === 'open'`
+// would deadlock: unauthorized close, endless retry, no form. The gate is plain HTTP and needs
+// no socket; `client` lets it reconnect the moment a session exists.
+void (async () => {
+  try {
+    await agentd.mountSignInGate({ client })
+  } catch (e) {
+    // The daemon itself is unreachable. Not fatal: the status chip says so too.
+    console.warn('[sign-in]', (e && e.message) || e)
+  }
+})()
 
 // Surface any uncaught error — never a silent frozen screen.
 window.addEventListener('error', (e) => setStatus('off', 'error: ' + (e.message || 'unknown')))

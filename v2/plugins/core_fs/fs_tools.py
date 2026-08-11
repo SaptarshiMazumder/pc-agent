@@ -18,7 +18,8 @@ import sys
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.run_context import current_run_context, current_workspace
+from agent_runtime.application.write_scope import WriteRefused, check_write
 from agent_runtime.domain.messages import ImageContent, TextContent
 
 # document text extraction (docx/pdf/xlsx/pptx) — one source of truth, shared with the
@@ -99,6 +100,15 @@ def _resolve(config, path: str) -> Path:
     return p
 
 
+def _resolve_write(config, path: str) -> Path:
+    """``_resolve`` plus the calling agent's write scope.
+
+    Only the MUTATING tools use this; read/ls/find deliberately do not. The rule itself lives in
+    the runtime (``application/write_scope``) because `write` is not the only writer — the
+    authoring tools open files directly, and one of them writes into the shared plugins dir."""
+    return check_write(_resolve(config, path))
+
+
 class ReadTool(Tool):
     name = "read"
     default_timeout_sec = 30.0
@@ -128,6 +138,8 @@ class ReadTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # READS ARE NEVER SCOPED — see _resolve_write. An agent must be able to read its own
+        # skill and the SDK it vendors into a generated UI, and reading damages nothing.
         path = _resolve(self.config, params["path"])
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
@@ -226,7 +238,10 @@ class WriteTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        path = _resolve(self.config, params["path"])
+        try:
+            path = _resolve_write(self.config, params["path"])
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
         existed = path.exists()
         path.parent.mkdir(parents=True, exist_ok=True)
         content = params["content"]
@@ -334,7 +349,10 @@ class EditTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        path = _resolve(self.config, params["path"])
+        try:
+            path = _resolve_write(self.config, params["path"])
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
         original = path.read_text(encoding="utf-8")

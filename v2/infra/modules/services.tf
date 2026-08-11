@@ -26,6 +26,11 @@ locals {
     daemon = {
       AGENTD_REGISTRY      = local.registry_index_url
       AGENTD_PUBLISHER_KEY = var.registry_publisher_key
+      # What to tell a BROWSER when it asks where to sign in. AGENTD_ACCOUNTS_URL (above) is
+      # internal service DNS — correct for this container's own calls, unresolvable from a
+      # visitor's machine, and advertising it gives an agent app a login form that can never
+      # submit. Same expression the publish service uses, so both name one address.
+      AGENTD_PUBLIC_ACCOUNTS_URL = local.publish_product_accounts_url
     }
   }
 }

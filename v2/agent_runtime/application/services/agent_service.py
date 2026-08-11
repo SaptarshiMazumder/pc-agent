@@ -13,6 +13,7 @@ instrument itself (the engine streams the LLM, the session store hits the disk).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from agent_runtime.application.interfaces.agent_engine import AgentEngine
@@ -33,6 +34,8 @@ from agent_runtime.domain.agent import (
     select_tools,
 )
 from agent_runtime.domain.messages import Artifact, UserMessage
+
+log = logging.getLogger("agentd")
 
 
 def tool_source(t) -> str:
@@ -83,6 +86,16 @@ class AgentService:
         # the EFFECTIVE working dir for this run's file/exec tools. Injected by the composition
         # root so a PROJECT chat binds to the project's shared workspace (plan §11: file ownership
         # follows context, not identity). None => the agent's own workspace, exactly as before.
+        on_catalog_change: Callable[[list], None] | None = None,  # (all tools) -> None, called
+        # whenever the toolset changes. The ONE hook: MCP servers connect after startup and
+        # create_tool hot-adds without a restart, and every one of those paths lands in
+        # add_tools below — so hooking here covers them all instead of five call sites.
+        installed_agents: Callable[[], frozenset | None] | None = None,  # () -> the ids that
+        # arrived in a .agentpkg, i.e. the marketplace ledger's roster. Their directories become
+        # PROTECTED: an agent may author agents, but not edit someone else's installed one.
+        # Injected rather than read here because the ledger is the composition root's to own.
+        # `None` from the callable means the ledger could not be READ, which is different from
+        # "nothing installed" and is handled by failing closed.
         resolve_models: Callable[[AgentSpec], tuple] | None = None,  # (agent) -> (model, router)
         # for THIS run, after the agent's own config has been layered over the daemon's. An
         # injected callable rather than a Config handle, matching build_prompt / recall /
@@ -108,7 +121,57 @@ class AgentService:
         self.plugin_reloader = plugin_reloader
         self._resolve_workspace = resolve_workspace
         self._resolve_models = resolve_models
+        self._installed_agents = installed_agents
+        self._on_catalog_change = on_catalog_change
         self._mention_routing = (mention_routing or "direct").strip().lower()
+
+    @staticmethod
+    def _expand_paths(agent, declared: tuple) -> tuple:
+        """Turn an agent's authored write scope into absolute paths.
+
+        `agent.toml` writes ``<agents_dir>`` rather than a real path, because the agents
+        directory is ``<repo>/v2/agents/`` in a checkout and ``~/.agentd/agents/`` on an install
+        — an authored literal would be wrong on one of them. Expanded HERE so the filesystem
+        tools do plain containment and never learn what a token is.
+
+        ``<agent_dir>`` is the calling agent's own folder, which is what a self-deny needs.
+        An unknown token is left as-is: it then matches nothing, so a typo narrows the scope
+        rather than widening it."""
+        from pathlib import Path
+
+        agent_dir = Path(agent.dir) if getattr(agent, "dir", None) else None
+        agents_dir = agent_dir.parent if agent_dir else None
+        out = []
+        for raw in declared or ():
+            text = str(raw)
+            if agents_dir is not None:
+                text = text.replace("<agents_dir>", str(agents_dir))
+            if agent_dir is not None:
+                text = text.replace("<agent_dir>", str(agent_dir))
+            if "<" in text:
+                continue  # an unexpanded token would silently mean the literal string
+            out.append(str(Path(text).expanduser()))
+        return tuple(out)
+
+    def _protected_paths(self, agent) -> tuple:
+        """Directories of agents that were INSTALLED from a package — never writable.
+
+        FAILS CLOSED. When the ledger cannot be read the callable returns None, and we protect
+        the WHOLE agents directory rather than guessing: we do not know which agents are
+        someone else's, and quietly permitting the write would be a fallback that hides the
+        failure. The refusal is loud, the user fixes the ledger, authoring resumes."""
+        from pathlib import Path
+
+        if self._installed_agents is None:
+            return ()
+        agent_dir = Path(agent.dir) if getattr(agent, "dir", None) else None
+        agents_dir = agent_dir.parent if agent_dir else None
+        if agents_dir is None:
+            return ()
+        installed = self._installed_agents()
+        if installed is None:
+            return (str(agents_dir),)  # unreadable ledger -> protect everything, loudly
+        return tuple(str(agents_dir / aid) for aid in sorted(installed))
 
     def _models_for(self, agent) -> tuple:
         """``(model, model_router)`` for one run of ``agent``.
@@ -222,6 +285,18 @@ class AgentService:
         at gateway startup). They join the full toolset; each turn is then scoped to
         the resolved agent's allow/deny."""
         self._tools.extend(tools)
+        self._catalog_changed()
+
+    def _catalog_changed(self) -> None:
+        """Tell whoever cares that the toolset moved. Today that is the on-disk catalog an
+        agent reads before choosing which tools to grant; a boot-time snapshot would be stale
+        for exactly the tool that was just created."""
+        if self._on_catalog_change is None:
+            return
+        try:
+            self._on_catalog_change(list(self._tools))
+        except Exception:  # noqa: BLE001 — a bookkeeping side-effect never breaks a hot-add
+            log.exception("tool catalog change hook failed")
 
     def set_agent_tools(self, agent_tools: dict) -> None:
         """Replace the AGENT-PRIVATE tool map wholesale (marketplace hot-reload: an installed
@@ -349,6 +424,12 @@ class AgentService:
                 plugins=getattr(agent, "plugins", None) or None,
                 run_id=_run_id,
                 turn_id=_turn_id,
+                # getattr, like `plugins` above: an AgentSpec always has these, but the service
+                # is handed stand-in agent objects too (tests, and any caller that builds a
+                # minimal spec). A missing field means "declared nothing" — unrestricted.
+                write_roots=self._expand_paths(agent, getattr(agent, "write_roots", ())),
+                write_denies=self._expand_paths(agent, getattr(agent, "write_denies", ())),
+                protected_paths=self._protected_paths(agent),
             )
         )
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode

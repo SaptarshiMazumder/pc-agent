@@ -41,6 +41,9 @@ window.Settings = (function () {
   let data = null
   let draft = {}     // pending config edits, nested; reseeded from data.values on every load
   const keys = {}    // pending .env edits
+  let platform = null      // platform.status — run mode, live from the daemon
+  let auth = null          // auth.status — who is signed in, live from the daemon
+  let platformError = ''
 
   // Whose page this is. The connect URL carries `scope=agent:<id>` — the daemon strips that
   // prefix before it forces the agent onto our requests, so anything we key BY agent id has to
@@ -124,7 +127,17 @@ window.Settings = (function () {
     },
   ]
 
-  function init(c) { client = c }
+  function init(c) {
+    client = c
+    // The daemon pushes this whenever identity or run mode changes ANYWHERE — this window, the
+    // agentd window, another agent. Both facts are machine-wide, so a page holding its own stale
+    // copy would keep offering to sign out of an account that is already gone.
+    client.on('auth.changed', (state) => {
+      auth = state
+      if (platform) platform = { ...platform, mode: state.mode, canUseCloud: state.canUseCloud }
+      if (data) render()
+    })
+  }
 
   async function load() {
     const body = $('settingsBody')
@@ -138,7 +151,26 @@ window.Settings = (function () {
       return
     }
     draft = JSON.parse(JSON.stringify(data.values || {}))
+    await loadPlatform()
     render()
+  }
+
+  /** Run mode comes from the DAEMON, not from this page's storage — see modeSection. A failure
+   *  is remembered rather than swallowed: the section renders the reason, because a Run mode
+   *  control that quietly vanishes looks identical to a build that has no Cloud. */
+  async function loadPlatform() {
+    platformError = ''
+    try {
+      // ONE call, and it is the SDK's: identity and run mode are this client's own state, so
+      // there is nothing to ask the daemon for beyond "is there an accounts service, and is there
+      // a proxy to switch to". Both used to be daemon methods, which made them machine-wide.
+      auth = await window.agentd.authStatus({ client })
+      platform = auth
+    } catch (e) {
+      platform = null
+      auth = null
+      platformError = (e && e.message) || String(e)
+    }
   }
 
   function el(tag, cls, text) {
@@ -153,6 +185,11 @@ window.Settings = (function () {
     body.textContent = ''
     const values = data.values || {}
     const pinned = data.envOverrides || {}
+
+    // Account first, Run mode second — that is the order they depend on. Cloud needs somebody to
+    // bill, so the second control greys out until the first one is filled in.
+    body.append(accountSection())
+    body.append(modeSection())
 
     for (const group of GROUPS) {
       // With no scope in the URL there is no agent to override for; showing the group would
@@ -193,6 +230,135 @@ window.Settings = (function () {
     save.addEventListener('click', () => void commit())
     bar.append(msg, save)
     body.append(bar)
+  }
+
+  /** Account — WHO you are. Separate from Run mode below, which is who PAYS.
+   *
+   *  Both live here because they are the two facts a user has to be able to see and change from
+   *  inside the agent they are using. Before this, signing in meant leaving the agent and opening
+   *  agentd, and there was no way to sign out from here at all.
+   *
+   *  SIGNING OUT IS THE DAEMON'S SIGN-OUT, not a local flag. It drops the identity token AND
+   *  re-applies the run mode, so platform billing stops in the same step — the state "signed out
+   *  but still metering your account" is not reachable from here. */
+  function accountSection() {
+    const sec = el('section', 'set-group')
+    sec.append(el('h2', null, 'Account'))
+
+    if (platformError) {
+      sec.append(el('div', 'loading', `could not read the account: ${platformError}`))
+      return sec
+    }
+    if (!(auth && auth.available)) {
+      sec.append(el('p', 'ghelp', 'This build has no accounts service, so there is nobody to sign ' +
+        'in as. It runs on the API keys set below.'))
+      return sec
+    }
+
+    const signedIn = !!(auth && auth.signedIn)
+    sec.append(el('p', 'ghelp', signedIn
+      ? 'Signing out also stops platform billing — Run mode falls back to your own API keys.'
+      : 'Sign in to use Cloud mode. Your own API keys keep working either way.'))
+
+    const wrap = el('div', 'field')
+    const left = el('div')
+    left.append(el('label', null, signedIn ? (auth.email || 'Signed in') : 'Not signed in'))
+    left.append(el('span', 'fhelp', signedIn
+      ? 'This machine is signed in to the platform.'
+      : 'No account on this machine.'))
+    wrap.append(left)
+
+    const btn = el('button', 'prime-btn', signedIn ? 'Sign out' : 'Sign in')
+    btn.addEventListener('click', () => void (signedIn ? doSignOut() : doSignIn()))
+    wrap.append(btn)
+    sec.append(wrap)
+    return sec
+  }
+
+  async function doSignIn() {
+    // The SDK's gate: the daemon performs the exchange and keeps the token, so nothing here ever
+    // holds a credential. Resolves once somebody is signed in, or immediately if they already are.
+    await window.agentd.mountSignInGate({ client })
+    await loadPlatform()
+    render()
+  }
+
+  async function doSignOut() {
+    await window.agentd.authLogout({ client })
+    await loadPlatform()
+    render()
+  }
+
+  /** Run mode — Local (your own API keys) vs Cloud (platform keys, metered to your account).
+   *
+   *  MACHINE-WIDE, AND IT SAYS SO. The model proxy is one piece of daemon state shared by every
+   *  agent, so this control flips the others too. A toggle that silently changed every other
+   *  agent on the machine would be the worst kind of surprise.
+   *
+   *  The daemon is the source of truth. This used to live in the agentd desktop app's own
+   *  localStorage, which no other page could read — which is exactly why changing mode meant
+   *  leaving the agent, opening agentd, and switching there.
+   *
+   *  Default is Cloud: signing in puts a daemon with no stated preference onto platform keys with
+   *  nothing pressed. Choosing Local is remembered, so the next sign-in does not undo it. */
+  function modeSection() {
+    const sec = el('section', 'set-group')
+    sec.append(el('h2', null, 'Run mode'))
+    sec.append(el('p', 'ghelp',
+      'Who pays for model calls. This applies to EVERY agent on this machine, not just this one.'))
+
+    if (platformError) {
+      sec.append(el('div', 'loading', `could not read the run mode: ${platformError}`))
+      return sec
+    }
+
+    const mode = (platform && platform.mode) || 'local'
+    const cloud = mode === 'cloud'
+    const canCloud = !!(platform && platform.canUseCloud)
+    const chosen = (platform && platform.modePreference) || ''
+
+    const wrap = el('div', 'field')
+    const left = el('div')
+    left.append(el('label', null, cloud ? 'Cloud — platform keys' : 'Local — your own API keys'))
+    left.append(el('span', 'fhelp', cloud
+      ? 'Model calls route through the hosted proxy and are metered to your account.'
+      : 'Model calls go straight to the providers, with the keys set below.'))
+    // "Cloud" and "Cloud because nobody said otherwise" are different states, and only the
+    // second one changes by itself when someone signs in.
+    if (!chosen) left.append(el('span', 'fhelp', 'default — you have not chosen yet'))
+    if (!cloud && !canCloud) {
+      left.append(el('span', 'fhelp', platform && platform.accountsUrl
+        ? 'Sign in to use Cloud.'
+        : 'This build has no model proxy, so Cloud is unavailable.'))
+    }
+    wrap.append(left)
+
+    const t = el('button', `toggle ${cloud ? 'on' : ''}`)
+    t.disabled = !cloud && !canCloud
+    t.addEventListener('click', () => void switchMode(cloud ? 'local' : 'cloud'))
+    wrap.append(t)
+    sec.append(wrap)
+    return sec
+  }
+
+  async function switchMode(next) {
+    const say = (cls, text) => {
+      const m = $('setMsg')
+      if (!m) return
+      m.className = `set-msg${cls ? ' ' + cls : ''}`
+      m.textContent = text
+    }
+    say('', next === 'cloud' ? 'switching to Cloud…' : 'switching to Local…')
+    try {
+      // No token is passed. The daemon signed the user in and kept the session token; a page
+      // that never receives a credential cannot leak one.
+      await window.agentd.setRunMode(next, { client })
+      await loadPlatform()
+      render()
+      say('ok', `Now running in ${next === 'cloud' ? 'Cloud' : 'Local'} mode.`)
+    } catch (e) {
+      say('bad', `could not switch: ${(e && e.message) || e}`)
+    }
   }
 
   /** The override flag. Re-renders on change, because it moves every row in its group between

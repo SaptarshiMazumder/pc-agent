@@ -6,16 +6,16 @@ retargeted at a LiteLLM proxy that holds OUR provider keys and meters usage per 
 "platform keys" mode. One process-wide routing setting per daemon, so it lives as a
 module seam configured once at boot, mirroring litellm's own global toggles.
 
-The proxy KEY is a secret and comes from the ENVIRONMENT (AGENTD_MODEL_PROXY_KEY), never
-config.json — the same discipline as provider keys. On a hosted desktop the key is the user's
-accounts SESSION TOKEN, written to ~/.agentd/.env by the `platform.connect` RPC (the proxy's
-custom auth resolves it to an account); in the cloud it is the proxy master key. The URL may
-come from env (AGENTD_MODEL_PROXY_URL), config (model_proxy.api_base), or the distribution
-profile ([platform] model_proxy_url); first one wins in that order.
+WHICH KEY PAYS depends on the deployment, and the two are decided explicitly rather than by
+falling back on each other (see `turn_key`):
 
-Enablement: env URL present, or config opted in (model_proxy.enabled), or the URL came from
-the distribution profile AND a key is present — a signed-out hosted-flavor desktop has no key,
-so the seam stays OFF and BYOK behaves exactly as an open install.
+  * a SERVER whose operator forced the proxy on pays with AGENTD_MODEL_PROXY_KEY from the
+    environment — the master key — and names the account per call via the OpenAI `user` field.
+  * everywhere else, the CONNECTION's own session token pays. Nothing is stored: the client
+    presents it on connect, and a client that asked for `mode=local` pays with nothing at all.
+
+The URL may come from env (AGENTD_MODEL_PROXY_URL), config (model_proxy.api_base), or the
+distribution profile ([platform] model_proxy_url); first one wins in that order.
 
 Compatibility: the former AGENTD_MODEL_GATEWAY_* env vars, ``model_gateway`` config object,
 and ``model_gateway_url`` distribution field remain read-only fallbacks for existing installs.
@@ -29,19 +29,75 @@ seam is invisible above it, which is why desktop and hosted run the SAME code.
 
 from __future__ import annotations
 
+import contextvars
 import os
 
-_enabled = False
+_forced = False  # the DEPLOYMENT routes everything through the proxy (env url / config enabled)
+_enabled = False  # alias of _forced, kept for status()
 _api_base = ""
 _api_key = ""
 _source = ""  # "env" | "config" | "distribution" | "" — where the URL came from
+
+LOCAL = "local"
+CLOUD = "cloud"
+
+#: WHICH KEYS PAY, per CONNECTION rather than per process.
+#:
+#: One credential in one file meant one billing answer for the whole machine: a window nobody had
+#: signed in on spent whoever had last pressed Cloud somewhere else, and the daemon could not even
+#: attribute it, because usage is metered from the turn's account and that connection had none.
+#:
+#: The credential that pays is now the session on the connection — the same value that says who
+#: you are — so paying and being billed cannot disagree, and two windows signed in as different
+#: people are billed to different people at the same moment.
+#:
+#: "" means the client stated no preference, which behaves as CLOUD when it has a session.
+current_billing: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "agentd_billing_mode", default=""
+)
+
+
+def set_billing(mode: str):
+    """Pin the billing mode for this connection; returns the token to reset with."""
+    mode = (mode or "").strip().lower()
+    return current_billing.set(mode if mode in (LOCAL, CLOUD) else "")
+
+
+def reset_billing(token) -> None:
+    try:
+        current_billing.reset(token)
+    except (ValueError, LookupError):  # different context (task boundary) — best-effort
+        pass
+
+
+def turn_key() -> str:
+    """The credential this turn pays with, or "".
+
+    TWO DEPLOYMENTS, NOT A FALLBACK CHAIN. Which one applies is decided by an explicit operator
+    setting, never by which value happens to be non-empty:
+
+      * FORCED (env proxy URL, or `model_proxy.enabled`) — a server whose operator holds the
+        credential. It pays with that key for every turn, by policy; per-account attribution rides
+        the OpenAI `user` field.
+      * OTHERWISE — only the connection's own session pays. No session, no proxy, and the call
+        goes out on the user's own provider keys.
+
+    Chaining these on emptiness is what let a stale key in a .env decide who got billed.
+    """
+    if current_billing.get() == LOCAL:
+        return ""
+    if _forced:
+        return _api_key
+    from agent_runtime.infrastructure import accounts  # local: accounts imports nothing from llm
+
+    return str((accounts.current_account.get() or {}).get("session_token") or "")
 
 
 def configure(config) -> None:
     """Read the proxy settings, at boot or at runtime (platform.connect re-invokes after
     writing the key to ~/.agentd/.env). Env > config > distribution profile for the URL;
     disabled unless a URL is present and its source opts in. Safe to call again."""
-    global _enabled, _api_base, _api_key, _source
+    global _enabled, _forced, _api_base, _api_key, _source
     proxy_cfg = getattr(config, "model_proxy", None) or {}
     legacy_cfg = getattr(config, "model_gateway", None) or {}
     mp = proxy_cfg or legacy_cfg
@@ -65,29 +121,35 @@ def configure(config) -> None:
         os.environ.get("AGENTD_MODEL_PROXY_KEY", "").strip()
         or os.environ.get("AGENTD_MODEL_GATEWAY_KEY", "").strip()
     )
-    # on when a URL is given AND its source opts in:
-    #   • env url        — explicit hosted/server override, always on (can't be toggled off)
-    #   • config enabled — an explicit `model_proxy.enabled = true` forces it on
-    #   • config/dist url + KEY — the desktop Local/Cloud switch: a config-override or baked
-    #     distribution url activates only once a key exists (Cloud = platform.connect wrote the
-    #     session token; Local = platform.disconnect cleared it). Signed-out stays BYOK.
-    _enabled = bool(_api_base) and (
-        bool(env_url)
-        or bool(mp.get("enabled"))
-        or (_source in ("config", "distribution") and bool(_api_key))
-    )
+    # FORCED ON BY THE DEPLOYMENT — the operator's decision, not the user's. The third case this
+    # used to have ("a config/distribution url plus a stored KEY") is gone with the key it
+    # depended on: that was the desktop Local/Cloud switch living here as one process-wide flag,
+    # so every window was billed however the last one to press Cloud had left it.
+    _forced = bool(_api_base) and (bool(env_url) or bool(mp.get("enabled")))
+    _enabled = _forced
 
 
 def enabled() -> bool:
-    return _enabled
+    """Would THIS turn be proxied? Forced by the deployment, or this connection has a session to
+    pay with. Per connection — see `current_billing`."""
+    return bool(_api_base) and (_forced or bool(turn_key()))
+
+
+def available() -> bool:
+    """Is a proxy configured at all — i.e. is there a Cloud to switch to on this build?"""
+    return bool(_api_base)
 
 
 def status() -> dict:
     """Non-secret view for UIs (Settings 'platform keys vs your own keys' indicator)."""
     return {
-        "enabled": _enabled,
+        # "would THIS connection's calls be proxied" — what a settings screen is really asking.
+        # A process-wide flag showed two windows in different modes the same answer, and one of
+        # them was always wrong.
+        "enabled": enabled(),
         "api_base": _api_base,
         "source": _source,
+        "available": bool(_api_base),
         "has_key": bool(_api_key),
     }
 
@@ -96,14 +158,17 @@ def apply(kwargs: dict) -> dict:
     """Retarget one litellm completion kwargs dict at the proxy, in place. No-op when the
     proxy is off or the call is already proxied. Overwrites any provider api_key with the
     proxy key (in proxy mode the local provider key must NOT win)."""
-    if not _enabled:
+    if not enabled():
         return kwargs
     model = str(kwargs.get("model") or "")
     if model and not model.startswith("litellm_proxy/"):
         kwargs["model"] = f"litellm_proxy/{model}"
     kwargs["api_base"] = _api_base
-    if _api_key:
-        kwargs["api_key"] = _api_key
+    # Empty only where the operator forced the proxy on without a key (it authenticates some other
+    # way). Writing a blank would overwrite a working provider key with nothing.
+    key = turn_key()
+    if key:
+        kwargs["api_key"] = key
     # per-call attribution for trusted (master-key) callers: the proxy meters session-token
     # callers from the token itself, but the cloud daemon authenticates as infra and names
     # the account explicitly via the OpenAI `user` field.

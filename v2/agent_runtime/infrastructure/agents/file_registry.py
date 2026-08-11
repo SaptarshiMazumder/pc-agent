@@ -265,6 +265,13 @@ class FileAgentRegistry:
         tools = data.get("tools") or {}
         allow = tools.get("allow")
         deny = tools.get("deny") or []
+        # [tools.fs] — where this agent may WRITE. Absent (the normal case) leaves both empty,
+        # which means unrestricted, which is what every agent does today. Only an agent that
+        # opts in is constrained. Tokens like <agents_dir> are left verbatim; the service that
+        # builds the run context expands them, because that is where config lives.
+        fs_scope = tools.get("fs") or {}
+        write_roots = [str(r).strip() for r in (fs_scope.get("write_roots") or []) if str(r).strip()]
+        write_denies = [str(r).strip() for r in (fs_scope.get("deny") or []) if str(r).strip()]
         skills_allow = data.get("skills")
         model = data.get("model")
         # [plugins.*] per-agent model overrides, same plugin->tool->model shape as global
@@ -355,6 +362,8 @@ class FileAgentRegistry:
             plugins=plugins,
             tools_allow=tuple(allow) if allow is not None else None,
             tools_deny=tuple(deny),
+            write_roots=tuple(write_roots),
+            write_denies=tuple(write_denies),
             subagents_allow=tuple(sub_allow) if sub_allow is not None else None,
             dir=d,
             skills_allow=tuple(skills_allow) if skills_allow is not None else None,

@@ -3,7 +3,7 @@
 
 name = "Game Master"
 description = "A playful tabletop RPG referee: rolls dice, looks up monsters, and narrates scenes."
-version = "0.3.0" # hosted sign-in (SDK gate) — bumped so the shipped app supersedes 0.2.0
+version = "0.3.1" # 0.3.0 was unlisted; installs supersede BY VERSION, so a republish needs a new one
 tagline = "roll · look up · narrate"
 color = "#B5453C"
 suggestions = [
@@ -21,6 +21,16 @@ title = "Game Master"
 mode = "window"
 entry = "ui/index.html"
 public = false
+
+# How this agent REACHES people. Both keys are the defaults, spelled out because the choice is a
+# product decision and an absent table reads as "nobody decided" — the same reason bedtime-kids
+# states its own (the opposite) pair. exe: the marketplace also carries a small per-agent installer,
+# so a stranger with no agentd downloads one file and has this app. web: OFF — running it on the
+# hosted platform would put its three private tools on shared infrastructure, and this agent exists
+# precisely to exercise the untrusted-plugin sandbox, which is not something to prove in production.
+[delivery]
+exe = true
+web = false
 
 # Tight scope: this agent needs nothing from the shared catalog. Its OWN tools (roll_dice,
 # narrate_scene — shipped in plugins/game-kit) are implicitly allowed and never named here.

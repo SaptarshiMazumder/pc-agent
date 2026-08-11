@@ -44,6 +44,14 @@ from dataclasses import dataclass, field
 # template contains it, because a typo here silently downgrades every component to instructions.
 COMPONENTS_ANCHOR = "AGENTD:COMPONENTS"
 
+# Sign-in needs its OWN anchor, and the reason is a deadlock rather than a preference. The
+# components anchor sits inside the "socket is open" branch, which is the right place for anything
+# that talks to the daemon — but on a hosted daemon the session token IS the socket credential, so
+# a page opened from a marketplace link (`/apps/<id>/`, no token) can never reach that branch: the
+# socket is refused until somebody signs in, and the form that signs them in would be waiting for
+# the socket. The gate speaks plain HTTP and needs no socket, so it goes BEFORE the connection.
+SIGNIN_ANCHOR = "AGENTD:SIGNIN"
+
 
 @dataclass(frozen=True)
 class Insertion:
@@ -88,15 +96,18 @@ class UiComponent:
 # The call is safe unconditionally, which is what makes it a component and not a decision: the gate
 # renders NOTHING on a BYOK build, when the device is already connected, or when a stored session
 # still works. There is nothing to configure.
-SIGN_IN_SNIPPET = """try {
-  // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected, or
-  // when a stored session still works — so it is safe to call unconditionally.
-  await agentd.mountSignInGate()
-} catch (e) {
-  // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and blocking
-  // the whole window on a status probe would hide the better message.
-  console.warn('[sign-in]', (e && e.message) || e)
-}"""
+SIGN_IN_SNIPPET = """void (async () => {
+  try {
+    // Sign-in BEFORE the socket. On a hosted daemon the session token is the socket credential,
+    // so a page opened from a marketplace link cannot connect until somebody has signed in.
+    // Renders NOTHING on a BYOK build, when the page already carries a credential, or when a
+    // stored session still works. `client` lets the gate reconnect once a session exists.
+    await agentd.mountSignInGate({ client })
+  } catch (e) {
+    // The daemon itself is unreachable. Not fatal: the status chip reports that too.
+    console.warn('[sign-in]', (e && e.message) || e)
+  }
+})()"""
 
 SIGN_IN = UiComponent(
     id="sign-in",
@@ -130,11 +141,14 @@ SIGN_IN = UiComponent(
             # Matches the drop-in gate OR direct use of the mechanism, so an app that already
             # signs people in its own way is left alone.
             detect=r"\b(?:mountSignInGate|resolveAuth|platformStatus|signIn)\s*\(",
-            indent="        ",
+            anchor=SIGNIN_ANCHOR,
+            indent="  ",
             note=(
-                "put it where the socket has just opened and before the first model call — in the "
-                "chat-app template that is the `s === 'open' && !started` branch, just before "
-                "hello(). It must be inside an async function (it awaits)."
+                "put it BEFORE the connection is wired — right after `agentd.fromPage()` and above "
+                "the `client.onStatus(...)` handler, at the top level of the boot function. NOT "
+                "inside the `s === 'open'` branch: on a hosted daemon the socket cannot open until "
+                "someone has signed in, so a gate that waits for the socket never runs. It is "
+                "self-contained (its own async wrapper), so the boot continues without awaiting it."
             ),
         ),
     ),

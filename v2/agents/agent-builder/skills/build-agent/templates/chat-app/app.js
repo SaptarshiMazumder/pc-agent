@@ -145,6 +145,23 @@
   })
   drawSuggests()
 
+  // AGENTD:SIGNIN — `add_ui_component` places the sign-in gate after this line, and it must stay
+  // ABOVE the connection wiring below. Gating sign-in on `status === 'open'` deadlocks a page
+  // opened from a marketplace card: on a hosted daemon the socket is refused until a session
+  // exists, so a form that waits for the socket can never appear. This one talks plain HTTP.
+  void (async () => {
+    try {
+      // Sign-in BEFORE the socket. On a hosted daemon the session token is the socket credential,
+      // so a page opened from a marketplace link cannot connect until somebody has signed in.
+      // Renders NOTHING on a BYOK build, when the page already carries a credential, or when a
+      // stored session still works. `client` lets the gate reconnect once a session exists.
+      await agentd.mountSignInGate({ client })
+    } catch (e) {
+      // The daemon itself is unreachable. Not fatal: the status chip reports that too.
+      console.warn('[sign-in]', (e && e.message) || e)
+    }
+  })()
+
   let started = false
   client.onStatus((s) => {
     // CONNECTION STATE, always visible. 'connecting' | 'open' | 'closed'. When the daemon
@@ -160,18 +177,6 @@
         // before the first model call and after the socket is open, which is what every component
         // so far needs. Keep the marker: without it the tool cannot place code deterministically
         // and falls back to telling a human where to put it.
-        //
-        // Note the sign-in below is about MODEL access, not socket access: the token in the page
-        // URL already authorized the WebSocket, which is why it belongs here and not before connect.
-        try {
-          // Hosted sign-in. Renders NOTHING on a BYOK build, when this device is already connected, or
-          // when a stored session still works — so it is safe to call unconditionally.
-          await agentd.mountSignInGate()
-        } catch (e) {
-          // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and blocking
-          // the whole window on a status probe would hide the better message.
-          console.warn('[sign-in]', (e && e.message) || e)
-        }
         try {
           const hello = await client.hello()
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''

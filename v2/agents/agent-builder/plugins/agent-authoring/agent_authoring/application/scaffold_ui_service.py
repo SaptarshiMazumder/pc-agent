@@ -22,6 +22,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agent_runtime.application.write_scope import WriteRefused, check_write
+
 from agent_authoring.domain.ui_template import UiTemplate, UiTemplates
 
 
@@ -128,6 +130,12 @@ class ScaffoldUiService:
                 f"`write` — it keeps everything else. If they genuinely want this app "
                 f"replaced, call again with confirm_overwrite=true."
             )
+
+        # Same scope as `write`. This service opens files itself.
+        try:
+            check_write(ui_dir)
+        except WriteRefused as e:
+            raise ScaffoldError(str(e)) from e
 
         written: list[str] = []
         for rel, src in plan:

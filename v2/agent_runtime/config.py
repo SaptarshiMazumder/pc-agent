@@ -434,6 +434,10 @@ class Config:
     # authors' declarations decide alone. AGENTD_HOSTED_AGENTS_DENY / _ALLOW (comma-separated).
     hosted_agents_deny: tuple = ()
     hosted_agents_allow: tuple = ()
+    # The accounts URL to ADVERTISE to browsers, when it differs from the one this daemon calls.
+    # A hosted deployment reaches accounts over internal service DNS, which a visitor cannot
+    # resolve — see client_accounts_url(). Empty everywhere else. AGENTD_PUBLIC_ACCOUNTS_URL.
+    public_accounts_url: str = ""
     # Where tenant homes live. Empty = <AGENTD_HOME>/users. AGENTD_TENANT_ROOT.
     tenant_root: str = ""
     # How many tenants may be resident at once. A tenant costs MEMORY (its own loaded plugin
@@ -460,7 +464,8 @@ class Config:
     # THIRD_PARTY_BUNDLE. Left on in production the worst case is an agent that is sandboxed when it
     # did not need to be — a capability that fails loudly, never an exposure. Operator-only
     # (config/env), like every sandbox knob: nothing inside a package can reach it.
-    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids.
+    # AGENTD_SANDBOX_UNTRUSTED_AGENTS=comma,separated,ids — or `*` for EVERY agent, which is
+    # what you want while developing: no id to add each time you build one.
     sandbox_untrusted_agents: tuple = ()
     # Model failover (S11): models to try, in order, when the primary errors before any
     # output. Empty = no failover. AGENTD_MODEL_FALLBACKS=comma,separated,ids.
@@ -657,6 +662,50 @@ def default_local_registry(state_dir) -> str:
     not 'a broken registry'). Lowest-priority fallback in the resolution chain."""
     registry_dir = Path(state_dir) / "registry"
     return str(registry_dir) if (registry_dir / "index.json").is_file() else ""
+
+
+def accounts_api_base(config) -> str:
+    """Where the accounts service lives: env > config > distribution profile.
+
+    THREE SOURCES, ONE ANSWER, ONE FUNCTION. This used to be resolved in two places that looked
+    in different sets of them: the accounts seam read env + config and ignored the profile, while
+    the gateway's platform status read the profile and ignored env + config. So an accounts URL
+    put in ``agentd.config.json`` configured the server side while every client was still told
+    this build had no sign-in — which is how an agent ends up shipping a login screen that renders
+    nothing at all.
+
+    Same precedence ``registry_url`` and ``publish_target`` already use: an operator's environment
+    beats a machine's config file, which beats whatever the build was shipped with.
+    """
+    acc = getattr(config, "accounts", None)
+    acc = acc if isinstance(acc, dict) else {}
+    profile = getattr(config, "distribution", None)
+    return (
+        (
+            os.environ.get("AGENTD_ACCOUNTS_URL")
+            or str(acc.get("api_base") or "")
+            or str(getattr(profile, "accounts_url", "") or "")
+        )
+        .strip()
+        .rstrip("/")
+    )
+
+
+def client_accounts_url(config) -> str:
+    """The accounts URL to hand to a BROWSER, which is not always the one the daemon calls.
+
+    On a hosted deployment `accounts_api_base` resolves to internal service DNS
+    (`http://accounts.agentd.local:4100`) — exactly right for the daemon's own requests, and
+    unreachable from a visitor's machine. Advertising it means a sign-in form that renders,
+    accepts a password, and then fails to POST anywhere.
+
+    So a deployment may declare its PUBLIC address separately (`AGENTD_PUBLIC_ACCOUNTS_URL`).
+    Everywhere else — desktop, BYOK, a local checkout — nothing sets it and this is exactly
+    `accounts_api_base`, because there the daemon and the browser reach the same host.
+    """
+    return str(getattr(config, "public_accounts_url", "") or "").strip().rstrip("/") or (
+        accounts_api_base(config)
+    )
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -945,26 +994,16 @@ def load_config(path: Path | None = None) -> Config:
         cfg.multi_tenant = os.environ["AGENTD_MULTI_TENANT"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TENANT_ROOT"):
         cfg.tenant_root = os.environ["AGENTD_TENANT_ROOT"].strip()
+    if os.environ.get("AGENTD_PUBLIC_ACCOUNTS_URL"):
+        cfg.public_accounts_url = os.environ["AGENTD_PUBLIC_ACCOUNTS_URL"].strip().rstrip("/")
     for _env, _field in (
         ("AGENTD_HOSTED_AGENTS_DENY", "hosted_agents_deny"),
         ("AGENTD_HOSTED_AGENTS_ALLOW", "hosted_agents_allow"),
     ):
         if os.environ.get(_env):
             setattr(cfg, _field, tuple(s.strip() for s in os.environ[_env].split(",") if s.strip()))
-    # DERIVED LAST, so it sees every override above. An accounts URL means somebody signs in to
-    # this daemon, which is the definition of serving people other than the operator; multi_tenant
-    # means it per-connection as well. The explicit env var is the escape hatch in both directions
-    # — a private daemon behind accounts that is genuinely single-user can set AGENTD_HOSTED=0.
-    _accounts = cfg.accounts if isinstance(cfg.accounts, dict) else {}
-    _accounts_url = (
-        os.environ.get("AGENTD_ACCOUNTS_URL") or str(_accounts.get("api_base") or "")
-    ).strip()
-    cfg.hosted = cfg.multi_tenant or bool(
-        _accounts_url
-        and (os.environ.get("AGENTD_ACCOUNTS_URL") is not None or _accounts.get("enabled"))
-    )
-    if os.environ.get("AGENTD_HOSTED"):
-        cfg.hosted = os.environ["AGENTD_HOSTED"].lower() not in ("0", "false", "no", "")
+    # `cfg.hosted` is derived near the END of this function instead of here — it now depends on
+    # the distribution profile, which is not loaded until further down. See "HOSTED, DERIVED LAST".
     for _env, _field in (
         ("AGENTD_MAX_TENANTS", "max_tenants"),
         ("AGENTD_TENANT_IDLE_SECONDS", "tenant_idle_seconds"),
@@ -1119,6 +1158,28 @@ def load_config(path: Path | None = None) -> Config:
                 logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: not a JSON object")
         except (ValueError, TypeError):
             logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: invalid JSON")
+
+    # HOSTED, DERIVED LAST — after the distribution profile, so it sees every source.
+    #
+    # A daemon is "hosted" when it serves people other than its operator. Two ways that is true:
+    # multi_tenant (per-connection isolation), or accounts being ENFORCED, which means every
+    # connection must resolve to an account instead of presenting the machine token.
+    #
+    # NOTE WHAT DOES NOT MAKE IT HOSTED: merely knowing where people sign in. An accounts URL that
+    # arrived from config or the profile ADVERTISES sign-in — it is what lets an agent's UI show a
+    # login at all — and that must stay free of any effect on how existing connections
+    # authenticate. Turning those two into one flag is what made "configure sign-in" and "lock
+    # yourself out of your own daemon" the same action.
+    #
+    # The env var is the escape hatch in both directions: a private daemon behind accounts that is
+    # genuinely single-user can set AGENTD_HOSTED=0.
+    _accounts = cfg.accounts if isinstance(cfg.accounts, dict) else {}
+    _accounts_enforced = bool(accounts_api_base(cfg)) and (
+        os.environ.get("AGENTD_ACCOUNTS_URL") is not None or bool(_accounts.get("enabled"))
+    )
+    cfg.hosted = cfg.multi_tenant or _accounts_enforced
+    if os.environ.get("AGENTD_HOSTED"):
+        cfg.hosted = os.environ["AGENTD_HOSTED"].lower() not in ("0", "false", "no", "")
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [

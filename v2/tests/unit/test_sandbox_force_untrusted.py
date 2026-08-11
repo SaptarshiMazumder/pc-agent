@@ -141,3 +141,33 @@ def test_default_trusted_plugins_still_exempts_an_installed_agents_plugin():
 def test_no_config_at_all_behaves_as_before():
     assert classify_origin(_Tool("downloaded-agent"), None, LEDGER).is_untrusted
     assert classify_origin(_Tool("local"), None, LEDGER) is PluginOrigin.FIRST_PARTY
+
+
+# ── `*` — the version that survives building a second agent ─────────────────
+# Naming ids one at a time is the friction that stopped the sandbox being exercised at all:
+# you build an agent, forget to add it, and test the trusted path by accident.
+def test_star_forces_every_agent():
+    cfg = _Cfg(force=("*",))
+    for agent in ("comfyui-workflow-architect", "built-tomorrow", "agent-builder"):
+        assert classify_origin(_Tool(agent), cfg, LEDGER).is_untrusted
+
+
+def test_star_outranks_every_exemption():
+    """The same asymmetry the id-list has: a switch whose whole purpose is 'show me what a buyer
+    gets' must not be silently cancelled by an exemption left in config."""
+    cfg = _Cfg(force=("*",), trust_agents=("game-master",), trust_plugins=("game-kit",))
+    assert classify_origin(_Tool("game-master"), cfg, LEDGER).is_untrusted
+
+
+def test_star_never_touches_a_shared_plugin():
+    """`*` means every AGENT, not every tool. A shared plugin has no _agent_id and is the
+    operator's own code — sandboxing it would box the daemon's own hands."""
+    assert classify_origin(_Tool(""), _Cfg(force=("*",)), LEDGER) is PluginOrigin.FIRST_PARTY
+
+
+def test_star_stays_a_literal_id_on_the_trusting_knobs():
+    """On a knob that RELAXES, a wildcard would switch the sandbox off wholesale from one config
+    line — the only thing none of these may do."""
+    assert classify_origin(_Tool("downloaded-agent"), _Cfg(trust_agents=("*",)), LEDGER) is (
+        PluginOrigin.THIRD_PARTY_BUNDLE
+    )

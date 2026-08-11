@@ -37,17 +37,24 @@ PUBLISH_PATH = "/registry/publish"
 
 
 def platform_session_token(config) -> str:
-    """The author's credential, from wherever THIS deployment keeps it.
+    """The author's credential — WHO they are, not whether they are paying us.
 
-    Precedence, and both branches are load-bearing:
+    Precedence, and every branch is load-bearing:
 
       1. HOSTED — the account bound to the current connection. Per-connection, because a
          multi-tenant daemon serves many people at once and publishing as the wrong one would be
          the worst possible bug in this file.
-      2. DESKTOP — the token `platform.connect` persisted as AGENTD_MODEL_PROXY_KEY. The same
-         session token that authorises this install's model calls identifies its account, so
-         signing in once is all an author does. (Read from the environment, which is where
-         _load_dotenv puts it at boot; never logged.)
+      2. THE SIGNED-IN IDENTITY — AGENTD_SESSION_TOKEN, written by `auth.login`.
+      3. LEGACY — the token `platform.connect` persisted as AGENTD_MODEL_PROXY_KEY, so an install
+         that signed in before identity had its own key keeps publishing without re-authenticating.
+
+    STEP 2 IS THE FIX, AND IT IS ONE LINE. Publishing needs to know which creator is uploading;
+    the service signs the bundle on their behalf. It used to ask that question by looking for the
+    MODEL-PROXY key — a billing credential — so an author on their own API keys was refused with
+    "you are not signed in", which was both true-sounding and wrong: they may well have been. The
+    check was not "did you sign in", it was "are you a paying customer".
+
+    (Read from the environment, which is where _load_dotenv puts it at boot; never logged.)
     """
     try:
         from agent_runtime.infrastructure import accounts
@@ -92,8 +99,9 @@ class HttpRegistryPublisher:
         if not platform_session_token(self._config):
             missing.append(
                 "you are not signed in. Publishing identifies you as the creator, so sign in "
-                "first (Cloud mode / platform sign-in) and try again. NOTE: no signing key is "
-                "needed — the service signs with your creator key."
+                "first and try again. Signing in is enough on its own — it does not require "
+                "Cloud mode, and your own API keys can keep paying for model calls. NOTE: no "
+                "signing key is needed — the service signs with your creator key."
             )
         return missing
 

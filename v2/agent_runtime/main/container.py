@@ -17,6 +17,7 @@ from agent_runtime.config import Config
 from agent_runtime.infrastructure.engine.native import NativeEngine
 from agent_runtime.infrastructure.llm.litellm import litellm_stream
 from agent_runtime.infrastructure.memory.local_store import SessionStore
+from agent_runtime.infrastructure import tool_catalog_file
 from agent_runtime.infrastructure.prompt import build_system_prompt
 from agent_runtime.presentation.gateway import Gateway
 
@@ -507,6 +508,9 @@ def build_service(
         model, router = _run_models(agent)
         return router(model, []) if router else model
 
+    def _write_tool_catalog(all_tools: list) -> None:
+        tool_catalog_file.write(config.state_dir, all_tools)
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -522,10 +526,19 @@ def build_service(
         plugin_reloader=register_plugin_live,
         resolve_workspace=_effective_workspace,  # project chats bind the project workspace (§11)
         resolve_models=_run_models,  # this agent's own model + router, layered over the daemon's
+        # The marketplace ledger, read PER RUN so an agent installed a moment ago is protected
+        # without a restart — the same store and the same call the sandbox classifier uses.
+        installed_agents=installed_store.installed_ids,
+        # Keeps <state_dir>/tools.json current. Fires on every hot-add (create_tool, an MCP
+        # server connecting, a marketplace install) — a boot-only snapshot would be stale for
+        # the tool that was just made, which is the one anybody would look for.
+        on_catalog_change=_write_tool_catalog,
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
     )
     _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
+    # The boot snapshot. Everything after this arrives through add_tools, which hooks itself.
+    _write_tool_catalog(tools)
     return service
 
 
@@ -610,6 +623,11 @@ def build_gateway(config: Config) -> Gateway:
     )
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
+
+    # LOCAL vs CLOUD, asserted at boot. AFTER build_service, which runs model_proxy.configure —
+    # this reads that seam to decide whether Cloud is reachable at all. Default is Cloud: a
+    # signed-in install with no stated preference comes up on platform keys with nothing pressed,
+    # and one that chose Local comes up exactly where it was left.
 
     gateway = Gateway(
         config=config,

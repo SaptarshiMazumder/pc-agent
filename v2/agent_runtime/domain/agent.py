@@ -41,6 +41,15 @@ class AgentSpec:
     plugins: dict = field(default_factory=dict)
     tools_allow: tuple[str, ...] | None = None  # None = all tools
     tools_deny: tuple[str, ...] = ()
+    # FILESYSTEM WRITE SCOPE, from agent.toml `[tools.fs] write_roots` / `deny`. Verbatim as
+    # authored — tokens like <agents_dir> are still unexpanded here, because this is the parsed
+    # DEFINITION and the expansion needs config the domain must not import.
+    #
+    # EMPTY = UNRESTRICTED, so every agent that says nothing keeps today's behaviour and only an
+    # agent that opts in is constrained. Reading is never restricted by these; a tool that only
+    # reads has no way to damage anything, and an agent must be able to read its own skill.
+    write_roots: tuple[str, ...] = ()
+    write_denies: tuple[str, ...] = ()  # carved out of the roots — deny always wins
     # Delegation scope: ids/globs of the specialist agents THIS agent may spawn/delegate to
     # (from [subagents] allow). None = no restriction (may delegate to any existing agent).
     subagents_allow: tuple[str, ...] | None = None

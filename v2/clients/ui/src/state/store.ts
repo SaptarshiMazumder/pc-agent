@@ -24,7 +24,7 @@ import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
 import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
-import { getMode } from '../lib/mode'
+import { getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
 import { reportReconnect, reportRun } from '../lib/rum'
@@ -601,6 +601,8 @@ export const useApp = create<AppState>((set, get) => {
 
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
+    // There is no daemon-held session to adopt: identity arrives on the socket (`?session=`) and
+    // the daemon stores none, so this client's own storage is already the only answer.
     await connectPlatform()
     const flavor = get().flavor
     const preferred = get().currentAgentId || flavor?.defaultAgent || hello.agentId
@@ -623,18 +625,18 @@ export const useApp = create<AppState>((set, get) => {
    *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
   async function connectPlatform(): Promise<void> {
     if (!isDesktop) return
-    if (getMode() !== 'cloud') {
-      try {
-        await gateway.request('platform.disconnect')
-      } catch {
-        /* older daemon without platform.* — BYOK is already the default */
-      }
-      return
-    }
-    const session = getSession()
-    if (!session) return
+    const chosen = getMode()
+    // NO CHOICE YET => LEAVE THE DAEMON ALONE. It applies its own preference at boot, and the
+    // default is Cloud once somebody is signed in. Forcing `platform.disconnect` here is what
+    // used to override that on every single reconnect — including the reconnect that follows a
+    // user switching to Cloud from an agent's own settings page, which is why that setting
+    // appeared not to stick.
+    if (chosen === null) return
     try {
-      await gateway.request('platform.connect', { token: session.token })
+      // No token. The daemon signs the user in itself and keeps the session token, so it can
+      // bind the proxy from what it already holds; passing a credential back in through a
+      // request was a leftover from when identity and billing were the same value.
+      await gateway.request(chosen === 'cloud' ? 'platform.connect' : 'platform.disconnect')
     } catch {
       /* older daemon without platform.* — BYOK keeps working; nothing to surface */
     }
@@ -778,6 +780,10 @@ export const useApp = create<AppState>((set, get) => {
         void get().selectAgent('main')
       }
     })
+    // NO `auth.changed` LISTENER. The daemon never emits that event — it was part of a
+    // daemon-holds-the-session design that was written and then removed, and a listener for an
+    // event nobody sends reads as working cross-window sign-in while delivering none. Identity
+    // is per-connection now; each window owns its own.
     gateway.on('sessions.changed', () => {
       // renamed / auto-titled / deleted (possibly by another client) — refresh both the
       // per-agent list and the cross-agent Recents
@@ -860,7 +866,20 @@ export const useApp = create<AppState>((set, get) => {
       gateway.connect(async () => {
         const { url } = await platform.ensureDaemon()
         setGatewayUrl(url) // keep artifact/file URLs pointed at the live daemon (port+token)
-        return url
+        // WHO is connecting and WHICH KEYS pay, alongside the machine token already in `url` that
+        // says whether it MAY. Both are this client's own state and are re-read on every
+        // (re)connect, so signing in or flipping mode is carried by the next socket. The daemon
+        // stores neither — that is what lets two windows differ on one machine.
+        try {
+          const u = new URL(url)
+          const session = getSession()?.token
+          const mode = getMode()
+          if (session) u.searchParams.set('session', session)
+          if (mode) u.searchParams.set('mode', mode)
+          return u.toString()
+        } catch {
+          return url
+        }
       })
     },
 
