@@ -50,6 +50,7 @@ DEFAULT_MODEL_LIMITS = {
 #: cannot invent a kind, because an unknown kind is refused.
 TEXT = "text"
 VISION = "vision"
+IMAGE = "image"  # image GENERATION: prompt (+ granted reference paths) -> a file at a granted path
 
 
 class SandboxModelBroker:
@@ -112,7 +113,7 @@ class SandboxModelBroker:
         check buried in the worker thread would come back as a generic error and the metric would
         say nothing about why.
         """
-        if kind not in (TEXT, VISION):
+        if kind not in (TEXT, VISION, IMAGE):
             raise _Refused(f"unsupported model request kind {kind!r}", outcome="bad-kind")
         if not self._grant.models:
             raise _Refused(
@@ -128,6 +129,15 @@ class SandboxModelBroker:
             )
         if kind == VISION:
             self._image_paths(request)  # validated before the call, so its refusal is tagged
+        if kind == IMAGE:
+            # BOTH sides of the file boundary are the tool's own granted paths: what it may show
+            # the model (reference images) and where the host will write the result. Validated
+            # here so each refusal carries its own tag, same as vision.
+            if not str(request.get("out_path") or "").strip():
+                raise _Refused("an image request names no out_path", outcome="bad-request")
+            self._granted_paths([request.get("out_path")], "write the generated image to")
+            if request.get("reference_images"):
+                self._granted_paths(request.get("reference_images"), "read")
         wanted = str(request.get("model") or "").strip()
         if not wanted:
             # Nothing named: the tool did not resolve one, so give it the grant's first — the same
@@ -151,6 +161,8 @@ class SandboxModelBroker:
         Imported here rather than at module scope so the import cost (litellm) is paid only by a
         deployment that actually serves a sandboxed model call.
         """
+        import json
+
         from agent_runtime.infrastructure.llm import oneshot
 
         prompt = str(request.get("prompt") or "")
@@ -167,6 +179,22 @@ class SandboxModelBroker:
                 want_json=bool(request.get("want_json")),
                 timeout=self._timeout_s,
             )
+        if kind == IMAGE:
+            result = oneshot.generate_image(
+                model=model,
+                prompt=prompt,
+                out_path=self._granted_paths(
+                    [request.get("out_path")], "write the generated image to"
+                )[0],
+                reference_images=self._granted_paths(request.get("reference_images"), "read")
+                if request.get("reference_images")
+                else [],
+                aspect_ratio=str(request.get("aspect_ratio") or "") or None,
+                image_size=str(request.get("image_size") or "") or None,
+                timeout=self._timeout_s,
+            )
+            # The reply channel carries text; the file itself is already at the granted path.
+            return json.dumps(result)
         raise ValueError(f"unsupported model request kind: {kind!r}")
 
     def _image_paths(self, request: dict) -> list[str]:
@@ -175,20 +203,29 @@ class SandboxModelBroker:
         Otherwise the broker becomes a file-read oracle: a sandboxed tool that cannot open another
         account's file could simply ask the host to send it to a model and describe it back.
         """
-        raw = request.get("image_paths") or []
-        paths = [str(p) for p in (raw if isinstance(raw, (list, tuple)) else [raw])]
+        return self._granted_paths(request.get("image_paths") or [], "read")
+
+    def _granted_paths(self, raw, verb: str) -> list[str]:
+        """Resolve `raw` (one path or a list) and refuse any that leaves the grant — the one
+        containment check for everything the broker reads OR writes on the tool's behalf."""
+        paths = [str(p) for p in (raw if isinstance(raw, (list, tuple)) else [raw]) if p]
         allowed = self._grant.fs_paths
         if not allowed:
-            raise _Refused("no filesystem paths are granted, so no image can be read", outcome="fs-denied")
+            raise _Refused(
+                "no filesystem paths are granted, so no file can be touched", outcome="fs-denied"
+            )
         import os
 
         out = []
         for path in paths:
             real = os.path.realpath(path)
-            if not any(real == root or real.startswith(os.path.realpath(root) + os.sep) for root in allowed):
+            if not any(
+                real == root or real.startswith(os.path.realpath(root) + os.sep)
+                for root in allowed
+            ):
                 raise _Refused(
-                    f"'{path}' is outside this tool's granted paths — the host will not read a "
-                    "file on a sandboxed tool's behalf that the tool could not read itself.",
+                    f"'{path}' is outside this tool's granted paths — the host will not {verb} a "
+                    "file on a sandboxed tool's behalf that the tool could not touch itself.",
                     outcome="fs-denied",
                 )
             out.append(real)

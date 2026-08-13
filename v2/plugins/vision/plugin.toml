@@ -3,5 +3,6 @@ name = "Vision"
 kind = "native"
 entry = "vision_plugin:register"
 
-# Gemini image-analysis via google-genai (core dep) + existing GEMINI_API_KEY/GOOGLE_API_KEY.
-# No [requires] env gate: key may be under either var; tools error gracefully if neither is set.
+# Image-analysis through the runtime's model funnel (oneshot) — mode-correct: BYOK uses
+# GEMINI_API_KEY/GOOGLE_API_KEY, cloud modes ride the platform's metered proxy. No key held here.
+# No [requires] env gate: tools error gracefully at call time if no route to a model exists.

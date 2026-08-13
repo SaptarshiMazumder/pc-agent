@@ -545,14 +545,30 @@ def register(api, ctx):
 
 ### B. Model-bearing tool (extra bits only)
 
-```python
-from agent_runtime.application.tool_models import resolve_tool_model, resolve_tool_provider
+**THE RULE: a tool asks for model WORK; the runtime owns transport, credential and billing.**
+Declare `needs_model = True` + `model_kind`, resolve the id with `self.resolve_model(config)`,
+and call the shape you need on `self.models` (the ModelAccess port):
 
+    self.models.text(model=…, prompt=…)                          # kind "text"
+    self.models.vision(model=…, prompt=…, image_paths=[…])       # kind "vision"
+    self.models.generate_image(model=…, prompt=…, out_path=…)    # kind "image-gen"
+
+That ONE call is correct everywhere the tool can run — local BYOK (direct on the user's own
+keys), desktop cloud and web hosted (the platform's LiteLLM proxy, metered per account), and
+inside the plugin sandbox (host-brokered, granted and clamped) — with zero mode branching in
+your code. NEVER import a provider SDK or read a key from `os.environ`: it looks fine on your
+machine and is broken or unmetered on every other deployment, the guard test
+(`tests/unit/test_no_rogue_model_keys.py`) fails the build on it, and agent-builder's
+`create_tool` refuses the shape outright.
+
+```python
 class SummarizeTool(Tool):
     name = "summarize"
     plugin = "textkit"
     needs_model = True
-    default_model = "gemini/gemini-2.5-flash"
+    model_kind = "text"     # picks the right model picker + the house default
+    default_model = ""      # "" => inherit the house default for the kind; set only a
+                            # considered per-tool choice (e.g. a deliberately cheap judge)
     description = "Summarize text with an LLM."
     parameters = {"type": "object", "required": ["text"],
                   "properties": {"text": {"type": "string"},
@@ -560,10 +576,11 @@ class SummarizeTool(Tool):
     def __init__(self, config):
         self.config = config
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        model = resolve_tool_model(self.config, self.plugin, self.name,
-                                   per_call=params.get("model"), default=self.default_model)
-        # ... call `model` via litellm/oneshot ...
-        return ToolResult.text("…summary…")
+        model = self.resolve_model(self.config, per_call=params.get("model"))
+        summary = await asyncio.to_thread(
+            lambda: self.models.text(model=model, prompt=f"Summarize:\n{params['text']}")
+        )
+        return ToolResult.text(summary)
 ```
 Config after `--scaffold`:
 ```json

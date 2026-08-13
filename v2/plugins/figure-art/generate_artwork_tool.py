@@ -16,8 +16,6 @@ import asyncio
 import base64
 from pathlib import Path
 
-import figure_art_gemini as gem
-
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 from agent_runtime.application.tool_models import (
@@ -101,9 +99,7 @@ class GenerateArtworkTool(Tool):
     plugin = "figure-art"
     needs_model = True
     model_kind = "image-gen"  # OUTPUTS pixels — its picker must offer image-gen models, not text
-    default_model = (
-        gem.DEFAULT_MODEL
-    )  # last-resort fallback (config plugins.figure-art.* overrides it)
+    default_model = ""  # no tool-specific pick: inherit the HOUSE image-gen default (model_defaults)
     # provider = the image-gen BACKEND SDK (single pick), self-described so a client shows a dropdown.
     # gemini (default) | fal | replicate — see _route(); flux/sdxl are back-compat aliases of fal.
     provider_options = ["gemini", "fal", "replicate"]
@@ -115,7 +111,8 @@ class GenerateArtworkTool(Tool):
         "a full `prompt` and optionally `style` (biorender-3d|cell-journal|watercolor-medical|"
         "flat-vector). `palette` (hex list) locks colours for cohesion across a figure's assets. "
         "`provider` picks the backend: 'gemini' (default, Gemini 3 Pro Image / Nano Banana Pro — best "
-        "text+structure, GEMINI_API_KEY), 'fal'/'replicate' (cheaper, real ControlNet conditioning). "
+        "text+structure, platform-billed in cloud mode), 'fal'/'replicate' (cheaper, real ControlNet "
+        "conditioning; BYOK only — they need your own FAL_KEY/REPLICATE_API_TOKEN). "
         "By DEFAULT produces clean UNLABELLED artwork (labels/arrows are added later as an editable "
         "vector overlay) — set allow_text=true only for a standalone illustrated figure. Returns the "
         "PNG path, the chosen palette, and the image so you can SEE it."
@@ -190,11 +187,11 @@ class GenerateArtworkTool(Tool):
             },
             "model": {
                 "type": "string",
-                "description": f"Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.figure-art.tools.generate_artwork > plugins.figure-art default > {gem.DEFAULT_MODEL}; for fal/replicate it overrides the endpoint.",
+                "description": "Override the model/endpoint string. For gemini resolves per-call > agent.toml/config plugins.figure-art.tools.generate_artwork > the house image-gen default (config model_defaults); for fal/replicate it overrides the endpoint.",
             },
             "api_key": {
                 "type": "string",
-                "description": "Override key (Gemini: GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN).",
+                "description": "Optional BYOK key override (Gemini: else GEMINI_API_KEY/GOOGLE_API_KEY; fal: FAL_KEY; replicate: REPLICATE_API_TOKEN). Ignored in cloud mode — the platform proxy carries the call.",
             },
         },
     }
@@ -313,15 +310,15 @@ class GenerateArtworkTool(Tool):
                 "aspect": aspect,
             }
 
-        key = gem.resolve_key(params.get("api_key"), self.config)
-        model = resolve_tool_model(
-            self.config, self.plugin, self.name, per_call=model_pc, default=self.default_model
-        )
-        r = gem.generate_image(
-            prompt,
-            out,
+        # The default (gemini) backend goes through the runtime's model funnel (`self.models`):
+        # BYOK runs direct on the user's key, cloud modes ride the platform proxy and are metered
+        # per account, and the sandbox brokers the same call — this tool never sees a credential.
+        model = self.resolve_model(self.config, per_call=model_pc)
+        r = self.models.generate_image(
             model=model,
-            api_key=key,
+            prompt=prompt,
+            out_path=out,
+            api_key=params.get("api_key"),
             reference_images=refs,
             aspect_ratio=aspect,
             image_size=resolution,

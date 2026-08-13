@@ -154,6 +154,20 @@ def status() -> dict:
     }
 
 
+def passthrough(provider: str) -> tuple[str, str]:
+    """(base_url, api_key) for a NATIVE provider-SDK call this turn, or ("", "") when direct.
+
+    The same routing decision `apply()` makes for litellm kwargs, for the call shapes litellm
+    cannot carry (Gemini image generation returns the picture on generate_content). LiteLLM
+    proxies expose native passthrough routes per provider ("<base>/gemini/…" forwards to
+    Google with the proxy's own key); the credential that authenticates us to the proxy is the
+    turn's own (`turn_key`) — so who pays and who is metered cannot disagree, exactly as with
+    chat calls. ("", "") means BYOK: the caller goes direct on the user's own key."""
+    if not (provider and enabled()):
+        return "", ""
+    return f"{_api_base}/{provider.strip().lower()}", turn_key()
+
+
 def apply(kwargs: dict) -> dict:
     """Retarget one litellm completion kwargs dict at the proxy, in place. No-op when the
     proxy is off or the call is already proxied. Overwrites any provider api_key with the

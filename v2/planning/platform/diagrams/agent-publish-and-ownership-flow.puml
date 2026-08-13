@@ -1,0 +1,288 @@
+@startuml agent-publish-and-ownership-flow
+' ============================================================================
+'  agentd PUBLISH + OWNERSHIP - one agent, from "I made this" to the store's
+'  three doors (install / Download exe / Open in browser), and WHO MAY EDIT
+'  WHAT along the way. Activity-flowchart view, same conventions as
+'  web-agent-request-flow.puml (read that one for what happens AFTER a
+'  visitor opens a web agent).
+'
+'  EVERY partition is tagged with WHERE IT RUNS:
+'    (USER'S CLIENT)   - Agent Builder / sidebar UI (desktop app or browser tab)
+'    (DAEMON)          - the agentd the user is connected to (their PC, or our fleet)
+'    (ON AWS)          - the publish service + S3 registry (control plane)
+'    (STRANGER'S PC)   - a machine with NO agentd yet (the exe door's target)
+'
+'  THE ONE-LINE MODEL (identity-ownership-statelessness.md):
+'    ownership is a RECORD, never a folder guess. Every agent dir carries
+'    `.agentd-meta.json` {owner, origin, source} written by the RUNTIME
+'    (agent.toml stays the author's file). Every question - can I see it,
+'    can I edit it, can I publish it - is answered by reading that record:
+'      owner   an account id | "local" (this machine's human) | "platform" (us)
+'      origin  authored | installed | curated | web-app
+'      mine    owner IS AMONG the caller's identities:
+'              desktop -> {local, account-if-signed-in}  (sign-in ADDS, never subtracts)
+'              hosted  -> {account}   (machine token, no account -> {platform})
+'    A record-less dir falls back to the layer rule (presumed_owner), so
+'    legacy checkouts keep meaning what they always meant.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-publish-and-ownership-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Agent publish + ownership - exe & web delivery, and who may edit what\nOwnership is DATA (.agentd-meta.json), enforced at two choke points: the registry (sight) and the publish tool (shipping)\n(USER'S CLIENT) = Agent Builder / sidebar    (DAEMON) = user's agentd    (ON AWS) = publish service + registry    (STRANGER'S PC) = no agentd yet
+
+start
+
+partition "1 . WHAT THE USER SEES   (DAEMON -> USER'S CLIENT)" #FDECEA {
+  :**agents.list** -> registry **_current()** - THE visibility choke point;
+  :hosted: shared catalogue is **DEFAULT-PRIVATE** - an account sees a
+  shared agent only when its owner is `platform` (curated) or themselves -
+  anyone else's dir is **INVISIBLE, not refused**. Overlay installs = always theirs.
+  Operator (machine token) sees everything. Desktop: one human, sees all;
+  :every row carries **mine** (owner among my identities) + **origin**
+  - resolved ONCE at scan time (_with_ownership), a field read ever after;
+}
+
+note right
+  ==== WHY A CHOKE POINT, NOT PER-SURFACE CHECKS ====
+  Absent from _current() = no roster entry, no session key,
+  no /apps served, no tools discovered. A list of "places
+  that must also check" is a list somebody forgets to extend.
+  `registry.listed()` additionally keeps `web-app` copies out
+  of every sidebar (reachable + Store-listed, auto-listed
+  for NOBODY - hosted is not endorsed).
+end note
+
+switch (What is the user trying to do?)
+
+case ( EDIT their OWN agent )
+  partition "2a . EDIT - a draft they authored   (USER'S CLIENT + DAEMON)" #E8F0FE {
+    :`mine: true` + `origin: authored` -> Edit and Publish fully enabled;
+    :writes land in the **caller's own write layer**
+    (hosted: their account overlay `accounts/<acct>/installed/agents/`,
+    desktop: the machine's agents dir) - **never** the shared catalogue;
+  }
+  stop
+
+case ( EDIT a marketplace install )
+  partition "2b . EDIT - somebody else's work   (USER'S CLIENT)" #E8F0FE {
+    :`origin: installed` -> **yours to USE, not to edit or re-ship** -
+    Agent Builder greys Edit/Publish on the ownership fields;
+    :an install is a REFERENCE to a signed, immutable published version -
+    nobody edits a published copy in place, ever. "I want to change it" =
+    fork into your own draft (explicit, later feature) - then it is
+    `origin: authored`, owner: you, and the full edit path above applies;
+  }
+  note right
+    ==== THE UI IS NOT THE ENFORCEMENT ====
+    Greyed buttons are courtesy. The refusals live server-side:
+    * publish_agent refuses `mine: false` AND
+      `origin: installed|curated` (distinct messages)
+    * curated agents are editable/publishable by nobody
+      but the platform - we ship new versions through the
+      SAME registry pipeline every author uses
+    So no amount of UI drift can reopen the hole.
+  end note
+  stop
+
+case ( PUBLISH their draft )
+
+  partition "3 . PUBLISH GATES - publish_agent tool   (DAEMON)" #FDECEA {
+    if (**resolve_dir** finds it?\n(searches the SAME overlay+shared union discovery reads)) then (no)
+      :refuse: "not among your agents,\nnot in this deployment's catalogue";
+      stop
+    endif
+    if (**owns()**? - record owner among caller identities) then (no)
+      :refuse: "part of this deployment's catalogue,\nnot yours to publish";
+      stop
+    endif
+    if (**origin** is installed / curated?) then (yes)
+      :refuse: "its author is the only one\nwho can ship a new version";
+      stop
+    endif
+    :**validate_agent** (same validator instance) - a broken agent
+    must never become a public download; errors -> refuse with the report;
+    if (dry_run=false **AND** confirm=true?\n(two signals - a helpful model or one mis-click ships nothing)) then (no)
+      :PREVIEW: state exactly what would be sent; send nothing;
+      stop
+    endif
+    :**pack .agentpkg** - bundle.toml carries `[bundle.delivery]`
+    `web` (opt-IN: runs on OUR infra, silence means no)
+    `exe` (default ON: the pre-existing behaviour keeps meaning what it meant);
+    :`.agentd-meta.json` is **EXCLUDED** from the pack -
+    a bundle carries the AUTHOR's files; every installer
+    stamps a fresh record on arrival;
+  }
+
+  partition "4 . UPLOAD - HttpRegistryPublisher   (DAEMON -> AWS)" #E8F0FE {
+    :`POST <publish service>/registry/publish` (multipart)
+    credential = the author's **SESSION TOKEN** - WHO they are;
+    :author holds NO signing key, NO bucket - that is the point:
+    the model-proxy/billing key is deliberately NOT identity here;
+  }
+
+  partition "5 . INTAKE - PublishIntakeService   (ON AWS)" #FFF0F0 {
+    :**THE ORDER IS THE DESIGN** - cheap refusals first,
+    irreversible steps last;
+    if (1 session token resolves to an account?) then (no)
+      :**401** - nothing read;
+      stop
+    endif
+    if (2 creator on the signed roster?) then (no - first publish ever)
+      :**202 pending** - identity minted, package **PARKED**;
+      :operator admits them = a ROSTER edit signed by the PLATFORM
+      ROOT key (an operator action by construction), whereupon
+      **complete_parked** auto-publishes the held upload;
+      stop
+    endif
+    :3 read the manifest - not a usable .agentpkg -> **400**;
+    if (declares `web = true` but agent.toml has no [app]?) then (yes)
+      :**400** - "a web agent IS its app UI" - refused where the
+      bytes arrive, not as a visitor's 404 weeks later;
+      stop
+    endif
+    if (4 bundle id **claimed** by this creator?) then (no - someone else's)
+      :**409** - the whole id-squatting surface;
+      stop
+    endif
+    if (5 version NEWER than published?) then (no)
+      :**409** - installs supersede BY VERSION -
+      republishing the same number reaches nobody;
+      stop
+    endif
+  }
+
+  partition "6 . BUILD + SIGN   (ON AWS)" #EDE7F6 {
+    if (delivery.exe?) then (yes)
+      :compile the **per-agent NSIS stub installer** from OUR template -
+      **whoever signs must compile**: signing an author's binary would
+      put the platform's certificate on code it cannot inspect;
+      :toolchain missing -> **degraded publish, not a failed one**
+      (bundle ships, response says what strangers will miss);
+    else (no - author opted out)
+      :no installer, by design;
+    endif
+    :**SIGN with the CREATOR's own key**, server-side
+    (bundle digest + installer digest signed SEPARATELY -
+    an unsigned installer row would let a registry writer
+    swap the exe without breaking any signature);
+  }
+
+  note right
+    ==== THE TRUST CHAIN (schema 2) ====
+    Clients pin exactly ONE key: the platform ROOT.
+    The root key never signs bundles - it signs the
+    ROSTER of creators; each creator's key signs their
+    own bundles. Adding/revoking a creator is a roster
+    edit; no client ever re-pins anything.
+  end note
+
+  partition "7 . COMMIT - artifacts, then index   (ON AWS - S3 registry)" #E0F2F1 {
+    :upload `<id>-<version>.agentpkg` (+ installer) to the bucket;
+    :**index.json LAST, under a lock** (re-read inside it) -
+    index-first advertises a 404; lock-less merge silently
+    drops a concurrent author's entry;
+    :**merge, never rebuild** - other creators' rows are signed with
+    keys this service must never hold; `web.host` refreshed so
+    Open-in-browser links heal when the deployment moves;
+  }
+
+endswitch
+
+partition "8 . THE STORE CARD - up to three doors, from `delivery`   (ANY CLIENT)" #E6F4EA {
+  :the store renders exactly the doors the author opened;
+}
+
+switch (Which door does a person take?)
+
+case ( INSTALL - has agentd )
+  partition "9a . DAEMON INSTALL   (THEIR DAEMON)" #FDECEA {
+    :store / CLI install -> verify sig against the ROSTER key, then
+    **FileBundleInstaller.install_files** (every install path converges here);
+    :stamp `.agentd-meta.json`:
+    owner = **stamp_owner** (their account; else local/platform)
+    origin = **origin_for_install** (`installed` - or `curated`
+    when the PLATFORM itself seeds, one derivation, so a seed
+    job cannot forget to say so);
+  }
+
+case ( DOWNLOAD exe - bare machine )
+  partition "9b . EXE DOOR   (STRANGER'S PC)" #E0F2F1 {
+    :browser downloads the ~120 KB per-agent stub
+    (browser verifies nothing - code signing is the real
+    fix; a daemon-mediated download checks sha256+sig);
+    :stub fetches the SHARED ENGINE from the registry's
+    `engine` rows (published per release, so old stubs
+    keep installing new engines) + the .agentpkg;
+    :result: a LOCAL agentd running this one agent -
+    stamped owner = `local`, origin = `installed`;
+  }
+
+case ( OPEN IN BROWSER - web = true )
+  partition "9c . WEB DOOR   (OUR HOSTED DAEMON)" #FDECEA {
+    :store link = `<web_host>/apps/<id>/` (web_host from the index);
+    :first visitor -> **marketplace.sync_web_app** installs/updates
+    the hosted copy (signature verified, `[delivery] web` required);
+    :install stamped `curated` - then **RE-STAMPED** owner = `platform`,
+    origin = **`web-app`**: **HOSTED IS NOT ENDORSED** - reachable at
+    its URL, Store-listed, in NOBODY's sidebar (that leak shipped once:
+    publishing web=true put the agent in every user's sidebar);
+    :from here: web-agent-request-flow.puml (the twin) -
+    sign-in, scoped socket, metered turns;
+  }
+
+endswitch
+
+partition "10 . THE LOOP CLOSES   (WHOEVER INSTALLED)" #E8F0FE {
+  :the copy renders in ITS owner's list: `mine` to use,
+  `origin: installed` -> not theirs to edit or re-publish -
+  exactly the gate this diagram started with;
+}
+
+stop
+
+note right
+  WHO HOLDS WHAT
+  (AUTHOR):        their draft dir + their session token. No keys.
+  (DAEMON):        .agentd-meta.json per agent dir; the account
+                   overlay per tenant; the ownership rules
+                   (domain/ownership.py) + IO (ownership_store.py).
+  (PUBLISH SVC):   every CREATOR's signing key + the claims table
+                   (bundle id -> creator). Never the root private key
+                   online for bundle signing - it signs only rosters.
+  (S3 REGISTRY):   index.json (schema 2: roster + entries + engine
+                   rows + web.host), .agentpkg files, installers.
+end note
+
+legend left
+  | Piece | Runs on | Exact implementation shown |
+  | Ownership rules | pure domain | domain/ownership.py (stamp_owner, origin_for_install, callers, presumed_owner) |
+  | Record IO | DAEMON | infrastructure/agents/ownership_store.py (.agentd-meta.json) |
+  | Visibility + mine/origin | DAEMON | FileAgentRegistry: _current, _with_ownership, owns, origin_of, listed, resolve_dir |
+  | Publish gates | DAEMON | agent-authoring PublishAgentTool (owns/origin refusals, validate, dry_run+confirm) |
+  | Upload | DAEMON -> AWS | HttpRegistryPublisher POST /registry/publish, platform_session_token |
+  | Intake pipeline | ON AWS | PublishIntakeService.submit (8 ordered steps), complete_parked |
+  | Delivery modes | manifest -> store | domain/bundle.py DeliveryModes (web opt-in, exe default-on) |
+  | Installer build | ON AWS | BuildProductService via intake (NSIS stub from platform template) |
+  | Install stamping | ANY daemon | FileBundleInstaller.install_files; sync_web_app re-stamp to web-app |
+  | Web request flow | twin diagram | web-agent-request-flow.puml |
+endlegend
+
+@enduml

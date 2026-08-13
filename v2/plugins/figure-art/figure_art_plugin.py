@@ -2,9 +2,9 @@
 
 Tools: `generate_artwork` (illustration for the hybrid overlay flow), `edit_artwork` (targeted
 "change ONLY this" edit of an existing image — the region-redraw fix path), plus template browsing
-and reference-image search. Uses the google-genai SDK directly with the existing GEMINI_API_KEY /
-GOOGLE_API_KEY — no core change, no new credential. Brain-agnostic: works whether the agent's
-reasoning model is Gemini, DeepSeek, or other.
+and reference-image search. Generation goes through the runtime's model funnel (`self.models` /
+oneshot.generate_image) — mode-correct in BYOK/cloud/sandbox with no credential held here.
+Brain-agnostic: works whether the agent's reasoning model is Gemini, DeepSeek, or other.
 """
 
 from __future__ import annotations

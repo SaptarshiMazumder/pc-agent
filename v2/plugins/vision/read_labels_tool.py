@@ -138,8 +138,8 @@ class ReadLabelsTool(Tool):
         "textless art if you have it; if you DON'T, read_labels_from_image asks Gemini to STRIP the baked labels off the "
         "image to make one (no double text, no white-out erase) and returns it as `base_png`. Feed the "
         "returned `elements` to render_editable_overlay over `base_png`, then compose_figure_layers. Because it READS drawn "
-        "labels (reliable) instead of GUESSING anatomy, positions are correct by construction. Uses "
-        "GEMINI_API_KEY; works even when the agent's own model can't see images."
+        "labels (reliable) instead of GUESSING anatomy, positions are correct by construction. "
+        "Works even when the agent's own model can't see images."
     )
     label = "Read Labels"
     concurrency = "parallel"
@@ -153,7 +153,7 @@ class ReadLabelsTool(Tool):
             "structures": {"type": "array", "items": {"type": "string"},
                            "description": "Optional: the labels you expect to be drawn — steers the read and lets you match them to your intended set."},
             "model": {"type": "string", "description": f"Override the reading model (litellm 'provider/model'; bare id => gemini). Resolves per-call > agent.toml/config plugins.vision.tools.read_labels_from_image > plugins.vision default > {vg.GROUNDING_MODEL}."},
-            "api_key": {"type": "string", "description": "Override key (else GEMINI_API_KEY/GOOGLE_API_KEY)."},
+            "api_key": {"type": "string", "description": "Optional BYOK key override (else GEMINI_API_KEY/GOOGLE_API_KEY). Ignored in cloud mode."},
         },
     }
 
@@ -168,18 +168,18 @@ class ReadLabelsTool(Tool):
         return Path(ws) / path
 
     def _strip_labels(self, labelled: Path, api_key) -> Path:
-        """No textless base given: ask Gemini (Nano Banana) to remove the baked labels/leaders from the
+        """No textless base given: ask the image model to remove the baked labels/leaders from the
         labelled image -> a clean textless base. This is how read_labels_from_image works standalone on ANY labelled
-        image (never overlays onto baked text; no whitening/erase)."""
-        import sys as _sys
-        igdir = str(Path(__file__).resolve().parent.parent / "figure-art")   # figure-art is a sibling plugin
-        if igdir not in _sys.path:
-            _sys.path.insert(0, igdir)
-        import figure_art_gemini as ig
-        model = resolve_tool_model(self.config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
-        key = ig.resolve_key(api_key, self.config)
+        image (never overlays onto baked text; no whitening/erase). Goes through the runtime's model
+        funnel (`self.models`) — mode-correct and credential-free, like every model call here."""
+        model = resolve_tool_model(
+            self.config, "figure-art", "generate_artwork", default=None, kind="image-gen"
+        )
         out = labelled.with_name(labelled.stem + "_textless.png")
-        ig.generate_image(_STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled])
+        self.models.generate_image(
+            model=model, prompt=_STRIP_PROMPT, out_path=out, api_key=api_key,
+            reference_images=[labelled],
+        )
         return out
 
     def _run(self, params: dict) -> dict:

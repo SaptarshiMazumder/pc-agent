@@ -1,0 +1,94 @@
+@startuml model-access-today
+' ONE file, TWO diagrams. This one = the gap AS IT WAS; below = the fix, BUILT 2026-08-13
+' (see planning/platform/model-access-port.md).
+title BEFORE - two paths to models, one hole (fixed - see second diagram)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontSize 12
+left to right direction
+
+rectangle "Brain (agent loop)" as brain
+rectangle "chat-shaped tools\n(verify_figure, ...)\ntext/images in -> TEXT out" as chattools
+
+rectangle "GOVERNED FUNNEL" as funnel #E8F5E9 {
+  rectangle "resolve_tool_model\n(one config seam: agent.toml\n-> plugins.*.tools.*.model)" as seam
+  rectangle "oneshot.vision_complete" as oneshot
+  rectangle "LiteLLM" as litellm
+}
+
+rectangle "ROGUE PATH" as roguebox #FFEBEE {
+  rectangle "image-bytes-out tools\ngenerate_artwork / edit_artwork\nread_labels / extract_annotations\nvectorize" as rogue
+  rectangle "resolve_key()\n(copy-pasted per plugin)" as rk
+  rectangle "env GEMINI_API_KEY\n(daemon process env)" as env
+  rectangle "google-genai SDK\n(direct call)" as sdk
+}
+
+cloud "model proxy (cloud modes)\nsession token -> metered\nper account" as proxy
+cloud "provider direct (local BYOK)\nuser's own key" as byok
+cloud "Google API\nunmetered, unbilled" as google #FFEBEE
+
+brain --> seam
+chattools --> seam
+seam --> oneshot
+oneshot --> litellm
+litellm --> proxy : desktop cloud /\nweb hosted
+litellm --> byok : local BYOK
+
+rogue --> rk
+rk --> env
+rk --> sdk
+sdk --> google
+
+note bottom of env #FFCDD2
+  THE GAP
+  local: works (key in your env)
+  hosted: daemon holds NO raw keys
+  -> "no Gemini API key" failure
+  and even WITH a key: bypasses
+  metering + per-account billing
+end note
+@enduml
+
+
+@startuml model-access-fixed
+title BUILT (2026-08-13) - one ModelAccess port; mode decided once; sandbox makes it the only door
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontSize 12
+left to right direction
+
+rectangle "ANY tool declaring needs_model\n(brain, chat tools, image tools,\nagent-builder plugin tools)" as anytool
+
+rectangle "ModelAccess port (INJECTED)\ncomplete() / vision_complete()\ngenerate_image() / embed()\ntools get the handle, never a key" as port #C8E6C9
+
+rectangle "container builds it ONCE per mode\n(zero if-hosted branching in plugins)" as factory #C8E6C9
+
+cloud "local BYOK\nprovider direct, user's keys" as byok
+cloud "desktop cloud / web hosted\nLiteLLM proxy + session token\nchat routes + gemini PASSTHROUGH\n(image-gen & grounding metered too)" as proxy
+
+rectangle "UNTRUSTED plugins (agent-builder made)\nagents/ID/plugins/" as untrusted #FFFDE7 {
+  rectangle "sandbox subprocess\nenv SCRUBBED: no *_API_KEY\negress allowlist: provider domains blocked" as sbx #FFF9C4
+  rectangle "CapabilityResolver grant\n(reads needs_model / model_kind\noff the tool contract)" as grant #FFF9C4
+}
+
+anytool --> port
+port --> factory
+factory --> byok : mode = local
+factory --> proxy : mode = cloud / hosted
+
+sbx --> grant
+grant --> port : model calls cross the trust\nboundary as RPC to the\ndaemon's port
+
+note bottom of sbx #FFF9C4
+  ENFORCEMENT, not convention:
+  no keys in env + no egress
+  -> the injected port is the ONLY
+  door, and everything through it
+  is mode-correct and metered.
+  First-party plugins comply by
+  template; third-party because
+  there is no other path.
+end note
+@enduml
