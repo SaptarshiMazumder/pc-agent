@@ -137,7 +137,11 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
                     # a plugin could otherwise read its own directory but not the sibling data
                     # one level up, and a plugin denied its own package looks exactly like a
                     # plugin whose files are missing.
-                    ("_agent_dir", str(agent_dir)),
+                    # `_plugin_`-prefixed like _plugin_root, NOT the bare `_agent_dir` this
+                    # started as: a tool had a METHOD by that name and the stamp replaced it
+                    # with a string, so its next call died with "'str' object is not callable".
+                    # The guard below now refuses any such collision; the namespace avoids it.
+                    ("_plugin_agent_dir", str(agent_dir)),
                     # What the plugin DECLARED it needs while sandboxed ([sandbox] in its toml).
                     # Carried on the tool because the capability resolver is handed a tool, not a
                     # manifest — the same reason _plugin_entry rides here. A declaration is a
@@ -145,6 +149,21 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
                     ("_sandbox_net", tuple(m.sandbox.get("net") or ())),
                     ("_sandbox_secrets", tuple(m.sandbox.get("secrets") or ())),
                 ):
+                    # A STAMP MUST NEVER SHADOW BEHAVIOUR. These names are chosen by us and
+                    # set on somebody else's object, so a tool that happens to define a method
+                    # with the same name would have it silently replaced by a string — and the
+                    # failure surfaces far away, as "'str' object is not callable" inside a
+                    # tool that looks correct. Refuse loudly instead: the metadata is worth
+                    # less than the tool, and a discovery-time log names the real culprit.
+                    if callable(getattr(t, attr, None)):
+                        log.error(
+                            "plugins: NOT stamping %s on tool '%s' (plugin '%s') — the tool "
+                            "defines a method of that name and stamping would break it",
+                            attr,
+                            getattr(t, "name", "?"),
+                            m.id,
+                        )
+                        continue
                     try:
                         setattr(t, attr, val)
                     except (AttributeError, TypeError):

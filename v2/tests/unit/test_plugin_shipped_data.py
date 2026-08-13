@@ -108,7 +108,7 @@ def test_an_installed_distribution_still_imports_by_name(tmp_path):
 def _tool(agent_dir: Path, plugin_root: Path):
     return SimpleNamespace(
         name="generate_marketing_image",
-        _agent_dir=str(agent_dir),
+        _plugin_agent_dir=str(agent_dir),
         _plugin_root=str(plugin_root),
         needs_model=False,
     )
@@ -140,6 +140,76 @@ def test_grant_falls_back_to_the_plugin_roots_agent_folder(tmp_path):
 def test_grantless_tool_gets_nothing(tmp_path):
     g = DefaultCapabilityResolver().resolve("x", PluginOrigin.THIRD_PARTY_BUNDLE, None, None)
     assert g.read_paths == () and g.fs_paths == ()
+
+
+# ── 2b. a discovery stamp must never shadow a tool's own method ────────────────────────────
+
+
+def _discoverable(root: Path, body: str) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "plugin.toml").write_text(
+        'id = "img"\nname = "Img"\nkind = "native"\nentry = "img_plugin:register"\n',
+        encoding="utf-8",
+    )
+    (root / "img_plugin.py").write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
+
+
+def test_discovery_stamps_the_agent_folder_on_a_normal_tool(tmp_path):
+    """The link between discovery and the grant: without this stamp the resolver has nothing to
+    grant, and a sandboxed plugin is back to being denied its own templates."""
+    from agent_runtime.infrastructure.plugins.discovery import discover_agent_plugins
+
+    agent_dir = tmp_path / "agents" / "mkt"
+    _discoverable(
+        agent_dir / "plugins" / "img",
+        """
+        class Tool:
+            name = "generate"
+
+        def register(api, ctx):
+            api.register_tool(Tool())
+        """,
+    )
+    tool = discover_agent_plugins(tmp_path / "agents", SimpleNamespace())["mkt"][0]
+    assert Path(tool._plugin_agent_dir) == agent_dir
+    # …and the resolver turns exactly that into the read-only grant the sandbox enforces.
+    g = DefaultCapabilityResolver().resolve("img", PluginOrigin.THIRD_PARTY_BUNDLE, None, tool)
+    assert g.read_paths == (str(agent_dir),)
+
+
+def test_discovery_never_stamps_over_a_method(tmp_path, caplog):
+    """LIVE BUG, caught in production: discovery stamps metadata onto somebody else's object,
+    and `_agent_dir` landed on a tool that DEFINED a method with that name — replacing it with
+    a string, so `self._agent_dir(agent_id)` died as "'str' object is not callable" inside a
+    tool that read perfectly. The metadata is worth less than the tool: refuse and say so."""
+    from agent_runtime.infrastructure.plugins.discovery import discover_agent_plugins
+
+    root = tmp_path / "agents" / "mkt" / "plugins" / "img"
+    root.mkdir(parents=True)
+    (root / "plugin.toml").write_text(
+        'id = "img"\nname = "Img"\nkind = "native"\nentry = "img_plugin:register"\n',
+        encoding="utf-8",
+    )
+    (root / "img_plugin.py").write_text(
+        textwrap.dedent(
+            """
+            class Tool:
+                name = "publishy"
+
+                def _plugin_agent_dir(self, agent_id):   # a METHOD, not metadata
+                    return "computed:" + agent_id
+
+            def register(api, ctx):
+                api.register_tool(Tool())
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    found = discover_agent_plugins(tmp_path / "agents", SimpleNamespace())
+    tool = found["mkt"][0]
+    assert callable(tool._plugin_agent_dir), "the stamp clobbered the tool's own method"
+    assert tool._plugin_agent_dir("x") == "computed:x"
+    assert tool._plugin_root, "unrelated stamps still land"
 
 
 # ── 3. the guard's precedence: readable beats denied, for READS only ───────────────────────

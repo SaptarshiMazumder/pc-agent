@@ -77,9 +77,9 @@ class DefaultCapabilityResolver:
         workspace is a DIFFERENT tree (per-account run data), so it can never be where shipped
         data is found. Granting the folder the code already came from adds no reach a plugin
         did not already have — the code is right there — it only stops the sandbox denying a
-        plugin its own package. Stamped at discovery (`_agent_dir`); the plugin root's parent
-        covers a tool assembled without that tag."""
-        agent_dir = str(getattr(tool, "_agent_dir", "") or "").strip()
+        plugin its own package. Stamped at discovery (`_plugin_agent_dir`); the plugin root's
+        parent covers a tool assembled without that tag."""
+        agent_dir = str(getattr(tool, "_plugin_agent_dir", "") or "").strip()
         if not agent_dir:
             root = str(getattr(tool, "_plugin_root", "") or "").strip()
             if root:
