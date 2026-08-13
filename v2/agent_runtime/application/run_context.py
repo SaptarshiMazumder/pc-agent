@@ -27,6 +27,23 @@ class RunContext:
     # the far side instead of its work appearing as an orphan.
     run_id: str = ""
     turn_id: str = ""
+    # WHERE THIS AGENT MAY WRITE. Absolute paths, already resolved — an agent.toml declares
+    # `[tools.fs] write_roots` with tokens like <agents_dir>, and the service expands them
+    # before they get here, so the fs tools do plain containment and know nothing about config.
+    #
+    # EMPTY = UNRESTRICTED, which is every agent that does not declare any. This exists for the
+    # one agent whose job is authoring OTHER agents: it needs to write outside its own workspace
+    # by definition, and "outside its workspace" was previously the whole filesystem — including
+    # the shared plugins/ dir, whose tools are never sandboxed on the machine that installs them.
+    write_roots: tuple[str, ...] = ()
+    # Carved OUT of the roots. Deny beats allow. Chiefly so an agent cannot rewrite its own
+    # definition, skill or allow-list — the constraints it is running under.
+    write_denies: tuple[str, ...] = ()
+    # Agent directories that arrived in a .agentpkg. A PLATFORM rule, not this agent's
+    # declaration — editing an installed agent makes it stop matching what its publisher
+    # shipped, and its signature and provenance record then describe something that no longer
+    # exists on disk. Kept apart from write_denies so the refusal can say which it was.
+    protected_paths: tuple[str, ...] = ()
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)

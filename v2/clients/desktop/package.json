@@ -16,7 +16,9 @@
     "sync:urls": "node scripts/sync-platform-urls.mjs --strict",
     "gen:app": "node scripts/gen-app-flavor.mjs",
     "dist:app": "node scripts/dist-app.mjs",
+    "predist:core": "node scripts/check-runtime.mjs",
     "dist:core": "electron-vite build && electron-builder --config electron-builder.yml",
+    "predist:studio": "node scripts/check-runtime.mjs",
     "dist:studio": "electron-vite build && electron-builder --config electron-builder.studio.yml"
   },
   "dependencies": {

@@ -142,6 +142,30 @@ def test_operator_publisher_passes_the_installer_choice_through(monkeypatch, tmp
 # ── the AUTHOR adapter needs sign-in, NOT a key ──────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_credentials(monkeypatch):
+    """These tests describe PRECEDENCE, so the environment has to be STATED, not inherited.
+
+    They were passing by luck: the machines running them happened to have no platform credentials
+    in their `.env` — any developer who had signed in would see failures here that had nothing to
+    do with whatever they were working on.
+    """
+    for name in ("AGENTD_SESSION_TOKEN", "AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_connections_account_is_enough_to_publish():
+    """Signing in is the requirement, not being a paying customer. Identity comes from the TURN's
+    account — the one mechanism on a laptop and a shared server alike."""
+    from agent_runtime.infrastructure import accounts
+
+    token = accounts.set_account({"account_id": "a1", "session_token": "sess_conn"})
+    try:
+        assert HttpRegistryPublisher("https://x", FakeConfig(), FakePacker()).requirements() == []
+    finally:
+        accounts.reset_account(token)
+
+
 def test_author_publisher_asks_for_sign_in_and_never_for_a_key():
     missing = HttpRegistryPublisher("https://api.example.com", FakeConfig(), FakePacker()).requirements()
     assert any("not signed in" in r for r in missing)
@@ -151,14 +175,16 @@ def test_author_publisher_asks_for_sign_in_and_never_for_a_key():
 
 
 def test_author_publisher_is_ready_once_signed_in(monkeypatch):
-    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sess_abc")
+    """AGENTD_SESSION_TOKEN is the ambient form of the SAME identity — the door for the offline
+    CLI (`bundle roster …`, CI), where no connection exists to carry an account."""
+    monkeypatch.setenv("AGENTD_SESSION_TOKEN", "sess_abc")
     assert HttpRegistryPublisher("https://x", FakeConfig(), FakePacker()).requirements() == []
 
 
 def test_session_token_precedence_prefers_the_connected_account(monkeypatch):
     """On a multi-tenant daemon the per-connection account wins — publishing as the wrong user
     would be the worst possible bug in that file."""
-    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "the-machines-token")
+    monkeypatch.setenv("AGENTD_SESSION_TOKEN", "the-machines-token")
     from agent_runtime.infrastructure import accounts
 
     token = accounts.current_account.set({"account_id": "a1", "session_token": "the-users-token"})
@@ -169,9 +195,17 @@ def test_session_token_precedence_prefers_the_connected_account(monkeypatch):
     assert platform_session_token(FakeConfig()) == "the-machines-token"
 
 
-def test_session_token_falls_back_to_the_configured_proxy_key():
-    config = FakeConfig(model_proxy={"api_key": "from-config"})
-    assert platform_session_token(config) == "from-config"
+def test_billing_credentials_are_not_identity(monkeypatch):
+    """THE deletion this step exists for. The model-proxy key says who PAYS for inference; it
+    must never answer who IS publishing — a machine key could publish as nobody in particular,
+    and an author on their own API keys was told 'not signed in' when they plainly were."""
+    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sk-billing")
+    monkeypatch.setenv("AGENTD_MODEL_GATEWAY_KEY", "sk-legacy-billing")
+    config = FakeConfig(model_proxy={"api_key": "sk-config-billing"})
+
+    assert platform_session_token(config) == ""
+    missing = HttpRegistryPublisher("https://x", config, FakePacker()).requirements()
+    assert any("not signed in" in r for r in missing)
 
 
 def test_a_dry_run_sends_nothing_and_says_what_it_would_send(tmp_path):

@@ -11,7 +11,7 @@
 # plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
-version = "1.1.0" # b4: HTTP sign-in + rose UI — bump so installs supersede any older copy
+version = "1.1.1" # b5: SDK sign-in gate (b4's HTTP flow bound a daemon-global key that no longer exists)
 
 # Its OWN app UI (ui/), served by the daemon at /apps/figure-creator/ and opened as its own
 # window — no agentd shell. `mode = "window"` = a chromeless product window (the exe wraps this

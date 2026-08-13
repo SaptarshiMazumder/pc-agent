@@ -59,6 +59,32 @@ def test_a_tool_that_calls_no_model_is_granted_none():
     assert derive_model_need("return ToolResult.text(str(len(params['s'])))") == (False, "text")
 
 
+def test_an_image_generation_call_is_recognised_as_image_gen():
+    code = "r = generate_image(model=m, prompt=p, out_path=params['out'])"
+    assert derive_model_need(code) == (True, "image-gen")
+
+
+def test_the_port_spelling_counts_the_same_as_the_funnel_spelling():
+    """`self.models.generate_image(...)` and `oneshot.generate_image(...)` are the same
+    host-brokered call under the sandbox — the derivation must not care which the author wrote."""
+    assert derive_model_need("r = self.models.generate_image(model=m, prompt=p, out_path=o)") == (
+        True,
+        "image-gen",
+    )
+    assert derive_model_need("t = self.models.text(model=m, prompt=p)") == (True, "text")
+    assert derive_model_need("v = self.models.vision(model=m, prompt=p, image_paths=[f])") == (
+        True,
+        "vision",
+    )
+
+
+def test_image_gen_wins_when_a_tool_also_looks_or_talks():
+    """model_kind picks the default the resolution chain uses, and only an image-gen model can
+    supply the generating half — the most specific capability names the picker."""
+    code = "a = vision_complete(prompt=p, image_paths=[f])\nb = generate_image(model=m, prompt=p, out_path=o)"
+    assert derive_model_need(code) == (True, "image-gen")
+
+
 def test_a_mention_in_prose_is_not_a_call():
     """The pattern is anchored on the call shape, so a docstring that NAMES the function does
     not stamp the attribute. A rule that fires on comments is one people switch off."""

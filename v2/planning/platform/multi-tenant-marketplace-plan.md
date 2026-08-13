@@ -400,41 +400,46 @@ artifact. Revocation stops NEW installs; it is not a remote uninstall, and the c
 
 ---
 
-## Phase 4 — Three delivery modes `[ ]`
+## Phase 4 — Three delivery modes `[x]` (built 2026-08-09, uncommitted)
 
 **Goal:** the creator chooses how their agent reaches people; the Store shows the choice.
-**Size: M** (the build pipelines already exist).
+**As built, the shape changed from the sketch below:** `install` needs no declaration (a bundle
+IS the thing a daemon installs), and the exe pipeline landed in the publish Lambda rather than
+CI — so `[delivery]` has exactly two keys.
 
-### 4.1 Declaration `[ ]`
-In `bundle.toml`, authored with the agent:
+### 4.1 Declaration `[x]`
+In `agent.toml` (author-facing) or `bundle.toml`'s `[bundle.delivery]` (publisher override,
+whole-table):
 ```toml
 [delivery]
-install = true                     # installable into agentd
-app     = true                     # served at /apps/<id>/  (requires [app] in agent.toml)
-exe     = ["windows"]              # build a per-agent installer
+web = false                        # Open-in-browser via the hosted deployment (requires [app];
+                                   # OPT-IN — running on our infra is never inferred)
+exe = true                         # per-agent installer built at publish (the old default)
 ```
-- [ ] Carry `delivery` into the manifest → index entry (`bundle_io`, `index_builder`).
+- [x] `DeliveryModes` on `BundleManifest` + `RegistryEntry`, tolerant parse (domain/bundle.py);
+      serialized by `bundle_io._manifest_toml`; precedence in `packer._delivery`.
+- [x] `web = true` without `[app]` is refused at pack time AND at intake (400).
+- [x] Intake skips the stub build for web-only bundles and stamps
+      `"delivery": {web, exe}` into the index row.
 
-### 4.2 Hosted URL `[ ]`
-- [ ] Depends on Phase 1: an agent app at `/apps/<id>/` must run in the visitor's tenant.
-- [ ] Install the agent into a tenant on first open (or a curated "platform" tenant for
-      `public = true` demos).
-- [ ] Store card gains **Open** → `https://<host>/apps/<id>/`.
+### 4.2 Hosted URL `[x]`
+- [x] Index-level `web.host` (like `engine`): stamped by the publish service from `WEB_HOST`
+      (terraform: `local.publish_web_host` = the daemon's public url); parsed into
+      `RegistryIndex.web_host`.
+- [x] Install on first open: hosted `GET /apps/<id>` for an unknown id schedules
+      `marketplace.sync_web_app(id)` (installs into the SHARED catalogue — /apps static serving
+      is unauthenticated, one copy serves every visitor) and serves a self-refreshing page.
+      `sync_web_app` re-checks the author's web opt-in, so a URL guess cannot conscript the host.
+      Entry-page opens re-check the registry for updates (throttled, 300s).
+- [x] Store card gains **Open in browser** via `webUrl` (joined daemon-side, never client-built).
+- [ ] Per-visitor tenant for app STATE remains the scoped-WS story (unchanged here).
 
-### 4.3 Downloadable .exe `[ ]`
-- [ ] CI job: for each bundle whose `delivery.exe` is set, run `gen:app --pkg <published .agentpkg>`
-      then `dist:app` — the generator already supports third-party intake with no source.
-- [ ] Upload the installer beside the bundle in the registry bucket; record `url`, `sha256`, `size`,
-      `platform` in the index entry.
-- [ ] Store card gains **Download for Windows**.
-- [ ] **Code signing is a real blocker for strangers' installers**: unsigned `.exe` files trigger
-      SmartScreen and will read as malware. Decide: platform-signed (we vouch, needs an EV cert) or
-      creator-supplied cert. Until then, restrict `delivery.exe` to first-party bundles.
-- [ ] Runners are `ubuntu-latest`; a Windows installer needs `windows-latest`. Separate job.
+### 4.3 Downloadable .exe `[x]` (landed earlier via the publish Lambda, not CI)
+- [x] The publish service builds the stub per publish; installer rows signed separately.
+- [ ] **Code signing is still a real blocker for strangers' installers** (SmartScreen).
 
-### 4.4 Store UI `[ ]`
-- [ ] Render the modes a bundle actually published (Install / Open / Download), never all three.
-- [ ] Keep the "installs are shared on this server" note until Phase 1 lands, then delete it.
+### 4.4 Store UI `[x]`
+- [x] Cards render exactly the doors the author opened (Install / Open / Download).
 
 ---
 

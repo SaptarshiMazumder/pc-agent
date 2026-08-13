@@ -1,22 +1,24 @@
 /**
- * The sign-in GATE — the UI half of hosted sign-in (mechanism lives in platform.ts).
+ * The sign-in GATE — the UI half of sign-in (mechanism lives in auth.ts).
  *
  *   await agentd.mountSignInGate()
- *   // past this line the daemon has model access, or there was never a gate to pass
+ *   // past this line somebody is signed in, or this install has no accounts to sign in to
  *
  * No arguments needed: the heading comes from the page's own <title>, which is already this
  * agent's name. Naming a product here would be a second copy of it to keep in sync.
  *
  * ONE LINE, and it is deliberately a blocking await: an app that renders its composer first and
- * signs in later has to handle "connected yet?" at every send site. Awaiting once means the rest
- * of the app can assume model access.
+ * signs in later has to handle "signed in yet?" at every send site.
  *
- * IT RENDERS NOTHING when there is nothing to ask for:
- *   - a BYOK install (no accountsUrl in the distribution profile) has no accounts at all
- *   - a daemon already holding a live platform credential is already signed in
- *   - a stored session that still works is re-bound silently
- * That conditionality is the whole reason this can go in a template. A gate that always appeared
- * would make every locally-authored agent demand a login it has no server for.
+ * IT RENDERS NOTHING in exactly two cases:
+ *   - this daemon has no accounts service configured, so there is nothing to sign in to
+ *   - somebody is already signed in
+ *
+ * THAT LIST USED TO BE LONGER, AND WRONG. It also skipped the gate whenever the platform's keys
+ * were already paying for model calls — because this was never a login, it was a checkout screen
+ * ("Runs on our servers — no API keys to set up"). On a BYOK install nobody is paying, so the
+ * gate concluded there was nothing to ask and rendered nothing, forever. Signing in and paying
+ * are now separate questions; this one only asks who you are.
  *
  * ELEMENT IDS ARE PART OF THE CONTRACT. `gate`, `gateForm`, `gateEmail`, `gatePass` match what
  * figure-creator's hand-written gate used, because the desktop shell's AGENTD_E2E_LOGIN hook
@@ -28,16 +30,9 @@
  * back to the surrounding page's, so an unthemed agent still looks like itself.
  */
 
-import {
-  PlatformOptions,
-  loadSession,
-  platformStatus,
-  resolveAuth,
-  signIn,
-  signOut
-} from './platform'
+import { AuthOptions, AuthState, authLogin, authLogout, authStatus } from './auth'
 
-export interface SignInGateOptions extends PlatformOptions {
+export interface SignInGateOptions extends AuthOptions {
   /** Product name in the heading. Defaults to the document title, then the agent id. */
   product?: string
   /** One line under the heading explaining WHY a sign-in is being asked for. */
@@ -48,11 +43,7 @@ export interface SignInGateOptions extends PlatformOptions {
   allowSignup?: boolean
 }
 
-export interface GateResult {
-  /** false => this is a BYOK build and no gate was shown. */
-  hosted: boolean
-  /** The session token when one is known ('' on a BYOK build). */
-  token: string
+export interface GateResult extends AuthState {
   /** true when a gate was actually displayed and the user completed it. */
   signedInHere: boolean
 }
@@ -124,7 +115,7 @@ function build(product: string, blurb: string, allowSignup: boolean): HTMLElemen
 }
 
 /**
- * Ensure the daemon has model access, showing a sign-in form only if it needs one.
+ * Sign the user in, showing a form only if one is needed.
  *
  * Resolves once the app may proceed. Rejects only if the daemon itself cannot be reached — a
  * wrong password does not reject, it is reported in the form and the user tries again.
@@ -133,12 +124,11 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
   const allowSignup = options.allowSignup !== false
   const product =
     options.product || (typeof document !== 'undefined' && document.title) || 'this app'
-  const blurb =
-    options.blurb || 'Runs on our servers — no API keys to set up.'
+  const blurb = options.blurb || 'Sign in to continue.'
 
-  const auth = await resolveAuth(options)
-  if (!auth.needsSignIn) {
-    return { hosted: auth.status.hosted, token: auth.token, signedInHere: false }
+  const state = await authStatus(options)
+  if (!state.available || state.signedIn) {
+    return { ...state, signedInHere: false }
   }
 
   injectStyle()
@@ -161,8 +151,10 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
     errorEl.hidden = !text
   }
 
-  const stored = loadSession(options)
-  if (stored?.email) emailEl.value = stored.email
+  // The daemon remembers the last email it signed in with, so a re-prompt after sign-out (or on
+  // a second machine window) starts with the field filled. It is not a credential; the token it
+  // sits beside never leaves the daemon.
+  if (state.email) emailEl.value = state.email
   setTimeout(() => emailEl.focus(), 0)
 
   toggle?.addEventListener('click', () => {
@@ -187,9 +179,9 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
       fail('')
       say(signup ? 'Creating your account…' : 'Signing in…')
       try {
-        const result = await signIn({ email, password, signup }, options)
+        const result = await authLogin({ email, password, signup }, options)
         gate.remove()
-        resolve({ hosted: true, token: result.token, signedInHere: true })
+        resolve({ ...result, signedInHere: true })
       } catch (e) {
         // Stay on the form: the daemon is fine, this attempt was not.
         btn.disabled = false
@@ -202,8 +194,7 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
 
 /** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
 export async function signOutAndGate(options: SignInGateOptions = {}): Promise<GateResult> {
-  signOut(options)
-  const status = await platformStatus(options)
-  if (!status.hosted) return { hosted: false, token: '', signedInHere: false }
+  const state = await authLogout(options)
+  if (!state.available) return { ...state, signedInHere: false }
   return mountSignInGate(options)
 }

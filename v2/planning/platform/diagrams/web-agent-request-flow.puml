@@ -1,0 +1,220 @@
+@startuml web-agent-request-flow
+' ============================================================================
+'  agentd WEB AGENT - one request, end to end (e.g. bedtime-kids in a browser)
+'  Activity-flowchart view. The TWIN of desktop-cloud-mode-request-flow.puml:
+'  same numbering, same colors — read them side by side and the differences
+'  are exactly the credential story.
+'
+'  EVERY partition is tagged with WHERE IT RUNS:
+'    (BROWSER)     - Sally's browser tab. ONLY the agent's UI files + her sess_ token.
+'    (ON AWS)      - our fleet: the SHARED daemon, Accounts, Model Proxy, provider keys.
+'    (THIRD PARTY) - the model vendor, reached FROM AWS, never from the browser.
+'
+'  THE ONE-LINE CONTRAST WITH DESKTOP:
+'    desktop: the daemon runs on the USER PC; the sess_ token is the daemon's
+'             MODEL-PROXY credential (written to ~/.agentd/.env).
+'    web:     the daemon runs ON AWS and is shared; the sess_ token is the
+'             visitor's WEBSOCKET credential. The proxy credential is the
+'             daemon-wide LITELLM_MASTER_KEY, which no user ever holds.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng web-agent-request-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Web Agent - one request (hosted, browser-only)\nThe agent runs ON AWS; the browser holds nothing but the UI files and a sess_ token\n(BROWSER) = Sally's tab    (ON AWS) = our fleet    (THIRD PARTY) = the model vendor
+
+start
+
+partition "0 . OPEN THE STORE LINK   (BROWSER)" #E8F0FE {
+  :Sally opens `http://<host>:8787/apps/bedtime-kids/`\n(the `webUrl` printed on the marketplace card — a BARE url, no token);
+}
+
+partition "2 . HOSTED GATEWAY - gateway.py :8787   (ON AWS)" #FDECEA {
+  if (agent installed on this daemon?) then (yes)
+    :**Gateway._serve_app()** serves the agent's own ui/ files\n(static shipped code - NO token required);
+  else (no - first visitor ever)
+    :**Gateway._web_app_bootstrap()**\nschedule **marketplace.sync_web_app("bedtime-kids")**\nregistry fetch -> verify creator signature -> refuse unless\nthe author declared `[delivery] web = true` -> install;
+    :serve a self-refreshing "Setting up..." page;\nnext refresh lands on the installed app;
+  endif
+}
+
+partition "0 . APP BOOT - vendor/agentd-client.js   (BROWSER)" #E8F0FE {
+  :**agentd.fromPage()**\ntoken = `?token=` (none on a bare link) -> stored session -> none\nscope = derived from the path -> `agent:bedtime-kids`;
+  :**agentd.mountSignInGate()** (runs over HTTP,\nBEFORE the socket can open);
+  :**resolveAuth()** -> `GET /platform/status`\n(answered WITHOUT a bearer on an accounts-mode daemon);
+}
+
+partition "2 . HOSTED GATEWAY :8787   (ON AWS)" #FDECEA {
+  :return {accountsMode: true,\naccountsUrl: PUBLIC accounts url (config.public_accounts_url)};
+}
+
+partition "0 . SIGN-IN GATE   (BROWSER)" #E8F0FE {
+  if (working session in localStorage?\n(checked against Accounts /resolve, never assumed)) then (yes)
+    :reuse the stored sess_ token;
+  else (no)
+    :render the sign-in card;\nSally enters email + password;
+    :**signIn()** -> Accounts `POST /login`;
+  endif
+}
+
+partition "1 . HOSTED ACCOUNTS SERVICE :4100 - v2/accounts/app.py   (ON AWS)" #FFF0F0 {
+  :verify password (PBKDF2);\nmint `sess_...` row in the sessions table (SQLite on EFS);
+  :return {sess_ token, account_id};
+}
+
+partition "0 . CONNECT   (BROWSER)" #E8F0FE {
+  :save session in localStorage (per-agent key);
+  :WebSocket connect to the SAME origin\n`ws://<host>:8787/?token=sess_...&scope=agent:bedtime-kids`;
+}
+
+note right
+  ==== CREDENTIAL DIFFERENCE #1 vs DESKTOP ====
+  Desktop: the socket is localhost -> a machine token; the
+  sess_ token instead becomes the LOCAL daemon's model-proxy
+  credential (~/.agentd/.env AGENTD_MODEL_PROXY_KEY).
+  Web:     the sess_ token IS the socket credential. Nothing
+  is written anywhere; it is presented on every connect.
+end note
+
+partition "2 . HOSTED GATEWAY - _handle_conn()   (ON AWS)" #FDECEA {
+  :fixed bearer match? NO -> **accounts.resolve(sess_ token)**;
+  if (Accounts says the token is valid?) then (yes)
+    :pin **account_id** to this socket (contextvar);\nconnection tier = SCOPED to agent:bedtime-kids;
+  else (no)
+    :refuse the connection;
+    stop
+  endif
+}
+
+partition "0 . SEND   (BROWSER)" #E8F0FE {
+  :Sally types "a sleepy dragon who guards a lighthouse";
+  :**client.send()** -> `chat.send`\n{message, sessionKey, agentId: bedtime-kids};
+}
+
+partition "2 . HOSTED GATEWAY - _chat_send()   (ON AWS)" #FDECEA {
+  :validate; idempotency + active-run checks;
+  :resolve PER-ACCOUNT paths (user_state)\nsessions/workspace under `accounts/<acct>/...` on EFS\n(the agent DEFINITION is shared; Sally's STATE is hers alone);
+  :create RunHandle; `asyncio.create_task(Gateway._run(...))`;\nreturn `res {runId}` immediately;
+}
+
+partition "6 . APPLICATION - AgentService (same engine as desktop)   (ON AWS)" #E6F4EA {
+  :**AgentService.handle_message()**\nagent spec from the SHARED catalogue (marketplace install);
+  :build system prompt from the bundle's own IDENTITY.md + skills;\nselect_tools() under the agent's [tools] allowlist;
+}
+
+repeat
+  partition "9 . ENGINE + LiteLLM adapter   (ON AWS)" #EDE7F6 {
+    :one **run_agent_loop()** turn;
+    :**model_proxy.apply(kwargs)**\napi_base = model-proxy internal DNS :4000\napi_key = **LITELLM_MASTER_KEY** (task env - server-owned)\n+ the socket's **account_id** rides on the call;
+  }
+
+  note right
+    ==== CREDENTIAL DIFFERENCE #2 vs DESKTOP ====
+    Desktop: api_key = the USER's sess_ token (per-user).
+    Web:     api_key = the ONE master key (shared daemon is
+    a trusted internal caller); the USER is identified by the
+    attached account_id, not by the key.
+    Either way: NO provider key exists outside the proxy.
+  end note
+
+  partition "10 . HOSTED MODEL PROXY :4000 - custom_auth.py   (ON AWS)" #FFF0F0 {
+    :**user_api_key_auth()** master key? YES -> internal caller;\nresolve the attached account via Accounts;
+    if (credits remaining > 0?) then (yes)
+      :admit the call;
+    else (no)
+      :**402 "out of credits - top up to keep going"**;
+      stop
+    endif
+  }
+
+  partition "11 . EXTERNAL MODEL PROVIDER   (THIRD PARTY - called FROM AWS)" #E0F2F1 {
+    :completion with the PLATFORM provider key;\nstream text / tool-call chunks / usage;
+  }
+
+  partition "10 . HOSTED MODEL PROXY :4000   (ON AWS)" #FFF0F0 {
+    :stream chunks back to the daemon;
+    :post-call metering: cost_usd -> credits = ceil(cost x rate);\nAccounts `POST /debit` (drain-to-zero semantics);
+  }
+
+  partition "1 . HOSTED ACCOUNTS SERVICE :4100   (ON AWS)" #FFF0F0 {
+    :consume grants soonest-expiring first;\nappend the usage-ledger row for **Sally's** account;
+  }
+
+  switch (What did the turn produce?)
+
+  case ( TOOL CALLS )
+    partition "9 . TOOL EXECUTION   (ON AWS)" #EDE7F6 {
+      :the agent's own plugin tools are THIRD_PARTY_BUNDLE tier\n-> **subprocess sandbox** per call (no handles, no env keys,\nno provider secrets to steal - bedtime-kids ships none anyway);
+      :append ToolResultMessage; next turn repeats the metered path;
+    }
+
+  case ( FINAL TEXT )
+    partition "9 . COMPLETION POLICY   (ON AWS)" #EDE7F6 {
+      :accept the AssistantMessage as final;
+    }
+
+  case ( ERROR / ABORT )
+    partition "9 . ENGINE   (ON AWS)" #EDE7F6 {
+      :stopReason = error / aborted;
+    }
+
+  endswitch
+
+  partition "12 . LIVE OUTPUT   (ON AWS -> BROWSER)" #E3F2FD {
+    :**Gateway._broadcast()** wraps each AgentEvent as `chat.event`;\nscoped-event filter: this socket receives ONLY\nbedtime-kids' own run events;
+  }
+
+  partition "0 . RENDER   (BROWSER)" #E8F0FE {
+    :app.js `message_update / text_delta`\nthe story streams into the page;
+  }
+
+repeat while (another model turn required?) is (yes) not (no)
+
+partition "13 . FINAL OUTPUT + PERSISTENCE   (ON AWS)" #E0F2F1 {
+  :**SessionStore.append()** into `accounts/<acct>/...` on EFS;
+  :emit `agent_end`; the browser marks the story finished;
+}
+
+stop
+
+note right
+  WHO HOLDS WHAT (web mode)
+  (BROWSER): the agent's UI files + Sally's sess_ token. Nothing else.
+  (ON AWS - daemon): LITELLM_MASTER_KEY, the shared agent catalogue,
+             every account's state (per-account subtrees on EFS).
+  (ON AWS - proxy):  the ONLY copy of provider keys (Secrets Manager).
+  (ON AWS - accounts): passwords (hashed), sessions, grants, the ledger.
+
+  Failover: every credential check re-resolves against Accounts, and
+  sessions live in its database (EFS) - a replaced daemon or accounts
+  task means a reconnect, never a re-login.
+end note
+
+legend left
+  | Piece | Runs on | Exact implementation shown |
+  | Agent UI + SDK | BROWSER | ui/index.html + app.js + vendor/agentd-client.js (fromPage, mountSignInGate) |
+  | Hosted Gateway | ON AWS | _serve_app, _web_app_bootstrap, _handle_conn, _chat_send, _broadcast |
+  | Application/Engine | ON AWS | AgentService, RunContext, NativeEngine, sandboxed plugin tools |
+  | Hosted Accounts | ON AWS | /login, /resolve, /debit, grants + ledger (SQLite on EFS) |
+  | Hosted Model Proxy | ON AWS | custom_auth.user_api_key_auth, metering, provider secrets |
+  | Model provider | THIRD PARTY | Gemini / DeepSeek, called only from the Model Proxy |
+endlegend
+
+@enduml

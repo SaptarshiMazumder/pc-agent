@@ -135,6 +135,7 @@
       ? [a.tagline || a.description || a.id, a.version && `v${a.version}`]
           .filter(Boolean).join('  ·  ')
       : ''
+    syncActions()
     void Files.select(a ? a.id : null)
   }
 
@@ -148,6 +149,31 @@
   }
 
   const ACTION_BTNS = () => [$('btnValidate'), $('btnPackage'), $('btnPublish')]
+
+  /* Publish is OWNERSHIP-gated. The daemon marks each agents.list row with `mine` (is it the
+     caller's) and `origin` (authored | installed | curated). A catalogue agent stays fully
+     openable, but publishing it would upload someone else's work under this user's creator
+     identity; an INSTALLED agent is theirs to use but its author is the only one who can ship
+     a new version. The tool refuses both server-side — the button just says so up front
+     instead of letting a click discover it. Checks are exact (`=== false`, exact strings),
+     never falsy: an older daemon sends neither field, and greying every Publish on that
+     absence would turn a missing feature into a broken one. */
+  function publishable(a) {
+    return !!a && a.mine !== false && a.origin !== 'installed' && a.origin !== 'curated'
+  }
+
+  function publishBlockReason(a) {
+    if (a && a.mine === false) {
+      return 'Part of this deployment, not your agent — agents you create here are publishable.'
+    }
+    return 'Installed from the marketplace — only its author can publish a new version.'
+  }
+
+  function syncActions() {
+    const btn = $('btnPublish')
+    btn.disabled = !publishable(selected)
+    btn.title = publishable(selected) ? 'Publish to the marketplace' : publishBlockReason(selected)
+  }
 
   async function runTool(tool, title, extra) {
     if (!selected) return null
@@ -166,6 +192,7 @@
       return null
     } finally {
       for (const b of ACTION_BTNS()) b.disabled = false
+      syncActions() // never re-enable Publish past the ownership gate
     }
   }
 
@@ -178,7 +205,7 @@
      A dry run that FAILED returns null — usually "not configured to publish", already on screen
      — and we stop rather than asking the user to confirm something that cannot work. */
   async function publishFlow() {
-    if (!selected) return
+    if (!publishable(selected)) return // the button is disabled; this guards a stale handler
     const preview = await runTool('publish_agent', 'Publish — preview', { dry_run: true })
     if (preview === null) return
     const ok = window.confirm(
@@ -277,7 +304,10 @@
     for (const a of list) {
       const opt = document.createElement('option')
       opt.value = a.id
-      opt.textContent = a.name || a.id
+      // A catalogue agent (mine === false) is still openable — chat, files, validate — it just
+      // is not the user's to publish. Said here, in the list, so the greyed Publish button is
+      // never the first time they find out.
+      opt.textContent = (a.name || a.id) + (a.mine === false ? ' · catalogue' : '')
       sel.append(opt)
     }
     // BOUND HERE, not once at boot: "new chat" clones a fresh hero out of the template, so a
@@ -293,6 +323,33 @@
     select(agent)              // the inspector follows the conversation
     Chat.setScope(agent)       // and the model is told what it is looking at
     $('input').focus()
+  }
+
+  /* WHO AM I — the identity THIS WINDOW's connection carries, which is the identity a Publish
+     would be signed with. Asked of the daemon (platform.status answers per connection), never
+     read from localStorage: a stored session and the socket's session can disagree — after a
+     reconnect, or when the shell signed in but this window's socket didn't — and showing the
+     stored one would name the wrong publisher. Hidden entirely when the daemon is too old to
+     answer; "not signed in" only when the daemon SAID so. */
+  async function showWhoAmI() {
+    const el = $('whoAmI')
+    if (!el) return
+    try {
+      const s = await client.request('platform.status')
+      el.hidden = false
+      if (s && s.signedIn) {
+        el.textContent = s.email || s.accountId
+        el.title = `Signed in — publishes are attributed to ${s.email || s.accountId}` +
+          (s.mode ? ` (${s.mode} mode)` : '')
+        el.classList.remove('anon')
+      } else {
+        el.textContent = 'not signed in'
+        el.title = 'This window has no account — publishing will ask you to sign in.'
+        el.classList.add('anon')
+      }
+    } catch {
+      el.hidden = true // daemon predates platform.status on app sockets — say nothing, not wrong
+    }
   }
 
   // ── boot ──────────────────────────────────────────────────────────────────
@@ -315,6 +372,9 @@
     const el = $('status')
     el.className = `status ${s === 'open' ? 'live' : s === 'closed' ? 'down' : ''}`
     el.textContent = s === 'open' ? 'connected' : s === 'closed' ? 'disconnected' : s
+    // EVERY open, not just the first: signing in re-dials the socket with the new session,
+    // and the identity chip must follow the connection it describes.
+    if (s === 'open' && started) void showWhoAmI()
     if (s === 'open' && !started) {
       started = true
       void (async () => {
@@ -332,6 +392,7 @@
           const hello = await client.hello()
           $('daemonVer').textContent = hello && hello.version ? `v${hello.version}` : ''
         } catch { /* advisory only */ }
+        await showWhoAmI()
         await loadAgents()
         // Nothing is focused on open. This used to select agent-builder itself "so the panel
         // is never empty" — which meant the window booted showing you its own guts instead of

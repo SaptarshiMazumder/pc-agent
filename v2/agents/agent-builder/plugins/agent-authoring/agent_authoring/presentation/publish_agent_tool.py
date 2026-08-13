@@ -42,7 +42,10 @@ class PublishAgentTool(Tool):
         "would be sent and sends nothing. To publish for real, pass BOTH dry_run=false and "
         "confirm=true. VALIDATES FIRST and refuses on errors. Bump `version` in agent.toml before "
         "publishing a change — installs supersede BY VERSION, so republishing the same number "
-        "reaches nobody."
+        "reaches nobody. DELIVERY: agent.toml's [delivery] table decides how the published agent "
+        "reaches people — `web = true` lists an Open-in-browser link (runs on the hosted platform, "
+        "requires [app]); `exe = false` skips the standalone installer. Ask the user which they "
+        "want before publishing an app agent."
     )
     parameters = {
         "type": "object",
@@ -77,9 +80,26 @@ class PublishAgentTool(Tool):
 
     # ------------------------------------------------------------------ helpers
     def _agent_dir(self, agent_id: str) -> Path | None:
+        # resolve_dir searches the same union discovery reads (overlay + shared catalogue).
+        # Building the path from agents_dir — the WRITE target — found only the caller's own
+        # layer, so a signed-in user publishing a catalogue agent was told it did not exist.
+        resolve = getattr(self._registry, "resolve_dir", None)
+        if callable(resolve):
+            d = resolve(agent_id)
+            return d if d is not None and (d / "agent.toml").is_file() else None
         root = Path(getattr(self._registry, "agents_dir", "") or "")
         candidate = root / agent_id
         return candidate if (candidate / "agent.toml").is_file() else None
+
+    def _owned(self, agent_id: str) -> bool:
+        # A registry that cannot answer has no layers, so everything is the caller's.
+        owns = getattr(self._registry, "owns", None)
+        return bool(owns(agent_id)) if callable(owns) else True
+
+    def _origin(self, agent_id: str) -> str:
+        # "authored" | "installed" | "curated"; a registry without provenance means authored.
+        origin_of = getattr(self._registry, "origin_of", None)
+        return str(origin_of(agent_id)) if callable(origin_of) else "authored"
 
     def _publisher(self, target: str):
         from agent_runtime.infrastructure.marketplace.publisher_factory import (
@@ -122,8 +142,30 @@ class PublishAgentTool(Tool):
         agent_dir = self._agent_dir(agent_id)
         if agent_dir is None:
             return ToolResult.text(
-                f"no agent '{agent_id}' (looked for agent.toml under "
-                f"{getattr(self._registry, 'agents_dir', '?')}).",
+                f"no agent '{agent_id}' with an agent.toml — not among your agents and not in "
+                "this deployment's catalogue.",
+                is_error=True,
+            )
+
+        # Visible is not publishable. Two distinct refusals, because the fix differs: an agent
+        # that is NOT YOURS (the deployment's catalogue) versus one that is yours to run but not
+        # to ship (a marketplace install — an immutable copy of someone else's work, and
+        # publishing it would re-sign that work under this caller's creator identity). Refused
+        # here, at the tool, so no amount of UI drift can reopen either hole.
+        if not self._owned(agent_id):
+            return ToolResult.text(
+                f"'{agent_id}' is part of this deployment's catalogue, not one of your agents, "
+                "so it is not yours to publish. Agents you create (ask me to build one, or use "
+                "the + button) are publishable; installed and curated ones are not.\n\n"
+                "(Nothing was built or sent.)",
+                is_error=True,
+            )
+        if self._origin(agent_id) in ("installed", "curated"):
+            return ToolResult.text(
+                f"'{agent_id}' was installed from the marketplace — it is yours to use, but its "
+                "author published it and only they can ship a new version. To build on it, "
+                "create your own agent and copy what you need.\n\n"
+                "(Nothing was built or sent.)",
                 is_error=True,
             )
 

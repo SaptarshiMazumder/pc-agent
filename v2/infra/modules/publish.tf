@@ -29,6 +29,11 @@ locals {
   # different backend than the app that sold it.
   publish_product_accounts_url = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
   publish_product_proxy_url    = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+
+  # Where web-delivered agents run: the hosted DAEMON serves /apps/<id>/ on its own port (the
+  # gateway's HTTP hook shares the WebSocket port). Stamped into index.json as `web.host` on
+  # every publish, so store cards everywhere — including desktop — can render Open-in-browser.
+  publish_web_host = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["daemon"].port}"
 }
 
 # ─────────────────────────────── image ───────────────────────────────
@@ -269,6 +274,7 @@ resource "aws_lambda_function" "publish" {
       # deployment that never configured admins, rather than opening to anyone signed in.
       ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
       PENDING_PREFIX   = "pending"
+      WEB_HOST         = local.publish_web_host
       LOG_LEVEL        = "INFO"
     }
   }

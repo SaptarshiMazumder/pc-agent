@@ -22,6 +22,7 @@ import {
   type SendResult,
   type SessionRow
 } from './protocol'
+import { effectiveMode, loadSession } from './session'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 type EventHandler = (payload: Record<string, any>) => void
@@ -35,7 +36,15 @@ interface Pending {
 /** Where and how to connect. `url` may be ws(s):// or http(s):// (auto-upgraded to ws). */
 export interface ConnectTarget {
   url: string
+  /** The MACHINE token — may this client connect at all. */
   token?: string
+  /** The SESSION token — WHO is connecting. Two credentials, two jobs: `token` is a machine
+   *  secret, `session` identifies a person. A hosted daemon has no machine token and the session
+   *  does both, which is why the server falls back to `token` when this is absent. */
+  session?: string
+  /** WHICH KEYS pay for this connection's model calls: 'local' or 'cloud'. A preference, never a
+   *  credential — the daemon pays with the session above, so a client can only bill itself. */
+  mode?: string
   /** app connections: restrict this connection to one agent (stable tier only) */
   scope?: string
 }
@@ -54,6 +63,8 @@ function toWsUrl(target: ConnectTarget): string {
   if (u.protocol === 'http:') u.protocol = 'ws:'
   if (u.protocol === 'https:') u.protocol = 'wss:'
   if (target.token) u.searchParams.set('token', target.token)
+  if (target.session) u.searchParams.set('session', target.session)
+  if (target.mode) u.searchParams.set('mode', target.mode)
   if (target.scope) u.searchParams.set('scope', target.scope)
   return u.toString()
 }
@@ -92,6 +103,17 @@ export class AgentdClient {
   close(): void {
     this.closedByUs = true
     this.teardownSocket()
+  }
+
+  /** Re-open the socket, re-reading the target.
+   *
+   *  Identity and run mode are read by the daemon when a connection OPENS, so changing either
+   *  has to bring up a new one — otherwise the daemon goes on answering as whoever this client
+   *  was before. Called by authLogin / authLogout / setRunMode. */
+  reconnect(): void {
+    if (!this.input) return
+    this.closedByUs = false
+    void this.open()
   }
 
   get connected(): boolean {
@@ -289,7 +311,26 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
   const here = new URL(window.location.href)
   const token = here.searchParams.get('token') || ''
   const scope = here.searchParams.get('scope') || ''
+  // THE OPENER'S IDENTITY AND MODE, when it passed them. A desktop shell that is signed in
+  // launches its app windows with `?session=&mode=` so the window bills and acts as the same
+  // person — without this, every app window of a signed-in user ran ANONYMOUS (no cloud
+  // billing, model calls falling to dead BYOK keys). Signing in INSIDE the app still wins:
+  // that is this window's own, newer answer, and it is what a re-login here must override.
+  const urlSession = here.searchParams.get('session') || ''
+  const urlMode = here.searchParams.get('mode') || ''
   const client = new AgentdClient(options)
-  client.connect({ url: here.origin, token: token || undefined, scope: scope || undefined })
+  // The RESOLVER form, not a static target: the stored session and mode are re-read on every
+  // (re)connect, so a sign-in or a mode change is carried by the next socket without the app
+  // doing anything. A fixed object would pin whatever was stored at page load.
+  client.connect(async () => {
+    const stored = loadSession()?.token
+    return {
+      url: here.origin,
+      token: token || undefined,
+      session: stored || urlSession || undefined,
+      mode: urlMode || effectiveMode('', !!(stored || urlSession)),
+      scope: scope || undefined
+    }
+  })
   return client
 }

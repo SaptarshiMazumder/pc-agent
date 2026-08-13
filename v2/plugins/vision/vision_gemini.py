@@ -12,7 +12,6 @@ brain is text-only (e.g. DeepSeek) and can't see tool-returned images itself.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 # DEFAULT model for the VLM judge (verify_figure). Bare id => gemini provider (oneshot normalizes).
@@ -24,14 +23,6 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 # Gemini is uniquely strong at spatial grounding; keep this on a Gemini Pro unless you have a reason.
 # Override via config plugins.vision.tools.read_labels_from_image (or the plugins.vision default).
 GROUNDING_MODEL = "gemini-3.1-pro-preview"
-
-
-def resolve_key(param_key: str | None, config) -> str:
-    for cand in (param_key, os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY"),
-                 getattr(config, "gemini_api_key", None)):
-        if cand:
-            return str(cand)
-    raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
 
 
 def _mime(path: Path) -> str:

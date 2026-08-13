@@ -41,6 +41,15 @@ class AgentSpec:
     plugins: dict = field(default_factory=dict)
     tools_allow: tuple[str, ...] | None = None  # None = all tools
     tools_deny: tuple[str, ...] = ()
+    # FILESYSTEM WRITE SCOPE, from agent.toml `[tools.fs] write_roots` / `deny`. Verbatim as
+    # authored — tokens like <agents_dir> are still unexpanded here, because this is the parsed
+    # DEFINITION and the expansion needs config the domain must not import.
+    #
+    # EMPTY = UNRESTRICTED, so every agent that says nothing keeps today's behaviour and only an
+    # agent that opts in is constrained. Reading is never restricted by these; a tool that only
+    # reads has no way to damage anything, and an agent must be able to read its own skill.
+    write_roots: tuple[str, ...] = ()
+    write_denies: tuple[str, ...] = ()  # carved out of the roots — deny always wins
     # Delegation scope: ids/globs of the specialist agents THIS agent may spawn/delegate to
     # (from [subagents] allow). None = no restriction (may delegate to any existing agent).
     subagents_allow: tuple[str, ...] | None = None
@@ -73,6 +82,12 @@ class AgentSpec:
     # tools never discovered (see domain/agent_availability.py). Meaningless on a desktop
     # install, which is every install that is not serving strangers.
     requires_local: bool = False
+    # OWNERSHIP, resolved once at scan time (domain/ownership.py): the `.agentd-meta.json`
+    # record when the dir has one, else the presumed owner of the layer it was found in. On the
+    # spec so that visibility and `mine` are dict lookups per call, not disk reads. Empty owner
+    # = an unscanned/test-constructed spec, which every consumer treats as unrestricted.
+    owner: str = ""
+    origin: str = "authored"
 
 
 def agent_id_from_session_key(session_key: str) -> str:

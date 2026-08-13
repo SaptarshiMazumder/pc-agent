@@ -1,0 +1,23 @@
+{
+  "name": "@agentd/canvas",
+  "version": "0.1.0",
+  "description": "The agentd canvas as a self-contained bundle for agent apps: the SHELL'S OWN viewers, fabric editor (annotate/vector/PNG), and workspace tree — same source files, mounted over the SDK client. Lives OUTSIDE the clients workspace on purpose (like sdk-js): the ui/desktop/web workspace is load-bearing for electron packaging and is never grown casually.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "vendor": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "fabric": "^7.4.0",
+    "lucide-react": "^1.23.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

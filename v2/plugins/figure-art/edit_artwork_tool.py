@@ -17,8 +17,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import figure_art_gemini as ig
-
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
@@ -41,7 +39,7 @@ class EditArtworkTool(Tool):
     plugin = "figure-art"
     needs_model = True
     model_kind = "image-gen"
-    default_model = ig.DEFAULT_MODEL
+    default_model = ""  # inherit the HOUSE image-gen default (config model_defaults)
     description = (
         "Targeted EDIT of an existing image via the image model: change ONLY what `instruction` "
         "asks (optionally confined to `region` = [x, y, w, h] in pixels) and reproduce everything "
@@ -49,7 +47,7 @@ class EditArtworkTool(Tool):
         "path: NEVER regenerate a figure from scratch for a localized fix (a fresh generation is a "
         "different picture). Edits the raster only: for wrong label TEXT on a vectorized figure, "
         "edit the element in the spec JSON and re-render instead (free, no drift). Returns the "
-        "edited PNG (default: <image>_edit.png). Uses GEMINI_API_KEY."
+        "edited PNG (default: <image>_edit.png)."
     )
     label = "Edit Artwork"
     concurrency = "sequential"  # an edit step is usually part of an ordered fix flow
@@ -75,11 +73,11 @@ class EditArtworkTool(Tool):
             },
             "model": {
                 "type": "string",
-                "description": f"Override the image model. Resolves per-call > config plugins.figure-art > {ig.DEFAULT_MODEL}.",
+                "description": "Override the image model. Resolves per-call > config plugins.figure-art > the house image-gen default (config model_defaults).",
             },
             "api_key": {
                 "type": "string",
-                "description": "Override key (else GEMINI_API_KEY/GOOGLE_API_KEY).",
+                "description": "Optional BYOK key override (else GEMINI_API_KEY/GOOGLE_API_KEY). Ignored in cloud mode — the platform proxy carries the call.",
             },
         },
     }
@@ -116,9 +114,16 @@ class EditArtworkTool(Tool):
             )
         prompt = _EDIT_PROMPT.format(instruction=params["instruction"].strip(), region=region)
 
-        model = self.resolve_model(self.config, per_call=params.get("model")) or ig.DEFAULT_MODEL
-        key = ig.resolve_key(params.get("api_key"), self.config)
-        r = ig.generate_image(prompt, out, model=model, api_key=key, reference_images=[img])
+        # Through the runtime's model funnel (`self.models`): mode-correct (BYOK direct / cloud
+        # proxied+metered / sandbox brokered) with no credential in this tool, ever.
+        model = self.resolve_model(self.config, per_call=params.get("model"))
+        r = self.models.generate_image(
+            model=model,
+            prompt=prompt,
+            out_path=out,
+            api_key=params.get("api_key"),
+            reference_images=[img],
+        )
         return {"out": r["path"], "model": r["model"], "region": params.get("region")}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):

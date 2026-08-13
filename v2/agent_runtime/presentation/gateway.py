@@ -34,13 +34,14 @@ from agent_runtime.application.run_context import (
     take_run_outcome,
 )
 from agent_runtime.application.services.agent_service import AgentService
-from agent_runtime.config import Config
+from agent_runtime.config import Config, client_accounts_url
 from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
 from agent_runtime.domain.notify import Notification
 from agent_runtime.infrastructure import accounts, telemetry, user_state
+from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agent_runtime.infrastructure.llm import model_proxy
 from agent_runtime.infrastructure.memory.local_store import list_sessions
@@ -161,6 +162,12 @@ PUBLIC_APP_METHODS = frozenset(
 # CDN/WAF in front of a hosted daemon, not here).
 MAX_PUBLIC_CONNECTIONS = 256  # FD-exhaustion guard
 PUBLIC_INVOKE_CONCURRENCY = 8  # global in-flight cap for public tools.invoke
+
+# Hosted web delivery (`GET /apps/<id>` for an agent this daemon has not installed): the store
+# printed `<web host>/apps/<id>/` on every web-delivered bundle's card, so the FIRST VISITOR is
+# the install trigger. Both throttles bound what a stranger's URL bar can make the daemon do:
+WEB_SYNC_RETRY_SECONDS = 60  # a failed visitor-triggered sync answers with its error this long
+WEB_SYNC_REFRESH_SECONDS = 300  # how often an entry-page open re-checks the registry for updates
 
 
 def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
@@ -841,10 +848,7 @@ def _config_file_path():
     default write location when none exists yet. Same resolver load_config uses."""
     from agent_runtime import runtime_paths
 
-    for cand in runtime_paths.config_candidates():
-        if cand and Path(cand).is_file():
-            return Path(cand)
-    return runtime_paths.default_config_write_path()
+    return runtime_paths.active_config_file()
 
 
 def _json_safe(value):
@@ -877,42 +881,16 @@ def _persist_config_patch(patch: dict) -> tuple[bool, str]:
         return False, str(path)
 
 
-def _update_env_file(env_path: Path, keys: dict) -> bool:
-    """Set/clear provider keys in a .env file, preserving all other lines, and apply them
-    LIVE to os.environ (LiteLLM reads keys from the environment at call time, so a set key
-    works without a restart). An empty value removes the key."""
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
-    except OSError:
-        lines = []
-    remaining = dict(keys)
-    out: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            name = stripped.split("=", 1)[0].strip()
-            if name in remaining:
-                val = remaining.pop(name)
-                if val == "":
-                    continue  # delete this line
-                out.append(f"{name}={val}")
-                continue
-        out.append(line)
-    for name, val in remaining.items():
-        if val != "":
-            out.append(f"{name}={val}")
-    try:
-        env_path.parent.mkdir(parents=True, exist_ok=True)
-        env_path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
-    except OSError as e:  # noqa: BLE001
-        log.warning("could not write env file %s: %s", env_path, e)
-        return False
-    for name, val in keys.items():
-        if val == "":
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = val
-    return True
+def _user_env_file() -> EnvFile:
+    """The ``.env`` beside this daemon's config — the one secret channel.
+
+    The rewriting logic used to live here as a module function. It is infrastructure (it writes a
+    file), the gateway had four call sites reaching through it, and the sign-in store needs the
+    same behaviour, so it moved to ``infrastructure/env_file.py``. This is just where the path
+    comes from."""
+    from agent_runtime import runtime_paths
+
+    return EnvFile(runtime_paths.user_env_file())
 
 
 @dataclass
@@ -951,6 +929,10 @@ class Gateway:
     # each account composes the service against its OWN agents/plugins/state dirs. Empty on
     # desktop, where account_id() is never set. See _marketplace().
     account_marketplaces: dict = field(default_factory=dict)
+    # agent id -> {"task", "error", "at"} for visitor-triggered web-app installs/updates
+    # (hosted only; see _serve_app / _web_app_bootstrap). Installs land in the SHARED catalogue:
+    # /apps static serving is unauthenticated, so one copy serves every visitor.
+    web_app_syncs: dict = field(default_factory=dict)
     clients: set[ServerConnection] = field(default_factory=set)
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
     # (see APP_SCOPED_METHODS + _scoped_event_allowed). Absent = a full host connection.
@@ -1812,7 +1794,10 @@ class Gateway:
         try:
             spec = self.registry.get(agent_id)
         except KeyError:
-            return deny(404, "Not Found")
+            # Hosted: an unknown id may be a marketplace URL doing its job — a web-delivered
+            # bundle whose first visitor just arrived. None => not this daemon's business.
+            bootstrap = self._web_app_bootstrap(agent_id)
+            return bootstrap if bootstrap is not None else deny(404, "Not Found")
         app = getattr(spec, "app", None)
         base = getattr(spec, "dir", None)
         if not app or base is None:
@@ -1840,12 +1825,117 @@ class Gateway:
             if target.suffix:  # a missing real asset is a 404; a route path falls back
                 return deny(404, "Not Found")
             target = entry  # SPA fallback: extensionless path -> the app entry
+        if target == entry:
+            # An entry-page open is the natural heartbeat for keeping a hosted web app current:
+            # no cron, no watcher — an agent nobody visits is an agent nobody needs updated.
+            self._web_app_refresh(agent_id)
         body = target.read_bytes()
         hdrs = Headers()
         hdrs["Content-Type"] = guess_mime(target)
         hdrs["Content-Length"] = str(len(body))
         hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
         return HttpResponse(200, "OK", hdrs, body)
+
+    # ---------------------------------------------------------------- web delivery (hosted)
+
+    def _web_app_bootstrap(self, agent_id: str) -> HttpResponse | None:
+        """`/apps/<id>` for an agent this daemon does not have. Hosted deployments treat that as
+        install-on-first-open; everywhere else it stays the 404 it always was (None).
+
+        The sync runs as a TASK because this hook is synchronous handshake code — so the visitor
+        gets an immediate self-refreshing page, and the download/verify/unpack happens on the
+        loop. Whether the bundle may run here at all is decided by `sync_web_app`, which refuses
+        anything whose author did not declare web delivery — a URL guess must not conscript this
+        host into running arbitrary published bundles."""
+        if not getattr(self.config, "hosted", False):
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # no loop => nothing can be scheduled (unit tests, CLI paths)
+            return None
+        state = self.web_app_syncs.get(agent_id) or {}
+        if state.get("task") is None:
+            error = str(state.get("error") or "")
+            if error and time.monotonic() - float(state.get("at") or 0.0) < WEB_SYNC_RETRY_SECONDS:
+                # The error stands for a while instead of retrying per request: each retry is a
+                # registry fetch, and this path is reachable by anyone with a URL bar.
+                body = error.encode("utf-8")
+                return HttpResponse(
+                    404,
+                    "Not Found",
+                    Headers(
+                        {
+                            "Content-Type": "text/plain; charset=utf-8",
+                            "Content-Length": str(len(body)),
+                            "Cache-Control": "no-store",
+                        }
+                    ),
+                    body,
+                )
+            self._web_app_sync(agent_id, loop)
+        import html
+
+        page = (
+            "<!doctype html><meta charset='utf-8'><meta http-equiv='refresh' content='2'>"
+            "<title>Setting up…</title>"
+            "<body style='font-family:system-ui;display:grid;place-items:center;"
+            "height:100vh;margin:0'>"
+            f"<p>Setting up <b>{html.escape(agent_id)}</b>… this page refreshes itself.</p>"
+        ).encode()
+        return HttpResponse(
+            200,
+            "OK",
+            Headers(
+                {
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Content-Length": str(len(page)),
+                    "Cache-Control": "no-store",
+                }
+            ),
+            page,
+        )
+
+    def _web_app_refresh(self, agent_id: str) -> None:
+        """Throttled update check for an agent THIS daemon installed from the marketplace.
+        Curated first-party agents are deliberately skipped — they ship with the deployment and
+        are not the marketplace's to touch."""
+        if not getattr(self.config, "hosted", False):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        market = self._marketplace()
+        if not (hasattr(market, "has") and market.has(agent_id)):
+            return
+        state = self.web_app_syncs.get(agent_id) or {}
+        if state.get("task") is not None:
+            return
+        if time.monotonic() - float(state.get("at") or 0.0) < WEB_SYNC_REFRESH_SECONDS:
+            return
+        self._web_app_sync(agent_id, loop)
+
+    def _web_app_sync(self, agent_id: str, loop) -> None:
+        """One in-flight sync per agent id. Outcome (success or the user-renderable error) lands
+        in web_app_syncs for the next request to read."""
+
+        async def sync() -> None:
+            try:
+                await self._marketplace().sync_web_app(agent_id)
+                self.web_app_syncs[agent_id] = {"task": None, "error": "", "at": time.monotonic()}
+            except Exception as e:  # noqa: BLE001 — the error IS the answer the next open serves
+                log.warning("web app sync for %s failed: %s", agent_id, e)
+                self.web_app_syncs[agent_id] = {
+                    "task": None,
+                    "error": str(e),
+                    "at": time.monotonic(),
+                }
+
+        self.web_app_syncs[agent_id] = {
+            "task": loop.create_task(sync()),
+            "error": "",
+            "at": time.monotonic(),
+        }
 
     def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""
@@ -1919,6 +2009,36 @@ class Gateway:
             hdrs["Content-Range"] = f"bytes {start}-{end}/{size}"
         return HttpResponse(status, reason, hdrs, body)
 
+    def _platform_bearer_ok(self, q: dict, headers) -> bool:
+        """Does this request carry the daemon's machine token? `?token=` or `Authorization:
+        Bearer`, compared in constant time — the same rule `/file` uses."""
+        tok = (q.get("token") or [""])[0]
+        if not tok:
+            auth = ""
+            try:
+                auth = headers.get("Authorization") or ""
+            except Exception:  # noqa: BLE001
+                auth = ""
+            if auth.startswith("Bearer "):
+                tok = auth[len("Bearer ") :].strip()
+        return hmac.compare_digest(tok, self.auth_token)
+
+    def _signin_hint(self) -> dict:
+        """The MINIMUM an unauthenticated page needs to put a sign-in form on screen: where to
+        sign in, and whether this build has a Cloud to switch to.
+
+        `signedIn` is false by construction rather than by policy — identity is a property of a
+        SOCKET here, and an HTTP handshake has no socket, so there is no session to report."""
+        return {
+            # The BROWSER-facing address, which on a hosted deployment is not the one this daemon
+            # calls (that is internal service DNS a visitor cannot resolve).
+            "accountsUrl": client_accounts_url(self.config),
+            "signedIn": False,
+            "email": "",
+            "accountId": "",
+            "canUseCloud": model_proxy.available(),
+        }
+
     def _serve_platform(self, split, headers) -> HttpResponse:
         """Sign-in over plain HTTP on the gateway port — the RELIABLE transport for an
         app-agent page (same origin as the served UI, so `fetch` just works; no dependence
@@ -1943,18 +2063,18 @@ class Gateway:
             return HttpResponse(code, reason, hdrs, body)
 
         q = parse_qs(split.query)
-        if self.auth_token:  # same bearer token as the WebSocket / /file
-            tok = (q.get("token") or [""])[0]
-            if not tok:
-                auth = ""
-                try:
-                    auth = headers.get("Authorization") or ""
-                except Exception:  # noqa: BLE001
-                    auth = ""
-                if auth.startswith("Bearer "):
-                    tok = auth[len("Bearer ") :].strip()
-            if not hmac.compare_digest(tok, self.auth_token):
-                return send(401, "Unauthorized", {"error": "unauthorized"})
+        if self.auth_token and not self._platform_bearer_ok(q, headers):
+            # THE BARE MARKETPLACE LINK. A page opened at /apps/<id>/ from a store card holds no
+            # machine token — nobody handed it one — and on a deployment that REQUIRES sign-in it
+            # cannot open a socket either. Without an answer here the sign-in form can never
+            # render, so the page reconnect-loops on 4401 forever with nothing on screen.
+            #
+            # Status ONLY, and only the two fields a gate reads. Not `_platform_status()`: that
+            # also reports proxy internals, which an unauthenticated caller has no business
+            # reading. /platform/connect stays closed — it is a state change, not a question.
+            if split.path == "/platform/status" and accounts.enabled():
+                return send(200, "OK", self._signin_hint())
+            return send(401, "Unauthorized", {"error": "unauthorized"})
 
         if split.path == "/platform/status":
             return send(200, "OK", self._platform_status())
@@ -1993,6 +2113,36 @@ class Gateway:
             if auth_header.startswith("Bearer "):
                 presented = auth_header[len("Bearer ") :].strip()
         return presented
+
+    def _presented_session(self, ws: ServerConnection) -> str:
+        """The client's ACCOUNT credential — who it claims to be.
+
+        `?session=` on the connect URL, falling back to `?token=`. The fallback keeps a hosted
+        client unchanged: there the session token has always been the only credential and rides in
+        `?token=`. A laptop client sends BOTH — `?token=` for the machine token that lets it
+        connect, `?session=` for the person using it — and the two must not be confused, since one
+        is a machine secret and the other identifies a human."""
+        return self._query(ws, "session") or self._presented_token(ws)
+
+    def _presented_mode(self, ws: ServerConnection) -> str:
+        """`?mode=local|cloud` — which keys this client wants its model calls to run on.
+
+        A preference, never a credential: the daemon pays with the session on this same
+        connection, so a client can only ever bill itself. Saying `local` opts out of the proxy
+        WITHOUT giving up identity — "use my own API keys" must not mean "log me out".
+
+        Lower-cased here rather than only where it is consumed: a token must never be case-folded,
+        so the shared reader cannot do it, and one caller normalising while another does not is
+        how `?mode=CLOUD` ends up meaning neither thing."""
+        return self._query(ws, "mode").lower()
+
+    @staticmethod
+    def _query(ws: ServerConnection, name: str) -> str:
+        request = getattr(ws, "request", None)
+        if request is None:
+            return ""
+        query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
+        return (query.get(name) or [""])[0].strip()
 
     def _authorized(self, ws: ServerConnection) -> bool:
         """M2 auth: the client's token — `?token=` on the URL (the only slot browser
@@ -2081,15 +2231,32 @@ class Gateway:
         # the public tier (when its agent's [app] opted in) instead of refused outright.
         scope = self._connection_scope(ws)
         public = False
-        # HOSTED identity: when accounts are on, the session token IS the auth authority — it
-        # resolves to an account (State plane). When off (every desktop/local install), the
-        # single machine token gates exactly as before and `account` stays None.
-        account: dict | None = None
-        if accounts.enabled():
-            account = await accounts.resolve(self._presented_token(ws))
-            authed = account is not None
-        else:
-            authed = self._authorized(ws)
+        # WHO IS CONNECTING, AND ON WHOSE KEYS — both arrive with the connection, and the daemon
+        # stores neither. That is what lets one daemon serve a hundred people: a hundred sockets,
+        # a hundred resolved identities, no shared slot anywhere.
+        #
+        # ONE RULE FOR BOTH DEPLOYMENTS: a connection is allowed if it presents a valid MACHINE
+        # token or a valid SESSION token, and its identity always comes from the session.
+        #   * hosted — no machine token is configured, so only a session gets in; it authorises
+        #     and identifies, exactly as before.
+        #   * laptop — both exist. The machine token opens the socket before anyone has signed in
+        #     and while offline (a session cannot be resolved without reaching the accounts
+        #     service); the session, once presented, says who is there.
+        #
+        # The machine token must NOT authorise where sign-in is required, or it would be a bypass
+        # on a hosted deployment. That is the one thing `enabled` still gates.
+        account: dict | None = await accounts.resolve(self._presented_session(ws))
+        # LOUD when a client SAID who it was and the answer didn't hold (`?session=` exactly —
+        # the machine-token fallback is not a claim of identity). On a desktop the connection
+        # still gets in on the machine token, so without this line the failure is invisible:
+        # the client renders its stored session as "signed in" while every model call runs
+        # anonymous-BYOK — days were lost to that ghost before this warning existed.
+        if account is None and self._query(ws, "session"):
+            log.warning(
+                "connection presented a session that did not resolve — anonymous from here "
+                "(expired/unknown token, or the accounts service is unreachable)"
+            )
+        authed = account is not None or (not accounts.enabled() and self._authorized(ws))
         if not authed:
             if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
                 public = True
@@ -2117,6 +2284,9 @@ class Gateway:
         # account's subtree — the same account a run already sees. None (desktop/no-account)
         # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
         _conn_acct_tok = accounts.set_account(account)
+        # WHICH KEYS this connection's model calls run on. Pinned the same way and for the same
+        # reason: it is this client's choice, not the machine's, so two windows can differ.
+        _conn_bill_tok = model_proxy.set_billing(self._presented_mode(ws))
         try:
             async for raw in ws:
                 try:
@@ -2131,6 +2301,7 @@ class Gateway:
             pass
         finally:
             accounts.reset_account(_conn_acct_tok)
+            model_proxy.reset_billing(_conn_bill_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
@@ -3184,8 +3355,21 @@ class Gateway:
         default = getattr(self.config, "agent_id", "main")
         if self.registry is None:
             return {"agents": [{"id": default, "name": self.config.agent_name}], "default": default}
+        # Ownership, rendered from data so no client invents its own guess (the guesses
+        # disagreed: the sidebar said an agent existed while publish said it didn't).
+        # `mine`: is the caller among the identities that own it — theirs to change.
+        # `origin`: how it got here (authored | installed | curated) — an installed agent is
+        # theirs to USE but not to republish. Both default open when the registry cannot say:
+        # a single-user registry has no layers, and there everything genuinely is the caller's.
+        owns = getattr(self.registry, "owns", None)
+        origin_of = getattr(self.registry, "origin_of", None)
+        # `listed` is the registry's sidebar rule (web-app copies are resolvable, not listed);
+        # asked per row so this surface can never grow its own variant of the policy.
+        listed = getattr(self.registry, "listed", None)
         agents = []
         for aid in self.registry.list_ids():
+            if callable(listed) and not listed(aid):
+                continue
             spec = self.registry.get(aid)
             agents.append(
                 {
@@ -3196,6 +3380,8 @@ class Gateway:
                     "suggestions": list(getattr(spec, "suggestions", ()) or ()),
                     "color": getattr(spec, "color", ""),
                     "app": self._agent_app(aid, spec),
+                    "mine": bool(owns(aid)) if callable(owns) else True,
+                    "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
                 }
             )
         return {
@@ -3796,13 +3982,32 @@ class Gateway:
         return {"ok": True, "id": tid}
 
     def _platform_status(self) -> dict:
-        """Non-secret hosted-platform view: is this install a hosted flavor, is the model
-        proxy live (signed in), and where a client should send sign-in requests. Everything
-        comes from the distribution profile / seam state — nothing hardcoded."""
-        distribution = getattr(self.config, "distribution", None)
+        """What a client needs to know to sign in and to show its own mode.
+
+        THE DAEMON ANSWERS TWO QUESTIONS AND OWNS NEITHER FACT. `accountsUrl` says where to log
+        in — the client POSTs there itself and keeps the token. `mode` and `signedIn` describe
+        THIS CONNECTION, because both arrive on it: a second window signed in as somebody else,
+        or on its own API keys, gets different answers from the same daemon at the same moment.
+
+        Nothing here is stored. An earlier version kept one session and one mode for the whole
+        machine, which is fine for one person on a laptop and wrong for everyone else — the
+        second person to sign in overwrote the first, and one window's Cloud switch moved every
+        other window's billing."""
         proxy_status = model_proxy.status()
+        account = accounts.current_account.get() or {}
         return {
-            "accountsUrl": str(getattr(distribution, "accounts_url", "") or ""),
+            # Where to sign in. Resolved env > config > profile — one answer, so the client and
+            # the daemon can never disagree about which service this build talks to.
+            # The BROWSER-facing address, which on a hosted deployment is not the one this daemon
+            # calls (that is internal service DNS a visitor cannot resolve).
+            "accountsUrl": client_accounts_url(self.config),
+            # WHO is on this connection, and WHICH KEYS its calls run on.
+            "signedIn": bool(account.get("account_id")),
+            "email": str(account.get("email") or ""),
+            "accountId": str(account.get("account_id") or ""),
+            "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
+            # Is there a Cloud to switch to at all on this build?
+            "canUseCloud": model_proxy.available(),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,
@@ -3815,51 +4020,21 @@ class Gateway:
             },
         }
 
+    # platform.connect / platform.disconnect USED TO WRITE A CREDENTIAL — the caller's session
+    # token, persisted as AGENTD_MODEL_PROXY_KEY, one key for the whole daemon. That is why an
+    # unsigned window spent whoever had last pressed Cloud, and why two people on one machine
+    # could not choose differently.
+    #
+    # Billing is now a property of the CONNECTION: the client says `?mode=` when it connects and
+    # pays with the session it already presented. Nothing to persist, so these two are kept only
+    # as a compatibility shim for older desktop shells that still call them on every handshake.
+
     def _platform_connect(self, params: dict) -> dict:
-        """Bind this install to a platform account: persist the caller's accounts session token
-        as the model-proxy credential (AGENTD_MODEL_PROXY_KEY in the user .env — the same
-        secret channel as provider keys, reloaded by _load_dotenv at every boot) and re-run
-        model_proxy.configure() so hosted keys apply LIVE, no daemon restart. Idempotent —
-        the desktop shell calls it on every handshake to heal .env drift."""
-        # DESKTOP-ONLY: platform.connect manages the LOCAL daemon's model-key credential. On a
-        # hosted (accounts-mode) daemon the model key is server-owned (master key / accounts
-        # seam), so a per-connection sign-in must NOT rewrite it — refuse cleanly.
-        if accounts.enabled():
-            raise ValueError("this deployment manages platform keys server-side")
-        token = str(params.get("token") or "").strip()
-        if not token:
-            raise ValueError("platform.connect requires a token")
-        env_path = _config_file_path().parent / ".env"
-        _update_env_file(
-            env_path,
-            {
-                "AGENTD_MODEL_PROXY_KEY": token,
-                # Prevent a stale legacy credential from becoming active after sign-out.
-                "AGENTD_MODEL_GATEWAY_KEY": "",
-            },
-        )
-        model_proxy.configure(self.config)
-        # Sign-in success/failure is itself a signal we are blind to today: a desktop that cannot
-        # bind to its account produces no proxy traffic, which looks identical to an idle user.
-        telemetry.count("platform_connect_total", outcome="ok")
-        # The same token identifies diagnostics, so an opted-in user's reports stop being
-        # anonymous the moment they sign in. Only reaches the wire if they opted in.
-        telemetry.apply_diagnostics(self.config, token=token)
+        """Deprecated. Mode arrives on the connection; this just reports where things stand."""
         return self._platform_status()
 
     def _platform_disconnect(self) -> dict:
-        """Sign out of platform keys: drop the persisted credential and reconfigure — BYOK
-        (local provider keys) resumes live. No-op on a hosted daemon (nothing local to clear)."""
-        if accounts.enabled():
-            return self._platform_status()
-        env_path = _config_file_path().parent / ".env"
-        _update_env_file(
-            env_path, {"AGENTD_MODEL_PROXY_KEY": "", "AGENTD_MODEL_GATEWAY_KEY": ""}
-        )
-        model_proxy.configure(self.config)
-        # Drop the identity from queued diagnostics too: after sign-out this machine's reports
-        # must not still carry the account id of whoever was signed in.
-        telemetry.apply_diagnostics(self.config, token="")
+        """Deprecated. See _platform_connect."""
         return self._platform_status()
 
     def _platform_set_model_proxy_url(self, params: dict) -> dict:
@@ -4111,9 +4286,9 @@ class Gateway:
                     "saved": False,
                     "error": "provider keys are managed by the platform in cloud mode and cannot be changed here",
                 }
-            env_path = _config_file_path().parent / ".env"
-            wrote = _update_env_file(env_path, {k: str(v) for k, v in keys.items()})
-            result["envPath"] = str(env_path)
+            env_file = _user_env_file()
+            wrote = env_file.update({k: str(v) for k, v in keys.items()})
+            result["envPath"] = str(env_file.path)
             result["keysApplied"] = wrote
             result["saved"] = result["saved"] or wrote
 

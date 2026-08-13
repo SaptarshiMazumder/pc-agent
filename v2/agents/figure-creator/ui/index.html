@@ -11,26 +11,9 @@
   <link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
-  <!-- sign-in gate: shown only on a hosted build that isn't connected yet -->
-  <div class="gate" id="gate" hidden>
-    <form class="gate-card" id="gateForm" autocomplete="on">
-      <div class="gate-mark" aria-hidden="true">◑</div>
-      <h1 class="gate-title" id="gateTitle">Sign in</h1>
-      <p class="gate-sub" id="gateSub">Figures run on our servers — no API keys to set up.</p>
-
-      <label class="gate-label" for="gateEmail">Email</label>
-      <input class="gate-input" id="gateEmail" type="email" autocomplete="email"
-             placeholder="you@example.com" required />
-
-      <label class="gate-label" for="gatePass">Password</label>
-      <input class="gate-input" id="gatePass" type="password" autocomplete="current-password"
-             placeholder="at least 8 characters" required />
-
-      <div class="gate-error" id="gateError" hidden></div>
-      <button class="gate-btn" id="gateBtn" type="submit">Sign in</button>
-      <button class="gate-toggle" id="gateToggle" type="button">New here? Create an account</button>
-    </form>
-  </div>
+  <!-- sign-in: the SDK's shared gate (agentd.mountSignInGate) injects its own overlay when —
+       and only when — this build actually requires an account. No hand-rolled form here: the
+       b4 one bound a daemon-global key that no longer exists (see app.js b5 note). -->
 
   <div class="app">
     <header class="topbar">

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CreditCard, LayoutGrid, LogOut, Monitor, User } from 'lucide-react'
 
+import { gateway } from '../gateway/client'
 import { signOut, useAuthSession } from '../lib/auth'
 import { setMode, useMode } from '../lib/mode'
 import { isDesktop } from '../lib/platform'
@@ -36,6 +37,14 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
     setMode(null) // App re-renders into the launcher to re-choose Local / Cloud
   }
 
+  /**
+   * Sign out. Clearing this client's session IS the whole job now.
+   *
+   * There used to be an `auth.logout` call here for a daemon that held the identity itself. No
+   * such method exists — the daemon keeps nothing and reads `?session=` off each socket — so
+   * dropping the stored session and rebuilding the connection (inside `signOut`) is what makes
+   * the daemon see an anonymous client. The reload then clears account-scoped view state.
+   */
   function doSignOut(): void {
     setOpen(false)
     signOut()
@@ -99,7 +108,7 @@ export default function ProfileMenu({ variant }: { variant: 'footer' | 'rail' })
                 <CreditCard size={16} />
                 <span>Credits &amp; billing</span>
               </button>
-              <button className="app-menu-item" type="button" onClick={doSignOut}>
+              <button className="app-menu-item" type="button" onClick={() => void doSignOut()}>
                 <LogOut size={16} />
                 <span>Sign out</span>
               </button>

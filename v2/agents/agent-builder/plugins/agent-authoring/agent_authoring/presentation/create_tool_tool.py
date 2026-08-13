@@ -36,6 +36,7 @@ from pathlib import Path
 
 from agent_authoring.domain.sandbox_contract import blocking_defects, derive_model_need
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.write_scope import WriteRefused, check_write
 
 
 def _slug(name: str) -> str:
@@ -232,6 +233,21 @@ class CreateToolTool(Tool):
         except SyntaxError as e:
             return ToolResult.text(
                 f"generated tool has a syntax error (line {e.lineno}): {e.msg} — fix the `code`",
+                is_error=True,
+            )
+
+        # THE SAME SCOPE `write` ENFORCES. This tool opens files itself, so without this it is a
+        # way straight past the block — and the path it would take is the dangerous one: a tool
+        # with no `agent` lands in the SHARED plugins dir, and a shared plugin is FIRST_PARTY on
+        # every machine that installs it. Never sandboxed. That is exactly how a capability
+        # refused to a private tool gets laundered back in.
+        try:
+            check_write(d)
+        except WriteRefused as e:
+            return ToolResult.text(
+                f"{e}\n\nA SHARED tool (no `agent`) is written outside this agent's scope on "
+                f"purpose — it becomes part of the product for every agent on the machine. That "
+                f"is the USER's decision, not yours: ask them, and let them place it.",
                 is_error=True,
             )
 

@@ -109,12 +109,40 @@ def install(bridge: ModelBridge) -> None:
              "want_json": bool(want_json)},
         )
 
+    def generate_image(
+        *,
+        model: str,
+        prompt: str,
+        out_path,
+        reference_images=None,
+        aspect_ratio=None,
+        image_size=None,
+        api_key=None,
+        timeout=None,
+    ) -> dict:
+        # Same signature, same return shape as the real funnel; `api_key` accepted and IGNORED
+        # for the reason text_complete's is. The HOST writes the file (the broker refuses an
+        # out_path outside the grant) and answers with the result dict as JSON text.
+        text = bridge.request(
+            "image",
+            {
+                "model": model,
+                "prompt": prompt,
+                "out_path": str(out_path),
+                "reference_images": [str(p) for p in (reference_images or [])],
+                "aspect_ratio": aspect_ratio,
+                "image_size": image_size,
+            },
+        )
+        return json.loads(text)
+
     def normalize_model(model: str) -> str:
         """Kept as identity: the HOST normalizes, because the host is what will make the call."""
         return model
 
     stub.text_complete = text_complete
     stub.vision_complete = vision_complete
+    stub.generate_image = generate_image
     stub.normalize_model = normalize_model
     sys.modules[_MODULE] = stub
 

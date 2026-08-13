@@ -13,6 +13,7 @@ consulted. (Bundle id IS agent id — ``unpack_bundle`` writes to ``agents_dir/<
 Order of decision:
   1. no ``_agent_id`` tag (an ordinary shared plugin)     -> FIRST_PARTY  (not a sandboxed tier)
   2. ``config.sandbox_untrusted_agents`` names the agent  -> THIRD_PARTY_BUNDLE  (forced; below)
+     (or contains ``*``, meaning every agent)
   3. ``config.sandbox_trusted_plugins`` names the plugin  -> FIRST_PARTY  (operator override)
   4. ``config.sandbox_trusted_agents`` names the agent    -> FIRST_PARTY  (operator override)
   5. the agent is in the installed ledger                 -> THIRD_PARTY_BUNDLE
@@ -47,8 +48,24 @@ from .sandboxed_tool import SandboxedTool
 log = logging.getLogger("agentd")
 
 
+#: In ``sandbox_untrusted_agents``, this means "every agent". Accepted ONLY there — on the two
+#: trusting knobs a wildcard would switch the sandbox off wholesale from a config line, which is
+#: the one thing none of these should be able to do.
+ALL = "*"
+
+
 def _config_ids(config, attr: str) -> set[str]:
     return {str(x).strip() for x in (getattr(config, attr, None) or ()) if str(x).strip()}
+
+
+def _forced_untrusted(config, agent_id: str) -> bool:
+    """Is this agent forced to the untrusted path? ``*`` covers every agent.
+
+    The list exists to answer "what does a buyer get?", and typing an id per agent is exactly
+    the friction that stopped the sandbox being exercised while it was built. ``*`` makes the
+    answer permanent. It can only ever TIGHTEN, so there is nothing to weigh."""
+    ids = _config_ids(config, "sandbox_untrusted_agents")
+    return ALL in ids or agent_id in ids
 
 
 def classify_origin(
@@ -63,7 +80,7 @@ def classify_origin(
     agent_id = getattr(tool, "_agent_id", "") or ""
     if not agent_id:
         return PluginOrigin.FIRST_PARTY  # an ordinary shared plugin — never a sandboxed tier
-    if config is not None and agent_id in _config_ids(config, "sandbox_untrusted_agents"):
+    if config is not None and _forced_untrusted(config, agent_id):
         # FORCED, ahead of every exemption. Tightening only, so there is nothing to weigh.
         return PluginOrigin.THIRD_PARTY_BUNDLE
     if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):

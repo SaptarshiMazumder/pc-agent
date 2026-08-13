@@ -8,13 +8,24 @@
 # --- build stage: wheel + curated .agentpkg bundles -------------------------------------
 FROM python:3.11-slim AS build
 WORKDIR /src
+# DEPENDENCIES FIRST, from pyproject.toml alone. This layer invalidates only when the
+# dependency list changes — NOT on every source edit. Before this split, the wheel (whose
+# hash changes on any edit) was installed WITH its deps in one layer, so every deploy
+# re-resolved and re-downloaded the entire dependency tree and re-pushed a several-hundred-MB
+# layer to ECR. That was most of "why does a deploy take so long".
+COPY pyproject.toml /tmp/deps/pyproject.toml
+RUN pip install --no-cache-dir build \
+ && python -c 'import tomllib,subprocess,sys; \
+p=tomllib.load(open("/tmp/deps/pyproject.toml","rb"))["project"]; \
+deps=p["dependencies"]+p.get("optional-dependencies",{}).get("mcp",[]); \
+subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])'
 COPY . .
 # the wheel embeds plugins/ + starter data (scripts/hatch_build.py) => packaged mode
-RUN pip install --no-cache-dir build && python -m build --wheel -o /dist
+RUN python -m build --wheel -o /dist
 # curated agents ship as .agentpkg (never baked into the agents dir): the entrypoint
 # installs them into the state volume on boot, so an agent update is a package push,
-# not an image rebuild of the daemon layer.
-RUN pip install --no-cache-dir /dist/agentd-*.whl \
+# not an image rebuild of the daemon layer. --no-deps: everything is already in the layer above.
+RUN pip install --no-cache-dir --no-deps /dist/agentd-*.whl \
  && mkdir -p /bundles \
  && agentd bundle pack agents/weather --out /bundles
 
@@ -23,12 +34,16 @@ FROM python:3.11-slim
 # pull the base's pending Debian security patches (the slim tags lag CVE fixes)
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 RUN useradd -u 1000 -m agentd && mkdir -p /data && chown agentd:agentd /data
-COPY --from=build /dist/agentd-*.whl /tmp/
-# `[mcp]` pulls the optional MCP SDK: without it build_mcp_provider returns None and EVERY
-# mcp-kind plugin silently contributes zero tools (the Settings card renders, disconnected).
-# `uv` is what those plugins launch their servers with (`uvx <server>`), so it belongs to the
-# runtime, not the dev box.
-RUN pip install --no-cache-dir "$(ls /tmp/agentd-*.whl)[mcp]" uv && rm /tmp/agentd-*.whl
+# DEPENDENCIES FIRST, cached on pyproject.toml alone (see the build stage for why). The `mcp`
+# extra's packages are installed HERE — the wheel goes in later with --no-deps, and an extra
+# on a --no-deps install is a no-op, so forgetting them here would silently disconnect every
+# mcp-kind plugin. `uv` is what those plugins launch their servers with (`uvx <server>`).
+COPY pyproject.toml /tmp/deps/pyproject.toml
+RUN python -c 'import tomllib,subprocess,sys; \
+p=tomllib.load(open("/tmp/deps/pyproject.toml","rb"))["project"]; \
+deps=p["dependencies"]+p.get("optional-dependencies",{}).get("mcp",[]); \
+subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])' \
+ && pip install --no-cache-dir uv
 # Shared instrumentation (v2/monitoring). Without it the daemon still runs — every telemetry
 # call degrades to a no-op via infrastructure/telemetry.py — but the hosted daemon would be
 # the one service in the fleet you cannot see inside. Zero dependencies, so it cannot disturb
@@ -47,6 +62,12 @@ ENV UV_TOOL_DIR=/opt/uv/tools \
     PATH=/opt/uv/bin:$PATH
 RUN uv tool install workspace-mcp \
  && chown -R agentd:agentd /opt/uv
+
+# ── everything above caches across deploys; everything below is per-deploy and SMALL ──
+# The wheel is the one artifact that changes on every source edit, so it lands last:
+# a code-only deploy rebuilds and re-pushes just these few MB.
+COPY --from=build /dist/agentd-*.whl /tmp/
+RUN pip install --no-cache-dir --no-deps "$(ls /tmp/agentd-*.whl)" && rm /tmp/agentd-*.whl
 COPY --from=build /bundles /opt/agentd/bundles
 COPY deploy/docker/entrypoint.sh /usr/local/bin/agentd-entrypoint
 # tolerate CRLF from a Windows checkout, then make it executable

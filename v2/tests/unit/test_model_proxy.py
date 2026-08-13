@@ -66,19 +66,26 @@ def test_config_needs_enabled_flag():
     assert model_proxy.enabled() and model_proxy.status()["source"] == "config"
 
 
-def test_hosted_flavor_off_until_signed_in(monkeypatch):
-    """The desktop story: the flavor names the gateway, but the seam only turns ON once
-    platform.connect has persisted a session token (the env key)."""
-    cfg = _config(platform_url="http://proxy.example:4000")
-    model_proxy.configure(cfg)
-    assert not model_proxy.enabled()  # signed out => BYOK
+def test_hosted_flavor_off_until_a_connection_signs_in(monkeypatch):
+    """The desktop story: the flavor names the proxy, and the seam turns on for a CONNECTION that
+    carries a session — not for the machine.
 
-    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sess_abc")  # platform.connect happened
-    model_proxy.configure(cfg)
-    assert model_proxy.enabled() and model_proxy.status()["source"] == "distribution"
-    kwargs = model_proxy.apply({"model": "gemini/gemini-2.5-flash"})
-    assert kwargs["api_key"] == "sess_abc"
-    assert kwargs["api_base"] == "http://proxy.example:4000"
+    It used to turn on once a session had been persisted as the env key, which made it one answer
+    for every window: whoever pressed Cloud last decided who paid for everyone."""
+    from agent_runtime.infrastructure import accounts
+
+    monkeypatch.delenv("AGENTD_MODEL_PROXY_KEY", raising=False)
+    model_proxy.configure(_config(platform_url="http://proxy.example:4000"))
+    assert not model_proxy.enabled()  # nobody on this connection => BYOK
+
+    token = accounts.set_account({"account_id": "a1", "session_token": "sess_abc"})
+    try:
+        assert model_proxy.enabled() and model_proxy.status()["source"] == "distribution"
+        kwargs = model_proxy.apply({"model": "gemini/gemini-2.5-flash"})
+        assert kwargs["api_key"] == "sess_abc", "the connection's own session pays"
+        assert kwargs["api_base"] == "http://proxy.example:4000"
+    finally:
+        accounts.reset_account(token)
 
 
 def test_apply_attributes_account_user(monkeypatch):

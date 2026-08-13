@@ -24,6 +24,9 @@ Config is ENV-ONLY (no constants):
     ACCOUNTS_INTERNAL_KEY  required for ledger writes (else usage logging is skipped)
     ACCOUNTS_RESOLVE_TTL   seconds a token->account resolution is cached (default 60)
     ACCOUNTS_TIMEOUT_S     accounts-service HTTP timeout (default 5)
+    ACCOUNTS_RESOLVE_GRACE_S  seconds PAST expiry a cached resolution may serve when Accounts
+                           is unreachable (default 900) — keeps long runs alive through blips;
+                           a never-resolved token still fails closed
 """
 
 from __future__ import annotations
@@ -231,15 +234,38 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         return UserAPIKeyAuth(api_key=key, user_id=hit[0])
 
     started = time.perf_counter()
-    try:
-        r = await client.get("/resolve", headers={"Authorization": f"Bearer {key}"})
-    except httpx.HTTPError as e:
-        # Accounts is a HARD dependency in the hot path of every model call (plan DEF-6):
-        # when it is unreachable, EVERY user is blocked within the cache TTL.
+    r = None
+    error: httpx.HTTPError | None = None
+    # ONE retry, immediately: the common failure is a single dropped/timed-out round trip (a
+    # keep-alive the far side closed, an EFS latency spike inside Accounts), and a long agent
+    # run crosses the cache TTL many times — each crossing used to be a single unlucky socket
+    # away from killing the whole run.
+    for _attempt in range(2):
+        try:
+            r = await client.get("/resolve", headers={"Authorization": f"Bearer {key}"})
+            error = None
+            break
+        except httpx.HTTPError as e:
+            error = e
+    if error is not None:
         timing("resolve_latency_ms", (time.perf_counter() - started) * 1000, outcome="unreachable")
+        # STALE-GRACE. This token resolved fine moments ago; an Accounts blip does not change
+        # whose token it is. Serving the expired entry (bounded by the grace window) keeps a
+        # paying user's run alive through a hiccup — the same fail-open trade the funding
+        # lookup already makes, bounded instead of blanket. The real cost is honest and small:
+        # a REVOKED session can outlive its revocation by up to the grace window, and only
+        # while Accounts is down. A token we have NEVER resolved still fails closed: there is
+        # nothing safe to fall back to.
+        grace = float(os.environ.get("ACCOUNTS_RESOLVE_GRACE_S", "900") or 900)
+        if hit and hit[1] + grace > now:
+            count("auth_total", credential="session", outcome="ok", cache="stale-grace")
+            log.warning("accounts resolve unreachable — serving stale resolution: %s", error)
+            return UserAPIKeyAuth(api_key=key, user_id=hit[0])
+        # Accounts is a HARD dependency in the hot path of every model call (plan DEF-6):
+        # when it is unreachable, every NEW token is blocked within the cache TTL.
         count("auth_total", credential="session", outcome="unavailable")
-        log.warning("accounts resolve unreachable: %s", e)
-        raise Exception("account service unavailable") from e
+        log.warning("accounts resolve unreachable: %s", error)
+        raise Exception("account service unavailable") from error
     timing(
         "resolve_latency_ms",
         (time.perf_counter() - started) * 1000,

@@ -35,6 +35,15 @@ export class GatewayClient {
     void this.open()
   }
 
+  /** Re-dial NOW, re-resolving the url. The credential is IN that url (`?session=`), so a
+   *  sign-in or sign-out only reaches the daemon when the socket is rebuilt — waiting out the
+   *  backoff would leave the app authenticated in the UI and anonymous on the wire. */
+  reconnect(): void {
+    if (!this.urlProvider || this.closedByUs) return
+    this.reconnectDelay = 1000
+    void this.open()
+  }
+
   private scheduleReconnect(): void {
     if (this.closedByUs) return
     setTimeout(() => void this.open(), this.reconnectDelay)

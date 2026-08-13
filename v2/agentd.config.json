@@ -508,7 +508,7 @@
       "cost_efficiency": {
         "enabled": true,
         "text_model": "deepseek/deepseek-v4-pro",
-        "vision_model": "deepseek/deepseek-v4-pro"
+        "vision_model": "gemini/gemini-3.1-pro-preview"
       }
     },
     "comfyui-workflow-architect": {

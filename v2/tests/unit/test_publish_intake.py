@@ -41,15 +41,20 @@ from agent_runtime.application.interfaces.publish_intake import (
 from agent_runtime.application.services.publish_intake_service import PublishIntakeService
 
 
-def agentpkg(bundle_id="weather", version="1.2.0") -> bytes:
+def agentpkg(bundle_id="weather", version="1.2.0", delivery="", app=True) -> bytes:
+    """:param delivery: extra TOML appended to bundle.toml (e.g. a [bundle.delivery] table).
+    :param app: whether agent.toml declares [app] — web delivery's precondition."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as zf:
         zf.writestr(
             "bundle.toml",
             f'[bundle]\nid = "{bundle_id}"\nname = "Weather"\nversion = "{version}"\n'
-            'description = "Forecasts."\n',
+            'description = "Forecasts."\n' + delivery,
         )
-        zf.writestr("agent/agent.toml", f'name = "Weather"\nversion = "{version}"\n[app]\n')
+        zf.writestr(
+            "agent/agent.toml",
+            f'name = "Weather"\nversion = "{version}"\n' + ("[app]\n" if app else ""),
+        )
     return buffer.getvalue()
 
 
@@ -466,6 +471,40 @@ def test_the_installer_row_is_signed_separately_from_the_bundle():
     assert row["url"] == "weather-1.2.0-setup.exe"
     assert row["sig"] and row["sig"] != entry["sig"]
     assert len(parts["signer"].signed) == 2  # bundle digest + installer digest
+
+
+WEB_ONLY = '\n[bundle.delivery]\nweb = true\nexe = false\n'
+
+
+def test_a_web_only_bundle_builds_no_installer_and_the_message_says_so():
+    svc, parts = service()
+    result = svc.submit(Submission(package=agentpkg(delivery=WEB_ONLY), token="tok"))
+
+    assert result.status == OK
+    assert "does not offer exe delivery" in result.message
+    assert parts["product_service"].sources == []  # the builder was never even asked
+    entry = next(b for b in parts["index_store"].index["bundles"] if b["id"] == "weather")
+    assert "installers" not in entry
+    assert entry["delivery"] == {"web": True, "exe": False}
+
+
+def test_web_delivery_without_an_app_table_is_refused_naming_the_fix():
+    svc, parts = service()
+    result = svc.submit(Submission(package=agentpkg(delivery=WEB_ONLY, app=False), token="tok"))
+
+    assert result.status == BAD_REQUEST
+    assert "[app]" in result.message
+    assert parts["index_store"].index == {}  # nothing was published
+
+
+def test_a_bundle_without_a_delivery_table_keeps_meaning_what_it_always_meant():
+    """Every already-published bundle predates this field: exe on, web off."""
+    svc, parts = service()
+    assert svc.submit(Submission(package=agentpkg(), token="tok")).status == OK
+
+    entry = next(b for b in parts["index_store"].index["bundles"] if b["id"] == "weather")
+    assert entry["delivery"] == {"web": False, "exe": True}
+    assert entry["installers"], "the default still builds the installer"
 
 
 def test_the_response_carries_both_urls():

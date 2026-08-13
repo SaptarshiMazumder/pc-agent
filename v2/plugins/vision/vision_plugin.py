@@ -8,9 +8,10 @@ Two tools:
 
 (The old `locate_structures_in_image` — which GUESSED where anatomy was and mis-placed labels — was removed.)
 
-Both call a Gemini vision model directly via google-genai (GEMINI_API_KEY/GOOGLE_API_KEY) and are
-INDEPENDENT of the agent's reasoning model — so they work even when the brain is text-only
-(e.g. DeepSeek) and can't see images itself. No core change, no new credential.
+Both call their vision model through the runtime's model funnel (oneshot -> LiteLLM/proxy, so
+BYOK/cloud/sandbox all route correctly with no key held here) and are INDEPENDENT of the agent's
+reasoning model — so they work even when the brain is text-only (e.g. DeepSeek) and can't see
+images itself. No core change, no new credential.
 """
 
 from __future__ import annotations

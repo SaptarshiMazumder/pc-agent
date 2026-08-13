@@ -68,11 +68,13 @@ URL_LITERAL = re.compile(r"https?://")
 
 # --- model calls: the DERIVATION, not a warning ------------------------------------------------
 
-#: The two host-brokered entry points. These are the ONLY way a sandboxed tool may reach a model,
-#: and calling either is what makes ``needs_model = True`` true — so the flag is derived from them
-#: rather than asked for.
-TEXT_CALL = re.compile(r"\btext_complete\s*\(")
-VISION_CALL = re.compile(r"\bvision_complete\s*\(")
+#: The host-brokered entry points. These are the ONLY way a sandboxed tool may reach a model,
+#: and calling any is what makes ``needs_model = True`` true — so the flag is derived from them
+#: rather than asked for. Both spellings count: the funnel module (oneshot.<fn>) and the port
+#: (self.models.<fn>) resolve to the same host-brokered call under the sandbox.
+TEXT_CALL = re.compile(r"\btext_complete\s*\(|\bmodels\.text\s*\(")
+VISION_CALL = re.compile(r"\bvision_complete\s*\(|\bmodels\.vision\s*\(")
+IMAGE_CALL = re.compile(r"\bgenerate_image\s*\(")
 
 #: Set when a tool declares the flag itself (hand-written plugins; create_tool stamps it for you).
 DECLARES_NEEDS_MODEL = re.compile(r"^\s*needs_model\s*=\s*True\b", re.MULTILINE)
@@ -81,15 +83,19 @@ DECLARES_NEEDS_MODEL = re.compile(r"^\s*needs_model\s*=\s*True\b", re.MULTILINE)
 def derive_model_need(code: str) -> tuple[bool, str]:
     """``(needs_model, model_kind)`` for a tool, read off the code it will run.
 
-    Vision wins when both appear: ``model_kind`` picks which default the resolution chain uses,
-    and a tool that looks at an image needs a model that can, whereas the reverse is not true —
-    a vision model answers a text prompt fine.
+    The most specific capability wins when several appear: ``model_kind`` picks which default the
+    resolution chain uses, and it has to be the model only that kind can supply. A tool that
+    GENERATES an image needs an image-gen model (image-gen > vision > text); a tool that looks at
+    an image needs a model that can, whereas the reverse is not true — a vision model answers a
+    text prompt fine.
 
-    A tool that calls neither gets ``(False, "text")``, which is the ``Tool`` class default and
+    A tool that calls none gets ``(False, "text")``, which is the ``Tool`` class default and
     means the sandbox grants it no models. That is correct: a tool with no model call has no use
     for one, and granting it anyway would widen the blast radius of a bug for nothing.
     """
     text = code or ""
+    if IMAGE_CALL.search(text):
+        return True, "image-gen"
     if VISION_CALL.search(text):
         return True, "vision"
     if TEXT_CALL.search(text):

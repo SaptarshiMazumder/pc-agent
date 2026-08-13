@@ -16,7 +16,8 @@
 
 import { useSyncExternalStore } from 'react'
 
-import { randomUuid } from './platform'
+import { gateway } from '../gateway/client'
+import { randomUuid } from './host'
 
 export interface Session {
   token: string
@@ -76,6 +77,9 @@ export function getSession(): Session | null {
 
 export function signOut(): void {
   setSession(null)
+  // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps treating
+  // this client as the old account until the socket is rebuilt without it.
+  gateway.reconnect()
 }
 
 async function post(path: string, body: unknown): Promise<Record<string, string>> {
@@ -89,16 +93,36 @@ async function post(path: string, body: unknown): Promise<Record<string, string>
   return data
 }
 
+/**
+ * Sign in. ONE path for desktop and web, because the daemon no longer has a second one.
+ *
+ * There used to be a desktop-only route through the daemon (`auth.login` + `auth.token`) so that
+ * IT held the session and could tell other windows. Those methods do not exist: identity is now
+ * a property of each CONNECTION — presented as `?session=` when the socket opens — and the daemon
+ * stores nothing. Calling them errored, which is why signing in on desktop failed outright.
+ *
+ * So this client does what the web client always did: POST to the accounts service, keep the
+ * session, and REBUILD THE SOCKET. The reconnect is not a refresh; it is how the credential
+ * reaches the daemon at all.
+ *
+ * Known limit, stated because the old code existed to solve it: a sign-in here does not
+ * propagate to an agent's own window. Each window presents its own session on its own socket,
+ * and they do not share storage. A daemon-side broadcast is the fix, and it needs a daemon-side
+ * identity to broadcast — which this design deliberately does not have.
+ */
 export async function login(email: string, password: string): Promise<Session> {
-  const d = await post('/login', { email: email.trim().toLowerCase(), password })
+  const clean = email.trim().toLowerCase()
+  const d = await post('/login', { email: clean, password })
   const s: Session = { token: d.token, accountId: d.account_id, email: d.email }
   setSession(s)
+  gateway.reconnect()
   return s
 }
 
 export async function signup(email: string, password: string): Promise<Session> {
-  await post('/signup', { email: email.trim().toLowerCase(), password })
-  return login(email, password)
+  const clean = email.trim().toLowerCase()
+  await post('/signup', { email: clean, password })
+  return login(clean, password)
 }
 
 /**
@@ -264,7 +288,7 @@ export async function purchase(productId: string): Promise<Purchase> {
   }
 }
 
-/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/platform.ts for why
+/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/host.ts for why
  *  crypto.randomUUID cannot be called directly. This used to carry its own weaker fallback;
  *  two answers to the same host limitation is how one of them stays broken. */
 function newIdempotencyKey(): string {

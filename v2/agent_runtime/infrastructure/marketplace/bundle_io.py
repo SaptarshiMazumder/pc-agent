@@ -32,6 +32,10 @@ EXCLUDED_DIRS = {
     "clients",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
+# The runtime's per-agent ownership record (domain/ownership.py). A bundle carries the AUTHOR's
+# files; ownership of a copy is decided where the copy lands — the installer stamps a fresh
+# record on arrival. Packing it would ship the author's identity into every install.
+EXCLUDED_FILES = {".agentd-meta.json"}
 
 
 def sha256_file(path: Path) -> str:
@@ -151,6 +155,8 @@ def _iter_files(root: Path):
         relative_parts = item.relative_to(root).parts
         if any(part in EXCLUDED_DIRS for part in relative_parts):
             continue
+        if item.name in EXCLUDED_FILES:
+            continue
         if item.is_file() and item.suffix not in EXCLUDED_SUFFIXES:
             yield item
 
@@ -170,6 +176,14 @@ def _manifest_toml(manifest: BundleManifest) -> str:
         f"agentd_compat = {_toml_str(manifest.agentd_compat)}",
         f"entitlement = {_toml_str(manifest.entitlement)}",
         f"publisher = {_toml_str(manifest.publisher)}",
+        f"icon = {_toml_str(manifest.icon)}",
+        # Always written, both keys, even at their defaults: the publish service re-reads THIS
+        # copy (not the author's file), so an omitted key here would silently reset an author's
+        # choice on every pack.
+        "",
+        "[bundle.delivery]",
+        f"web = {str(manifest.delivery.web).lower()}",
+        f"exe = {str(manifest.delivery.exe).lower()}",
     ]
     for dep in manifest.plugins:
         lines += [

@@ -44,14 +44,24 @@ class FileBundleInstaller:
         plugins_dir: Path,
         state_dir: Path,
         builtin_plugins_dir: Path | None = None,
+        hosted: bool = False,
     ):
         self._agents_dir = agents_dir
         self._plugins_dir = plugins_dir
         self._state_dir = state_dir
         self._builtin_plugins_dir = builtin_plugins_dir
+        # Only for the ownership stamp: a hosted daemon's no-account installs (boot seeds,
+        # web-app syncs) are the PLATFORM curating; a desktop's are the local owner's.
+        self._hosted = hosted
 
     def read_manifest(self, package_path: Path) -> BundleManifest:
         return bundle_io.read_manifest(package_path)
+
+    @property
+    def agents_dir(self) -> Path:
+        """Where installed agent definitions land — read by callers that annotate an install
+        after the fact (the web-app re-stamp), so they never have to guess the layout."""
+        return self._agents_dir
 
     @staticmethod
     def git_tracked_root(directory: Path) -> Path | None:
@@ -62,6 +72,20 @@ class FileBundleInstaller:
         self._check_builtin_deps(manifest)
         placed = await asyncio.to_thread(
             bundle_io.unpack_bundle, package_path, manifest, self._agents_dir, self._plugins_dir
+        )
+        # Ownership: the installer owns the COPY; provenance names the original. Stamped here —
+        # the one place every install path converges (store install, CLI, web-app sync) — and
+        # AFTER unpack, because the package never carries its author's record (packers exclude
+        # it) and an update must re-stamp whatever the previous record said.
+        from agent_runtime.infrastructure import accounts
+        from agent_runtime.infrastructure.agents import ownership_store
+
+        ownership_store.stamp_install(
+            self._agents_dir / manifest.id,
+            accounts.account_id(),
+            self._hosted,
+            source_id=manifest.id,
+            source_version=manifest.version,
         )
         vendored_declared = {d.id for d in manifest.plugins if d.source == "vendored"}
         missing = vendored_declared - set(placed)

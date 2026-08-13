@@ -28,11 +28,20 @@ from agent_authoring.application.add_component_service import (
     AddComponentService,
     ComponentError,
 )
-from agent_authoring.domain.ui_component import COMPONENTS_ANCHOR, SIGN_IN, UiComponents
+from agent_authoring.domain.ui_component import (
+    COMPONENTS_ANCHOR,
+    SIGN_IN,
+    SIGNIN_ANCHOR,
+    UiComponents,
+)
 
 SDK_WITH_GATE = "function mountSignInGate(){}; function fromPage(){}"
 
+# Two anchors, because sign-in is placed differently from everything else: it must run BEFORE the
+# connection (a hosted socket needs the session the gate mints), while every other component wants
+# the socket already open. See SIGNIN_ANCHOR's comment.
 APP_JS = f"""const client = agentd.fromPage()
+// {SIGNIN_ANCHOR} — the gate goes here, above the connection wiring.
 client.onState((s) => {{
   if (s === 'open') {{
     void (async () => {{
@@ -115,7 +124,7 @@ def test_adding_sign_in_does_every_step(workspace):
         ("insert", "app.js"): DONE,  # the call itself
     }
     app = (ui / "app.js").read_text(encoding="utf-8")
-    assert "await agentd.mountSignInGate()" in app
+    assert "await agentd.mountSignInGate({ client })" in app
     assert (ui / "vendor" / "agentd-client.js").read_text() == SDK_WITH_GATE
     assert "--gate-bg" in (ui / "style.css").read_text(encoding="utf-8")
     # The SDK was refreshed by this very call, so nothing should be reported as missing.
@@ -123,15 +132,22 @@ def test_adding_sign_in_does_every_step(workspace):
 
 
 def test_the_snippet_is_indented_to_match_the_anchor(workspace):
-    """A patch that lands at the wrong indentation reads as machine-mangled code and gets reverted."""
+    """A patch that lands at the wrong indentation reads as machine-mangled code and gets reverted.
+
+    Derived from the descriptor rather than hardcoded: the two are the same fact, and a literal
+    here would silently disagree the next time the placement moves."""
     service, ui = workspace
     service.apply(service.plan("weather", "sign-in"))
-    line = next(
-        l for l in (ui / "app.js").read_text(encoding="utf-8").splitlines()
-        if "mountSignInGate" in l
-    )
-    anchor_indent = " " * 6
-    assert line.startswith(anchor_indent + "  ")  # inside the try{}, aligned with the anchor
+    lines = (ui / "app.js").read_text(encoding="utf-8").splitlines()
+    indent = SIGN_IN.insert[0].indent
+
+    opener = next(l for l in lines if l.strip().startswith("void (async"))
+    assert opener.startswith(indent) and not opener.startswith(indent + " ")
+
+    # The call sits two nestings deeper than the block that carries it — its own async wrapper,
+    # then the try{}. The wrapper is what lets the boot continue without awaiting sign-in.
+    call = next(l for l in lines if "mountSignInGate" in l)
+    assert call.startswith(indent + "    ")
 
 
 def test_the_script_tag_is_added_before_app_js(tmp_path, workspace):
@@ -230,8 +246,10 @@ def test_a_hand_written_app_gets_the_snippet_handed_back(workspace):
     assert (ui / "app.js").read_text(encoding="utf-8") == HAND_WRITTEN_APP_JS  # untouched
     step = plan.manual[0]
     assert "mountSignInGate" in step.payload
-    assert COMPONENTS_ANCHOR in step.detail
-    assert "before hello()" in step.detail  # the note says WHERE
+    assert SIGNIN_ANCHOR in step.detail
+    # The note has to say WHERE, and the placement that matters is "before the connection" — a
+    # gate placed after it cannot run on a hosted daemon at all.
+    assert "BEFORE the connection" in step.detail
 
 
 # ── refusals ─────────────────────────────────────────────────────────────────────────────

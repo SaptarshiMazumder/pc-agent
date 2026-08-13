@@ -123,6 +123,25 @@ class Tool(ABC):
             kind=self.model_kind,
         )
 
+    # Injected ModelAccess override (tests, alternative backends). None => the funnel default.
+    _model_access = None
+
+    @property
+    def models(self):
+        """The ONE way this tool touches a model provider — the ModelAccess port.
+
+        ``self.models.text/vision/generate_image(...)`` is mode-correct everywhere the tool can
+        run: direct on the user's keys in local BYOK, through the platform's metered proxy in
+        desktop-cloud and web-hosted, and host-brokered inside the plugin sandbox — with ZERO
+        mode branching in tool code. A tool never imports a provider SDK and never reads an env
+        key; pair this with ``needs_model = True`` + ``model_kind`` + ``resolve_model()``.
+        Deferred import, same idiom as resolve_model; tests fake it via ``tool._model_access``."""
+        if self._model_access is not None:
+            return self._model_access
+        from agent_runtime.infrastructure.llm.model_access import default_model_access
+
+        return default_model_access()
+
     @abstractmethod
     async def execute(
         self,

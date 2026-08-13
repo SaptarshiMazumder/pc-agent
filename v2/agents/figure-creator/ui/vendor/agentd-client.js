@@ -10,9 +10,9 @@ var agentd = (() => {
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
     }
     return to;
   };
@@ -23,17 +23,18 @@ var agentd = (() => {
   __export(src_exports, {
     AgentdClient: () => AgentdClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
-    agentIdFromPage: () => agentIdFromPage,
+    authLogin: () => authLogin,
+    authLogout: () => authLogout,
+    authStatus: () => authStatus,
+    effectiveMode: () => effectiveMode,
     fromPage: () => fromPage,
+    loadMode: () => loadMode,
     loadSession: () => loadSession,
     mountSignInGate: () => mountSignInGate,
-    platformConnect: () => platformConnect,
-    platformStatus: () => platformStatus,
-    resolveAuth: () => resolveAuth,
     resultText: () => resultText,
+    saveMode: () => saveMode,
     saveSession: () => saveSession,
-    signIn: () => signIn,
-    signOut: () => signOut,
+    setRunMode: () => setRunMode,
     signOutAndGate: () => signOutAndGate
   });
 
@@ -50,12 +51,63 @@ var agentd = (() => {
     return String(result ?? "").trim();
   }
 
+  // src/session.ts
+  function key(explicit = "") {
+    if (explicit) return explicit;
+    const here = typeof location === "undefined" ? null : new URL(location.href);
+    const scope = here?.searchParams.get("scope") || "";
+    const id = /^agent:(.+)$/.exec(scope)?.[1] || pathAgentId(here);
+    return `agentd.session.${id || "app"}`;
+  }
+  function pathAgentId(here) {
+    const match = /\/apps\/([^/]+)/.exec(here?.pathname || "");
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+  function loadSession(storageKey = "") {
+    try {
+      const raw = localStorage.getItem(key(storageKey));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.token ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  function saveSession(value, storageKey = "") {
+    try {
+      if (value) localStorage.setItem(key(storageKey), JSON.stringify(value));
+      else localStorage.removeItem(key(storageKey));
+    } catch {
+    }
+  }
+  function loadMode(storageKey = "") {
+    try {
+      const v = localStorage.getItem(key(storageKey) + ".mode");
+      return v === "local" || v === "cloud" ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function saveMode(value, storageKey = "") {
+    try {
+      if (value) localStorage.setItem(key(storageKey) + ".mode", value);
+      else localStorage.removeItem(key(storageKey) + ".mode");
+    } catch {
+    }
+  }
+  function effectiveMode(storageKey = "", signedIn = false, canUseCloud = true) {
+    const chosen = loadMode(storageKey);
+    if (chosen) return chosen;
+    return signedIn && canUseCloud ? "cloud" : "local";
+  }
+
   // src/client.ts
   function toWsUrl(target) {
     const u = new URL(target.url);
     if (u.protocol === "http:") u.protocol = "ws:";
     if (u.protocol === "https:") u.protocol = "wss:";
     if (target.token) u.searchParams.set("token", target.token);
+    if (target.session) u.searchParams.set("session", target.session);
+    if (target.mode) u.searchParams.set("mode", target.mode);
     if (target.scope) u.searchParams.set("scope", target.scope);
     return u.toString();
   }
@@ -88,6 +140,16 @@ var agentd = (() => {
     close() {
       this.closedByUs = true;
       this.teardownSocket();
+    }
+    /** Re-open the socket, re-reading the target.
+     *
+     *  Identity and run mode are read by the daemon when a connection OPENS, so changing either
+     *  has to bring up a new one — otherwise the daemon goes on answering as whoever this client
+     *  was before. Called by authLogin / authLogout / setRunMode. */
+    reconnect() {
+      if (!this.input) return;
+      this.closedByUs = false;
+      void this.open();
     }
     get connected() {
       return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
@@ -242,33 +304,30 @@ var agentd = (() => {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
     const scope = here.searchParams.get("scope") || "";
+    const urlSession = here.searchParams.get("session") || "";
+    const urlMode = here.searchParams.get("mode") || "";
     const client = new AgentdClient(options);
-    client.connect({ url: here.origin, token: token || void 0, scope: scope || void 0 });
+    client.connect(async () => {
+      const stored = loadSession()?.token;
+      return {
+        url: here.origin,
+        token: token || void 0,
+        session: stored || urlSession || void 0,
+        mode: urlMode || effectiveMode("", !!(stored || urlSession)),
+        scope: scope || void 0
+      };
+    });
     return client;
   }
 
-  // src/platform.ts
-  var DEFAULTS = {
-    timeoutMs: 15e3,
-    confirmAttempts: 6,
-    confirmDelayMs: 1e3
-  };
-  var SERVER_SIDE_KEYS = "server-side";
-  function origin(opts = {}) {
+  // src/auth.ts
+  var DEFAULT_TIMEOUT = 15e3;
+  function origin(opts) {
     if (opts.origin) return opts.origin.replace(/\/$/, "");
     if (typeof location === "undefined") throw new Error("no origin: pass options.origin");
     return location.origin;
   }
-  function agentIdFromPage() {
-    if (typeof location === "undefined") return "";
-    const here = new URL(location.href);
-    const scope = here.searchParams.get("scope") || "";
-    const scoped = /^agent:(.+)$/.exec(scope);
-    if (scoped) return scoped[1];
-    const path = /\/apps\/([^/]+)/.exec(here.pathname);
-    return path ? decodeURIComponent(path[1]) : "";
-  }
-  function daemonToken(opts = {}) {
+  function daemonToken(opts) {
     if (typeof opts.token === "string") return opts.token;
     if (typeof location === "undefined") return "";
     try {
@@ -276,18 +335,6 @@ var agentd = (() => {
     } catch {
       return "";
     }
-  }
-  function daemonUrl(path, params, opts = {}) {
-    const u = new URL(path, `${origin(opts)}/`);
-    const token = daemonToken(opts);
-    if (token) u.searchParams.set("token", token);
-    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-    return u.toString();
-  }
-  function storageKey(opts = {}) {
-    if (opts.storageKey) return opts.storageKey;
-    const id = agentIdFromPage();
-    return `agentd.session.${id || "app"}`;
   }
   async function withTimeout(p, ms, what) {
     let timer;
@@ -300,133 +347,89 @@ var agentd = (() => {
       clearTimeout(timer);
     }
   }
-  async function getJson(url, timeoutMs, what) {
-    const r = await withTimeout(fetch(url, { cache: "no-store" }), timeoutMs, what);
-    const text = await r.text();
-    let body = {};
-    try {
-      body = text ? JSON.parse(text) : {};
-    } catch {
-    }
-    if (!r.ok) throw new Error(String(body?.error || `HTTP ${r.status}`));
-    return body;
+  async function platformStatus(opts) {
+    const u = new URL("/platform/status", `${origin(opts)}/`);
+    const token = daemonToken(opts);
+    if (token) u.searchParams.set("token", token);
+    const r = await withTimeout(
+      fetch(u.toString(), { cache: "no-store" }),
+      opts.timeoutMs ?? DEFAULT_TIMEOUT,
+      "platform status"
+    );
+    if (!r.ok) throw new Error(`platform status failed (HTTP ${r.status})`);
+    return await r.json();
   }
-  async function postJson(url, payload, timeoutMs, what) {
+  async function post(url, body, timeoutMs, what) {
     const r = await withTimeout(
       fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(body)
       }),
       timeoutMs,
       what
     );
     const text = await r.text();
-    let body = {};
+    let data = {};
     try {
-      body = text ? JSON.parse(text) : {};
+      data = text ? JSON.parse(text) : {};
     } catch {
     }
-    if (!r.ok) throw new Error(String(body?.error || body?.detail || `HTTP ${r.status}`));
-    return body;
+    if (!r.ok) {
+      throw new Error(String(data?.detail || data?.error || `${what} failed (HTTP ${r.status})`));
+    }
+    return data;
   }
-  function proxyOf(raw) {
-    return raw && (raw.modelProxy || raw.modelGateway) || null;
-  }
-  function shape(raw) {
-    const accountsUrl = String(raw?.accountsUrl || "").replace(/\/$/, "");
+  async function authStatus(opts = {}) {
+    const status = await platformStatus(opts);
+    const stored = loadSession(opts.storageKey);
+    const canUseCloud = !!status.canUseCloud;
     return {
-      accountsUrl,
-      hosted: !!accountsUrl,
-      keysLive: !!proxyOf(raw)?.enabled,
-      raw: raw || {}
+      available: !!String(status.accountsUrl || ""),
+      signedIn: !!stored,
+      email: stored?.email || "",
+      accountId: stored?.accountId || "",
+      mode: effectiveMode(opts.storageKey, !!stored, canUseCloud),
+      canUseCloud
     };
   }
-  async function platformStatus(opts = {}) {
-    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
-    return shape(await getJson(daemonUrl("/platform/status", {}, opts), timeoutMs, "platform status"));
-  }
-  async function platformConnect(session, opts = {}) {
-    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
-    const attempts = opts.confirmAttempts ?? DEFAULTS.confirmAttempts;
-    const delay = opts.confirmDelayMs ?? DEFAULTS.confirmDelayMs;
-    const url = daemonUrl("/platform/connect", { session }, opts);
-    try {
-      const status = shape(await getJson(url, timeoutMs, "platform connect"));
-      if (status.keysLive) return status;
-    } catch (e) {
-      const message = String(e?.message || e).toLowerCase();
-      if (message.includes(SERVER_SIDE_KEYS)) {
-        const status = await platformStatus(opts);
-        return { ...status, keysLive: true };
-      }
-    }
-    for (let i = 0; i < attempts; i++) {
-      await new Promise((r) => setTimeout(r, delay));
-      try {
-        const status = await platformStatus(opts);
-        if (status.keysLive) return status;
-      } catch {
-      }
-    }
-    throw new Error("signed in, but this device did not activate \u2014 try again");
-  }
-  function loadSession(opts = {}) {
-    try {
-      const raw = localStorage.getItem(storageKey(opts));
-      const parsed = raw ? JSON.parse(raw) : null;
-      return parsed && parsed.token ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  function saveSession(value, opts = {}) {
-    try {
-      if (value) localStorage.setItem(storageKey(opts), JSON.stringify(value));
-      else localStorage.removeItem(storageKey(opts));
-    } catch {
-    }
-  }
-  async function signIn(args, opts = {}) {
-    const timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+  async function authLogin(args, opts = {}) {
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT;
     const status = await platformStatus(opts);
-    if (!status.hosted) throw new Error("this build has no sign-in server configured");
+    const accountsUrl = String(status.accountsUrl || "").replace(/\/$/, "");
+    if (!accountsUrl) throw new Error("this daemon has no accounts service configured");
     const email = args.email.trim().toLowerCase();
     if (args.signup) {
-      await postJson(`${status.accountsUrl}/signup`, { email, password: args.password }, timeoutMs, "signup");
+      await post(`${accountsUrl}/signup`, { email, password: args.password }, timeoutMs, "signup");
     }
-    const login = await postJson(
-      `${status.accountsUrl}/login`,
+    const login = await post(
+      `${accountsUrl}/login`,
       { email, password: args.password },
       timeoutMs,
       "login"
     );
     const token = String(login?.token || login?.session || "");
     if (!token) throw new Error("the accounts server returned no session token");
-    const connected = await platformConnect(token, opts);
-    saveSession({ token, email }, opts);
-    return { ...connected, token };
+    saveSession(
+      { token, email: String(login?.email || email), accountId: String(login?.account_id || "") },
+      opts.storageKey
+    );
+    opts.client?.reconnect();
+    return authStatus(opts);
   }
-  function signOut(opts = {}) {
-    saveSession(null, opts);
+  async function authLogout(opts = {}) {
+    saveSession(null, opts.storageKey);
+    saveMode(null, opts.storageKey);
+    opts.client?.reconnect();
+    return authStatus(opts);
   }
-  async function resolveAuth(opts = {}) {
-    const status = await platformStatus(opts);
-    if (!status.hosted || status.keysLive) {
-      return { needsSignIn: false, status, token: loadSession(opts)?.token || "" };
+  async function setRunMode(mode, opts = {}) {
+    if (mode === "cloud" && !loadSession(opts.storageKey)) {
+      throw new Error("sign in first \u2014 Cloud mode meters model calls to your account");
     }
-    const stored = loadSession(opts);
-    if (stored?.token) {
-      try {
-        const reconnected = await platformConnect(stored.token, opts);
-        if (reconnected.keysLive) {
-          return { needsSignIn: false, status: reconnected, token: stored.token };
-        }
-      } catch {
-      }
-      saveSession(null, opts);
-    }
-    return { needsSignIn: true, status, token: "" };
+    saveMode(mode, opts.storageKey);
+    opts.client?.reconnect();
+    return authStatus(opts);
   }
 
   // src/gate.ts
@@ -493,10 +496,10 @@ var agentd = (() => {
   async function mountSignInGate(options = {}) {
     const allowSignup = options.allowSignup !== false;
     const product = options.product || typeof document !== "undefined" && document.title || "this app";
-    const blurb = options.blurb || "Runs on our servers \u2014 no API keys to set up.";
-    const auth = await resolveAuth(options);
-    if (!auth.needsSignIn) {
-      return { hosted: auth.status.hosted, token: auth.token, signedInHere: false };
+    const blurb = options.blurb || "Sign in to continue.";
+    const state = await authStatus(options);
+    if (!state.available || state.signedIn) {
+      return { ...state, signedInHere: false };
     }
     injectStyle();
     const gate = build(product, blurb, allowSignup);
@@ -515,8 +518,7 @@ var agentd = (() => {
       errorEl.textContent = text;
       errorEl.hidden = !text;
     };
-    const stored = loadSession(options);
-    if (stored?.email) emailEl.value = stored.email;
+    if (state.email) emailEl.value = state.email;
     setTimeout(() => emailEl.focus(), 0);
     toggle?.addEventListener("click", () => {
       signup = !signup;
@@ -539,9 +541,9 @@ var agentd = (() => {
         fail("");
         say(signup ? "Creating your account\u2026" : "Signing in\u2026");
         try {
-          const result = await signIn({ email, password, signup }, options);
+          const result = await authLogin({ email, password, signup }, options);
           gate.remove();
-          resolve({ hosted: true, token: result.token, signedInHere: true });
+          resolve({ ...result, signedInHere: true });
         } catch (e) {
           btn.disabled = false;
           say(blurb);
@@ -551,9 +553,8 @@ var agentd = (() => {
     });
   }
   async function signOutAndGate(options = {}) {
-    signOut(options);
-    const status = await platformStatus(options);
-    if (!status.hosted) return { hosted: false, token: "", signedInHere: false };
+    const state = await authLogout(options);
+    if (!state.available) return { ...state, signedInHere: false };
     return mountSignInGate(options);
   }
   return __toCommonJS(src_exports);

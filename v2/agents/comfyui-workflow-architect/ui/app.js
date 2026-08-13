@@ -213,25 +213,31 @@
       path.className = 'a-path'
       path.textContent = f.rel || ''
       text.append(name, path)
-      const open = document.createElement('button')
-      open.className = 'a-open'
-      open.textContent = 'Open location'
-      open.title = `Reveal ${f.name || 'artifact'} in the file manager`
-      open.addEventListener('click', async () => {
-        open.disabled = true
-        const label = open.textContent
-        open.textContent = 'Opening…'
+
+      // Open-in-Explorer button — invokes the agent's exec tool
+      const openBtn = document.createElement('button')
+      openBtn.className = 'a-open'
+      openBtn.textContent = 'Open'
+      openBtn.title = 'Open in Explorer'
+      openBtn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        openBtn.disabled = true
+        openBtn.textContent = '…'
         try {
-          await client.invokeTool('open_artifact_location', { path: f.rel || '' })
-          open.textContent = 'Opened'
-          setTimeout(() => { open.textContent = label; open.disabled = false }, 1200)
-        } catch (e) {
-          open.textContent = 'Failed'
-          open.title = (e && e.message) || String(e)
-          setTimeout(() => { open.textContent = label; open.disabled = false }, 1800)
+          const safeRel = String(f.rel || '').replace(/'/g, "''")
+          const cmd = `powershell -NoProfile -Command "explorer /select,(Resolve-Path '${safeRel}')"`
+          await client.invokeTool('exec', { command: cmd, timeout_sec: 10 })
+        } catch (err) {
+          console.error('open_in_explorer failed:', err)
+          openBtn.textContent = '✗'
+          setTimeout(() => { openBtn.textContent = 'Open'; openBtn.disabled = false }, 1500)
+          return
         }
+        openBtn.textContent = 'Open'
+        openBtn.disabled = false
       })
-      li.append(icon, text, open)
+
+      li.append(icon, text, openBtn)
       list.append(li)
     }
     body.append(list)

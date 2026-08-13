@@ -25,6 +25,17 @@ model_list:
     litellm_params:
       model: "*"
 
+# NATIVE Gemini passthrough (/gemini/*) — used by agentd's IMAGE GENERATION funnel
+# (oneshot.generate_image points the google-genai SDK at <proxy>/gemini in cloud modes, because
+# image-out doesn't fit chat completions). LiteLLM ships these routes built in; they forward to
+# generativelanguage.googleapis.com with GEMINI_API_KEY from THIS proxy's env and authenticate
+# the caller through the same custom_auth (the SDK sends the session token/master key as
+# x-goog-api-key). Nothing to configure here — but VERIFY after deploy:
+#   curl -s -X POST "$PROXY/gemini/v1beta/models/gemini-2.5-flash:generateContent" \
+#     -H "x-goog-api-key: $SESSION_OR_MASTER_KEY" -H "Content-Type: application/json" \
+#     -d '{"contents":[{"parts":[{"text":"say ok"}]}]}'
+# 200 => the image-gen path works end to end for cloud users.
+
 litellm_settings:
   drop_params: true # tolerate provider-specific params agents pass (reasoning_effort, etc.)
   set_verbose: false
