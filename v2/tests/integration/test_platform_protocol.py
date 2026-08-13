@@ -264,6 +264,21 @@ def test_agent_builder_alone_may_read_across_agents(tmp_path):
     assert req.params["agentId"] == "agent-builder"
 
 
+def test_scoped_connections_cannot_list_across_agents(tmp_path):
+    """The cross-agent list modes would sidestep the forced agentId: sessions.list honors
+    `all` (Recents) and `projectId` (project view) BEFORE the per-agent partition, so a
+    marketplace app page could read the account's chats with every OTHER agent — found live,
+    figure-create's panel rendering the user's JARVIS history. A scoped connection lists its
+    own agent's world, full stop; the params are STRIPPED, not errored, so app UIs built on
+    the shared panel components degrade to their own agent instead of breaking."""
+    gw = _gw(tmp_path)
+    req = Request(id="1", method="sessions.list", params={"all": True, "projectId": "p1"})
+    ok = asyncio.run(gw._dispatch(req, None, "demo"))
+    assert ok.ok is True
+    assert req.params["agentId"] == "demo"
+    assert "all" not in req.params and "projectId" not in req.params
+
+
 # ---- scoped event filtering ------------------------------------------------------------------
 def test_scoped_event_policy():
     assert _scoped_event_allowed("chat.event", {"agentId": "demo"}, "demo")

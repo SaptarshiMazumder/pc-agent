@@ -5,7 +5,11 @@
 ;(function () {
   const $ = (id) => document.getElementById(id)
   const client = agentd.fromPage()
-  const AGENT_ID = (new URL(location.href).searchParams.get('scope') || '').replace(/^agent:/, '')
+  // `?scope=` exists only when an OPENER built the url; a bare marketplace link is /apps/<id>/,
+  // so the path is the fallback — an empty AGENT_ID made every sessions call agentId-less,
+  // which the daemon resolves to the DEFAULT agent (main), not this one.
+  const AGENT_ID = ((new URL(location.href).searchParams.get('scope') || '').replace(/^agent:/, ''))
+    || (/\/apps\/([^/]+)/.exec(location.pathname)?.[1] ?? '')
   let view = 'chat'
 
   // ── suggestions ───────────────────────────────────────────────────────────
@@ -51,7 +55,7 @@
 
   async function loadChats() {
     try {
-      const res = await client.sessions()
+      const res = await client.sessions(AGENT_ID || undefined)
       chats = (res && res.sessions) || []
     } catch {
       chats = []
@@ -379,11 +383,20 @@
   void (async () => {
     try {
       await agentd.mountSignInGate({ client })
-      // If sign-in succeeds and accountsUrl is present, show sign out
+      // If sign-in succeeds and accountsUrl is present, show sign out + who is signed in.
       const s = await client.request('platform.status', {}).catch(()=>null)
       if (s && s.accountsUrl) {
         $('signOut').hidden = false
-        if (s.user && s.user.email) $('userEmail').textContent = s.user.email
+        // platform.status returns `email` at the TOP LEVEL (s.email), not s.user.email.
+        const email = String(s.email || '')
+        if (email) {
+          // Accounts store only an email address, so a display name is derived from its local part.
+          const local = email.split('@')[0]
+          const name = local.replace(/[._+-]+/g, ' ').trim()
+            .replace(/\b\w/g, (c) => c.toUpperCase())
+          $('userEmail').textContent = name || email
+          $('userEmail').title = email
+        }
       }
     } catch (e) {
       console.warn('[sign-in]', (e && e.message) || e)
@@ -393,7 +406,10 @@
   let started = false
 
   $('signOut').addEventListener('click', async () => {
-    localStorage.removeItem('agentd.session.figure-create')
+    // The SDK owns the storage-key derivation — never hand-name the key here (a hardcoded
+    // 'agentd.session.figure-create' matched today and would silently stop matching the day
+    // the derivation changes, leaving Sign out a no-op that keeps the previous user's session).
+    agentd.saveSession(null)
     try { await client.request('platform.disconnect', {}) } catch (_) {}
     window.location.reload()
   })

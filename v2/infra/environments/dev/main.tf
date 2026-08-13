@@ -90,6 +90,9 @@ module "stack" {
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
   model_proxy_desired_count = var.model_proxy_desired_count
+  # Break-glass shell into the tasks (`aws ecs execute-command`) — EFS surgery and live
+  # debugging. Dev only; the module default keeps it OFF everywhere that doesn't say this.
+  enable_execute_command = true
 
   # Alarms (3.5). Thresholds are deliberately loose for dev: the goal here is to prove the
   # alarms WIRE UP and can actually fire, not to tune them. The money alarms (unbilled

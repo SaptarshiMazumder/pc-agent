@@ -22,7 +22,7 @@ import {
   type SendResult,
   type SessionRow
 } from './protocol'
-import { effectiveMode, loadSession } from './session'
+import { effectiveMode, loadSession, saveMode, saveSession, type RunMode } from './session'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 type EventHandler = (payload: Record<string, any>) => void
@@ -298,6 +298,9 @@ export class AgentdClient {
     const u = new URL('/file', origin)
     u.searchParams.set('path', path)
     if (this.lastTarget.token) u.searchParams.set('token', this.lastTarget.token)
+    // No machine token (a hosted app page): the SESSION is the credential — /file
+    // authenticates it exactly like the socket gate does, one rule, two transports.
+    else if (this.lastTarget.session) u.searchParams.set('session', this.lastTarget.session)
     return u.toString()
   }
 }
@@ -310,14 +313,32 @@ export class AgentdClient {
 export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
   const here = new URL(window.location.href)
   const token = here.searchParams.get('token') || ''
-  const scope = here.searchParams.get('scope') || ''
-  // THE OPENER'S IDENTITY AND MODE, when it passed them. A desktop shell that is signed in
-  // launches its app windows with `?session=&mode=` so the window bills and acts as the same
-  // person — without this, every app window of a signed-in user ran ANONYMOUS (no cloud
-  // billing, model calls falling to dead BYOK keys). Signing in INSIDE the app still wins:
-  // that is this window's own, newer answer, and it is what a re-login here must override.
+  // A page reached from a marketplace card is a BARE /apps/<id>/ url — no `?scope=`. The path
+  // still says which agent this is, and without this fallback such a page opened an UNSCOPED
+  // (host-tier) connection: agentId-less reads defaulted to MAIN (a figure app rendering the
+  // user's JARVIS history, found live), and third-party app code held the full host method
+  // surface. Same derivation the session storage key already uses (session.ts).
+  const pathAgent = /\/apps\/([^/]+)/.exec(here.pathname)
+  const scope =
+    here.searchParams.get('scope') ||
+    (pathAgent ? `agent:${decodeURIComponent(pathAgent[1])}` : '')
+  // THE OPENER'S IDENTITY AND MODE, when it passed them, are ADOPTED ONCE: saved into this
+  // window's own storage and removed from the address bar. After this block there is exactly
+  // ONE source of truth — the stored session — which every later sign-in, sign-out and
+  // reconnect naturally owns. The url params must not survive as a competing source: kept in
+  // the resolver they either lost to a STALE stored session (an opener's fresh identity
+  // silently ignored — found live: a freshly signed-up user's app ran as the machine's
+  // previous tester) or, ordered the other way, they would override every in-app re-login
+  // for the life of the window. Adoption is what makes both orderings moot.
   const urlSession = here.searchParams.get('session') || ''
   const urlMode = here.searchParams.get('mode') || ''
+  if (urlSession) saveSession({ token: urlSession, email: '', accountId: '' })
+  if (urlMode === 'local' || urlMode === 'cloud') saveMode(urlMode as RunMode)
+  if ((urlSession || urlMode) && typeof history !== 'undefined') {
+    here.searchParams.delete('session')
+    here.searchParams.delete('mode')
+    history.replaceState(null, '', here.toString())
+  }
   const client = new AgentdClient(options)
   // The RESOLVER form, not a static target: the stored session and mode are re-read on every
   // (re)connect, so a sign-in or a mode change is carried by the next socket without the app
@@ -327,8 +348,8 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
     return {
       url: here.origin,
       token: token || undefined,
-      session: stored || urlSession || undefined,
-      mode: urlMode || effectiveMode('', !!(stored || urlSession)),
+      session: stored || undefined,
+      mode: effectiveMode('', !!stored),
       scope: scope || undefined
     }
   })
