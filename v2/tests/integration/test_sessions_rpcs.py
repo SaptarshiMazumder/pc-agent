@@ -55,6 +55,7 @@ def _gw(tmp_path):
     )
     ws = _CapturingWs()
     gw.clients.add(ws)
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     return gw, specs, ws
 
 

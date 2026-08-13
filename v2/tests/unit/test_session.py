@@ -162,7 +162,9 @@ def test_gateway_sessions_delete(tmp_path):
         service=None,
         registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)),
     )
-    gw.clients = {_WS()}
+    ws = _WS()
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
 
     out = asyncio.run(gw._sessions_delete({"sessionKey": "d1", "agentId": "main"}))
     assert out["ok"] and out["deleted"]
@@ -218,7 +220,9 @@ def test_gateway_sessions_rename(tmp_path):
         service=None,
         registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)),
     )
-    gw.clients = {_WS()}
+    ws = _WS()
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
 
     out = asyncio.run(
         gw._sessions_rename({"sessionKey": "s1", "agentId": "main", "title": "  My Chat  "})

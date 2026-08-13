@@ -39,6 +39,7 @@ from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
+from agent_runtime.domain import ownership
 from agent_runtime.domain.notify import Notification
 from agent_runtime.infrastructure import accounts, telemetry, user_state
 from agent_runtime.infrastructure.env_file import EnvFile
@@ -941,6 +942,11 @@ class Gateway:
     # [app] declares public = true. Always ALSO in client_scopes; further limited to
     # PUBLIC_APP_METHODS + the agent's [app] public_tools.
     client_public: set = field(default_factory=set)
+    # TENANT ISOLATION, receive side: ws -> the identity set this connection authenticated to
+    # (ownership.callers — an account, plus "local" on a desktop; frozenset() for anonymous
+    # public sockets). _send_all delivers a frame only where ownership.may_observe says the
+    # frame's acting owner is among these. Populated for EVERY connection at _handle_conn.
+    client_identities: dict = field(default_factory=dict)
     # global in-flight cap for public tools.invoke (created lazily on the running loop)
     _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
@@ -1724,6 +1730,12 @@ class Gateway:
                             roots.append(Path(p))
             except Exception:  # noqa: BLE001 — a bad spec never blocks file serving
                 pass
+        return self._dedupe_resolved(roots)
+
+    @staticmethod
+    def _dedupe_resolved(roots: list[Path]) -> list[Path]:
+        """Resolve + case-insensitively dedupe root paths. Resolution is also the symlink/
+        `..` defence: is_under_roots compares resolved paths."""
         out: list[Path] = []
         seen: set[str] = set()
         for r in roots:
@@ -1737,13 +1749,14 @@ class Gateway:
                 out.append(rr)
         return out
 
-    def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
+    async def _http_request(self, connection: ServerConnection, request) -> HttpResponse | None:
         """websockets handshake hook: plain HTTP on the SAME port as the gateway —
         `GET /file` serves one guarded artifact file (so a client renders <img>/<video>
         straight from the daemon) and `GET /apps/<agentId>/…` serves an app agent's own
         UI (same origin as the WS ⇒ no CORS, no second server; docs/PROTOCOL.md §9).
         Returns a Response to short-circuit; None lets every other request (including
-        the WebSocket upgrade) proceed to the handshake."""
+        the WebSocket upgrade) proceed to the handshake. A coroutine (websockets ≥ 13
+        awaits it) because /file resolves the caller's identity via Accounts."""
         try:
             split = urlsplit(getattr(request, "path", "") or "")
             if split.path == "/healthz":
@@ -1754,7 +1767,7 @@ class Gateway:
                     200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
                 )
             if split.path == "/file":
-                return self._serve_file(split, getattr(request, "headers", {}))
+                return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
                 return self._serve_platform(split, getattr(request, "headers", {}))
             if split.path == "/apps" or split.path.startswith("/apps/"):
@@ -1937,31 +1950,77 @@ class Gateway:
             "at": time.monotonic(),
         }
 
-    def _serve_file(self, split, headers) -> HttpResponse:
+    async def _http_identities(self, q: dict, headers) -> frozenset[str] | None:
+        """WHO is fetching over plain HTTP — the SAME rule as the socket gate in
+        _handle_conn, so /file and the WS are one door with two transports, never two doors
+        with two rules. The session identifies (resolved via Accounts, `?session=` with the
+        `?token=`/Authorization fallback every client already sends); the machine token
+        authorises where sign-in is not enforced and carries the deployment-owner identity.
+        None = unauthorized. There is no anonymous file tier: the public app tier serves
+        shipped UI code, never user data."""
+
+        def _param(name: str) -> str:
+            return ((q.get(name) or [""])[0] or "").strip()
+
+        token = _param("token")
+        if not token:
+            auth = ""
+            try:
+                auth = headers.get("Authorization") or ""
+            except Exception:  # noqa: BLE001
+                auth = ""
+            if auth.startswith("Bearer "):
+                token = auth[len("Bearer ") :].strip()
+        account = await accounts.resolve(_param("session") or token)
+        if account is not None:
+            return ownership.callers(account.get("account_id"), self._hosted())
+        if accounts.enabled():
+            return None  # sign-in required — the machine token must not bypass it (WS rule)
+        if self.auth_token and not hmac.compare_digest(token, self.auth_token):
+            return None
+        return ownership.callers(None, self._hosted())
+
+    def _file_roots_for(self, identities: frozenset[str]) -> list[Path]:
+        """The /file roots THIS caller may read — tenant isolation applied to disk.
+
+        A deployment-owner identity (the desktop human, the hosted operator) reads the
+        deployment's whole world: exactly the legacy roots. An account reads its OWN tenant
+        subtree (where its runs and tools already write everything) plus the shared agent
+        DEFINITION dirs — shipped code and assets, the same files /apps serves openly. A
+        cross-tenant path is then simply OUTSIDE the caller's roots: unreachable by
+        construction, not refused by a check somebody must remember to extend."""
+        if identities & ownership.DEPLOYMENT_OWNERS:
+            return self._allowed_file_roots()
+        roots: list[Path] = []
+        state_dir = getattr(self.config, "state_dir", None)
+        if state_dir:
+            roots.extend(user_state.account_root(state_dir, acct) for acct in identities)
+        if self.registry is not None:
+            try:
+                for aid in self.registry.list_ids():
+                    d = getattr(self.registry.get(aid), "dir", None)
+                    if d:
+                        roots.append(Path(d))
+            except Exception:  # noqa: BLE001 — a bad spec never blocks file serving
+                pass
+        return self._dedupe_resolved(roots)
+
+    async def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""
 
         def deny(code: int, reason: str) -> HttpResponse:
             return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
 
         q = parse_qs(split.query)
-        if self.auth_token:  # same bearer token as the WebSocket
-            tok = (q.get("token") or [""])[0]
-            if not tok:
-                auth = ""
-                try:
-                    auth = headers.get("Authorization") or ""
-                except Exception:  # noqa: BLE001
-                    auth = ""
-                if auth.startswith("Bearer "):
-                    tok = auth[len("Bearer ") :].strip()
-            if not hmac.compare_digest(tok, self.auth_token):
-                return deny(401, "Unauthorized")
+        identities = await self._http_identities(q, headers)
+        if identities is None:
+            return deny(401, "Unauthorized")
 
         raw = unquote((q.get("path") or [""])[0])
         if not raw:
             return deny(400, "Bad Request")
         p = Path(raw)
-        if not is_under_roots(p, self._allowed_file_roots()) or not p.is_file():
+        if not is_under_roots(p, self._file_roots_for(identities)) or not p.is_file():
             return deny(404, "Not Found")
 
         try:
@@ -2272,6 +2331,15 @@ class Gateway:
             self.client_scopes[ws] = scope
         if public:
             self.client_public.add(ws)
+        # WHAT THIS SOCKET MAY OBSERVE — the receive half of tenant isolation (its twin is the
+        # acting owner _send_all derives per frame). Resolved ONCE, next to the contextvar pin
+        # below, so fan-out never re-answers "who is this". Anonymous public sockets hold NO
+        # identities: shipped UI and tools.invoke answers reach them, tenant-owned events never.
+        self.client_identities[ws] = (
+            frozenset()
+            if public
+            else ownership.callers((account or {}).get("account_id"), self._hosted())
+        )
         if account is not None:
             log.info(
                 "connection %s authorized: account=%s <%s>",
@@ -2305,6 +2373,7 @@ class Gateway:
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
+            self.client_identities.pop(ws, None)
             await self._abort_client_runs(client_id)
 
     # --------------------------------------------------------------- dispatch
@@ -4670,15 +4739,34 @@ class Gateway:
             )
         )
 
-    async def _send_all(self, frame: str) -> None:
-        """Send one frame to every connected client, pruning dead connections.
+    def _hosted(self) -> bool:
+        return bool(getattr(self.config, "hosted", False))
 
-        Agent-SCOPED app connections only receive what _scoped_event_allowed permits
-        (their own agent's events). The frame is parsed lazily, once, and only when a
-        scoped connection actually exists — host-only deployments pay nothing."""
+    async def _send_all(self, frame: str) -> None:
+        """Send one frame to every connected client that MAY OBSERVE it, pruning dead
+        connections.
+
+        TENANT ISOLATION, send side, and this is its one choke point: every live event —
+        chat.event, sessions/projects/agents.changed, notification, marketplace.progress —
+        passes through here, so agents, tools and future emitters inherit the rule with no
+        declaration. The frame's OWNER is whoever is acting in the CURRENT context (every
+        emission site already runs in its actor's context: RPC handlers in the connection's,
+        runs in the run task's, cron in the task's — the same contextvar the state resolvers
+        read), else the deployment's own identity via stamp_owner. Delivery is
+        ownership.may_observe against the identity set resolved at connect
+        (client_identities): strict membership for hosted strangers, everything for the
+        machine's own human — desktop is the degenerate case where both sides are "local".
+        A socket the map does not know observes nothing owned: fail closed, not open.
+
+        Agent-SCOPED app connections additionally only receive what _scoped_event_allowed
+        permits (their own agent's events). The frame is parsed lazily, once, and only when
+        a scoped connection actually exists — host-only deployments pay nothing."""
+        owner = accounts.account_id() or ownership.stamp_owner(None, self._hosted())
         dead = []
         scoped_meta: tuple[str, dict] | None = None
         for ws in self.clients:
+            if not ownership.may_observe(owner, self.client_identities.get(ws, frozenset())):
+                continue
             scope = self.client_scopes.get(ws)
             if scope is not None:
                 if scoped_meta is None:
@@ -4696,6 +4784,7 @@ class Gateway:
         for ws in dead:
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
+            self.client_identities.pop(ws, None)
 
     # ---------------------------------------------------------- notifications
 

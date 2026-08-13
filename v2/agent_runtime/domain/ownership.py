@@ -130,3 +130,26 @@ def presumed_owner(in_overlay: bool, account_id: str | None, hosted: bool) -> st
 
 def owned_by_caller(owner: str, account_id: str | None, hosted: bool) -> bool:
     return owner in callers(account_id, hosted)
+
+
+# The identities that own a DEPLOYMENT itself: the machine's human on a desktop, the platform
+# on a hosted daemon. Holding one means the world resident on that deployment is yours.
+DEPLOYMENT_OWNERS = frozenset({LOCAL_OWNER, PLATFORM_OWNER})
+
+
+def may_observe(owner: str, identities: frozenset[str]) -> bool:
+    """May a caller holding ``identities`` OBSERVE data owned by ``owner`` — a live run's
+    events, a file's bytes?
+
+    Two clauses, and the first is what keeps this branch-free across deployments: a caller
+    holding a DEPLOYMENT-owner identity observes everything resident on that deployment —
+    the same rule sight of agents already follows (FileAgentRegistry._current: the desktop
+    human and the hosted operator "still see everything — it is theirs"). ``callers()`` never
+    grants "local" or "platform" to a hosted stranger, so on a shared daemon this collapses
+    to strict owner-membership; on a desktop every socket of the machine's human holds
+    "local" and the test is always true — today's behaviour, now as a rule instead of an
+    accident. An anonymous caller (the public app tier) holds NO identities and observes
+    nothing owned by anyone."""
+    if identities & DEPLOYMENT_OWNERS:
+        return True
+    return bool(owner) and owner in identities

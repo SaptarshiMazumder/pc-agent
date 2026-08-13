@@ -499,9 +499,6 @@
   ],
   "webhook_host": "0.0.0.0",
   "webhook_port": 8788,
-  "model_fallbacks": [
-    "deepseek/deepseek-v4-pro"
-  ],
   "agents": {
     "agent-builder": {
       "model": "deepseek/deepseek-v4-pro",

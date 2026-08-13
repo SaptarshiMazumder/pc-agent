@@ -149,7 +149,9 @@ async def test_gateway_push_notification_frame(tmp_path):
             sent.append(frame)
 
     gw = Gateway(config=SimpleNamespace(state_dir=tmp_path), service=None, task_store=None)
-    gw.clients.add(_WS())
+    ws = _WS()
+    gw.clients.add(ws)
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     await gw._push_notification(_notif(text="ping", detail="d", agent_id="a", kind="blocked"))
     frame = json.loads(sent[0])
     assert frame["type"] == "event" and frame["event"] == "notification"
