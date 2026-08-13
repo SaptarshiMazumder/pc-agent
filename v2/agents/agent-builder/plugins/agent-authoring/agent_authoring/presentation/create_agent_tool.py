@@ -1,11 +1,18 @@
 """create_agent — SCAFFOLD a new persistent AGENT, then get out of the way.
 
-"An agent is a directory": this writes ``agents/<id>/`` (``agent.toml`` + ``IDENTITY.md``, plus
-``AGENTS.md`` when operating rules are given), then registers it in the LIVE registry via
-``registry.add(id)`` — the inverse of the registry's ``remove()`` — so the new agent is
-resolvable on the next message WITHOUT a restart. The files it writes are exactly what
-``FileAgentRegistry`` / ``load_bootstrap`` read, so a by-chat agent is identical to a
-hand-authored one.
+"An agent is a directory": this authors the skeleton (``agent.toml`` + ``IDENTITY.md``, plus
+``AGENTS.md`` when operating rules are given) and hands it to ``registry.create_from`` — THE
+one creation path — which owns the WORLD half: placement (the caller's account overlay when
+the connection has one, else the shared catalogue), layer-aware collision, the ownership
+stamp at birth, and live registration, so the new agent is resolvable on the next message
+WITHOUT a restart. The files it writes are exactly what ``FileAgentRegistry`` /
+``load_bootstrap`` read, so a by-chat agent is identical to a hand-authored one.
+
+This tool used to place, register and collide by ITSELF (write files + ``registry.add``) —
+which meant no ownership record, a collision check blind to the shared layer, and, once
+account overlays arrived, a write target the stale scope refused. Delegating the world half
+is what fixed all three at once: the tool cannot get placement wrong because it never
+answers placement.
 
 DELIBERATELY FROZEN AT THE SKELETON — do not add parameters for the rest of agent.toml.
 
@@ -14,7 +21,7 @@ This tool owns the half of an agent that genuinely needs code:
     scopes it INTO that table and it is silently ignored (the exact bug that made an authored
     ``color``/``tagline`` under ``[app]`` vanish in favour of a generated sidecar value),
   * refusing to create or clobber the default agent ``main``,
-  * ``registry.add()`` — the agent is resolvable on the very next message.
+  * the refusal wording that hands an "already exists" decision back to the USER.
 
 The other half is open-ended and belongs to ``write``: ``[app]``, ``[tools]``, the display keys,
 ``skills``, and above all ``[plugins.<plugin>.tools.<tool>]`` — any plugin x any tool x any knob
@@ -212,9 +219,13 @@ class CreateAgentTool(Tool):
         heartbeat_md = (params.get("heartbeat_md") or "").strip()
         caps = params.get("capabilities") if isinstance(params.get("capabilities"), dict) else {}
 
-        d = Path(reg.agents_dir) / agent_id
-        existed = d.is_dir()
-        if existed and action == "create":
+        # WHERE the agent lives is the REGISTRY's answer, never built from a path here:
+        # resolve_dir finds an existing agent in whichever layer the caller sees it (shared
+        # catalogue or their account overlay), and create_from picks the write layer for a
+        # new one. Building agents_dir/<id> by hand was how this tool once missed a curated
+        # agent entirely and scaffolded an overlay skeleton that shadowed it.
+        existing = reg.resolve_dir(agent_id)
+        if action == "create" and (existing is not None or agent_id in set(reg.list_ids())):
             # This message used to read "use action='update' to change it" — a one-step
             # workaround the model took on its own, which is how an existing agent lost its
             # [app] table and orphaned a whole ui/ folder. The refusal must hand the decision
@@ -229,7 +240,7 @@ class CreateAgentTool(Tool):
                 f"action='update' with confirm_overwrite=true",
                 is_error=True,
             )
-        if not existed and action == "update":
+        if action == "update" and existing is None:
             return ToolResult.text(
                 f"no agent '{agent_id}' to update — use action='create'", is_error=True
             )
@@ -237,8 +248,8 @@ class CreateAgentTool(Tool):
         # An update REWRITES agent.toml from the skeleton, so anything `write` authored is
         # gone. Name it before doing it, and refuse without explicit confirmation.
         destroyed: list[str] = []
-        if existed and action == "update":
-            destroyed = _authored_sections(d / "agent.toml")
+        if action == "update":
+            destroyed = _authored_sections(existing / "agent.toml")
             if not params.get("confirm_overwrite"):
                 lost = ", ".join(destroyed) if destroyed else "nothing beyond the skeleton"
                 return ToolResult.text(
@@ -250,49 +261,62 @@ class CreateAgentTool(Tool):
                     is_error=True,
                 )
 
+        d = existing if action == "update" else Path(reg.agents_dir) / agent_id
         # This tool writes files directly, so it carries the same scope `write` does.
         try:
             check_write(d)
         except WriteRefused as e:
             return ToolResult.text(str(e), is_error=True)
 
-        d.mkdir(parents=True, exist_ok=True)
-        # TOML: top-level keys MUST precede any [table], so emit name/model/description/heartbeat
-        # first, then the [capabilities] / [subagents] tables.
-        top = [f"name = {_toml_str(name)}", f"version = {_toml_str(version)}"]
-        if model:
-            top.append(f"model = {_toml_str(model)}")
-        if description:
-            top.append(f"description = {_toml_str(description)}")
-        if heartbeat:
-            top.append(f"heartbeat = {_toml_str(heartbeat)}")
-        tables: list = []
-        cap_lines = [
-            f"{k} = {'true' if caps.get(k) else 'false'}"
-            for k in ("autonomy", "notify", "channels")
-            if k in caps
-        ]
-        if cap_lines:
-            tables += ["", "[capabilities]"] + cap_lines
-        if allow:
-            tables += ["", "[subagents]", f"allow = {_toml_arr(allow)}"]
-        (d / "agent.toml").write_text("\n".join(top + tables) + "\n", encoding="utf-8")
-        (d / "IDENTITY.md").write_text(identity + "\n", encoding="utf-8")
-        if rules:
-            (d / "AGENTS.md").write_text(rules + "\n", encoding="utf-8")
-        if heartbeat_md:
-            (d / "HEARTBEAT.md").write_text(heartbeat_md + "\n", encoding="utf-8")
+        def write_files(dest: Path) -> None:
+            # The CONTENT half — this tool's whole reason to exist. TOML: top-level keys MUST
+            # precede any [table], so emit name/model/description/heartbeat first, then the
+            # [capabilities] / [subagents] tables.
+            top = [f"name = {_toml_str(name)}", f"version = {_toml_str(version)}"]
+            if model:
+                top.append(f"model = {_toml_str(model)}")
+            if description:
+                top.append(f"description = {_toml_str(description)}")
+            if heartbeat:
+                top.append(f"heartbeat = {_toml_str(heartbeat)}")
+            tables: list = []
+            cap_lines = [
+                f"{k} = {'true' if caps.get(k) else 'false'}"
+                for k in ("autonomy", "notify", "channels")
+                if k in caps
+            ]
+            if cap_lines:
+                tables += ["", "[capabilities]"] + cap_lines
+            if allow:
+                tables += ["", "[subagents]", f"allow = {_toml_arr(allow)}"]
+            (dest / "agent.toml").write_text("\n".join(top + tables) + "\n", encoding="utf-8")
+            (dest / "IDENTITY.md").write_text(identity + "\n", encoding="utf-8")
+            if rules:
+                (dest / "AGENTS.md").write_text(rules + "\n", encoding="utf-8")
+            if heartbeat_md:
+                (dest / "HEARTBEAT.md").write_text(heartbeat_md + "\n", encoding="utf-8")
 
-        try:
-            reg.add(agent_id)  # register LIVE — resolvable next message, no restart
-        except Exception as e:  # noqa: BLE001 — files are written; report the registration failure
-            return ToolResult.text(
-                f"wrote agents/{agent_id}/ but could not register it live "
-                f"({type(e).__name__}: {e}) — a restart will pick it up",
-                is_error=True,
-            )
+        if action == "create":
+            # THE one creation path: the registry owns placement (the caller's overlay when
+            # they have one), layer-aware collision, the ownership stamp at birth, and live
+            # registration — this tool only authors the files.
+            try:
+                spec = reg.create_from(agent_id, write_files)
+            except ValueError as e:  # the registry's own collision/validity backstop
+                return ToolResult.text(str(e), is_error=True)
+            d = Path(getattr(spec, "dir", d))
+        else:
+            write_files(d)
+            try:
+                reg.add(agent_id)  # re-load LIVE — the rebuilt definition serves next message
+            except Exception as e:  # noqa: BLE001 — files are written; report the load failure
+                return ToolResult.text(
+                    f"wrote agents/{agent_id}/ but could not register it live "
+                    f"({type(e).__name__}: {e}) — a restart will pick it up",
+                    is_error=True,
+                )
 
-        verb = "Rebuilt" if existed else "Created"
+        verb = "Rebuilt" if action == "update" else "Created"
         written = ["agent.toml", "IDENTITY.md"]
         if rules:
             written.append("AGENTS.md")

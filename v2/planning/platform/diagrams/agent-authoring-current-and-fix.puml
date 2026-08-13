@@ -1,0 +1,214 @@
+@startuml agent-authoring-current-and-fix
+' ============================================================================
+'  agentd AGENT AUTHORING - the write-scope deadlock (2026-08) and the
+'  ONE-AUTHORITY fix. STATUS: BUILT (uncommitted) - pinned by
+'  tests/unit/test_agent_authoring_paths.py (registry.agent_roots +
+'  registry.create_from + AgentService._agent_roots + tool delegation).
+'  Activity-flowchart view, same conventions as web-agent-request-flow.puml,
+'  agent-publish-and-ownership-flow.puml, tenant-isolation-current-and-fix.puml.
+'
+'  THE DEADLOCK, one sentence:
+'    create_agent writes where the REGISTRY says the caller's agents live
+'    (the per-account overlay - correct), but check_write judges it against a
+'    scope expanded from WHERE THE AGENT-BUILDER'S OWN FILES SIT (the shared
+'    catalogue - stale) - so the compliant write is refused and the refusal
+'    message steers the model toward the non-compliant one.
+'
+'  WHY THE FIX IS NOT A PATCH ON THE TOOL: the platform already has ONE
+'  doctrine, proven three times over - a per-caller fact is resolved ONCE at
+'  a choke point by the subsystem that OWNS it, carried as a VALUE, and no
+'  consumer ever re-derives it:
+'
+'    egress      owner IN identities        ownership.may_observe (isolation fix)
+'    models      whose key pays this turn   model_proxy.turn_key + accounts ctxvar
+'    sandbox     what may this tool do      CapabilityResolver from tool metadata
+'
+'  Authoring is the LAST subsystem still deriving "where does the caller's
+'  world live" by itself (from static file layout). The fix is to finish the
+'  doctrine, not to special-case the tool: the REGISTRY is the single
+'  authority for agent placement, and everything that needs the answer -
+'  scope expansion, creation, collision, ownership stamping - ASKS it.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng agent-authoring-current-and-fix.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Agent authoring - the write-scope deadlock + the one-authority fix\nthe REGISTRY owns "where do this caller's agents live"; scope, creation, collision and\nownership all ASK it - no consumer re-derives, no mode branches, every agent inherits it instantly
+
+start
+
+partition "0 . THE DOCTRINE - already proven 3x   (same daemon, all modes)" #E8F0FE {
+  :**per-caller facts are resolved ONCE, at a choke point,
+  by the subsystem that owns them, and consumed as VALUES**;
+  :**egress** - who may see this frame or file: ownership.may_observe
+  over identities pinned per connection (the tenant-isolation fix);
+  :**models** - whose credential pays this turn: model_proxy.turn_key
+  reads the accounts contextvar - BYOK direct, cloud via our proxy,
+  hosted metered per account - tools never branch, never hold keys;
+  :**sandbox** - what an untrusted plugin may do: CapabilityResolver
+  derives grants from the tool's own metadata (needs_model, paths),
+  the broker clamps and meters - the plugin code never knows;
+  :authoring is the LAST subsystem outside the doctrine -
+  it derives "where does the caller's world live" BY ITSELF;
+}
+
+partition "1 . THE DEADLOCK (TODAY) - two answers to one question" #FDECEA {
+  :user signs in (desktop cloud or web) - the connection
+  carries an ACCOUNT, so the registry's overlay resolver
+  activates: reg.agents_dir now answers
+  `.agentd/accounts/<acct>/installed/agents`
+  (per-caller, dynamic - CORRECT, the identity plan working);
+  :the agent-builder's scope token `<agents_dir>` was expanded
+  by AgentService._expand_paths as **agent_dir.parent** - the
+  parent of wherever the BUILDER'S OWN definition sits, i.e.
+  the shared catalogue `v2/agents`
+  (static, layer-blind, account-blind - STALE);
+  if (create_agent writes to the overlay?) then (yes - the compliant path)
+    :check_write judges the overlay path against the
+    stale scope -> **WriteRefused** - the path the
+    RULES require is the path the SCOPE forbids;
+  else (model falls back to `write`)
+    :the refusal text ("write under that agent's own
+    directory") steers the model into authoring
+    DIRECTLY under the shared `v2/agents` - which the
+    stale scope PERMITS;
+    :=> bypasses the overlay AND ownership stamping -
+    on hosted, a record-less SHARED agent that
+    default-privacy then hides from its own creator;
+  endif
+  :=> the builder agent burns its whole budget
+  reconciling two systems that genuinely disagree -
+  "stuck", but not confused: both readings were true;
+}
+
+partition "2 . TWO SIDE-GAPS, SAME ROOT - a second creation path" #FDECEA {
+  :registry.create() is the path that follows ALL the rules:
+  places via _write_target, collides against _current()
+  (everything the caller can SEE, so an overlay skeleton
+  can never shadow a curated id), stamps `.agentd-meta.json`
+  at birth via ownership_store.stamp_create;
+  :create_agent re-implements that half itself: writes files
+  directly + reg.add() - so it **never stamps ownership**
+  (add only reads records) and its collision check is
+  **d.is_dir() on one layer only** (would shadow a curated
+  agent from the overlay);
+  :root cause is structural: TWO creation paths, one of which
+  re-derives placement, collision and ownership instead of
+  asking the subsystem that owns them;
+}
+
+partition "3 . THE FIX - ONE AUTHORITY, ASKED, NEVER RE-DERIVED" #E6F4EA {
+  :**the rule**: "where do THIS caller's agents live" has ONE
+  owner - the registry (_write_target / _current / roots).
+  Every consumer asks; none derives from file layout;
+  :**a) scope follows the caller** - _expand_paths stops
+  reading agent_dir.parent and asks the registry:
+  `<agents_dir>` expands to BOTH roots - the shared
+  catalogue AND the caller's overlay when the connection
+  has one. Expansion already runs at RunContext creation,
+  inside the connection's context, so the per-account
+  answer is right automatically. _protected_paths gets
+  the same treatment;
+  :**b) creation becomes ONE path** - split by ownership
+  of the knowledge: the TOOL keeps the CONTENT half
+  (skeleton TOML grammar, key order, identity/heartbeat,
+  refusal wording - the model-facing craft), the REGISTRY
+  keeps the WORLD half (placement, layer-aware collision,
+  stamp-at-birth, live add). create_agent DELEGATES -
+  both side-gaps die structurally, not by patching checks
+  into the tool;
+  :**c) nothing else moves** - models, sandbox and egress
+  already consume caller context at their own choke
+  points; authoring simply joins the same doctrine.
+  No agent.toml changes anywhere: every agent that says
+  `<agents_dir>` gets a caller-shaped scope with zero
+  edits, today's agents and every future one alike;
+}
+
+partition "4 . WHAT EACH MODE FEELS   (same code, different values)" #E0F2F1 {
+  :**local BYOK (signed out)** - no account, no overlay:
+  registry answers the shared catalogue alone; scope,
+  placement and collision all agree exactly as today,
+  new agents stamped owner "local". Byte-for-byte;
+  :**desktop cloud (signed in, daemon on the user's PC)** -
+  account -> overlay: new agents land in the ACCOUNT layer,
+  stamped to the account, publishable under that identity,
+  scope covers shared + overlay, so previously-authored
+  shared agents stay editable (installed ones stay guarded
+  by the protected set);
+  :**hosted web** - account always present -> every created
+  agent is born in the creator's own layer, stamped, private
+  by default, visible and editable only through ownership
+  rules the rest of the platform already enforces; the
+  operator (machine token, no account) writes the shared
+  layer - the deployment's own, a value not a branch;
+}
+
+partition "5 . WHY EVERY AGENT OBEYS INSTANTLY   (choke points)" #E8F0FE {
+  :the fix lives in TWO process-level seams - AgentService
+  (scope expansion at RunContext creation) and the registry
+  (the one creation path) - no per-agent code, no per-tool
+  code, no client code;
+  :any tool that writes files passes check_write, and
+  check_write reads the RunContext - so every authoring
+  tool (write, create_tool, scaffold_ui, create_agent)
+  inherits caller-shaped scope from the same seam;
+  :ownership stamped at birth on the ONE creation path means
+  publish, `mine`, edit-permission and hosted visibility all
+  read a RECORD everywhere - the presumption fallback goes
+  back to being legacy-only, as designed;
+}
+
+stop
+
+note right
+  ==== REUSED, NOT INVENTED ====
+  _write_target / _current / agents_dir,
+  ownership_store.stamp_create, the accounts
+  contextvar and the RunContext carrier all
+  exist and are tested. The fix rewires who
+  ASKS whom - it adds no new concept, which
+  is why it lands in all three modes at once.
+
+  ==== KNOWN RESIDUE, later ====
+  * refusal wording in check_write should name
+    the overlay explicitly once scope is fixed
+  * protected set (installed agents) should
+    cover overlay installs, same derivation
+  * registry.create()'s skeleton is poorer than
+    the tool's (no version) - the merged path
+    keeps the tool's richer content half
+end note
+
+legend left
+  | Piece | Today | After the fix |
+  | `<agents_dir>` scope token | agent_dir.parent - static, layer-blind | registry-answered: shared + caller overlay |
+  | create_agent placement | reg.agents_dir (overlay) - then REFUSED | same target, scope agrees - accepted |
+  | creation paths | two (registry.create vs tool DIY) | one - tool authors content, registry places |
+  | ownership record | stamped only on registry.create path | stamped at birth on every creation |
+  | collision check | tool: one layer; registry: all visible | one layer-aware check in the registry |
+  | models / billing | already doctrine-compliant (funnel) | unchanged |
+  | sandbox grants | already doctrine-compliant (resolver) | unchanged |
+  | local BYOK | works (single layer) | identical - overlay absent, values degenerate |
+  | desktop cloud | DEADLOCKED on create | creates into account layer, stamped |
+  | hosted web | deadlock OR unstamped shared agent | born private, stamped, publishable |
+endlegend
+
+@enduml

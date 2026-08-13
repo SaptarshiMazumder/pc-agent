@@ -177,6 +177,16 @@ def test_a_sibling_with_a_shared_prefix_is_not_inside(tmp_path):
 
 
 # ── the token expansion ─────────────────────────────────────────────────────
+# Expansion asks the REGISTRY for the caller's roots (agent_roots) and only falls back to
+# agent_dir.parent for registries without the method — these services are built registry-less,
+# so they exercise that fallback, which in a single-layer world is the historical answer.
+# The registry-answered (overlay) cases live in test_agent_authoring_paths.py.
+def _expander():
+    return AgentService(
+        engine=None, tools=[], registry=None, make_session=None, build_prompt=None
+    )
+
+
 class _Agent:
     def __init__(self, d):
         self.dir = d
@@ -190,8 +200,8 @@ def test_tokens_expand_to_this_installs_real_paths(tmp_path):
     agent_dir = tmp_path / "agents" / "agent-builder"
     agent_dir.mkdir(parents=True)
     a = _Agent(agent_dir)
-    assert AgentService._expand_paths(a, a.write_roots) == (str(tmp_path / "agents"),)
-    assert AgentService._expand_paths(a, a.write_denies) == (str(agent_dir),)
+    assert _expander()._expand_paths(a, a.write_roots) == (str(tmp_path / "agents"),)
+    assert _expander()._expand_paths(a, a.write_denies) == (str(agent_dir),)
 
 
 def test_an_unknown_token_is_dropped_rather_than_taken_literally(tmp_path):
@@ -199,7 +209,7 @@ def test_an_unknown_token_is_dropped_rather_than_taken_literally(tmp_path):
     root that matches nothing — harmless — but dropping it is unambiguous."""
     agent_dir = tmp_path / "agents" / "x"
     agent_dir.mkdir(parents=True)
-    assert AgentService._expand_paths(_Agent(agent_dir), ("<typoo_dir>/x",)) == ()
+    assert _expander()._expand_paths(_Agent(agent_dir), ("<typoo_dir>/x",)) == ()
 
 
 def test_an_agent_with_no_dir_expands_nothing(tmp_path):
@@ -207,7 +217,7 @@ def test_an_agent_with_no_dir_expands_nothing(tmp_path):
     tokens. Expanding to something wrong would be worse than expanding to nothing."""
     class _NoDir:
         dir = None
-    assert AgentService._expand_paths(_NoDir(), ("<agents_dir>",)) == ()
+    assert _expander()._expand_paths(_NoDir(), ("<agents_dir>",)) == ()
 
 
 # ── the real agent-builder declaration ──────────────────────────────────────
@@ -228,7 +238,7 @@ def test_an_agent_object_without_the_fields_is_unrestricted():
     import types
 
     a = types.SimpleNamespace(dir=None)
-    assert AgentService._expand_paths(a, getattr(a, "write_roots", ())) == ()
+    assert _expander()._expand_paths(a, getattr(a, "write_roots", ())) == ()
 
 
 # ── item 2: an INSTALLED agent is not yours to edit ─────────────────────────

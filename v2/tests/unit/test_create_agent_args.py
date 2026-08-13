@@ -21,17 +21,36 @@ from agent_runtime.application.interfaces.tool import ToolArgError, validate_arg
 
 
 class _Registry:
-    """Just enough registry for the tool: a roster and an agents dir."""
+    """Just enough registry for the tool, mirroring the REAL contract: the tool authors
+    content, the registry owns the world half — resolve_dir answers where an existing
+    agent lives, create_from places/collides/registers a new one (FileAgentRegistry also
+    stamps ownership there; this stand-in only models the placement contract)."""
 
     def __init__(self, tmp):
         self.agents_dir = str(tmp)
         self.added = []
+        self.created = []
 
     def list_ids(self):
         return ["main"]
 
     def add(self, agent_id):
         self.added.append(agent_id)
+
+    def resolve_dir(self, agent_id):
+        d = Path(self.agents_dir) / agent_id
+        return d if d.is_dir() else None
+
+    def create_from(self, agent_id, write_files):
+        from types import SimpleNamespace
+
+        d = Path(self.agents_dir) / agent_id
+        if agent_id in self.list_ids() or d.exists():
+            raise ValueError(f"agent '{agent_id}' already exists")
+        d.mkdir(parents=True, exist_ok=True)
+        write_files(d)
+        self.created.append(agent_id)
+        return SimpleNamespace(dir=str(d))
 
 
 def _tool(tmp_path):
