@@ -56,7 +56,9 @@ def _gateway(tmp_path, agents=("main",)):
             get=lambda a: SimpleNamespace(state_dir=dirs[a]),
         ),
     )
-    gw.clients = {_WS(events)}
+    ws = _WS(events)
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     return gw, events
 
 

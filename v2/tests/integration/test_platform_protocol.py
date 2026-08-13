@@ -61,6 +61,8 @@ class _CapturingWs:
 def _broadcast_payload(gw: Gateway, session_key: str, agent_id=None) -> dict:
     ws = _CapturingWs()
     gw.clients.add(ws)
+    # tenant fan-out is fail-closed: wire the identity _handle_conn would have wired
+    gw.client_identities[ws] = frozenset({"local"})
     asyncio.run(gw._broadcast(session_key, "run1", AgentEvent("turn_start", {}), agent_id))
     return json.loads(ws.frames[0])["payload"]
 
@@ -278,6 +280,10 @@ def test_send_all_filters_scoped_connections(tmp_path):
     host_ws, app_ws = _CapturingWs(), _CapturingWs()
     gw.clients.update({host_ws, app_ws})
     gw.client_scopes[app_ws] = "demo"
+    # every real connection registers its identity set at _handle_conn; a desktop socket
+    # holds "local" (tenant fan-out is fail-closed, so the test wires what the gate wires)
+    gw.client_identities[host_ws] = frozenset({"local"})
+    gw.client_identities[app_ws] = frozenset({"local"})
     asyncio.run(gw._broadcast("s1", "r1", AgentEvent("turn_start", {}), "other"))
     asyncio.run(gw._broadcast("s2", "r2", AgentEvent("turn_start", {}), "demo"))
     assert len(host_ws.frames) == 2  # host sees everything
@@ -659,16 +665,18 @@ def test_host_alias_serving_scope_and_dormancy(tmp_path):
     gw.config.app_hosts = {"demo.example.com": "demo"}
 
     # aliased host serves the agent's ui at "/" (and assets by path)
-    r = gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    )
     assert r is not None and r.status_code == 200 and b"demo app" in r.body
-    r = gw._http_request(
-        None, SimpleNamespace(path="/app.js", headers={"Host": "demo.example.com"})
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/app.js", headers={"Host": "demo.example.com"}))
     )
     assert r is not None and r.status_code == 200 and b"console.log" in r.body
 
     # a WebSocket upgrade on the aliased host must NOT be short-circuited
     ws_req = SimpleNamespace(path="/", headers={"Host": "demo.example.com", "Upgrade": "websocket"})
-    assert gw._http_request(None, ws_req) is None
+    assert asyncio.run(gw._http_request(None, ws_req)) is None
 
     # …and the connection it becomes is scoped to the aliased agent server-side
     ws = SimpleNamespace(request=ws_req)
@@ -681,12 +689,14 @@ def test_host_alias_serving_scope_and_dormancy(tmp_path):
 
     # unaliased host: nothing changes (falls through to the normal handshake / no scope)
     plain = SimpleNamespace(path="/", headers={"Host": "127.0.0.1:8787"})
-    assert gw._http_request(None, plain) is None
+    assert asyncio.run(gw._http_request(None, plain)) is None
     assert gw._connection_scope(SimpleNamespace(request=plain)) is None
 
     # dormant by default: empty map == today's behavior everywhere
     gw.config.app_hosts = {}
     assert (
-        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+        asyncio.run(
+            gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+        )
         is None
     )

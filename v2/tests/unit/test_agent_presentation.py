@@ -214,7 +214,9 @@ def test_gateway_agents_create(tmp_path):
         service=None,
         registry=reg,
     )
-    gw.clients = {_WS()}
+    ws = _WS()
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
 
     out = asyncio.run(gw._agents_create({"name": "Weather Bot", "description": "forecasts"}))
     assert out["created"] and out["agentId"] == "weather-bot"  # slug from the name

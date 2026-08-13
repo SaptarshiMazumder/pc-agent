@@ -139,6 +139,7 @@ def _harness(tmp_path, stream_fn, tools=None):
     )
     client = _CapturingWs()
     gw.clients.add(client)
+    gw.client_identities[client] = frozenset({"local"})  # tenant fan-out is fail-closed
     # pre-title the session so the fire-and-forget auto-titler skips (it would try a model)
     write_session_meta(state_dir, "conv", title="t", manual=True)
     return gw, client, state_dir
