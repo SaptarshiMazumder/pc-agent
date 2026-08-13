@@ -34,6 +34,21 @@ def _valid_id(s: str) -> bool:
     return bool(s) and all(c.isalnum() or c in "-_" for c in s)
 
 
+#: THE USER'S OWN SUBTREES inside an agent folder. One folder per agent holds its definition AND
+#: its data, so every operation that deletes a definition has to name what is not the definition.
+USER_DATA_DIRS = frozenset({"workspace", "sessions"})
+
+
+def is_definition_dir(d: Path) -> bool:
+    """Is this directory an agent DEFINITION, or just some agent's data?
+
+    The declaration is `agent.toml`. It is the whole test, and it has to be: a folder now holds
+    an agent's definition next to its `sessions/` and `workspace/`, so "there is a directory
+    named <id>" stopped meaning "there is an agent <id> here" the moment a user chatted with an
+    agent they do not own a copy of."""
+    return (d / "agent.toml").is_file()
+
+
 # The starter page create() scaffolds for a NEW app agent — self-contained (no SDK, no
 # build step) so /apps/<id>/ renders the moment the agent exists; the author replaces it.
 _APP_UI_STARTER = """<!doctype html>
@@ -173,6 +188,41 @@ class FileAgentRegistry:
             agent_id = d.name.strip().lower()
             if not _valid_id(agent_id):
                 log.warning("agents: skipping invalid dir name %r", d.name)
+                continue
+            # `main` is the ONE agent allowed to exist undeclared — `agents/main/` may hold just
+            # an IDENTITY.md and the global skills library — but ONLY in the deployment's own
+            # catalogue, which is the same rule this scan already applies to main synthesis: an
+            # overlay must not invent an agent the account never installed. Allowing it in an
+            # overlay would let the data folder of anyone who ever chatted with main shadow the
+            # real one, IDENTITY and skills included.
+            undeclared_main = agent_id == "main" and directory == self._agents_dir
+            if not is_definition_dir(d) and not undeclared_main:
+                # AN AGENT DECLARES ITSELF. Now that one folder holds an agent's definition AND
+                # its data, the account's agents root also contains a folder for every agent the
+                # user has merely CHATTED with — holding sessions/ and workspace/ and nothing
+                # else. Loading those as agents made each one an empty spec that SHADOWED the
+                # real definition in the layer below: agent-builder lost its [app] and its
+                # window, and the shared catalogue effectively went blank for that account.
+                # `main` is the one agent that may exist without a declaration, and it has its
+                # own path (_synthesize_main), so requiring the file here costs nothing.
+                #
+                # SAY SO when the directory holds more than the user's own data: an agent that
+                # silently fails to appear reads as a broken install, and a half-authored agent
+                # (skills but no agent.toml — it happens when authoring is interrupted) is worth
+                # one line to whoever wonders where it went. Pure data folders stay silent;
+                # there is one per agent anybody has ever chatted with.
+                try:
+                    residue = [i.name for i in d.iterdir() if i.name not in USER_DATA_DIRS]
+                except OSError:
+                    residue = []
+                if residue:
+                    log.warning(
+                        "agents: '%s' has no agent.toml, so it is not an agent — skipping %s "
+                        "(it still holds %s)",
+                        agent_id,
+                        d,
+                        ", ".join(sorted(residue)[:5]),
+                    )
                 continue
             try:
                 spec = self._with_ownership(self._load_dir(agent_id, d), d, default_owner)
@@ -590,16 +640,34 @@ class FileAgentRegistry:
             raise ValueError(f"invalid agent id: {agent_id!r}")
         overlay_path = self._overlay_path()
         acct = self._account_id() if callable(self._account_id) else None
-        for specs, root, default_owner in (
-            (self._overlay(), overlay_path, ownership.presumed_owner(True, acct, self._hosted()))
-            if overlay_path is not None
-            else (None, None, ""),
-            (self._specs, self._agents_dir, self._shared_owner_default()),
-        ):
-            if specs is None or root is None:
-                continue
-            d = root / agent_id
-            if d.is_dir():
+        layers = [
+            layer
+            for layer in (
+                (self._overlay(), overlay_path, ownership.presumed_owner(True, acct, self._hosted()))
+                if overlay_path is not None
+                else None,
+                (self._specs, self._agents_dir, self._shared_owner_default()),
+            )
+            if layer is not None
+        ]
+        # A DECLARED definition wins over a bare directory, in either layer. The account's agents
+        # root holds a folder for every agent the user has chatted with (its sessions/ and
+        # workspace/), so "the overlay has a directory by this name" no longer means the account
+        # owns a copy — loading one would shadow the real definition with an empty spec. The
+        # second pass keeps the one agent allowed to exist undeclared (`main`) loadable.
+        for require_declaration in (True, False):
+            for specs, root, default_owner in layers:
+                d = root / agent_id
+                if not d.is_dir():
+                    continue
+                if require_declaration and not is_definition_dir(d):
+                    continue
+                # Undeclared is allowed only for `main`, and only from the shared catalogue —
+                # the same rule the scan applies (an overlay must not define main).
+                if not require_declaration and not (
+                    agent_id == "main" and root == self._agents_dir
+                ):
+                    continue
                 spec = self._with_ownership(self._load_dir(agent_id, d), d, default_owner)
                 specs[agent_id] = spec
                 log.info("agents: added '%s' at runtime from %s", agent_id, root)
@@ -733,26 +801,43 @@ class FileAgentRegistry:
                         "be removed by an account — uninstall only affects agents you installed"
                     )
                 raise KeyError(agent_id)
-            specs, root = overlay, overlay_path
+            specs, root, from_overlay = overlay, overlay_path, True
         else:
             if agent_id not in self._specs:
                 raise KeyError(agent_id)
-            specs, root = self._specs, self._agents_dir
+            specs, root, from_overlay = self._specs, self._agents_dir, False
 
         removed = {"id": agent_id, "definition": False, "sessions": False}
         def_dir = root / agent_id  # definition + workspace/ live here
         if def_dir.is_dir():
-            shutil.rmtree(def_dir, ignore_errors=True)
-            removed["definition"] = not def_dir.exists()
+            if from_overlay:
+                # AN ACCOUNT'S AGENT DIR IS ALSO ITS DATA DIR (one folder per agent: definition
+                # + workspace/ + sessions/). Removing the agent must not remove the person's
+                # chats and files with it — so the DEFINITION is deleted entry by entry and the
+                # user's own subtrees are left standing. Nothing re-lists the agent afterwards:
+                # the scan requires an agent.toml, and that is gone.
+                for item in sorted(def_dir.iterdir()):
+                    if item.name in USER_DATA_DIRS:
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        item.unlink(missing_ok=True)
+                removed["definition"] = not (def_dir / "agent.toml").exists()
+                if not any(def_dir.iterdir()):
+                    def_dir.rmdir()  # nothing of the user's was in there after all
+            else:
+                shutil.rmtree(def_dir, ignore_errors=True)
+                removed["definition"] = not def_dir.exists()
         state_dir = Path(self._state_dir_for(agent_id))  # <state_dir>/agents/<id>/ (sessions)
-        if state_dir.is_dir():
+        if state_dir.is_dir() and state_dir.resolve() != def_dir.resolve():
             shutil.rmtree(state_dir, ignore_errors=True)
             removed["sessions"] = not state_dir.exists()
-        # NOTE (accounts): this is the SHARED sessions path. An account's transcripts live under
-        # <state_dir>/accounts/<acct>/agents/<id>/ (user_state.account_state_dir), so uninstalling
-        # leaves them on disk. Deliberate for now — orphaned data is recoverable and losing a
-        # user's history to an uninstall is not — but it means uninstall+reinstall resurrects the
-        # old chats. Wire account_state_dir in here when uninstall grows a "delete my data" flag.
+        # NOTE (accounts): an account's transcripts live INSIDE its agent dir and are preserved
+        # above, so uninstalling leaves them on disk. Deliberate — orphaned data is recoverable
+        # and losing a user's history to an uninstall is not — but it means uninstall+reinstall
+        # resurrects the old chats. Delete USER_DATA_DIRS here when uninstall grows a "delete my
+        # data" flag.
         del specs[agent_id]
         log.info(
             "agents: removed '%s' (definition=%s sessions=%s)",

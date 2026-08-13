@@ -68,7 +68,17 @@ if (-not (Test-Path $Python)) {
 & $Python -m pip install --quiet --upgrade pip
 & $Python -m pip install --quiet --force-reinstall "${Wheel}[mcp]"
 
-# 4. smoke: the embedded runtime must import + report its version
-$version = & $Python -c "import agent_runtime; print(agentd.__version__)"
+# 4. smoke: the embedded runtime must import + report its version. The check IS the point --
+#    a runtime that cannot import is exactly what once shipped as a dead daemon -- so a failure
+#    here STOPS the build instead of printing a traceback and carrying on. (It read
+#    `print(agentd.__version__)` after the package rename, which raises NameError every time:
+#    the smoke test had been silently failing while the script still said "runtime ready".)
+#    ASCII ONLY in this file: powershell.exe reads .ps1 as the ANSI codepage unless there is a
+#    BOM, and a UTF-8 em dash decodes to a byte PowerShell treats as a closing smart quote --
+#    which ends the string early and breaks the parse.
+$version = & $Python -c "import agent_runtime; print(agent_runtime.__version__)"
+if ($LASTEXITCODE -ne 0 -or -not $version) {
+    throw "the embedded runtime cannot import agent_runtime. Refusing to call it ready - see the error above."
+}
 Write-Host "runtime ready: agentd $version at $CpythonDir"
 Write-Host "next: npm run dist:core  (or dist:studio)"

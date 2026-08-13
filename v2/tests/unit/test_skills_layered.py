@@ -105,6 +105,13 @@ def _put_skill(agents_dir, agent, skill):
     d = agents_dir / agent / "skills" / skill
     d.mkdir(parents=True)
     (d / "SKILL.md").write_text(f"---\nname: {skill}\ndescription: d\n---\nb\n", encoding="utf-8")
+    # A named agent DECLARES itself with an agent.toml; a folder holding only skills/ is a
+    # half-authored directory, not an agent, and the registry no longer loads one (it would
+    # otherwise shadow a real definition with an empty spec). `main` is the documented
+    # exception and stays undeclared here on purpose.
+    toml = agents_dir / agent / "agent.toml"
+    if agent != "main" and not toml.is_file():
+        toml.write_text(f'name = "{agent}"\n', encoding="utf-8")
 
 
 def test_skill_read_matrix(tmp_path):
