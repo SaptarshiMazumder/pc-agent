@@ -483,6 +483,45 @@ class FileAgentRegistry:
             roots.append(overlay)
         return tuple(roots)
 
+    def find_in_account_layers(self, agent_id: str, account_id: str | None = None):
+        """One agent's spec from the ACCOUNT layers — the per-REQUEST twin of the
+        per-connection overlay. HTTP callers (app serving) are identified per request, not
+        per connection, so the caller NAMES the layer(s) instead of a contextvar doing it:
+        ``account_id`` searches that account's layer alone; None is the deployment-owner
+        view — every account layer on this deployment, first hit in account order.
+
+        Returns None when no named layer has the id. Loads through the same scan+cache as
+        the live overlay (``self._overlays``, keyed by layer path), so serving an app does
+        not re-read agent.toml per asset request."""
+        aid = (agent_id or "").strip().lower()
+        if not _valid_id(aid):
+            return None
+        from agent_runtime.infrastructure import user_state
+
+        state_dir = getattr(self._config, "state_dir", None)
+        if not state_dir:
+            return None
+        candidates = (
+            [(account_id, user_state.account_agents_dir(state_dir, account_id))]
+            if account_id
+            else user_state.account_agents_layers(state_dir)
+        )
+        for acct, root in candidates:
+            root = Path(root)
+            if not (root / aid / "agent.toml").is_file():
+                continue
+            key = str(root)
+            cached = self._overlays.get(key)
+            if cached is None or aid not in cached:
+                # (Re)scan on a miss so an agent created after the cache filled is found —
+                # the same freshness rule the live overlay gets from add().
+                cached = self._scan(root, default_owner=ownership.presumed_owner(True, acct, self._hosted()))
+                self._overlays[key] = cached
+            spec = cached.get(aid)
+            if spec is not None:
+                return spec
+        return None
+
     def resolve_dir(self, agent_id: str) -> Path | None:
         """Where this agent's DEFINITION actually lives, or None — read from the same union
         (and with the same overlay-wins precedence) every other read uses, so "the sidebar

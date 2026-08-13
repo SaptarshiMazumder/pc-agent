@@ -70,6 +70,22 @@ def account_agents_dir(state_dir, account_id: str) -> Path:
     return account_root(state_dir, account_id) / "installed" / "agents"
 
 
+def account_agents_layers(state_dir) -> list[tuple[str, Path]]:
+    """EVERY account's installed-agents layer on this deployment: ``[(account_id, dir), ...]``,
+    account-sorted, existing accounts only.
+
+    For PROCESS-GLOBAL work that must see all layers rather than the calling connection's one:
+    private-plugin discovery builds one daemon-wide tool map, and app serving's
+    deployment-owner view answers for the whole machine. A layer that only loads when its
+    owner happens to be the caller is a layer whose contents work by coincidence."""
+    root = Path(state_dir) / "accounts"
+    try:
+        names = sorted(p.name for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return []
+    return [(name, account_agents_dir(state_dir, name)) for name in names]
+
+
 def account_plugins_dir(state_dir, account_id: str) -> Path:
     """Plugins vendored by this account's installs. Same overlay idea as ``account_agents_dir``.
 

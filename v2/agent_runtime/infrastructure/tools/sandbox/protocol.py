@@ -90,6 +90,7 @@ def grant_payload(grant: CapabilityGrant) -> dict:
     """Everything about the grant EXCEPT secrets (those go in the environment)."""
     return {
         "fs_paths": list(grant.fs_paths),
+        "read_paths": list(grant.read_paths),
         "net_allowlist": list(grant.net_allowlist),
         "cpu_ms": int(grant.cpu_ms),
         "mem_mb": int(grant.mem_mb),

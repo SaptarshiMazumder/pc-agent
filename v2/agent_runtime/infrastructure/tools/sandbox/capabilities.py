@@ -2,6 +2,7 @@
 
 It hands an untrusted tool the minimum a normal run needs and nothing more:
   * fs      -> only the current run's workspace (so plugin output lands where the agent expects it),
+  * read    -> plus its OWN agent folder, read-only: the data it shipped with (templates, styles),
   * net     -> nothing,
   * secrets -> {} ALWAYS (default-deny; the sandbox stays blind to platform keys),
   * models  -> only if the tool DECLARES it needs one, and only ids it could legitimately resolve,
@@ -21,6 +22,7 @@ which costs more than it saves.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant, PluginOrigin
@@ -56,12 +58,34 @@ class DefaultCapabilityResolver:
         # there. The fetch broker substitutes it into the outbound request instead.
         return CapabilityGrant(
             fs_paths=fs_paths,
+            read_paths=self._read_for(tool),
             timeout_s=self._timeout_s,
             cpu_ms=self._cpu_ms,
             mem_mb=self._mem_mb,
             models=self._models_for(plugin_id, tool),
             net_allowlist=self._net_for(tool),
         )
+
+    # ------------------------------------------------------------------ own shipped files
+
+    @staticmethod
+    def _read_for(tool: object) -> tuple[str, ...]:
+        """The tool's OWN agent folder, read-only — the data it shipped with.
+
+        A plugin's templates/styles/reference files sit beside its code inside the agent dir,
+        because that folder is what the .agentpkg carries and what an install unpacks; the
+        workspace is a DIFFERENT tree (per-account run data), so it can never be where shipped
+        data is found. Granting the folder the code already came from adds no reach a plugin
+        did not already have — the code is right there — it only stops the sandbox denying a
+        plugin its own package. Stamped at discovery (`_agent_dir`); the plugin root's parent
+        covers a tool assembled without that tag."""
+        agent_dir = str(getattr(tool, "_agent_dir", "") or "").strip()
+        if not agent_dir:
+            root = str(getattr(tool, "_plugin_root", "") or "").strip()
+            if root:
+                # <agent>/plugins/<plugin-id>/ -> <agent>
+                agent_dir = str(Path(root).resolve().parents[1]) if len(Path(root).resolve().parents) > 1 else ""
+        return (agent_dir,) if agent_dir else ()
 
     # ------------------------------------------------------------------ network
 

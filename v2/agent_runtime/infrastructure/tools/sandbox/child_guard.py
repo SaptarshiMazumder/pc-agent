@@ -109,6 +109,7 @@ def _under(path: str, roots: list[str]) -> bool:
 def install(
     *,
     fs_paths=(),
+    read_paths=(),
     net_allowlist=(),
     plugin_root: str = "",
     temp_dir: str = "",
@@ -126,17 +127,29 @@ def install(
          anything, and in a source checkout that root is the repository — which contains `.env`.
          The daemon knows exactly which paths hold its secrets and its other accounts' files, so it
          names them rather than leaving them covered by a rule meant for importing modules.
-      3. READABLE (interpreter roots, the plugin's own folder) — read only. A plugin that could
-         write into site-packages would own every later run in this process tree.
+      3. READABLE (interpreter roots, the plugin's own folder, and the grant's `read_paths` — the
+         agent folder this plugin shipped inside, holding the data it was authored beside) — read
+         only. A plugin that could write into site-packages would own every later run in this
+         process tree, and one that could rewrite its own agent folder would be editing the
+         package its publisher signed.
 
     Tier 1 beats tier 2 deliberately: an account's workspace lives INSIDE the tenant root, which is
     denied wholesale. Without that precedence, the sandbox would deny the plugin its own files.
+    A READ of tier 3's `read_paths` beats tier 2 on identical reasoning — a signed-in user's
+    agents also live under the tenant root, and its package data is no less its own than its
+    workspace. Writes never do: the package stays exactly as its publisher shipped it.
     """
     record: list = [] if denials is None else denials
     granted = _normalize(fs_paths)
     temp = _normalize([temp_dir]) if temp_dir else []
     denied = _normalize(deny_paths)
-    read_roots = _normalize(default_read_roots() + ([plugin_root] if plugin_root else [])) + granted + temp
+    readable = _normalize(list(read_paths))
+    read_roots = (
+        _normalize(default_read_roots() + ([plugin_root] if plugin_root else []))
+        + readable
+        + granted
+        + temp
+    )
     write_roots = granted + temp
     allowed_hosts = {str(h).strip().lower() for h in net_allowlist if str(h).strip()}
     # Reentrancy: the hook itself calls realpath, and a future policed event inside that call would
@@ -207,6 +220,12 @@ def install(
     def _check(real: str, writing: bool) -> None:
         verb = "write there" if writing else "read that path"
         if _under(real, granted) or _under(real, temp):
+            return
+        # A READ of the plugin's own shipped package beats the deny tier, for the same reason
+        # tier 1 does: on a hosted daemon an account's agents live INSIDE the tenant root, which
+        # is denied wholesale, so without this a plugin installed by a signed-in user would be
+        # refused its own templates — while the identical package on a desktop worked.
+        if not writing and _under(real, readable):
             return
         if _under(real, denied):
             deny(verb, real)

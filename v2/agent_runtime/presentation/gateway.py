@@ -1771,7 +1771,7 @@ class Gateway:
             if split.path == "/platform/connect" or split.path == "/platform/status":
                 return self._serve_platform(split, getattr(request, "headers", {}))
             if split.path == "/apps" or split.path.startswith("/apps/"):
-                return self._serve_app(split)
+                return await self._serve_app(split, getattr(request, "headers", {}))
             # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
             # short-circuit a WebSocket upgrade, or no WS could ever connect on the alias.
             headers = getattr(request, "headers", {})
@@ -1782,20 +1782,25 @@ class Gateway:
             if upgrade != "websocket":
                 alias = self._host_alias(headers)
                 if alias:
-                    return self._serve_app(urlsplit(f"/apps/{alias}{split.path}"))
+                    return await self._serve_app(urlsplit(f"/apps/{alias}{split.path}"), headers)
             return None  # not ours — fall through to the WS handshake
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
             log.exception("http %s failed", getattr(request, "path", ""))
             return HttpResponse(500, "Internal Server Error", Headers({"Content-Length": "0"}), b"")
 
-    def _serve_app(self, split) -> HttpResponse:
+    async def _serve_app(self, split, headers=None) -> HttpResponse:
         """Serve one file of an app agent's UI: `/apps/<agentId>/<path>` maps to the agent's
         own `<dir>/ui/` (entry from its `[app]` declaration; docs/PROTOCOL.md §9).
 
         The static files need NO token — they are the app's shipped code, not user data;
         the WebSocket the page opens still requires the token (the opener put it in the
         page URL). Guards: registered app agents only, path resolved under the ui root
-        (traversal-proof), extensionless paths fall back to the entry (SPA routing)."""
+        (traversal-proof), extensionless paths fall back to the entry (SPA routing).
+
+        WHICH agents exist here is caller-shaped, like every other egress door: the plain
+        registry view is the shared catalogue (an HTTP request pins no account contextvar),
+        and `_app_spec_for_caller` adds the ACCOUNT layers the caller may see — a coroutine
+        for the same reason /file is (identity resolves via Accounts)."""
 
         def deny(code: int, reason: str) -> HttpResponse:
             return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
@@ -1807,6 +1812,8 @@ class Gateway:
         try:
             spec = self.registry.get(agent_id)
         except KeyError:
+            spec = await self._app_spec_for_caller(agent_id, split, headers)
+        if spec is None:
             # Hosted: an unknown id may be a marketplace URL doing its job — a web-delivered
             # bundle whose first visitor just arrived. None => not this daemon's business.
             bootstrap = self._web_app_bootstrap(agent_id)
@@ -1848,6 +1855,35 @@ class Gateway:
         hdrs["Content-Length"] = str(len(body))
         hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
         return HttpResponse(200, "OK", hdrs, body)
+
+    async def _app_spec_for_caller(self, agent_id: str, split, headers):
+        """An app agent missing from the anonymous (shared) view — resolve THE CALLER and
+        look in the account layer(s) that caller may see. The third egress door joins the
+        doctrine of the other two (fan-out, /file): identity decides the view, the
+        deployment shape only changes the values.
+
+        NON-ENFORCING deployment (desktop; sign-in optional): /apps was always tokenless —
+        "the app's shipped code, not user data" — and that statement covers every layer on
+        this machine, so the human's own account-layer app serves entry AND assets with
+        zero ceremony. The registry's deployment-owner view (all account layers) answers.
+
+        SIGN-IN-ENFORCING deployment (hosted): the session on the URL names the ONE extra
+        layer the caller may see; a deployment-owner credential (operator) sees them all;
+        anonymous stays shared-only, so a stranger cannot probe another tenant's private
+        app. (Asset requests carry no session, so hosted account-layer apps are entry-only
+        until a scoped cookie exists — hosted apps reach real users through publish, which
+        lands in the shared layer and serves fully.)"""
+        finder = getattr(self.registry, "find_in_account_layers", None)
+        if not callable(finder):
+            return None  # stand-in registry (tests) — shared view was the whole world
+        if not accounts.enabled():
+            return finder(agent_id)
+        identities = await self._http_identities(parse_qs(split.query or ""), headers or {})
+        identities = identities or frozenset()
+        if identities & ownership.DEPLOYMENT_OWNERS:
+            return finder(agent_id)
+        acct = next(iter(identities - ownership.DEPLOYMENT_OWNERS), None)
+        return finder(agent_id, acct) if acct else None
 
     # ---------------------------------------------------------------- web delivery (hosted)
 

@@ -218,19 +218,29 @@ def build_service(
         agent are untrusted, so they are routed through the plugin sandbox FIRST (a no-op
         passthrough unless enabled), then guarded — giving Guard(Sandbox(inner)).
 
-        BOTH LAYERS, NAMED EXPLICITLY. This used to scan `registry.agents_dir` — the WRITE
+        EVERY LAYER, NAMED EXPLICITLY. This used to scan `registry.agents_dir` — the WRITE
         target — which meant an account-scoped hot-reload (create_agent from a signed-in
         window) re-scanned only that account's overlay and replaced the whole map with it:
-        agent-builder's own publish_agent vanished daemon-wide until restart. The shared
-        catalogue is always scanned; the caller's overlay merges on top (its copy of an id
-        shadows, same rule as every registry read)."""
+        agent-builder's own publish_agent vanished daemon-wide until restart. Then it read
+        the CONNECTION's overlay — but this map is process-global, built at boot where no
+        connection exists and replaced wholesale on reload, so an account layer that only
+        loads when its owner happens to trigger the rebuild is a layer whose tools work by
+        coincidence (marketing-agent's own tool was missing until its account next
+        reloaded). The shared catalogue is scanned first; every account layer merges on top
+        (an id's later copy shadows, same precedence as every registry read), so the rebuild
+        is IDENTICAL no matter who — or nobody — triggered it."""
         installed = installed_store.installed_ids()  # None => unreadable ledger => fail closed
         shared_root = getattr(registry, "shared_agents_dir", None) or getattr(
             registry, "agents_dir", None
         )
-        overlay_root = registry.overlay_path() if hasattr(registry, "overlay_path") else None
+        roots: list = [(shared_root, False)]
+        state_dir = getattr(config, "state_dir", "") or ""
+        if state_dir:
+            from agent_runtime.infrastructure import user_state as _us
+
+            roots += [(layer, True) for _acct, layer in _us.account_agents_layers(state_dir)]
         agent_map: dict = {}
-        for root, from_overlay in ((shared_root, False), (overlay_root, True)):
+        for root, from_overlay in roots:
             if root is None:
                 continue
             # An overlay agent on a HOSTED daemon is a stranger's code whatever the global

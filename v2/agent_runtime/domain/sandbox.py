@@ -48,6 +48,14 @@ class CapabilityGrant:
     """The rights handed to ONE untrusted tool invocation. Default-deny in every field.
 
     ``fs_paths``      absolute paths the tool may read/write (e.g. just the caller's workspace).
+    ``read_paths``    absolute paths the tool may READ but never write — its own agent's shipped
+                      files (templates, style data, reference assets). A data-driven plugin keeps
+                      its data beside its code inside the agent folder, and that folder is the
+                      unit that travels in the .agentpkg; without this the sandbox let a plugin
+                      read its own directory but not the sibling data one level up, so a plugin
+                      that worked on its author's desktop failed on every install with its files
+                      demonstrably present. Read-only because that folder is the SHIPPED package:
+                      a plugin that could rewrite it would be editing what its publisher signed.
     ``net_allowlist`` host[:port] / host globs the tool may reach ("" list = no network).
     ``cpu_ms``        CPU time ceiling in ms  (0 = backend default).
     ``mem_mb``        memory ceiling in MB    (0 = backend default).
@@ -66,6 +74,7 @@ class CapabilityGrant:
     """
 
     fs_paths: tuple[str, ...] = ()
+    read_paths: tuple[str, ...] = ()
     net_allowlist: tuple[str, ...] = ()
     cpu_ms: int = 0
     mem_mb: int = 0
