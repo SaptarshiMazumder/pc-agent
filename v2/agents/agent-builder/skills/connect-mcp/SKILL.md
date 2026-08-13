@@ -1,6 +1,6 @@
 ---
 name: connect-mcp
-description: Connect an agent you are building to an MCP server — public, private, or one the user wrote themselves — so the connection survives publishing and every installer supplies their own credentials.
+description: Use when an agent you are building needs to reach a THIRD-PARTY SERVICE — AWS, GitHub, Notion, Slack, Stripe, a database, any product with an API — instead of writing your own tools for it. Covers finding the MCP server, declaring it so it survives publishing, credentials, sign-in, and verifying it actually works.
 ---
 
 # Connecting an agent to an MCP server

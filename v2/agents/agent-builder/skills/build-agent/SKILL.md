@@ -346,6 +346,57 @@ Three files, three distinct jobs. Do not merge them.
 
 Never author `presentation.json` — the daemon fills in tagline/suggestions itself.
 
+## Design it as a MECHANISM, not a chat box with tools
+
+The most common bad agent is one that owns a subject and does nothing until asked. It waits, then
+works out from scratch how to fetch what it needs, then answers, then forgets. Everything it
+learned is gone by the next message, and the same reasoning happens again.
+
+A real agent has **standing machinery**: it runs on its own, keeps what it found, and compares
+today against yesterday. Three questions decide the whole design:
+
+**Does it run on its own?** Anything called a monitor, tracker, watcher, digest or report does.
+Give it `heartbeat` + `[capabilities] autonomy = true`, and a `HEARTBEAT.md` that says exactly
+what one tick does. A cost monitor with no heartbeat is not a cost monitor; it is a chat box that
+knows about billing.
+
+**Does it need to remember?** Anything that reports change does — "up 20% on last week" is
+impossible without last week. Write each run's result to its own `workspace/` as a dated file or
+a small JSON, and read the previous one back. Thresholds, baselines and last-seen markers all
+live there. An agent that stores nothing can only ever describe NOW.
+
+**Does it repeat a procedure?** Then write it as a `skills/<name>/SKILL.md` — the fetch, the
+shape of the data, the comparison, what counts as worth reporting. A procedure left implicit is
+re-derived every turn, differently each time. That is also why two runs of the same agent can
+disagree about the same numbers.
+
+```
+monitor / tracker / watcher   heartbeat + workspace snapshots + a skill for the routine
+assistant / helper            tools + skills, on demand — no heartbeat
+ingester                      a workbench UI + a skill for the per-item procedure
+reporter                      heartbeat + snapshots + a dashboard reading THOSE snapshots
+```
+
+The dashboard point matters: a dashboard should render **stored state**, not fire a live fetch
+every time someone opens the window. That is what makes it instant, and what lets it show a
+trend at all.
+
+**Research before you design.** Use `web_search` / `web_fetch` to read the actual API or MCP
+server you are about to integrate — what it exposes, what it needs, what its rate limits are.
+Do not build against a remembered API shape: name the tools you found, and if you could not find
+them, say so rather than guessing a package name.
+
+## When you are blocked, say so in one line and ask
+
+Check anything you CAN check — your own files, your tools, your workspace — and answer from that.
+But when the cause is somewhere you cannot see (daemon state, a tool that simply is not there,
+another agent's setup), name what is missing in one sentence and ask the user.
+
+**Do not diagnose a system you cannot inspect.** An explanation you have no way to verify reads
+like an answer and is not one — and it is worse than silence when it sends the user to fix
+something that was never broken. Every agent you build should follow this rule too; put it in its
+`AGENTS.md` in your own words.
+
 ## skills/ — playbooks
 
 `agents/<id>/skills/<skill-name>/SKILL.md`. An agent sees the global library
@@ -376,6 +427,30 @@ _trigger condition_ ("Use when…"), because that line is all the model sees bef
 reload, no restart.
 
 ## plugins/ — the agent's own tools
+
+### FIRST: does this tool already exist as an MCP server?
+
+**Before writing a tool that calls a third-party service — AWS, GitHub, Notion, Slack, Stripe,
+a database, anything with an API — check whether an MCP server already exists for it.** Nearly
+all of them do, written and maintained by that service or its community, and one `[[mcp]]` block
+gets you the whole toolset.
+
+| the tool would… | do this |
+|---|---|
+| call a third-party API | **`[[mcp]]`** — see the `connect-mcp` skill |
+| run local logic: parse, compute, transform, read the workspace | write it here |
+| drive something only this machine has | write it here |
+
+Writing your own wrapper around a public API is the slow, brittle path AND it usually does not
+work: a private tool is SANDBOXED once someone installs the agent, so it has no network and no
+credentials unless you declare them, and an SDK like `boto3` cannot function inside that box at
+all. If you find yourself writing placeholder tools and explaining the sandbox to the user, stop
+— that is this decision arriving too late.
+
+`[[mcp]]` also travels with the agent; a private tool you wrote for a public API is a maintenance
+burden you now own on every machine that installs it.
+
+### The format
 
 `agents/<id>/plugins/<plugin-id>/`. Same format as a global plugin, but visible only to
 this agent. Two files minimum:
@@ -857,20 +932,46 @@ Author with packaging in mind:
 
 ## Order of work
 
+0. **ASK THE USER WHAT WINDOW IT SHOULD HAVE. Every time, before you build.**
+
+   ```
+   What should its window be?
+     1. None       — no window; reached from JARVIS chat or on a schedule
+     2. Chat       — a conversation window of its own
+     3. Dashboard  — numbers/charts on screen the moment it opens
+     4. Workbench  — drop files in, watch each one process
+   ```
+
+   This is a PRODUCT decision and it is theirs, not yours. Recommend one and say why in a single
+   line — a monitor wants a dashboard, an ingester wants a workbench — then use what they choose.
+   A default picked silently is how an agent that should have had a screen ends up as another
+   chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
+
+   Three more decisions, which ARE yours — answer them from the sections above, do not ask:
+   - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
+     snapshots + a skill for the routine. See "Design it as a MECHANISM".
+   - Does it reach a **third-party service**? Then `[[mcp]]`, not your own tools — and
+     `web_search` the service first rather than guessing what its API or MCP server offers.
+   - What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
 1. `agents_list` — check the id is free and learn the agents directory path.
 2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
    first; the agent is resolvable from this moment.
-3. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files, `ui/`.
+3. **`scaffold_ui`** — if it needs a window, with the template that matches the shape
+   (`chat-app` / `dashboard-app` / `workbench-app`). Then EDIT what it wrote. Never hand-write
+   `ui/` files: the run-event payload is nested and streamed text is `message_update/text_delta`,
+   and a page that gets either wrong connects, logs nothing, and never updates the screen.
+   Remember `[app]` in `agent.toml` — this tool writes files, not configuration.
+4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
    For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
    and writes the plugin in the right shape for you.
-4. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
+5. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
    things being silently ignored, things that only break at installer-build time, and tools
    that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
-5. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
+6. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
    plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
    served straight off disk, so both are live the moment you save.
-6. Tell the user how to try it: a new chat with that agent, or its app window.
-7. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
+7. Tell the user how to try it: a new chat with that agent, or its app window.
+8. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
    re-validates first and refuses on errors, so a broken agent never reaches anyone else.
 
 ## Rules

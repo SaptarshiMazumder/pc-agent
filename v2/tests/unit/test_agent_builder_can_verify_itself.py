@@ -40,6 +40,8 @@ def _agents_md() -> str:
         ("update_plan", "keeps a live checklist the user can watch"),
         ("exec", "the only way it can RUN what it wrote"),
         ("verify_answer", "catches an answer that only promises instead of delivering"),
+        ("web_search", "the only way it can READ the service it is about to integrate"),
+        ("web_fetch", "reads the API/MCP docs it found, instead of recalling them"),
     ],
 )
 def test_it_can_plan_and_verify(tool, why):
@@ -48,10 +50,37 @@ def test_it_can_plan_and_verify(tool, why):
 
 def test_it_still_cannot_reach_the_whole_catalog():
     """Restoring planning and verification is not an excuse to grant everything. The point was
-    never least privilege for its own sake, it was the wrong CHOICE of privileges."""
+    never least privilege for its own sake, it was the wrong CHOICE of privileges.
+
+    `web_search` USED TO BE ON THIS LIST, and that was the same mistake one layer up. This
+    file's own opening names "no shell, no browser, no web" as the bad allow-list, then kept
+    the "no web" half — so the agent could run what it wrote but could not read what it was
+    writing AGAINST. Asked for an AWS cost monitor it had no way to look up Cost Explorer or
+    check which MCP server exposes cost tools, so it GUESSED a package name, and the guess did
+    not expose the tools the agent needed. That is writing-and-hoping about somebody else's API
+    instead of about a UI event branch.
+
+    `browser` and `computer_use` stay out: reading documentation is not driving a desktop.
+    """
     allow = _allow()
-    for never in ("browser", "computer_use", "web_search", "create_webhook"):
+    for never in ("browser", "computer_use", "create_webhook"):
         assert never not in allow, f"agent-builder does not need `{never}`"
+
+
+def test_the_authoring_plugin_actually_imports():
+    """The entry point that registers create_agent / validate_agent / reload_agent /
+    package_agent / scaffold_ui. If it raises, ALL FIVE disappear and the only symptom is
+    `RuntimeError: tool not available: validate_agent` at the moment someone tries to use one.
+
+    Nothing covered this: every other test imports `agent_authoring.domain.*` directly, so a
+    stray indent in the plugin module itself passed a green suite and broke the agent. One
+    import is the whole check.
+    """
+    import importlib
+
+    sys.path.insert(0, str(AGENT / "plugins" / "agent-authoring"))
+    module = importlib.import_module("agent_authoring_plugin")
+    assert callable(getattr(module, "register", None)), "the plugin exposes no register()"
 
 
 def test_its_own_tools_are_not_named_in_the_allow_list():

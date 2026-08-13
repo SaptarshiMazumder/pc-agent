@@ -4784,15 +4784,30 @@ class Gateway:
                 telemetry.apply_diagnostics(self.config)
             result.update(saved=True, path=path, restartRecommended=True)
 
-        # (c) provider keys -> the .env next to the config file.
+        # (c) provider keys + this agent's declared settings -> the .env next to the config file.
         if keys:
-            # Cloud/platform mode: the keys are the proxy's, not this daemon's — editing them here
-            # is meaningless (the daemon routes through the proxy) and misleading, so refuse. The
-            # UI also greys these fields out via keysLocked. Local BYOK mode is unaffected.
-            if self._platform_keys_locked():
+            # Cloud/platform mode locks the PROVIDER keys only: those are the proxy's, so editing
+            # them here is meaningless (the daemon routes through the proxy) and misleading. The
+            # UI greys exactly those fields out via keysLocked.
+            #
+            # AN AGENT'S OWN [[settings]] ARE NOT PROVIDER KEYS. This gate used to sit in front of
+            # the whole payload, so signing in and choosing Cloud silently refused a user's AWS
+            # credential on their own machine — the save reported nothing, the field stayed "not
+            # set", and no part of the UI could explain it. Which model pays for a turn has no
+            # bearing on whether someone may store a third-party credential locally.
+            locked = (
+                sorted(k for k in keys if k in PROVIDER_ENV_KEYS)
+                if self._platform_keys_locked()
+                else []
+            )
+            if locked:
                 return {
                     "saved": False,
-                    "error": "provider keys are managed by the platform in cloud mode and cannot be changed here",
+                    "error": (
+                        f"provider keys are managed by the platform in cloud mode and cannot be "
+                        f"changed here: {', '.join(locked)}"
+                    ),
+                    "refused": locked,
                 }
             writes, refused, ambiguous = self._env_write_plan(keys, target)
             if refused:

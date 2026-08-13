@@ -1,0 +1,72 @@
+# aws-cost-monitor — watches AWS spend, shows per-resource cost, alerts on threshold breach.
+#
+# Reads AWS cost data through the `aws` MCP server (awslabs.aws-api-mcp-server) and keeps the
+# per-resource cost + threshold bookkeeping in its OWN private plugin (cost-kit) — pure local
+# JSON in this agent's workspace, no network, no secrets. The dashboard shows what the plugin
+# knows; the daily cron check re-fetches costs, compares against thresholds, and alerts.
+
+name = "AWS Cost Monitor"
+version = "1.4.0"
+description = "Monitors AWS spend: shows what each resource costs and alerts when a resource crosses its allowed-cost threshold."
+
+# DISPLAY fields are top-level, not inside [app].
+tagline = "AWS cost · thresholds · alerts"
+color = "#FF9900"
+suggestions = [
+  "Show me what each resource is costing this month",
+  "Set a cost threshold for EC2 at $100",
+  "Check now and alert me if anything is over its limit",
+]
+
+# Its own dashboard window — numbers on screen the moment it opens (see ui/board.js).
+[app]
+title = "AWS Cost Monitor"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+# SHARED tools this agent may reach. Its OWN tools (cost-kit: save_cost_snapshot,
+# get_cost_dashboard, set_threshold, list_thresholds, check_thresholds) are implicitly allowed
+# and never need naming here. aws__* is the whole aws MCP server (Cost Explorer etc.).
+# cron + report_outcome together are what make the daily threshold check alert the user:
+# a cron run that ends `blocked` notifies (see AGENTS.md). read/write let it inspect and
+# produce a readable cost report file.
+[tools]
+allow = ["read", "write", "cron", "report_outcome", "update_plan", "aws__*"]
+
+# The agent may schedule its own daily check + push notifications on a blocked run.
+[capabilities]
+autonomy = true
+notify   = true
+
+# ---- credentials: supplied by whoever RUNS this agent, never shipped --------------------
+[[settings]]
+key      = "AWS_ACCESS_KEY_ID"
+label    = "AWS access key id"
+kind     = "secret"
+required = true
+help     = "Read-only AWS key (or an IAM user with ce:GetCostAndUsage + ec2:Describe* / resource read perms)."
+
+[[settings]]
+key      = "AWS_SECRET_ACCESS_KEY"
+label    = "AWS secret access key"
+kind     = "secret"
+required = true
+help     = "Secret half of the key above."
+
+[[settings]]
+key      = "AWS_REGION"
+label    = "AWS region"
+kind     = "text"
+required = false
+help     = "Region for resource lookups (e.g. us-east-1). Cost Explorer data is region-independent."
+
+# ---- the AWS toolset, declared here so it travels with the package ----------------------
+[[mcp]]
+name    = "aws"                                             # tool namespace -> aws__*
+command = ["uvx", "awslabs.aws-api-mcp-server@latest"]     # stdio server launched on the user's machine
+
+[mcp.env]
+AWS_ACCESS_KEY_ID     = "${AWS_ACCESS_KEY_ID}"
+AWS_SECRET_ACCESS_KEY = "${AWS_SECRET_ACCESS_KEY}"
+AWS_REGION            = "${AWS_REGION}"

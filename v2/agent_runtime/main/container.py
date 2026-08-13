@@ -417,6 +417,32 @@ def build_service(
 
     skill_embed_fn = build_skill_embed_fn(config)
 
+    def _mcp_problem_sections(agent) -> list[str]:
+        """One prompt section per DECLARED MCP server that is not up, in the agent's own terms.
+
+        Returns [] when everything connected, which is the normal case — a section that says
+        "all fine" is prompt weight for no decision.
+
+        Written as guidance the agent can ACT on: the reasons are already phrased for a human
+        ("waiting for approval to run: uvx …"), and what the agent needs to know on top is that
+        this is the user's move, not something to diagnose or work around.
+        """
+        if mcp_connector is None:
+            return []
+        problems = mcp_connector.problems_for(getattr(agent, "id", "") or "")
+        if not problems:
+            return []
+        lines = "\n".join(f"- **{name}** — {why}" for name, why in sorted(problems.items()))
+        return [
+            "## Services this agent declared that are NOT connected\n"
+            + lines
+            + "\n\nTheir tools are absent from your toolset for exactly the reason above — this "
+            "is not something to diagnose, work around, or explain at length. If the user asks "
+            "for something those tools would have done, say in ONE line which service is not "
+            "connected and what they need to do about it, then stop. Never guess at a different "
+            "cause, and never claim a credential is missing when the reason above says otherwise."
+        ]
+
     def _build_prompt(tools, agent, mode, query=""):
         # prompt for the resolved agent + run mode: its identity/bootstrap + scoped skills +
         # model; on a heartbeat tick also inject HEARTBEAT.md. FIRST: scratch hygiene —
@@ -459,7 +485,15 @@ def build_service(
             cron=(mode == RunMode.CRON),  # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),  # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(ws, agent.id) if workspace_index else ""),
-            plugin_sections=plugin_sections,  # tools self-describe; plugins add guidance sections
+            # Tools self-describe; plugins add guidance sections. Appended per call: WHY any
+            # server this agent declared is not up.
+            #
+            # The daemon knew the reason all along ("waiting for approval to run: uvx …",
+            # "needs AWS_ACCESS_KEY_ID") and told only the settings page. The agent saw an
+            # ABSENCE — no aws__* tools — and, having nothing to check, wrote three paragraphs
+            # speculating about the cause and told the user to fill in a key that was already
+            # set. An absence cannot be explained by the one party who cannot see past it.
+            plugin_sections=[*(plugin_sections or ()), *_mcp_problem_sections(agent)],
         )
 
     def _recall(agent, query):

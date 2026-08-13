@@ -37,11 +37,14 @@ the next step is obvious.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.write_scope import WriteRefused, check_write
+
+log = logging.getLogger("agentd")
 
 
 def _slug(name: str) -> str:
@@ -177,8 +180,18 @@ class CreateAgentTool(Tool):
         },
     }
 
-    def __init__(self, registry):
+    def __init__(self, registry, announce=None):
         self._registry = registry
+        # `broadcast_agents_changed` — fan an `agents.changed` event out to every connected
+        # client. WITHOUT IT the agent is registered and resolvable but no open window knows:
+        # the daemon has it, the sidebar does not, and the author is told it was created while
+        # looking at a list that does not contain it.
+        #
+        # This used to be reload_agent's job alone, and the tool's own description asks the model
+        # to call it afterwards. That is a hope, not a mechanism — the first real run skipped it,
+        # and the agent was invisible until the window restarted. Announcing something we just
+        # did ourselves does not belong to a later step the caller might not take.
+        self._announce = announce
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         action = (params.get("action") or "create").strip().lower()
@@ -316,6 +329,20 @@ class CreateAgentTool(Tool):
                     is_error=True,
                 )
 
+        # Tell the open windows. `create_from` above owns placement, collision, the ownership
+        # stamp and live registration — but not the clients: an agent can be fully registered
+        # and resolvable while every open sidebar still shows the roster from before it existed.
+        #
+        # Best-effort: a stale sidebar is cosmetic, and failing the creation over it would turn
+        # that into a lost agent.
+        announced = False
+        if callable(self._announce):
+            try:
+                self._announce()
+                announced = True
+            except Exception as e:  # noqa: BLE001 — reported below, never raised
+                log.warning("create_agent: could not announce '%s': %s", agent_id, e)
+
         verb = "Rebuilt" if action == "update" else "Created"
         written = ["agent.toml", "IDENTITY.md"]
         if rules:
@@ -328,7 +355,8 @@ class CreateAgentTool(Tool):
         # moment the remaining work is actionable.
         lines = [
             f"{verb} agent '{agent_id}' ({name}) v{version} at {d} — registered live, resolvable "
-            f"on the next message, no restart.",
+            f"on the next message, no restart."
+            + ("" if announced else " (open windows will not show it until they reload)"),
             f"Wrote: {', '.join(written)}.",
         ]
         if destroyed:

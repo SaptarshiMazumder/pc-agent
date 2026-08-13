@@ -286,6 +286,31 @@ def test_a_host_write_must_name_the_agent(tmp_path, monkeypatch):
     assert res["saved"] is True and written == {"trader__TRADING_DB_URL": "postgres://x"}
 
 
+def test_cloud_mode_locks_provider_keys_but_not_an_agents_own_settings(tmp_path, monkeypatch):
+    """Which model pays for a turn has NO bearing on whether someone may store a third-party
+    credential on their own machine. The lock used to sit in front of the whole payload, so
+    signing in and choosing Cloud silently threw away a user's AWS key: the save reported
+    nothing, the field stayed "not set", and no part of the UI could explain it."""
+    written = _capture_env(monkeypatch, tmp_path)
+    gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))
+    monkeypatch.setattr(gw, "_platform_keys_locked", lambda: True)
+
+    res = gw._config_set({"keys": {"COINBASE_API_KEY": "sk-mine"}}, "trader")
+    assert res["saved"] is True and written == {"trader__COINBASE_API_KEY": "sk-mine"}
+
+    res = gw._config_set({"keys": {PROVIDER_ENV_KEYS[0]: "sk-nope"}}, "trader")
+    assert res["saved"] is False and res["refused"] == [PROVIDER_ENV_KEYS[0]]
+    assert PROVIDER_ENV_KEYS[0] not in written
+
+
+def test_local_mode_still_takes_provider_keys(tmp_path, monkeypatch):
+    written = _capture_env(monkeypatch, tmp_path)
+    gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))
+    monkeypatch.setattr(gw, "_platform_keys_locked", lambda: False)
+    assert gw._config_set({"keys": {PROVIDER_ENV_KEYS[0]: "sk-byok"}}, "trader")["saved"] is True
+    assert written == {PROVIDER_ENV_KEYS[0]: "sk-byok"}
+
+
 def test_a_host_still_cannot_invent_an_env_name(tmp_path, monkeypatch):
     written = _capture_env(monkeypatch, tmp_path)
     gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))

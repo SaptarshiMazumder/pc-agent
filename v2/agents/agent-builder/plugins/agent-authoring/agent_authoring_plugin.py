@@ -41,10 +41,10 @@ def register(api, ctx):
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
+    from agent_authoring.domain.declaration_rules import DeclarationRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
-    from agent_authoring.domain.declaration_rules import DeclarationRules
-from agent_authoring.domain.tool_grant_rules import ToolGrantRules
+    from agent_authoring.domain.tool_grant_rules import ToolGrantRules
     from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
     from agent_authoring.infrastructure.agent_packer import AgentPacker
@@ -56,7 +56,11 @@ from agent_authoring.domain.tool_grant_rules import ToolGrantRules
     from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
 
     # --- AUTHOR ---------------------------------------------------------------------
-    api.register_tool(CreateAgentTool(registry))
+    # Resolved HERE rather than at the reload_agent registration below, because create_agent
+    # needs the same handle: an agent it registers live is invisible to every open window until
+    # something announces it, and "the model will call reload_agent next" is not a mechanism.
+    broadcast = getattr(ctx, "broadcast_agents_changed", None)
+    api.register_tool(CreateAgentTool(registry, announce=broadcast))
 
     # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
     # the tool would write a file that never becomes callable. Register nothing rather than that.
@@ -161,7 +165,6 @@ from agent_authoring.domain.tool_grant_rules import ToolGrantRules
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
     # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
     # and reports honestly which steps it managed.
-    broadcast = getattr(ctx, "broadcast_agents_changed", None)
     reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
     api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
 

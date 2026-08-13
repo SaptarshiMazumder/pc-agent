@@ -103,4 +103,11 @@ allow = [
   "read", "write", "edit", "ls", "find", "skill_workshop",
   "update_plan", "exec", "process", "verify_answer",
   "show_files",
+  # RESEARCH. Without these it builds integrations BLIND: asked for an AWS cost monitor it had
+  # no way to look up the Cost Explorer API, no way to find which MCP server exposes cost tools,
+  # and no way to check that the package it named even exists — so it guessed one, and the guess
+  # did not expose the tools the agent needed. Every third-party service an agent connects to is
+  # documented somewhere; an agent-builder that cannot read that documentation is authoring
+  # against its own recollection.
+  "web_search", "web_fetch",
 ]
