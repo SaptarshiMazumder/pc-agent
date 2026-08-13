@@ -468,6 +468,21 @@ class FileAgentRegistry:
         happens to mean right now."""
         return self._overlay_path()
 
+    def agent_roots(self) -> tuple[Path, ...]:
+        """EVERY root where THIS caller's agents may legitimately live: the shared catalogue,
+        plus their account overlay when the connection has one.
+
+        This is THE answer write-scope expansion consumes (AgentService._expand_paths). It
+        lives here because placement already does: `agents_dir` (the write target) is always
+        one of these roots, so a scope built from this tuple can never disagree with where
+        `create_from` puts an agent — the disagreement that deadlocked the agent-builder when
+        the scope was derived from static file layout instead of asked of the registry."""
+        roots: list[Path] = [self._agents_dir]
+        overlay = self._overlay_path()
+        if overlay is not None and overlay != self._agents_dir:
+            roots.append(overlay)
+        return tuple(roots)
+
     def resolve_dir(self, agent_id: str) -> Path | None:
         """Where this agent's DEFINITION actually lives, or None — read from the same union
         (and with the same overlay-wins precedence) every other read uses, so "the sidebar
@@ -552,6 +567,47 @@ class FileAgentRegistry:
                 return spec
         raise FileNotFoundError(str((overlay_path or self._agents_dir) / agent_id))
 
+    def create_from(self, agent_id: str, write_files) -> AgentSpec:
+        """THE one creation path — the WORLD half of authoring an agent, whoever the author
+        is (``create`` below, the agent-builder's create_agent tool, anything later):
+
+          * placement via ``_write_target`` — the caller's overlay when they have one,
+          * collision against what this caller can SEE (``_current``: shared + overlay), so
+            an overlay skeleton can never shadow a curated id and look like it worked,
+          * ownership stamped at birth — the one moment "whose is this" has an unambiguous
+            answer; everything downstream (mine, publish, hosted visibility) reads the
+            record instead of guessing,
+          * live registration — resolvable on the next message, no restart.
+
+        The CONTENT half — which files, what's in them — is ``write_files(dir)``, supplied
+        by the caller who owns that grammar. Split by ownership of the knowledge: a second
+        creator would have to re-implement placement, collision and stamping to diverge,
+        which is exactly the bug (create_agent's DIY path) this method retires."""
+        agent_id = (agent_id or "").strip().lower()
+        if not _valid_id(agent_id):
+            raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
+        target_specs, target_root = self._write_target()
+        d = target_root / agent_id
+        # Collides against what this caller can SEE (shared + their overlay), not just the layer
+        # being written to: creating an agent whose id shadows a curated one would look like it
+        # worked and then resolve to the wrong definition on the next message.
+        if agent_id in self._current() or d.exists():
+            raise ValueError(f"agent '{agent_id}' already exists")
+
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "workspace").mkdir(exist_ok=True)
+        write_files(d)
+        ownership_store.stamp_create(
+            d,
+            self._account_id() if callable(self._account_id) else None,
+            self._hosted(),
+        )
+
+        spec = self._with_ownership(self._load_dir(agent_id, d), d, self._shared_owner_default())
+        target_specs[agent_id] = spec
+        log.info("agents: created '%s' in %s", agent_id, target_root)
+        return spec
+
     def create(
         self,
         agent_id: str,
@@ -567,51 +623,37 @@ class FileAgentRegistry:
         present its UI, and a self-contained starter page is scaffolded into ui/ so the
         app is openable the moment it exists. Refuses an invalid id or one that already
         exists. Colour + tagline are filled in afterwards by the daemon's presentation
-        pass. Returns the loaded spec."""
+        pass. Returns the loaded spec. Placement, collision and the ownership stamp are
+        ``create_from``'s — this method owns only its CONTENT."""
         agent_id = (agent_id or "").strip().lower()
-        if not _valid_id(agent_id):
-            raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
-        target_specs, target_root = self._write_target()
-        d = target_root / agent_id
-        # Collides against what this caller can SEE (shared + their overlay), not just the layer
-        # being written to: creating an agent whose id shadows a curated one would look like it
-        # worked and then resolve to the wrong definition on the next message.
-        if agent_id in self._current() or d.exists():
-            raise ValueError(f"agent '{agent_id}' already exists")
 
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "workspace").mkdir(exist_ok=True)
-        # agent.toml — JSON string literals are valid TOML basic strings, so this
-        # safely escapes quotes/backslashes in the name/description.
-        lines = [f"name = {json.dumps(name or agent_id)}"]
-        if description.strip():
-            lines.append(f"description = {json.dumps(description.strip())}")
-        app = (app or "").strip().lower()
-        if app:
-            mode = app if app in ("browser", "window") else "browser"
-            title = name or agent_id
-            lines += ["", "[app]", f"title = {json.dumps(title)}", f"mode = {json.dumps(mode)}"]
-            ui = d / "ui"
-            ui.mkdir(exist_ok=True)
-            (ui / "index.html").write_text(
-                _APP_UI_STARTER.replace("__TITLE__", title).replace("__ID__", agent_id),
-                encoding="utf-8",
-            )
-        (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        if identity.strip():
-            (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
-        # Ownership is stamped at birth — the one moment "whose is this" has an unambiguous
-        # answer. Everything downstream (mine, publish) reads the record instead of guessing.
-        ownership_store.stamp_create(
-            d,
-            self._account_id() if callable(self._account_id) else None,
-            self._hosted(),
-        )
+        def write_files(d: Path) -> None:
+            # agent.toml — JSON string literals are valid TOML basic strings, so this
+            # safely escapes quotes/backslashes in the name/description.
+            lines = [f"name = {json.dumps(name or agent_id)}"]
+            if description.strip():
+                lines.append(f"description = {json.dumps(description.strip())}")
+            mode = (app or "").strip().lower()
+            if mode:
+                mode = mode if mode in ("browser", "window") else "browser"
+                title = name or agent_id
+                lines += [
+                    "",
+                    "[app]",
+                    f"title = {json.dumps(title)}",
+                    f"mode = {json.dumps(mode)}",
+                ]
+                ui = d / "ui"
+                ui.mkdir(exist_ok=True)
+                (ui / "index.html").write_text(
+                    _APP_UI_STARTER.replace("__TITLE__", title).replace("__ID__", agent_id),
+                    encoding="utf-8",
+                )
+            (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            if identity.strip():
+                (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
 
-        spec = self._with_ownership(self._load_dir(agent_id, d), d, self._shared_owner_default())
-        target_specs[agent_id] = spec
-        log.info("agents: created '%s' (%s) in %s", agent_id, name or agent_id, target_root)
-        return spec
+        return self.create_from(agent_id, write_files)
 
     # ---- AgentRegistry ------------------------------------------------------
 

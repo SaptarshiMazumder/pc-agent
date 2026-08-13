@@ -125,14 +125,40 @@ class AgentService:
         self._on_catalog_change = on_catalog_change
         self._mention_routing = (mention_routing or "direct").strip().lower()
 
-    @staticmethod
-    def _expand_paths(agent, declared: tuple) -> tuple:
+    def _agent_roots(self, agent) -> tuple:
+        """Every root where the CALLER's agents may live — asked of the REGISTRY, the one
+        authority on agent placement (the shared catalogue plus the connection's account
+        overlay). Resolved per run, because expansion happens at RunContext creation inside
+        the connection's context — so a signed-in caller's roots include their overlay
+        automatically, on desktop and hosted alike.
+
+        Deriving this from the calling agent's own parent directory — the old rule — went
+        stale the day overlays arrived: the agent-builder sits in the SHARED catalogue, so a
+        signed-in user's create_agent wrote to the overlay (correct, the registry's answer)
+        and was refused by a scope that only named the shared dir (stale, the layout's
+        answer). One authority now; a registry without the method (minimal test stand-ins)
+        keeps the parent derivation, which in a single-layer world is the same answer."""
+        from pathlib import Path
+
+        roots_fn = getattr(self._registry, "agent_roots", None)
+        if callable(roots_fn):
+            try:
+                return tuple(str(r) for r in roots_fn())
+            except Exception:  # noqa: BLE001 — a broken resolver narrows the scope, never the turn
+                pass
+        agent_dir = Path(agent.dir) if getattr(agent, "dir", None) else None
+        return (str(agent_dir.parent),) if agent_dir is not None else ()
+
+    def _expand_paths(self, agent, declared: tuple) -> tuple:
         """Turn an agent's authored write scope into absolute paths.
 
-        `agent.toml` writes ``<agents_dir>`` rather than a real path, because the agents
-        directory is ``<repo>/v2/agents/`` in a checkout and ``~/.agentd/agents/`` on an install
-        — an authored literal would be wrong on one of them. Expanded HERE so the filesystem
-        tools do plain containment and never learn what a token is.
+        `agent.toml` writes ``<agents_dir>`` rather than a real path, because where agents
+        live depends on the deployment AND the caller: ``<repo>/v2/agents/`` in a checkout,
+        ``~/.agentd/agents/`` on an install, plus the account overlay when the connection is
+        signed in. The REGISTRY owns that answer (``_agent_roots``), so the token expands to
+        one entry PER root — never derived from file layout here. Expanded at RunContext
+        creation so the filesystem tools do plain containment and never learn what a token
+        or an overlay is.
 
         ``<agent_dir>`` is the calling agent's own folder, which is what a self-deny needs.
         An unknown token is left as-is: it then matches nothing, so a typo narrows the scope
@@ -140,38 +166,47 @@ class AgentService:
         from pathlib import Path
 
         agent_dir = Path(agent.dir) if getattr(agent, "dir", None) else None
-        agents_dir = agent_dir.parent if agent_dir else None
+        roots = self._agent_roots(agent)
         out = []
         for raw in declared or ():
             text = str(raw)
-            if agents_dir is not None:
-                text = text.replace("<agents_dir>", str(agents_dir))
-            if agent_dir is not None:
-                text = text.replace("<agent_dir>", str(agent_dir))
-            if "<" in text:
-                continue  # an unexpanded token would silently mean the literal string
-            out.append(str(Path(text).expanduser()))
-        return tuple(out)
+            expansions = (
+                [text.replace("<agents_dir>", root) for root in roots]
+                if "<agents_dir>" in text
+                else [text]
+            )
+            for expanded in expansions:
+                if agent_dir is not None:
+                    expanded = expanded.replace("<agent_dir>", str(agent_dir))
+                if "<" in expanded:
+                    continue  # an unexpanded token would silently mean the literal string
+                out.append(str(Path(expanded).expanduser()))
+        # `dict.fromkeys`: order-preserving dedupe — with no overlay, the shared root is the
+        # write target too, and a scope that lists one directory twice reads like a bug.
+        return tuple(dict.fromkeys(out))
 
     def _protected_paths(self, agent) -> tuple:
         """Directories of agents that were INSTALLED from a package — never writable.
 
+        Guarded under EVERY root the caller's agents live in (``_agent_roots``, the same
+        authority scope expansion asks): installs land in the overlay for a signed-in
+        connection and in the shared catalogue otherwise, and the ledger names only ids.
+
         FAILS CLOSED. When the ledger cannot be read the callable returns None, and we protect
-        the WHOLE agents directory rather than guessing: we do not know which agents are
+        the WHOLE of every root rather than guessing: we do not know which agents are
         someone else's, and quietly permitting the write would be a fallback that hides the
         failure. The refusal is loud, the user fixes the ledger, authoring resumes."""
         from pathlib import Path
 
         if self._installed_agents is None:
             return ()
-        agent_dir = Path(agent.dir) if getattr(agent, "dir", None) else None
-        agents_dir = agent_dir.parent if agent_dir else None
-        if agents_dir is None:
+        roots = self._agent_roots(agent)
+        if not roots:
             return ()
         installed = self._installed_agents()
         if installed is None:
-            return (str(agents_dir),)  # unreadable ledger -> protect everything, loudly
-        return tuple(str(agents_dir / aid) for aid in sorted(installed))
+            return tuple(roots)  # unreadable ledger -> protect everything, loudly
+        return tuple(str(Path(root) / aid) for root in roots for aid in sorted(installed))
 
     def _models_for(self, agent) -> tuple:
         """``(model, model_router)`` for one run of ``agent``.
