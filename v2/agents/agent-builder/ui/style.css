@@ -617,6 +617,13 @@ button:disabled { opacity: .45; cursor: default; }
 }
 .field label { font-size: 13px; }
 .field .fhelp { display: block; font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+/* A required [[settings]] field the user has not filled in yet: the agent does not work
+   without it, so the row says so rather than looking merely empty. */
+.field label .req { color: var(--warn); }
+.field .fhelp.missing { color: var(--warn); }
+/* An MCP command or endpoint, shown verbatim: the argv is what actually runs, so a
+   friendly name here would be describing something other than the thing approved. */
+.fhelp.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 
 /* Which LAYER a value came from. A settings page that shows a value without saying where it
    came from is how "Model: GPT-5" sat on screen while every turn was answered by another

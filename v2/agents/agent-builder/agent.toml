@@ -86,6 +86,18 @@ public = false
 write_roots = ["<agents_dir>"]
 deny        = ["<agent_dir>"]
 
+# THE ONE AGENT THAT NEEDS THE MCP WORKSHOP, and the reason the flag became per-agent.
+#
+# `add_mcp` lets the MODEL connect an arbitrary MCP server from chat text — text that can arrive
+# from a web page or an email. Machine-wide that is a bad default, which is why the daemon's is
+# off. But this agent's job includes trying a server the user just described so it can report
+# back what tools actually appeared, instead of writing an [[mcp]] block and hoping.
+#
+# The agents it BUILDS get no such thing unless their author asks: an explicit `false` (or simply
+# saying nothing, with the daemon default off) is what they inherit. See the connect-mcp skill.
+[capabilities]
+mcp_workshop = true
+
 [tools]
 allow = [
   "read", "write", "edit", "ls", "find", "skill_workshop",

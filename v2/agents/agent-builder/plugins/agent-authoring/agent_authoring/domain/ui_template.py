@@ -61,16 +61,76 @@ CHAT_APP = UiTemplate(
 )
 
 
-class UiTemplates:
-    """The catalogue. Frozen at one entry ON PURPOSE.
+DASHBOARD_APP = UiTemplate(
+    id="dashboard-app",
+    title="Dashboard",
+    summary=(
+        "Numbers, a chart and a table, on screen the moment the window opens — driven by direct "
+        "tool calls, so Refresh costs no model turn. Keeps a chat view for the questions a number "
+        "cannot answer. For an agent that runs on its own and REPORTS."
+    ),
+    files=(
+        "index.html",
+        "app.js",
+        "board.js",
+        "chat.js",
+        "settings.js",
+        "style.css",
+        "README.md",
+    ),
+    borrowed=(
+        "md.js",
+        "vendor/agentd-client.js",
+    ),
+    readme="README.md",
+)
 
-    A picker with a single option is ceremony, and a second template written before the first
-    has been used in anger would be two guesses instead of one. Add the next one when a real
-    agent wants a shape this cannot make — and when it is added, it must ship with the same
-    tests, or it becomes the untested path everyone picks.
+
+WORKBENCH_APP = UiTemplate(
+    id="workbench-app",
+    title="Workbench",
+    summary=(
+        "A drop zone and a queue with per-item status: drop a pile of files, watch each one go "
+        "through, see which failed and why. One failure never stops the batch. For an agent that "
+        "INGESTS things rather than discussing them."
+    ),
+    files=(
+        "index.html",
+        "app.js",
+        "queue.js",
+        "chat.js",
+        "settings.js",
+        "style.css",
+        "README.md",
+    ),
+    borrowed=(
+        "md.js",
+        "vendor/agentd-client.js",
+    ),
+    readme="README.md",
+)
+
+
+class UiTemplates:
+    """The catalogue.
+
+    THREE SHAPES, because the shape is the decision — and nothing used to tell the model that
+    the decision existed. A trading monitor whose window is a chat box makes the user type
+    "what's my P&L" to see a number that should already be on screen; a file-ingest agent whose
+    window is a chat box makes them describe files they could have dropped. Both were the only
+    thing this catalogue could produce.
+
+    ``chat-app`` stays FIRST and therefore the default: it is right whenever the work genuinely
+    is a conversation, which is still most agents.
+
+    Every entry is held to the same tests — on disk, no validator findings, parses, no id
+    reached for that the markup does not declare. An untested template is worse than a missing
+    one, because it is the path everyone picks.
     """
 
-    def __init__(self, templates: tuple[UiTemplate, ...] = (CHAT_APP,)):
+    def __init__(
+        self, templates: tuple[UiTemplate, ...] = (CHAT_APP, DASHBOARD_APP, WORKBENCH_APP)
+    ):
         self._by_id = {t.id: t for t in templates}
         self._default = templates[0].id if templates else ""
 

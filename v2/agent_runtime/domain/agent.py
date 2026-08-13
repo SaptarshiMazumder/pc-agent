@@ -13,6 +13,7 @@ too (it only reads a `.name`, so it stays IO-free).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,147 @@ def agent_dir_key(path) -> str:
     import os
 
     return os.path.normcase(os.path.realpath(str(path or "")))
+#: What a settings field may be. `secret` is write-only in every UI — you see that it is set,
+#: never what it is. `url` and `text` are ordinary values a user can read back and correct.
+SETTING_KINDS = ("secret", "text", "url")
+
+#: `${NAME}` — the one placeholder syntax, shared by plugin secrets, MCP env and MCP headers.
+#: Matched here so the domain can answer "what does this declaration need?" without the caller
+#: re-deriving the pattern and getting a subtly different one.
+PLACEHOLDER_NAMES = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+@dataclass(frozen=True)
+class SettingField:
+    """One thing an agent needs from whoever runs it: an API key, a database URL, an endpoint.
+
+    THE DECLARATION SHIPS; THE VALUE NEVER DOES. This lives in ``agent.toml``, so it travels in
+    the ``.agentpkg`` to every installer. The value lives in that machine's ``.env``, which
+    packaging already excludes — so a downloader opens Settings, sees the fields empty with the
+    author's own labels and help text, and fills them in on their own machine.
+
+    It doubles as a PERMISSION. Writing to ``.env`` is app-callable (``config.set``), and it used
+    to accept any name at all: an installed agent's settings page — code somebody else wrote —
+    could overwrite ``OPENAI_API_KEY``, or repoint the model proxy at a server it controlled and
+    read every prompt. There was no way to scope that, because there was no way for an agent to
+    say what it legitimately needed. Now there is, and it is the same list.
+    """
+
+    key: str  # the env var name, e.g. "COINBASE_API_KEY"
+    label: str = ""  # what the settings page shows; defaults to the key
+    kind: str = "text"  # one of SETTING_KINDS
+    required: bool = False  # the agent cannot work without it
+    help: str = ""  # one line: where the user gets this value
+
+    @property
+    def secret(self) -> bool:
+        return self.kind == "secret"
+
+
+@dataclass(frozen=True)
+class McpServerDecl:
+    """An MCP server THIS agent needs, declared in ``agent.toml`` so it travels with the package.
+
+    The gap this closes: ``mcp.add`` writes the machine's ``agentd.config.json``, which is not
+    packaged. An author would wire up a server, watch their agent work, publish it — and the
+    installer would get ``[tools] allow = ["aws__*"]`` matching nothing. An agent that looks
+    installed and silently has no tools is the worst shape a failure can take, because the only
+    symptom is the model saying it cannot do the thing.
+
+    A declaration, never a connection: pure data, no session, no subprocess. ``env``/``headers``
+    hold ``${NAME}`` PLACEHOLDERS naming ``[[settings]]`` keys — an author who inlines a real
+    credential here ships it to everyone who installs the agent.
+
+    Per agent, deliberately. Two agents may both call a server ``aws`` and mean two different AWS
+    accounts; their tools live in separate per-agent sets, so the names cannot collide the way one
+    flat ``config.mcp_servers`` list would force them to.
+    """
+
+    name: str  # the tool namespace: <name>__<tool>
+    command: tuple[str, ...] = ()  # stdio launch argv — mutually exclusive with url
+    url: str = ""  # http(s) endpoint
+    env: dict | None = None  # for the stdio child; values may be ${SETTING}
+    headers: dict | None = None  # for the url; values may be ${SETTING}
+    auth: str = ""  # "oauth:<name>" (Part 2b) — empty means static credentials
+
+    @property
+    def transport(self) -> str:
+        return "http" if self.url else "stdio"
+
+    @property
+    def placeholders(self) -> tuple[str, ...]:
+        """Every ``${NAME}`` this declaration references, in command, env and headers alike.
+
+        The connector needs the whole set BEFORE connecting: a server whose credential is still
+        empty must be refused rather than launched, because the subprocess would inherit the
+        daemon's environment and quietly run on whatever account the daemon happens to hold.
+        """
+        found: list[str] = []
+        for value in (*self.command, *(self.env or {}).values(), *(self.headers or {}).values()):
+            found.extend(PLACEHOLDER_NAMES.findall(str(value)))
+        return tuple(dict.fromkeys(found))
+
+
+#: The tool that lets the MODEL wire up an MCP server from chat. Named here because both the
+#: prompt (which describes the capability) and the toolset (which grants it) have to mean the
+#: same thing by "MCP workshop".
+MCP_WORKSHOP_TOOL = "add_mcp"
+
+
+def capability_enabled(agent, attr: str, global_default) -> bool:
+    """Resolve one capability gate: the agent's own answer if it gave one, else the daemon's.
+
+    ONE rule, used by the prompt (what the agent is told it can do) and by the toolset (what it
+    can actually do). Those drifting apart produces an agent that has been told it can schedule
+    work and has no `cron`, which reads to a user as the model lying.
+
+    ``None`` means "did not say" and inherits — which is why these are ``bool | None`` and not
+    ``bool``. An explicit ``false`` in agent.toml therefore beats a daemon-wide ``true``: the
+    author of an agent knows what it needs, and the operator's default is only a default.
+    """
+    own = getattr(agent, attr, None) if agent is not None else None
+    return bool(global_default) if own is None else bool(own)
+
+
+def setting_env_name(agent_id: str, key: str) -> str:
+    """Where an agent's declared setting is STORED: ``<agent-id>__<KEY>``.
+
+    THE PREFIX IS A STORAGE DETAIL, applied on write and stripped on read. The author still
+    declares ``key = "AWS_ACCESS_KEY_ID"``, the settings page still shows "AWS access key", and
+    the MCP server or plugin that consumes it still sees the bare name. Nobody types the prefix.
+
+    It exists because ``.env`` is ONE file shared by every agent on the machine. Without it, a
+    cost-monitoring agent and a provisioning agent — both wanting ``AWS_ACCESS_KEY_ID``, each for
+    a DIFFERENT AWS account — overwrite each other, and neither the user nor the code can tell
+    which account is answering. Two prefixed names cannot collide, so the second agent is simply
+    a second agent rather than a corruption of the first.
+
+    The agent id goes in VERBATIM, not upper-cased or otherwise normalised: ``aws-provisioner``
+    and ``aws_provisioner`` are both valid ids, and folding them together would recreate the exact
+    collision this prevents. Safe because nothing here needs a shell identifier — ``.env`` is read
+    by splitting on the first ``=`` (``config._load_dotenv`` / ``EnvFile.update``), and an id is
+    already restricted to letters, digits, ``-`` and ``_``.
+
+    PROVIDER KEYS ARE NOT PREFIXED, and that is not an exception — ``ANTHROPIC_API_KEY`` is one
+    machine-wide credential by design, shared by every agent. Only what an agent DECLARES is
+    private to it.
+    """
+    return f"{agent_id}__{key}" if agent_id and key else key
+
+
+def resolve_setting_env(name: str, agent_id: str, declared) -> str:
+    """The env var to actually read for ``${name}`` on behalf of ``agent_id``.
+
+    Declared by this agent -> its private prefixed name. Not declared -> the bare name, which is
+    the machine-wide variable it has always been (``FAL_KEY``, ``GOOGLE_OAUTH_CLIENT_ID``, a
+    provider key, anything the operator exported).
+
+    A LOOKUP, NOT A FALLBACK CHAIN. It never tries the prefixed name and then quietly settles for
+    the bare one: that would let an agent whose own value is unset run on the daemon's credentials
+    and report success — the silent-wrong-account failure this whole scheme exists to stop. The
+    declaration decides which name is read, and if that name is empty the caller sees it empty.
+    """
+    return setting_env_name(agent_id, name) if name in (declared or ()) else name
 
 
 @dataclass(frozen=True)
@@ -118,6 +260,21 @@ class AgentSpec:
     heartbeat: str | None = None  # autonomy interval, e.g. "15m" (Phase 2)
     heartbeat_instructions: str = ""  # HEARTBEAT.md, injected only on a tick
     version: str = "1"  # agent-definition version (S18, from agent.toml)
+    # [[settings]] — what this agent needs from whoever runs it (see SettingField). Empty for an
+    # agent that needs nothing, which is most of them. Also the allowlist of env names its own
+    # settings page may write.
+    settings: tuple[SettingField, ...] = ()
+    # [[mcp]] — MCP servers THIS agent brings with it (see McpServerDecl). Kept out of
+    # config.mcp_servers on purpose: that list is one flat machine-wide namespace, so two agents
+    # could not both declare an "aws". These connect lazily, per agent, on first run.
+    mcp: tuple[McpServerDecl, ...] = ()
+    # [[oauth]] — third-party sign-ins this agent needs (see domain/oauth_connection.py). The
+    # declaration ships with the package; the tokens are per user, per machine, and never do.
+    oauth: tuple = ()
+    # [capabilities] mcp_workshop — may the MODEL wire up an MCP server mid-conversation
+    # (the add_mcp tool)? None = inherit the global default; True/False = per-agent. An agent
+    # that DECLARES its servers does not need this; it is for the one being built.
+    mcp_workshop_enabled: bool | None = None
     # [app] — this agent ships its OWN client UI (an "app agent"): {entry, title}. The UI
     # lives at <dir>/ui/ and the daemon serves it at /apps/<id>/ (see docs/PROTOCOL.md §9).
     # None = a plain chat agent (rendered by the shared client). The definition stays pure

@@ -25,6 +25,7 @@ class ValidateAgentService:
         sandbox_rules,
         ui_rules=None,
         tool_grant_rules=None,
+        declaration_rules=None,
     ):
         self._reader = reader
         self._layout = layout_rules
@@ -33,6 +34,9 @@ class ValidateAgentService:
         # Optional for the same reason as ui_rules: a caller that does not inject it simply
         # does not get that check, rather than failing to construct.
         self._grants = tool_grant_rules
+        # [[settings]] / [[mcp]] / [[oauth]] coherence. Optional like the two below: a caller
+        # that does not inject it simply does not get the check.
+        self._declarations = declaration_rules
         # Optional so the service still constructs where the runtime's event/method vocabulary
         # is not available to inject (unit tests). Absent => the app code simply is not read.
         self._ui = ui_rules
@@ -86,6 +90,8 @@ class ValidateAgentService:
         findings += self._sandbox.check(spec, raw, files, sources)
         if self._grants is not None:
             findings += self._grants.check(spec, raw, files)
+        if self._declarations is not None:
+            findings += self._declarations.check(spec, raw, files, sources)
         if self._ui is not None:
             findings += self._ui.check(spec, raw, files, sources)
         return Report(agent_id=agent_id, findings=tuple(findings))

@@ -43,7 +43,8 @@ def register(api, ctx):
     from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
-    from agent_authoring.domain.tool_grant_rules import ToolGrantRules
+    from agent_authoring.domain.declaration_rules import DeclarationRules
+from agent_authoring.domain.tool_grant_rules import ToolGrantRules
     from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
     from agent_authoring.infrastructure.agent_packer import AgentPacker
@@ -107,7 +108,7 @@ def register(api, ctx):
     from agent_authoring.domain.ui_rules import UiRules
 
     from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
-    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS, PROVIDER_ENV_KEYS
 
     validator = ValidateAgentService(
         reader,
@@ -128,6 +129,10 @@ def register(api, ctx):
         # background job, so it blocks a turn on a sleep instead. Caught here rather than
         # discovered during a 20GB download.
         ToolGrantRules(),
+        # [[settings]] / [[mcp]] / [[oauth]]: the three blocks whose mistakes are invisible
+        # until SOMEBODY ELSE has installed the agent — a field nothing reads, a server whose
+        # credential was never declared, a key pasted into the file that ships.
+        DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
     )
     api.register_tool(ValidateAgentTool(validator))
 

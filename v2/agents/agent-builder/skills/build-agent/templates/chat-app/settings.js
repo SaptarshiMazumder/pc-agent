@@ -44,6 +44,8 @@ window.Settings = (function () {
   let platform = null      // platform.status — run mode, live from the daemon
   let auth = null          // auth.status — who is signed in, live from the daemon
   let platformError = ''
+  let mcp = null           // mcp.status — this agent's DECLARED servers and why any is not up
+  let oauth = null         // oauth.status — the sign-ins it declared, and who is signed in
 
   // Whose page this is. The connect URL carries `scope=agent:<id>` — the daemon strips that
   // prefix before it forces the agent onto our requests, so anything we key BY agent id has to
@@ -110,6 +112,14 @@ window.Settings = (function () {
       costEfficiency: true,
     },
     {
+      // What agent.toml's [[settings]] declared. The daemon sends the FIELDS; the values stay on
+      // this machine. An agent that declares nothing shows nothing — the group hides itself.
+      title: 'What this agent needs',
+      help: 'Set by whoever runs this agent. Saved to the .env on this machine — never packaged, ' +
+            'never sent anywhere with the agent.',
+      declared: true,
+    },
+    {
       title: 'API keys',
       help: 'Your own provider keys. Stored in the .env beside the config, never in the ' +
             'config file itself. Shared by every agent on this machine.',
@@ -152,7 +162,24 @@ window.Settings = (function () {
     }
     draft = JSON.parse(JSON.stringify(data.values || {}))
     await loadPlatform()
+    await loadMcp()
     render()
+  }
+
+  /** The MCP servers agent.toml declared, and where each one stands. Failing to load is NOT
+   *  fatal to the page — an older daemon has no mcp.status — but it is also not silent: the
+   *  section is simply absent when there is nothing to say, and a real error shows in place. */
+  async function loadMcp() {
+    try {
+      mcp = await client.request('mcp.status', {})
+    } catch (e) {
+      mcp = { servers: [], error: (e && e.message) || String(e) }
+    }
+    try {
+      oauth = await client.request('oauth.status', {})
+    } catch (e) {
+      oauth = { connections: [] }
+    }
   }
 
   /** Run mode comes from the DAEMON, not from this page's storage — see modeSection. A failure
@@ -190,11 +217,16 @@ window.Settings = (function () {
     // bill, so the second control greys out until the first one is filled in.
     body.append(accountSection())
     body.append(modeSection())
+    const servers = mcpSection()
+    if (servers) body.append(servers)
 
     for (const group of GROUPS) {
       // With no scope in the URL there is no agent to override for; showing the group would
       // offer edits that land nowhere.
       if (group.agent && !AGENT_ID) continue
+      // Nothing declared -> no group. An empty "What this agent needs" reads as a page that
+      // failed to load its fields.
+      if (group.declared && !(data.settings || []).length) continue
 
       const sec = el('section', 'set-group')
       sec.append(el('h2', null, group.title))
@@ -202,7 +234,9 @@ window.Settings = (function () {
 
       if (group.agentToggle) sec.append(overrideRow())
 
-      if (group.secrets) {
+      if (group.declared) {
+        for (const f of data.settings || []) sec.append(declaredRow(f))
+      } else if (group.secrets) {
         for (const name of data.providerKeys || []) sec.append(secretRow(name))
       } else {
         for (const f of group.fields || []) {
@@ -490,6 +524,150 @@ window.Settings = (function () {
     input.addEventListener('change', () => {
       change(f.type === 'number' ? Number(input.value) : input.value)
     })
+    wrap.append(input)
+    return wrap
+  }
+
+  /** The MCP servers this agent DECLARED (agent.toml [[mcp]]), and what each is waiting for.
+   *
+   *  This section is the answer to "why does this agent have no tools", a question that has no
+   *  answer anywhere else — the model just says it cannot do the thing. So a server that is not
+   *  up says WHY: a credential nobody filled in, or a command nobody has approved.
+   *
+   *  APPROVAL IS THE POINT OF THE BUTTON. A stdio server means this agent wants to run a command
+   *  on your machine — for a downloaded agent, that is third-party code you never chose. The
+   *  exact argv is printed, not a friendly name, because the argv is what actually runs. */
+  function mcpSection() {
+    const servers = (mcp && mcp.servers) || []
+    const logins = (oauth && oauth.connections) || []
+    if (!servers.length && !logins.length) return null
+
+    const sec = el('section', 'set-group')
+    sec.append(el('h2', null, 'Connected services'))
+    sec.append(el('p', 'ghelp', 'Services this agent connects to. Credentials come from the ' +
+      'fields above and never leave this machine.'))
+
+    for (const c of logins) sec.append(oauthRow(c))
+
+    for (const s of servers) {
+      const wrap = el('div', 'field')
+      const left = el('div')
+      left.append(el('label', null, s.name))
+      if (s.tools && s.tools.length) {
+        left.append(el('span', 'fhelp', `${s.tools.length} tool(s): ${s.tools.join(', ')}`))
+      }
+      if (s.transport === 'stdio') left.append(el('span', 'fhelp mono', s.command.join(' ')))
+      else if (s.url) left.append(el('span', 'fhelp mono', s.url))
+      if (s.problem) left.append(el('span', 'fhelp missing', s.problem))
+      wrap.append(left)
+
+      // Only a stdio server that is BLOCKED gets a button — approving something already running
+      // would be a control with nothing to do.
+      if (s.transport === 'stdio' && s.problem && s.problem.indexOf('approval') !== -1) {
+        const btn = el('button', 'prime-btn', 'Approve and run')
+        btn.addEventListener('click', () => void approveMcp(s.name, btn))
+        wrap.append(btn)
+      } else {
+        wrap.append(el('span', 'fhelp', s.problem ? '' : 'connected'))
+      }
+      sec.append(wrap)
+    }
+    return sec
+  }
+
+  /** One declared OAuth connection: signed in as whom, or a button to sign in.
+   *
+   *  THIS PAGE OPENS THE WINDOW, not the daemon. On a desktop they are the same machine so it
+   *  makes no difference; the moment this page is a tab somewhere else, a daemon calling its own
+   *  browser would open a login nobody is sitting in front of. */
+  function oauthRow(c) {
+    const wrap = el('div', 'field')
+    const left = el('div')
+    left.append(el('label', null, c.name))
+    left.append(el('span', 'fhelp', c.connected
+      ? (c.account ? `signed in as ${c.account}` : 'signed in')
+      : 'not signed in'))
+    if (c.scopes && c.scopes.length) left.append(el('span', 'fhelp', c.scopes.join(', ')))
+    wrap.append(left)
+
+    const btn = el('button', c.connected ? 'ghost-btn' : 'prime-btn', c.connected ? 'Disconnect' : 'Connect')
+    btn.addEventListener('click', () => void (c.connected ? disconnectOauth(c.name, btn) : connectOauth(c.name, btn)))
+    wrap.append(btn)
+    return wrap
+  }
+
+  async function connectOauth(name, btn) {
+    btn.disabled = true
+    btn.textContent = 'opening…'
+    try {
+      const res = await client.request('oauth.connect', { name })
+      // The daemon catches the redirect on its own /oauth/callback; this window only has to send
+      // the user there. Reloading on focus is how the row updates when they come back.
+      window.open(res.authorizeUrl, '_blank', 'noopener')
+      btn.textContent = 'waiting for sign-in…'
+      window.addEventListener('focus', async function once() {
+        window.removeEventListener('focus', once)
+        await loadMcp()
+        render()
+      })
+    } catch (e) {
+      btn.disabled = false
+      btn.textContent = `could not start: ${(e && e.message) || e}`
+    }
+  }
+
+  async function disconnectOauth(name, btn) {
+    btn.disabled = true
+    try {
+      await client.request('oauth.disconnect', { name })
+      await loadMcp()
+      render()
+    } catch (e) {
+      btn.disabled = false
+      btn.textContent = `could not disconnect: ${(e && e.message) || e}`
+    }
+  }
+
+  async function approveMcp(name, btn) {
+    btn.disabled = true
+    btn.textContent = 'approving…'
+    try {
+      await client.request('mcp.approve', { name })
+      await loadMcp()
+      render()
+    } catch (e) {
+      btn.disabled = false
+      btn.textContent = `could not approve: ${(e && e.message) || e}`
+    }
+  }
+
+  /** One field from agent.toml's [[settings]]. Same .env plumbing as a provider key — it rides
+   *  in the same `keys` map — but the daemon only accepts the names THIS agent declared.
+   *
+   *  A secret is write-only: `settingsValues` carries text and url values so a typo is fixable,
+   *  and never carries a secret. So a secret shows "saved" and takes a replacement, exactly like
+   *  a provider key on an installed agent. */
+  function declaredRow(f) {
+    const wrap = el('div', 'field')
+    const left = el('div')
+    const label = el('label', null, f.label || f.key)
+    if (f.required) label.append(el('span', 'req', ' *'))
+    left.append(label)
+    const isSet = (data.env || {})[f.key]
+    left.append(el('span', 'fhelp', f.help || f.key))
+    if (f.required && !isSet) left.append(el('span', 'fhelp missing', 'required — not set yet'))
+    wrap.append(left)
+
+    const input = el('input')
+    if (f.kind === 'secret') {
+      input.type = 'password'
+      input.placeholder = isSet ? '•••••••• saved' : 'not set'
+    } else {
+      input.type = f.kind === 'url' ? 'url' : 'text'
+      input.value = (data.settingsValues || {})[f.key] || ''
+      input.placeholder = isSet ? '' : 'not set'
+    }
+    input.addEventListener('change', () => { keys[f.key] = input.value; dirty() })
     wrap.append(input)
     return wrap
   }

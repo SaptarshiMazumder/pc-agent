@@ -100,6 +100,149 @@ def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -
     return tagline or ""
 
 
+def _settings_fields(raw, agent_id: str = "") -> tuple:
+    """``[[settings]]`` -> ``SettingField``s. What this agent needs from whoever runs it.
+
+    A MALFORMED ROW IS DROPPED AND LOGGED, never silently skipped and never fatal. Silently is
+    wrong because the author would ship an agent whose settings page is missing a field and only
+    hear about it from a buyer; fatal is wrong because one typo in an optional block must not stop
+    the whole agent — and every other field in it is still perfectly usable.
+
+    An unknown ``kind`` becomes ``text``: showing a value in a plain box is the safe direction to
+    be wrong in. Getting it wrong the other way — treating a typo'd ``secrret`` as free text — is
+    the same outcome; treating something as a secret it is not merely hides it.
+    """
+    from agent_runtime.domain.agent import SETTING_KINDS, SettingField
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[settings]] entry is not a table: %r", agent_id, row)
+            continue
+        key = str(row.get("key") or "").strip()
+        if not key:
+            log.warning("agent %s: [[settings]] entry has no `key` — dropped: %r", agent_id, row)
+            continue
+        if key in seen:
+            log.warning("agent %s: [[settings]] declares %s twice — keeping the first", agent_id, key)
+            continue
+        kind = str(row.get("kind") or "text").strip().lower()
+        if kind not in SETTING_KINDS:
+            log.warning(
+                "agent %s: [[settings]] %s has unknown kind %r — treating as text", agent_id, key, kind
+            )
+            kind = "text"
+        seen.add(key)
+        out.append(
+            SettingField(
+                key=key,
+                label=str(row.get("label") or key),
+                kind=kind,
+                required=bool(row.get("required")),
+                help=str(row.get("help") or ""),
+            )
+        )
+    return tuple(out)
+
+
+def _oauth_decls(raw, agent_id: str = "") -> tuple:
+    """``[[oauth]]`` -> ``OAuthDecl``s. Drop-and-log, like every other declaration block.
+
+    A row is dropped when there is nowhere to send the user: no ``name``, or neither a ``server``
+    to discover endpoints from nor both explicit URLs. Half a flow is worse than none — the user
+    would press Connect and land on a broken page with no way to tell whose fault it was.
+    """
+    from agent_runtime.domain.oauth_connection import OAuthDecl
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[oauth]] entry is not a table: %r", agent_id, row)
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            log.warning("agent %s: [[oauth]] entry has no `name` — dropped: %r", agent_id, row)
+            continue
+        if name in seen:
+            log.warning("agent %s: [[oauth]] declares %s twice — keeping the first", agent_id, name)
+            continue
+        server = str(row.get("server") or "").strip()
+        authorize_url = str(row.get("authorize_url") or "").strip()
+        token_url = str(row.get("token_url") or "").strip()
+        if not server and not (authorize_url and token_url):
+            log.warning(
+                "agent %s: [[oauth]] %s needs a `server` to discover, or both `authorize_url` "
+                "and `token_url` — dropped",
+                agent_id,
+                name,
+            )
+            continue
+        seen.add(name)
+        out.append(
+            OAuthDecl(
+                name=name,
+                server=server,
+                authorize_url=authorize_url,
+                token_url=token_url,
+                scopes=tuple(str(s) for s in (row.get("scopes") or ()) if str(s).strip()),
+                client_id=str(row.get("client_id") or "").strip(),
+                client_secret=str(row.get("client_secret") or "").strip(),
+            )
+        )
+    return tuple(out)
+
+
+def _mcp_servers(raw, agent_id: str = "") -> tuple:
+    """``[[mcp]]`` -> ``McpServerDecl``s. Same drop-and-log rule as ``[[settings]]``.
+
+    A row needing more than a warning is one that would connect to the WRONG THING: no name (no
+    namespace for its tools), neither ``command`` nor ``url`` (nothing to connect to), or both
+    (two different servers described as one). Each is dropped with a message naming the agent,
+    because the author has to hear it from the daemon rather than from a buyer whose agent
+    silently has no tools.
+    """
+    from agent_runtime.domain.agent import McpServerDecl
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[mcp]] entry is not a table: %r", agent_id, row)
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            log.warning("agent %s: [[mcp]] entry has no `name` — dropped: %r", agent_id, row)
+            continue
+        if name in seen:
+            log.warning("agent %s: [[mcp]] declares %s twice — keeping the first", agent_id, name)
+            continue
+        command = tuple(str(c) for c in (row.get("command") or ()) if str(c).strip())
+        url = str(row.get("url") or "").strip()
+        if bool(command) == bool(url):
+            log.warning(
+                "agent %s: [[mcp]] %s needs exactly one of `command` (stdio) or `url` (http) — "
+                "dropped (got %s)",
+                agent_id,
+                name,
+                "both" if command else "neither",
+            )
+            continue
+        seen.add(name)
+        out.append(
+            McpServerDecl(
+                name=name,
+                command=command,
+                url=url,
+                env={str(k): str(v) for k, v in (row.get("env") or {}).items()} or None,
+                headers={str(k): str(v) for k, v in (row.get("headers") or {}).items()} or None,
+                auth=str(row.get("auth") or "").strip(),
+            )
+        )
+    return tuple(out)
+
+
 class FileAgentRegistry:
     """File-backed AgentRegistry. Discovers once at construction (cheap, cached).
 
@@ -387,6 +530,13 @@ class FileAgentRegistry:
             str(k).lower(): v for k, v in (data.get("plugins") or {}).items() if isinstance(v, dict)
         }
         heartbeat = data.get("heartbeat")
+        # [[settings]] — what this agent needs from whoever RUNS it (an API key, a URL). The
+        # declaration ships inside the package; the values stay in the installer's own .env.
+        settings = _settings_fields(data.get("settings"), agent_id=agent_id)
+        # [[mcp]] — MCP servers this agent brings with it, so they survive publish + install.
+        mcp = _mcp_servers(data.get("mcp"), agent_id=agent_id)
+        # [[oauth]] — sign-ins this agent needs. The declaration ships; the tokens never do.
+        oauth = _oauth_decls(data.get("oauth"), agent_id=agent_id)
 
         # [subagents] allow — which specialist agents this one may delegate to (ids/globs).
         subagents = data.get("subagents") or {}
@@ -479,9 +629,13 @@ class FileAgentRegistry:
             autonomy_enabled=caps.get("autonomy"),
             notify_enabled=caps.get("notify"),
             channels_enabled=caps.get("channels"),
+            mcp_workshop_enabled=caps.get("mcp_workshop"),
             heartbeat=str(heartbeat) if heartbeat else None,
             heartbeat_instructions=load_heartbeat(d),
             version=str(data.get("version") or "1"),
+            settings=settings,
+            mcp=mcp,
+            oauth=oauth,
             app=app,
             requires_local=bool(data.get("requires_local")),
         )

@@ -16,9 +16,9 @@
 
 /* ── tokens ─────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* one hue drives the whole app */
-  --accent:     #b5453c;
-  --accent-dim: rgba(181, 69, 60, 0.18);
+  /* CHANGE ME — one hue drives the whole app */
+  --accent:     #6c8cff;
+  --accent-dim: rgba(108, 140, 255, 0.16);
 
   --bg:      #14151a;
   --pane:    #191b21;
@@ -33,20 +33,6 @@
   --ok:   #5ec98a;
   --bad:  #e8737f;
   --warn: #e2a75a;
-
-  /* Sign-in gate (the SDK's gate.ts). Themed with tokens rather than by forking its markup,
-     so the shared gate keeps matching this app after the SDK is re-vendored. Without these it
-     falls back to a light card, which would read as a different product on this dark shell. */
-  --gate-bg:        rgba(10, 11, 14, 0.78);
-  --gate-card:      #191b21;
-  --gate-fg:        #e8e9ee;
-  --gate-muted:     #9ea3b3;
-  --gate-border:    rgba(255, 255, 255, 0.13);
-  --gate-input:     #14151a;
-  --gate-accent:    #b5453c;
-  --gate-on-accent: #ffffff;
-  --gate-error-bg:  rgba(181, 69, 60, 0.15);
-  --gate-error-fg:  #f0a6a0;
 
   --s-1: 4px;  --s-2: 8px;  --s-3: 12px;
   --s-4: 16px; --s-5: 24px; --s-6: 32px;
@@ -503,67 +489,51 @@ button:disabled { cursor: default; opacity: 0.45; }
   .rail { opacity: 0; pointer-events: none; }
 }
 
-/* ── the Tools probe page ─────────────────────────────────────────────────────────────
-   Deliberately plain. This page exists to show a tool's RAW answer — including a sandbox
-   refusal, which is the most useful thing it can ever display — so nothing here reformats
-   or truncates what came back. */
-.probe-title { margin: 0 0 4px; font-size: 20px; }
-.probe-sub   { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+/* ── workbench ──────────────────────────────────────────────────────────────────────── */
+/* The board view is a drop zone and a queue. The rest of this file is shared with the chat
+   template, so a change up there keeps both shapes looking like one product. */
 
-.probe {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  background: var(--pane);
-}
-.probe-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-.probe-head strong { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; }
-.probe-head .tag {
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--accent-dim);
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.probe-why { margin: 6px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.probe-row { display: flex; gap: 8px; }
-.probe-row input {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-.probe-go {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 0;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.probe-go:disabled { opacity: 0.5; cursor: default; }
+.board-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.board-inner { max-width: 860px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-6); }
 
-.probe-out {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 44vh;
-  overflow: auto;
+/* Big, and obviously a target. A drop zone people do not notice is a chat box with extra steps. */
+.drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: var(--s-6) var(--s-4); cursor: pointer;
+  border: 1.5px dashed var(--hair-2); border-radius: var(--r-md);
+  background: var(--pane-2); transition: border-color .12s, background .12s;
 }
+.drop:hover { border-color: var(--accent); }
+/* Dragging over it must LOOK different, or the user cannot tell the page will accept the drop. */
+.drop.over { border-color: var(--accent); background: var(--accent-dim); }
+.drop-title { font-size: var(--t-3); font-weight: 500; }
+.drop-hint { font-size: var(--t-1); color: var(--faint); }
+
+.queue-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin: var(--s-4) 0 var(--s-2); }
+.queue-count { font-size: var(--t-1); color: var(--faint); }
+.queue-actions { display: inline-flex; gap: var(--s-2); }
+
+.queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.q-item {
+  padding: var(--s-2) var(--s-3);
+  background: var(--pane-2); border: 1px solid var(--hair); border-radius: var(--r-sm);
+  border-left-width: 3px;
+}
+/* The state is carried by the left edge AND by the word — never colour alone, or the queue is
+   unreadable to anyone who does not distinguish these hues. */
+.q-item.queued  { border-left-color: var(--hair-2); }
+.q-item.uploading, .q-item.working { border-left-color: var(--accent); }
+.q-item.done    { border-left-color: #16a34a; }
+.q-item.failed  { border-left-color: var(--warn); }
+
+.q-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
+.q-name { font-size: var(--t-2); word-break: break-all; }
+.q-state { font-size: var(--t-1); text-transform: uppercase; letter-spacing: .04em; color: var(--faint); white-space: nowrap; }
+.q-state.done { color: #16a34a; }
+.q-state.failed { color: var(--warn); }
+.q-note { display: block; font-size: var(--t-1); color: var(--dim); margin-top: 2px; word-break: break-word; }
+
+.empty { color: var(--faint); font-size: var(--t-2); padding: var(--s-3); list-style: none; }
+.queue-msg { font-size: var(--t-2); color: var(--dim); margin: var(--s-3) 0 0; }
+.queue-msg.bad { color: var(--warn); }
+.stamp { font-size: var(--t-1); color: var(--faint); margin-left: var(--s-2); }

@@ -186,11 +186,16 @@ class SandboxFetchBroker:
         by `substitute` — the provider then answers 401 with the placeholder visible, which is a
         debuggable failure, unlike a header that silently went missing.
         """
+        from agent_runtime.application.run_context import current_setting_env
         from agent_runtime.domain.sandbox_net import substitute
 
         values = {}
         for name in self._declared:
-            value = os.environ.get(name) or self._from_config(name)
+            # Same resolution as the unsandboxed path (`net.outbound._resolved`): a name the
+            # running agent declared reads its own prefixed variable, everything else reads the
+            # machine-wide one. The two MUST agree — a plugin that works in-process and 401s
+            # sandboxed would get blamed on the sandbox.
+            value = os.environ.get(current_setting_env(name)) or self._from_config(name)
             if value:
                 values[name] = value
         missing = [n for n in self._declared if n not in values]

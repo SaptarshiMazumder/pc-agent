@@ -152,10 +152,123 @@ resolution = "1K"                  # whatever knobs THAT tool documents
 
 [plugins.<other-plugin>.tools.<other-tool>]
 model = "gemini/gemini-2.5-flash"
+
+# ---- what this agent needs from whoever RUNS it (omit if it needs nothing) ----
+# The declaration ships. The values never do — see "[[settings]]" below.
+[[settings]]
+key      = "ACME_API_KEY"
+label    = "Acme API key"
+kind     = "secret"                # secret | text | url
+required = true
+help     = "Read-only key from Settings → API in Acme."
+
+# ---- MCP servers this agent brings with it (omit if it needs none) ----
+# Declared HERE, not with add_mcp: agent.toml travels in the package, agentd.config.json does not.
+# See the connect-mcp skill.
+[[mcp]]
+name    = "acme"                                 # tool namespace -> acme__*
+command = ["uvx", "acme-mcp-server@latest"]      # stdio; OR url = "https://api.acme.com/mcp"
+env     = { ACME_API_KEY = "${ACME_API_KEY}" }   # ${…} names a [[settings]] key above
 ```
 
 An agent's private tools (in `plugins/` below) are **implicitly allowed** and never need
 naming in `[tools] allow`.
+
+### `[[settings]]` — what the agent needs from whoever runs it
+
+An API key, a database URL, an endpoint. Anything that differs per person and that **you must not
+know**. Declare it and the daemon does the rest: the agent's settings page grows a field for it,
+and whatever the user types lands in the `.env` on **their** machine.
+
+```toml
+[[settings]]
+key      = "COINBASE_API_KEY"      # the ENV VAR NAME — this is what your code reads
+label    = "Coinbase API key"      # what the settings page calls it; defaults to `key`
+kind     = "secret"                # secret | text | url. Unknown kinds fall back to text.
+required = true                    # the page says "required — not set yet" until it is filled
+help     = "Read-only key from Settings → API in Coinbase."
+
+[[settings]]
+key   = "TRADING_DB_URL"
+label = "Database URL"
+kind  = "url"
+```
+
+**The declaration ships; the value never does.** `agent.toml` travels inside the package, so every
+installer sees the field. `.env` is excluded from packaging and always was. A downloader opens the
+settings page, sees empty fields, and fills in their own.
+
+**Each agent's values are its own.** On disk they are stored as `<agent-id>__<KEY>`, so two agents
+that both declare `AWS_ACCESS_KEY_ID` hold two different accounts instead of overwriting each
+other. You never write the prefix and never read it: you declare `AWS_ACCESS_KEY_ID`, your code
+reads `${AWS_ACCESS_KEY_ID}`, and the daemon maps between them. It is only worth knowing so the
+line in `.env` doesn't surprise you. Provider keys (`ANTHROPIC_API_KEY` and friends) are NOT
+prefixed — those are one machine-wide credential shared by every agent, by design.
+
+So: **never put a key IN `agent.toml`.** That file is the packaged one. Writing
+`api_key = "sk-live-…"` there ships your credential to everyone who installs the agent.
+
+**A declaration is also a permission.** `config.set` will write the provider keys and the names
+this agent declared — nothing else. An undeclared name is refused with an error naming it. That is
+why a field that does not work is almost always a field you forgot to declare.
+
+**`kind = "secret"` is write-only in the UI.** The user sees "•••• saved" and can replace it, never
+read it back — the same rule the provider keys already follow inside an installed agent, for the
+same reason. `text` and `url` values ARE shown, so a typo is fixable.
+
+Reading the value in a private tool: it is an ordinary environment variable, so
+`[sandbox] secrets = ["COINBASE_API_KEY"]` in that plugin's `plugin.toml` and the
+`${COINBASE_API_KEY}` placeholder — see "Calling an external API from a private tool".
+
+**Custom settings make an agent local-only for now.** The values live in the daemon's `.env`, and a
+hosted daemon has one `.env` shared by every account — one user's key would become everyone's.
+Until per-account secrets exist, an agent with `[[settings]]` is for a local install. Say so when
+you build one.
+
+### `[[mcp]]` — servers the agent brings with it
+
+A whole toolset somebody else wrote. Declare it in `agent.toml` so it survives publishing, wire
+its credentials to `[[settings]]` keys, and **read the `connect-mcp` skill before you do** — it
+covers public vs private servers, why `add_mcp` is not the answer, and how to verify a connection
+instead of assuming one. The short version:
+
+- `${NAME}` in an `[[mcp]]` block must be a `[[settings]]` key of the same agent. The daemon
+  refuses to connect a server whose referenced settings are empty, so an agent can never silently
+  run on the daemon's own credentials.
+- Never inline a real credential — `agent.toml` ships.
+- A `command` server launches a process on the user's machine, so they approve the exact command
+  once on the settings page. A `url` server needs no approval.
+- Check `mcp.status` and name the tools back. A server that connects and exposes nothing looks
+  identical to one that worked.
+
+### `[[oauth]]` — services the user signs in to
+
+Most services worth connecting to have no API key to paste: you sign in, and they hand back a
+token that expires. Declare that too.
+
+```toml
+[[oauth]]
+name   = "myhealth"
+server = "https://api.myhealth.app"     # endpoints DISCOVERED from here (RFC 8414)
+scopes = ["read:records"]
+# a classic provider (Google, Notion, Coinbase) needs an app registered up front, so instead:
+# authorize_url = "https://accounts.example.com/o/oauth2/auth"
+# token_url     = "https://oauth2.example.com/token"
+# client_id     = "${MYHEALTH_CLIENT_ID}"       <- a [[settings]] key, so the INSTALLER
+# client_secret = "${MYHEALTH_CLIENT_SECRET}"      registers their own app
+```
+
+Then either wire it to an MCP server — `auth = "oauth:myhealth"` in the `[[mcp]]` block, instead
+of a `headers` line — or use it from a private tool:
+`headers={"Authorization": "Bearer ${oauth:myhealth}"}`. Both read the same connection, so the
+user signs in once.
+
+**Never hard-code a `client_id`/`client_secret`.** They identify YOUR registered app; shipping
+them means every installer's sign-ins run through your app. Declare them as `[[settings]]`.
+
+The tokens are per agent and per machine, stored under `<state_dir>/oauth/`. They are never
+packaged, and — say this plainly if a user asks — they are stored unencrypted, the same as every
+other credential the daemon holds.
 
 ### Read the tool catalog before you choose
 
@@ -453,10 +566,49 @@ if it exists; otherwise tell the user a restart is needed.
 Requires an `[app]` section. Served by the daemon at `/apps/<id>/` on the **same origin as
 the WebSocket**, straight from disk on every request — edit a file, reload the window, done.
 
-### Start with `scaffold_ui`. Do not write these files by hand.
+### First decide the SHAPE. Chat is a default, not the answer.
+
+Pick from what the agent DOES, not from what is easiest to scaffold:
+
+| the agent… | the shape | what the window is |
+|---|---|---|
+| holds a conversation | **chat** | a thread and a composer |
+| runs on its own and reports | **dashboard** | numbers, a chart, a table, a Refresh button |
+| ingests a pile of things | **workbench** | a drop zone and a queue with per-item status |
+| produces artifacts to review | **viewer** | the artifact, plus the two or three actions on it |
+
+A trading monitor whose window is a chat box makes the user type "what's my P&L" to see a number
+that should already be on the screen. A file-ingest agent whose window is a chat box makes them
+describe files they could have dropped. **Chat is right when the work genuinely is a conversation
+and wrong when it is a substitute for a control.**
+
+Chat and dashboard are both templates (`scaffold_ui(template='dashboard-app')`). Viewer has no
+template — build it from the dashboard, replacing the tiles with whatever the artifact is.
+
+### A window is not limited to chatting
+
+These are the primitives. Everything a shape needs is here, and none of it requires a chat turn:
 
 ```
-scaffold_ui(agent_id='<id>')      →  a complete, working app in agents/<id>/ui/
+client.invokeTool(name, args)     run one of THIS agent's tools directly — no conversation,
+                                  no model call, no tokens spent. The dashboard Refresh button.
+client.request('workspace.upload', {...})   accept dropped files
+client.request('workspace.list', {...})     + GET /file — read what the agent produced
+client.request('config.get' | 'config.set') parameters, and the [[settings]] fields
+client.on('chat.event', …)        live progress while something long runs
+agentd.resultText(res)            a tool result -> the text to show
+```
+
+`invokeTool` is the one that changes what a window can be: a button that does the thing, in
+milliseconds, with no model in the loop. Use chat for what needs judgement and tools for what
+needs doing — most agents want both, in one window.
+
+### Then `scaffold_ui`. Do not write these files by hand.
+
+```
+scaffold_ui(agent_id='<id>')                          →  chat app (default)
+scaffold_ui(agent_id='<id>', template='dashboard-app') →  dashboard
+scaffold_ui(agent_id='<id>', template='workbench-app') →  drop-zone + queue
 ```
 
 It copies a chat app that already streams replies, shows live tool rows, takes pasted
@@ -611,6 +763,11 @@ notifications.list
 notifications.ack
 config.get
 config.set
+mcp.status
+mcp.approve
+oauth.connect
+oauth.status
+oauth.disconnect
 platform.status
 platform.connect
 platform.disconnect
@@ -621,6 +778,23 @@ that is how a shipped agent asks its user for their own API key (BYOK). One limi
 agent installed from a package, `config.get` omits the secret-bearing fields (`envValues`,
 `raw`, `path`) — you can see _that_ a key is set and write a new one, never read one back.
 Everything else — installs, projects, automation — is host-only and denied.
+
+`mcp.status` reports the servers THIS agent declared in `[[mcp]]` — for each one its transport,
+the exact command, which `${…}` settings it needs, the tools it is currently providing, and a
+`problem` string when it is not up (a missing credential, or a command awaiting approval).
+`mcp.approve {name}` records the user's consent to launch one stdio server's command. Both are
+forced onto this agent, so a page can only ever see and approve its own servers.
+
+`oauth.connect {name}` starts a sign-in and returns `authorizeUrl` — **the page opens it**, the
+daemon does not. `oauth.status` says which declared connections are signed in and as whom;
+`oauth.disconnect {name}` forgets the tokens. Same scoping rule: an agent's page can only see and
+start its own.
+
+`config.get` also returns this agent's own `[[settings]]`: `settings` (the declared fields),
+`settingsValues` (the non-secret ones only), and a presence flag per key in `env`. `config.set`
+accepts the provider keys and those declared names, nothing else — an undeclared name comes back
+`{saved: false, error: "not writable from here: …"}`. The template's settings page already renders
+all of it; you only declare the fields.
 
 ### Sign-in
 

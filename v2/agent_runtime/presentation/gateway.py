@@ -35,7 +35,12 @@ from agent_runtime.application.run_context import (
 )
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config, client_accounts_url
-from agent_runtime.domain.agent import RunMode, agent_id_from_session_key, cron_session_key
+from agent_runtime.domain.agent import (
+    RunMode,
+    agent_id_from_session_key,
+    cron_session_key,
+    setting_env_name,
+)
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
@@ -116,6 +121,20 @@ APP_SCOPED_METHODS = frozenset(
         # EXPOSED_CONFIG_KEYS.
         "config.get",
         "config.set",
+        # DECLARED MCP. `status` answers "why does this agent have no tools" on its own settings
+        # page; `approve` is the user consenting to launch the command their agent declared. Both
+        # are forced onto the connection's own agentId like every other scoped write, so a page
+        # can only ever see and approve ITS OWN servers. Neither can invent a server: approve
+        # refuses any name the agent's own agent.toml does not declare.
+        "mcp.status",
+        "mcp.approve",
+        # OAUTH. Signing in to the third-party service THIS agent declared, from the page the
+        # user is already looking at. Forced onto the connection's own agentId like every other
+        # scoped call, and each handler refuses a name the agent's own agent.toml does not
+        # declare — so a page can neither see nor start anybody else's sign-in.
+        "oauth.connect",
+        "oauth.status",
+        "oauth.disconnect",
     }
 )
 
@@ -378,6 +397,23 @@ def _subagent_depth(session_key: str) -> int:
         return 0
     nxt = parts[parts.index("sub") + 1] if parts.index("sub") + 1 < len(parts) else ""
     return int(nxt) if nxt.isdigit() else 1
+
+
+def _oauth_page(message: str) -> HttpResponse:
+    """The one page a user sees at the end of a sign-in. Deliberately plain: it exists to say
+    which of the two things happened and that they may close the tab."""
+    body = (
+        "<!doctype html><meta charset=utf-8><title>agentd</title>"
+        "<body style=\"font-family:system-ui,sans-serif;display:grid;place-items:center;"
+        "min-height:100vh;margin:0;background:#fafaf7;color:#1a1a1a\">"
+        f"<main style=\"max-width:32rem;padding:2rem;line-height:1.5\"><p>{message}</p></main>"
+    ).encode("utf-8")
+    return HttpResponse(
+        200,
+        "OK",
+        Headers({"Content-Type": "text/html; charset=utf-8", "Content-Length": str(len(body))}),
+        body,
+    )
 
 
 def _guarded_with_source(tools, config) -> list:
@@ -904,6 +940,13 @@ class Gateway:
     service: AgentService  # injected use-case (does the work)
     browser_manager: object | None = None  # injected; closed on shutdown
     mcp_provider: object | None = None  # injected; discovered at startup, closed on shutdown
+    # Per-agent DECLARED servers (agent.toml [[mcp]]) — a different thing from mcp_provider, which
+    # serves the machine-wide config.mcp_servers list. Held here so a settings write can make the
+    # affected agents re-dial, and so a page can see why a server is not up.
+    mcp_connector: object | None = None
+    # OAuthService — third-party sign-ins an agent declares ([[oauth]]). None on a build without
+    # it; every handler then says so rather than pretending a connection is merely absent.
+    oauth_service: object | None = None
     registry: object | None = None  # injected; the agent registry (for the scheduler)
     task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
@@ -1791,6 +1834,8 @@ class Gateway:
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
                 return self._serve_platform(split, getattr(request, "headers", {}))
+            if split.path == "/oauth/callback":
+                return await self._serve_oauth_callback(split)
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return await self._serve_app(split, getattr(request, "headers", {}))
             # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
@@ -2485,7 +2530,7 @@ class Gateway:
             elif req.method == "config.get":
                 payload = self._config_get(scope)
             elif req.method == "config.set":
-                payload = self._config_set(req.params)
+                payload = self._config_set(req.params, scope)
             elif req.method == "sessions.list":
                 payload = self._sessions_list(req.params)
             elif req.method == "sessions.history":
@@ -2536,6 +2581,16 @@ class Gateway:
                 payload = self._models_list()
             elif req.method == "mcp.add":
                 payload = await self._mcp_add(req.params)
+            elif req.method == "oauth.connect":
+                payload = await self._oauth_connect(req.params)
+            elif req.method == "oauth.status":
+                payload = self._oauth_status(req.params)
+            elif req.method == "oauth.disconnect":
+                payload = self._oauth_disconnect(req.params)
+            elif req.method == "mcp.status":
+                payload = self._mcp_status(req.params)
+            elif req.method == "mcp.approve":
+                payload = self._mcp_approve(req.params)
             elif req.method == "mcp.list":
                 payload = self._mcp_list()
             elif req.method == "mcp.remove":
@@ -4273,6 +4328,24 @@ class Gateway:
         ).installed_ids()
         return True if ids is None else agent_id in ids
 
+    def _declared_settings(self, scope: str | None) -> tuple:
+        """What ``agent.toml [[settings]]`` says this agent needs — the fields, never the values.
+
+        Empty for a HOST connection (``scope`` is None): the desktop settings page is the whole
+        machine's, and there is no one agent whose declarations would apply.
+
+        An unknown id RAISES. A scoped page whose agent has been removed is broken, and returning
+        "declares nothing" would render it as an agent that simply needs no settings — the one
+        reading under which the bug is invisible.
+        """
+        if not scope or self.registry is None:
+            return ()
+        try:
+            spec = self.registry.get(scope)
+        except KeyError:
+            raise RuntimeError(f"unknown agent: {scope}") from None
+        return tuple(getattr(spec, "settings", ()) or ())
+
     def _config_get(self, scope: str | None = None) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
         of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
@@ -4284,6 +4357,7 @@ class Gateway:
         import json
 
         cfg = self.config
+        declared = self._declared_settings(scope)
         values: dict = {}
         for key in EXPOSED_CONFIG_KEYS:
             if hasattr(cfg, key):
@@ -4306,10 +4380,39 @@ class Gateway:
             "exists": path.is_file(),
             "envPath": str(path.parent / ".env"),
             "values": values,
-            "env": {name: bool(os.environ.get(name)) for name in PROVIDER_ENV_KEYS},
+            # Presence, by the name the PAGE knows. A declared key is stored prefixed, so the
+            # lookup goes through setting_env_name while the reply stays in the author's terms —
+            # the page never learns the prefix exists.
+            "env": {
+                **{name: bool(os.environ.get(name)) for name in PROVIDER_ENV_KEYS},
+                **{
+                    f.key: bool(os.environ.get(setting_env_name(scope or "", f.key)))
+                    for f in declared
+                },
+            },
             # actual values so the local UI can reveal a saved key (masked by default); loopback + token-authed
             "envValues": {name: os.environ.get(name, "") for name in PROVIDER_ENV_KEYS},
             "providerKeys": list(PROVIDER_ENV_KEYS),
+            # What THIS agent's author declared it needs (agent.toml [[settings]]): the shape only.
+            "settings": [
+                {
+                    "key": f.key,
+                    "label": f.label,
+                    "kind": f.kind,
+                    "required": f.required,
+                    "help": f.help,
+                }
+                for f in declared
+            ],
+            # Values for the NON-SECRET declared fields. A url or a text field the user typed has
+            # to be readable or they cannot correct a typo without retyping the whole thing; a
+            # secret never is, installed or not. `envValues` cannot serve this — it is stripped
+            # wholesale for an installed agent, which is exactly where these fields matter most.
+            "settingsValues": {
+                f.key: os.environ.get(setting_env_name(scope or "", f.key), "")
+                for f in declared
+                if not f.secret
+            },
             # {config_key: AGENTD_VAR} for knobs an env var currently PINS — the UI marks these
             # read-only so a save never silently reverts on the next daemon boot.
             "envOverrides": {
@@ -4356,12 +4459,258 @@ class Gateway:
             return self._redact_secret_fields(payload)
         return payload
 
-    def _config_set(self, params: dict) -> dict:
+    # What an INSTALLED agent's page may put in `config.set`'s `patch`. The `keys` half has had an
+    # allowlist since [[settings]] landed; this is the other half, and it was wide open —
+    # WRITABLE_CONFIG_KEYS is every exposed knob, so a settings page that shipped inside somebody
+    # else's download could repoint `state_dir`, turn off `sandbox_untrusted_plugins`, or switch on
+    # `mcp_workshop` and then chat-drive itself into running arbitrary commands.
+    #
+    # INSTALLED, not merely scoped. The line is the one this file already draws for the
+    # secret-bearing fields of `config.get` (see _redact_for_installed_agent): code that arrived
+    # in a package is not code the user wrote. A locally-authored agent's page keeps the whole
+    # surface, which is what lets Agent Builder's own settings window edit the daemon — it is the
+    # user's own tool, on the user's own machine.
+    #
+    # These are what a settings page legitimately offers for the daemon-wide groups: `agents`
+    # arrives as one nested top-level key and is PRUNED to the connection's own id below, so an
+    # agent can only ever edit its own block. The rest are preferences — which model, how hard it
+    # thinks, what the assistant is called — not machine plumbing.
+    SCOPED_PATCH_KEYS = frozenset({"agents", "model", "reasoning_effort", "cost_efficiency", "agent_name"})
+
+    def _scoped_patch(self, patch: dict, scope: str) -> tuple[dict, list[str]]:
+        """Narrow an app connection's patch to what it may write. Returns (kept, refused)."""
+        kept: dict = {}
+        refused: list[str] = []
+        for key, value in patch.items():
+            if key not in self.SCOPED_PATCH_KEYS:
+                refused.append(key)
+                continue
+            if key == "agents":
+                own = (value or {}).get(scope) if isinstance(value, dict) else None
+                for other in (value or {}) if isinstance(value, dict) else ():
+                    if other != scope:
+                        refused.append(f"agents.{other}")
+                if own is not None:
+                    kept["agents"] = {scope: own}
+                continue
+            kept[key] = value
+        return kept, refused
+
+    def _writable_env_names(self, scope: str | None) -> frozenset[str]:
+        """Which .env names ``config.set`` will write for this connection.
+
+        The provider keys, plus — on a scoped app connection — exactly the names that agent's
+        own ``agent.toml`` declares under ``[[settings]]``. A DECLARATION IS A PERMISSION: an
+        author says "my agent needs COINBASE_API_KEY", and that sentence is what makes the field
+        writable from their page. Nothing they did not declare is.
+
+        Without this, ``keys`` wrote any name at all: a settings page that shipped inside a
+        downloaded package could overwrite ANTHROPIC_API_KEY with a key of its own choosing and
+        bill the user's turns to somebody else, and the page is trusted enough to be shown.
+
+        A HOST connection (the desktop UI, the terminal client) gets every agent's declarations,
+        not none: it is the machine's owner, and "this agent" names nobody there. It is still an
+        allowlist — a host page cannot invent an env name either.
+        """
+        allowed = set(PROVIDER_ENV_KEYS)
+        if scope:
+            allowed |= {f.key for f in self._declared_settings(scope)}
+        elif self.registry is not None:
+            for agent_id in self.registry.list_ids():
+                allowed |= {f.key for f in self._declared_settings(agent_id)}
+        return frozenset(allowed)
+
+    # ------------------------------------------------------------------ OAuth (Part 2b)
+
+    def _oauth_redirect_uri(self) -> str:
+        """Where the provider sends the user back.
+
+        The daemon's OWN port, at a fixed path — not a random loopback port. Most providers
+        require the redirect URI to be registered up front, and one that changes every run cannot
+        be registered at all.
+        """
+        return f"http://127.0.0.1:{getattr(self.config, 'port', 8765)}/oauth/callback"
+
+    def _oauth_decl(self, agent_id: str, name: str):
+        spec = self.registry.get(agent_id) if (self.registry and agent_id) else None
+        decl = next((d for d in getattr(spec, "oauth", ()) or () if d.name == name), None)
+        if decl is None:
+            raise ValueError(f"agent '{agent_id}' declares no OAuth connection '{name}'")
+        return decl
+
+    async def _oauth_connect(self, params: dict) -> dict:
+        """Start a sign-in and hand back the URL. THE CLIENT OPENS IT, not the daemon.
+
+        Right on a desktop, where they are the same machine, and the only thing that works when
+        the UI is a tab somewhere else: a daemon calling `webbrowser.open` there would launch a
+        browser nobody is sitting in front of.
+        """
+        if self.oauth_service is None:
+            return {"started": False, "error": "this daemon has no OAuth support"}
+        agent_id = str(params.get("agentId") or "")
+        name = str(params.get("name") or "")
+        url = await self.oauth_service.begin(
+            agent_id, self._oauth_decl(agent_id, name), self._oauth_redirect_uri()
+        )
+        return {"started": True, "authorizeUrl": url, "agentId": agent_id, "name": name}
+
+    def _oauth_status(self, params: dict) -> dict:
+        if self.oauth_service is None:
+            return {"connections": []}
+        agent_id = str(params.get("agentId") or "")
+        spec = self.registry.get(agent_id) if (self.registry and agent_id) else None
+        return {
+            "agentId": agent_id,
+            "connections": self.oauth_service.status(agent_id, getattr(spec, "oauth", ()) or ()),
+        }
+
+    def _oauth_disconnect(self, params: dict) -> dict:
+        if self.oauth_service is None:
+            return {"disconnected": False}
+        agent_id = str(params.get("agentId") or "")
+        name = str(params.get("name") or "")
+        self._oauth_decl(agent_id, name)  # refuse a name this agent never declared
+        ok = self.oauth_service.disconnect(agent_id, name)
+        # A connection an MCP server was riding on just went away; drop the session so the next
+        # run reports "not connected" instead of using a token that no longer exists.
+        if self.mcp_connector is not None:
+            self.mcp_connector.forget(agent_id)
+        return {"disconnected": ok, "agentId": agent_id, "name": name}
+
+    async def _serve_oauth_callback(self, split) -> HttpResponse:
+        """Where the provider sends the user's browser back to.
+
+        Returns a PAGE, not JSON: a human is looking at this, and "close this tab" is the whole
+        remaining instruction.
+
+        The exchange is AWAITED, so the page states what actually happened. It was originally
+        scheduled as a task because this handshake hook used to be synchronous; now that it is a
+        coroutine, awaiting costs one round trip to the token endpoint and buys the difference
+        between "Signed in" and "Signed in (probably — check the logs)". A sign-in that says it
+        worked and did not is the single worst outcome here: the user goes back to the agent,
+        finds it still not connected, and has nothing to act on.
+        """
+        query = parse_qs(split.query or "")
+        state = (query.get("state") or [""])[0]
+        code = (query.get("code") or [""])[0]
+        error = (query.get("error_description") or query.get("error") or [""])[0]
+        if error:
+            return _oauth_page(f"Sign-in failed: {error}")
+        if not (state and code):
+            return _oauth_page("Sign-in failed: the provider sent no authorization code.")
+        if self.oauth_service is None:
+            return _oauth_page("Sign-in failed: this daemon has no OAuth support.")
+
+        try:
+            await self.oauth_service.complete(state, code)
+        except Exception as e:  # noqa: BLE001 — the browser is the only place this can be reported
+            log.warning("oauth: callback failed: %s", e)
+            return _oauth_page(f"Sign-in failed: {e}")
+        return _oauth_page("Signed in. You can close this tab and go back to the agent.")
+
+    def _redial_mcp(self, changed: set[str]) -> None:
+        """Make every agent whose declared MCP server references one of ``changed`` reconnect."""
+        if self.mcp_connector is None or self.registry is None:
+            return
+        agents = []
+        for agent_id in self.registry.list_ids():
+            try:
+                agents.append(self.registry.get(agent_id))
+            except KeyError:
+                continue
+        for agent_id in self.mcp_connector.agents_using(agents, changed):
+            self.mcp_connector.forget(agent_id)
+            log.info("mcp: '%s' will reconnect — a setting it uses changed", agent_id)
+
+    def _mcp_status(self, params: dict) -> dict:
+        """What this agent DECLARED, and where each one stands.
+
+        The answer to "why does this agent have no tools" — a question that otherwise has no
+        answer anywhere: the model just says it cannot do the thing.
+        """
+        agent_id = str(params.get("agentId") or "")
+        declared = self._declared_settings  # reuse the same unknown-agent guard
+        declared(agent_id or None)
+        spec = self.registry.get(agent_id) if (self.registry and agent_id) else None
+        problems = (
+            self.mcp_connector.problems_for(agent_id) if self.mcp_connector is not None else {}
+        )
+        live = self.mcp_connector.tools_for(agent_id) if self.mcp_connector is not None else []
+        servers = []
+        for decl in getattr(spec, "mcp", ()) or ():
+            servers.append(
+                {
+                    "name": decl.name,
+                    "transport": decl.transport,
+                    # The exact argv, because approving "the aws server" is not consent to
+                    # whatever that name means in the next version.
+                    "command": list(decl.command),
+                    "url": decl.url,
+                    "needs": list(decl.placeholders),
+                    "problem": problems.get(decl.name, ""),
+                    "tools": [
+                        t.name for t in live if getattr(t, "name", "").startswith(f"{decl.name}__")
+                    ],
+                }
+            )
+        return {"agentId": agent_id, "servers": servers}
+
+    def _mcp_approve(self, params: dict) -> dict:
+        """Record the user's consent to launch one declared server's exact command."""
+        if self.mcp_connector is None:
+            return {"approved": False, "error": "this daemon has no declared-MCP support"}
+        agent_id = str(params.get("agentId") or "")
+        name = str(params.get("name") or "")
+        spec = self.registry.get(agent_id) if (self.registry and agent_id) else None
+        decl = next((d for d in getattr(spec, "mcp", ()) or () if d.name == name), None)
+        if decl is None:
+            raise ValueError(f"agent '{agent_id}' declares no MCP server '{name}'")
+        ok = self.mcp_connector.approve(agent_id, decl)
+        return {"approved": ok, "agentId": agent_id, "name": name}
+
+    def _env_write_plan(self, keys: dict, target: str) -> tuple[dict, list[str], list[str]]:
+        """Turn ``{name: value}`` as the PAGE wrote it into ``{env_name: value}`` for the .env.
+
+        Returns (writes, refused, ambiguous):
+
+          writes     provider keys under their own name; ``target``'s declared keys under their
+                     private prefixed name
+          refused    everything else — a name nobody declared is not writable from anywhere
+          ambiguous  a name SOME agent declares, sent without saying which agent. Two agents can
+                     each declare ``AWS_ACCESS_KEY_ID`` for two different accounts, so guessing
+                     would write one account's key over the other's. The caller says which.
+
+        Note that ONE declaring agent is still ambiguous. Picking it would be right today and
+        silently wrong the day a second agent declares the same name — and the failure then is a
+        credential written into the wrong agent's slot, which nothing downstream can detect.
+        """
+        declared = {f.key for f in self._declared_settings(target or None)}
+        everyones: set[str] = set()
+        if not target and self.registry is not None:
+            for agent_id in self.registry.list_ids():
+                everyones |= {f.key for f in self._declared_settings(agent_id)}
+
+        writes: dict = {}
+        refused: list[str] = []
+        ambiguous: list[str] = []
+        for name, value in keys.items():
+            if name in PROVIDER_ENV_KEYS:
+                writes[name] = str(value)
+            elif name in declared:
+                writes[setting_env_name(target, name)] = str(value)
+            elif name in everyones:
+                ambiguous.append(name)
+            else:
+                refused.append(name)
+        return writes, sorted(refused), sorted(ambiguous)
+
+    def _config_set(self, params: dict, scope: str | None = None) -> dict:
         """Persist config edits. Three independent, composable inputs:
           * ``patch``  {key: value} for EXPOSED_CONFIG_KEYS -> merged into the JSON file
             (all other keys preserved) AND hot-applied to the in-memory Config.
-          * ``keys``   {ENV_NAME: value} provider secrets -> written to the .env sibling of
-            the config file and applied live (empty value removes the key).
+          * ``keys``   {ENV_NAME: value} provider secrets + this agent's DECLARED settings ->
+            written to the .env sibling of the config file and applied live (empty value
+            removes the key). Any other name is refused — see _writable_env_names.
           * ``raw``    a full JSON document -> overwrites the whole config file (Advanced editor).
         A daemon restart guarantees full effect (some knobs only bind at startup)."""
         import json
@@ -4369,8 +4718,20 @@ class Gateway:
         patch = params.get("patch") or {}
         keys = params.get("keys") or {}
         raw = params.get("raw")
+        # WHOSE settings these are. The dispatcher already forces `agentId` to the connection's own
+        # scope on every write, so an app can only ever target itself; a HOST connection names the
+        # agent explicitly (and must, when the name is one that several agents declare).
+        target = str(params.get("agentId") or scope or "")
 
-        # (a) raw full-file overwrite — validate it's a JSON object first.
+        # (a) raw full-file overwrite — the Advanced editor, and the widest door in this method:
+        # it replaces the WHOLE config file, which would walk straight past both allowlists below.
+        # Host connections only. An app window asking to rewrite the machine's config is not a
+        # settings page, whatever it looks like.
+        if self._is_installed_agent(scope) and isinstance(raw, str) and raw.strip():
+            return {
+                "saved": False,
+                "error": "a downloaded agent's page cannot replace the daemon config file",
+            }
         if isinstance(raw, str) and raw.strip():
             try:
                 parsed = json.loads(raw)
@@ -4388,7 +4749,21 @@ class Gateway:
 
         result: dict = {"saved": False, "restartRecommended": False}
 
-        # (b) whitelisted key/value patch.
+        # (b) whitelisted key/value patch. A DOWNLOADED agent's page is narrowed first — to its
+        # own agents.<id> block and a handful of preferences — and told what was dropped, because
+        # a page whose save silently did nothing is worse than one that says it may not.
+        if scope and self._is_installed_agent(scope):
+            patch, patch_refused = self._scoped_patch(patch, scope)
+            if patch_refused:
+                return {
+                    "saved": False,
+                    "error": (
+                        f"not writable from this agent's page: {', '.join(patch_refused)}. An "
+                        f"agent may edit its own settings and a few shared preferences — not the "
+                        f"daemon's plumbing."
+                    ),
+                    "refused": patch_refused,
+                }
         clean = {k: v for k, v in patch.items() if k in WRITABLE_CONFIG_KEYS}
         if clean:
             ok, path = _persist_config_patch(clean)
@@ -4419,10 +4794,35 @@ class Gateway:
                     "saved": False,
                     "error": "provider keys are managed by the platform in cloud mode and cannot be changed here",
                 }
+            writes, refused, ambiguous = self._env_write_plan(keys, target)
+            if refused:
+                return {
+                    "saved": False,
+                    "error": (
+                        f"not writable from here: {', '.join(refused)}. A settings page may write "
+                        f"the provider keys and the names its own agent.toml declares under "
+                        f"[[settings]] — nothing else."
+                    ),
+                    "refused": refused,
+                }
+            if ambiguous:
+                return {
+                    "saved": False,
+                    "error": (
+                        f"name the agent for: {', '.join(ambiguous)}. These belong to an agent "
+                        f"rather than to the machine — pass agentId to say whose value this is."
+                    ),
+                    "ambiguous": ambiguous,
+                }
             env_file = _user_env_file()
-            wrote = env_file.update({k: str(v) for k, v in keys.items()})
+            wrote = env_file.update(writes)
             result["envPath"] = str(env_file.path)
             result["keysApplied"] = wrote
+            if wrote:
+                # A running MCP child holds the environment it was LAUNCHED with, so a new key
+                # changes nothing until the process is replaced. Forget the affected agents and
+                # the next run re-dials with what was just saved.
+                self._redial_mcp(set(keys))
             result["saved"] = result["saved"] or wrote
 
         if not clean and not keys:
