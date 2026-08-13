@@ -67,3 +67,25 @@ resource "aws_iam_role_policy" "task_efs" {
     }]
   })
 }
+
+# ECS exec (var.enable_execute_command): the SSM agent inside the task opens its control/data
+# channels with the TASK role. Gated on the same knob, so the permission only exists where the
+# door is meant to open at all.
+resource "aws_iam_role_policy" "task_ecs_exec" {
+  count = var.enable_execute_command ? 1 : 0
+  name  = "ecs-exec-ssm"
+  role  = aws_iam_role.task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel",
+      ]
+      Resource = "*"
+    }]
+  })
+}

@@ -1,6 +1,7 @@
 import { RefreshCw, Check, Download, Globe } from 'lucide-react'
 import { useState } from 'react'
 
+import { getSession } from '../lib/auth'
 import { glyph } from '../lib/glyphs'
 import { hostOs, isDesktop } from '../lib/platform'
 import { useApp } from '../state/store'
@@ -43,6 +44,25 @@ const SUBTITLE = isDesktop
   : 'Install agents here — live, no restart. Download gives you a standalone app for your own machine; Open runs one in your browser with nothing to install.'
 
 const OS_LABEL: Record<string, string> = { win: 'Windows', mac: 'macOS', linux: 'Linux' }
+
+/** IDENTITY TRAVELS WITH THE LAUNCH — the same rule the desktop opener already follows. A bare
+ * link makes the opened app page fall back to whatever session ITS OWN localStorage last stored,
+ * which may be a different person than this shell is signed in as (found live: a freshly
+ * signed-up user opened an app and was silently the machine's previous tester). `session=` is
+ * the IDENTITY slot (never `token=`, the machine-secret slot); the SDK adopts it once into the
+ * app's own storage and strips it from the address bar. No session (signed out) => the bare
+ * link stands and the app's own sign-in gate takes over. */
+function webHref(webUrl: string): string {
+  const s = getSession()
+  if (!s?.token) return webUrl
+  try {
+    const u = new URL(webUrl)
+    u.searchParams.set('session', s.token)
+    return u.toString()
+  } catch {
+    return webUrl
+  }
+}
 
 /** Installer sizes are hundreds of megabytes — worth stating before someone clicks. */
 function humanSize(bytes: number): string {
@@ -110,7 +130,7 @@ export default function MarketplaceView() {
                   {b.webUrl && (
                     <a
                       className="btn ghost"
-                      href={b.webUrl}
+                      href={webHref(b.webUrl)}
                       target="_blank"
                       rel="noreferrer"
                       title={`Open ${b.name} in your browser — runs hosted, nothing to install`}

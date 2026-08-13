@@ -539,3 +539,14 @@ variable "publish_admin_identities" {
   type        = list(string)
   default     = []
 }
+
+# Operator break-glass: `aws ecs execute-command` (an SSM shell) into the running tasks — the one
+# supported way to reach the EFS from outside the VPC (tenant-data surgery, live debugging).
+# Default OFF: an interactive shell inside the containers is not part of normal operation, and
+# production should have to say otherwise explicitly. Running tasks only gain the exec agent on
+# their next deployment, so flipping this needs a service bounce to take effect.
+variable "enable_execute_command" {
+  description = "Allow `aws ecs execute-command` (SSM shell) into the Fargate tasks. Dev convenience / break-glass; keep false in production."
+  type        = bool
+  default     = false
+}

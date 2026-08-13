@@ -4,7 +4,7 @@
 # Pro + editable vector overlay), plus a full app window with the canvas embedded.
 
 name = "Bio Figure"
-version = "1.3.0" # publish as web app (web=true, exe=false)
+version = "1.6.0" # publish as web app (web=true, exe=false)
 description = "Publication-grade scientific figures with an interactive canvas editor — draw, circle, annotate, then generate."
 model = "gemini/gemini-2.5-pro"
 

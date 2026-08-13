@@ -297,23 +297,32 @@ var agentd = (() => {
       const u = new URL("/file", origin2);
       u.searchParams.set("path", path);
       if (this.lastTarget.token) u.searchParams.set("token", this.lastTarget.token);
+      else if (this.lastTarget.session) u.searchParams.set("session", this.lastTarget.session);
       return u.toString();
     }
   };
   function fromPage(options = {}) {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
-    const scope = here.searchParams.get("scope") || "";
+    const pathAgent = /\/apps\/([^/]+)/.exec(here.pathname);
+    const scope = here.searchParams.get("scope") || (pathAgent ? `agent:${decodeURIComponent(pathAgent[1])}` : "");
     const urlSession = here.searchParams.get("session") || "";
     const urlMode = here.searchParams.get("mode") || "";
+    if (urlSession) saveSession({ token: urlSession, email: "", accountId: "" });
+    if (urlMode === "local" || urlMode === "cloud") saveMode(urlMode);
+    if ((urlSession || urlMode) && typeof history !== "undefined") {
+      here.searchParams.delete("session");
+      here.searchParams.delete("mode");
+      history.replaceState(null, "", here.toString());
+    }
     const client = new AgentdClient(options);
     client.connect(async () => {
       const stored = loadSession()?.token;
       return {
         url: here.origin,
         token: token || void 0,
-        session: stored || urlSession || void 0,
-        mode: urlMode || effectiveMode("", !!(stored || urlSession)),
+        session: stored || void 0,
+        mode: effectiveMode("", !!stored),
         scope: scope || void 0
       };
     });

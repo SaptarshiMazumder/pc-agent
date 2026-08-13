@@ -127,6 +127,9 @@ resource "aws_ecs_service" "svc" {
   task_definition = aws_ecs_task_definition.svc[each.key].arn
   launch_type     = "FARGATE"
 
+  # Break-glass shell access (`aws ecs execute-command`) — see var.enable_execute_command.
+  enable_execute_command = var.enable_execute_command
+
   # THE COST SWITCH (var.paused). Terraform owns this number so that turning the environment off
   # and on is `terraform apply` — the command you already run — and so the set of services being
   # paused is derived from local.services rather than typed into a script that has to be

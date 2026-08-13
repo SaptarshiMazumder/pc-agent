@@ -2411,6 +2411,13 @@ class Gateway:
             # is forced back to self.
             if req.method not in CROSS_AGENT_READS.get(scope, ()):
                 req.params["agentId"] = scope
+                # The CROSS-AGENT list modes (`all` = Recents, `projectId` = project view)
+                # would sidestep that forced agentId: sessions.list honors them FIRST, so a
+                # third-party app page could read the account's chats with every OTHER agent
+                # (found live: figure-create's panel rendering the user's JARVIS history).
+                # An app sees its own agent's world, full stop.
+                req.params.pop("all", None)
+                req.params.pop("projectId", None)
         try:
             if req.method == "chat.send":
                 payload = await self._chat_send(req.params, client_id, account)
