@@ -58,6 +58,9 @@
         </div>
         <!-- The topbar holds only what is about THIS VIEW. Actions live in the rail. -->
         <div class="topbar-actions">
+          <!-- WHO this window is connected as — the identity a Publish would be signed with.
+               Filled from platform.status (per-connection truth), never from local guesses. -->
+          <span class="whoami" id="whoAmI" hidden></span>
           <button class="icon-btn" id="panelToggle" title="Toggle inspector">▤</button>
         </div>
       </header>

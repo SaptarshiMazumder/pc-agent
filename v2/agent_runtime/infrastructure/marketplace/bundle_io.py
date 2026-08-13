@@ -32,6 +32,10 @@ EXCLUDED_DIRS = {
     "clients",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
+# The runtime's per-agent ownership record (domain/ownership.py). A bundle carries the AUTHOR's
+# files; ownership of a copy is decided where the copy lands — the installer stamps a fresh
+# record on arrival. Packing it would ship the author's identity into every install.
+EXCLUDED_FILES = {".agentd-meta.json"}
 
 
 def sha256_file(path: Path) -> str:
@@ -150,6 +154,8 @@ def _iter_files(root: Path):
     for item in sorted(root.rglob("*")):
         relative_parts = item.relative_to(root).parts
         if any(part in EXCLUDED_DIRS for part in relative_parts):
+            continue
+        if item.name in EXCLUDED_FILES:
             continue
         if item.is_file() and item.suffix not in EXCLUDED_SUFFIXES:
             yield item

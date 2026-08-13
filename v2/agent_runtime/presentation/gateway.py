@@ -2246,6 +2246,16 @@ class Gateway:
         # The machine token must NOT authorise where sign-in is required, or it would be a bypass
         # on a hosted deployment. That is the one thing `enabled` still gates.
         account: dict | None = await accounts.resolve(self._presented_session(ws))
+        # LOUD when a client SAID who it was and the answer didn't hold (`?session=` exactly —
+        # the machine-token fallback is not a claim of identity). On a desktop the connection
+        # still gets in on the machine token, so without this line the failure is invisible:
+        # the client renders its stored session as "signed in" while every model call runs
+        # anonymous-BYOK — days were lost to that ghost before this warning existed.
+        if account is None and self._query(ws, "session"):
+            log.warning(
+                "connection presented a session that did not resolve — anonymous from here "
+                "(expired/unknown token, or the accounts service is unreachable)"
+            )
         authed = account is not None or (not accounts.enabled() and self._authorized(ws))
         if not authed:
             if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
@@ -3345,8 +3355,21 @@ class Gateway:
         default = getattr(self.config, "agent_id", "main")
         if self.registry is None:
             return {"agents": [{"id": default, "name": self.config.agent_name}], "default": default}
+        # Ownership, rendered from data so no client invents its own guess (the guesses
+        # disagreed: the sidebar said an agent existed while publish said it didn't).
+        # `mine`: is the caller among the identities that own it — theirs to change.
+        # `origin`: how it got here (authored | installed | curated) — an installed agent is
+        # theirs to USE but not to republish. Both default open when the registry cannot say:
+        # a single-user registry has no layers, and there everything genuinely is the caller's.
+        owns = getattr(self.registry, "owns", None)
+        origin_of = getattr(self.registry, "origin_of", None)
+        # `listed` is the registry's sidebar rule (web-app copies are resolvable, not listed);
+        # asked per row so this surface can never grow its own variant of the policy.
+        listed = getattr(self.registry, "listed", None)
         agents = []
         for aid in self.registry.list_ids():
+            if callable(listed) and not listed(aid):
+                continue
             spec = self.registry.get(aid)
             agents.append(
                 {
@@ -3357,6 +3380,8 @@ class Gateway:
                     "suggestions": list(getattr(spec, "suggestions", ()) or ()),
                     "color": getattr(spec, "color", ""),
                     "app": self._agent_app(aid, spec),
+                    "mine": bool(owns(aid)) if callable(owns) else True,
+                    "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
                 }
             )
         return {

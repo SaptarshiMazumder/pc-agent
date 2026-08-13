@@ -1,0 +1,34 @@
+id = "figure-create"
+name = "Figure Create"
+description = "Publication-grade scientific figures with an interactive canvas editor — draw, circle, annotate, then generate."
+agentd_compat = ">=0.1,<1"
+publisher = "agentd"
+icon = "sparkles"
+
+[[bundle.plugins]]
+id = "figures"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "figure-art"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "vision"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "vectorize"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "figexport"
+source = "vendored"
+
+[[bundle.plugins]]
+id = "core_fs"
+source = "builtin"
+
+[[bundle.plugins]]
+id = "html"
+source = "builtin"

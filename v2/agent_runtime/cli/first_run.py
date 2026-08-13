@@ -42,7 +42,18 @@ def is_onboarded() -> bool:
 
 def seed_user_layout() -> None:
     """Idempotent: the ~/.agentd skeleton + packaged starter content (SOUL.md, main's
-    shared skills). Never overwrites anything the user already has."""
+    shared skills). Two rules, split by whose files they are:
+
+      * THE USER'S trees (SOUL.md, main's shared skills library) — additive only, never
+        overwrite: their edits are the point.
+      * OUR curated agents (a shipped dir with an agent.toml) — REFRESHED on upgrade. "Never
+        overwrite" here meant the seeded agent-builder kept its first-ever SDK forever, so
+        every engine upgrade ran a new daemon under an ancient sign-in gate ("this device did
+        not activate"). The ownership record is what makes refreshing safe: owner=platform
+        says nobody but us writes there — except workspace/, which is the USER's data inside
+        our agent and survives untouched. A dir with no record or someone else's stays on the
+        additive rule exactly as before.
+    """
     home = runtime_paths.ensure_user_layout()
     soul_src = runtime_paths.packaged_soul_file()
     soul_dst = home / "SOUL.md"
@@ -52,12 +63,50 @@ def seed_user_layout() -> None:
     if starter.is_dir():
         agents_dir = home / "agents" if runtime_paths.is_packaged() else None
         if agents_dir is not None:
-            for src in starter.rglob("*"):
-                if src.is_file():
-                    dst = agents_dir / src.relative_to(starter)
-                    if not dst.exists():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(src, dst)
+            for shipped in sorted(starter.iterdir()):
+                if shipped.is_dir() and (shipped / "agent.toml").is_file():
+                    _seed_curated_agent(shipped, agents_dir / shipped.name)
+                else:
+                    _copy_missing(shipped, agents_dir / shipped.name)
+
+
+def _copy_missing(src: Path, dst_root: Path) -> None:
+    """Additive copy: bring what is absent, never touch what exists."""
+    entries = src.rglob("*") if src.is_dir() else [src]
+    for item in entries:
+        if not item.is_file():
+            continue
+        dst = dst_root / item.relative_to(src) if src.is_dir() else dst_root
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(item, dst)
+
+
+def _seed_curated_agent(shipped: Path, dst: Path) -> None:
+    """Install a SHIPPED default agent, refreshing an existing copy only when it is OURS."""
+    from agent_runtime.domain import ownership
+    from agent_runtime.infrastructure.agents import ownership_store
+
+    record = ownership_store.read(dst)
+    if dst.exists() and (record is None or record.owner != ownership.PLATFORM_OWNER):
+        # Record-less (pre-record install, possibly user-edited) or claimed by someone: their
+        # dir. Additive only — refreshing would overwrite edits we cannot prove are ours.
+        _copy_missing(shipped, dst)
+        return
+    for item in shipped.rglob("*"):
+        if not item.is_file():
+            continue
+        rel = item.relative_to(shipped)
+        if rel.parts and rel.parts[0] == "workspace":
+            continue  # the user's data inside our agent — never ours to replace
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(item, target)
+    # Stated as data: ours, curated — which is exactly what authorizes the next refresh, and
+    # what makes a signed-in user's Publish button refuse to re-sign our agent as theirs.
+    ownership_store.write(
+        dst, ownership.OwnershipRecord(owner=ownership.PLATFORM_OWNER, origin=ownership.CURATED)
+    )
 
 
 def _write_config(model: str) -> Path:

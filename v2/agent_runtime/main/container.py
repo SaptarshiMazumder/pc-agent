@@ -14,14 +14,23 @@ import logging
 
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config
+from agent_runtime.infrastructure import tool_catalog_file
 from agent_runtime.infrastructure.engine.native import NativeEngine
 from agent_runtime.infrastructure.llm.litellm import litellm_stream
 from agent_runtime.infrastructure.memory.local_store import SessionStore
-from agent_runtime.infrastructure import tool_catalog_file
 from agent_runtime.infrastructure.prompt import build_system_prompt
 from agent_runtime.presentation.gateway import Gateway
 
 log = logging.getLogger("agentd")
+
+
+def _current_account_id():
+    """The CURRENT connection's account id, or None — the identity half of what
+    `_account_agents_overlay` answers in paths. Ownership records name accounts, so the
+    registry needs the id itself, resolved per call for the same contextvar reason."""
+    from agent_runtime.infrastructure import accounts as _accounts
+
+    return _accounts.account_id()
 
 
 def _account_agents_overlay(config: Config):
@@ -31,8 +40,10 @@ def _account_agents_overlay(config: Config):
     once at boot: the account lives on a contextvar that `_handle_conn` pins for the life of a
     socket, so calling this during a read gives that socket's account.
 
-    None on every desktop/local install (accounts off), which is what keeps the single-user path
-    exactly as it was — one catalogue, no overlay, no lookup.
+    None whenever the CONNECTION has no account — a BYOK/signed-out desktop socket, the CLI.
+    Not "none on desktop": a desktop that signs into cloud mode re-dials with a session and gets
+    an account like any other connection, and with it an overlay. What keeps the signed-out
+    single-user path exactly as it was is the absent account, not the deployment shape.
     """
     from agent_runtime.infrastructure import accounts as _accounts
     from agent_runtime.infrastructure import user_state as _user_state
@@ -142,7 +153,9 @@ def build_service(
         discover_plugin_contributions,
     )
 
-    registry = registry or FileAgentRegistry(config, overlay_dir=_account_agents_overlay(config))
+    registry = registry or FileAgentRegistry(
+        config, overlay_dir=_account_agents_overlay(config), account_id=_current_account_id
+    )
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
     # entitle every compatible plugin; a distribution profile with a pinned publisher key
     # (a commercial build) switches on license-file enforcement (M7) — no core changes.
@@ -203,22 +216,44 @@ def build_service(
         WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
         idempotent — the service replaces its map instead of appending. Tools from an INSTALLED
         agent are untrusted, so they are routed through the plugin sandbox FIRST (a no-op
-        passthrough unless enabled), then guarded — giving Guard(Sandbox(inner))."""
+        passthrough unless enabled), then guarded — giving Guard(Sandbox(inner)).
+
+        BOTH LAYERS, NAMED EXPLICITLY. This used to scan `registry.agents_dir` — the WRITE
+        target — which meant an account-scoped hot-reload (create_agent from a signed-in
+        window) re-scanned only that account's overlay and replaced the whole map with it:
+        agent-builder's own publish_agent vanished daemon-wide until restart. The shared
+        catalogue is always scanned; the caller's overlay merges on top (its copy of an id
+        shadows, same rule as every registry read)."""
         installed = installed_store.installed_ids()  # None => unreadable ledger => fail closed
-        return {
-            aid: _gate_and_wrap(
-                wrap_untrusted(
-                    tlist,
-                    sandbox=plugin_sandbox,
-                    resolver=capability_resolver,
-                    config=config,
-                    installed_agent_ids=installed,
-                )
+        shared_root = getattr(registry, "shared_agents_dir", None) or getattr(
+            registry, "agents_dir", None
+        )
+        overlay_root = registry.overlay_path() if hasattr(registry, "overlay_path") else None
+        agent_map: dict = {}
+        for root, from_overlay in ((shared_root, False), (overlay_root, True)):
+            if root is None:
+                continue
+            # An overlay agent on a HOSTED daemon is a stranger's code whatever the global
+            # ledger says (their installs are recorded in THEIR ledger, not this one) —
+            # installed_agent_ids=None is the wrap's fail-closed spelling of "all untrusted".
+            classify = (
+                None
+                if from_overlay and getattr(config, "hosted", False)
+                else installed
             )
             for aid, tlist in discover_agent_plugins(
-                getattr(registry, "agents_dir", None), config, plugin_deps, entitlement
-            ).items()
-        }
+                root, config, plugin_deps, entitlement
+            ).items():
+                agent_map[aid] = _gate_and_wrap(
+                    wrap_untrusted(
+                        tlist,
+                        sandbox=plugin_sandbox,
+                        resolver=capability_resolver,
+                        config=config,
+                        installed_agent_ids=classify,
+                    )
+                )
+        return agent_map
 
     def register_plugin_live() -> dict:
         service = _late.get("service")
@@ -597,7 +632,9 @@ def build_gateway(config: Config) -> Gateway:
     # gateway (drives the heartbeat scheduler).
     from agent_runtime.infrastructure.agents import FileAgentRegistry
 
-    registry = FileAgentRegistry(config, overlay_dir=_account_agents_overlay(config))
+    registry = FileAgentRegistry(
+        config, overlay_dir=_account_agents_overlay(config), account_id=_current_account_id
+    )
     task_store = build_task_store(config)  # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
     # Login vault + connect-token store — built ONCE and SHARED by the simple_login tool

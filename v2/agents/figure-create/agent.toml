@@ -1,0 +1,42 @@
+# figure-create — turns a subject into a publication-grade scientific figure, with an interactive
+# canvas editor where users draw/circle/annotate directly on generated figures and send the
+# marked-up image back to the agent. Same art pipeline as figure-creator (templates + Nano Banana
+# Pro + editable vector overlay), plus a full app window with the canvas embedded.
+
+name = "Bio Figure"
+version = "1.2.0" # publish as web app (web=true, exe=false)
+description = "Publication-grade scientific figures with an interactive canvas editor — draw, circle, annotate, then generate."
+model = "gemini/gemini-2.5-pro"
+
+# Display
+tagline = "figures · canvas · edit"
+color = "#d6337a"
+suggestions = [
+  "The stages of mitosis, clean shaded style",
+  "A labeled cross-section of a plant leaf",
+  "How mRNA vaccines work, as a flowchart",
+]
+
+# App window
+[app]
+title = "Bio Figure"
+mode = "window"
+entry = "ui/index.html"
+
+# Delivery
+[delivery]
+web = true
+exe = false
+
+# Per-agent model wiring
+[plugins.figure-art.tools.generate_artwork]
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+default_template = "biorender-shaded"
+resolution = "1K"
+
+[plugins.vision.tools.read_labels_from_image]
+model = "gemini/gemini-3.1-pro-preview"
+
+[plugins.vision.tools.verify_figure]
+model = "gemini/gemini-2.5-flash"

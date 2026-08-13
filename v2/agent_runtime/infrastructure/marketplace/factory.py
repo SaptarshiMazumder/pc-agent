@@ -43,6 +43,7 @@ def build_marketplace_service(
             builtin_plugins_dir=Path(config.builtin_plugins_dir)
             if getattr(config, "builtin_plugins_dir", "")
             else None,
+            hosted=bool(getattr(config, "hosted", False)),
         ),
         installed_store=JsonInstalledStore(state_dir / "installed_bundles.json"),
         agentd_version=__version__,

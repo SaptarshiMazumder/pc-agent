@@ -311,16 +311,26 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
   const here = new URL(window.location.href)
   const token = here.searchParams.get('token') || ''
   const scope = here.searchParams.get('scope') || ''
+  // THE OPENER'S IDENTITY AND MODE, when it passed them. A desktop shell that is signed in
+  // launches its app windows with `?session=&mode=` so the window bills and acts as the same
+  // person — without this, every app window of a signed-in user ran ANONYMOUS (no cloud
+  // billing, model calls falling to dead BYOK keys). Signing in INSIDE the app still wins:
+  // that is this window's own, newer answer, and it is what a re-login here must override.
+  const urlSession = here.searchParams.get('session') || ''
+  const urlMode = here.searchParams.get('mode') || ''
   const client = new AgentdClient(options)
   // The RESOLVER form, not a static target: the stored session and mode are re-read on every
   // (re)connect, so a sign-in or a mode change is carried by the next socket without the app
   // doing anything. A fixed object would pin whatever was stored at page load.
-  client.connect(async () => ({
-    url: here.origin,
-    token: token || undefined,
-    session: loadSession()?.token || undefined,
-    mode: effectiveMode('', !!loadSession()),
-    scope: scope || undefined
-  }))
+  client.connect(async () => {
+    const stored = loadSession()?.token
+    return {
+      url: here.origin,
+      token: token || undefined,
+      session: stored || urlSession || undefined,
+      mode: urlMode || effectiveMode('', !!(stored || urlSession)),
+      scope: scope || undefined
+    }
+  })
   return client
 }

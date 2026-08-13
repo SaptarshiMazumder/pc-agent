@@ -4,6 +4,9 @@
  * daemon's HTTP /file endpoint (same host/port/token as the WebSocket).
  */
 
+import { getSession } from './auth'
+import { getMode } from './mode'
+
 export type ArtifactKind = 'image' | 'video' | 'audio' | 'file'
 
 export interface Artifact {
@@ -58,10 +61,20 @@ export function fileUrl(path: string): string {
 }
 
 /** Absolute, tokenized launch URL for an AGENT APP's UI (daemon-served /apps/<id>/) —
- *  same live origin+token as /file; the scope pins the page's connection to its agent. */
+ *  same live origin+token as /file; the scope pins the page's connection to its agent.
+ *
+ *  IDENTITY AND MODE TRAVEL WITH THE LAUNCH. The app window opens its own socket, and the
+ *  daemon decides who a connection is from that socket alone — so without these two params a
+ *  signed-in shell opened app windows that ran ANONYMOUS: no cloud billing, model calls
+ *  falling to whatever dead BYOK keys the machine had. The SDK reads them off the page url
+ *  (its own stored session, from signing in inside the app, still wins). */
 export function appLaunchUrl(app: { url: string }, agentId: string): string {
   const q = new URLSearchParams({ scope: `agent:${agentId}` })
   if (authToken) q.set('token', authToken)
+  const session = getSession()?.token
+  const mode = getMode()
+  if (session) q.set('session', session)
+  if (mode) q.set('mode', mode)
   return `${httpOrigin}${app.url}?${q.toString()}`
 }
 

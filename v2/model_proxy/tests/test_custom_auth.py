@@ -100,3 +100,51 @@ def test_usage_fields_read_cached_tokens_when_reported():
         usage={"prompt_tokens": 1000, "completion_tokens": 50, "cache_read_input_tokens": 640}
     )
     assert auth._usage_fields({"model": "m"}, anthropic_shape)[4] == 640
+
+
+class _BoomClient:
+    """An accounts client whose every round trip fails — the outage under test."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def get(self, *a, **k):
+        import httpx
+
+        self.calls += 1
+        raise httpx.ConnectError("boom")
+
+
+@pytest.mark.asyncio
+async def test_an_accounts_blip_serves_the_stale_resolution(monkeypatch):
+    """THE mid-run killer. A multi-minute agent run crosses the 60s resolve TTL, and one
+    dropped round trip used to abort the whole run with 'account service unavailable'. A token
+    that resolved moments ago is still that user's: retry once, then serve the expired cache
+    entry (bounded by the grace window) instead of failing a paying customer's run."""
+    import time
+
+    auth = _load_auth_module()
+    monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-infra")
+    monkeypatch.setenv("ACCOUNTS_URL", "http://accounts.test")
+    boom = _BoomClient()
+    monkeypatch.setattr(auth, "_accounts_client", lambda: boom)
+    # a resolution that EXPIRED 10s ago — inside the grace window
+    auth._resolve_cache["sess_x"] = ("acct_1", time.time() - 10)
+
+    result = await auth.user_api_key_auth(SimpleNamespace(), "sess_x")
+
+    assert result.user_id == "acct_1"
+    assert boom.calls == 2, "one immediate retry before falling back"
+
+
+@pytest.mark.asyncio
+async def test_a_never_resolved_token_still_fails_closed(monkeypatch):
+    """Grace is a memory, not a bypass: with nothing safe to fall back to, an outage still
+    refuses — an attacker cannot mint access by timing an Accounts blip."""
+    auth = _load_auth_module()
+    monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-infra")
+    monkeypatch.setenv("ACCOUNTS_URL", "http://accounts.test")
+    monkeypatch.setattr(auth, "_accounts_client", lambda: _BoomClient())
+
+    with pytest.raises(Exception, match="account service unavailable"):
+        await auth.user_api_key_auth(SimpleNamespace(), "sess_never_seen")

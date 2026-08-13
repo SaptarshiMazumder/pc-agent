@@ -20,8 +20,10 @@ import tomllib
 from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
+from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import AgentSpec, agent_id_from_session_key
 from agent_runtime.domain.agent_availability import withheld_reason
+from agent_runtime.infrastructure.agents import ownership_store
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
 from agent_runtime.infrastructure.agents.presentation import MAIN_COLOR, read_sidecar
 
@@ -102,16 +104,22 @@ class FileAgentRegistry:
     everyone's agent list — and their uninstall from removing it from everyone's.
 
     ``overlay_dir`` is a CALLABLE, not a path: the answer changes per connection, and the registry
-    is constructed once at boot. It returns None on desktop (no accounts), where there is exactly
-    one user and the shared layer is the whole truth — so that path is byte-for-byte what it was.
+    is constructed once at boot. It returns None when the CONNECTION has no account (a signed-out
+    desktop socket, the CLI) — there the shared layer is the whole truth and that path is
+    byte-for-byte what it was. A signed-in desktop connection has an account like any other, and
+    with it an overlay; what it never loses is ownership of the shared layer (see ``owns``).
     """
 
-    def __init__(self, config, overlay_dir=None):
+    def __init__(self, config, overlay_dir=None, account_id=None):
         self._config = config
         self._agents_dir = Path(
             getattr(config, "agents_dir", None) or Path(config.state_dir).parent / "agents"
         )
         self._overlay_dir = overlay_dir
+        #: () -> the CURRENT connection's account id, or None — same per-connection shape as
+        #: overlay_dir, and for the same reason: the registry is built once, the answer isn't.
+        #: Ownership needs the id itself (records name accounts), not just the overlay path.
+        self._account_id = account_id
         #: str(overlay path) -> that account's specs. Keyed by PATH rather than account id so the
         #: cache cannot outlive a re-pointed root, and so a test can drive it without an account.
         self._overlays: dict[str, dict[str, AgentSpec]] = {}
@@ -131,12 +139,34 @@ class FileAgentRegistry:
 
     # ---- discovery ----------------------------------------------------------
 
-    def _scan(self, directory: Path) -> dict[str, AgentSpec]:
+    def _hosted(self) -> bool:
+        return bool(getattr(self._config, "hosted", False))
+
+    def _shared_owner_default(self) -> str:
+        """What a record-less SHARED dir is presumed to be: the deployment's own."""
+        return ownership.presumed_owner(in_overlay=False, account_id=None, hosted=self._hosted())
+
+    def _with_ownership(self, spec: AgentSpec, d: Path, default_owner: str) -> AgentSpec:
+        """Attach who this agent belongs to, resolved ONCE here so every later question —
+        visibility, `mine`, provenance — is a field read, never disk IO on a hot path. The
+        record (`.agentd-meta.json`) answers when the dir has one; otherwise the layer's
+        presumed owner (domain/ownership.py) keeps legacy dirs meaning what they always meant."""
+        import dataclasses
+
+        record = ownership_store.read(d)
+        return dataclasses.replace(
+            spec,
+            owner=record.owner if record else default_owner,
+            origin=record.origin if record else ownership.AUTHORED,
+        )
+
+    def _scan(self, directory: Path, default_owner: str = "") -> dict[str, AgentSpec]:
         """Every valid ``<dir>/<id>/`` under one root. No main synthesis — that belongs to the
         shared layer only (an overlay must not invent an agent the account never installed)."""
         specs: dict[str, AgentSpec] = {}
         if not directory.is_dir():
             return specs
+        default_owner = default_owner or self._shared_owner_default()
         for d in sorted(directory.iterdir()):
             if not d.is_dir():
                 continue
@@ -145,7 +175,7 @@ class FileAgentRegistry:
                 log.warning("agents: skipping invalid dir name %r", d.name)
                 continue
             try:
-                spec = self._load_dir(agent_id, d)
+                spec = self._with_ownership(self._load_dir(agent_id, d), d, default_owner)
             except Exception as e:  # noqa: BLE001 — one bad agent must not break the rest
                 log.warning("agents: failed to load '%s': %s", agent_id, e)
                 continue
@@ -190,14 +220,39 @@ class FileAgentRegistry:
         key = str(path)
         cached = self._overlays.get(key)
         if cached is None:
-            cached = self._scan(path)
+            # A record-less overlay dir is presumed its ACCOUNT's — the dir exists only because
+            # that account put something there. Resolved at scan time, which is safe precisely
+            # because overlay dirs are per-account: the caller triggering this lazy scan is the
+            # account the path belongs to.
+            acct = self._account_id() if callable(self._account_id) else None
+            default = ownership.presumed_owner(True, acct, self._hosted())
+            cached = self._scan(path, default_owner=default)
             self._overlays[key] = cached
         return cached
 
     def _current(self) -> dict[str, AgentSpec]:
-        """What THIS caller may see: shared catalogue + their own installs."""
+        """What THIS caller may see: their own installs + the agents that are THEIRS to see.
+
+        Desktop: one person, one machine — everything, exactly as always. Hosted: the shared
+        layer is DEFAULT-PRIVATE — an account sees a shared agent only when it is the
+        platform's (curated) or their own; whatever else sits in that directory (a migrated
+        desktop dir, another account's stray copy, operator debris) is invisible, not merely
+        refused. The operator (machine token, no account) still sees everything — it is theirs.
+        Same choke-point principle as `withheld_reason`: absent from this dict means no roster
+        entry, no session key, no app served, nothing for any surface to get wrong."""
         overlay = self._overlay()
-        return {**self._specs, **overlay} if overlay else self._specs
+        specs = {**self._specs, **overlay} if overlay else self._specs
+        if not self._hosted():
+            return specs
+        acct = self._account_id() if callable(self._account_id) else None
+        if not acct:
+            return specs
+        return {
+            aid: s
+            for aid, s in specs.items()
+            # empty owner = a spec injected without a scan (tests, exotic registries): unrestricted
+            if aid in overlay or not s.owner or s.owner in (ownership.PLATFORM_OWNER, acct)
+        }
 
     def _write_target(self) -> tuple[dict[str, AgentSpec], Path]:
         """Where a NEW agent goes: the caller's overlay when they have one, else shared."""
@@ -237,6 +292,11 @@ class FileAgentRegistry:
             skills_allow=None,
             skills_dir=d / "skills",  # main's skills = the global library
             dir=d,
+            # The deployment's own default agent: the platform's on hosted (visible to every
+            # account, publishable by nobody), the local owner's on a desktop — same presumption
+            # as any record-less shared dir, stated here because main skips the scan.
+            owner=self._shared_owner_default(),
+            origin=ownership.CURATED if self._hosted() else ownership.AUTHORED,
         )
 
     def _state_dir_for(self, agent_id: str) -> Path:
@@ -386,8 +446,81 @@ class FileAgentRegistry:
         """The root an authoring tool should WRITE a new agent into — the caller's overlay when
         they have one, else the shared catalogue. Discovery reads from both, so this stays the
         "same place discovery reads from" it always was; on a hosted daemon it just stops meaning
-        "the place everyone reads from"."""
+        "the place everyone reads from".
+
+        This answers "where do NEW agents go", nothing else. To find an agent that already
+        exists, use ``resolve_dir`` — building ``agents_dir / id`` finds only the caller's own
+        layer, which is how publish once reported an agent everyone could see as nonexistent."""
         return self._write_target()[1]
+
+    @property
+    def shared_agents_dir(self) -> Path:
+        """The DEPLOYMENT's catalogue root, never the caller's overlay. For work that is
+        process-global — private-plugin discovery rebuilds ONE service-wide tool map — reading
+        `agents_dir` (the write target) from inside an account-scoped call re-scanned only that
+        account's overlay and wholesale-replaced the map with it: creating one agent while
+        signed in silently removed agent-builder's publish_agent for the whole daemon."""
+        return self._agents_dir
+
+    def overlay_path(self) -> Path | None:
+        """The CURRENT connection's overlay root, or None — public for callers that must scan
+        BOTH layers explicitly (see `shared_agents_dir`) instead of whichever one `agents_dir`
+        happens to mean right now."""
+        return self._overlay_path()
+
+    def resolve_dir(self, agent_id: str) -> Path | None:
+        """Where this agent's DEFINITION actually lives, or None — read from the same union
+        (and with the same overlay-wins precedence) every other read uses, so "the sidebar
+        shows it" and "tools can find it" are one answer, not two."""
+        spec = self._current().get((agent_id or "").strip().lower())
+        d = getattr(spec, "dir", None) if spec is not None else None
+        return Path(d) if d else None
+
+    def _ownership(self, agent_id: str):
+        """(owner, origin) for one agent, or None when it doesn't exist for this caller.
+
+        Field reads: the answer was resolved at scan time (`_with_ownership` — the record when
+        the dir has one, else the layer's presumed owner), so hot paths never touch disk. See
+        planning/platform/identity-ownership-statelessness.md, Step 2."""
+        aid = (agent_id or "").strip().lower()
+        spec = self._overlay().get(aid) or self._specs.get(aid)
+        if spec is None:
+            return None
+        owner = getattr(spec, "owner", "") or self._shared_owner_default()
+        return owner, getattr(spec, "origin", "") or ownership.AUTHORED
+
+    def owns(self, agent_id: str) -> bool:
+        """Is this agent the CALLER's — is its owner among the identities they act as?
+
+        On a desktop the human is the operator, so "local" stays theirs even while signed in —
+        signing in adds an identity, it never subtracts one (the game-master regression: a
+        signed-in author suddenly unable to touch the agents on their own machine). On a hosted
+        daemon a stranger acts only as their account, and curated agents stay the platform's."""
+        info = self._ownership(agent_id)
+        if info is None:
+            return False
+        acct = self._account_id() if callable(self._account_id) else None
+        return ownership.owned_by_caller(info[0], acct, self._hosted())
+
+    def listed(self, agent_id: str) -> bool:
+        """Does this agent belong in the CALLER's sidebar/dropdowns?
+
+        Distinct from VISIBLE (`_current`) on purpose: a web-app copy must stay resolvable —
+        its /apps/<id> URL, app-scoped connections and session keys all resolve through the
+        registry — while appearing in nobody's list uninvited. Everything else listed follows
+        visibility exactly. Installing a web app from the Store makes a copy in your overlay,
+        and THAT copy lists like any install."""
+        info = self._ownership(agent_id)
+        if info is None:
+            return False
+        return info[1] != ownership.WEB_APP or self.owns(agent_id)
+
+    def origin_of(self, agent_id: str) -> str:
+        """"authored" | "installed" | "curated" — how this agent got here. Record-less dirs are
+        authored (legacy must keep publishing). Unknown ids are authored too: the caller is about
+        to fail on resolve_dir anyway, and provenance should never be the error that hides it."""
+        info = self._ownership(agent_id)
+        return info[1] if info is not None else ownership.AUTHORED
 
     def add(self, agent_id: str) -> AgentSpec:
         """(Re)load ONE ``agents/<id>/`` dir into the registry at runtime, so a newly-authored
@@ -402,15 +535,18 @@ class FileAgentRegistry:
         if not _valid_id(agent_id):
             raise ValueError(f"invalid agent id: {agent_id!r}")
         overlay_path = self._overlay_path()
-        for specs, root in (
-            (self._overlay(), overlay_path) if overlay_path is not None else (None, None),
-            (self._specs, self._agents_dir),
+        acct = self._account_id() if callable(self._account_id) else None
+        for specs, root, default_owner in (
+            (self._overlay(), overlay_path, ownership.presumed_owner(True, acct, self._hosted()))
+            if overlay_path is not None
+            else (None, None, ""),
+            (self._specs, self._agents_dir, self._shared_owner_default()),
         ):
             if specs is None or root is None:
                 continue
             d = root / agent_id
             if d.is_dir():
-                spec = self._load_dir(agent_id, d)
+                spec = self._with_ownership(self._load_dir(agent_id, d), d, default_owner)
                 specs[agent_id] = spec
                 log.info("agents: added '%s' at runtime from %s", agent_id, root)
                 return spec
@@ -464,8 +600,15 @@ class FileAgentRegistry:
         (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
         if identity.strip():
             (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
+        # Ownership is stamped at birth — the one moment "whose is this" has an unambiguous
+        # answer. Everything downstream (mine, publish) reads the record instead of guessing.
+        ownership_store.stamp_create(
+            d,
+            self._account_id() if callable(self._account_id) else None,
+            self._hosted(),
+        )
 
-        spec = self._load_dir(agent_id, d)
+        spec = self._with_ownership(self._load_dir(agent_id, d), d, self._shared_owner_default())
         target_specs[agent_id] = spec
         log.info("agents: created '%s' (%s) in %s", agent_id, name or agent_id, target_root)
         return spec

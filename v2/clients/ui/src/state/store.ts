@@ -603,7 +603,7 @@ export const useApp = create<AppState>((set, get) => {
     const hello = (await gateway.request<Hello>('hello')) as Hello
     // There is no daemon-held session to adopt: identity arrives on the socket (`?session=`) and
     // the daemon stores none, so this client's own storage is already the only answer.
-    await connectPlatform()
+    await reconcileSession()
     const flavor = get().flavor
     const preferred = get().currentAgentId || flavor?.defaultAgent || hello.agentId
     const agentIds = new Set(hello.agents.map((agent) => agent.id))
@@ -617,28 +617,29 @@ export const useApp = create<AppState>((set, get) => {
     await refreshArtifactActions()
   }
 
-  /** DESKTOP: re-assert the chosen run mode on the LOCAL daemon on every (re)connect.
-   *   • Cloud — hand the signed-in session token to the daemon (platform.connect persists it as
-   *     the model-proxy credential, so hosted keys survive restarts and .env drift self-heals).
-   *   • Local (or no mode yet) — clear any platform credential (platform.disconnect) so the daemon
-   *     runs BYOK with the user's own keys.
-   *  Web builds skip this: their daemon is remote and already account-scoped by the connection token. */
-  async function connectPlatform(): Promise<void> {
-    if (!isDesktop) return
-    const chosen = getMode()
-    // NO CHOICE YET => LEAVE THE DAEMON ALONE. It applies its own preference at boot, and the
-    // default is Cloud once somebody is signed in. Forcing `platform.disconnect` here is what
-    // used to override that on every single reconnect — including the reconnect that follows a
-    // user switching to Cloud from an agent's own settings page, which is why that setting
-    // appeared not to stick.
-    if (chosen === null) return
+  /** THE GHOST-SESSION KILLER. This client renders "signed in" from its own storage, but the
+   *  daemon decides identity from the `?session=` on the SOCKET — and when that token has gone
+   *  stale (expired, account wiped, old install), the daemon quietly lets the connection in as
+   *  anonymous. Result before this existed: the profile menu said abc@example.com with 2,000
+   *  credits while every model call ran anonymous-BYOK and failed on dead provider keys.
+   *
+   *  So after every handshake, ask the daemon who THIS CONNECTION actually is. If we hold a
+   *  session the wire doesn't honor, the session is fiction: drop it and show the sign-in flow.
+   *  One question, one source of truth, no split brain.
+   *
+   *  (Replaces `connectPlatform()`, which called `platform.connect` with no token on every
+   *  reconnect — an API this daemon rejects, erroring in the logs and binding nothing. Billing
+   *  needs no assertion call at all: `?mode=` rides the connect URL.) */
+  async function reconcileSession(): Promise<void> {
+    if (!getSession()) return // nothing stored, nothing to reconcile
     try {
-      // No token. The daemon signs the user in itself and keeps the session token, so it can
-      // bind the proxy from what it already holds; passing a credential back in through a
-      // request was a leftover from when identity and billing were the same value.
-      await gateway.request(chosen === 'cloud' ? 'platform.connect' : 'platform.disconnect')
+      const status = await gateway.request<{ signedIn: boolean }>('platform.status')
+      if (status && status.signedIn === false) {
+        console.warn('[auth] stored session was not honored by the daemon — signing out')
+        await signOut()
+      }
     } catch {
-      /* older daemon without platform.* — BYOK keeps working; nothing to surface */
+      /* older daemon without platform.status — nothing to reconcile against */
     }
   }
 
@@ -884,10 +885,11 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async applyMode() {
-      // Re-assert Local/Cloud on the live daemon and refresh the platform status the UI reads
-      // (hello.platform.modelProxy). No-op until the connection is open.
+      // Refresh the platform status the UI reads (hello.platform.modelProxy). The mode itself
+      // needs no assertion call: it rides `?mode=` on the connect url, and setMode()/sign-in
+      // rebuild the socket — by the time this runs on the fresh connection, the daemon has
+      // already pinned the new answer. No-op until the connection is open.
       if (get().connection !== 'open') return
-      await connectPlatform()
       try {
         const hello = (await gateway.request<Hello>('hello')) as Hello
         set({ hello })

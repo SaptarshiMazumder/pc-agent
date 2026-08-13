@@ -9,6 +9,7 @@ import Launcher from './components/Launcher'
 import ProjectsView from './components/ProjectsView'
 import ProjectView from './components/ProjectView'
 import SettingsView from './components/SettingsView'
+import ShellCanvasHost from './components/ShellCanvasHost'
 import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
 import AppView from './components/AppView'
@@ -60,6 +61,10 @@ export default function App() {
   if (webNeedsSignIn || cloudNeedsSignIn) return <SignIn />
 
   return (
+    // ShellCanvasHost feeds the SHARED canvas components (viewers, editor, workspace tree)
+    // their capabilities from this renderer's store/gateway — see canvas/host.tsx. Once, at
+    // the root, so every surface that renders a tree or a viewer is covered.
+    <ShellCanvasHost>
     <div className="app">
       <Sidebar />
       <main className="main">
@@ -87,5 +92,6 @@ export default function App() {
       </main>
       <Canvas />
     </div>
+    </ShellCanvasHost>
   )
 }

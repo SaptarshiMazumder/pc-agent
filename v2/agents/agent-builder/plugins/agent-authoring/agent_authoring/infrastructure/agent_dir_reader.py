@@ -55,10 +55,14 @@ class AgentDirReader:
             return {}
 
     def files(self, agent_dir: Path) -> list[str]:
-        """Every file under the agent dir as a relative POSIX path, caches skipped."""
+        """Every file under the agent dir as a relative POSIX path, caches skipped.
+
+        The runtime's ownership record is skipped too: it is platform metadata, not agent
+        content — the packers exclude it from every bundle, so a validator listing it would
+        be describing a file the package will not contain."""
         out: list[str] = []
         for p in agent_dir.rglob("*"):
-            if not p.is_file():
+            if not p.is_file() or p.name == ".agentd-meta.json":
                 continue
             rel = p.relative_to(agent_dir)
             if any(part in SKIP_DIRS for part in rel.parts[:-1]):

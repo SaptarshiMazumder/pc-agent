@@ -174,7 +174,28 @@ class MarketplaceService:
         have = self._store.get(bundle_id)
         if have is not None and not is_update(have.version, entry.version):
             return {"installed": True, "id": bundle_id, "version": have.version, "current": True}
-        return await self.install(bundle_id)
+        result = await self.install(bundle_id)
+        # HOSTED ≠ ENDORSED. The install above stamped this copy `curated` (a platform install is
+        # curation — true for the boot seed, false here): this copy exists because an AUTHOR
+        # published web=true, and leaving it curated would put every web publish in every user's
+        # sidebar. Re-stamped `web-app`: reachable at its URL, listed in the Store, auto-listed
+        # for nobody.
+        agents_dir = getattr(self._installer, "agents_dir", None)
+        if agents_dir is not None:
+            from agent_runtime.domain import ownership
+            from agent_runtime.infrastructure.agents import ownership_store
+
+            ownership_store.write(
+                Path(agents_dir) / bundle_id,
+                ownership.OwnershipRecord(
+                    owner=ownership.PLATFORM_OWNER,
+                    origin=ownership.WEB_APP,
+                    source_id=bundle_id,
+                    source_version=str(entry.version),
+                ),
+            )
+            self._after_change({})  # re-scan so the registry sees the new provenance
+        return result
 
     async def uninstall(self, bundle_id: str, purge_state: bool = False) -> dict:
         installed = self._store.get(bundle_id)

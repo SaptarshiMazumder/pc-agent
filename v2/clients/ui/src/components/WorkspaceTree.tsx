@@ -14,11 +14,10 @@ import {
   RefreshCw
 } from 'lucide-react'
 
-import { gateway } from '../gateway/client'
 import type { Artifact } from '../lib/artifacts'
 import { humanSize } from '../lib/artifacts'
 import { whenTimeLabel } from '../lib/timefmt'
-import { useApp } from '../state/store'
+import { useCanvasHost } from '../canvas/host'
 
 /** One workspace entry as the daemon lists it (rel drives ops, path/abs feeds the canvas). */
 interface WsEntry {
@@ -60,8 +59,9 @@ function toBase64(f: globalThis.File): Promise<string> {
  * folders expand; upload / new-folder / delete act through the guarded workspace RPCs.
  */
 export default function WorkspaceTree(scope: Scope): JSX.Element {
-  const openCanvas = useApp((s) => s.openCanvas)
-  const connection = useApp((s) => s.connection)
+  const host = useCanvasHost()
+  const openCanvas = host.openCanvas
+  const connection = host.connection
   // children per directory rel-path ('' = root); undefined = not loaded yet
   const [dirs, setDirs] = useState<Record<string, WsEntry[] | undefined>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -80,7 +80,7 @@ export default function WorkspaceTree(scope: Scope): JSX.Element {
   const loadDir = useCallback(
     async (rel: string): Promise<void> => {
       try {
-        const res = await gateway.request<{ entries: WsEntry[]; error?: string }>('workspace.list', {
+        const res = await host.request<{ entries: WsEntry[]; error?: string }>('workspace.list', {
           ...scopeParams(),
           path: rel
         })
@@ -128,7 +128,7 @@ export default function WorkspaceTree(scope: Scope): JSX.Element {
     setCreatingIn(null)
     setDraft('')
     if (!name) return
-    await gateway.request('workspace.mkdir', { ...scopeParams(), path: dirRel ? `${dirRel}/${name}` : name })
+    await host.request('workspace.mkdir', { ...scopeParams(), path: dirRel ? `${dirRel}/${name}` : name })
     await refresh(dirRel)
     setExpanded((s) => new Set(s).add(dirRel))
   }
@@ -137,14 +137,14 @@ export default function WorkspaceTree(scope: Scope): JSX.Element {
     if (!list?.length) return
     for (const f of Array.from(list)) {
       const dataBase64 = await toBase64(f)
-      await gateway.request('workspace.upload', { ...scopeParams(), path: uploadDir, name: f.name, dataBase64 })
+      await host.request('workspace.upload', { ...scopeParams(), path: uploadDir, name: f.name, dataBase64 })
     }
     await refresh(uploadDir)
   }
 
   async function remove(entry: WsEntry, parentRel: string): Promise<void> {
     setArmed(null)
-    await gateway.request('workspace.delete', { ...scopeParams(), path: entry.rel })
+    await host.request('workspace.delete', { ...scopeParams(), path: entry.rel })
     await refresh(parentRel)
   }
 

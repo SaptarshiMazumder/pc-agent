@@ -4,7 +4,7 @@
 # straight to the hosted app at /apps/bedtime-kids/.
 
 name = "Bedtime Kids"
-version = "1.0.1"
+version = "1.0.5"
 
 # DISPLAY fields are TOP-LEVEL keys, NOT part of [app] (see expense-summarizer for why).
 description = "Tells gentle bedtime stories for kids — pick a theme, get a calm story that winds down to sleep."

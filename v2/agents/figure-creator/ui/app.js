@@ -1,50 +1,23 @@
 /* Figure Creator — the agent's own desktop app. A pure CLIENT of the local daemon:
- *   • sign-in and platform-key binding go over plain HTTP to the daemon (reliable, same origin)
+ *   • sign-in is the SDK's standard gate: identity rides the SOCKET (`?session=`), the daemon
+ *     stores nothing — see b4→b5 note below
  *   • the chat with the figure-creator agent goes over the daemon WebSocket (streamed events)
  *   • figures are the artifacts the pipeline declares; we just render them
- * No backend of its own — an app INVOKES the agent, it never extends it. */
+ * No backend of its own — an app INVOKES the agent, it never extends it.
+ *
+ * b5: the b4 flow (login → HTTP /platform/connect → poll /platform/status until the proxy
+ * reports enabled) bound a DAEMON-GLOBAL platform key. That global is gone by design — identity
+ * and billing are per-connection now, so /platform/status over plain HTTP (no connection) says
+ * signedIn:false forever, and b4's confirmation poll died on a value that could never flip.
+ * The SDK gate is the one sign-in every agent app shares; nothing here hand-rolls auth again. */
 
-const BUILD = 'b4-http-signin'
+const BUILD = 'b5-sdk-gate'
 console.log('figure-creator app', BUILD)
 
 const $ = (id) => document.getElementById(id)
 
-// The page is served BY the daemon, so its own origin + bearer token authorize same-origin
-// HTTP calls back to it. HTTP is the reliable transport for sign-in: a plain fetch to our own
-// origin can't be disturbed by the live model-proxy reconfigure that binding a token performs.
-const PAGE = new URL(window.location.href)
-const ORIGIN = PAGE.origin
-const DTOKEN = PAGE.searchParams.get('token') || ''
-
 const client = agentd.fromPage({ clientName: 'figure-creator-app/1' })
 const SESSION = 'figure'
-
-// ---- tiny helpers ----------------------------------------------------------------------
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out')), ms))
-  ])
-}
-
-/** GET a daemon HTTP endpoint (auth via the page's bearer token). Returns parsed JSON.
- *  Every phase is traced to the console AND time-bounded — including reading the body,
- *  which is a separate await that would otherwise be an unbounded hang. */
-async function daemonGet(path, params) {
-  const u = new URL(path, ORIGIN)
-  if (DTOKEN) u.searchParams.set('token', DTOKEN)
-  for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v)
-  console.log('[daemonGet] →', path)
-  const r = await withTimeout(fetch(u.toString(), { cache: 'no-store' }), 8000, 'the local service')
-  console.log('[daemonGet] ←', path, 'status', r.status)
-  const data = await withTimeout(r.json().catch(() => ({})), 5000, 'reading the reply')
-  console.log('[daemonGet] ✓', path, JSON.stringify(data).slice(0, 120))
-  if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status))
-  return data
-}
-
-const platformStatus = () => daemonGet('/platform/status', {})
-const platformConnect = (session) => daemonGet('/platform/connect', { session })
 
 // ---- connection status (top bar) -------------------------------------------------------
 let authReady = false // signed in on a hosted build, or BYOK — cleared to use the agent
@@ -65,152 +38,30 @@ function refreshComposer() {
   else setStatus('on', 'ready')
 }
 
-// ---- sign-in gate ----------------------------------------------------------------------
-const SESSION_LS = 'figurecreator.session'
-let accountsBase = ''
-let signupMode = false
-
-const loadSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_LS) || 'null') } catch { return null } }
-const saveSession = (s) => { try { s ? localStorage.setItem(SESSION_LS, JSON.stringify(s)) : localStorage.removeItem(SESSION_LS) } catch (_) {} }
-
-async function accountsPost(path, body) {
-  const r = await withTimeout(fetch(accountsBase + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }), 12000, 'the sign-in server')
-  const data = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error((data && data.detail) || ('sign-in failed (HTTP ' + r.status + ')'))
-  return data
-}
-
-function showGate() { $('gate').hidden = false; setTimeout(() => $('gateEmail').focus(), 0) }
-function hideGate() { $('gate').hidden = true }
-function gateMsg(text) { $('gateSub').textContent = text }
-function gateError(text) {
-  const el = $('gateError')
-  if (text) { el.textContent = text; el.hidden = false } else { el.hidden = true }
-}
-
-$('gateToggle').addEventListener('click', () => {
-  signupMode = !signupMode
-  $('gateTitle').textContent = signupMode ? 'Create your account' : 'Sign in'
-  $('gateBtn').textContent = signupMode ? 'Create account' : 'Sign in'
-  $('gateToggle').textContent = signupMode ? 'Have an account? Sign in' : 'New here? Create an account'
-  $('gatePass').setAttribute('autocomplete', signupMode ? 'new-password' : 'current-password')
-  gateMsg('Figures run on our servers — no API keys to set up.')
-  gateError('')
-})
-
-/** Sign in (or up), then hand the session token to the LOCAL daemon so it runs on platform
- *  keys. Both steps are plain HTTP + time-bounded, so this can never hang silently. */
-async function doSignIn(email, password) {
-  if (!accountsBase) throw new Error('this build has no sign-in server configured')
-  console.log('[signin] start; accounts =', accountsBase)
-  gateMsg('Signing in…')
-  if (signupMode) await accountsPost('/signup', { email, password })
-  const login = await accountsPost('/login', { email, password })
-  console.log('[signin] login ok; activating on device…')
-  gateMsg('Activating your account on this device…')
-  // The connect CALL does the work; its REPLY is only a confirmation. If that one response
-  // is lost (observed in the wild on the packaged shell), the daemon is still signed in —
-  // so on any doubt we fall back to polling status, the ground truth. Bounded throughout.
-  let ok = false
-  try {
-    const status = await platformConnect(login.token)
-    console.log('[signin] connect replied:', JSON.stringify(status).slice(0, 160))
-    ok = !!(modelProxyStatus(status) && modelProxyStatus(status).enabled)
-  } catch (e) {
-    console.log('[signin] connect reply lost:', (e && e.message) || e)
-  }
-  for (let i = 0; !ok && i < 6; i++) {
-    gateMsg('Confirming… (' + (i + 1) + '/6)')
-    await new Promise((r) => setTimeout(r, 700))
-    try {
-      const s = await platformStatus()
-      ok = !!(modelProxyStatus(s) && modelProxyStatus(s).enabled)
-    } catch (_) { /* transient — keep polling */ }
-  }
-  if (!ok) throw new Error('could not activate this device — the Figure Creator service did not accept the sign-in')
-  saveSession({ token: login.token, email: login.email || email })
-  console.log('[signin] SUCCESS')
-  onSignedIn()
-}
-
-$('gateForm').addEventListener('submit', async (ev) => {
-  ev.preventDefault()
-  const email = $('gateEmail').value.trim().toLowerCase()
-  const password = $('gatePass').value
-  const btn = $('gateBtn')
-  gateError('')
-  btn.disabled = true
-  const label = btn.textContent
-  btn.textContent = 'Please wait…'
-  try {
-    await doSignIn(email, password)
-  } catch (e) {
-    const msg = (e && (e.message || e.toString())) || 'unknown error'
-    gateError(msg)
-    gateMsg('Figures run on our servers — no API keys to set up.')
-  } finally {
-    btn.disabled = false
-    btn.textContent = label
-  }
-})
-
-function onSignedIn() {
-  authReady = true
-  hideGate()
-  $('signOut').hidden = false
-  refreshComposer()
-}
-
-/** New daemons say modelProxy; modelGateway keeps already-installed daemons compatible. */
-function modelProxyStatus(status) {
-  return status && (status.modelProxy || status.modelGateway)
-}
-
-$('signOut').addEventListener('click', async () => {
-  saveSession(null)
-  try { await client.request('platform.disconnect', {}) } catch (_) {}
+// ---- sign-in (the SDK's standard gate) --------------------------------------------------
+$('signOut').addEventListener('click', () => {
+  // The session is CLIENT state (the daemon holds none): clear it and reload — the fresh page
+  // re-runs the gate, which re-dials the socket without a session.
+  agentd.saveSession(null)
   window.location.reload()
 })
 
-/** Decide what this build needs the moment the page loads — asked over HTTP so it works even
- *  if the WebSocket is slow to come up. */
+/** One awaited call decides everything: the gate renders NOTHING on a BYOK build, when this
+ *  device's machine token already authorizes it, or when a stored session still works — and
+ *  otherwise shows the shared sign-in, signs in, and re-dials the socket with the session.
+ *  Past the await, this window is as signed-in as it is ever going to be. */
 async function bootstrap() {
-  let status
   try {
-    status = await platformStatus()
+    await agentd.mountSignInGate({ client })
   } catch (e) {
-    // daemon HTTP not reachable — surface it plainly rather than a dead spinner
+    // The daemon itself is unreachable — say so plainly rather than a dead spinner.
     setStatus('off', 'cannot reach the local service')
-    gateError('Could not reach Figure Creator on this device: ' + ((e && e.message) || e))
-    showGate()
+    console.warn('[sign-in]', (e && e.message) || e)
     return
   }
-  accountsBase = String(status.accountsUrl || '').replace(/\/$/, '')
-  const hosted = !!accountsBase
-  const keysLive = !!(modelProxyStatus(status) && modelProxyStatus(status).enabled)
-
-  if (!hosted || keysLive) {
-    // BYOK build, or the daemon already holds a valid platform token (persisted) — go in.
-    authReady = true
-    $('signOut').hidden = !hosted
-    refreshComposer()
-    return
-  }
-  // hosted, not connected: try a stored token silently, else show the gate
-  const stored = loadSession()
-  if (stored && stored.token) {
-    try {
-      const s = await platformConnect(stored.token)
-      if (modelProxyStatus(s) && modelProxyStatus(s).enabled) { onSignedIn(); return }
-    } catch (_) { /* fall through */ }
-    saveSession(null)
-  }
+  authReady = true
+  $('signOut').hidden = !agentd.loadSession()
   refreshComposer()
-  showGate()
 }
 
 // ---- WebSocket lifecycle (chat transport) ----------------------------------------------

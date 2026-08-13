@@ -8,7 +8,7 @@ import {
 
 import type { Artifact } from '../lib/artifacts'
 import { platform } from '../lib/platform'
-import { useApp } from '../state/store'
+import { useCanvasHost } from '../canvas/host'
 
 type Tool = 'select' | 'pen' | 'marker' | 'rect' | 'ellipse' | 'arrow' | 'text' | 'crop'
 const PALETTE = ['#e5352b', '#f5a623', '#1fb854', '#2d7ff9', '#111111', '#ffffff']
@@ -31,6 +31,7 @@ interface Exporters { png: () => string; svg: () => string }
  *  undo/redo, zoom and save; only load/save differ (see EditorMode). Renders at device
  *  pixel ratio so vector text/lines stay crisp. */
 export default function FabricEditor({ a, mode }: { a: Artifact; mode: EditorMode }): JSX.Element {
+  const host = useCanvasHost()
   const wrapRef = useRef<HTMLDivElement>(null)
   const elRef = useRef<HTMLCanvasElement>(null)
   const fcRef = useRef<fabric.Canvas | null>(null)
@@ -355,7 +356,7 @@ export default function FabricEditor({ a, mode }: { a: Artifact; mode: EditorMod
       const url = exportPng()                       // re-flatten so latest edits are included
       const b64 = url.split(',')[1] || ''
       const base = a.name.replace(/\.[^.]+$/, '') || 'image'
-      await useApp.getState().sendMessage(desc.trim(), [
+      await host.sendToChat(desc.trim(), [
         { name: `${base}-edited.png`, mimeType: 'image/png', dataBase64: b64 },
       ])
       setComposing(false); setDesc('')

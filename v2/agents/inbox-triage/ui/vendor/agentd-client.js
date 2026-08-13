@@ -304,14 +304,19 @@ var agentd = (() => {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
     const scope = here.searchParams.get("scope") || "";
+    const urlSession = here.searchParams.get("session") || "";
+    const urlMode = here.searchParams.get("mode") || "";
     const client = new AgentdClient(options);
-    client.connect(async () => ({
-      url: here.origin,
-      token: token || void 0,
-      session: loadSession()?.token || void 0,
-      mode: effectiveMode("", !!loadSession()),
-      scope: scope || void 0
-    }));
+    client.connect(async () => {
+      const stored = loadSession()?.token;
+      return {
+        url: here.origin,
+        token: token || void 0,
+        session: stored || urlSession || void 0,
+        mode: urlMode || effectiveMode("", !!(stored || urlSession)),
+        scope: scope || void 0
+      };
+    });
     return client;
   }
 

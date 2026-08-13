@@ -36,25 +36,26 @@ log = logging.getLogger("agentd")
 PUBLISH_PATH = "/registry/publish"
 
 
-def platform_session_token(config) -> str:
+def platform_session_token(config=None) -> str:
     """The author's credential — WHO they are, not whether they are paying us.
 
-    Precedence, and every branch is load-bearing:
+    ONE identity, two doors to the same value:
 
-      1. HOSTED — the account bound to the current connection. Per-connection, because a
+      1. THE CONNECTION — the account bound to the current socket (`?session=` at dial time,
+         resolved by the accounts service, pinned on a contextvar). This is where every UI-driven
+         publish gets its identity, desktop and hosted alike; per-connection because a
          multi-tenant daemon serves many people at once and publishing as the wrong one would be
          the worst possible bug in this file.
-      2. THE SIGNED-IN IDENTITY — AGENTD_SESSION_TOKEN, written by `auth.login`.
-      3. LEGACY — the token `platform.connect` persisted as AGENTD_MODEL_PROXY_KEY, so an install
-         that signed in before identity had its own key keeps publishing without re-authenticating.
+      2. AGENTD_SESSION_TOKEN — the same session token, exported by hand. For the paths that have
+         no connection at all: the offline CLI (`agentd bundle roster …`) and CI.
 
-    STEP 2 IS THE FIX, AND IT IS ONE LINE. Publishing needs to know which creator is uploading;
-    the service signs the bundle on their behalf. It used to ask that question by looking for the
-    MODEL-PROXY key — a billing credential — so an author on their own API keys was refused with
-    "you are not signed in", which was both true-sounding and wrong: they may well have been. The
-    check was not "did you sign in", it was "are you a paying customer".
+    WHAT IS DELIBERATELY NOT HERE: the model-proxy key (AGENTD_MODEL_PROXY_KEY and its config
+    twin). That is a BILLING credential — who pays for inference — and treating it as identity is
+    the conflation this function used to embody: an author on their own API keys was refused with
+    "you are not signed in" (false), and a machine key could publish as nobody in particular.
+    Sign-in and payment are separate locks; this reads only the identity one.
 
-    (Read from the environment, which is where _load_dotenv puts it at boot; never logged.)
+    (`config` is accepted and ignored — the parameter predates the single-identity rule.)
     """
     try:
         from agent_runtime.infrastructure import accounts
@@ -62,14 +63,9 @@ def platform_session_token(config) -> str:
         current = accounts.current_account.get()
         if current and current.get("session_token"):
             return str(current["session_token"])
-    except Exception:  # noqa: BLE001 — accounts is optional; fall through to the local credential
+    except Exception:  # noqa: BLE001 — accounts is optional; fall through to the ambient identity
         pass
-    for name in ("AGENTD_MODEL_PROXY_KEY", "AGENTD_MODEL_GATEWAY_KEY"):
-        token = (os.environ.get(name) or "").strip()
-        if token:
-            return token
-    proxy = getattr(config, "model_proxy", None) or getattr(config, "model_gateway", None) or {}
-    return str(proxy.get("api_key") or "").strip() if isinstance(proxy, dict) else ""
+    return (os.environ.get("AGENTD_SESSION_TOKEN") or "").strip()
 
 
 class HttpRegistryPublisher:

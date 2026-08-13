@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Download, Wand2, Loader2 } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
-import { fileUrl, actionsFor } from '../lib/artifacts'
+import { actionsFor } from '../lib/artifacts'
 import { platform } from '../lib/platform'
+import { useCanvasHost } from '../canvas/host'
 import { EDITABLE, ext, viewerKind } from '../lib/canvasFile'
-import { useApp } from '../state/store'
 import FabricEditor, { rasterMode, svgMode } from './FabricEditor'
 import Markdown from './Markdown'
 
@@ -13,10 +13,10 @@ import Markdown from './Markdown'
  *  rendered in a viewer toolbar beside View/Edit. Data-driven: shows only when an installed tool
  *  advertises an action for this artifact's mime; empty → nothing. */
 function ActionTabs({ a }: { a: Artifact }): JSX.Element | null {
-  const actions = useApp((s) => s.artifactActions)
-  const runAction = useApp((s) => s.runArtifactAction)
-  const busy = useApp((s) => !!s.artifactActionBusy[a.path])
-  const acts = actionsFor(actions, a)
+  const host = useCanvasHost()
+  const runAction = host.runArtifactAction
+  const busy = host.artifactActionBusy(a.path)
+  const acts = actionsFor(host.artifactActions, a)
   if (!acts.length) return null
   return (
     <>
@@ -37,6 +37,7 @@ function ActionTabs({ a }: { a: Artifact }): JSX.Element | null {
 
 // ---------------------------------------------------------------- image (zoom / pan)
 function ImageViewer({ a }: { a: Artifact }): JSX.Element {
+  const host = useCanvasHost()
   const [scale, setScale] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
@@ -64,7 +65,7 @@ function ImageViewer({ a }: { a: Artifact }): JSX.Element {
       >
         <img
           className="cv-img"
-          src={fileUrl(a.path)}
+          src={host.fileUrl(a.path)}
           alt={a.name}
           draggable={false}
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
@@ -117,16 +118,18 @@ function RasterViewer({ a }: { a: Artifact }): JSX.Element {
 
 // ---------------------------------------------------------------- pdf (native viewer)
 function PdfViewer({ a }: { a: Artifact }): JSX.Element {
-  return <iframe className="cv-frame" src={fileUrl(a.path)} title={a.name} />
+  const host = useCanvasHost()
+  return <iframe className="cv-frame" src={host.fileUrl(a.path)} title={a.name} />
 }
 
 // ---------------------------------------------------------------- video / audio
 function MediaViewer({ a }: { a: Artifact }): JSX.Element {
+  const host = useCanvasHost()
   return (
     <div className="cv-media">
       {a.kind === 'audio'
-        ? <audio src={fileUrl(a.path)} controls />
-        : <video src={fileUrl(a.path)} controls autoPlay={false} />}
+        ? <audio src={host.fileUrl(a.path)} controls />
+        : <video src={host.fileUrl(a.path)} controls autoPlay={false} />}
     </div>
   )
 }

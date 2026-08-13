@@ -277,6 +277,26 @@ async def test_an_unknown_id_is_refused_with_a_plain_answer(tmp_path):
         await service.sync_web_app("nope")
 
 
+@pytest.mark.asyncio
+async def test_a_web_sync_is_stamped_hosted_not_endorsed(tmp_path):
+    """HOSTED ≠ ENDORSED. The plain install stamps a no-account platform install `curated` —
+    right for the boot seed, wrong here: this copy exists because an AUTHOR published web=true,
+    and `curated` would put every web publish in every user's sidebar. The sync re-stamps it
+    `web-app`: url-reachable, Store-listed, auto-listed for nobody."""
+    from agent_runtime.infrastructure.agents import ownership_store
+
+    entry = _entry(delivery=DeliveryModes(web=True))
+    service = _service(FakeRegistry(entry), FakeStore(), tmp_path)
+    (tmp_path / "bedtime-kids").mkdir()
+    service._installer = type("I", (), {"agents_dir": tmp_path})()
+
+    await service.sync_web_app("bedtime-kids")
+
+    record = ownership_store.read(tmp_path / "bedtime-kids")
+    assert (record.owner, record.origin) == ("platform", "web-app")
+    assert record.source_id == "bedtime-kids"
+
+
 # ────────────────────────────── the gateway's front door ──────────────────────────────
 
 

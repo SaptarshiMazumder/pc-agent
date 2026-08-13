@@ -82,6 +82,12 @@ class AgentSpec:
     # tools never discovered (see domain/agent_availability.py). Meaningless on a desktop
     # install, which is every install that is not serving strangers.
     requires_local: bool = False
+    # OWNERSHIP, resolved once at scan time (domain/ownership.py): the `.agentd-meta.json`
+    # record when the dir has one, else the presumed owner of the layer it was found in. On the
+    # spec so that visibility and `mine` are dict lookups per call, not disk reads. Empty owner
+    # = an unscanned/test-constructed spec, which every consumer treats as unrestricted.
+    owner: str = ""
+    origin: str = "authored"
 
 
 def agent_id_from_session_key(session_key: str) -> str:

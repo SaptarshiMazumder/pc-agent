@@ -1,5 +1,12 @@
 # Sign-in in local mode — one daemon endpoint, no product config
 
+> **STALE — DO NOT BUILD FROM THIS.** This plan's design (`auth.login`/`auth.logout` RPCs, a
+> daemon-held identity persisted as `AGENTD_SESSION_TOKEN` in `.env`) was built and then
+> deliberately reversed on the same branch (commit 264be88): identity became PER-CONNECTION
+> (`?session=` at dial time, contextvars, nothing persisted). The problems in §"The problem"
+> were real and are fixed; the mechanism described below is not the one that exists. Current
+> direction: identity-ownership-statelessness.md.
+
 Diagram: `diagrams/agent-builder/agent-builder-signin-flow.puml`
 
 ## The problem

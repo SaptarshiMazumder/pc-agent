@@ -261,6 +261,13 @@ body {
 .sep { color: var(--faint); }
 .crumb-leaf { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+/* The connection's identity — quiet chrome, readable at a glance, never a button. */
+.whoami {
+  font-size: 12px; color: var(--txt-2, #6b7280);
+  max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 3px 10px; border: 1px solid var(--line, #e5e7eb); border-radius: 999px;
+}
+.whoami.anon { opacity: 0.65; font-style: italic; }
 
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .view[hidden] { display: none; }
