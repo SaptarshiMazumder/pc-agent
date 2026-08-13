@@ -131,6 +131,13 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
                     # subprocess backend has no recipe and (correctly) refuses to run the tool.
                     ("_plugin_entry", m.entry),
                     ("_plugin_root", str(m.root) if m.root is not None else ""),
+                    # The AGENT folder this plugin shipped inside — the .agentpkg's unit, and
+                    # so the home of the data it was authored beside (templates, styles,
+                    # reference files). The capability resolver grants it READ-ONLY: sandboxed,
+                    # a plugin could otherwise read its own directory but not the sibling data
+                    # one level up, and a plugin denied its own package looks exactly like a
+                    # plugin whose files are missing.
+                    ("_agent_dir", str(agent_dir)),
                     # What the plugin DECLARED it needs while sandboxed ([sandbox] in its toml).
                     # Carried on the tool because the capability resolver is handed a tool, not a
                     # manifest — the same reason _plugin_entry rides here. A declaration is a

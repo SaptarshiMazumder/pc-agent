@@ -148,6 +148,7 @@ def main() -> int:
 
     denials = child_guard.install(
         fs_paths=grant.get("fs_paths") or (),
+        read_paths=grant.get("read_paths") or (),
         net_allowlist=grant.get("net_allowlist") or (),
         plugin_root=str(job.get("plugin_root") or ""),
         temp_dir=str(job.get("temp_dir") or ""),

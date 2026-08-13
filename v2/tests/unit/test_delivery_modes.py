@@ -340,7 +340,7 @@ async def test_desktop_keeps_its_plain_404(tmp_path):
     from urllib.parse import urlsplit
 
     gw = _gateway(tmp_path, hosted=False, market=FakeMarket())
-    response = gw._serve_app(urlsplit("/apps/ghost/"))
+    response = await gw._serve_app(urlsplit("/apps/ghost/"))
     assert response.status_code == 404
     assert gw.web_app_syncs == {}
 
@@ -351,7 +351,7 @@ async def test_first_open_schedules_the_install_and_serves_a_holding_page(tmp_pa
 
     market = FakeMarket()
     gw = _gateway(tmp_path, hosted=True, market=market)
-    response = gw._serve_app(urlsplit("/apps/bedtime-kids/"))
+    response = await gw._serve_app(urlsplit("/apps/bedtime-kids/"))
 
     assert response.status_code == 200
     assert b"refresh" in response.body  # the page polls itself until the install lands
@@ -368,10 +368,10 @@ async def test_a_failed_sync_answers_with_its_error_and_does_not_retry_per_reque
 
     market = FakeMarket(error="'bedtime-kids' does not offer web delivery")
     gw = _gateway(tmp_path, hosted=True, market=market)
-    gw._serve_app(urlsplit("/apps/bedtime-kids/"))
+    await gw._serve_app(urlsplit("/apps/bedtime-kids/"))
     await gw.web_app_syncs["bedtime-kids"]["task"]
 
-    response = gw._serve_app(urlsplit("/apps/bedtime-kids/"))
+    response = await gw._serve_app(urlsplit("/apps/bedtime-kids/"))
     assert response.status_code == 404
     assert b"does not offer web delivery" in response.body
     # the failure did not queue another sync

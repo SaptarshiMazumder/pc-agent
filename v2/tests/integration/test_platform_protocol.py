@@ -177,23 +177,28 @@ def test_agent_toml_app_mode_declared_and_normalized(tmp_path):
 
 
 # ---- static /apps/<id>/ serving --------------------------------------------------------------
+def _serve(gw, url):
+    """_serve_app is a coroutine (caller identity resolves via Accounts, like /file)."""
+    return asyncio.run(gw._serve_app(urlsplit(url)))
+
+
 def test_serve_app_entry_asset_spa_and_redirect(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     # entry
-    r = gw._serve_app(urlsplit("/apps/demo/"))
+    r = _serve(gw, "/apps/demo/")
     assert r.status_code == 200 and b"demo app" in r.body
     assert "text/html" in r.headers["Content-Type"]
     # real asset
-    r = gw._serve_app(urlsplit("/apps/demo/app.js"))
+    r = _serve(gw, "/apps/demo/app.js")
     assert r.status_code == 200 and b"console.log" in r.body
     # SPA fallback: extensionless route -> entry
-    r = gw._serve_app(urlsplit("/apps/demo/settings/view"))
+    r = _serve(gw, "/apps/demo/settings/view")
     assert r.status_code == 200 and b"demo app" in r.body
     # missing real asset -> 404 (not a silent entry)
-    assert gw._serve_app(urlsplit("/apps/demo/missing.js")).status_code == 404
+    assert _serve(gw, "/apps/demo/missing.js").status_code == 404
     # no trailing slash -> redirect so relative asset urls resolve
-    r = gw._serve_app(urlsplit("/apps/demo?token=T"))
+    r = _serve(gw, "/apps/demo?token=T")
     assert r.status_code == 307 and r.headers["Location"] == "/apps/demo/?token=T"
 
 
@@ -201,12 +206,65 @@ def test_serve_app_guards(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     # path traversal out of ui/ must never serve (agent.toml is a sibling of ui/)
-    assert gw._serve_app(urlsplit("/apps/demo/../agent.toml")).status_code == 404
-    assert gw._serve_app(urlsplit("/apps/demo/%2e%2e/agent.toml")).status_code == 404
+    assert _serve(gw, "/apps/demo/../agent.toml").status_code == 404
+    assert _serve(gw, "/apps/demo/%2e%2e/agent.toml").status_code == 404
     # unknown agent / agent without [app]
-    assert gw._serve_app(urlsplit("/apps/nope/")).status_code == 404
+    assert _serve(gw, "/apps/nope/").status_code == 404
     plain = SimpleNamespace(id="plain", name="P", app=None, dir=spec.dir)
-    assert _gw_with_agent(tmp_path, plain)._serve_app(urlsplit("/apps/plain/")).status_code == 404
+    assert _serve(_gw_with_agent(tmp_path, plain), "/apps/plain/").status_code == 404
+
+
+# ---- /apps sees the caller's ACCOUNT layers (the third egress door) --------------------------
+def _account_layer_app(tmp_path, acct="acct_a", agent_id="mkt"):
+    """A signed-in-created app agent: definition in the ACCOUNT layer, not the shared dir."""
+    d = tmp_path / "state" / "accounts" / acct / "installed" / "agents" / agent_id
+    (d / "ui").mkdir(parents=True)
+    (d / "ui" / "index.html").write_text("<html>mkt app</html>", encoding="utf-8")
+    (d / "ui" / "app.js").write_text("console.log('mkt')", encoding="utf-8")
+    (d / "agent.toml").write_text('name = "Mkt"\n[app]\ntitle = "Mkt"\n', encoding="utf-8")
+    return d
+
+
+def _gw_with_layered_registry(tmp_path):
+    from agent_runtime.infrastructure.agents import FileAgentRegistry
+
+    (tmp_path / "agents").mkdir(exist_ok=True)
+    cfg = SimpleNamespace(
+        state_dir=str(tmp_path / "state"),
+        agents_dir=str(tmp_path / "agents"),
+        agent_name="jarvis",
+        workspace=str(tmp_path),
+    )
+    gw = _gw(tmp_path)
+    gw.registry = FileAgentRegistry(cfg)
+    return gw
+
+
+def test_serve_app_finds_an_account_layer_agent_on_desktop(tmp_path):
+    """THE marketing-agent 404: a signed-in-created agent lives in the ACCOUNT layer, and an
+    HTTP request pins no account contextvar — so the plain registry view missed it. On a
+    NON-ENFORCING (desktop) daemon every layer belongs to this machine, so /apps serves it,
+    entry AND assets, tokenless — the same statement shared apps always served under."""
+    _account_layer_app(tmp_path)
+    gw = _gw_with_layered_registry(tmp_path)
+    r = _serve(gw, "/apps/mkt/")
+    assert r.status_code == 200 and b"mkt app" in r.body
+    # assets carry no token or session on ANY surface — they must resolve identically
+    r = _serve(gw, "/apps/mkt/app.js")
+    assert r.status_code == 200 and b"console.log" in r.body
+
+
+def test_hosted_anonymous_cannot_probe_an_account_layer_app(tmp_path, monkeypatch):
+    """Sign-in-enforcing deployment: an anonymous /apps request sees the shared layer ONLY.
+    Another tenant's private app stays a 404 even though the files exist — fail closed, the
+    same default as the fan-out and /file."""
+    from agent_runtime.infrastructure import accounts as accounts_mod
+
+    _account_layer_app(tmp_path)
+    gw = _gw_with_layered_registry(tmp_path)
+    monkeypatch.setattr(accounts_mod, "enabled", lambda: True)
+    assert _serve(gw, "/apps/mkt/").status_code == 404
+    assert _serve(gw, "/apps/mkt/app.js").status_code == 404
 
 
 # ---- discovery: the app field ----------------------------------------------------------------
@@ -547,7 +605,7 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
         "url": "/apps/kiosk/",
         "mode": "window",
     }
-    r = gw._serve_app(urlsplit("/apps/kiosk/"))
+    r = _serve(gw, "/apps/kiosk/")
     assert r.status_code == 200 and b"Kiosk Console" in r.body
 
 

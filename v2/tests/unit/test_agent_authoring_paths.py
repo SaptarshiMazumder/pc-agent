@@ -126,6 +126,46 @@ def test_registry_create_still_stamps_via_the_one_path(world):
     assert ownership_store.read(d).owner == "acct_b"
 
 
+# ──────────────── the registry: per-REQUEST account-layer lookup ────────────────
+# The per-connection overlay rides a contextvar; HTTP (app serving) has none, so the
+# gateway names the layer(s) explicitly. Same data, second door.
+
+
+def test_find_in_account_layers_named_account(world):
+    world.current["acct"] = "acct_a"
+    world.registry.create_from("mkt", _skeleton)
+    world.current["acct"] = None  # the HTTP request carries no contextvar
+    spec = world.registry.find_in_account_layers("mkt", "acct_a")
+    assert spec is not None and spec.id == "mkt"
+    assert world.registry.find_in_account_layers("mkt", "acct_b") is None, (
+        "another account's layer must not answer for a named caller"
+    )
+
+
+def test_find_in_account_layers_deployment_owner_view(world):
+    world.current["acct"] = "acct_a"
+    world.registry.create_from("mkt", _skeleton)
+    world.current["acct"] = None
+    spec = world.registry.find_in_account_layers("mkt")  # no account named = every layer
+    assert spec is not None and spec.id == "mkt"
+    assert world.registry.find_in_account_layers("ghost") is None
+
+
+def test_account_agents_layers_enumerates_every_layer(world):
+    """Process-global work (private-plugin discovery's one daemon-wide tool map, the /apps
+    deployment-owner view) runs where NO connection exists — boot — so it cannot ride the
+    contextvar overlay. The enumeration is the layout owner's (user_state) one answer."""
+    world.current["acct"] = "acct_a"
+    world.registry.create_from("mkt", _skeleton)
+    world.current["acct"] = "acct_b"
+    world.registry.create_from("ops", _skeleton)
+    world.current["acct"] = None
+    layers = user_state.account_agents_layers(world.state)
+    assert [acct for acct, _ in layers] == ["acct_a", "acct_b"]
+    assert layers[0][1] == user_state.account_agents_dir(world.state, "acct_a")
+    assert user_state.account_agents_layers(world.state / "absent") == []
+
+
 # ───────────────────────── the registry: caller-shaped roots ─────────────────────────
 
 
