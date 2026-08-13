@@ -73,7 +73,7 @@ partition "1 . THE DEADLOCK (TODAY) - two answers to one question" #FDECEA {
   :user signs in (desktop cloud or web) - the connection
   carries an ACCOUNT, so the registry's overlay resolver
   activates: reg.agents_dir now answers
-  `.agentd/accounts/<acct>/installed/agents`
+  `.agentd/accounts/<acct>/agents`
   (per-caller, dynamic - CORRECT, the identity plan working);
   :the agent-builder's scope token `<agents_dir>` was expanded
   by AgentService._expand_paths as **agent_dir.parent** - the

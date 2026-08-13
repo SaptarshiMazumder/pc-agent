@@ -151,6 +151,72 @@ def test_find_in_account_layers_deployment_owner_view(world):
     assert world.registry.find_in_account_layers("ghost") is None
 
 
+# ───────────────── ONE FOLDER PER AGENT: definition + workspace + sessions ─────────────────
+
+
+def test_an_agents_definition_and_its_data_are_one_folder(tmp_path):
+    """THE layout rule. Two trees (`installed/agents/<id>` for the definition, `agents/<id>` for
+    the data) meant every reader had to know which half it wanted, and an authored agent lived
+    in a directory labelled "installed" — which read as "not yours to edit"."""
+    agents = user_state.account_agents_dir(tmp_path, "acct_a")
+    assert agents == tmp_path / "accounts" / "acct_a" / "agents"
+    assert user_state.account_agent_dir(tmp_path, "acct_a", "mkt") == agents / "mkt"
+    assert user_state.account_workspace(tmp_path, "acct_a", "mkt") == agents / "mkt" / "workspace"
+    assert user_state.account_state_dir(tmp_path, "acct_a", "mkt") == agents / "mkt"
+    assert "installed" not in str(user_state.account_plugins_dir(tmp_path, "acct_a"))
+
+
+def test_migration_folds_the_legacy_installed_tree_in(tmp_path):
+    legacy = tmp_path / "accounts" / "acct_a" / "installed" / "agents" / "mkt"
+    (legacy / "ui").mkdir(parents=True)
+    (legacy / "agent.toml").write_text('name = "Mkt"\n', encoding="utf-8")
+    (legacy / "ui" / "index.html").write_text("<html/>", encoding="utf-8")
+    (tmp_path / "accounts" / "acct_a" / "installed" / "plugins" / "img").mkdir(parents=True)
+
+    assert user_state.migrate_legacy_account_layout(tmp_path) == ["acct_a"]
+    agent = user_state.account_agent_dir(tmp_path, "acct_a", "mkt")
+    assert (agent / "agent.toml").is_file() and (agent / "ui" / "index.html").is_file()
+    assert (user_state.account_plugins_dir(tmp_path, "acct_a") / "img").is_dir()
+    assert not (tmp_path / "accounts" / "acct_a" / "installed").exists()
+    assert user_state.migrate_legacy_account_layout(tmp_path) == [], "must be idempotent"
+
+
+def test_migration_never_overwrites_live_data(tmp_path):
+    """The destination is where transcripts and workspace files have been accumulating; the
+    legacy tree often carries an EMPTY workspace/ from scaffold time. Losing a real workspace to
+    an empty one is the single unrecoverable outcome here."""
+    acct = tmp_path / "accounts" / "acct_a"
+    legacy = acct / "installed" / "agents" / "mkt"
+    (legacy / "workspace").mkdir(parents=True)  # the empty scaffold one
+    (legacy / "agent.toml").write_text('name = "Mkt"\n', encoding="utf-8")
+    live = acct / "agents" / "mkt"
+    (live / "workspace").mkdir(parents=True)
+    (live / "workspace" / "poster.png").write_bytes(b"real work")
+    (live / "sessions").mkdir()
+    (live / "sessions" / "s.jsonl").write_text("{}\n", encoding="utf-8")
+
+    user_state.migrate_legacy_account_layout(tmp_path)
+    assert (live / "workspace" / "poster.png").read_bytes() == b"real work"
+    assert (live / "sessions" / "s.jsonl").is_file()
+    assert (live / "agent.toml").is_file(), "the definition still moved in beside the data"
+
+
+def test_removing_an_account_agent_keeps_its_chats_and_files(world):
+    """One folder means deleting the definition could delete the person's history with it."""
+    world.current["acct"] = "acct_a"
+    spec = world.registry.create_from("doomed", _skeleton)
+    d = Path(spec.dir)
+    (d / "sessions").mkdir(exist_ok=True)
+    (d / "sessions" / "chat.jsonl").write_text("{}\n", encoding="utf-8")
+    (d / "workspace" / "keep.txt").write_text("mine", encoding="utf-8")
+
+    world.registry.remove("doomed")
+    assert not (d / "agent.toml").exists(), "the definition is gone"
+    assert (d / "sessions" / "chat.jsonl").is_file(), "the user's chats are NOT"
+    assert (d / "workspace" / "keep.txt").is_file()
+    assert "doomed" not in world.registry.list_ids(), "and it no longer lists"
+
+
 def test_account_agents_layers_enumerates_every_layer(world):
     """Process-global work (private-plugin discovery's one daemon-wide tool map, the /apps
     deployment-owner view) runs where NO connection exists — boot — so it cannot ride the

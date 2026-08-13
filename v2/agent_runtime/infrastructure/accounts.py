@@ -196,7 +196,11 @@ async def resolve(token: str) -> dict | None:
     try:
         r = await _client.get("/resolve", headers={"Authorization": f"Bearer {token}"})
     except httpx.HTTPError as e:
-        log.warning("accounts resolve failed: %s", e)
+        # NAME THE EXCEPTION TYPE. Several httpx errors (the timeouts especially) stringify to
+        # "", and this failure signs the user out — so the one log line they have to go on read
+        # "accounts resolve failed: " and told them nothing about whether the service was slow,
+        # unreachable, or refusing them.
+        log.warning("accounts resolve failed (%s): %s", type(e).__name__, e or "no detail")
         return None
     if r.status_code != 200:
         return None

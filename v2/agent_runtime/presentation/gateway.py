@@ -980,6 +980,11 @@ class Gateway:
         # travels ONLY via the 0600 rendezvous file — never argv, never logs.
         if getattr(self.config, "gateway_auth", False):
             self.auth_token = getattr(self.config, "gateway_token", "") or lifecycle.mint_token()
+        # LAYOUT FIRST, before anything reads a path. Folds any account still on the split
+        # `installed/agents` + `agents` trees into the single `agents/<id>/` one (definition +
+        # workspace + sessions together). Idempotent and silent once done; done here because a
+        # daemon start is the only moment no connection is mid-read.
+        user_state.migrate_legacy_account_layout(self.config.state_dir)
         # Fast, in-process registrations happen BEFORE bind (cheap, chat depends on them)…
         self._build_subagents()  # the spawn_subagent tool (S8), if enabled
         self._build_agent_messaging()  # message_agent: talk to OTHER persistent agents (A5)

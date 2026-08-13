@@ -216,8 +216,11 @@ def test_serve_app_guards(tmp_path):
 
 # ---- /apps sees the caller's ACCOUNT layers (the third egress door) --------------------------
 def _account_layer_app(tmp_path, acct="acct_a", agent_id="mkt"):
-    """A signed-in-created app agent: definition in the ACCOUNT layer, not the shared dir."""
-    d = tmp_path / "state" / "accounts" / acct / "installed" / "agents" / agent_id
+    """A signed-in-created app agent: definition in the ACCOUNT layer, not the shared dir.
+    The path comes from user_state — the layout's owner — never spelled out here."""
+    from agent_runtime.infrastructure import user_state
+
+    d = user_state.account_agents_dir(tmp_path / "state", acct) / agent_id
     (d / "ui").mkdir(parents=True)
     (d / "ui" / "index.html").write_text("<html>mkt app</html>", encoding="utf-8")
     (d / "ui" / "app.js").write_text("console.log('mkt')", encoding="utf-8")

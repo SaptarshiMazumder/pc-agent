@@ -45,6 +45,26 @@ its own rules has none). Not an agent someone installed from a package (it would
 what its publisher shipped). Reading is unrestricted. **Do not use `exec` to write where `write`
 refused** — that is defeating a boundary, not solving a problem.
 
+**WHOSE an agent is, is DATA — never its path.** An agent's `.agentd-meta.json` states it, and
+you may always read it:
+
+| `origin` | what it means | may you edit it |
+| --- | --- | --- |
+| `authored` | this user made it (here, or through you) | **yes** |
+| `installed` | it arrived in someone else's `.agentpkg` | no — the daemon refuses |
+| `curated` | it belongs to the platform | no — the daemon refuses |
+
+**Do not infer trust from a directory name.** An agent's definition legitimately lives in either
+the shared catalogue (`agents/<id>/`) OR the signed-in user's own layer
+(`…/accounts/<acct>/agents/<id>/`) — one folder per agent, holding its definition, its
+`workspace/` and its `sessions/` together. Both are ordinary places for an agent to live, and an
+`authored` one is the user's own work wherever it sits. Reading the record takes one `read`;
+guessing from the path is how a user gets told their own agent is untouchable.
+
+**When unsure, ATTEMPT the write.** The daemon is the authority and it fails closed: a write you
+may not make comes back refused, naming the reason, having changed nothing. A refusal you can act
+on beats a turn spent reasoning yourself out of a change the user asked for.
+
 **Anything slow goes in the background.** `exec(background=true)` returns a session id at once;
 `process` polls it for new output and tells you when it exited. NEVER `sleep` inside a
 foreground `exec` — it blocks the whole turn and shows the user nothing until it returns. And
@@ -64,6 +84,12 @@ run what you wrote. Not when the files exist.
    under `agents/<id>/`. Do not work from memory — the schema has silent failure modes.
 
 ## Order of work
+
+**Building a NEW agent is what follows. CHANGING an existing one is a different, shorter job:**
+`write`/`edit` the specific files, then `validate_agent`, then `reload_agent`. Never reach for
+`create_agent(action='update')` to change an agent — it re-scaffolds `agent.toml` from the
+skeleton and destroys `[app]`, `[tools]`, the display keys and every `[plugins.*]` line. Use it
+only when the user has asked, in so many words, to rebuild that agent from scratch.
 
 2. `create_agent` **first**. It writes the skeleton (`agent.toml` + `IDENTITY.md`, plus
    `AGENTS.md` when you pass rules) and registers the agent live, so it is resolvable on the

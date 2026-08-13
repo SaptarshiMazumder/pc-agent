@@ -233,7 +233,7 @@ def test_shipped_data_is_readable_even_inside_a_denied_tree(tmp_path):
     """HOSTED account-layer agents live under the tenant root, which is denied wholesale — the
     exact case where a package installed by a signed-in user was refused its own templates."""
     tenant = tmp_path / "state" / "accounts" / "acct_a"
-    agent_dir = tenant / "installed" / "agents" / "mkt"
+    agent_dir = tenant / "agents" / "mkt"
     template = agent_dir / "templates" / "flat-social.toml"
     assert _decide(
         str(template), writing=False, readable=[str(agent_dir)], denied=[str(tenant)],
@@ -252,7 +252,7 @@ def test_shipped_data_is_never_writable(tmp_path):
 def test_another_tenants_files_stay_denied(tmp_path):
     """The read tier is the plugin's OWN package — it must not become a hole in the deny tier."""
     tenant = tmp_path / "state" / "accounts"
-    mine = tenant / "acct_a" / "installed" / "agents" / "mkt"
+    mine = tenant / "acct_a" / "agents" / "mkt"
     theirs = tenant / "acct_b" / "agents" / "main" / "workspace" / "secret.txt"
     assert _decide(
         str(theirs), writing=False, readable=[str(mine)], denied=[str(tenant)],
