@@ -188,6 +188,34 @@ def test_the_stub_dir_defaults_beside_the_payload(tmp_path):
     assert build.stub.parent == tmp_path / "products"
 
 
+# ──────────── every stub requires at least the engine it was built against ────────────
+
+
+def test_stub_minimum_defaults_to_the_engine_it_ships(tmp_path):
+    """The default is 'any engine will do', which REUSES an older installed engine and strands
+    the user on a stale runtime. The build fills that empty minimum with the engine version it
+    is building against, so an install on an older engine upgrades instead of reusing."""
+    stub = FakeStubBuilder()
+    build = service(stub=stub, catalog=StaticEngineCatalog(GOOD_ENGINE)).build(
+        source(tmp_path), tmp_path / "payload", tmp_path / "out"
+    )
+    built_spec = stub.built[0][0]
+    assert built_spec.engine_min_version == GOOD_ENGINE.version  # "0.2.0", not ""
+
+
+def test_an_agents_own_higher_minimum_is_never_lowered(tmp_path):
+    """We fill the EMPTY default only. An agent (or deployment) that declares a higher minimum
+    keeps it — the fill must never weaken a real requirement."""
+    stub = FakeStubBuilder()
+    svc = service(
+        stub=stub,
+        catalog=StaticEngineCatalog(GOOD_ENGINE),
+        defaults=ProductDefaults(engine_min_version="9.9.9"),
+    )
+    svc.build(source(tmp_path), tmp_path / "payload", tmp_path / "out")
+    assert stub.built[0][0].engine_min_version == "9.9.9"
+
+
 # ────────────────────────────── FsPayloadWriter ──────────────────────────────
 
 

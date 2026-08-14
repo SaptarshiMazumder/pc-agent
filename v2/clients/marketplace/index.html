@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Marketplace</title>
+    <meta
+      name="description"
+      content="Browse agents you can open in your browser or install on your own machine."
+    />
+    <!--
+      Tighter than the app's policy, because this page does less. It fetches ONE json file and
+      links to downloads; it opens no socket and talks to no API, so connect-src stays 'self'
+      plus https: for a registry served from a different origin than the site (the normal
+      deployment: the page in one bucket, the catalog in the registry bucket behind the same
+      distribution). No inline scripts, ever.
+
+      NO `frame-ancestors` HERE. Browsers ignore that directive when it arrives in a <meta> tag —
+      it is header-only — so writing it would log an error on every page load and protect
+      nothing, which is worse than its absence because it reads as done. Clickjacking protection
+      for this page belongs in a CloudFront response-headers policy.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: https:; font-src 'self' data:"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

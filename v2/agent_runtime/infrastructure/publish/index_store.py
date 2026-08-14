@@ -63,6 +63,38 @@ class S3IndexStore:
             # like it did nothing.
             CacheControl="no-cache",
         )
+        self._write_catalog(index)
+
+    def _write_catalog(self, index: dict) -> None:
+        """The public marketplace page's view of the index, refreshed with it.
+
+        HERE, and not in the service, for two reasons. The base url artifacts are served from is
+        THIS class's knowledge — nothing above it knows whether that is a bucket endpoint, a CDN
+        or a custom domain. And every writer of the index reaches it through this one method
+        (publishing, and roster admission re-signing), so the catalog cannot be left stale by a
+        code path that forgot about it.
+
+        AFTER the index, and never fatal. index.json is the registry: if this fails, the store
+        page serves a listing one publish old, which is a far better outcome than a publish that
+        reports failure for an artifact nothing installs from.
+        """
+        from agent_runtime.domain.bundle import parse_registry_index
+        from agent_runtime.domain.catalog import CATALOG_FILENAME, build_catalog
+
+        try:
+            # Trailing slash: `urljoin("https://host/registry", "x.agentpkg")` REPLACES the last
+            # path segment and yields https://host/x.agentpkg — the prefix silently dropped, and
+            # every download in the store 404s.
+            catalog = build_catalog(parse_registry_index(index), base=self.base_url + "/")
+            self._s3.put_object(
+                Bucket=self._bucket,
+                Key=self._key(CATALOG_FILENAME),
+                Body=(json.dumps(catalog, indent=2) + "\n").encode("utf-8"),
+                ContentType="application/json",
+                CacheControl="no-cache",
+            )
+        except Exception:  # noqa: BLE001 — see the docstring
+            log.warning("could not write %s (the index published fine)", CATALOG_FILENAME, exc_info=True)
 
     def put_artifact(self, name: str, data: bytes, content_type: str) -> str:
         self._s3.put_object(

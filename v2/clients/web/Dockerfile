@@ -23,9 +23,12 @@ ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 COPY package.json package-lock.json* ./
 COPY ui/package.json ui/
 COPY web/package.json web/
-# desktop's MANIFEST only (see .dockerignore) — npm refuses to install against a lockfile
-# whose declared workspaces are absent, but nothing else from desktop/ enters the context.
+# The MANIFESTS of the workspaces this image does not build (see .dockerignore) — npm refuses
+# to install against a lockfile whose declared workspaces are absent, but nothing else from
+# desktop/ or marketplace/ enters the context. A new workspace in clients/package.json needs a
+# line here too, or `npm ci` fails the image build with "workspace not found".
 COPY desktop/package.json desktop/
+COPY marketplace/package.json marketplace/
 RUN npm ci --include-workspace-root -w agentd-web
 
 COPY ui/ ui/

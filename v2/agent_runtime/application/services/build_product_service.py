@@ -110,6 +110,19 @@ class BuildProductService:
             return build
         build.engine = engine
 
+        # EVERY per-agent stub requires AT LEAST the engine it was built against. Without this the
+        # spec's default is "any engine will do", so a stub installed on a machine already carrying
+        # an OLDER engine REUSES it and downloads nothing — which silently strands existing users on
+        # a stale runtime after every engine bump, including one that carries a security fix (the
+        # tenant fence). Filling the minimum with the built-against version turns that reuse into a
+        # one-time upgrade: an older engine is replaced, an equal/newer one is kept (no needless
+        # re-download once everyone is current). An agent that declares its OWN, higher minimum
+        # keeps it — we only fill the empty default, never lower a real requirement.
+        if not build.spec.engine_min_version and engine.version:
+            from dataclasses import replace
+
+            build.spec = replace(build.spec, engine_min_version=engine.version)
+
         target_dir = Path(stub_dir) if stub_dir is not None else Path(payload_dir).parent
         target_dir.mkdir(parents=True, exist_ok=True)
         out_path = target_dir / build.spec.installer_filename(self._stub_builder.suffix)

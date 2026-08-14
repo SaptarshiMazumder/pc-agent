@@ -135,24 +135,51 @@ def test_unencodable_details_degrade_instead_of_failing():
 # ─────────────────────────── backend selection ───────────────────────────
 
 
-def test_desktop_defaults_to_in_process():
-    assert backends.resolve_backend_name(SimpleNamespace(multi_tenant=False)) == "local"
+def test_this_test_host_can_spawn():
+    """Sanity: the test environment (Proactor on Windows via conftest, POSIX always) can isolate,
+    so the capability probe the backend selection leans on is not vacuously false here."""
+    assert backends.host_can_spawn_subprocess() is True
 
 
-def test_multi_tenant_defaults_to_a_subprocess():
-    """The rule that keeps a hosted deployment from being one unset env var away from running
-    marketplace code in-process next to everyone's files."""
+def test_defaults_to_isolation_wherever_the_host_can_spawn(monkeypatch):
+    """No deployment flag in sight: an empty backend resolves to the SUBPROCESS sandbox on ANY host
+    that can launch a child process — desktop and hosted alike. Third-party code is third-party
+    whether one person or a thousand are served, so multi_tenant is no longer consulted here."""
+    monkeypatch.setattr(backends, "host_can_spawn_subprocess", lambda: True)
+    assert backends.resolve_backend_name(SimpleNamespace()) == "subprocess"
+    assert backends.resolve_backend_name(SimpleNamespace(multi_tenant=False)) == "subprocess"
     assert backends.resolve_backend_name(SimpleNamespace(multi_tenant=True)) == "subprocess"
 
 
-def test_an_explicit_choice_wins():
-    config = SimpleNamespace(multi_tenant=True, sandbox_plugin_backend="local")
-    assert backends.resolve_backend_name(config) == "local"
+def test_falls_back_to_in_process_only_when_the_host_cannot_spawn(monkeypatch):
+    """A host that cannot launch a child process (a Windows daemon on the Selector loop) degrades
+    to the in-process passthrough rather than failing every untrusted tool call with a spawn error."""
+    monkeypatch.setattr(backends, "host_can_spawn_subprocess", lambda: False)
+    assert backends.resolve_backend_name(SimpleNamespace()) == "local"
 
 
-def test_an_unknown_backend_name_falls_back_to_the_isolating_one():
-    config = SimpleNamespace(multi_tenant=False, sandbox_plugin_backend="gvisorr")
-    assert backends.resolve_backend_name(config) == "subprocess"
+def test_an_explicit_choice_wins(monkeypatch):
+    """A named backend is honoured as-is — even on a host the capability probe would steer away
+    from, because an operator who names it has taken responsibility for it."""
+    monkeypatch.setattr(backends, "host_can_spawn_subprocess", lambda: False)
+    assert backends.resolve_backend_name(SimpleNamespace(sandbox_plugin_backend="local")) == "local"
+    assert (
+        backends.resolve_backend_name(SimpleNamespace(sandbox_plugin_backend="subprocess"))
+        == "subprocess"
+    )
+
+
+def test_an_unknown_backend_name_falls_back_to_host_capability(monkeypatch):
+    """A typo is not honoured; it drops through to the same capability decision as an empty value."""
+    monkeypatch.setattr(backends, "host_can_spawn_subprocess", lambda: True)
+    assert (
+        backends.resolve_backend_name(SimpleNamespace(sandbox_plugin_backend="gvisorr"))
+        == "subprocess"
+    )
+    monkeypatch.setattr(backends, "host_can_spawn_subprocess", lambda: False)
+    assert (
+        backends.resolve_backend_name(SimpleNamespace(sandbox_plugin_backend="gvisorr")) == "local"
+    )
 
 
 # ─────────────────────────── it runs at all ───────────────────────────

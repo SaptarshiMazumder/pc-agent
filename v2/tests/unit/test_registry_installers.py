@@ -22,14 +22,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agent_runtime.application.services.marketplace_service import _entry_dict
-from agent_runtime.domain.bundle import RegistryEntry, parse_registry_index
+from agent_runtime.domain.bundle import RegistryEntry, RegistryIndex, parse_registry_index
+from agent_runtime.domain.catalog import build_catalog
 from agent_runtime.infrastructure import signing
 from agent_runtime.infrastructure.marketplace.index_builder import (
     PLATFORM_BY_EXT,
     build_index,
     installer_name,
 )
+
+
+def _entry_dict(entry, resolve=None):
+    """The one catalog row for `entry` — the store view a client renders (domain/catalog.py)."""
+    return build_catalog(RegistryIndex(bundles=(entry,)), resolve=resolve)["bundles"][0]
 
 
 def _bundle(directory: Path, bundle_id="game-master", version="0.2.0") -> Path:

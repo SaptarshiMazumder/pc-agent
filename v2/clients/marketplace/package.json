@@ -1,0 +1,19 @@
+{
+  "name": "agentd-marketplace",
+  "private": true,
+  "version": "0.1.6",
+  "description": "The PUBLIC marketplace — a static page over the registry's catalog.json. No daemon, no sign-in, no server: it renders the same cards the app does (@agentd/ui MarketplaceCards) from a file the publish service writes.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@agentd/ui": "*",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

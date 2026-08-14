@@ -102,6 +102,24 @@ variable "publish_engine_version" {
   default     = ""
 }
 
+# ── a domain for the public marketplace (optional; modules/marketplace.tf) ──────────────
+#
+# Both empty = the marketplace is live on its distribution's own *.cloudfront.net address, over
+# https, with no certificate of ours. Set BOTH to move it to a domain; the distribution is
+# updated in place, so the address already shared keeps working.
+
+variable "marketplace_domain_name" {
+  description = "Hostname for the public marketplace. Needs marketplace_certificate_arn too."
+  type        = string
+  default     = ""
+}
+
+variable "marketplace_certificate_arn" {
+  description = "ACM certificate for that hostname. MUST be in us-east-1 - CloudFront reads them from nowhere else, and this is NOT the regional cert the ALB uses."
+  type        = string
+  default     = ""
+}
+
 module "stack" {
   source = "../../modules"
 
@@ -156,6 +174,10 @@ module "stack" {
   # It must match `publisher_key` in v2/clients/desktop/flavors/*/distribution.toml. A mismatch
   # is silent until someone installs, then reads as "the bundle is corrupt".
   registry_publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+
+  # The public marketplace. Both empty by default => its own cloudfront.net https address.
+  marketplace_domain_name     = var.marketplace_domain_name
+  marketplace_certificate_arn = var.marketplace_certificate_arn
 }
 
 # ── Pass-through outputs (push-images.ps1 and the desktop flavors read these) ──
@@ -249,4 +271,24 @@ output "publish_creators_table" {
 output "publish_kms_key" {
   description = "KMS alias for `agentd bundle roster upload-root --kms-key`."
   value       = module.stack.publish_kms_key
+}
+
+# ── the public marketplace (modules/marketplace.tf) ─────────────────────────────────────
+#
+# A CloudFront distribution over two S3 buckets, with no service behind it. deploy-marketplace.ps1
+# reads these three: where to upload the page, what to invalidate, and where it ends up.
+
+output "marketplace_url" {
+  description = "The public marketplace. https on CloudFront's own certificate - no ACM cert of ours needed."
+  value       = module.stack.marketplace_url
+}
+
+output "marketplace_site_bucket" {
+  description = "Upload target for the built page (deploy/scripts/deploy-marketplace.ps1)."
+  value       = module.stack.marketplace_site_bucket
+}
+
+output "marketplace_distribution_id" {
+  description = "Distribution to invalidate after an upload. Skip it and the deploy looks like it did nothing."
+  value       = module.stack.marketplace_distribution_id
 }

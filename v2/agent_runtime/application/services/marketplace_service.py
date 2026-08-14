@@ -25,10 +25,10 @@ from agent_runtime.application.interfaces.marketplace import (
 from agent_runtime.domain.bundle import (
     BundleError,
     InstalledBundle,
-    RegistryEntry,
     compat_ok,
     is_update,
 )
+from agent_runtime.domain.catalog import build_catalog
 
 log = logging.getLogger("agentd")
 
@@ -68,32 +68,21 @@ class MarketplaceService:
             }
         index = await self._registry.fetch_index()
         installed = {b.id: b for b in self._store.list()}
-        resolve = getattr(self._registry, "asset_url", None)
-        # WHO PUBLISHED EACH ROW. An entry names its creator by opaque id and nothing else; the
-        # signed roster is the only place that id has a name. The join happens once here rather
-        # than per card in every client, for the same reason installer urls are resolved here —
-        # the roster is registry knowledge, and shipping it to clients to look names up in would
-        # be one more thing to keep in sync for no gain.
-        names = index.publishers.display_names() if index.publishers else {}
-        bundles = []
-        for entry in index.bundles:
-            have = installed.get(entry.id)
-            bundles.append(
-                {
-                    **_entry_dict(
-                        entry,
-                        resolve,
-                        web_host=index.web_host,
-                        publisher_names=names,
-                        index_publisher=index.publisher,
-                    ),
-                    "compatible": compat_ok(self._version, entry.agentd_compat),
-                    "installed": have is not None,
-                    "installedVersion": have.version if have else "",
-                    "updateAvailable": bool(have and is_update(have.version, entry.version)),
-                }
-            )
-        return {"registry": index.name, "publisher": index.publisher, "bundles": bundles}
+        # THE SAME ROWS THE PUBLIC MARKETPLACE PAGE RENDERS — one implementation of what a store
+        # card is (domain/catalog.py), built here from the index this client just VERIFIED rather
+        # than read out of the generated catalog.json. A daemon installs software; it must take
+        # its facts from the signed document, not from a rendering of it.
+        doc = build_catalog(index, resolve=getattr(self._registry, "asset_url", None))
+        compat = {e.id: e.agentd_compat for e in index.bundles}
+        for row in doc["bundles"]:
+            have = installed.get(row["id"])
+            # What only a DAEMON can know: whether this machine has it, and whether it could run
+            # it. Nothing here belongs in the shared row — a page with no daemon has no answer.
+            row["compatible"] = compat_ok(self._version, compat.get(row["id"], ""))
+            row["installed"] = have is not None
+            row["installedVersion"] = have.version if have else ""
+            row["updateAvailable"] = bool(have and is_update(have.version, row["version"]))
+        return doc
 
     def installed(self) -> dict:
         return {
@@ -248,61 +237,3 @@ class MarketplaceService:
             self._on_event({"id": bundle_id, "step": step, "message": message})
         except Exception:  # noqa: BLE001 — progress must never break an install
             log.debug("marketplace progress emit failed", exc_info=True)
-
-
-def _entry_dict(
-    entry: RegistryEntry,
-    resolve=None,
-    web_host: str = "",
-    publisher_names: dict[str, str] | None = None,
-    index_publisher: str = "",
-) -> dict:
-    """One catalog row. `resolve` turns a registry-relative url into an absolute one.
-
-    Installer urls are resolved HERE rather than in the client because the registry base url is
-    the daemon's knowledge (config / distribution profile), and a client that had to join them
-    itself would need the base url shipped to it just to build a link — one more thing to keep in
-    sync for no gain. What the client receives is a url it can hand straight to the browser.
-    `webUrl` follows the same rule: the hosted deployment's address is registry knowledge
-    (index-level, like `engine`), so the client gets a finished link or nothing.
-    """
-    out = {
-        "id": entry.id,
-        "name": entry.name,
-        "version": entry.version,
-        "description": entry.description,
-        "agentdCompat": entry.agentd_compat,
-        "price": entry.price,
-        "entitlement": entry.entitlement,
-        "size": entry.size,
-        "icon": entry.icon,
-        "delivery": {"web": entry.delivery.web, "exe": entry.delivery.exe},
-        # WHO STANDS BEHIND IT. `publisherId` is the opaque creator id the entry's signature was
-        # verified against — the identity that is actually proven — and `publisher` is the name to
-        # put in front of a reader. Three sources, in falling order of how much they are worth:
-        #
-        #   1. the SIGNED roster, looked up by creator id — the only verified name there is;
-        #   2. the entry's own declared name, which an operator-built index writes from bundle.toml
-        #      and which therefore comes from the same party that built the index;
-        #   3. the index's single publisher, the schema-1 answer to a question schema 1 asks once.
-        #
-        # An entry that names a creator NEVER falls past step 1. A missing roster name there means
-        # the roster does not list them, and the honest render for that is the bare id — dropping
-        # to a name they typed themselves would dress an unlisted creator as a known one.
-        "publisherId": entry.publisher_id,
-        "publisher": (publisher_names or {}).get(entry.publisher_id, "")
-        or ("" if entry.publisher_id else (entry.publisher or index_publisher)),
-    }
-    if entry.delivery.web and web_host:
-        out["webUrl"] = f"{web_host.rstrip('/')}/apps/{entry.id}/"
-    if entry.installers:
-        out["installers"] = [
-            {
-                "platform": a.platform,
-                "url": resolve(a.url) if resolve else a.url,
-                "size": a.size,
-                "sha256": a.sha256,
-            }
-            for a in entry.installers
-        ]
-    return out

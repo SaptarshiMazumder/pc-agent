@@ -286,4 +286,35 @@ def build_index(
         index["engine"] = engines
     index_path = directory / "index.json"
     index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    write_catalog(directory, index)
     return index_path
+
+
+def write_catalog(directory: Path, index: dict, base: str = "") -> Path | None:
+    """-> writes <directory>/catalog.json, the STORE VIEW of the index just written.
+
+    A second file rather than more fields on the first, because the two have different readers
+    and different rules. index.json is the signed record a client verifies before it installs
+    anything; catalog.json is a rendering of it for a page that only draws links — no daemon, no
+    pinned key, no downloads. Deriving it at publish time is what lets the marketplace be a static
+    site instead of a service (see domain/catalog.py).
+
+    Urls stay RELATIVE here (`base` defaults to empty): this directory is itself a complete
+    registry, and it has to keep working after being copied somewhere else. A reader joins them
+    against wherever it found the catalog.
+
+    Never fatal. index.json is the registry; a catalog that could not be written is a stale store
+    page, and failing the publish over it would be a worse outcome than the one it prevents.
+    """
+    from agent_runtime.domain.bundle import parse_registry_index
+    from agent_runtime.domain.catalog import CATALOG_FILENAME, build_catalog
+
+    try:
+        catalog = build_catalog(parse_registry_index(index), base=base)
+    except Exception:  # noqa: BLE001 — see the docstring; the index is already written
+        log.warning("could not build %s from the index just written", CATALOG_FILENAME, exc_info=True)
+        return None
+    path = directory / CATALOG_FILENAME
+    path.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
+    log.info("catalog: %d bundle(s) -> %s", len(catalog["bundles"]), path.name)
+    return path

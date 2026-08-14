@@ -97,27 +97,6 @@ def test_auth_rotation_and_cooldown(tmp_path):
     s.close()
 
 
-# ---- S17: sandbox seam ------------------------------------------------------
-
-
-def test_build_sandbox_defaults_local():
-    from agent_runtime.infrastructure.sandbox import LocalSandbox, build_sandbox
-
-    assert isinstance(build_sandbox(SimpleNamespace(sandbox="")), LocalSandbox)
-    assert isinstance(build_sandbox(SimpleNamespace(sandbox="docker")), LocalSandbox)  # fallback
-
-
-@pytest.mark.asyncio
-async def test_local_sandbox_runs_a_command():
-    from agent_runtime.infrastructure.sandbox import LocalSandbox
-
-    try:
-        code, out = await LocalSandbox().run("echo sandbox-ok")
-    except NotImplementedError:
-        pytest.skip("asyncio subprocess not supported on this event loop")
-    assert code == 0 and "sandbox-ok" in out
-
-
 # ---- S18: agent version -----------------------------------------------------
 
 

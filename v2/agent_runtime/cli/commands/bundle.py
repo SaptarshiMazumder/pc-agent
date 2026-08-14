@@ -132,6 +132,29 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     publish.set_defaults(func=run_publish)
 
+    catalog = sub.add_parser(
+        "catalog",
+        help="regenerate a registry's catalog.json from its index.json (the public store's view)",
+        description="Rebuild the STORE VIEW of a registry. catalog.json is what the public "
+        "marketplace page renders: the same listing as index.json with creator names resolved off "
+        "the signed roster and every url made absolute. Publishing writes it automatically — this "
+        "command is for a registry published BEFORE it existed, or after the catalog's shape "
+        "changes. It is DERIVED data, so no signing key is involved and nothing it writes is "
+        "trusted by any client.",
+    )
+    catalog.add_argument(
+        "--to",
+        default="",
+        help="registry target: a directory path, or s3://bucket[/prefix] (env AGENTD_PUBLISH_TARGET)",
+    )
+    catalog.add_argument(
+        "--base",
+        default="",
+        help="absolute https base artifact urls resolve against (default: derived for s3://, and "
+        "left relative for a directory, which is browsed from its own location)",
+    )
+    catalog.set_defaults(func=run_catalog)
+
     unlist = sub.add_parser(
         "unlist",
         help="remove bundles from a registry's index (operator; optionally delete their artifacts)",
@@ -560,14 +583,40 @@ def _installer_files(staging: Path) -> list[Path]:
     )
 
 
+def _public_base(bucket: str, prefix: str) -> str:
+    """The https base a BROWSER fetches this registry's artifacts from.
+
+    Only the catalog needs it. index.json's urls are relative on purpose (the same folder has to
+    work from disk and from a CDN, and whoever fetched the index knows what to join them against)
+    — but the public marketplace page fetches catalog.json from a DIFFERENT origin than the
+    artifacts, so relative rows there would resolve against the site and 404. Absolute urls in the
+    catalog are what make the page work with no configuration of its own.
+
+    The region is asked for rather than assumed: get-bucket-location answers null for us-east-1,
+    which is the API's way of spelling it. An unreachable CLI returns "" and the catalog simply
+    stays relative — degraded, not broken.
+    """
+    code, out = _aws("s3api", "get-bucket-location", "--bucket", bucket, "--output", "text")
+    if code != 0:
+        return ""
+    region = (out or "").strip()
+    if region in ("", "None", "null"):
+        region = "us-east-1"
+    root = f"https://{bucket}.s3.{region}.amazonaws.com"
+    return f"{root}/{prefix}/" if prefix else f"{root}/"
+
+
 def _upload_registry(staging: Path, target: str, is_s3: bool) -> int:
     """Push the built registry. Artifacts first, index.json LAST — always."""
     import shutil
+
+    from agent_runtime.domain.catalog import CATALOG_FILENAME
 
     # Installers ride with the bundles: same ordering rule, same reason. The index is what makes a
     # download URL public, so every artifact it names must already be there.
     packages = sorted(staging.glob("*.agentpkg")) + _installer_files(staging)
     index = staging / "index.json"
+    catalog = staging / CATALOG_FILENAME
     # The index is how a client FINDS an artifact, so publishing it before its artifacts exist
     # opens a window where the store lists a bundle whose download 404s. Ordering the writes costs
     # nothing and closes it.
@@ -592,6 +641,17 @@ def _upload_registry(staging: Path, target: str, is_s3: bool) -> int:
         if code != 0:
             return 1
         print("  uploaded index.json")
+        # Rebuilt with the bucket's own https base — see _public_base. Rebuilt rather than
+        # patched so there is one function that decides what a catalog row looks like.
+        _rebuild_catalog(staging, _public_base(bucket, prefix))
+        if catalog.is_file():
+            code, _ = _aws(
+                "s3", "cp", str(catalog), _s3_uri(bucket, prefix, CATALOG_FILENAME),
+                "--content-type", "application/json", "--cache-control", "no-cache",
+            )
+            if code != 0:
+                return 1
+            print(f"  uploaded {CATALOG_FILENAME}")
         return 0
 
     destination = Path(target).expanduser().resolve()
@@ -601,7 +661,27 @@ def _upload_registry(staging: Path, target: str, is_s3: bool) -> int:
         print(f"  wrote {package.name}")
     shutil.copy2(index, destination / "index.json")
     print("  wrote index.json")
+    # A directory registry keeps RELATIVE urls: it is browsed from its own location, and copying
+    # it somewhere else must not carry a base url that stopped being true.
+    if catalog.is_file():
+        shutil.copy2(catalog, destination / CATALOG_FILENAME)
+        print(f"  wrote {CATALOG_FILENAME}")
     return 0
+
+
+def _rebuild_catalog(staging: Path, base: str) -> None:
+    """Re-derive staging/catalog.json with an absolute base. No-op when the base is unknown."""
+    import json
+
+    from agent_runtime.infrastructure.marketplace.index_builder import write_catalog
+
+    if not base:
+        return
+    try:
+        index = json.loads((staging / "index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    write_catalog(staging, index, base=base)
 
 
 def _resolve_roster(args: argparse.Namespace, existing: dict, prior_key: str):
@@ -1270,6 +1350,66 @@ def run_roster_publish(args: argparse.Namespace) -> int:
             print("upload FAILED — the registry's roster is unchanged.")
             return 1
     print("\nroster published. Clients pick it up on their next index fetch.")
+    return 0
+
+
+def run_catalog(args: argparse.Namespace) -> int:
+    """Rebuild catalog.json from the registry's own index.json.
+
+    A publish already does this — the point of the command is the registry that was published
+    BEFORE the catalog existed, whose store page would otherwise stay empty until someone
+    happened to publish again. Derived data, so it needs no key: the catalog carries no
+    signatures, and every client that installs anything reads index.json instead.
+    """
+    import os
+    import tempfile
+
+    from agent_runtime.domain.catalog import CATALOG_FILENAME
+    from agent_runtime.infrastructure.marketplace.index_builder import write_catalog
+
+    target = (args.to or os.environ.get("AGENTD_PUBLISH_TARGET", "")).strip()
+    if not target:
+        print("no registry target. Pass --to <directory|s3://bucket[/prefix]>.")
+        return 1
+    if target.startswith(("http://", "https://")):
+        print(
+            "catalog is an OPERATOR command and needs the registry itself (a directory or "
+            "s3://bucket), not the publish service url."
+        )
+        return 1
+    is_s3 = target.startswith(_S3_SCHEME)
+
+    index = _read_registry_index(target, is_s3)
+    if index is None:
+        return 1
+    if not index:
+        print("that registry has no index.json — nothing to build a catalog from.")
+        return 1
+
+    bucket, prefix = _split_s3(target) if is_s3 else ("", "")
+    base = args.base or (_public_base(bucket, prefix) if is_s3 else "")
+
+    with tempfile.TemporaryDirectory(prefix="agentd-catalog-") as tmp:
+        staging = Path(tmp)
+        written = write_catalog(staging, index, base=base)
+        if written is None:
+            print("could not build a catalog from that index (see the warning above).")
+            return 1
+        count = len(index.get("bundles") or [])
+        if is_s3:
+            code, _ = _aws(
+                "s3", "cp", str(written), _s3_uri(bucket, prefix, CATALOG_FILENAME),
+                "--content-type", "application/json", "--cache-control", "no-cache",
+            )
+            if code != 0:
+                return 1
+            print(f"uploaded {CATALOG_FILENAME} — {count} bundle(s), base {base or '(relative)'}")
+        else:
+            import shutil
+
+            destination = Path(target).expanduser().resolve()
+            shutil.copy2(written, destination / CATALOG_FILENAME)
+            print(f"wrote {destination / CATALOG_FILENAME} — {count} bundle(s)")
     return 0
 
 

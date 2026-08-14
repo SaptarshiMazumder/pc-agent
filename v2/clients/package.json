@@ -2,17 +2,20 @@
   "name": "agentd-clients",
   "private": true,
   "version": "0.1.6",
-  "description": "agentd client workspace — one shared renderer (ui), two shells: the Electron desktop app and the hosted web client.",
+  "description": "agentd client workspace — one shared renderer (ui) and three shells: the Electron desktop app, the hosted web client, and the public marketplace page.",
   "workspaces": [
     "ui",
     "desktop",
-    "web"
+    "web",
+    "marketplace"
   ],
   "scripts": {
     "dev:desktop": "npm run dev -w agentd-desktop",
     "dev:web": "npm run dev -w agentd-web",
+    "dev:marketplace": "npm run dev -w agentd-marketplace",
     "build:desktop": "npm run build -w agentd-desktop",
     "build:web": "npm run build -w agentd-web",
+    "build:marketplace": "npm run build -w agentd-marketplace",
     "typecheck": "npm run typecheck --workspaces --if-present"
   }
 }

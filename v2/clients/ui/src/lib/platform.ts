@@ -48,27 +48,7 @@ const bridge = (globalThis as { agentd?: AgentdPlatform }).agentd
 // importing this module. It could not before: this module imports auth.ts (it reads the session
 // to build a daemon URL), so the two formed a cycle. Re-exported here, unchanged for every
 // existing importer.
-export { isDesktop, randomUuid } from './host'
-
-/**
- * The viewer's OS, using the same tags the registry stamps on an installer
- * ('win' | 'mac' | 'linux'; '' when it cannot be told).
- *
- * Lives here because it is a fact about the host, and this module is the one place that reads
- * host facts. Used to pick which installer to offer — offering the wrong one hands someone a
- * file their machine cannot run, which is worse than offering none.
- *
- * ORDER MATTERS: "darwin" contains the substring "win", so a naive /win/ test first would send
- * every Mac user a .exe. macOS is therefore matched before Windows.
- */
-export function hostOs(): string {
-  const nav = (globalThis as { navigator?: { userAgent?: string; platform?: string } }).navigator
-  const s = `${nav?.platform || ''} ${nav?.userAgent || ''}`.toLowerCase()
-  if (/mac|darwin|iphone|ipad/.test(s)) return 'mac'
-  if (/win/.test(s)) return 'win'
-  if (/linux|android|x11/.test(s)) return 'linux'
-  return ''
-}
+export { hostOs, isDesktop, randomUuid } from './host'
 
 
 // --------------------------------------------------------------------------- web helpers
