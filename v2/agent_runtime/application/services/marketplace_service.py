@@ -69,12 +69,24 @@ class MarketplaceService:
         index = await self._registry.fetch_index()
         installed = {b.id: b for b in self._store.list()}
         resolve = getattr(self._registry, "asset_url", None)
+        # WHO PUBLISHED EACH ROW. An entry names its creator by opaque id and nothing else; the
+        # signed roster is the only place that id has a name. The join happens once here rather
+        # than per card in every client, for the same reason installer urls are resolved here —
+        # the roster is registry knowledge, and shipping it to clients to look names up in would
+        # be one more thing to keep in sync for no gain.
+        names = index.publishers.display_names() if index.publishers else {}
         bundles = []
         for entry in index.bundles:
             have = installed.get(entry.id)
             bundles.append(
                 {
-                    **_entry_dict(entry, resolve, web_host=index.web_host),
+                    **_entry_dict(
+                        entry,
+                        resolve,
+                        web_host=index.web_host,
+                        publisher_names=names,
+                        index_publisher=index.publisher,
+                    ),
                     "compatible": compat_ok(self._version, entry.agentd_compat),
                     "installed": have is not None,
                     "installedVersion": have.version if have else "",
@@ -238,7 +250,13 @@ class MarketplaceService:
             log.debug("marketplace progress emit failed", exc_info=True)
 
 
-def _entry_dict(entry: RegistryEntry, resolve=None, web_host: str = "") -> dict:
+def _entry_dict(
+    entry: RegistryEntry,
+    resolve=None,
+    web_host: str = "",
+    publisher_names: dict[str, str] | None = None,
+    index_publisher: str = "",
+) -> dict:
     """One catalog row. `resolve` turns a registry-relative url into an absolute one.
 
     Installer urls are resolved HERE rather than in the client because the registry base url is
@@ -259,6 +277,21 @@ def _entry_dict(entry: RegistryEntry, resolve=None, web_host: str = "") -> dict:
         "size": entry.size,
         "icon": entry.icon,
         "delivery": {"web": entry.delivery.web, "exe": entry.delivery.exe},
+        # WHO STANDS BEHIND IT. `publisherId` is the opaque creator id the entry's signature was
+        # verified against — the identity that is actually proven — and `publisher` is the name to
+        # put in front of a reader. Three sources, in falling order of how much they are worth:
+        #
+        #   1. the SIGNED roster, looked up by creator id — the only verified name there is;
+        #   2. the entry's own declared name, which an operator-built index writes from bundle.toml
+        #      and which therefore comes from the same party that built the index;
+        #   3. the index's single publisher, the schema-1 answer to a question schema 1 asks once.
+        #
+        # An entry that names a creator NEVER falls past step 1. A missing roster name there means
+        # the roster does not list them, and the honest render for that is the bare id — dropping
+        # to a name they typed themselves would dress an unlisted creator as a known one.
+        "publisherId": entry.publisher_id,
+        "publisher": (publisher_names or {}).get(entry.publisher_id, "")
+        or ("" if entry.publisher_id else (entry.publisher or index_publisher)),
     }
     if entry.delivery.web and web_host:
         out["webUrl"] = f"{web_host.rstrip('/')}/apps/{entry.id}/"

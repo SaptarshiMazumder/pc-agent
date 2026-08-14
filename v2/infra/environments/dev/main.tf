@@ -77,6 +77,31 @@ variable "publish_admin_identities" {
   default     = []
 }
 
+# WHICH ENGINE A PUBLISHED STUB INSTALLS. A per-agent installer is a ~200 KB stub that downloads
+# the ~250 MB engine on a machine that has none, so it needs a url and a digest baked in at the
+# moment the stub is built. Normally these stay EMPTY and the publish service reads the registry's
+# own signed `engine` row — but writing that row needs the publisher's private key, which lives
+# only in CI (one key, one place, no copy). These three are the operator's way to point stubs at an
+# engine WITHOUT that key: the digest travels in the stub itself, so it is verified at install time
+# either way. Set them in dev.auto.tfvars so they stick across applies.
+variable "publish_engine_url" {
+  description = "Absolute URL of the engine installer a stub downloads. Empty = read the registry index."
+  type        = string
+  default     = ""
+}
+
+variable "publish_engine_sha256" {
+  description = "sha256 of that installer. Required whenever publish_engine_url is set — a stub refuses a download it cannot verify."
+  type        = string
+  default     = ""
+}
+
+variable "publish_engine_version" {
+  description = "The engine version that installer installs (used for a payload's minimum-version check)."
+  type        = string
+  default     = ""
+}
+
 module "stack" {
   source = "../../modules"
 
@@ -85,6 +110,9 @@ module "stack" {
   # Publishing (see modules/publish.tf and deploy/PUBLISH-SERVICE.md).
   publish_image_tag        = var.publish_image_tag
   publish_admin_identities = var.publish_admin_identities
+  publish_engine_url       = var.publish_engine_url
+  publish_engine_sha256    = var.publish_engine_sha256
+  publish_engine_version   = var.publish_engine_version
   hibernate                = var.hibernate
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"

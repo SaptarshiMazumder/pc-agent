@@ -1,6 +1,7 @@
 import { RefreshCw, Check, Download, Globe } from 'lucide-react'
 import { useState } from 'react'
 
+import type { CatalogBundle } from '../gateway/protocol'
 import { getSession } from '../lib/auth'
 import { glyph } from '../lib/glyphs'
 import { hostOs, isDesktop } from '../lib/platform'
@@ -64,6 +65,31 @@ function webHref(webUrl: string): string {
   }
 }
 
+/**
+ * The line under an agent's name: WHO published it and WHICH agent it is.
+ *
+ * Both, because neither is enough on its own. A display name is chosen by its owner and is not
+ * unique — two creators may both call themselves "Bio Labs" — while the id is unique, is what
+ * `agentd install <id>` takes, and is what the entry's signature was actually verified against.
+ *
+ * The publisher is never guessed here. The daemon resolves the creator id against the registry's
+ * SIGNED roster and sends the name it found; an unnamed publisher falls back to the raw creator
+ * id rather than to a friendly word, because "agentd" under a stranger's agent is a claim this
+ * client cannot make.
+ */
+function byline(b: CatalogBundle): string {
+  const who = (b.publisher || b.publisherId || '').trim()
+  return who ? `by ${who} · ${b.id}` : b.id
+}
+
+function bylineTitle(b: CatalogBundle): string {
+  const parts = [`Agent id: ${b.id}`]
+  if (b.publisher) parts.push(`Published by ${b.publisher}`)
+  if (b.publisherId) parts.push(`Publisher id: ${b.publisherId}`)
+  if (!b.publisher && !b.publisherId) parts.push('This registry does not name a publisher')
+  return parts.join(' — ')
+}
+
 /** Installer sizes are hundreds of megabytes — worth stating before someone clicks. */
 function humanSize(bytes: number): string {
   if (!bytes || bytes < 0) return ''
@@ -81,7 +107,11 @@ export default function MarketplaceView() {
 
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
-  const bundles = catalog.filter((b) => !q || b.name.toLowerCase().includes(q) || (b.description || '').toLowerCase().includes(q))
+  // Searchable by everything a card SHOWS. The id and the publisher are on every card now, and a
+  // search box that ignores what the reader is looking at reads as broken.
+  const bundles = catalog.filter((b) =>
+    !q || [b.name, b.description, b.id, b.publisher, b.publisherId].some((f) => (f || '').toLowerCase().includes(q))
+  )
   const os = hostOs()
 
   const actions = (
@@ -105,8 +135,8 @@ export default function MarketplaceView() {
                 <div className="card-top">
                   <span className="card-icon">{glyph(b.icon, 20)}</span>
                   <div className="grow">
-                    <div className="card-name">{b.name}</div>
-                    <div className="card-by">{b.entitlement ? 'licensed' : 'agentd'}</div>
+                    <div className="card-name" title={b.name}>{b.name}</div>
+                    <div className="card-by" title={bylineTitle(b)}>{byline(b)}</div>
                   </div>
                 </div>
                 <div className="badges">

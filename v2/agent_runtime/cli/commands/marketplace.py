@@ -125,6 +125,13 @@ def run_bundles(args: argparse.Namespace) -> int:
         return 0
     for bundle in catalog.get("bundles", []):
         badges = []
+        # WHO published it, first — before the status badges, because "should I install this at
+        # all" is a question about the author and the status badges assume you already said yes.
+        # The name is the daemon's roster lookup; the raw creator id is what is left when a
+        # registry names nobody, and is still more than silence.
+        who = bundle.get("publisher") or bundle.get("publisherId") or ""
+        if who:
+            badges.append(f"by {who}")
         if bundle.get("installed"):
             badges.append("installed " + bundle.get("installedVersion", ""))
         if bundle.get("updateAvailable"):
