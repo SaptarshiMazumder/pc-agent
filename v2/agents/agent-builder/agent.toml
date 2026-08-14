@@ -9,6 +9,11 @@ name = "Agent Builder"
 version = "1.0.0"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
 
+# NOTE: `max_turns` is NOT settable here — it is an OVERRIDABLE_KEY resolved from
+# `agentd.config.json` under `agents.agent-builder`, not from agent.toml (domain/agent_config.py).
+# Writing it here would be silently ignored, which is the exact class of mistake validate_agent
+# exists to catch. See that file for the raised turn budget and why building needs one.
+
 # LOCAL ONLY — a HOSTED daemon does not offer this agent at all (not listed, not resolvable, no
 # app served, its private tools never discovered). Desktop is unaffected.
 #
@@ -110,4 +115,13 @@ allow = [
   # documented somewhere; an agent-builder that cannot read that documentation is authoring
   # against its own recollection.
   "web_search", "web_fetch",
+  # SEARCH BY CONTENT. `find` matches file NAMES only, so "where is this defined", "which agents
+  # declare an [[mcp]] block", "who calls this" had no answer but opening files one at a time and
+  # hoping. An agent that cannot search answers from whatever it happened to read — which is
+  # indistinguishable, in its output, from an agent that searched and found nothing.
+  "grep",
+  # DELEGATION. A child run with its own context: "read this API's docs and tell me which server
+  # exposes cost tools" returns three sentences instead of spending this conversation's budget on
+  # pages of documentation. The builder's context is for BUILDING; finding out belongs elsewhere.
+  "spawn_subagent",
 ]
