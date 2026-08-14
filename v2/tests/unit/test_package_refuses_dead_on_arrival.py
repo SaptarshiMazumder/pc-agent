@@ -155,7 +155,12 @@ def test_the_blocking_list_names_real_findings():
               / "agent-authoring" / "agent_authoring" / "domain")
     src = "\n".join(
         (domain / name).read_text(encoding="utf-8")
-        for name in ("sandbox_rules.py", "portability_rules.py", "packageability_rules.py")
+        for name in (
+            "sandbox_rules.py",
+            "portability_rules.py",
+            "packageability_rules.py",
+            "declaration_rules.py",
+        )
     )
     for code in _PACK_BLOCKERS:
         assert f'code="{code}"' in src, f"{code} is blocked but nothing emits it"

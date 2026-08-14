@@ -66,14 +66,13 @@ class PackageAgentService:
         report = self._validator.validate(agent_id)
         dead_on_arrival = [f for f in report.findings if f.code in blockers(PACK)]
         if dead_on_arrival:
-            detail = "\n".join(
-                f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in dead_on_arrival
-            )
+            detail = "\n".join(f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in dead_on_arrival)
             return PackageResult(
                 False,
                 "refusing to package — validation found things that are fine on YOUR machine "
                 "and broken or unsafe on the machine of anyone who installs this (its tools "
-                "run untrusted there, and its grants are clamped).\n\n" + detail
+                "run untrusted there, and its grants are clamped).\n\n"
+                + detail
                 + "\n\nFix these, then call package_agent again.",
             )
 
@@ -114,7 +113,11 @@ class PackageAgentService:
     def _resolve_out_dir(self, out_dir: str):
         from pathlib import Path
 
-        return Path(out_dir).expanduser() if str(out_dir or "").strip() else self._packer.default_out_dir()
+        return (
+            Path(out_dir).expanduser()
+            if str(out_dir or "").strip()
+            else self._packer.default_out_dir()
+        )
 
     @staticmethod
     def _describe(manifest, path, digest, private, report) -> str:
@@ -133,9 +136,7 @@ class PackageAgentService:
                 + ", ".join(f"{d.id} ({d.source})" for d in manifest.plugins)
             )
         counts = report.counts()
-        advisory = ", ".join(
-            f"{counts[lvl]} {lvl}" for lvl in ("warn", "info") if counts.get(lvl)
-        )
+        advisory = ", ".join(f"{counts[lvl]} {lvl}" for lvl in ("warn", "info") if counts.get(lvl))
         if advisory:
             lines.append(f"  validation passed with {advisory} — see validate_agent for detail")
         lines += [

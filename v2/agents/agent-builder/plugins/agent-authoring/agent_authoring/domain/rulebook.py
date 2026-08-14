@@ -68,7 +68,9 @@ RULEBOOK: dict[str, Rule] = {
         blocks=(PUBLISH,),
         note="installs supersede BY VERSION; a version-less publish can never be updated",
     ),
-    "DEFINITION_IN_EXCLUDED_DIR": Rule(note="definition files under an excluded dir ship to nobody"),
+    "DEFINITION_IN_EXCLUDED_DIR": Rule(
+        note="definition files under an excluded dir ship to nobody"
+    ),
     "WORKSPACE_NOT_SHIPPED": Rule(
         note="workspace/ never ships, and on hosted every user starts with an EMPTY one"
     ),
@@ -114,6 +116,31 @@ RULEBOOK: dict[str, Rule] = {
     "EVENT_PAYLOAD_NOT_NESTED": Rule(note="payload.event.type, not payload.type; error"),
     "UNKNOWN_EVENT": Rule(note="listening for an event nobody emits; error"),
     "METHOD_NOT_APP_CALLABLE": Rule(note="calling a HOST-tier method from an app; error"),
+    "UNKNOWN_SDK_METHOD": Rule(note="calls a client.* the vendored SDK does not define; warn"),
+    # ---- declarations (declaration_rules) — [[settings]] / [[mcp]] / [[oauth]] --------
+    # coherence, all INVISIBLE until someone else installs the agent. The ERROR rows block
+    # both gates already via the ok-gate; listed here so the catalogue is complete and a
+    # future screw-turn is one row.
+    "CREDENTIAL_IN_AGENT_TOML": Rule(
+        blocks=(PACK, PUBLISH),
+        note="a real secret inlined in agent.toml ships to every buyer — error AND an "
+        "explicit gate block, so even a downgraded severity can never leak a key in an artifact",
+    ),
+    "SETTING_SHADOWS_SHARED_KEY": Rule(note="a [[settings]] field masks a daemon-shared key"),
+    "SETTING_NEVER_USED": Rule(note="declared setting no [[mcp]]/[[oauth]] block reads"),
+    "MCP_NO_NAME": Rule(note="an [[mcp]] block without a name cannot be wired; error"),
+    "MCP_TRANSPORT": Rule(note="[[mcp]] transport must be stdio|url; error"),
+    "MCP_UNDECLARED_SETTING": Rule(note="[[mcp]] references a setting nothing declares; error"),
+    "MCP_UNDECLARED_OAUTH": Rule(note="[[mcp]] references an [[oauth]] nothing declares; error"),
+    "ALLOW_UNKNOWN_MCP_NAMESPACE": Rule(
+        note="[tools] allow names an mcp namespace no [[mcp]] provides — advisory (an operator "
+        "server on the machine could provide it), so it warns, never gates"
+    ),
+    "OAUTH_NO_ENDPOINTS": Rule(note="[[oauth]] without auth/token endpoints cannot sign in; error"),
+    "OAUTH_NO_CLIENT_ID": Rule(note="[[oauth]] with no client id — advisory"),
+    "OAUTH_UNDECLARED_SETTING": Rule(note="[[oauth]] references a setting nothing declares; error"),
+    "DECLARATIONS_ARE_LOCAL_ONLY": Rule(note="reminder these blocks resolve per-machine; info"),
+    "MCP_WORKSHOP_INHERITED": Rule(note="mcp_workshop inherited from the daemon default; info"),
 }
 
 

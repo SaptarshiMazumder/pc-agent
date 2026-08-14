@@ -130,12 +130,17 @@ def _settings_fields(raw, agent_id: str = "") -> tuple:
             log.warning("agent %s: [[settings]] entry has no `key` — dropped: %r", agent_id, row)
             continue
         if key in seen:
-            log.warning("agent %s: [[settings]] declares %s twice — keeping the first", agent_id, key)
+            log.warning(
+                "agent %s: [[settings]] declares %s twice — keeping the first", agent_id, key
+            )
             continue
         kind = str(row.get("kind") or "text").strip().lower()
         if kind not in SETTING_KINDS:
             log.warning(
-                "agent %s: [[settings]] %s has unknown kind %r — treating as text", agent_id, key, kind
+                "agent %s: [[settings]] %s has unknown kind %r — treating as text",
+                agent_id,
+                key,
+                kind,
             )
             kind = "text"
         seen.add(key)
@@ -523,7 +528,9 @@ class FileAgentRegistry:
         # opts in is constrained. Tokens like <agents_dir> are left verbatim; the service that
         # builds the run context expands them, because that is where config lives.
         fs_scope = tools.get("fs") or {}
-        write_roots = [str(r).strip() for r in (fs_scope.get("write_roots") or []) if str(r).strip()]
+        write_roots = [
+            str(r).strip() for r in (fs_scope.get("write_roots") or []) if str(r).strip()
+        ]
         write_denies = [str(r).strip() for r in (fs_scope.get("deny") or []) if str(r).strip()]
         skills_allow = data.get("skills")
         model = data.get("model")
@@ -576,9 +583,7 @@ class FileAgentRegistry:
                 # applies on top). Absent => private, () => public app with no tools.
                 "public": bool(app_raw.get("public", False)),
                 "public_tools": tuple(
-                    str(t).strip()
-                    for t in (app_raw.get("public_tools") or [])
-                    if str(t).strip()
+                    str(t).strip() for t in (app_raw.get("public_tools") or []) if str(t).strip()
                 ),
             }
 
@@ -719,7 +724,9 @@ class FileAgentRegistry:
             if cached is None or aid not in cached:
                 # (Re)scan on a miss so an agent created after the cache filled is found —
                 # the same freshness rule the live overlay gets from add().
-                cached = self._scan(root, default_owner=ownership.presumed_owner(True, acct, self._hosted()))
+                cached = self._scan(
+                    root, default_owner=ownership.presumed_owner(True, acct, self._hosted())
+                )
                 self._overlays[key] = cached
             spec = cached.get(aid)
             if spec is not None:
@@ -774,7 +781,7 @@ class FileAgentRegistry:
         return info[1] != ownership.WEB_APP or self.owns(agent_id)
 
     def origin_of(self, agent_id: str) -> str:
-        """"authored" | "installed" | "curated" — how this agent got here. Record-less dirs are
+        """ "authored" | "installed" | "curated" — how this agent got here. Record-less dirs are
         authored (legacy must keep publishing). Unknown ids are authored too: the caller is about
         to fail on resolve_dir anyway, and provenance should never be the error that hides it."""
         info = self._ownership(agent_id)
@@ -797,7 +804,11 @@ class FileAgentRegistry:
         layers = [
             layer
             for layer in (
-                (self._overlay(), overlay_path, ownership.presumed_owner(True, acct, self._hosted()))
+                (
+                    self._overlay(),
+                    overlay_path,
+                    ownership.presumed_owner(True, acct, self._hosted()),
+                )
                 if overlay_path is not None
                 else None,
                 (self._specs, self._agents_dir, self._shared_owner_default()),
@@ -939,7 +950,10 @@ class FileAgentRegistry:
             # same validator-clean skeleton the agent-builder tool writes.
             identity_text = identity.strip() or (
                 f"# {name or agent_id}\n\n"
-                + (description.strip() or "Describe who this agent is: its role, tone, and boundaries.")
+                + (
+                    description.strip()
+                    or "Describe who this agent is: its role, tone, and boundaries."
+                )
             )
             (d / "IDENTITY.md").write_text(identity_text + "\n", encoding="utf-8")
 

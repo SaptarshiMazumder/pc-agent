@@ -84,8 +84,7 @@ class PackageabilityRules:
                         message="no [app] section — this is a chat-only agent and cannot be "
                         "built into its own .exe (gen-app-flavor rejects agents without [app])",
                         path="agent.toml",
-                        fix="add an [app] table with title + mode, and a ui/, to make it a "
-                        "product",
+                        fix="add an [app] table with title + mode, and a ui/, to make it a product",
                     )
                 )
         else:
@@ -100,7 +99,9 @@ class PackageabilityRules:
                         fix=f"write {entry}, or point `entry` at the file you did write",
                     )
                 )
-            if not any(f.startswith("ui/vendor/agentd-client.js") for f in files) and entry.startswith("ui/"):
+            if not any(
+                f.startswith("ui/vendor/agentd-client.js") for f in files
+            ) and entry.startswith("ui/"):
                 out.append(
                     Finding(
                         level=WARN,

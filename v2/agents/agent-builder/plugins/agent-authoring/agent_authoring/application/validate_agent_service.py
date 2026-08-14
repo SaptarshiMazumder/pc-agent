@@ -46,9 +46,7 @@ class ValidateAgentService:
     def validate(self, agent_id: str) -> Report:
         agent_id = (agent_id or "").strip()
         if not agent_id:
-            return self._single(
-                "", ERROR, "NO_AGENT_ID", "validate_agent needs an `agent_id`", ""
-            )
+            return self._single("", ERROR, "NO_AGENT_ID", "validate_agent needs an `agent_id`", "")
 
         spec = self._reader.spec(agent_id)
         if spec is None:

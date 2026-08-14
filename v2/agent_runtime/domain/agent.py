@@ -38,9 +38,18 @@ USER_DATA_DIRS = frozenset({"workspace", "sessions"})
 RESERVED_AGENT_IDS = frozenset(
     {
         "main",  # the synthesized default agent
-        "workspace", "sessions",  # USER_DATA_DIRS — the definition/user-data split
-        "plugins", "skills", "templates", "ui",  # definition-subdir vocabulary
-        "agents", "apps", "assets", "api", "agentd", "shared",  # routes + layout segments
+        "workspace",
+        "sessions",  # USER_DATA_DIRS — the definition/user-data split
+        "plugins",
+        "skills",
+        "templates",
+        "ui",  # definition-subdir vocabulary
+        "agents",
+        "apps",
+        "assets",
+        "api",
+        "agentd",
+        "shared",  # routes + layout segments
     }
 )
 
@@ -104,6 +113,8 @@ def agent_dir_key(path) -> str:
     import os
 
     return os.path.normcase(os.path.realpath(str(path or "")))
+
+
 #: What a settings field may be. `secret` is write-only in every UI — you see that it is set,
 #: never what it is. `url` and `text` are ordinary values a user can read back and correct.
 SETTING_KINDS = ("secret", "text", "url")

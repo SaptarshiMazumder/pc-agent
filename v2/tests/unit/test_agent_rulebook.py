@@ -213,6 +213,25 @@ def test_apply_policy_reprices_only_what_a_row_overrides():
     assert [f.level for f in out] == [WARN, WARN], "no row sets a level today — nothing repriced"
 
 
+def test_every_emitted_code_is_catalogued_in_the_rulebook():
+    """The table is the whole catalogue. A rule module that emits a code with no row means the
+    catalogue lies — a screw someone tries to turn from the table and cannot find. This scans
+    every rules module for `code="X"` and asserts X has a row, so a NEW rule cannot skip it."""
+    import re
+
+    from agent_authoring.domain.rulebook import RULEBOOK
+
+    domain = (
+        Path(__file__).resolve().parents[2]
+        / "agents" / "agent-builder" / "plugins" / "agent-authoring" / "agent_authoring" / "domain"
+    )
+    emitted: set[str] = set()
+    for module in domain.glob("*_rules.py"):
+        emitted |= set(re.findall(r'code="([A-Z_]+)"', module.read_text(encoding="utf-8")))
+    missing = emitted - set(RULEBOOK)
+    assert not missing, f"emitted but not in the RULEBOOK table: {sorted(missing)}"
+
+
 def test_publish_refuses_on_a_rulebook_blocker_even_at_warn_level(tmp_path):
     import asyncio
 

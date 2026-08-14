@@ -108,6 +108,6 @@ class PortabilityRules:
                 message="a `heartbeat` interval is set but [capabilities] autonomy is not true — "
                 "the heartbeat never fires, and nothing else says so",
                 path="agent.toml",
-                fix='add [capabilities] with autonomy = true, or remove `heartbeat`',
+                fix="add [capabilities] with autonomy = true, or remove `heartbeat`",
             )
         ]
