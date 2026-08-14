@@ -94,12 +94,14 @@ def unpack_bundle(
     package_path: Path, manifest: BundleManifest, agents_dir: Path, plugins_dir: Path
 ) -> list[str]:
     """agent/** -> agents_dir/<bundle id>/ ; plugins/<pid>/** -> plugins_dir/<pid>/.
-    Existing agent dir is REPLACED except its workspace/ (user files survive
-    updates). Returns the vendored plugin ids actually placed."""
+    Existing agent dir is REPLACED except the USER'S OWN subtrees (workspace/ and sessions/),
+    so files and chat history survive an update. Returns the vendored plugin ids placed."""
+    from agent_runtime.domain.agent import USER_DATA_DIRS
+
     agent_dst = agents_dir / manifest.id
-    if agent_dst.exists():  # update: clear the definition, keep the user's workspace
+    if agent_dst.exists():  # update: clear the definition, keep what is the user's
         for child in agent_dst.iterdir():
-            if child.name == "workspace":
+            if child.name in USER_DATA_DIRS:
                 continue
             shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
     placed_plugins: set[str] = set()

@@ -120,9 +120,12 @@ class FileBundleInstaller:
                 "that is not a checkout."
             )
         if agent_dir.is_dir():
+            from agent_runtime.domain.agent import USER_DATA_DIRS
+
             for child in agent_dir.iterdir():
-                # the user's files survive a plain uninstall; --purge removes everything
-                if child.name == "workspace" and not purge_state:
+                # the user's files AND chat history survive a plain uninstall (one folder holds
+                # both alongside the definition); --purge removes everything
+                if child.name in USER_DATA_DIRS and not purge_state:
                     continue
                 shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
             # a workspace holding no actual files is just runtime scaffolding — leaving it

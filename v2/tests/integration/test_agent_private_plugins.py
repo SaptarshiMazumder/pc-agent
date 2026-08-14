@@ -19,6 +19,12 @@ from agent_runtime.infrastructure.plugins import discover_agent_plugins
 def _write_private_plugin(agents_dir: Path, agent_id: str, tool_name: str, module: str) -> None:
     pdir = agents_dir / agent_id / "plugins" / f"{tool_name}-kit"
     pdir.mkdir(parents=True)
+    # Only a DECLARED agent ships private tools: an account's agents root also holds folders for
+    # agents it merely used, which are the user's own writable space — code found there must not
+    # be loaded as that agent's tool.
+    toml = agents_dir / agent_id / "agent.toml"
+    if not toml.is_file():
+        toml.write_text(f'name = "{agent_id}"\n', encoding="utf-8")
     (pdir / "plugin.toml").write_text(
         f'id = "{tool_name}-kit"\nname = "Kit"\nkind = "native"\nentry = "{module}:register"\n',
         encoding="utf-8",

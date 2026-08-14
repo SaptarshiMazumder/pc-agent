@@ -21,7 +21,7 @@ from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
 from agent_runtime.domain import ownership
-from agent_runtime.domain.agent import AgentSpec, agent_id_from_session_key
+from agent_runtime.domain.agent import USER_DATA_DIRS, AgentSpec, agent_id_from_session_key
 from agent_runtime.domain.agent_availability import withheld_reason
 from agent_runtime.infrastructure.agents import ownership_store
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
@@ -32,11 +32,6 @@ log = logging.getLogger("agentd")
 
 def _valid_id(s: str) -> bool:
     return bool(s) and all(c.isalnum() or c in "-_" for c in s)
-
-
-#: THE USER'S OWN SUBTREES inside an agent folder. One folder per agent holds its definition AND
-#: its data, so every operation that deletes a definition has to name what is not the definition.
-USER_DATA_DIRS = frozenset({"workspace", "sessions"})
 
 
 def is_definition_dir(d: Path) -> bool:

@@ -680,6 +680,14 @@ def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict
     # before every uncached model call, so gating on entitlement costs zero extra round trips.
     # A second hot-path call per message would be a real latency tax on every user (DEF-6).
     required, held = _entitlement_state(c, account_id, agent_id)
+    # HAS THIS ACCOUNT EVER BEEN GRANTED CREDITS? Not "does it have any left" — ANY row, spent or
+    # expired. It is what tells the proxy whether a zero balance means "exhausted" (refuse) or
+    # "this account was never on a credit plan" (the deployment's free tier — allow, which is
+    # what every account did before the gate could fire at all). Without the distinction,
+    # switching enforcement on refuses every existing user's very first message.
+    ever_granted = c.execute(
+        "SELECT 1 FROM credit_grants WHERE account_id = ? LIMIT 1", (account_id,)
+    ).fetchone() is not None
     return {
         "account_id": account_id,
         "credits_remaining": remaining,
@@ -688,6 +696,7 @@ def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict
         "credit_class": str(grants[0]["credit_class"]) if grants else "",
         "entitlement_required": required,
         "entitled": held,
+        "credits_enforced": ever_granted,
     }
 
 

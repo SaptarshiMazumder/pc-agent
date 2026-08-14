@@ -127,7 +127,9 @@ def test_desktop_cloud_rides_the_passthrough_paid_by_the_connections_session(
     assert client.http_options.base_url == "http://proxy.example:4000/gemini"
 
 
-def test_web_hosted_forced_pays_with_the_master_key(fake_genai, monkeypatch, tmp_path):
+def test_web_hosted_with_no_caller_pays_with_the_master_key(fake_genai, monkeypatch, tmp_path):
+    """Cron ticks, anonymous public visitors and the daemon's own system calls have no caller
+    credential — the deployment's key is what those run on, and only those."""
     monkeypatch.setenv("AGENTD_MODEL_PROXY_URL", "http://proxy:4000")
     monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sk-master")
     model_proxy.configure(_config())
@@ -135,6 +137,38 @@ def test_web_hosted_forced_pays_with_the_master_key(fake_genai, monkeypatch, tmp
     client = fake_genai.last
     assert client.api_key == "sk-master"
     assert client.http_options.base_url == "http://proxy:4000/gemini"
+
+
+def test_web_hosted_signed_in_turn_pays_as_the_USER(fake_genai, monkeypatch, tmp_path):
+    """THE FIX. A hosted turn used to pay with the deployment's master key even for a signed-in
+    human, and a master key carries no account — so the proxy's pre-call gate had nothing to
+    check and credit/entitlement refusals never fired for web users. Paying as the caller makes
+    hosted authenticate exactly as desktop cloud does, so the gate fires by construction."""
+    monkeypatch.setenv("AGENTD_MODEL_PROXY_URL", "http://proxy:4000")
+    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sk-master")
+    model_proxy.configure(_config())
+    token = accounts.set_account({"account_id": "a1", "session_token": "sess_web"})
+    try:
+        oneshot.generate_image(model="m", prompt="p", out_path=tmp_path / "x.png")
+    finally:
+        accounts.reset_account(token)
+    assert fake_genai.last.api_key == "sess_web", "the signed-in caller pays as themselves"
+
+
+def test_a_cron_turn_without_a_token_still_runs_on_the_deployment_key(
+    fake_genai, monkeypatch, tmp_path
+):
+    """Cron pins an account id but has no session token to re-resolve — the fallback is what
+    keeps autonomous work running instead of failing with no credential at all."""
+    monkeypatch.setenv("AGENTD_MODEL_PROXY_URL", "http://proxy:4000")
+    monkeypatch.setenv("AGENTD_MODEL_PROXY_KEY", "sk-master")
+    model_proxy.configure(_config())
+    token = accounts.set_account({"account_id": "a1"})  # id only, as _fire_task pins it
+    try:
+        oneshot.generate_image(model="m", prompt="p", out_path=tmp_path / "x.png")
+    finally:
+        accounts.reset_account(token)
+    assert fake_genai.last.api_key == "sk-master"
 
 
 def test_a_local_pinned_connection_stays_direct_even_where_a_proxy_exists(

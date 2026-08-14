@@ -73,24 +73,32 @@ def reset_billing(token) -> None:
 def turn_key() -> str:
     """The credential this turn pays with, or "".
 
-    TWO DEPLOYMENTS, NOT A FALLBACK CHAIN. Which one applies is decided by an explicit operator
-    setting, never by which value happens to be non-empty:
+    THE CALLER PAYS WITH THE CALLER'S OWN CREDENTIAL whenever this turn has one. The
+    deployment's master key covers only the turns that genuinely have no caller behind them:
+    cron ticks (which pin an account id but no token), anonymous public-app visitors, and the
+    daemon's own system calls.
 
-      * FORCED (env proxy URL, or `model_proxy.enabled`) — a server whose operator holds the
-        credential. It pays with that key for every turn, by policy; per-account attribution rides
-        the OpenAI `user` field.
-      * OTHERWISE — only the connection's own session pays. No session, no proxy, and the call
-        goes out on the user's own provider keys.
+    WHY THE ORDER MATTERS, AND WHY THIS IS NOT THE CHAIN THIS FUNCTION USED TO FORBID. It read
+    "FORCED => master key, otherwise the session", so a hosted server paid for every user with
+    one infra credential and named the human in the OpenAI `user` field instead. Billing coped
+    (it reads either), but the proxy's PRE-CALL gate identifies the account from the credential
+    alone — a master key carries none — so hosted users were metered accurately and could never
+    be refused: no credit check, no entitlement check, ever. Paying as the user restores that by
+    construction, with no second way to identify an account.
 
-    Chaining these on emptiness is what let a stale key in a .env decide who got billed.
+    The hazard the old comment named — "a stale key in a .env decides who got billed" — was a
+    chain in the OPPOSITE direction: falling back to an ambient key when no session was present.
+    Preferring the caller's own credential cannot bill one person on another's key; the master
+    key is reached only where there is no person to bill.
     """
     if current_billing.get() == LOCAL:
         return ""
-    if _forced:
-        return _api_key
     from agent_runtime.infrastructure import accounts  # local: accounts imports nothing from llm
 
-    return str((accounts.current_account.get() or {}).get("session_token") or "")
+    session = str((accounts.current_account.get() or {}).get("session_token") or "")
+    if session:
+        return session
+    return _api_key if _forced else ""
 
 
 def configure(config) -> None:

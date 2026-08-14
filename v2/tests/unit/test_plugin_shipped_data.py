@@ -152,6 +152,9 @@ def _discoverable(root: Path, body: str) -> None:
         encoding="utf-8",
     )
     (root / "img_plugin.py").write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
+    # Only a DECLARED agent ships private tools — an account's agents root also holds folders
+    # for agents it merely used, and those are the user's own writable space.
+    (root.parent.parent / "agent.toml").write_text('name = "Mkt"\n', encoding="utf-8")
 
 
 def test_discovery_stamps_the_agent_folder_on_a_normal_tool(tmp_path):
@@ -184,26 +187,18 @@ def test_discovery_never_stamps_over_a_method(tmp_path, caplog):
     tool that read perfectly. The metadata is worth less than the tool: refuse and say so."""
     from agent_runtime.infrastructure.plugins.discovery import discover_agent_plugins
 
-    root = tmp_path / "agents" / "mkt" / "plugins" / "img"
-    root.mkdir(parents=True)
-    (root / "plugin.toml").write_text(
-        'id = "img"\nname = "Img"\nkind = "native"\nentry = "img_plugin:register"\n',
-        encoding="utf-8",
-    )
-    (root / "img_plugin.py").write_text(
-        textwrap.dedent(
-            """
-            class Tool:
-                name = "publishy"
+    _discoverable(
+        tmp_path / "agents" / "mkt" / "plugins" / "img",
+        """
+        class Tool:
+            name = "publishy"
 
-                def _plugin_agent_dir(self, agent_id):   # a METHOD, not metadata
-                    return "computed:" + agent_id
+            def _plugin_agent_dir(self, agent_id):   # a METHOD, not metadata
+                return "computed:" + agent_id
 
-            def register(api, ctx):
-                api.register_tool(Tool())
-            """
-        ).lstrip(),
-        encoding="utf-8",
+        def register(api, ctx):
+            api.register_tool(Tool())
+        """,
     )
     found = discover_agent_plugins(tmp_path / "agents", SimpleNamespace())
     tool = found["mkt"][0]

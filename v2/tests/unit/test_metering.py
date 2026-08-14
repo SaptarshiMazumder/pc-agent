@@ -332,10 +332,59 @@ async def test_call_allowed_when_credits_remain(auth, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_exhausted_balance_is_refused_before_the_provider_is_called(auth, monkeypatch):
-    """402, raised in the PRE-call hook — so no provider request is made and no money spent."""
+    """402, raised in the PRE-call hook — so no provider request is made and no money spent.
+
+    `credits_enforced` is what makes a zero balance mean EXHAUSTED: this account was granted
+    credits and used them up."""
     from fastapi import HTTPException
 
+    _with_funding(
+        auth,
+        monkeypatch,
+        {"credits_remaining": 0, "model_tier_max": "", "credits_enforced": True},
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        await auth.usage_logger_instance.async_pre_call_hook(**_hook_args("deepseek/deepseek-chat"))
+    assert excinfo.value.status_code == 402
+
+
+@pytest.mark.asyncio
+async def test_an_account_never_granted_credits_is_not_refused(auth, monkeypatch):
+    """THE NO-LOCKOUT GUARANTEE. Zero balance is ambiguous: exhausted, or never on a credit plan
+    at all? Every existing account is the second — grants are minted only by a purchase or an
+    explicit grant call, so the moment this gate started firing it would have refused every
+    user's next message. Enforcement follows the DATA: no grant, no refusal."""
+    _with_funding(
+        auth,
+        monkeypatch,
+        {"credits_remaining": 0, "model_tier_max": "", "credits_enforced": False},
+    )
+    assert await auth.usage_logger_instance.async_pre_call_hook(
+        **_hook_args("deepseek/deepseek-chat")
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_an_older_accounts_build_without_the_field_fails_open(auth, monkeypatch):
+    """Same rule the entitlement fields follow: absent means allowed."""
     _with_funding(auth, monkeypatch, {"credits_remaining": 0, "model_tier_max": ""})
+    assert await auth.usage_logger_instance.async_pre_call_hook(
+        **_hook_args("deepseek/deepseek-chat")
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_require_credits_closes_the_free_tier(auth, monkeypatch):
+    """The operator's switch for when signup grants credits and 'no grant' should mean 'no
+    service' — off by default so nothing changes for a deployment that has not decided."""
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("MODEL_PROXY_REQUIRE_CREDITS", "1")
+    _with_funding(
+        auth,
+        monkeypatch,
+        {"credits_remaining": 0, "model_tier_max": "", "credits_enforced": False},
+    )
     with pytest.raises(HTTPException) as excinfo:
         await auth.usage_logger_instance.async_pre_call_hook(**_hook_args("deepseek/deepseek-chat"))
     assert excinfo.value.status_code == 402

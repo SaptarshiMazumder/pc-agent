@@ -206,7 +206,23 @@ class AgentService:
         installed = self._installed_agents()
         if installed is None:
             return tuple(roots)  # unreadable ledger -> protect everything, loudly
-        return tuple(str(Path(root) / aid) for root in roots for aid in sorted(installed))
+        # THE DEFINITION IS PROTECTED, THE USER'S OWN SUBTREES ARE NOT. One folder now holds an
+        # installed agent's definition next to the `workspace/` and `sessions/` that belong to
+        # whoever runs it — protecting the folder wholesale meant an installed agent could not
+        # write its own workspace, which is its entire job.
+        from agent_runtime.domain.agent import USER_DATA_DIRS
+
+        protected = []
+        for root in roots:
+            for aid in sorted(installed):
+                agent_dir = Path(root) / aid
+                if not agent_dir.is_dir():
+                    protected.append(str(agent_dir))  # not there yet: protect the whole name
+                    continue
+                protected += [
+                    str(item) for item in agent_dir.iterdir() if item.name not in USER_DATA_DIRS
+                ]
+        return tuple(protected)
 
     def _models_for(self, agent) -> tuple:
         """``(model, model_router)`` for one run of ``agent``.
