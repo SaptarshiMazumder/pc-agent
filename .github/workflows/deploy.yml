@@ -41,7 +41,9 @@ on:
       service:
         description: "Deploy all services or one independently"
         type: choice
-        options: [all, model-proxy, accounts, daemon, web, ingest]
+        # `marketplace` is not a service: it selects Job 3 (the static store page) and skips
+        # Job 2 entirely, because there is no image or ECS service by that name to build.
+        options: [all, model-proxy, accounts, daemon, web, ingest, marketplace]
         default: all
   push:
     branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
@@ -106,6 +108,9 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
+    # `marketplace` is Job 3's target and names no image: without this guard, a manual run picking
+    # it would reach the build step with build=marketplace and fail looking for a Dockerfile.
+    if: needs.resolve.outputs.service != 'marketplace'
     env:
       ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
       DEPLOY_SERVICE: ${{ needs.resolve.outputs.service }}
@@ -407,3 +412,124 @@ jobs:
             exit 1
           fi
           echo "Services **$(cut -d' ' -f1 deployments.txt | tr '\n' ' ')** deployed to **$ENVIRONMENT** ✅" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 3: the PUBLIC MARKETPLACE page. Independent of Job 2 on purpose.
+  #
+  # It is not a service: no image, no ECR, no ECS, no rollout to wait on. It is a static bundle in
+  # an S3 bucket behind CloudFront, and the data it renders (catalog.json) is written by the
+  # publish service — not by this workflow. So there is nothing for it to wait on, and `needs:`
+  # here would only mean a broken container keeps a page fix from shipping.
+  #
+  # WHAT IT DELIBERATELY DOES NOT DO: bump the publish Lambda. That tag lives in tfvars and
+  # changing it means running Terraform, which this pipeline does not do (see deploy/ROLLOUT-marketplace.md).
+  marketplace:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
+    # A manual single-service run ("deploy just the daemon") must not also redeploy the store.
+    if: >-
+      needs.resolve.outputs.service == 'all' ||
+      needs.resolve.outputs.service == 'marketplace'
+    env:
+      ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # same reason as Job 2: this push may carry several commits to diff
+
+      # The page is built from the clients workspace, so anything else leaves it untouched.
+      # SAFETY RULE, as in Job 2: when in doubt, BUILD. A skipped deploy that should have run
+      # ships a stale page and reports success.
+      - name: Does the page need redeploying?
+        id: changed
+        run: |
+          emit() { echo "run=$1" >> "$GITHUB_OUTPUT"; echo "$2"; }
+          if [ "${{ github.event_name }}" != "push" ]; then
+            emit true "manual run: deploying the marketplace"; exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          case "$BEFORE" in
+            ""|0000000000000000000000000000000000000000)
+              emit true "no diff base: deploying the marketplace"; exit 0 ;;
+          esac
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            emit true "diff base unreachable: deploying the marketplace"; exit 0
+          fi
+          if ! CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+            emit true "git diff failed: deploying the marketplace"; exit 0
+          fi
+          if echo "$CHANGED" | grep -qE '^v2/clients/|^\.github/workflows/deploy\.yml$'; then
+            emit true "the page's sources changed"
+          else
+            emit false "nothing under v2/clients/ changed — the page is current"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.changed.outputs.run == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.run == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: v2/clients/package-lock.json
+
+      - name: Build the page
+        if: steps.changed.outputs.run == 'true'
+        working-directory: v2/clients
+        # -w agentd-marketplace, so Electron and electron-builder (the desktop workspace's
+        # devDependencies) are never downloaded on a runner that only needs a static bundle.
+        run: |
+          npm ci --include-workspace-root -w agentd-marketplace
+          npm run build -w agentd-marketplace
+
+      # DISCOVERED, never hardcoded: both names carry a random suffix (S3 bucket names are
+      # globally unique), exactly like the registry bucket publish-registry.yml finds. Terraform
+      # state is local to a laptop, so the AWS API is the only source of truth CI can read.
+      - name: Find the bucket and the distribution
+        id: aws
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          BUCKET=$(aws s3api list-buckets \
+            --query "Buckets[?starts_with(Name, 'agentd-${ENVIRONMENT}-marketplace-')].Name | [0]" \
+            --output text)
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ]; then
+            echo "::error::no agentd-${ENVIRONMENT}-marketplace-* bucket. Run terraform apply for this environment first."
+            exit 1
+          fi
+          DIST=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='agentd-${ENVIRONMENT}-marketplace - public agent marketplace'].Id | [0]" \
+            --output text)
+          if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
+            echo "::error::no CloudFront distribution for agentd-${ENVIRONMENT}-marketplace."
+            exit 1
+          fi
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "distribution=$DIST" >> "$GITHUB_OUTPUT"
+          echo "bucket: $BUCKET   distribution: $DIST"
+
+      # Fingerprinted assets get an immutable year; index.html must never be cached hard, because
+      # it is the file that names which fingerprinted bundle to load.
+      - name: Upload
+        if: steps.changed.outputs.run == 'true'
+        working-directory: v2/clients/marketplace/dist
+        run: |
+          aws s3 sync . "s3://${{ steps.aws.outputs.bucket }}" --delete --exclude index.html \
+            --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp index.html "s3://${{ steps.aws.outputs.bucket }}/index.html" \
+            --content-type text/html --cache-control no-cache
+
+      # Only the entry point: every other file's name changes when its content does, so there is
+      # nothing else that can be stale.
+      - name: Invalidate
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.aws.outputs.distribution }}" --paths /index.html >/dev/null
+          DOMAIN=$(aws cloudfront get-distribution --id "${{ steps.aws.outputs.distribution }}" \
+            --query 'Distribution.DomainName' --output text)
+          echo "Marketplace deployed to **$ENVIRONMENT**: https://$DOMAIN ✅" >> "$GITHUB_STEP_SUMMARY"
