@@ -165,6 +165,44 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["s3:ListAllMyBuckets"]
     resources = ["*"]
   }
+
+  # DEPLOY THE PUBLIC MARKETPLACE PAGE (the `marketplace` job in deploy.yml). A static bundle in
+  # its own bucket, in front of the registry above — so the store is reachable by someone who has
+  # never installed anything.
+  #
+  # A SEPARATE STATEMENT rather than widening the registry grant, because these are different
+  # blast radii: the registry holds signed artifacts every installed client verifies, and this
+  # holds a page. Deleting is allowed HERE and nowhere else — `s3 sync --delete` is what stops a
+  # removed asset lingering after a rebuild, and the worst a bug can do to a bucket of build
+  # output is force a re-upload.
+  statement {
+    sid       = "MarketplaceSiteObjects"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::agentd-*-marketplace-*/*"]
+  }
+  statement {
+    sid       = "MarketplaceSiteList"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::agentd-*-marketplace-*"]
+  }
+
+  # The invalidation that follows every upload. Without it the CDN keeps serving the previous
+  # index.html and the deploy looks like it did nothing.
+  #
+  # ListDistributions cannot be resource-scoped (it is the account-level "what distributions exist"
+  # call) and is how the workflow FINDS the distribution id from its comment, the same way it
+  # discovers the registry bucket rather than hardcoding a generated name. CreateInvalidation IS
+  # scoped, so the only thing this role can act on is a distribution in this account.
+  statement {
+    sid       = "MarketplaceDiscoverDistribution"
+    actions   = ["cloudfront:ListDistributions"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "MarketplaceInvalidate"
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = ["arn:aws:cloudfront::${data.aws_caller_identity.me.account_id}:distribution/*"]
+  }
 }
 
 resource "aws_iam_role" "deploy" {
