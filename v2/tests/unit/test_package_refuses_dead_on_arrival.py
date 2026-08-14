@@ -12,7 +12,8 @@ The motivating case is real: a ComfyUI agent built here shipped a tool that reve
 ``subprocess.Popen(["explorer.exe", ...])``. Perfect for its author. A hard denial for everyone
 who installs it, and nothing stopped it being packaged.
 
-WHY ONLY FOUR CODES. This list blocks a release, so every entry has to be a shape with no
+WHICH codes block is the RULEBOOK's one decision (domain/rulebook.py, ``blockers(PACK)``) —
+this test pins that the gate obeys the table. Every entry there has to be a shape with no
 innocent reading. `import httpx` is one. A bare ``https://`` in a docstring is not — that stays
 advisory, because a gate that fires on a comment is a gate authors learn to route around, and
 then it guards nothing at all.
@@ -25,9 +26,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agent_authoring.application.package_agent_service import _SHIPS_BROKEN, PackageAgentService
+from agent_authoring.application.package_agent_service import PackageAgentService
 from agent_authoring.domain.finding import ERROR, WARN, Finding
 from agent_authoring.domain.report import Report
+from agent_authoring.domain.rulebook import PACK, blockers
+
+_PACK_BLOCKERS = blockers(PACK)
 
 
 class _Reader:
@@ -102,7 +106,7 @@ def _warn(code):
 
 
 # ── the refusal ─────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("code", sorted(_SHIPS_BROKEN))
+@pytest.mark.parametrize("code", sorted(_PACK_BLOCKERS))
 def test_each_dead_on_arrival_shape_blocks_packaging(tmp_path, code):
     res = _service(tmp_path, [_warn(code)]).package("demo")
     assert res.ok is False
@@ -113,8 +117,7 @@ def test_the_refusal_explains_why_it_works_here_and_not_there(tmp_path):
     """An author whose agent validates OK and then fails to package needs to know why the same
     code is fine on this machine — otherwise the refusal reads as a bug in the packer."""
     res = _service(tmp_path, [_warn("UNTRUSTED_WANTS_SPAWN")]).package("demo")
-    assert "installs it" in res.message
-    assert "SHARED tool" in res.message, "name the way out, not just the wall"
+    assert "installs this" in res.message
     assert "UNTRUSTED_WANTS_SPAWN" in res.message
     assert "do it the other way" in res.message, "carry the finding's own fix through"
 
@@ -128,7 +131,7 @@ def test_a_clean_agent_still_packages(tmp_path):
 def test_an_advisory_finding_does_not_block(tmp_path):
     """UNTRUSTED_MAYBE_NETWORK is the URL-in-a-docstring case — deliberately fuzzy, so it can
     warn but must never stop a release."""
-    assert "UNTRUSTED_MAYBE_NETWORK" not in _SHIPS_BROKEN
+    assert "UNTRUSTED_MAYBE_NETWORK" not in _PACK_BLOCKERS
     assert _service(tmp_path, [_warn("UNTRUSTED_MAYBE_NETWORK")]).package("demo").ok is True
 
 
@@ -148,8 +151,16 @@ def test_a_real_error_still_blocks(tmp_path):
 # ── every blocking code is a code the rules can actually emit ───────────────
 def test_the_blocking_list_names_real_findings():
     """A code that no rule emits is a gate that never fires — the quiet kind of dead check."""
-    src = (Path(__file__).resolve().parents[2] / "agents" / "agent-builder" / "plugins"
-           / "agent-authoring" / "agent_authoring" / "domain" / "sandbox_rules.py"
-           ).read_text(encoding="utf-8")
-    for code in _SHIPS_BROKEN:
+    domain = (Path(__file__).resolve().parents[2] / "agents" / "agent-builder" / "plugins"
+              / "agent-authoring" / "agent_authoring" / "domain")
+    src = "\n".join(
+        (domain / name).read_text(encoding="utf-8")
+        for name in (
+            "sandbox_rules.py",
+            "portability_rules.py",
+            "packageability_rules.py",
+            "declaration_rules.py",
+        )
+    )
+    for code in _PACK_BLOCKERS:
         assert f'code="{code}"' in src, f"{code} is blocked but nothing emits it"

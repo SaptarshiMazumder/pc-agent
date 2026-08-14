@@ -73,13 +73,34 @@ except ImportError:  # pragma: no cover
         pass
 
 
+# THE PAYMENT RAIL LIVES IN ITS OWN MODULE (v2/payments/), imported as a package from both the
+# image (/app/payments/) and the test run (v2/ is on sys.path). Accounts depends on its
+# INTERFACES and its composition root; it never names Stripe, and it never learns how a card
+# works. See payments/__init__.py for why the dependency inverts at post-processing.
+from payments.application.interfaces.payment_gateway import PurchaseRequest
+from payments.application.services.checkout_service import CheckoutService
+from payments.application.services.payment_event_service import PaymentEventService
+from payments.domain.money import Money
+from payments.domain.payment_intent import PaymentIntent
+from payments.infrastructure.sqlite_payment_intent_store import SqlitePaymentIntentStore
+from payments.main.payment_gateway_factory import (
+    build_payment_gateway,
+    build_webhook_verifier,
+    has_webhook,
+)
+from payments.presentation.payment_router import build_payment_router
+
 # Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
 # the tests load this file by path, where the module has no package. Same defensive pattern as
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
 # the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
 try:  # pragma: no cover - exercised by whichever path the runtime takes
     import ledger
-    import payments
+    from accounts_post_processor import (
+        AccountsPostProcessor,
+        PurchaseOrder,
+        WebhookPostProcessor,
+    )
 except ModuleNotFoundError:  # pragma: no cover
     import importlib.util as _ilu
     import pathlib as _pathlib
@@ -89,7 +110,7 @@ except ModuleNotFoundError:  # pragma: no cover
         spec = _ilu.spec_from_file_location(name, _pathlib.Path(__file__).with_name(f"{name}.py"))
         assert spec and spec.loader
         module = _ilu.module_from_spec(spec)
-        # MUST be registered BEFORE exec_module. `payments` defines dataclasses under
+        # MUST be registered BEFORE exec_module. These modules define dataclasses under
         # `from __future__ import annotations`, and dataclasses resolves those string
         # annotations via sys.modules[cls.__module__] — absent, it dereferences None and the
         # import dies with a bewildering AttributeError from inside the stdlib.
@@ -98,7 +119,10 @@ except ModuleNotFoundError:  # pragma: no cover
         return module
 
     ledger = _sibling("ledger")
-    payments = _sibling("payments")
+    _post_processing = _sibling("accounts_post_processor")
+    AccountsPostProcessor = _post_processing.AccountsPostProcessor
+    PurchaseOrder = _post_processing.PurchaseOrder
+    WebhookPostProcessor = _post_processing.WebhookPostProcessor
 
 
 setup_logging("accounts")
@@ -302,7 +326,7 @@ def _init_db() -> None:
             """
         )
         ledger.schema(c)
-        payments.schema(c)
+        SqlitePaymentIntentStore.create_schema(c)
 
 
 # --- password hashing (stdlib, no bcrypt dependency) -------------------------
@@ -991,7 +1015,7 @@ def list_products(kind: str = "") -> dict:
     # `provider` tells the client which rail is in play, and `payment_note` is the rail's own
     # words for what a purchase will do. The UI DISPLAYS them; it must not branch on them (see
     # payments.py: no code path may work only because payments are mocked).
-    rail = payments.provider()
+    rail = build_payment_gateway()
     return {
         "products": [dict(r) for r in rows],
         "provider": rail.name,
@@ -1012,7 +1036,8 @@ def _apply_purchase(
     agent_id: str,
     product_id: str,
     idem: str,
-) -> tuple[str, bool, dict, "payments.Charge", float]:
+    off_session: bool = False,
+) -> tuple[str, bool, dict, PaymentIntent, float]:
     """Charge, post the books, mint the grant, extend access. Shared by /purchase and renewal.
 
     Returns `created=False` when the idempotency key had already been posted — the caller MUST
@@ -1021,59 +1046,49 @@ def _apply_purchase(
     Extracted because a renewal IS a purchase — same money, same split, same creator accrual —
     and two copies of this sequence would drift, with the divergence showing up as a quiet
     accounting difference between a first purchase and every one after it.
-    """
-    rail = payments.provider()
-    charge = rail.charge(
-        account_id=account_id, amount_usd=price,
-        idempotency_key=idem or f"auto:{account_id}:{_now()}",
-        description=product_id or "credit pack",
-        meta={"credits": credits, "product_id": product_id},
-    )
-    ts = _now()
-    payments.record(c, ts, "charge", charge, account_id=account_id, idempotency_key=idem)
-    if not charge.ok:
-        raise HTTPException(status_code=402, detail=f"payment failed: {charge.status}")
 
-    # Post BEFORE creating the grant: this is the step that can legitimately refuse (a sale that
-    # would lose money), and refusing before the credits exist is what stops a rejected purchase
-    # from half-landing.
+    `off_session=True` says nobody is at a keyboard (a scheduled renewal). The rail needs to know:
+    an interactive purchase may send the customer somewhere to authenticate, and a renewal cannot.
+
+    THE ONE-REQUEST SHAPE ONLY WORKS FOR A RAIL THAT SETTLES IMMEDIATELY. A card does not — it
+    answers later, on a webhook — so a rail that comes back unsettled is refused here rather than
+    reported as bought. That is the 409 below, and it is what `/me/checkout` will exist to avoid.
+    """
+    ts = _now()
+    order = PurchaseOrder(
+        account_id=account_id, price_usd=price, credits=credits, scope=scope, tier_max=tier_max,
+        period_days=period_days, creator_id=creator_id, agent_id=agent_id, product_id=product_id,
+        idempotency_key=idem,
+    )
+    checkout = CheckoutService(
+        build_payment_gateway(),
+        SqlitePaymentIntentStore(c),
+        AccountsPostProcessor(c, ledger, order, at=ts),
+        clock=lambda: ts,
+    )
     try:
-        txn_id, created, split = ledger.post_purchase(
-            c, ts,
-            account_id=account_id, gross_micros=ledger.usd_to_micros(price),
-            credits_sold=credits, agent_id=agent_id, creator_id=creator_id,
-            ref=charge.reference, idempotency_key=f"purchase:{idem}" if idem else "",
+        intent, done = checkout.begin(
+            PurchaseRequest(
+                account_id=account_id,
+                amount=Money.from_usd(price),
+                idempotency_key=idem,
+                description=product_id or "credit pack",
+                meta={"credits": credits, "product_id": product_id},
+            ),
+            off_session=off_session,
         )
     except ledger.LedgerError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
-    expires_at = (ts + period_days * 86_400) if period_days else 0.0
-    if not created:
-        # Already posted under this key: the books are correct and must not be touched again, and
-        # no second grant may be minted. Return so a replay is a genuine no-op.
-        return txn_id, False, split, charge, expires_at
-    c.execute(
-        "INSERT INTO credit_grants (account_id, scope, credits, credits_used, credit_class, "
-        "model_tier_max, expires_at, created_at) VALUES (?, ?, ?, 0, 'paid', ?, ?, ?)",
-        (account_id, scope, credits, tier_max, expires_at, ts),
-    )
-    # Buying an agent subscription also entitles you to run it (2.5). Money and permission are
-    # separate concepts, so this is a separate row rather than an implication of having credits.
-    if agent_id:
-        c.execute(
-            "INSERT INTO entitlements (account_id, agent_id, source, expires_at, created_at) "
-            "VALUES (?, ?, 'purchase', ?, ?) ON CONFLICT(account_id, agent_id) DO UPDATE SET "
-            "expires_at=excluded.expires_at",
-            (account_id, agent_id, expires_at, ts),
+    if done is None:
+        if intent.failed:
+            raise HTTPException(status_code=402, detail=f"payment failed: {intent.status}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"the {intent.provider} rail cannot settle a purchase in one request "
+                   f"(status {intent.status}); this order needs an interactive checkout",
         )
-        if product_id:
-            c.execute(
-                "INSERT INTO subscriptions (account_id, product_id, status, renews_at, created_at) "
-                "VALUES (?, ?, 'active', ?, ?) ON CONFLICT(account_id, product_id) DO UPDATE SET "
-                "status='active', renews_at=excluded.renews_at",
-                (account_id, product_id, expires_at, ts),
-            )
-    return txn_id, True, split, charge, expires_at
+    return done.reference, done.created, done.detail["split"], intent, done.detail["expires_at"]
 
 
 @app.post("/purchase")
@@ -1231,6 +1246,148 @@ def my_purchase(
     }
 
 
+def _checkout_return_urls(payload: dict) -> tuple[str, str]:
+    """Where the rail sends the customer back afterwards.
+
+    The client supplies them because only it knows its own origin — a desktop window, the hosted
+    web app and an agent's own window are three different places. `AGENTD_CHECKOUT_RETURN_ORIGINS`
+    (comma-separated) constrains that to origins we recognise: unset means any absolute http(s)
+    URL, which is right for local development and should be set in a deployment, because the
+    alternative is an open redirect wearing our domain in the address bar.
+    """
+    env = os.environ.get
+    success = str(payload.get("success_url") or env("AGENTD_CHECKOUT_SUCCESS_URL") or "").strip()
+    cancel = str(payload.get("cancel_url") or env("AGENTD_CHECKOUT_CANCEL_URL") or "").strip()
+    if not success or not cancel:
+        raise HTTPException(
+            status_code=400,
+            detail="success_url and cancel_url are required — the payment page has to know "
+                   "where to return the customer",
+        )
+    configured = (env("AGENTD_CHECKOUT_RETURN_ORIGINS") or "").split(",")
+    allowed = [o.strip() for o in configured if o.strip()]
+    for url in (success, cancel):
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail=f"{url!r} is not an absolute http(s) URL")
+        if allowed and not any(url.startswith(origin) for origin in allowed):
+            raise HTTPException(status_code=400, detail="return url is not an allowed origin")
+    return success, cancel
+
+
+@app.post("/me/checkout")
+def my_checkout(
+    request: Request,
+    payload: dict = Body(...),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Buy something, on a rail that may not finish in this request.
+
+    THE SAME ENDPOINT WORKS ON BOTH RAILS, and the client does not ask which is configured — it
+    reads the answer. A rail that settles inline returns the completed purchase (identical to
+    `/me/purchase`); a card rail returns `checkout_url`, and the credits arrive when the webhook
+    does. A client that follows `checkout_url` when present and shows the balance otherwise is
+    correct on either.
+
+    LIKE /me/purchase, THE ONLY THING THE CLIENT MAY SEND IS A product_id (plus where to return
+    to). Price and credit count are read from the `products` row — otherwise a user posts their
+    own numbers and mints a fortune.
+    """
+    _check_rate(request)
+    product_id = str(payload.get("product_id") or "").strip()
+    if not product_id:
+        raise HTTPException(status_code=400, detail="product_id required")
+    success_url, cancel_url = _checkout_return_urls(payload)
+    client_key = str(payload.get("idempotency_key") or "").strip()[:80]
+    ts = _now()
+
+    with _db() as c:
+        row = _account_for_token(c, _bearer(authorization))
+        account_id = str(row["id"])
+        p = c.execute(
+            "SELECT * FROM products WHERE id = ? AND active = 1", (product_id,)
+        ).fetchone()
+        if p is None:
+            count("purchase_total", outcome="failed",
+                  _props={"account_id": account_id, "product_id": product_id,
+                          "reason": "unknown_product"})
+            raise HTTPException(status_code=404, detail=f"unknown product {product_id}")
+
+        price = float(p["price_usd"])
+        credits = int(p["credits"]) or ledger.credits_for_usd(price)
+        idem = f"me:{account_id}:{client_key}" if client_key else ""
+        order = PurchaseOrder(
+            account_id=account_id, price_usd=price, credits=credits,
+            scope=str(p["scope"]) or "platform", tier_max=str(p["model_tier_max"] or ""),
+            period_days=int(p["period_days"] or _credit_pack_days()),
+            creator_id=str(p["creator_id"]), agent_id=str(p["agent_id"]),
+            product_id=product_id, idempotency_key=idem,
+        )
+
+        if idem:
+            prior = c.execute(
+                "SELECT txn_id FROM ledger_txns WHERE idempotency_key = ?",
+                (f"purchase:{idem}",),
+            ).fetchone()
+            if prior is not None:
+                view = _funding_view(c, account_id, order.agent_id)
+                return {"ok": True, "replayed": True, "status": "succeeded",
+                        "txn_id": str(prior["txn_id"]), "product_id": product_id,
+                        "credits": credits, "price_usd": price, **view}
+
+        intent, done = CheckoutService(
+            build_payment_gateway(),
+            SqlitePaymentIntentStore(c),
+            AccountsPostProcessor(c, ledger, order, at=ts),
+            clock=lambda: ts,
+        ).begin(
+            PurchaseRequest(
+                account_id=account_id,
+                amount=Money.from_usd(price),
+                idempotency_key=idem,
+                description=str(p["title"] or "") or product_id,
+                success_url=success_url,
+                cancel_url=cancel_url,
+                # The order rides along and comes back signed on the webhook. See
+                # PurchaseOrder.to_metadata for why the whole order and not just its id.
+                meta=order.to_metadata(),
+            )
+        )
+        view = _funding_view(c, account_id, order.agent_id) if done is not None else {}
+
+    payment = {"provider": intent.provider, "status": intent.status,
+               "detail": intent.detail, "reference": intent.reference}
+
+    if done is not None:
+        split = done.detail["split"]
+        count("credits_granted_total", credits, credit_class="paid",
+              _props={"account_id": account_id})
+        count("purchase_total", outcome="ok",
+              _props={"account_id": account_id, "product_id": product_id, "channel": "checkout"})
+        count("purchase_gross_usd", price, _props={"account_id": account_id})
+        count("reserve_funded_usd", ledger.micros_to_usd(split["reserve_micros"]))
+        if order.creator_id:
+            count("creator_accrued_usd", ledger.micros_to_usd(split["creator_micros"]),
+                  _props={"creator_id": order.creator_id})
+        return {"ok": True, "replayed": False, "status": intent.status,
+                "txn_id": done.reference, "product_id": product_id, "title": str(p["title"] or ""),
+                "credits": credits, "price_usd": price,
+                "expires_at": done.detail["expires_at"], "payment": payment, **view}
+
+    if intent.failed:
+        count("purchase_total", outcome="failed",
+              _props={"account_id": account_id, "product_id": product_id,
+                      "reason": "rail_refused"})
+        raise HTTPException(
+            status_code=402, detail=intent.detail or f"payment failed: {intent.status}"
+        )
+
+    # Started, not finished. NOTHING has been granted and nothing is owed until the callback.
+    count("checkout_started_total", _props={"account_id": account_id, "product_id": product_id})
+    return {"ok": True, "status": intent.status, "checkout_url": intent.redirect_url,
+            "product_id": product_id, "title": str(p["title"] or ""), "credits": credits,
+            "price_usd": price, "payment": payment}
+
+
 @app.post("/subscriptions/renew-due")
 def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
     """Charge and re-grant every subscription whose period has ended (2.2).
@@ -1285,6 +1442,9 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
                     scope=str(s["scope"]) or "platform", tier_max=str(s["model_tier_max"] or ""),
                     period_days=period_days, creator_id=str(s["creator_id"]),
                     agent_id=str(s["agent_id"]), product_id=str(s["product_id"]), idem=idem,
+                    # Nobody is at a keyboard: this is a scheduler, and a rail that wants the
+                    # customer to authenticate has to be told there is no customer to ask.
+                    off_session=True,
                 )
             # A replay for the same period is NOT a renewal. Counting it as one would report
             # a retried scheduler run as new revenue.
@@ -1486,3 +1646,34 @@ def grant_entitlement(payload: dict = Body(...), x_internal_key: str | None = He
             (account_id, agent_id, (payload.get("source") or "grant").strip(), expires_at, ts),
         )
     return {"ok": True, "account_id": account_id, "agent_id": agent_id, "expires_at": expires_at}
+
+
+# --- the rail's callback ------------------------------------------------------
+
+
+def _handle_payment_event(body: bytes, signature: str) -> dict:
+    """One webhook delivery, inside one transaction.
+
+    THE ORDER IS NOT IN THIS REQUEST. Nobody started it, no session is attached, and the customer
+    left minutes or days ago — so the order is rebuilt from the metadata the rail signed back
+    (see PurchaseOrder.to_metadata). That is what makes post-processing independent of what the
+    products row happens to say now.
+
+    ONE CONNECTION for the dedupe claim, the attempt record and the ledger posting, because they
+    must commit together: a claimed event whose grant rolled back is a payment that can never be
+    retried and never arrived.
+    """
+    with _db() as c:
+        return PaymentEventService(
+            build_webhook_verifier(),
+            SqlitePaymentIntentStore(c),
+            WebhookPostProcessor(c, ledger, now=_now),
+            clock=_now,
+        ).handle(body, signature)
+
+
+# MOUNTED ONLY WHEN A RAIL HAS A CALLBACK. On the mock rail there is nothing to call back, and a
+# route that exists only to answer 500 is worse than a 404 — it tells an operator probing the
+# service that the webhook is configured when it is not.
+if has_webhook():
+    app.include_router(build_payment_router(_handle_payment_event))

@@ -27,9 +27,11 @@ from agent_runtime.application.run_context import (
     set_run_context,
 )
 from agent_runtime.domain.agent import (
+    MCP_WORKSHOP_TOOL,
     AgentSpec,
     RunMode,
     apply_mode,
+    capability_enabled,
     select_private_tools,
     select_tools,
 )
@@ -118,10 +120,18 @@ class AgentService:
         # outer boundary of its writes. Injected like resolve_workspace above: the composition
         # root knows who is signed in and what the deployment is; the service only knows "a
         # run carries a scope". None / ((), ()) => unrestricted, the desktop degenerate case.
+        mcp_workshop_default: bool = False,  # the daemon-wide `mcp_workshop` flag. An agent's own
+        # [capabilities] mcp_workshop overrides it either way — see capability_enabled.
+        mcp_connector=None,  # AgentMcpConnector — brings up the servers an agent DECLARES in its
+        # agent.toml [[mcp]], lazily, on its first run. Kept OUT of `agent_tools` because that map
+        # is rebuilt wholesale on every marketplace hot-reload, which would drop these silently.
+        # None => no declared-MCP support (tests, and any composition that does not want it).
     ):
         self._engine = engine
         self._tools = tools
         self._agent_tools = dict(agent_tools or {})
+        self._mcp = mcp_connector
+        self._mcp_workshop_default = bool(mcp_workshop_default)
         self._registry = registry
         self._make_session = make_session
         self._build_prompt = build_prompt
@@ -193,6 +203,37 @@ class AgentService:
         # `dict.fromkeys`: order-preserving dedupe — with no overlay, the shared root is the
         # write target too, and a scope that lists one directory twice reads like a bug.
         return tuple(dict.fromkeys(out))
+
+    def _installed_write_clamp(self, agent, expanded: tuple) -> tuple:
+        """A marketplace-INSTALLED agent's declared write scope may not exceed its own folder.
+
+        `write_roots` exists so an agent can be granted writes beyond its workspace — the
+        agent-builder writes into every agent root, by design. That grant travels inside
+        agent.toml, so a PUBLISHED agent could ship the same line and arrive on a buyer's
+        machine holding builder-grade reach. Origin is DATA (the ownership record): `authored`
+        and `curated` (platform-seeded — the agent-builder itself) keep their declaration;
+        `installed` gets it intersected with the agent's own folder. `or (own dir,)` because
+        an EMPTY tuple means unrestricted — dropping every root would WIDEN the scope, the
+        exact inversion this clamp exists to prevent. `_protected_paths` still guards the
+        definition inside that folder; workspace/sessions stay writable, which is the job.
+
+        A registry without provenance (minimal test stand-ins) clamps nothing — same
+        convention as publish's `_origin`, and `_protected_paths` remains the backstop."""
+        if not expanded:
+            return expanded
+        agent_dir = getattr(agent, "dir", None)
+        origin_of = getattr(self._registry, "origin_of", None)
+        if not agent_dir or not callable(origin_of):
+            return expanded
+        try:
+            if str(origin_of(agent.id)) != "installed":
+                return expanded
+        except Exception:  # noqa: BLE001 — no provenance answer: treat as authored
+            return expanded
+        from agent_runtime.application.write_scope import is_inside
+
+        own = str(agent_dir)
+        return tuple(r for r in expanded if is_inside(r, own)) or (own,)
 
     def _protected_paths(self, agent) -> tuple:
         """Directories of agents that were INSTALLED from a package — never writable.
@@ -395,7 +436,17 @@ class AgentService:
         searched FIRST — an agent's shipped tool wins a name collision with the shared
         catalog for its owner. Returns the Tool or None."""
         if agent_id:
-            for t in self.agent_private_tools(agent_id):
+            own = [
+                # agent_private_tools resolves the LOCATION-keyed map — never index
+                # self._agent_tools by id here; that is the cross-tenant hole it replaced.
+                *self.agent_private_tools(agent_id),
+                # Its DECLARED MCP servers' tools. Here too, not only in _tools_for: a cron job,
+                # a channel, and an app window calling tools.invoke all arrive through this
+                # lookup, and "aws__get_cost" existing during a chat turn but not from the
+                # agent's own dashboard would be an inexplicable difference.
+                *(self._mcp.tools_for(agent_id) if self._mcp is not None else ()),
+            ]
+            for t in own:
                 if getattr(t, "name", None) == name:
                     return t
         return next((t for t in self._tools if getattr(t, "name", None) == name), None)
@@ -427,10 +478,26 @@ class AgentService:
     def _tools_for(self, agent: AgentSpec) -> list:
         """ONE rule for an agent's toolset, used by runs and catalog queries alike: the shared
         catalog scoped by allow/deny + the agent's OWN shipped tools (implicitly allowed,
-        deny-only filtered)."""
-        return select_tools(self._tools, agent) + select_private_tools(
-            self._private_for(agent), agent
-        )
+        deny-only filtered) + the tools of the MCP servers it declared.
+
+        Declared-MCP tools are treated exactly like shipped ones: implicitly allowed, because
+        declaring a server IS the allow. Requiring `[tools] allow = ["aws__*"]` as well would mean
+        every author writes the same list twice and one of them silently wins."""
+        private = [
+            # _private_for resolves the LOCATION-keyed map (see the constructor) — the
+            # id-keyed lookup it replaced let one account's tools answer for another's
+            # same-named agent.
+            *self._private_for(agent),
+            *(self._mcp.tools_for(agent.id) if self._mcp is not None else ()),
+        ]
+        shared = select_tools(self._tools, agent)
+        # `add_mcp` lets the MODEL wire up an arbitrary server from chat text — text that can have
+        # arrived from a web page or an email. It is per-agent (agent.toml [capabilities]
+        # mcp_workshop) over the daemon's default, so switching it on for the agent being BUILT
+        # does not switch it on for every agent that was installed.
+        if not capability_enabled(agent, "mcp_workshop_enabled", self._mcp_workshop_default):
+            shared = [t for t in shared if getattr(t, "name", "") != MCP_WORKSHOP_TOOL]
+        return shared + select_private_tools(private, agent)
 
     def list_tools(self, agent_id: str | None = None) -> list:
         """Client-renderable SUMMARIES of the live tool catalog (name/label/summary/source). See
@@ -495,6 +562,12 @@ class AgentService:
         # process boundary, so anything that hands work to another process (the plugin sandbox
         # today, a remote backend later) needs it explicitly — otherwise that work appears in
         # the logs as an orphan with no run attached.
+        # The agent's DECLARED MCP servers, brought up on first use. Here rather than at boot
+        # because its credentials are filled in after it is installed, and an agent nobody opens
+        # should not be launching subprocesses. Never raises — a server that is down becomes a
+        # line in the prompt (see _mcp_problems), not a turn that fails to start.
+        if self._mcp is not None:
+            await self._mcp.ensure(agent)
         _run_id, _turn_id = current_trace_ids()
         # The TENANT scope for this run — what it may see, and the outer write boundary. The
         # SERVING agent's, because its skills/templates are what this turn's tools will read;
@@ -520,11 +593,17 @@ class AgentService:
                 # getattr, like `plugins` above: an AgentSpec always has these, but the service
                 # is handed stand-in agent objects too (tests, and any caller that builds a
                 # minimal spec). A missing field means "declared nothing" — unrestricted.
-                write_roots=self._expand_paths(agent, getattr(agent, "write_roots", ())),
+                write_roots=self._installed_write_clamp(
+                    agent, self._expand_paths(agent, getattr(agent, "write_roots", ()))
+                ),
                 write_denies=self._expand_paths(agent, getattr(agent, "write_denies", ())),
                 protected_paths=self._protected_paths(agent),
                 read_roots=tuple(read_roots),
                 write_clamp=tuple(write_clamp),
+                # NAMES only — what this agent declared it needs. The values stay in the .env
+                # under their prefixed names and are read one at a time, at the moment a
+                # credential is substituted into a request.
+                settings=tuple(f.key for f in (getattr(agent, "settings", ()) or ())),
             )
         )
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode

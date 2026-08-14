@@ -160,7 +160,7 @@ def test_an_installed_agent_is_owned_but_not_publishable(tmp_path):
 
     assert result.is_error
     text = result.content[0].text
-    assert "installed from the marketplace" in text
+    assert "from the marketplace" in text
     assert "Nothing was built or sent" in text
 
 

@@ -21,7 +21,12 @@ from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
 from agent_runtime.domain import ownership
-from agent_runtime.domain.agent import USER_DATA_DIRS, AgentSpec, agent_id_from_session_key
+from agent_runtime.domain.agent import (
+    USER_DATA_DIRS,
+    AgentSpec,
+    agent_id_from_session_key,
+    invalid_new_agent_id,
+)
 from agent_runtime.domain.agent_availability import withheld_reason
 from agent_runtime.infrastructure.agents import ownership_store
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
@@ -98,6 +103,154 @@ def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -
         except (OSError, tomllib.TOMLDecodeError):
             pass
     return tagline or ""
+
+
+def _settings_fields(raw, agent_id: str = "") -> tuple:
+    """``[[settings]]`` -> ``SettingField``s. What this agent needs from whoever runs it.
+
+    A MALFORMED ROW IS DROPPED AND LOGGED, never silently skipped and never fatal. Silently is
+    wrong because the author would ship an agent whose settings page is missing a field and only
+    hear about it from a buyer; fatal is wrong because one typo in an optional block must not stop
+    the whole agent — and every other field in it is still perfectly usable.
+
+    An unknown ``kind`` becomes ``text``: showing a value in a plain box is the safe direction to
+    be wrong in. Getting it wrong the other way — treating a typo'd ``secrret`` as free text — is
+    the same outcome; treating something as a secret it is not merely hides it.
+    """
+    from agent_runtime.domain.agent import SETTING_KINDS, SettingField
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[settings]] entry is not a table: %r", agent_id, row)
+            continue
+        key = str(row.get("key") or "").strip()
+        if not key:
+            log.warning("agent %s: [[settings]] entry has no `key` — dropped: %r", agent_id, row)
+            continue
+        if key in seen:
+            log.warning(
+                "agent %s: [[settings]] declares %s twice — keeping the first", agent_id, key
+            )
+            continue
+        kind = str(row.get("kind") or "text").strip().lower()
+        if kind not in SETTING_KINDS:
+            log.warning(
+                "agent %s: [[settings]] %s has unknown kind %r — treating as text",
+                agent_id,
+                key,
+                kind,
+            )
+            kind = "text"
+        seen.add(key)
+        out.append(
+            SettingField(
+                key=key,
+                label=str(row.get("label") or key),
+                kind=kind,
+                required=bool(row.get("required")),
+                help=str(row.get("help") or ""),
+            )
+        )
+    return tuple(out)
+
+
+def _oauth_decls(raw, agent_id: str = "") -> tuple:
+    """``[[oauth]]`` -> ``OAuthDecl``s. Drop-and-log, like every other declaration block.
+
+    A row is dropped when there is nowhere to send the user: no ``name``, or neither a ``server``
+    to discover endpoints from nor both explicit URLs. Half a flow is worse than none — the user
+    would press Connect and land on a broken page with no way to tell whose fault it was.
+    """
+    from agent_runtime.domain.oauth_connection import OAuthDecl
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[oauth]] entry is not a table: %r", agent_id, row)
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            log.warning("agent %s: [[oauth]] entry has no `name` — dropped: %r", agent_id, row)
+            continue
+        if name in seen:
+            log.warning("agent %s: [[oauth]] declares %s twice — keeping the first", agent_id, name)
+            continue
+        server = str(row.get("server") or "").strip()
+        authorize_url = str(row.get("authorize_url") or "").strip()
+        token_url = str(row.get("token_url") or "").strip()
+        if not server and not (authorize_url and token_url):
+            log.warning(
+                "agent %s: [[oauth]] %s needs a `server` to discover, or both `authorize_url` "
+                "and `token_url` — dropped",
+                agent_id,
+                name,
+            )
+            continue
+        seen.add(name)
+        out.append(
+            OAuthDecl(
+                name=name,
+                server=server,
+                authorize_url=authorize_url,
+                token_url=token_url,
+                scopes=tuple(str(s) for s in (row.get("scopes") or ()) if str(s).strip()),
+                client_id=str(row.get("client_id") or "").strip(),
+                client_secret=str(row.get("client_secret") or "").strip(),
+            )
+        )
+    return tuple(out)
+
+
+def _mcp_servers(raw, agent_id: str = "") -> tuple:
+    """``[[mcp]]`` -> ``McpServerDecl``s. Same drop-and-log rule as ``[[settings]]``.
+
+    A row needing more than a warning is one that would connect to the WRONG THING: no name (no
+    namespace for its tools), neither ``command`` nor ``url`` (nothing to connect to), or both
+    (two different servers described as one). Each is dropped with a message naming the agent,
+    because the author has to hear it from the daemon rather than from a buyer whose agent
+    silently has no tools.
+    """
+    from agent_runtime.domain.agent import McpServerDecl
+
+    out: list = []
+    seen: set = set()
+    for row in raw or ():
+        if not isinstance(row, dict):
+            log.warning("agent %s: [[mcp]] entry is not a table: %r", agent_id, row)
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            log.warning("agent %s: [[mcp]] entry has no `name` — dropped: %r", agent_id, row)
+            continue
+        if name in seen:
+            log.warning("agent %s: [[mcp]] declares %s twice — keeping the first", agent_id, name)
+            continue
+        command = tuple(str(c) for c in (row.get("command") or ()) if str(c).strip())
+        url = str(row.get("url") or "").strip()
+        if bool(command) == bool(url):
+            log.warning(
+                "agent %s: [[mcp]] %s needs exactly one of `command` (stdio) or `url` (http) — "
+                "dropped (got %s)",
+                agent_id,
+                name,
+                "both" if command else "neither",
+            )
+            continue
+        seen.add(name)
+        out.append(
+            McpServerDecl(
+                name=name,
+                command=command,
+                url=url,
+                env={str(k): str(v) for k, v in (row.get("env") or {}).items()} or None,
+                headers={str(k): str(v) for k, v in (row.get("headers") or {}).items()} or None,
+                auth=str(row.get("auth") or "").strip(),
+            )
+        )
+    return tuple(out)
 
 
 class FileAgentRegistry:
@@ -375,7 +528,9 @@ class FileAgentRegistry:
         # opts in is constrained. Tokens like <agents_dir> are left verbatim; the service that
         # builds the run context expands them, because that is where config lives.
         fs_scope = tools.get("fs") or {}
-        write_roots = [str(r).strip() for r in (fs_scope.get("write_roots") or []) if str(r).strip()]
+        write_roots = [
+            str(r).strip() for r in (fs_scope.get("write_roots") or []) if str(r).strip()
+        ]
         write_denies = [str(r).strip() for r in (fs_scope.get("deny") or []) if str(r).strip()]
         skills_allow = data.get("skills")
         model = data.get("model")
@@ -387,6 +542,13 @@ class FileAgentRegistry:
             str(k).lower(): v for k, v in (data.get("plugins") or {}).items() if isinstance(v, dict)
         }
         heartbeat = data.get("heartbeat")
+        # [[settings]] — what this agent needs from whoever RUNS it (an API key, a URL). The
+        # declaration ships inside the package; the values stay in the installer's own .env.
+        settings = _settings_fields(data.get("settings"), agent_id=agent_id)
+        # [[mcp]] — MCP servers this agent brings with it, so they survive publish + install.
+        mcp = _mcp_servers(data.get("mcp"), agent_id=agent_id)
+        # [[oauth]] — sign-ins this agent needs. The declaration ships; the tokens never do.
+        oauth = _oauth_decls(data.get("oauth"), agent_id=agent_id)
 
         # [subagents] allow — which specialist agents this one may delegate to (ids/globs).
         subagents = data.get("subagents") or {}
@@ -421,9 +583,7 @@ class FileAgentRegistry:
                 # applies on top). Absent => private, () => public app with no tools.
                 "public": bool(app_raw.get("public", False)),
                 "public_tools": tuple(
-                    str(t).strip()
-                    for t in (app_raw.get("public_tools") or [])
-                    if str(t).strip()
+                    str(t).strip() for t in (app_raw.get("public_tools") or []) if str(t).strip()
                 ),
             }
 
@@ -479,9 +639,13 @@ class FileAgentRegistry:
             autonomy_enabled=caps.get("autonomy"),
             notify_enabled=caps.get("notify"),
             channels_enabled=caps.get("channels"),
+            mcp_workshop_enabled=caps.get("mcp_workshop"),
             heartbeat=str(heartbeat) if heartbeat else None,
             heartbeat_instructions=load_heartbeat(d),
             version=str(data.get("version") or "1"),
+            settings=settings,
+            mcp=mcp,
+            oauth=oauth,
             app=app,
             requires_local=bool(data.get("requires_local")),
         )
@@ -560,7 +724,9 @@ class FileAgentRegistry:
             if cached is None or aid not in cached:
                 # (Re)scan on a miss so an agent created after the cache filled is found —
                 # the same freshness rule the live overlay gets from add().
-                cached = self._scan(root, default_owner=ownership.presumed_owner(True, acct, self._hosted()))
+                cached = self._scan(
+                    root, default_owner=ownership.presumed_owner(True, acct, self._hosted())
+                )
                 self._overlays[key] = cached
             spec = cached.get(aid)
             if spec is not None:
@@ -615,7 +781,7 @@ class FileAgentRegistry:
         return info[1] != ownership.WEB_APP or self.owns(agent_id)
 
     def origin_of(self, agent_id: str) -> str:
-        """"authored" | "installed" | "curated" — how this agent got here. Record-less dirs are
+        """ "authored" | "installed" | "curated" — how this agent got here. Record-less dirs are
         authored (legacy must keep publishing). Unknown ids are authored too: the caller is about
         to fail on resolve_dir anyway, and provenance should never be the error that hides it."""
         info = self._ownership(agent_id)
@@ -638,7 +804,11 @@ class FileAgentRegistry:
         layers = [
             layer
             for layer in (
-                (self._overlay(), overlay_path, ownership.presumed_owner(True, acct, self._hosted()))
+                (
+                    self._overlay(),
+                    overlay_path,
+                    ownership.presumed_owner(True, acct, self._hosted()),
+                )
                 if overlay_path is not None
                 else None,
                 (self._specs, self._agents_dir, self._shared_owner_default()),
@@ -686,8 +856,12 @@ class FileAgentRegistry:
         creator would have to re-implement placement, collision and stamping to diverge,
         which is exactly the bug (create_agent's DIY path) this method retires."""
         agent_id = (agent_id or "").strip().lower()
-        if not _valid_id(agent_id):
-            raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
+        # The strict CREATE-time rule (charset + shape + reserved names), not the permissive
+        # load-time `_valid_id`: an existing dir that predates a reservation must keep
+        # loading, but no new agent may take a reserved or malformed name on ANY path.
+        reason = invalid_new_agent_id(agent_id)
+        if reason:
+            raise ValueError(f"invalid agent id: {agent_id!r} ({reason})")
         target_specs, target_root = self._write_target()
         d = target_root / agent_id
         # Collides against what this caller can SEE (shared + their overlay), not just the layer
@@ -704,6 +878,19 @@ class FileAgentRegistry:
             self._account_id() if callable(self._account_id) else None,
             self._hosted(),
         )
+        # The stamp is LOAD-BEARING, so its write is not best-effort here: ownership decides
+        # who may edit, publish and (hosted) even see this agent, and an agent born without a
+        # record silently falls back to layer-guessing. The store logs-and-continues for the
+        # callers where that is right (seeding); a CREATE without a record must not exist —
+        # roll the birth back and say why, instead of succeeding into ambiguity.
+        if ownership_store.read(d) is None:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+            raise RuntimeError(
+                f"could not stamp ownership for '{agent_id}' ({d / ownership.RECORD_FILENAME}"
+                f" is unwritable or unreadable) — creation rolled back"
+            )
 
         spec = self._with_ownership(self._load_dir(agent_id, d), d, self._shared_owner_default())
         target_specs[agent_id] = spec
@@ -732,7 +919,12 @@ class FileAgentRegistry:
         def write_files(d: Path) -> None:
             # agent.toml — JSON string literals are valid TOML basic strings, so this
             # safely escapes quotes/backslashes in the name/description.
-            lines = [f"name = {json.dumps(name or agent_id)}"]
+            #
+            # `version` always: installs supersede BY VERSION, and the agent-builder's
+            # create_agent writes one — this path emitting a version-less skeleton was the
+            # split that made "which creator made this agent?" answerable from the toml.
+            # Every path births the same minimum: name + version + IDENTITY.md.
+            lines = [f"name = {json.dumps(name or agent_id)}", 'version = "1.0.0"']
             if description.strip():
                 lines.append(f"description = {json.dumps(description.strip())}")
             mode = (app or "").strip().lower()
@@ -752,8 +944,18 @@ class FileAgentRegistry:
                     encoding="utf-8",
                 )
             (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-            if identity.strip():
-                (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
+            # IDENTITY.md always exists — it is the agent's bootstrap and the validator's one
+            # ERROR-level layout rule. A blank identity gets a minimal honest seed (name +
+            # description) rather than nothing, so an agent born from the UI modal is the
+            # same validator-clean skeleton the agent-builder tool writes.
+            identity_text = identity.strip() or (
+                f"# {name or agent_id}\n\n"
+                + (
+                    description.strip()
+                    or "Describe who this agent is: its role, tone, and boundaries."
+                )
+            )
+            (d / "IDENTITY.md").write_text(identity_text + "\n", encoding="utf-8")
 
         return self.create_from(agent_id, write_files)
 

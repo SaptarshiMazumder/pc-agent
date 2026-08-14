@@ -351,9 +351,12 @@ def test_the_skill_states_the_scope_it_will_be_held_to():
     assert "where you may write" in text
     for forbidden in ("plugins", "installed"):
         assert forbidden in text, f"the skill never mentions {forbidden}"
-    assert "reading is not restricted" in text, (
-        "otherwise it will assume reads are scoped too and stop reading its own skill"
-    )
+    # The builder authors on desktop, where its own reads are unrestricted — it must know
+    # that, or it will assume reads are scoped too and stop reading its own skill. But the
+    # blanket "reading is not restricted" became a falsehood the day hosted runs got the
+    # tenant fence, so the skill must state BOTH truths.
+    assert "read anything you need" in text
+    assert "hosted" in text, "the skill must teach the hosted fence the built agents live in"
     assert "exec" in text, "say that exec is not a way around it"
 
 

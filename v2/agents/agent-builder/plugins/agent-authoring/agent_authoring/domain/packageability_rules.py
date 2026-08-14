@@ -48,6 +48,7 @@ class PackageabilityRules:
         findings: list[Finding] = []
         findings += self._app_and_version(spec, raw_toml, files)
         findings += self._excluded_dirs(files)
+        findings += self._workspace_contents(files)
         return findings
 
     # ------------------------------------------------------- product-ability
@@ -83,8 +84,7 @@ class PackageabilityRules:
                         message="no [app] section — this is a chat-only agent and cannot be "
                         "built into its own .exe (gen-app-flavor rejects agents without [app])",
                         path="agent.toml",
-                        fix="add an [app] table with title + mode, and a ui/, to make it a "
-                        "product",
+                        fix="add an [app] table with title + mode, and a ui/, to make it a product",
                     )
                 )
         else:
@@ -99,7 +99,9 @@ class PackageabilityRules:
                         fix=f"write {entry}, or point `entry` at the file you did write",
                     )
                 )
-            if not any(f.startswith("ui/vendor/agentd-client.js") for f in files) and entry.startswith("ui/"):
+            if not any(
+                f.startswith("ui/vendor/agentd-client.js") for f in files
+            ) and entry.startswith("ui/"):
                 out.append(
                     Finding(
                         level=WARN,
@@ -143,4 +145,28 @@ class PackageabilityRules:
                 fix=f"move it out of {excluded}/ into the agent's own definition tree",
             )
             for excluded, where in sorted(seen)
+        ]
+
+    # ------------------------------------------------------- workspace contents
+    def _workspace_contents(self, files: list[str]) -> list[Finding]:
+        """Files in workspace/ exist HERE and nowhere the agent is going: the packer excludes
+        the directory, and on a hosted daemon every user gets their OWN workspace, empty. An
+        author who parked templates or seed data there built an agent that only works on this
+        machine. INFO, not warn — a working workspace full of the author's own test output is
+        normal; the finding exists so 'my shipped agent can't find its files' is diagnosed at
+        authoring time instead of by a buyer."""
+        count = sum(1 for f in files if f.startswith("workspace/"))
+        if not count:
+            return []
+        return [
+            Finding(
+                level=INFO,
+                code="WORKSPACE_NOT_SHIPPED",
+                message=f"workspace/ holds {count} file(s) — none of them ship (the packer "
+                f"excludes workspace/), and on the hosted web every user starts with an "
+                f"EMPTY workspace of their own",
+                path="workspace/",
+                fix="anything the agent NEEDS at runtime belongs in a definition dir "
+                "(templates/, data/, skills/…), read from there in place",
+            )
         ]

@@ -37,11 +37,14 @@ the next step is obvious.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.write_scope import WriteRefused, check_write
+
+log = logging.getLogger("agentd")
 
 
 def _slug(name: str) -> str:
@@ -177,8 +180,22 @@ class CreateAgentTool(Tool):
         },
     }
 
-    def __init__(self, registry):
+    def __init__(self, registry, validator=None, announce=None):
         self._registry = registry
+        # Injected so a fresh skeleton is validated IN THE SAME RESULT — the model sees
+        # problems without spending a turn deciding to call validate_agent. Optional: a
+        # caller without one (minimal tests) just gets no auto-check.
+        self._validator = validator
+        # `broadcast_agents_changed` — fan an `agents.changed` event out to every connected
+        # client. WITHOUT IT the agent is registered and resolvable but no open window knows:
+        # the daemon has it, the sidebar does not, and the author is told it was created while
+        # looking at a list that does not contain it.
+        #
+        # This used to be reload_agent's job alone, and the tool's own description asks the model
+        # to call it afterwards. That is a hope, not a mechanism — the first real run skipped it,
+        # and the agent was invisible until the window restarted. Announcing something we just
+        # did ourselves does not belong to a later step the caller might not take.
+        self._announce = announce
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         action = (params.get("action") or "create").strip().lower()
@@ -316,6 +333,20 @@ class CreateAgentTool(Tool):
                     is_error=True,
                 )
 
+        # Tell the open windows. `create_from` above owns placement, collision, the ownership
+        # stamp and live registration — but not the clients: an agent can be fully registered
+        # and resolvable while every open sidebar still shows the roster from before it existed.
+        #
+        # Best-effort: a stale sidebar is cosmetic, and failing the creation over it would turn
+        # that into a lost agent.
+        announced = False
+        if callable(self._announce):
+            try:
+                self._announce()
+                announced = True
+            except Exception as e:  # noqa: BLE001 — reported below, never raised
+                log.warning("create_agent: could not announce '%s': %s", agent_id, e)
+
         verb = "Rebuilt" if action == "update" else "Created"
         written = ["agent.toml", "IDENTITY.md"]
         if rules:
@@ -328,7 +359,8 @@ class CreateAgentTool(Tool):
         # moment the remaining work is actionable.
         lines = [
             f"{verb} agent '{agent_id}' ({name}) v{version} at {d} — registered live, resolvable "
-            f"on the next message, no restart.",
+            f"on the next message, no restart."
+            + ("" if announced else " (open windows will not show it until they reload)"),
             f"Wrote: {', '.join(written)}.",
         ]
         if destroyed:
@@ -350,9 +382,23 @@ class CreateAgentTool(Tool):
             "  • skills/<name>/SKILL.md  — its playbooks. Author these with `write`: "
             "skill_workshop only ever writes into the CALLING agent's own skills dir.",
             "Then: create_tool(agent='%s') for its private tools." % agent_id,
-            f"Finally: validate_agent('{agent_id}') to check it, then reload_agent('{agent_id}') "
-            f"to apply any agent.toml edits.",
+            f"After every batch of edits: validate_agent('{agent_id}'), then "
+            f"reload_agent('{agent_id}') to apply agent.toml changes.",
         ]
+        # Auto-check the skeleton in this same result. Best-effort: a validator failure must
+        # not turn a successful create into an error result.
+        if self._validator is not None:
+            try:
+                report = self._validator.validate(agent_id)
+                notable = [f for f in report.findings if f.level in ("error", "warn")]
+                if notable:
+                    lines += ["", "validate_agent (auto-run on the new skeleton):"] + [
+                        "  " + f.as_line() for f in notable
+                    ]
+                else:
+                    lines += ["", "validate_agent (auto-run): the skeleton is clean."]
+            except Exception:  # noqa: BLE001 — the create succeeded; the check is a bonus
+                pass
         return ToolResult.text(
             "\n".join(lines),
             details={

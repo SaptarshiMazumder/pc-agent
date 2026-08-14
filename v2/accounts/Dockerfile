@@ -11,12 +11,21 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY accounts/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# The payment rail's own dependency (httpx, for Stripe). Installed even when the image runs on
+# the mock rail, so switching AGENTD_PAYMENT_PROVIDER is an environment change and not a rebuild
+# — the alternative is discovering the missing package the first time someone tries to pay.
+COPY payments/requirements.txt /tmp/payments-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/payments-requirements.txt
 COPY monitoring /tmp/monitoring
 RUN pip install --no-cache-dir /tmp/monitoring && rm -rf /tmp/monitoring
 RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
-# app.py imports these as siblings; omitting either is a hard startup failure, not a degraded
+# app.py imports these as siblings; omitting any is a hard startup failure, not a degraded
 # feature — the ledger IS the money.
-COPY accounts/app.py accounts/ledger.py accounts/payments.py /app/
+COPY accounts/app.py accounts/ledger.py accounts/accounts_post_processor.py /app/
+# The payment rail, as a package rather than a sibling (v2/payments/). Copied to /app/payments/
+# so `import payments...` resolves the same way here as it does under pytest, where v2/ is on
+# sys.path.
+COPY payments /app/payments
 WORKDIR /app
 USER app
 ENV AGENTD_SERVICE=accounts \

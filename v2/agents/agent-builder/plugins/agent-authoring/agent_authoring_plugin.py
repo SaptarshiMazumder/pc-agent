@@ -41,6 +41,7 @@ def register(api, ctx):
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
+    from agent_authoring.domain.declaration_rules import DeclarationRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
     from agent_authoring.domain.tool_grant_rules import ToolGrantRules
@@ -54,8 +55,60 @@ def register(api, ctx):
     from agent_authoring.presentation.scaffold_ui_tool import ScaffoldUiTool
     from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
 
+    # --- CHECK, BUILT FIRST — the author tools gate on it -----------------------------
+    # The UI rules are told the real vocabulary rather than keeping their own copy: event
+    # names from the runtime's domain, callable methods from the gateway's app tier. A second
+    # copy would be one more thing to drift — which is the exact class of bug they exist to
+    # catch (a skill that listed an event nobody emits produced a UI with every branch dead).
+    #
+    # ONE validator instance serves create_agent (auto-check on birth), validate_agent,
+    # package_agent and publish_agent — and severity/gate POLICY for every rule lives in ONE
+    # table (domain/rulebook.py), so what each of those refuses on can never diverge.
+    from agent_authoring.domain.portability_rules import PortabilityRules
+    from agent_authoring.domain.ui_component import UiComponents
+    from agent_authoring.domain.ui_rules import UiRules
+
+    from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS, PROVIDER_ENV_KEYS
+
+    reader = AgentDirReader(registry)
+    components = UiComponents()
+    validator = ValidateAgentService(
+        reader,
+        AgentLayoutRules(),
+        PackageabilityRules(),
+        SandboxRules(),
+        UiRules(
+            events=APP_FACING_EVENTS,
+            kinds=MESSAGE_UPDATE_KINDS,
+            methods=frozenset(APP_SCOPED_METHODS),
+            sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
+            # The SAME catalogue the component tool inserts from. So "is sign-in present?" and
+            # "what does adding sign-in write?" are one definition — three unshared copies of
+            # that snippet is what this replaces.
+            components=components.all(),
+        ),
+        # Half a tool pair: `exec` without `process` leaves the model unable to poll a
+        # background job, so it blocks a turn on a sleep instead. Caught here rather than
+        # discovered during a 20GB download.
+        ToolGrantRules(),
+        # Declarations that contradict where the agent is GOING: hosted (no shell, fenced
+        # reads, empty per-user workspace) and buyers' installs (clamped write scope).
+        PortabilityRules(),
+        # [[settings]] / [[mcp]] / [[oauth]]: the three blocks whose mistakes are invisible
+        # until SOMEBODY ELSE has installed the agent — a field nothing reads, a server whose
+        # credential was never declared, a key pasted into the file that ships.
+        declaration_rules=DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
+    )
+
     # --- AUTHOR ---------------------------------------------------------------------
-    api.register_tool(CreateAgentTool(registry))
+    # Resolved HERE rather than at the reload_agent registration below, because create_agent
+    # needs the same handle: an agent it registers live is invisible to every open window until
+    # something announces it, and "the model will call reload_agent next" is not a mechanism.
+    broadcast = getattr(ctx, "broadcast_agents_changed", None)
+    # The validator rides along so a fresh skeleton is checked IN THE SAME RESULT — the
+    # builder sees problems without spending a turn deciding to call validate_agent.
+    api.register_tool(CreateAgentTool(registry, validator=validator, announce=broadcast))
 
     # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
     # the tool would write a file that never becomes callable. Register nothing rather than that.
@@ -79,12 +132,9 @@ def register(api, ctx):
     # ONE AddComponentService instance serves both, which is what stops "scaffold with sign-in"
     # and "add sign-in later" from becoming two definitions of the same snippet.
     from agent_authoring.application.add_component_service import AddComponentService
-    from agent_authoring.domain.ui_component import UiComponents
     from agent_authoring.presentation.add_ui_component_tool import AddUiComponentTool
 
-    reader = AgentDirReader(registry)
     templates = UiTemplates()
-    components = UiComponents()
     component_service = AddComponentService(
         reader, components, TEMPLATE_ROOT / "components", BORROW_ROOT
     )
@@ -99,36 +149,7 @@ def register(api, ctx):
     )
     api.register_tool(AddUiComponentTool(component_service, components))
 
-    # --- CHECK ----------------------------------------------------------------------
-    # The UI rules are told the real vocabulary rather than keeping their own copy: event
-    # names from the runtime's domain, callable methods from the gateway's app tier. A second
-    # copy would be one more thing to drift — which is the exact class of bug they exist to
-    # catch (a skill that listed an event nobody emits produced a UI with every branch dead).
-    from agent_authoring.domain.ui_rules import UiRules
-
-    from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
-    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
-
-    validator = ValidateAgentService(
-        reader,
-        AgentLayoutRules(),
-        PackageabilityRules(),
-        SandboxRules(),
-        UiRules(
-            events=APP_FACING_EVENTS,
-            kinds=MESSAGE_UPDATE_KINDS,
-            methods=frozenset(APP_SCOPED_METHODS),
-            sdk_methods=frozenset(),  # populated from the vendored SDK once that is parsed
-            # The SAME catalogue the component tool inserts from. So "is sign-in present?" and
-            # "what does adding sign-in write?" are one definition — three unshared copies of that
-            # snippet is what this replaces.
-            components=components.all(),
-        ),
-        # Half a tool pair: `exec` without `process` leaves the model unable to poll a
-        # background job, so it blocks a turn on a sleep instead. Caught here rather than
-        # discovered during a 20GB download.
-        ToolGrantRules(),
-    )
+    # --- CHECK (the tool face of the validator built above) ---------------------------
     api.register_tool(ValidateAgentTool(validator))
 
     # --- SHIP -----------------------------------------------------------------------
@@ -156,7 +177,6 @@ def register(api, ctx):
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
     # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
     # and reports honestly which steps it managed.
-    broadcast = getattr(ctx, "broadcast_agents_changed", None)
     reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
     api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
 
