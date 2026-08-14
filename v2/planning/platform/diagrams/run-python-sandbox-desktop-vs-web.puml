@@ -1,0 +1,99 @@
+@startuml run-python-sandbox-desktop-vs-web
+title Option A (run_python) — Cloud Desktop vs Web\nfilesystem view: BLUE = sandboxed, other colors = outside the sandbox
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  roundCorner 10
+  BorderColor #666666
+  FontColor #111111
+}
+skinparam ArrowColor #444444
+
+legend top
+|= Color |= Meaning |
+|<#90CAF9> | SANDBOXED — confined subprocess; only this may be touched |
+|<#C8E6C9> | Trusted local space — single tenant, unfenced |
+|<#FFCDD2> | BLOCKED — fenced out (other tenants / secrets / config) |
+|<#FFF9C4> | Shared read-only catalogue, or brokered host service |
+endlegend
+
+' =======================================================================
+' ============================ CLOUD DESKTOP ============================
+' =======================================================================
+rectangle "CLOUD  DESKTOP\n(local embedded daemon  ·  SINGLE tenant  ·  no fence)" as CD #F2F2F2 {
+
+  rectangle "AGENT   (agent.toml)\nallowed tools: read / write / edit / ls / find\n+ run_python   + **exec**  (shell works here)\nmodel: own key  OR  cloud proxy (metered)" as CDagent #C8E6C9
+
+  rectangle "run_python\nruns **IN-PROCESS** (local backend)\nNO sandbox — one user, own machine" as CDrun #C8E6C9
+
+  rectangle "MODEL\nown key  /  cloud proxy" as CDmodel #FFF9C4
+
+  rectangle "Filesystem — the user's PC   (~/.agentd, home)" as CDFS #FAFAFA {
+    rectangle "workspace/\n(their files)" as CDws #C8E6C9
+    rectangle "agents/<id>/\n(agent.toml, plugins)" as CDdef #C8E6C9
+    rectangle "config.json  /  .env\n(their OWN keys)" as CDsec #C8E6C9
+  }
+
+  CDagent --> CDrun
+  CDagent --> CDmodel : direct call
+  CDrun --> CDws  : read + write (whole workspace)
+  CDrun --> CDdef : read
+  CDrun ..> CDsec : reachable (their machine)
+  CDrun --> CDmodel : direct call
+}
+
+note bottom of CD
+  Single tenant → nothing to isolate FROM.
+  run_python is just a convenience; exec is available too.
+  No blue: no subprocess sandbox is used here.
+end note
+
+' =======================================================================
+' ================================= WEB =================================
+' =======================================================================
+rectangle "WEB\n(hosted daemon on ECS  ·  MULTI tenant  ·  fence ON)   — request from account A" as WEB #F2F2F2 {
+
+  rectangle "AGENT   (agent.toml)\nallowed tools: read / write / edit / ls / find  + run_python\n**exec REFUSED** — no shell on hosted" as Wagent #FFF9C4
+
+  rectangle "built-in fs tools\n(in daemon process)\nconfined by APP fence\ncheck_read / check_write" as Wfs #FFF9C4
+
+  rectangle "run_python — SUBPROCESS SANDBOX  (account A)\nchild process · env stripped (no keys) · no network · no spawn" as Wsbx #90CAF9 {
+    rectangle "user code executes here\nmodel calls -> brokered to host" as Wcode #64B5F6
+  }
+
+  rectangle "MODEL BROKER (host)\nmakes the call · meters account A" as Wmodel #FFF9C4
+
+  rectangle "Filesystem — /data on EFS   (shared by ALL accounts)" as WFS #FAFAFA {
+    rectangle "agents/<id>/\nSHARED catalogue (agent.toml, plugins)\nread-only" as Wdef #FFF9C4
+    rectangle "state/accounts/" as Wacc #FAFAFA {
+      rectangle "A/agents/<id>/workspace/\n(THIS account — sandbox grant)" as Wws #90CAF9
+      rectangle "B/ ...\n(other tenant)" as Wb #FFCDD2
+      rectangle "C/ ...\n(other tenant)" as Wc #FFCDD2
+    }
+    rectangle "config.json" as Wcfg #FFCDD2
+    rectangle ".env  (provider keys)" as Wenv #FFCDD2
+  }
+
+  Wagent --> Wfs
+  Wagent --> Wsbx
+  Wagent --> Wmodel : model call
+  Wfs  --> Wws : read + write (fence clamps to A)
+  Wcode --> Wws : read + write (grant)
+  Wcode ..> Wdef : read-only (shipped templates/data)
+  Wcode --> Wmodel : model_request (no keys of its own)
+  Wcode -[#red]-> Wb   : DENIED
+  Wcode -[#red]-> Wc   : DENIED
+  Wcode -[#red]-> Wcfg : DENIED
+  Wcode -[#red]-> Wenv : DENIED (env stripped)
+}
+
+note bottom of WEB
+  Multi tenant → the sandbox IS the boundary.
+  BLUE = everything account A's code may touch (its own workspace + read-only agent def).
+  RED = other tenants, config, secrets — fenced out by deny_paths and the stripped env.
+  The model is INJECTED via the broker: the child has no keys, so it asks the host,
+  which calls the model and meters it to A.
+end note
+
+@enduml
