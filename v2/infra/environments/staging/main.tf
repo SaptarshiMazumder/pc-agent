@@ -65,3 +65,15 @@ output "registry_url" {
 output "registry_bucket" {
   value = module.stack.registry_bucket
 }
+
+output "marketplace_url" {
+  value = module.stack.marketplace_url
+}
+
+output "marketplace_site_bucket" {
+  value = module.stack.marketplace_site_bucket
+}
+
+output "marketplace_distribution_id" {
+  value = module.stack.marketplace_distribution_id
+}

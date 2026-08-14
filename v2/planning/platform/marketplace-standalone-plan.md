@@ -1,5 +1,10 @@
 # Marketplace as its own page
 
+> **STATUS (2026-08-15): phases 1–3 BUILT, uncommitted.** Phases 1 and 2 are verified end to
+> end locally (a real publish writes `catalog.json`; the page renders every card state with no
+> daemon). Phase 3's Terraform validates but has **not been applied** — the AWS side is
+> unrun. Phase 4 (domain) untouched, and optional. Command card: `v2/deploy/MARKETPLACE.md`.
+
 **Goal.** Anyone can visit the marketplace, browse agents, and get one — without installing
 agentd, signing in, or knowing what a daemon is. Today browsing is a method on the daemon
 (`marketplace.catalog`), so the store only exists for people who already bought the product.
@@ -38,7 +43,7 @@ CORS. A custom domain later is two added lines on the same distribution — not 
 
 ---
 
-## Phase 1 — Move the catalog join to publish time *(local, no AWS)*
+## Phase 1 — Move the catalog join to publish time *(local, no AWS)* — **DONE**
 
 Right now `_entry_dict` in `marketplace_service.py` builds each store row on every daemon on every
 catalog call: look the publisher's name up in the signed roster, make installer URLs absolute,
@@ -58,7 +63,7 @@ knows how a store looks, and any client can render one.
 where execution is — the daemon on install, the stub on download. A browser checking a signature
 it then ignores is theater.
 
-## Phase 2 — Split the view *(local, no AWS)*
+## Phase 2 — Split the view *(local, no AWS)* — **DONE**
 
 `MarketplaceView.tsx` stops calling the gateway itself and takes its rows from a **provider**:
 
@@ -71,17 +76,30 @@ Card rendering, search, and badges are shared — one component, two sources. Ne
 **After phase 2 the whole marketplace runs on `npm run dev` against a local directory registry.
 Nothing has touched AWS yet.**
 
-## Phase 3 — Put it online *(~1 hour of AWS)*
+## Phase 3 — Put it online *(~1 hour of AWS)* — **WRITTEN, NOT APPLIED**
 
-- `infra/modules/marketplace.tf` — one S3 bucket, one CloudFront distribution, the four behaviors
+- `infra/modules/marketplace.tf` — one S3 bucket, one CloudFront distribution, the behaviors
   above. **No `aliases`, no certificate.** Live on the `cloudfront.net` URL.
-- A deploy step: `aws s3 sync` + one invalidation. No image, no ECS, no rollout.
+- `deploy/scripts/deploy-marketplace.ps1` — build, `aws s3 sync`, one invalidation. No image, no
+  ECS, no rollout.
 
-## Phase 4 — Domain, whenever you feel like it
+Two things ended up different from this sketch, both deliberate:
+
+- **Only `/catalog.json` and `/index.json` are routed to the registry bucket**, not the artifacts.
+  Routing `*.agentpkg` and every installer extension would have meant a hardcoded list of file
+  types in the CDN that has to track `PLATFORM_BY_EXT`. Instead the catalog carries **absolute**
+  urls (the writer knows its own public base), so downloads go straight to the bucket — exactly
+  what the desktop client has always done.
+- **No SPA error-page fallback.** The usual `404 -> /index.html` mapping is distribution-wide, so
+  it would also rewrite a missing `catalog.json` into an HTML 200 and turn "nothing published
+  yet" into "the registry returned something that is not a catalog".
+
+## Phase 4 — Domain, whenever you feel like it — **not started**
 
 Buy a domain, request a free ACM cert **in us-east-1** (CloudFront only accepts that region — the
-ALB's cert lives in the service region, so it's two certs), add `aliases` + `viewer_certificate`.
-In-place update; the URL you were already using keeps working.
+ALB's cert lives in the service region, so it's two certs), then set `marketplace_domain_name` +
+`marketplace_certificate_arn`. In-place update; the URL you were already using keeps working. The
+us-east-1 requirement is enforced by a variable validation, so the wrong ARN fails at plan time.
 
 ---
 

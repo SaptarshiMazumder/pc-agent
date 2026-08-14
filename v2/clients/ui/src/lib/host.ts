@@ -11,13 +11,37 @@
  * goes through the local daemon on desktop and cannot on the web (there the session token IS the
  * socket credential, so there is no connection to sign in through yet).
  *
- * Both moved here, and platform.ts re-exports them, so no other importer changes.
+ * They all moved here, and platform.ts re-exports them, so no other importer changes.
  */
 
 /** The desktop preload bridge (src/preload/index.ts), absent in a plain browser. */
 const bridge = (globalThis as { agentd?: unknown }).agentd
 
 export const isDesktop = !!bridge
+
+/**
+ * The viewer's OS, using the same tags the registry stamps on an installer
+ * ('win' | 'mac' | 'linux'; '' when it cannot be told).
+ *
+ * Here rather than in platform.ts for the same reason as the two above: it is a host FACT that
+ * reads nothing but `navigator`, and the public marketplace page needs it to pick which installer
+ * to offer while having no daemon, no session and no reason to pull in the whole platform
+ * adapter. platform.ts re-exports it, so no existing importer changes.
+ *
+ * Offering the wrong installer hands someone a file their machine cannot run, which is worse than
+ * offering none — so this stays conservative and returns '' when it cannot tell.
+ *
+ * ORDER MATTERS: "darwin" contains the substring "win", so a naive /win/ test first would send
+ * every Mac user a .exe. macOS is therefore matched before Windows.
+ */
+export function hostOs(): string {
+  const nav = (globalThis as { navigator?: { userAgent?: string; platform?: string } }).navigator
+  const s = `${nav?.platform || ''} ${nav?.userAgent || ''}`.toLowerCase()
+  if (/mac|darwin|iphone|ipad/.test(s)) return 'mac'
+  if (/win/.test(s)) return 'win'
+  if (/linux|android|x11/.test(s)) return 'linux'
+  return ''
+}
 
 /**
  * A v4 UUID, on every origin we actually ship to.

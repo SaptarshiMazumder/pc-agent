@@ -71,6 +71,26 @@ output "registry_bucket" {
   value       = aws_s3_bucket.registry.bucket
 }
 
+# ── the public marketplace ──────────────────────────────────────────────────────────────
+#
+# Unlike every URL above, these do NOT empty while hibernating: the marketplace has no load
+# balancer and no container behind it, so pausing compute leaves the storefront standing.
+
+output "marketplace_url" {
+  description = "The public marketplace. Its own https address with no certificate of ours; also the target a custom domain's ALIAS/CNAME record points at."
+  value       = "https://${aws_cloudfront_distribution.marketplace.domain_name}"
+}
+
+output "marketplace_site_bucket" {
+  description = "Where the built page is uploaded (`aws s3 sync clients/marketplace/dist s3://<this>`)."
+  value       = aws_s3_bucket.marketplace.bucket
+}
+
+output "marketplace_distribution_id" {
+  description = "For the invalidation that follows every upload. Skip it and visitors keep the previous page until the cache expires — a deploy that looks like it did nothing."
+  value       = aws_cloudfront_distribution.marketplace.id
+}
+
 output "alerts_topic_arn" {
   description = "SNS topic every alarm publishes to. Check subscriptions are CONFIRMED, not PendingConfirmation."
   value       = aws_sns_topic.alerts.arn

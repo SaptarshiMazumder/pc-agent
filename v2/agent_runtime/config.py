@@ -351,15 +351,21 @@ class Config:
     agent_messaging_enabled: bool = False  # AGENTD_AGENT_MESSAGING
     # sandbox_untrusted_plugins: route the UNTRUSTED tool tier (tools that ship inside a marketplace
     # agent's own package, agents/<id>/plugins/) through a PluginSandbox instead of running them
-    # in-process. OFF by default; the default backend is an in-process passthrough (proves the seam,
-    # no real isolation) until a container/microVM/remote backend is wired. AGENTD_SANDBOX_PLUGINS=1.
-    sandbox_untrusted_plugins: bool = False  # AGENTD_SANDBOX_PLUGINS
+    # in-process. ON BY DEFAULT, EVERYWHERE — desktop and hosted — because the trust boundary is
+    # PROVENANCE, not deployment shape (see classify_origin: our own runtime plugins in v2/plugins
+    # and agents authored on this machine stay first-party and in-process; only code the installer
+    # laid down from a .agentpkg is wrapped). Default ON at the source so even a Config built without
+    # load_config isolates downloaded code; disable with AGENTD_SANDBOX_PLUGINS=0.
+    sandbox_untrusted_plugins: bool = True  # AGENTD_SANDBOX_PLUGINS=0 to disable
     # sandbox_trusted_plugins: plugin ids to EXEMPT from the sandbox even when the above is on
     # (local dev convenience for a plugin you author yourself). Never trust a plugin you didn't write.
     sandbox_trusted_plugins: tuple = ()
     # WHICH sandbox backend: "local" (in-process passthrough, no isolation) or "subprocess" (a child
     # process per tool call, scrubbed env, no runtime handles, audit-hook enforcement). Empty = the
-    # deployment decides: subprocess when multi_tenant is on, local otherwise. AGENTD_SANDBOX_BACKEND.
+    # HOST'S CAPABILITY decides: subprocess wherever a child process can be launched (always on
+    # POSIX; on Windows when the daemon runs on the Proactor loop, which main.py ensures), else a
+    # warned fallback to local. Not the deployment shape — third-party code is isolated on the
+    # desktop exactly as in the cloud. AGENTD_SANDBOX_BACKEND overrides by name.
     sandbox_plugin_backend: str = ""
     # The interpreter the subprocess backend spawns. Empty = the one running the daemon (correct
     # almost always; an embedded runtime that relocates its python.exe is the exception).
@@ -983,13 +989,6 @@ def load_config(path: Path | None = None) -> Config:
             "no",
             "",
         )
-    if os.environ.get("AGENTD_SANDBOX_PLUGINS"):
-        cfg.sandbox_untrusted_plugins = os.environ["AGENTD_SANDBOX_PLUGINS"].lower() not in (
-            "0",
-            "false",
-            "no",
-            "",
-        )
     # Multi-tenancy: hosted-only, env-only. Deliberately NOT readable from config.json — this
     # decides whether one person's files are reachable by another, and a setting that dangerous
     # should be a property of the deployment that starts the process, not of a file inside a
@@ -1019,18 +1018,21 @@ def load_config(path: Path | None = None) -> Config:
                 setattr(cfg, _field, int(os.environ[_env]))
             except ValueError:
                 logging.getLogger("agentd").warning("%s ignored: not an integer", _env)
-    # A daemon serving MANY accounts sandboxes the untrusted tier by default. The alternative is a
-    # hosted deployment where marketplace plugin code runs in-process next to every account's files
-    # because one env var was never set — and nothing about that failure is visible until it is
-    # exploited. Explicitly disabling it is still possible, and now says so out loud.
-    if cfg.multi_tenant and not cfg.sandbox_untrusted_plugins:
-        if os.environ.get("AGENTD_SANDBOX_PLUGINS", "").strip().lower() in ("0", "false", "no"):
-            logging.getLogger("agentd").warning(
-                "multi_tenant is ON but AGENTD_SANDBOX_PLUGINS disables the plugin sandbox — "
-                "untrusted marketplace plugins will run IN-PROCESS with this daemon's access"
-            )
-        else:
-            cfg.sandbox_untrusted_plugins = True
+    # THIRD-PARTY plugin code is sandboxed EVERYWHERE and ON BY DEFAULT (the dataclass default is
+    # True). The trust boundary is PROVENANCE, not deployment shape: a marketplace agent's tools rode
+    # in inside someone else's .agentpkg whether this daemon serves one person or a thousand. Our OWN
+    # runtime plugins (v2/plugins — no _agent_id) and agents the user authored on this machine stay
+    # FIRST_PARTY and run in-process; only code the installer laid down from a package is wrapped (see
+    # classify_origin). The ONLY knob here is the OFF switch, which says so out loud because disabling
+    # it means downloaded code runs with this daemon's own access. WHICH backend enforces it is the
+    # host's capability, resolved separately (resolve_backend_name): a Windows box that cannot spawn a
+    # child process degrades to in-process there, not here.
+    if os.environ.get("AGENTD_SANDBOX_PLUGINS", "").strip().lower() in ("0", "false", "no"):
+        cfg.sandbox_untrusted_plugins = False
+        logging.getLogger("agentd").warning(
+            "AGENTD_SANDBOX_PLUGINS disables the plugin sandbox — untrusted marketplace plugins "
+            "will run IN-PROCESS with this daemon's access"
+        )
     for _env, _field in (
         ("AGENTD_SANDBOX_NET_ALLOW", "sandbox_net_allow"),
         ("AGENTD_SANDBOX_NET_DENY", "sandbox_net_deny"),

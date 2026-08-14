@@ -309,6 +309,65 @@ variable "domain_name" {
   default     = ""
 }
 
+# ── the public marketplace (marketplace.tf) ─────────────────────────────────────────────
+#
+# All three are optional. With none of them set the marketplace is live on its distribution's own
+# *.cloudfront.net address, over https, with no certificate and no domain — which is the whole
+# point of putting it on CloudFront rather than behind the ALB.
+
+variable "marketplace_domain_name" {
+  description = <<-EOT
+    Hostname for the public marketplace (e.g. "agents.example.com"). Needs
+    `marketplace_certificate_arn` as well — an alias without a certificate that covers it is
+    rejected by CloudFront, so the two only take effect together. DNS is yours to point at the
+    distribution (an ALIAS/CNAME record to its domain name, in `marketplace_url`).
+
+    Empty = the distribution's own *.cloudfront.net name, which already serves https.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "marketplace_certificate_arn" {
+  description = <<-EOT
+    ACM certificate for `marketplace_domain_name`.
+
+    MUST BE IN us-east-1, whatever region the rest of this deployment runs in — CloudFront reads
+    certificates only from there. This is NOT the same certificate as `certificate_arn` (that one
+    is regional, for the ALB), and pasting the regional ARN here fails the apply with a message
+    that does not mention regions.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      var.marketplace_certificate_arn == "" ||
+      can(regex("^arn:aws:acm:us-east-1:", var.marketplace_certificate_arn))
+    )
+    error_message = "marketplace_certificate_arn must be an ACM certificate in us-east-1 (CloudFront reads them from nowhere else), or empty."
+  }
+}
+
+variable "marketplace_price_class" {
+  description = <<-EOT
+    Which edge locations serve the marketplace. PriceClass_200 by default: PriceClass_100 is
+    cheaper but covers only North America and Europe, and this deployment's own users are in Asia,
+    so the "cheap" option is the slow one for the people most likely to be looking. PriceClass_All
+    adds South America, Australia and India.
+
+    Free-tier traffic makes the difference between these effectively zero; it becomes a real
+    number only once the store is busy.
+  EOT
+  type        = string
+  default     = "PriceClass_200"
+
+  validation {
+    condition     = contains(["PriceClass_100", "PriceClass_200", "PriceClass_All"], var.marketplace_price_class)
+    error_message = "marketplace_price_class must be PriceClass_100, PriceClass_200 or PriceClass_All."
+  }
+}
+
 variable "registry_publisher_key" {
   description = "Base64 ed25519 PUBLIC key that signed the marketplace index — the hosted daemon pins downloads to it. This is the public half; it is safe in state, in task env, and in git (the desktop flavors already carry the same string). Empty = unsigned mode: sha256 is still checked but a rewritten index.json would be accepted, so leave it empty only for a private registry you fully control."
   type        = string

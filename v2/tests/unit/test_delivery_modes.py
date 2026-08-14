@@ -27,10 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agent_runtime.application.services.marketplace_service import (
-    MarketplaceService,
-    _entry_dict,
-)
+from agent_runtime.application.services.marketplace_service import MarketplaceService
 from agent_runtime.domain.bundle import (
     BundleError,
     DeliveryModes,
@@ -40,6 +37,7 @@ from agent_runtime.domain.bundle import (
     parse_bundle_manifest,
     parse_registry_index,
 )
+from agent_runtime.domain.catalog import build_catalog
 from agent_runtime.infrastructure.marketplace import bundle_io
 from agent_runtime.infrastructure.marketplace.packer import pack_agent_dir
 
@@ -168,6 +166,12 @@ def _entry(**kw) -> RegistryEntry:
     base = {"id": "bedtime-kids", "name": "BK", "version": "1.0.0"}
     base.update(kw)
     return RegistryEntry(**base)
+
+
+def _entry_dict(entry, web_host=""):
+    """The one catalog row for `entry` — the store view a client renders (domain/catalog.py)."""
+    index = RegistryIndex(bundles=(entry,), web_host=web_host)
+    return build_catalog(index)["bundles"][0]
 
 
 def test_the_client_receives_a_finished_open_link_or_nothing():
