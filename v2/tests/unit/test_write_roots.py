@@ -18,8 +18,10 @@ EMPTY ROOTS = UNRESTRICTED. Every agent that declares nothing behaves exactly as
 one that opts in is constrained. That is deliberate — this is a scope for the agent whose reach
 is unusual, not a new default for everybody.
 
-READS ARE NEVER SCOPED. Reading damages nothing, and an agent must be able to read its own skill
-and the SDK it vendors into a generated UI.
+READS ARE NOT SCOPED *BY THE AGENT*. An agent must be able to read its own skill and the SDK it
+vendors into a generated UI, so write_roots/deny never constrain reading. The PLATFORM can:
+a hosted run carries a tenant read scope (RunContext.read_roots — see test_tenant_fence.py),
+which is the deployment's boundary, not this declaration's. Desktop runs carry none.
 """
 
 import os

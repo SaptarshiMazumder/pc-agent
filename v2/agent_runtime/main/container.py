@@ -254,7 +254,15 @@ def build_service(
             for aid, tlist in discover_agent_plugins(
                 root, config, plugin_deps, entitlement
             ).items():
-                agent_map[aid] = _gate_and_wrap(
+                # KEYED BY LOCATION, not id. Two accounts can each hold an agent of the same
+                # id; an id-keyed map let the last-scanned layer's tools answer for both — a
+                # cross-tenant hole. The service looks up by the RESOLVED spec's dir, so an
+                # agent only ever gets the tools that live in its own folder.
+                from pathlib import Path as _Path
+
+                from agent_runtime.domain.agent import agent_dir_key
+
+                agent_map[agent_dir_key(_Path(root) / aid)] = _gate_and_wrap(
                     wrap_untrusted(
                         tlist,
                         sandbox=plugin_sandbox,
@@ -501,6 +509,15 @@ def build_service(
         acct = _accounts.account_id()
         return _user_state.account_root(config.state_dir, acct) if acct else config.state_dir
 
+    def _tenant_scope(agent, workspace):
+        """The TENANT scope for one run: (read_roots, write_clamp). All the knowledge lives in
+        user_state.tenant_scope (the layout authority); this closure only supplies the three
+        per-call facts — who is signed in, which agent resolved, where the run's workspace is.
+        Non-hosted deployments get ((), ()) = unrestricted, so desktop is byte-for-byte."""
+        return _user_state.tenant_scope(
+            config, _accounts.account_id() or "", getattr(agent, "dir", None), workspace
+        )
+
     def _effective_workspace(agent, session_id: str) -> str:
         """Plan §11 — file ownership follows CONTEXT, not identity: a chat tagged into a project
         binds this run's file/exec tools to the project's SHARED workspace
@@ -580,6 +597,8 @@ def build_service(
         on_catalog_change=_write_tool_catalog,
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
+        # the tenant fence: what a hosted run may SEE and where it may WRITE (empty on desktop)
+        resolve_scope=_tenant_scope,
     )
     _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
     # The boot snapshot. Everything after this arrives through add_tools, which hooks itself.

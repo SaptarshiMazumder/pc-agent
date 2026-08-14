@@ -149,6 +149,19 @@ class ExecTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # A run that carries a tenant fence (read_roots on its RunContext) cannot be given a
+        # shell: a subprocess reads whatever the daemon's OS user can, so every fs fence would
+        # be decorative the moment this tool ran. Not a mode branch — the same rule as
+        # check_read, decided by the values the run carries. Desktop runs carry none.
+        from agent_runtime.application.run_context import current_run_context
+
+        _ctx = current_run_context()
+        if _ctx is not None and getattr(_ctx, "read_roots", ()):
+            return ToolResult.text(
+                "exec is not available on this server: a shell cannot be confined to your "
+                "own files. Use the read/write/edit/ls/find tools instead.",
+                is_error=True,
+            )
         command = params["command"]
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
         env = {**os.environ, **(params.get("env") or {})}

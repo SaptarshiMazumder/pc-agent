@@ -114,8 +114,21 @@ def _tool(agent_dir: Path, plugin_root: Path):
     )
 
 
-def test_grant_includes_the_agent_folder_read_only(tmp_path):
+def _shipped_package(agent_dir: Path) -> None:
+    """A real unified-layout agent folder: definition beside the user's own subtrees."""
+    for name in ("plugins", "templates", "skills"):
+        (agent_dir / name).mkdir(parents=True, exist_ok=True)
+    (agent_dir / "agent.toml").write_text('name = "Mkt"\n', encoding="utf-8")
+    (agent_dir / "workspace").mkdir(exist_ok=True)
+    (agent_dir / "sessions").mkdir(exist_ok=True)
+
+
+def test_grant_includes_the_definition_read_only_never_the_user_data(tmp_path):
+    """The grant is the DEFINITION VIEW: the folder's entries minus workspace/ + sessions/.
+    Granting the folder wholesale was the tenant leak — on the unified layout it also holds
+    whatever its OWNER's runs produced, which a stranger's sandbox must never see."""
     agent_dir = tmp_path / "agents" / "marketing-agent"
+    _shipped_package(agent_dir)
     ctx = RunContext(agent_id="marketing-agent", session_key="s", mode="chat", workspace="/data/ws")
     g = DefaultCapabilityResolver().resolve(
         "marketing-image",
@@ -123,7 +136,10 @@ def test_grant_includes_the_agent_folder_read_only(tmp_path):
         ctx,
         _tool(agent_dir, agent_dir / "plugins" / "marketing-image"),
     )
-    assert g.read_paths == (str(agent_dir),), "shipped data sits beside the code, not in the workspace"
+    names = {Path(p).name for p in g.read_paths}
+    assert {"agent.toml", "plugins", "templates", "skills"} <= names, "shipped data is readable in place"
+    assert "workspace" not in names and "sessions" not in names, "the owner's data is NOT shipped data"
+    assert str(agent_dir) not in g.read_paths, "the folder wholesale would include the user's subtrees"
     assert g.fs_paths == ("/data/ws",), "writes still land only in the workspace"
     assert str(agent_dir) not in g.fs_paths, "the shipped package must never be writable"
 
@@ -131,10 +147,13 @@ def test_grant_includes_the_agent_folder_read_only(tmp_path):
 def test_grant_falls_back_to_the_plugin_roots_agent_folder(tmp_path):
     """A tool assembled without the discovery tag still gets its package: plugins/<id>/ -> agent."""
     agent_dir = tmp_path / "agents" / "mkt"
-    tool = _tool(agent_dir, agent_dir / "plugins" / "img")
-    tool._agent_dir = ""
+    _shipped_package(agent_dir)
+    tool = _tool("", agent_dir / "plugins" / "img")
+    tool._plugin_agent_dir = ""
     g = DefaultCapabilityResolver().resolve("img", PluginOrigin.THIRD_PARTY_BUNDLE, None, tool)
-    assert g.read_paths == (str((agent_dir).resolve()),)
+    names = {Path(p).name for p in g.read_paths}
+    assert "plugins" in names and "agent.toml" in names
+    assert "workspace" not in names and "sessions" not in names
 
 
 def test_grantless_tool_gets_nothing(tmp_path):
@@ -175,9 +194,11 @@ def test_discovery_stamps_the_agent_folder_on_a_normal_tool(tmp_path):
     )
     tool = discover_agent_plugins(tmp_path / "agents", SimpleNamespace())["mkt"][0]
     assert Path(tool._plugin_agent_dir) == agent_dir
-    # …and the resolver turns exactly that into the read-only grant the sandbox enforces.
+    # …and the resolver turns exactly that into the read-only grant the sandbox enforces —
+    # the folder's DEFINITION VIEW, so an owner's local workspace/sessions never ride along.
     g = DefaultCapabilityResolver().resolve("img", PluginOrigin.THIRD_PARTY_BUNDLE, None, tool)
-    assert g.read_paths == (str(agent_dir),)
+    assert str(agent_dir / "plugins") in g.read_paths
+    assert not any(Path(p).name in ("workspace", "sessions") for p in g.read_paths)
 
 
 def test_discovery_never_stamps_over_a_method(tmp_path, caplog):

@@ -70,22 +70,29 @@ class DefaultCapabilityResolver:
 
     @staticmethod
     def _read_for(tool: object) -> tuple[str, ...]:
-        """The tool's OWN agent folder, read-only — the data it shipped with.
+        """The tool's OWN agent folder's DEFINITION VIEW, read-only — the data it shipped with.
 
         A plugin's templates/styles/reference files sit beside its code inside the agent dir,
         because that folder is what the .agentpkg carries and what an install unpacks; the
         workspace is a DIFFERENT tree (per-account run data), so it can never be where shipped
-        data is found. Granting the folder the code already came from adds no reach a plugin
-        did not already have — the code is right there — it only stops the sandbox denying a
-        plugin its own package. Stamped at discovery (`_plugin_agent_dir`); the plugin root's
-        parent covers a tool assembled without that tag."""
+        data is found. Granting what the code already came with adds no reach a plugin did not
+        already have — it only stops the sandbox denying a plugin its own package.
+
+        The DEFINITION VIEW (domain/agent.definition_entries), not the folder: on the unified
+        layout the folder also holds the `workspace/` and `sessions/` of whoever runs the agent
+        locally — which a .agentpkg never carried and no plugin can claim as shipped data, and
+        which on a hosted daemon is exactly the user data a tenant fence exists to hide.
+        Stamped at discovery (`_plugin_agent_dir`); the plugin root's parent covers a tool
+        assembled without that tag."""
+        from agent_runtime.domain.agent import definition_entries
+
         agent_dir = str(getattr(tool, "_plugin_agent_dir", "") or "").strip()
         if not agent_dir:
             root = str(getattr(tool, "_plugin_root", "") or "").strip()
             if root:
                 # <agent>/plugins/<plugin-id>/ -> <agent>
                 agent_dir = str(Path(root).resolve().parents[1]) if len(Path(root).resolve().parents) > 1 else ""
-        return (agent_dir,) if agent_dir else ()
+        return definition_entries(agent_dir) if agent_dir else ()
 
     # ------------------------------------------------------------------ network
 

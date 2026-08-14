@@ -1426,12 +1426,28 @@ class Gateway:
             )
             if not permitted:
                 raise RuntimeError(f"tool '{name}' is not available to agent '{scope}'")
+            # The invocation runs AS THE CALLER, not as the agent's folder: on a hosted daemon
+            # the workspace is the caller's own per-agent one (the same resolution every run
+            # uses), and the run carries the caller's tenant scope so a directly-invoked tool
+            # is fenced exactly like a tool inside a turn. Desktop: acct is None, the scope is
+            # empty ( = unrestricted) and the workspace is the agent's own — unchanged.
+            acct = accounts.account_id() or ""
+            workspace = (
+                str(user_state.account_workspace(self.config.state_dir, acct, scope))
+                if acct
+                else str(getattr(spec, "workspace", "") or "")
+            )
+            read_roots, write_clamp = user_state.tenant_scope(
+                self.config, acct, getattr(spec, "dir", None), workspace
+            )
             run_ctx = RunContext(
                 agent_id=scope,
                 session_key=f"agent:{scope}:app",
                 mode=RunMode.INTERACTIVE,
-                workspace=str(getattr(spec, "workspace", "") or ""),
+                workspace=workspace,
                 plugins=getattr(spec, "plugins", None),
+                read_roots=read_roots,
+                write_clamp=write_clamp,
             )
         # find_tool returns the reliability WRAPPER (GuardedTool, real tool in `_inner`); the
         # self-declared `artifact_action` lives on the inner tool — unwrap to read it (same as the

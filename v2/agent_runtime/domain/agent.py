@@ -26,6 +26,43 @@ from pathlib import Path
 USER_DATA_DIRS = frozenset({"workspace", "sessions"})
 
 
+def definition_entries(agent_dir) -> tuple[str, ...]:
+    """The SHAREABLE part of one agent's folder: its top-level entries minus ``USER_DATA_DIRS``.
+
+    One folder holds an agent's definition next to the ``workspace/`` and ``sessions/`` of
+    whoever runs it, so every place a definition legitimately crosses an ownership boundary —
+    the sandbox's shipped-data read grant, a hosted run's read scope, packing — needs "the
+    folder, without the user's part". Enumerated per call rather than granted-with-carve-outs
+    because a grant is a list of roots: subtraction is not expressible in one, and each caller
+    inventing its own exclusion list is how ``USER_DATA_DIRS`` came to exist in the first place.
+
+    A directory created after this call is simply not in the answer (fail closed for the run
+    that asked; the next run sees it). Unreadable/missing dir => ``()``, same principle.
+    """
+    try:
+        return tuple(
+            str(item)
+            for item in sorted(Path(agent_dir).iterdir())
+            if item.name not in USER_DATA_DIRS
+        )
+    except OSError:
+        return ()
+
+
+def agent_dir_key(path) -> str:
+    """ONE canonical spelling of an agent directory, for identity maps keyed by LOCATION.
+
+    The agent-private tool map used to key by bare agent id, which collides the moment two
+    accounts each hold an agent of the same id — the later layer's tools silently answered for
+    both (a cross-tenant hole on a hosted daemon). Location is the identity that cannot collide;
+    realpath + normcase so a symlinked or differently-cased spelling of the same folder still
+    hits the same entry. Pure stdlib, importable from both application and composition code.
+    """
+    import os
+
+    return os.path.normcase(os.path.realpath(str(path or "")))
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     id: str  # "main", "support", ...
