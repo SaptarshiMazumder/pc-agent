@@ -191,8 +191,11 @@ data "aws_iam_policy_document" "deploy" {
   #
   # ListDistributions cannot be resource-scoped (it is the account-level "what distributions exist"
   # call) and is how the workflow FINDS the distribution id from its comment, the same way it
-  # discovers the registry bucket rather than hardcoding a generated name. CreateInvalidation IS
-  # scoped, so the only thing this role can act on is a distribution in this account.
+  # discovers the registry bucket rather than hardcoding a generated name. CreateInvalidation and
+  # GetDistribution ARE scoped, so the only thing this role can act on is a distribution in this
+  # account: CreateInvalidation busts the CDN cache after each upload, and GetDistribution reads the
+  # distribution's DomainName for the deploy summary line (the workflow's Invalidate step calls it
+  # right after create-invalidation).
   statement {
     sid       = "MarketplaceDiscoverDistribution"
     actions   = ["cloudfront:ListDistributions"]
@@ -200,7 +203,7 @@ data "aws_iam_policy_document" "deploy" {
   }
   statement {
     sid       = "MarketplaceInvalidate"
-    actions   = ["cloudfront:CreateInvalidation"]
+    actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetDistribution"]
     resources = ["arn:aws:cloudfront::${data.aws_caller_identity.me.account_id}:distribution/*"]
   }
 }
