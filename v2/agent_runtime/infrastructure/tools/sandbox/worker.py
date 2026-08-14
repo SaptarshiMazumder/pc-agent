@@ -106,6 +106,10 @@ def main() -> int:
                 # current_plugins(), which is a contextvar — so without restoring it here the child
                 # resolves as if agent.toml had no [plugins.*] block at all.
                 plugins=raw_ctx.get("plugins") or None,
+                # The tenant fence, restored so check_read/check_write answer identically on
+                # this side of the process boundary (the grant is still enforced separately).
+                read_roots=tuple(raw_ctx.get("read_roots") or ()),
+                write_clamp=tuple(raw_ctx.get("write_clamp") or ()),
             )
         )
         set_trace_ids(str(raw_ctx.get("run_id") or ""), str(raw_ctx.get("turn_id") or ""))

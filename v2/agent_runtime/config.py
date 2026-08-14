@@ -434,6 +434,12 @@ class Config:
     # authors' declarations decide alone. AGENTD_HOSTED_AGENTS_DENY / _ALLOW (comma-separated).
     hosted_agents_deny: tuple = ()
     hosted_agents_allow: tuple = ()
+    # EXTRA shared read-only roots a HOSTED run may see, beyond the derived set (the caller's own
+    # account subtree, the resolved agent's definition view, agents_dir + the plugin dirs) — for
+    # a deployment that ships reference data outside those. Inert when hosted is false: a desktop
+    # run's read scope is empty ( = unrestricted), so there is nothing to add to. See
+    # infrastructure/user_state.tenant_scope, the ONE place that assembles the scope.
+    hosted_read_roots: list = field(default_factory=list)
     # The accounts URL to ADVERTISE to browsers, when it differs from the one this daemon calls.
     # A hosted deployment reaches accounts over internal service DNS, which a visitor cannot
     # resolve — see client_accounts_url(). Empty everywhere else. AGENTD_PUBLIC_ACCOUNTS_URL.

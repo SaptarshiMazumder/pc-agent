@@ -44,6 +44,17 @@ class RunContext:
     # shipped, and its signature and provenance record then describe something that no longer
     # exists on disk. Kept apart from write_denies so the refusal can say which it was.
     protected_paths: tuple[str, ...] = ()
+    # THE TENANT SCOPE — what this run may SEE (read_roots) and the outer boundary its writes
+    # must stay inside (write_clamp), assembled per run by user_state.tenant_scope from who is
+    # calling and which deployment this is. The PLATFORM's boundary, unlike write_roots/denies
+    # above, which are the agent's own declaration — an agent cannot widen these.
+    #
+    # EMPTY = UNRESTRICTED: a desktop run (local or cloud — one human, their machine) carries
+    # (), () and behaves exactly as it always has. A hosted run carries the caller's roots, so
+    # other tenants' subtrees simply do not exist for it. Enforced by write_scope.check_read /
+    # check_write, the same choke point every fs path already flows through.
+    read_roots: tuple[str, ...] = ()
+    write_clamp: tuple[str, ...] = ()
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)

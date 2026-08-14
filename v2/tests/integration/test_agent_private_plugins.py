@@ -67,8 +67,12 @@ class _PrivTool:
 
 
 def _service(agent_tools=None, demo_deny=()):
-    demo = SimpleNamespace(id="demo", tools_allow=None, tools_deny=demo_deny)
-    other = SimpleNamespace(id="other", tools_allow=None, tools_deny=())
+    # The private-tool map is keyed by LOCATION (agent_dir_key of the agent's folder), not by
+    # id — ids can collide across account layers on a hosted daemon. The specs carry the dirs.
+    from agent_runtime.domain.agent import agent_dir_key
+
+    demo = SimpleNamespace(id="demo", dir="/agents/demo", tools_allow=None, tools_deny=demo_deny)
+    other = SimpleNamespace(id="other", dir="/agents/other", tools_allow=None, tools_deny=())
     specs = {"demo": demo, "other": other}
 
     def _get(aid):
@@ -82,7 +86,7 @@ def _service(agent_tools=None, demo_deny=()):
         registry=SimpleNamespace(get=_get, resolve=lambda _k: specs["demo"]),
         make_session=lambda *_a: None,
         build_prompt=lambda *_a, **_k: "",
-        agent_tools=agent_tools or {"demo": [_PrivTool()]},
+        agent_tools=agent_tools or {agent_dir_key(demo.dir): [_PrivTool()]},
     )
 
 

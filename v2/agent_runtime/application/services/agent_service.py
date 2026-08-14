@@ -107,9 +107,17 @@ class AgentService:
         # orchestrates it via message_agent). Injected from Config; single unambiguous mentions
         # honor it, 2+ mentions always delegate. See handle_message's reroute.
         agent_tools: dict | None = None,  # AGENT-PRIVATE tools shipped INSIDE an agent's own
-        # folder (agents/<id>/plugins/): {agent_id: [Tool]}. Offered ONLY to the owning agent —
-        # implicitly allowed for it (deny still wins), invisible to every other agent and to the
-        # global catalog. Composition root discovers + wraps them (discover_agent_plugins).
+        # folder (agents/<id>/plugins/): {agent_dir_key(dir): [Tool]}. Keyed by LOCATION, not
+        # id: two accounts can each hold an agent of the same id on a hosted daemon, and an
+        # id-keyed map let the later layer's tools answer for both (a cross-tenant hole).
+        # Offered ONLY to the agent resolved at that directory — implicitly allowed for it
+        # (deny still wins), invisible to every other agent and to the global catalog.
+        # Composition root discovers + wraps them (discover_agent_plugins).
+        resolve_scope: Callable[[AgentSpec, str], tuple] | None = None,  # (agent, workspace) ->
+        # (read_roots, write_clamp): the TENANT scope for this run — what it may see and the
+        # outer boundary of its writes. Injected like resolve_workspace above: the composition
+        # root knows who is signed in and what the deployment is; the service only knows "a
+        # run carries a scope". None / ((), ()) => unrestricted, the desktop degenerate case.
     ):
         self._engine = engine
         self._tools = tools
@@ -124,6 +132,7 @@ class AgentService:
         self._installed_agents = installed_agents
         self._on_catalog_change = on_catalog_change
         self._mention_routing = (mention_routing or "direct").strip().lower()
+        self._resolve_scope = resolve_scope
 
     def _agent_roots(self, agent) -> tuple:
         """Every root where the CALLER's agents may live — asked of the REGISTRY, the one
@@ -209,8 +218,9 @@ class AgentService:
         # THE DEFINITION IS PROTECTED, THE USER'S OWN SUBTREES ARE NOT. One folder now holds an
         # installed agent's definition next to the `workspace/` and `sessions/` that belong to
         # whoever runs it — protecting the folder wholesale meant an installed agent could not
-        # write its own workspace, which is its entire job.
-        from agent_runtime.domain.agent import USER_DATA_DIRS
+        # write its own workspace, which is its entire job. `definition_entries` is the one
+        # authority on that split (the sandbox's read grant and the hosted read scope use it too).
+        from agent_runtime.domain.agent import definition_entries
 
         protected = []
         for root in roots:
@@ -219,9 +229,7 @@ class AgentService:
                 if not agent_dir.is_dir():
                     protected.append(str(agent_dir))  # not there yet: protect the whole name
                     continue
-                protected += [
-                    str(item) for item in agent_dir.iterdir() if item.name not in USER_DATA_DIRS
-                ]
+                protected += definition_entries(agent_dir)
         return tuple(protected)
 
     def _models_for(self, agent) -> tuple:
@@ -355,9 +363,31 @@ class AgentService:
         no duplicate-tool bookkeeping."""
         self._agent_tools = dict(agent_tools or {})
 
+    def _private_for(self, agent) -> list:
+        """The private tools of THIS agent object, looked up by its DIRECTORY.
+
+        Location is the identity, not the id: on a hosted daemon two accounts can each hold
+        an agent of the same id, and the id-keyed map this replaces let whichever layer was
+        scanned last answer for both — a stranger's private tools, or yours offered to a
+        stranger. An agent without a dir (minimal stand-ins) has no folder to ship tools in."""
+        from agent_runtime.domain.agent import agent_dir_key
+
+        d = getattr(agent, "dir", None)
+        return list(self._agent_tools.get(agent_dir_key(d), [])) if d else []
+
+    def _resolve_for_caller(self, agent_id: str):
+        """The CALLER's view of one agent id, or None — the registry resolves inside the
+        connection's context (shared catalogue + this caller's own overlay), so an id never
+        reaches into a layer the caller may not see."""
+        try:
+            return self._registry.get(agent_id)
+        except Exception:  # noqa: BLE001 — unknown id / stand-in registry: no agent, no tools
+            return None
+
     def agent_private_tools(self, agent_id: str | None) -> list:
         """The tools shipped INSIDE one agent's own folder (empty for a plain agent)."""
-        return list(self._agent_tools.get((agent_id or "").lower(), []))
+        spec = self._resolve_for_caller(agent_id) if agent_id else None
+        return self._private_for(spec) if spec is not None else []
 
     def find_tool(self, name: str, agent_id: str | None = None):
         """Look up a registered tool by name (e.g. a namespaced MCP tool a channel invokes
@@ -365,7 +395,7 @@ class AgentService:
         searched FIRST — an agent's shipped tool wins a name collision with the shared
         catalog for its owner. Returns the Tool or None."""
         if agent_id:
-            for t in self._agent_tools.get(agent_id.lower(), []):
+            for t in self.agent_private_tools(agent_id):
                 if getattr(t, "name", None) == name:
                     return t
         return next((t for t in self._tools if getattr(t, "name", None) == name), None)
@@ -399,7 +429,7 @@ class AgentService:
         catalog scoped by allow/deny + the agent's OWN shipped tools (implicitly allowed,
         deny-only filtered)."""
         return select_tools(self._tools, agent) + select_private_tools(
-            self._agent_tools.get(agent.id, []), agent
+            self._private_for(agent), agent
         )
 
     def list_tools(self, agent_id: str | None = None) -> list:
@@ -466,6 +496,18 @@ class AgentService:
         # today, a remote backend later) needs it explicitly — otherwise that work appears in
         # the logs as an orphan with no run attached.
         _run_id, _turn_id = current_trace_ids()
+        # The TENANT scope for this run — what it may see, and the outer write boundary. The
+        # SERVING agent's, because its skills/templates are what this turn's tools will read;
+        # the thread's files are the workspace above either way. ((), ()) — no resolver, or a
+        # resolver that answers empty — is the desktop degenerate case: unrestricted.
+        read_roots, write_clamp = ((), ())
+        if self._resolve_scope is not None:
+            try:
+                read_roots, write_clamp = self._resolve_scope(agent, workspace)
+            except Exception:  # noqa: BLE001 — fail CLOSED: a broken scope must not open the store
+                from agent_runtime.application.write_scope import NOTHING
+
+                read_roots, write_clamp = ((NOTHING,), (NOTHING,))
         set_run_context(
             RunContext(
                 agent_id=agent.id,
@@ -481,6 +523,8 @@ class AgentService:
                 write_roots=self._expand_paths(agent, getattr(agent, "write_roots", ())),
                 write_denies=self._expand_paths(agent, getattr(agent, "write_denies", ())),
                 protected_paths=self._protected_paths(agent),
+                read_roots=tuple(read_roots),
+                write_clamp=tuple(write_clamp),
             )
         )
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode

@@ -155,6 +155,64 @@ def migrate_legacy_account_layout(state_dir) -> list[str]:
     return migrated
 
 
+def tenant_scope(config, account_id: str, agent_dir, workspace) -> tuple[tuple, tuple]:
+    """The filesystem this run may SEE and the boundary it may WRITE inside:
+    ``(read_roots, write_clamp)`` — the per-run values behind ``check_read`` and
+    ``check_write``'s clamp (application/write_scope).
+
+    LIVES HERE because this module already owns the answer to "where does an account's world
+    sit inside the one store" — a second module deriving tenant boundaries from the same layout
+    is a second chance to disagree with it.
+
+    THE MODE NEVER APPEARS DOWNSTREAM. A non-hosted daemon (desktop local AND desktop cloud —
+    one human, their own machine) gets ``((), ())``: empty means unrestricted, so the checks
+    pass everything and behaviour is byte-for-byte what it was. A hosted daemon gets values:
+
+      signed-in  read = own account subtree + this agent's definition view + the shared
+                 catalogue/plugin roots (+ ``config.hosted_read_roots`` extras)
+                 write = own account subtree (+ the run's effective workspace)
+      anonymous  read = the definition view + the run's workspace + the shared roots;
+                 write = the workspace only — a public visitor touches no account, ever
+
+    The agent's DEFINITION VIEW (its folder minus ``USER_DATA_DIRS``) is granted rather than
+    its folder: on the unified layout the folder also holds whatever its OWNER's runs have
+    produced, which is exactly the data a stranger using the same agent must never see.
+    Sessions appear in NO read grant — transcripts are reachable only through session RPCs,
+    which check ``may_observe``. Deny-lists don't exist here on purpose: everything is a
+    positive grant, so what was never granted needs nobody to remember to deny it.
+    """
+    if not getattr(config, "hosted", False):
+        return ((), ())
+    from agent_runtime.application.write_scope import NOTHING
+    from agent_runtime.domain.agent import definition_entries
+
+    shared = [
+        str(p)
+        for p in (
+            getattr(config, "agents_dir", "") or "",
+            getattr(config, "plugins_dir", "") or "",
+            getattr(config, "builtin_plugins_dir", "") or "",
+            *(getattr(config, "hosted_read_roots", None) or ()),
+        )
+        if str(p).strip()
+    ]
+    ws = [str(workspace)] if str(workspace or "").strip() else []
+    definition = list(definition_entries(agent_dir)) if agent_dir else []
+    if account_id:
+        own = str(account_root(config.state_dir, account_id))
+        reads = (own, *ws, *definition, *shared)
+        clamp = (own, *ws)
+    else:
+        reads = (*ws, *definition, *shared)
+        # No workspace resolved for an anonymous caller => nothing is writable. An empty clamp
+        # means UNRESTRICTED (the desktop degenerate case), so fail closed with a root that can
+        # never contain a real path instead.
+        clamp = tuple(ws) or (NOTHING,)
+    # order-preserving dedupe, same idiom as _expand_paths: a scope listing a dir twice reads
+    # like a bug when it shows up in a refusal message.
+    return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(clamp))
+
+
 def account_plugins_dir(state_dir, account_id: str) -> Path:
     """Plugins vendored by this account's installs. Same overlay idea as ``account_agents_dir``.
 

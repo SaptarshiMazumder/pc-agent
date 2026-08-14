@@ -3,10 +3,18 @@
 '  WHO CAN READ WHOSE FILES - filesystem tenant isolation across the modes,
 '  the unfenced-read premise that leaks one tenant's workspace and transcripts
 '  to another on the hosted web, and the read-scope fix.
-'  STATUS: DESIGN (nothing built yet) - companion to
+'  STATUS: BUILT (uncommitted) - companion to
 '  tenant-isolation-current-and-fix.puml, which covered the EGRESS leaks
-'  (event fan-out + GET /file, fixed via may_observe). This one is about the
+'  (event fan-out + GET /file, fixed via may_observe). This one is the
 '  TOOL layer: what read/ls/find/exec can reach inside the daemon itself.
+'  Where things landed: domain/agent.definition_entries + agent_dir_key,
+'  user_state.tenant_scope (the one scope builder), write_scope.check_read +
+'  check_write's write_clamp, RunContext.read_roots/write_clamp, core_fs
+'  _resolve -> check_read (find searches its roots, never the machine, when
+'  fenced), exec refuses any fenced run, sandbox read grant = definition
+'  view, private-tool map keyed by agent_dir_key (location, not id),
+'  tools.invoke runs as the CALLER (per-account workspace + scope).
+'  Pinned by tests/unit/test_tenant_fence.py (the incident replayed).
 '
 '  THE BREAK, one sentence:
 '    the write side has ONE fence at ONE choke point (write_scope.check_write),

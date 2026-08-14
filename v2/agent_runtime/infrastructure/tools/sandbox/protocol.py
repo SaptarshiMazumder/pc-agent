@@ -122,6 +122,12 @@ def ctx_payload(ctx, plugin_id: str = "") -> dict:
         "workspace": getattr(ctx, "workspace", ""),
         "run_id": getattr(ctx, "run_id", ""),
         "turn_id": getattr(ctx, "turn_id", ""),
+        # The tenant fence travels with the run: a plugin that resolves paths through the
+        # shared funnel (check_read/check_write) must answer the same on both sides of the
+        # process boundary. The GRANT stays the sandbox's own enforcement; this is the
+        # in-child view of the same policy, not a second policy.
+        "read_roots": list(getattr(ctx, "read_roots", ()) or ()),
+        "write_clamp": list(getattr(ctx, "write_clamp", ()) or ()),
     }
     own = (getattr(ctx, "plugins", None) or {}).get(plugin_id)
     if isinstance(own, dict):
