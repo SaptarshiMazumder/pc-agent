@@ -103,6 +103,15 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
         pdir = agent_dir / "plugins"
         if not (agent_dir.is_dir() and pdir.is_dir()):
             continue
+        # ONLY A DECLARED AGENT SHIPS TOOLS. An account's agents root holds a folder for every
+        # agent that account has ever used — including ones it does not own a copy of — and
+        # those folders are the user's own writable space. Without this check, writing
+        # `<that root>/main/plugins/x/plugin.toml` would register x as `main`'s private tool
+        # for the whole daemon. The registry applies the same rule when it decides what an
+        # agent is (file_registry.is_definition_dir); code loading must not be laxer than the
+        # roster, or the roster stops describing what actually runs.
+        if not (agent_dir / "agent.toml").is_file():
+            continue
         agent_id = agent_dir.name.lower()
         tools: list = []
         seen: set[str] = set()

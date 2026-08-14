@@ -593,6 +593,9 @@ def test_discovery_stamps_the_provenance_the_sandbox_needs(tmp_path):
     (plugin_dir / "probe_mod.py").write_text(
         PLUGIN.replace("{body}", '        return ToolResult.text("x")'), encoding="utf-8"
     )
+    # only a DECLARED agent ships private tools (an agents root also holds folders for agents
+    # the user merely ran, which are their own writable space)
+    (tmp_path / "agents" / "demo" / "agent.toml").write_text('name = "Demo"\n', encoding="utf-8")
 
     config = SimpleNamespace(plugins={}, distribution=None)
     tools = discover_agent_plugins(tmp_path / "agents", config, {}, None)

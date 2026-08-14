@@ -108,6 +108,17 @@ _resolve_cache: dict[str, tuple[str, float]] = {}
 # read before every uncached model call, so it must not be a round trip every time.
 _funding_cache: dict[tuple[str, str], tuple[dict, float]] = {}
 
+
+def _require_credits() -> bool:
+    """Deployment-wide: must an account hold credits to run at all?
+
+    OFF by default, so an account that was never granted credits keeps the free-tier behaviour it
+    has had all along. Turn it ON once signup issues a grant — then "no grant" honestly means "no
+    service" instead of "unlimited". Read per call, not cached at import, so an operator can flip
+    it with a restart of this process alone.
+    """
+    return os.environ.get("MODEL_PROXY_REQUIRE_CREDITS", "").strip().lower() in ("1", "true", "yes")
+
 # fallback pricing for models litellm can't price — mirrors agentd's accounts.estimate_cost
 # so the ledger never silently reads zero (order-of-magnitude only; real pricing wins).
 _FALLBACK_IN_PER_TOKEN = 1.0 / 1_000_000  # $1 / 1M input tokens
@@ -418,7 +429,16 @@ class AccountsUsageLogger(CustomLogger):
                 detail=f"no active subscription for agent '{agent_id}'",
             )
 
-        if remaining <= 0:
+        # CREDITS ARE ENFORCED WHERE CREDITS EXIST. `credits_enforced` says this account has been
+        # granted credits at some point, so a zero balance means EXHAUSTED. An account that was
+        # never on a credit plan is on the deployment's free tier and is allowed — the state
+        # every account was in while this gate could not fire at all, so turning enforcement on
+        # does not retroactively refuse everyone's next message. An older accounts build omits
+        # the field: absent means allowed, the same fail-open rule as `entitlement_required`.
+        # MODEL_PROXY_REQUIRE_CREDITS=1 closes the free tier deployment-wide, for when signup
+        # grants credits and "no grant" should mean "no service".
+        enforced = bool(view.get("credits_enforced")) or _require_credits()
+        if enforced and remaining <= 0:
             count("run_refused_total", reason="no_credits", _props={"account_id": account_id})
             raise HTTPException(
                 status_code=402,

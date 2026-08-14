@@ -16,6 +16,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+#: Inside an agent's folder, THESE SUBDIRECTORIES ARE THE USER'S, not the agent's definition.
+#:
+#: One folder holds an agent's definition, its `workspace/` and its `sessions/` together, so
+#: every operation that replaces or removes a definition — uninstall, update, delete — has to
+#: name what it must not touch. Stated ONCE, here, because the three call sites that got it
+#: wrong each had their own hand-written idea of it (each preserved `workspace` alone, which
+#: silently began deleting chat history the moment sessions moved into the same folder).
+USER_DATA_DIRS = frozenset({"workspace", "sessions"})
+
 
 @dataclass(frozen=True)
 class AgentSpec:
