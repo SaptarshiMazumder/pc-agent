@@ -970,8 +970,38 @@ Author with packaging in mind:
 6. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
    plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
    served straight off disk, so both are live the moment you save.
-7. Tell the user how to try it: a new chat with that agent, or its app window.
-8. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
+7. **RUN IT. Then read what actually happened, fix, and run it again.**
+
+   ```
+   agentd ask --agent <id> "<something a real user would say>"
+   ```
+
+   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
+   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
+
+   That trace is the point. These two look identical in prose and are completely different:
+
+   ```
+   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
+   --- tools called: NONE                                      <- it described the work
+   ```
+
+   Ask it two or three things a real user would ask. Then LOOK at the answer:
+   - Did it call the tools that fetch data, or just talk about them?
+   - Is the answer real, or a plausible-sounding placeholder?
+   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
+     crashing tool. Fix it and run again.
+
+   **Do not skip this and do not declare an agent finished without it.** Everything before this
+   step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
+   `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
+   exactly the agent that turns out to be empty when the user opens it.
+
+8. **Show the user what you built and ask.** Name the two or three decisions you took that they
+   might disagree with — the shape of the window, what it stores, what it does on a schedule —
+   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
+   something; say which thing.
+9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
    re-validates first and refuses on errors, so a broken agent never reaches anyone else.
 
 ## Rules

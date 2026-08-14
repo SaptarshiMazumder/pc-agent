@@ -4,6 +4,7 @@ command = adding a module + one entry in ALL (order = help order)."""
 from agent_runtime.cli.commands import (
     agents,
     app,
+    ask,
     bundle,
     chat,
     daemon,
@@ -19,6 +20,7 @@ from agent_runtime.cli.commands import (
 
 ALL = [
     chat,
+    ask,
     serve,
     daemon,
     doctor,
