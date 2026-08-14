@@ -177,8 +177,12 @@ class CreateAgentTool(Tool):
         },
     }
 
-    def __init__(self, registry):
+    def __init__(self, registry, validator=None):
         self._registry = registry
+        # Injected so a fresh skeleton is validated IN THE SAME RESULT — the model sees
+        # problems without spending a turn deciding to call validate_agent. Optional: a
+        # caller without one (minimal tests) just gets no auto-check.
+        self._validator = validator
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         action = (params.get("action") or "create").strip().lower()
@@ -350,9 +354,23 @@ class CreateAgentTool(Tool):
             "  • skills/<name>/SKILL.md  — its playbooks. Author these with `write`: "
             "skill_workshop only ever writes into the CALLING agent's own skills dir.",
             "Then: create_tool(agent='%s') for its private tools." % agent_id,
-            f"Finally: validate_agent('{agent_id}') to check it, then reload_agent('{agent_id}') "
-            f"to apply any agent.toml edits.",
+            f"After every batch of edits: validate_agent('{agent_id}'), then "
+            f"reload_agent('{agent_id}') to apply agent.toml changes.",
         ]
+        # Auto-check the skeleton in this same result. Best-effort: a validator failure must
+        # not turn a successful create into an error result.
+        if self._validator is not None:
+            try:
+                report = self._validator.validate(agent_id)
+                notable = [f for f in report.findings if f.level in ("error", "warn")]
+                if notable:
+                    lines += ["", "validate_agent (auto-run on the new skeleton):"] + [
+                        "  " + f.as_line() for f in notable
+                    ]
+                else:
+                    lines += ["", "validate_agent (auto-run): the skeleton is clean."]
+            except Exception:  # noqa: BLE001 — the create succeeded; the check is a bonus
+                pass
         return ToolResult.text(
             "\n".join(lines),
             details={

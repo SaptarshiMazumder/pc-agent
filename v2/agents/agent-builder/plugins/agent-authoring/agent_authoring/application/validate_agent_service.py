@@ -25,6 +25,7 @@ class ValidateAgentService:
         sandbox_rules,
         ui_rules=None,
         tool_grant_rules=None,
+        portability_rules=None,
     ):
         self._reader = reader
         self._layout = layout_rules
@@ -33,6 +34,7 @@ class ValidateAgentService:
         # Optional for the same reason as ui_rules: a caller that does not inject it simply
         # does not get that check, rather than failing to construct.
         self._grants = tool_grant_rules
+        self._portability = portability_rules
         # Optional so the service still constructs where the runtime's event/method vocabulary
         # is not available to inject (unit tests). Absent => the app code simply is not read.
         self._ui = ui_rules
@@ -86,9 +88,15 @@ class ValidateAgentService:
         findings += self._sandbox.check(spec, raw, files, sources)
         if self._grants is not None:
             findings += self._grants.check(spec, raw, files)
+        if self._portability is not None:
+            findings += self._portability.check(spec, raw, files)
         if self._ui is not None:
             findings += self._ui.check(spec, raw, files, sources)
-        return Report(agent_id=agent_id, findings=tuple(findings))
+        # Checks emit what they detect; the RULEBOOK decides what each code weighs. One
+        # repricing seam, so severity policy is edited in the table, never in a rule module.
+        from ..domain.rulebook import apply_policy
+
+        return Report(agent_id=agent_id, findings=apply_policy(tuple(findings)))
 
     @staticmethod
     def _single(agent_id, level, code, message, path="", fix="") -> Report:

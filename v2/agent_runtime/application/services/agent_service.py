@@ -194,6 +194,37 @@ class AgentService:
         # write target too, and a scope that lists one directory twice reads like a bug.
         return tuple(dict.fromkeys(out))
 
+    def _installed_write_clamp(self, agent, expanded: tuple) -> tuple:
+        """A marketplace-INSTALLED agent's declared write scope may not exceed its own folder.
+
+        `write_roots` exists so an agent can be granted writes beyond its workspace — the
+        agent-builder writes into every agent root, by design. That grant travels inside
+        agent.toml, so a PUBLISHED agent could ship the same line and arrive on a buyer's
+        machine holding builder-grade reach. Origin is DATA (the ownership record): `authored`
+        and `curated` (platform-seeded — the agent-builder itself) keep their declaration;
+        `installed` gets it intersected with the agent's own folder. `or (own dir,)` because
+        an EMPTY tuple means unrestricted — dropping every root would WIDEN the scope, the
+        exact inversion this clamp exists to prevent. `_protected_paths` still guards the
+        definition inside that folder; workspace/sessions stay writable, which is the job.
+
+        A registry without provenance (minimal test stand-ins) clamps nothing — same
+        convention as publish's `_origin`, and `_protected_paths` remains the backstop."""
+        if not expanded:
+            return expanded
+        agent_dir = getattr(agent, "dir", None)
+        origin_of = getattr(self._registry, "origin_of", None)
+        if not agent_dir or not callable(origin_of):
+            return expanded
+        try:
+            if str(origin_of(agent.id)) != "installed":
+                return expanded
+        except Exception:  # noqa: BLE001 — no provenance answer: treat as authored
+            return expanded
+        from agent_runtime.application.write_scope import is_inside
+
+        own = str(agent_dir)
+        return tuple(r for r in expanded if is_inside(r, own)) or (own,)
+
     def _protected_paths(self, agent) -> tuple:
         """Directories of agents that were INSTALLED from a package — never writable.
 
@@ -520,7 +551,9 @@ class AgentService:
                 # getattr, like `plugins` above: an AgentSpec always has these, but the service
                 # is handed stand-in agent objects too (tests, and any caller that builds a
                 # minimal spec). A missing field means "declared nothing" — unrestricted.
-                write_roots=self._expand_paths(agent, getattr(agent, "write_roots", ())),
+                write_roots=self._installed_write_clamp(
+                    agent, self._expand_paths(agent, getattr(agent, "write_roots", ()))
+                ),
                 write_denies=self._expand_paths(agent, getattr(agent, "write_denies", ())),
                 protected_paths=self._protected_paths(agent),
                 read_roots=tuple(read_roots),

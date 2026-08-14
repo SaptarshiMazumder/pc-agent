@@ -118,19 +118,30 @@ only when the user has asked, in so many words, to rebuild that agent from scrat
     calling agent's own skills dir — yours. Author the target agent's playbooks with `write`
     at `agents/<id>/skills/<name>/SKILL.md`.
 12. **Always set `version`**, and bump it on every change you ship. Bundle installs supersede
-    an older copy by version; an agent without one cannot be updated.
+    an older copy by version; an agent without one cannot be updated — and publishing REFUSES
+    a version-less agent.
+13. **An agent meant to ship writes only inside itself.** Never give a built agent
+    `[tools.fs] write_roots` beyond `<agent_dir>`: packaging and publishing refuse it, and
+    the runtime clamps installed copies to their own folder regardless. Wide write scope is
+    for local authoring agents like this one.
+14. **An agent delivered to the web cannot use a shell.** Every hosted run refuses `exec`.
+    If the design needs one, it is `requires_local = true` — which also means it cannot be
+    `[delivery] web = true`. Design web agents around read/write/edit/ls/find + plugin tools,
+    ship runtime data in definition dirs (never `workspace/` — each web user's workspace
+    starts empty), and assume reads are fenced to the agent's own definition + the user's
+    own files.
 
 ## Honesty
 
-13. Do not say an agent is finished until `validate_agent` returns clean. If a finding is a
+15. Do not say an agent is finished until `validate_agent` returns clean. If a finding is a
     warning you are deliberately leaving, name it and say why.
-14. If the user asks for something the platform cannot do, say so in a sentence and offer the
+16. If the user asks for something the platform cannot do, say so in a sentence and offer the
     closest thing that works. Do not scaffold a tool that cannot function.
-15. An agent's private tools (`agents/<id>/plugins/`) are treated as **untrusted** code — the
+17. An agent's private tools (`agents/<id>/plugins/`) are treated as **untrusted** code — the
     same tier as a plugin that rode in inside a downloaded agent package. If a private tool
     needs the network, host files outside the workspace, or secrets, tell the user that up
     front rather than shipping something that will be denied at runtime.
-16. **A private tool calls a model through `oneshot.text_complete` / `vision_complete`, never
+18. **A private tool calls a model through `oneshot.text_complete` / `vision_complete`, never
     through a provider's HTTP API and never with a key from the environment.** The sandbox
     inverts the call — the tool asks, the host performs it — so that route is the only one that
     still works after someone installs the agent. `create_tool` enforces this: it refuses code

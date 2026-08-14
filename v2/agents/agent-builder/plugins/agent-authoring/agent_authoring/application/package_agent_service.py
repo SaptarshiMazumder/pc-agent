@@ -9,31 +9,22 @@ finding blocks anything. The reason is that a bundle is the moment work stops be
 broken agent on your own disk is a thing you fix in the next message, while a broken agent
 inside a ``.agentpkg`` is a thing someone else downloads.
 
-BY THE SAME ARGUMENT, FOUR WARNINGS BLOCK HERE TOO. The sandbox findings are advisory during
-authoring — correct, because on the author's own machine nothing is broken. Packaging is the
-moment that stops being true: a ``.agentpkg`` exists to be installed, and on the installing
-machine those tools ARE untrusted. A tool that spawns a process or reads ``os.environ`` is not
-"forward-looking" at that point; it is a tool that will not run for the person downloading it.
+BY THE SAME ARGUMENT, SOME WARNINGS BLOCK HERE TOO. The sandbox and portability findings are
+advisory during authoring — correct, because on the author's own machine nothing is broken.
+Packaging is the moment that stops being true: a ``.agentpkg`` exists to be installed, and on
+the installing machine those tools ARE untrusted and those grants ARE clamped.
 
-Only the UNAMBIGUOUS ones (``_SHIPS_BROKEN``). A URL in a docstring stays advisory — a gate that
-fires on a comment is a gate authors learn to route around, and then it guards nothing.
+WHICH warnings block is not this module's decision: the RULEBOOK (domain/rulebook.py) is the
+one policy table, and this gate asks it for ``blockers(PACK)``. Only unambiguous shapes are
+listed there — a URL in a docstring stays advisory, because a gate that fires on a comment is
+a gate authors learn to route around, and then it guards nothing.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: Findings that are advisory on the author's machine and CERTAIN breakage on a buyer's. Each is
-#: tier-1 in ``sandbox_contract`` — an unambiguous shape, never a heuristic — because this list
-#: blocks a release and a false positive here is worse than the defect it would catch.
-_SHIPS_BROKEN = frozenset(
-    {
-        "UNTRUSTED_WANTS_SECRETS",     # granted secrets = {} — reads nothing, silently
-        "UNTRUSTED_WANTS_NETWORK",     # imports a client; a sandboxed tool has no socket
-        "UNTRUSTED_WANTS_SPAWN",       # subprocess/os.system — denied outright
-        "UNTRUSTED_MODEL_UNDECLARED",  # no needs_model => the broker refuses every call
-    }
-)
+from ..domain.rulebook import PACK, blockers
 
 
 @dataclass(frozen=True)
@@ -69,23 +60,21 @@ class PackageAgentService:
                 False, f"no agent '{agent_id}' with a directory on disk (known: {known})"
             )
 
-        # Gate 2: findings that are ADVISORY locally and certain breakage once installed. See
-        # the module docstring — packaging is the moment "it works on my machine" stops being
-        # the relevant question. Checked before the error gate so the message is the specific
-        # one; a spawn in a private plugin is not a generic "validation failed".
+        # Gate 2: findings that are ADVISORY locally and unacceptable in an artifact — the
+        # rulebook's PACK blockers. Checked before the error gate so the message is the
+        # specific one; a spawn in a private plugin is not a generic "validation failed".
         report = self._validator.validate(agent_id)
-        dead_on_arrival = [f for f in report.findings if f.code in _SHIPS_BROKEN]
+        dead_on_arrival = [f for f in report.findings if f.code in blockers(PACK)]
         if dead_on_arrival:
             detail = "\n".join(
                 f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in dead_on_arrival
             )
             return PackageResult(
                 False,
-                "refusing to package — this agent ships private tools that CANNOT RUN on the "
-                "machine of anyone who installs it. They work for you because you authored them "
-                "here; installing records the agent in the buyer's ledger, and from then on its "
-                "own tools are untrusted.\n\n" + detail + "\n\nFix these, or move that work to a "
-                "SHARED tool (which is never sandboxed), then call package_agent again.",
+                "refusing to package — validation found things that are fine on YOUR machine "
+                "and broken or unsafe on the machine of anyone who installs this (its tools "
+                "run untrusted there, and its grants are clamped).\n\n" + detail
+                + "\n\nFix these, then call package_agent again.",
             )
 
         # Gate: never ship something already known to be broken.

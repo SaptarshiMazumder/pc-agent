@@ -26,6 +26,48 @@ from pathlib import Path
 USER_DATA_DIRS = frozenset({"workspace", "sessions"})
 
 
+#: Ids no NEW agent may take. Two families: names the platform already uses as folder
+#: vocabulary inside an agent dir or an agents root (an agent literally named "workspace"
+#: makes every definition/user-data split ambiguous), and names that appear as path
+#: segments in served URLs or the deployment layout. ONE set, consumed by the one id
+#: validator below — the registry, the RPC, the builder tool and publish intake all funnel
+#: through it, so a name reserved here is reserved on every creation path, including ones
+#: that do not exist yet. Load paths deliberately do NOT check this (an existing dir that
+#: predates a reservation must keep loading).
+RESERVED_AGENT_IDS = frozenset(
+    {
+        "main",  # the synthesized default agent
+        "workspace", "sessions",  # USER_DATA_DIRS — the definition/user-data split
+        "plugins", "skills", "templates", "ui",  # definition-subdir vocabulary
+        "agents", "apps", "assets", "api", "agentd", "shared",  # routes + layout segments
+    }
+)
+
+#: Longest id a NEW agent may take. Ids become folder names and URL path segments; Windows
+#: MAX_PATH is the binding constraint once accounts/<acct>/agents/<id>/... nests under it.
+MAX_AGENT_ID_LENGTH = 64
+
+
+def invalid_new_agent_id(agent_id: str) -> str:
+    """Why this id may NOT be used for a NEW agent — '' when it is fine.
+
+    The ONE authority on creatable ids (charset, shape, reservations), so every creation
+    path refuses identically and a rule added here holds everywhere at once. Returns the
+    reason rather than a bool because every caller's next line was composing one.
+    """
+    if not agent_id:
+        return "empty id"
+    if len(agent_id) > MAX_AGENT_ID_LENGTH:
+        return f"longer than {MAX_AGENT_ID_LENGTH} characters"
+    if not agent_id[0].isalnum():
+        return "must start with a letter or digit"
+    if not all(c.isalnum() or c in "-_" for c in agent_id):
+        return "use letters, digits, - or _"
+    if agent_id in RESERVED_AGENT_IDS:
+        return f"'{agent_id}' is reserved (a platform folder or route name)"
+    return ""
+
+
 def definition_entries(agent_dir) -> tuple[str, ...]:
     """The SHAREABLE part of one agent's folder: its top-level entries minus ``USER_DATA_DIRS``.
 

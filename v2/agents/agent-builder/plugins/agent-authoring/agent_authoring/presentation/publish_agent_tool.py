@@ -160,9 +160,13 @@ class PublishAgentTool(Tool):
                 "(Nothing was built or sent.)",
                 is_error=True,
             )
-        if self._origin(agent_id) in ("installed", "curated"):
+        # Every non-authored origin: marketplace installs, curated seeds, and web-app syncs
+        # ("web-app" — the copy a hosted daemon pulls to serve /apps/<id>). All are someone
+        # else's published work; re-publishing any of them would re-sign it under this
+        # caller's creator identity.
+        if self._origin(agent_id) in ("installed", "curated", "web-app"):
             return ToolResult.text(
-                f"'{agent_id}' was installed from the marketplace — it is yours to use, but its "
+                f"'{agent_id}' arrived here from the marketplace — it is yours to use, but its "
                 "author published it and only they can ship a new version. To build on it, "
                 "create your own agent and copy what you need.\n\n"
                 "(Nothing was built or sent.)",
@@ -179,6 +183,20 @@ class PublishAgentTool(Tool):
                 return ToolResult.text(
                     "refusing to publish: validate_agent reports errors. Fix them, then publish."
                     f"\n\n{report.as_text()}",
+                    is_error=True,
+                )
+            # Publishing holds a HIGHER bar than authoring: the rulebook lists codes that are
+            # advisory on this machine and unacceptable in a public listing (a version-less
+            # publish nobody can ever supersede, exec granted to a web delivery, builder-grade
+            # write scope). One table decides — see domain/rulebook.py.
+            from ..domain.rulebook import PUBLISH, blockers
+
+            blocked = [f for f in report.findings if f.code in blockers(PUBLISH)]
+            if blocked:
+                detail = "\n".join(f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in blocked)
+                return ToolResult.text(
+                    "refusing to publish — these findings are advisory while authoring but "
+                    "block a public listing:\n\n" + detail + "\n\n(Nothing was built or sent.)",
                     is_error=True,
                 )
 

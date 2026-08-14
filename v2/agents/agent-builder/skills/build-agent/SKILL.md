@@ -26,7 +26,11 @@ guideline you weigh against convenience.
 | an agent that was INSTALLED from a package | **no** |
 | anywhere else on the disk | **no** |
 
-Reading is not restricted. Read anything you need.
+Reading: on a desktop daemon you may read anything you need. On a HOSTED daemon every run is
+fenced to a positive read grant — its own workspace, the serving agent's definition, and the
+shared catalog/plugin dirs; other users' files simply do not exist for it. You author on
+desktop, but the agents you BUILD must live inside that fence — see "Design for hosted"
+below.
 
 Three of those deserve their reason, because each looks like an obstacle until you know it:
 
@@ -128,6 +132,21 @@ deny  = ["computer_use"]           # deny always wins
 # `exec` and `process` are a PAIR — see "Long-running work" below. validate_agent reports it
 # if you grant one without the other.
 
+# ---- write scope (omit for almost every agent — the default is right) ----
+# Where this agent's fs tools may WRITE, beyond the platform's own boundaries. Tokens:
+# <agent_dir> = this agent's own folder; <agents_dir> = every agents root (one entry per
+# root). An unknown/misspelled token DROPS the entry — a typo narrows, never widens.
+# deny beats allow; the platform's rules (tenant clamp, installed-agent protection) always
+# apply on top and cannot be widened from here.
+#
+# DO NOT grant beyond <agent_dir> in an agent you intend to ship: validate_agent flags it
+# (WIDE_WRITE_ROOTS), packaging and publishing refuse it, and on any machine that installs
+# the agent the runtime clamps the scope to its own folder anyway. Wide roots are for
+# LOCAL authoring agents (Agent Builder itself writes every agent root and denies its own).
+# [tools.fs]
+# write_roots = ["<agent_dir>"]
+# deny = ["<agent_dir>/agent.toml"]
+
 # ---- skill scope (omit to inherit every global skill) ----
 # skills = ["monthly-report"]      # top-level key, not a table — keep it above [app]
 
@@ -189,6 +208,31 @@ Use it for an agent that needs `exec`, unsandboxed `write`, or its own code-load
 use it as a general precaution: an agent that only chats, reads its workspace, and calls models is
 fine hosted, and marking it local-only just hides it from half your users. Agent Builder itself
 declares it, for exactly the reason above.
+
+### Design for hosted — the four facts that shape a shippable agent
+
+An agent published with `[delivery] web = true` (and any agent someone installs on a shared
+server) runs behind the tenant fence. Four facts, each enforced by the runtime, decide what
+you may design around:
+
+1. **Reads are a positive grant.** A hosted run sees: its own per-user workspace, THIS
+   agent's definition dirs (`templates/`, `skills/`, `plugins/`, `ui/`, data dirs), and the
+   shared catalog. Nothing else — no other agents' folders, no absolute machine paths, no
+   other users' files, never any `sessions/`. Design every file access inside that set.
+2. **There is no shell.** Every hosted run refuses `exec` (a subprocess cannot be confined
+   to one tenant's files). Everything must be expressible with read/write/edit/ls/find +
+   plugin tools. If the job truly needs a shell, it is a `requires_local` agent — and then
+   `web = true` is a contradiction (validate_agent flags both).
+3. **`workspace/` is per-user and starts EMPTY.** Every signed-in user gets their own,
+   blank. Anything the agent NEEDS at runtime ships in a definition dir and is read from
+   there in place; seed a user's workspace by copying on first use, in-turn, if you must.
+4. **Writes are clamped to the caller's own space.** The platform clamps every hosted write
+   to the user's own account subtree; an installed agent's declared `write_roots` are
+   additionally clamped to its own folder. An agent that "organises the user's disk" is a
+   desktop product, not a web one.
+
+None of this needs a mode check in anything you author — the same agent runs on desktop
+with no fence at all. Design within the fence and the agent behaves identically everywhere.
 
 ### Long-running work — grant `exec` and `process` together
 

@@ -21,7 +21,12 @@ from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
 from agent_runtime.domain import ownership
-from agent_runtime.domain.agent import USER_DATA_DIRS, AgentSpec, agent_id_from_session_key
+from agent_runtime.domain.agent import (
+    USER_DATA_DIRS,
+    AgentSpec,
+    agent_id_from_session_key,
+    invalid_new_agent_id,
+)
 from agent_runtime.domain.agent_availability import withheld_reason
 from agent_runtime.infrastructure.agents import ownership_store
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
@@ -686,8 +691,12 @@ class FileAgentRegistry:
         creator would have to re-implement placement, collision and stamping to diverge,
         which is exactly the bug (create_agent's DIY path) this method retires."""
         agent_id = (agent_id or "").strip().lower()
-        if not _valid_id(agent_id):
-            raise ValueError(f"invalid agent id: {agent_id!r} (use letters, digits, - or _)")
+        # The strict CREATE-time rule (charset + shape + reserved names), not the permissive
+        # load-time `_valid_id`: an existing dir that predates a reservation must keep
+        # loading, but no new agent may take a reserved or malformed name on ANY path.
+        reason = invalid_new_agent_id(agent_id)
+        if reason:
+            raise ValueError(f"invalid agent id: {agent_id!r} ({reason})")
         target_specs, target_root = self._write_target()
         d = target_root / agent_id
         # Collides against what this caller can SEE (shared + their overlay), not just the layer
@@ -704,6 +713,19 @@ class FileAgentRegistry:
             self._account_id() if callable(self._account_id) else None,
             self._hosted(),
         )
+        # The stamp is LOAD-BEARING, so its write is not best-effort here: ownership decides
+        # who may edit, publish and (hosted) even see this agent, and an agent born without a
+        # record silently falls back to layer-guessing. The store logs-and-continues for the
+        # callers where that is right (seeding); a CREATE without a record must not exist —
+        # roll the birth back and say why, instead of succeeding into ambiguity.
+        if ownership_store.read(d) is None:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+            raise RuntimeError(
+                f"could not stamp ownership for '{agent_id}' ({d / ownership.RECORD_FILENAME}"
+                f" is unwritable or unreadable) — creation rolled back"
+            )
 
         spec = self._with_ownership(self._load_dir(agent_id, d), d, self._shared_owner_default())
         target_specs[agent_id] = spec
@@ -732,7 +754,12 @@ class FileAgentRegistry:
         def write_files(d: Path) -> None:
             # agent.toml — JSON string literals are valid TOML basic strings, so this
             # safely escapes quotes/backslashes in the name/description.
-            lines = [f"name = {json.dumps(name or agent_id)}"]
+            #
+            # `version` always: installs supersede BY VERSION, and the agent-builder's
+            # create_agent writes one — this path emitting a version-less skeleton was the
+            # split that made "which creator made this agent?" answerable from the toml.
+            # Every path births the same minimum: name + version + IDENTITY.md.
+            lines = [f"name = {json.dumps(name or agent_id)}", 'version = "1.0.0"']
             if description.strip():
                 lines.append(f"description = {json.dumps(description.strip())}")
             mode = (app or "").strip().lower()
@@ -752,8 +779,15 @@ class FileAgentRegistry:
                     encoding="utf-8",
                 )
             (d / "agent.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-            if identity.strip():
-                (d / "IDENTITY.md").write_text(identity.strip() + "\n", encoding="utf-8")
+            # IDENTITY.md always exists — it is the agent's bootstrap and the validator's one
+            # ERROR-level layout rule. A blank identity gets a minimal honest seed (name +
+            # description) rather than nothing, so an agent born from the UI modal is the
+            # same validator-clean skeleton the agent-builder tool writes.
+            identity_text = identity.strip() or (
+                f"# {name or agent_id}\n\n"
+                + (description.strip() or "Describe who this agent is: its role, tone, and boundaries.")
+            )
+            (d / "IDENTITY.md").write_text(identity_text + "\n", encoding="utf-8")
 
         return self.create_from(agent_id, write_files)
 
