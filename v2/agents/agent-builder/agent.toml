@@ -9,6 +9,11 @@ name = "Agent Builder"
 version = "1.0.0"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
 
+# NOTE: `max_turns` is NOT settable here — it is an OVERRIDABLE_KEY resolved from
+# `agentd.config.json` under `agents.agent-builder`, not from agent.toml (domain/agent_config.py).
+# Writing it here would be silently ignored, which is the exact class of mistake validate_agent
+# exists to catch. See that file for the raised turn budget and why building needs one.
+
 # LOCAL ONLY — a HOSTED daemon does not offer this agent at all (not listed, not resolvable, no
 # app served, its private tools never discovered). Desktop is unaffected.
 #
@@ -86,9 +91,37 @@ public = false
 write_roots = ["<agents_dir>"]
 deny        = ["<agent_dir>"]
 
+# THE ONE AGENT THAT NEEDS THE MCP WORKSHOP, and the reason the flag became per-agent.
+#
+# `add_mcp` lets the MODEL connect an arbitrary MCP server from chat text — text that can arrive
+# from a web page or an email. Machine-wide that is a bad default, which is why the daemon's is
+# off. But this agent's job includes trying a server the user just described so it can report
+# back what tools actually appeared, instead of writing an [[mcp]] block and hoping.
+#
+# The agents it BUILDS get no such thing unless their author asks: an explicit `false` (or simply
+# saying nothing, with the daemon default off) is what they inherit. See the connect-mcp skill.
+[capabilities]
+mcp_workshop = true
+
 [tools]
 allow = [
   "read", "write", "edit", "ls", "find", "skill_workshop",
   "update_plan", "exec", "process", "verify_answer",
   "show_files",
+  # RESEARCH. Without these it builds integrations BLIND: asked for an AWS cost monitor it had
+  # no way to look up the Cost Explorer API, no way to find which MCP server exposes cost tools,
+  # and no way to check that the package it named even exists — so it guessed one, and the guess
+  # did not expose the tools the agent needed. Every third-party service an agent connects to is
+  # documented somewhere; an agent-builder that cannot read that documentation is authoring
+  # against its own recollection.
+  "web_search", "web_fetch",
+  # SEARCH BY CONTENT. `find` matches file NAMES only, so "where is this defined", "which agents
+  # declare an [[mcp]] block", "who calls this" had no answer but opening files one at a time and
+  # hoping. An agent that cannot search answers from whatever it happened to read — which is
+  # indistinguishable, in its output, from an agent that searched and found nothing.
+  "grep",
+  # DELEGATION. A child run with its own context: "read this API's docs and tell me which server
+  # exposes cost tools" returns three sentences instead of spending this conversation's budget on
+  # pages of documentation. The builder's context is for BUILDING; finding out belongs elsewhere.
+  "spawn_subagent",
 ]

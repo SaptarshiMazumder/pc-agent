@@ -111,6 +111,7 @@ def build_service(
     memory_bank=None,
     credential_store=None,
     connect_token_store=None,
+    mcp_connector=None,
     late: dict | None = None,
 ) -> AgentService:
     """Assemble the AgentService use-case from concrete implementations.
@@ -416,6 +417,32 @@ def build_service(
 
     skill_embed_fn = build_skill_embed_fn(config)
 
+    def _mcp_problem_sections(agent) -> list[str]:
+        """One prompt section per DECLARED MCP server that is not up, in the agent's own terms.
+
+        Returns [] when everything connected, which is the normal case — a section that says
+        "all fine" is prompt weight for no decision.
+
+        Written as guidance the agent can ACT on: the reasons are already phrased for a human
+        ("waiting for approval to run: uvx …"), and what the agent needs to know on top is that
+        this is the user's move, not something to diagnose or work around.
+        """
+        if mcp_connector is None:
+            return []
+        problems = mcp_connector.problems_for(getattr(agent, "id", "") or "")
+        if not problems:
+            return []
+        lines = "\n".join(f"- **{name}** — {why}" for name, why in sorted(problems.items()))
+        return [
+            "## Services this agent declared that are NOT connected\n"
+            + lines
+            + "\n\nTheir tools are absent from your toolset for exactly the reason above — this "
+            "is not something to diagnose, work around, or explain at length. If the user asks "
+            "for something those tools would have done, say in ONE line which service is not "
+            "connected and what they need to do about it, then stop. Never guess at a different "
+            "cause, and never claim a credential is missing when the reason above says otherwise."
+        ]
+
     def _build_prompt(tools, agent, mode, query=""):
         # prompt for the resolved agent + run mode: its identity/bootstrap + scoped skills +
         # model; on a heartbeat tick also inject HEARTBEAT.md. FIRST: scratch hygiene —
@@ -458,7 +485,15 @@ def build_service(
             cron=(mode == RunMode.CRON),  # inject the report_outcome note on scheduled runs
             channel=(mode == RunMode.CHANNEL),  # inject the channel-reply note on channel runs
             workspace_resources=(workspace_index.manifest(ws, agent.id) if workspace_index else ""),
-            plugin_sections=plugin_sections,  # tools self-describe; plugins add guidance sections
+            # Tools self-describe; plugins add guidance sections. Appended per call: WHY any
+            # server this agent declared is not up.
+            #
+            # The daemon knew the reason all along ("waiting for approval to run: uvx …",
+            # "needs AWS_ACCESS_KEY_ID") and told only the settings page. The agent saw an
+            # ABSENCE — no aws__* tools — and, having nothing to check, wrote three paragraphs
+            # speculating about the cause and told the user to fill in a key that was already
+            # set. An absence cannot be explained by the one party who cannot see past it.
+            plugin_sections=[*(plugin_sections or ()), *_mcp_problem_sections(agent)],
         )
 
     def _recall(agent, query):
@@ -595,6 +630,13 @@ def build_service(
         # server connecting, a marketplace install) — a boot-only snapshot would be stale for
         # the tool that was just made, which is the one anybody would look for.
         on_catalog_change=_write_tool_catalog,
+        # Servers an agent DECLARES in its agent.toml. Deliberately NOT part of agent_tools: that
+        # map is replaced wholesale on every marketplace hot-reload, which would silently drop
+        # these — and they are not on disk to rediscover, they are live sessions.
+        mcp_connector=mcp_connector,
+        # The daemon-wide default for the chat-driven `add_mcp` tool; an agent's own
+        # [capabilities] mcp_workshop wins over it in either direction.
+        mcp_workshop_default=bool(getattr(config, "mcp_workshop", False)),
         mention_routing=getattr(config, "mention_routing", "direct"),  # @mention: direct | delegate
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
         # the tenant fence: what a hosted run may SEE and where it may WRITE (empty on desktop)
@@ -623,6 +665,122 @@ def build_mcp_provider(config: Config):
     from agent_runtime.infrastructure.tools.mcp import build_mcp_provider as _build
 
     return _build(config)
+
+
+def build_oauth_service(config: Config, registry):
+    """The one OAuth service, shared by MCP servers and plugin `${oauth:…}` placeholders.
+
+    Also installs the resolver the `fetch` substitution path reads. A module-level handle rather
+    than another constructor argument because `outbound.fetch` is called from inside plugin code
+    that knows nothing about this composition — the same shape `current_run_context` already uses,
+    and for the same reason.
+    """
+    import os
+    from pathlib import Path
+
+    from agent_runtime.application import run_context
+    from agent_runtime.application.services.oauth_service import OAuthService
+    from agent_runtime.domain.agent import setting_env_name
+    from agent_runtime.infrastructure.auth.file_token_store import FileTokenStore
+    from agent_runtime.infrastructure.auth.httpx_oauth_http import HttpxOAuthHttp
+
+    def _resolve_setting(agent_id: str, value: str) -> str:
+        """A declaration may name a `[[settings]]` key for its client id/secret, so the person
+        INSTALLING the agent supplies their own registered app instead of inheriting the
+        author's."""
+        from agent_runtime.domain.agent import PLACEHOLDER_NAMES
+
+        return PLACEHOLDER_NAMES.sub(
+            lambda m: os.environ.get(setting_env_name(agent_id, m.group(1)), ""), str(value or "")
+        )
+
+    service = OAuthService(
+        http=HttpxOAuthHttp(),
+        store=FileTokenStore(Path(config.state_dir) / "oauth"),
+        resolve_setting=_resolve_setting,
+    )
+
+    def _decl(agent_id: str, name: str):
+        spec = registry.get(agent_id) if registry is not None else None
+        return next((d for d in getattr(spec, "oauth", ()) or () if d.name == name), None)
+
+    async def _token(agent_id: str, name: str) -> str:
+        decl = _decl(agent_id, name)
+        return await service.token(agent_id, decl) if decl is not None else ""
+
+    # The `${oauth:<name>}` path is SYNCHRONOUS (it runs inside a plugin's fetch), so it reads a
+    # stored token and never drives a refresh. A token that has gone stale surfaces as the
+    # provider's own 401 rather than as a silent empty header.
+    def _sync_token(agent_id: str, name: str) -> str:
+        return service.stored_token(agent_id, name) if _decl(agent_id, name) else ""
+
+    run_context.oauth_token_resolver = _sync_token
+    return service, _token
+
+
+def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
+    """The connector for servers an agent DECLARES in its own agent.toml (``[[mcp]]``).
+
+    Its own provider, separate from ``build_mcp_provider``'s: that one serves
+    ``config.mcp_servers``, the machine-wide list, where names are unique because there is one of
+    everything. These are per agent — two agents may each declare an ``aws`` — so they are kept
+    apart from that list entirely and their tools never join the shared catalog.
+
+    Returns None when the ``mcp`` SDK is absent, which is the same graceful absence every other
+    MCP path already has: an agent that declares a server then reports that it could not connect,
+    rather than the daemon failing to start.
+    """
+    try:
+        import mcp  # noqa: F401
+    except ImportError:
+        log.info("mcp SDK not installed — agents declaring [[mcp]] will report it")
+        return None
+
+    import os
+    from pathlib import Path
+
+    from agent_runtime.application.services.agent_mcp_connector import AgentMcpConnector
+    from agent_runtime.domain.agent import setting_env_name
+    from agent_runtime.infrastructure.agents.mcp_approval_store import McpApprovalStore
+    from agent_runtime.infrastructure.tools.mcp.provider import McpProvider
+    from agent_runtime.infrastructure.tools.mcp.session import create_session
+    from agent_runtime.presentation.gateway import _guarded_with_source
+
+    provider = McpProvider([], create_session)
+
+    async def _connect(agent_id: str, decl, env: dict, headers: dict):
+        """Declaration + already-resolved credentials -> live, guarded, agent-tagged tools."""
+        from agent_runtime.config import McpServerConfig
+
+        cfg = McpServerConfig(
+            name=decl.name,
+            transport=decl.transport,
+            command=list(decl.command) or None,
+            url=decl.url or None,
+            # LITERALS, resolved by the connector against this agent's own settings. Passing the
+            # ${…} through would let the infra layer expand it from os.environ, which is the
+            # machine-wide value — the wrong account, silently.
+            env=env or None,
+            headers=headers or None,
+        )
+        tools = await provider.add_server(cfg)
+        for tool in tools:
+            # Whose tool this is. The scoped `tools.invoke` check admits a tool when it belongs to
+            # the calling agent, which is how an agent's own dashboard reaches it with no chat
+            # turn — without the tag, a declared server is usable in chat and nowhere else.
+            try:
+                tool._agent_id = agent_id
+            except (AttributeError, TypeError):
+                pass
+        return _guarded_with_source(tools, config) if tools else []
+
+    return AgentMcpConnector(
+        connect=_connect,
+        read_env=lambda name: os.environ.get(name, ""),
+        setting_env=setting_env_name,
+        approvals=McpApprovalStore(Path(config.state_dir) / "mcp_approvals.json"),
+        oauth=oauth_token,  # for a server declaring auth = "oauth:<name>"
+    )
 
 
 def _add_agent_browser_mcp_server(config: Config) -> None:
@@ -676,6 +834,8 @@ def build_gateway(config: Config) -> Gateway:
     # The late-binding dict is OURS: build_service stashes the AgentService in it, and we add
     # the Gateway below — both exist only after plugin discovery has already handed thunks out.
     late: dict = {}
+    oauth_service, oauth_token = build_oauth_service(config, registry)
+    mcp_connector = build_agent_mcp_connector(config, registry, oauth_token=oauth_token)
     service = build_service(
         config,
         browser_manager,
@@ -685,6 +845,7 @@ def build_gateway(config: Config) -> Gateway:
         memory_bank=memory_bank,
         credential_store=credential_store,
         connect_token_store=connect_token_store,
+        mcp_connector=mcp_connector,
         late=late,
     )
     from agent_runtime.infrastructure.events import build_event_log
@@ -700,6 +861,8 @@ def build_gateway(config: Config) -> Gateway:
         service=service,
         browser_manager=browser_manager,
         mcp_provider=build_mcp_provider(config),
+        mcp_connector=mcp_connector,  # per-agent declared servers: status, approval, re-dial
+        oauth_service=oauth_service,  # third-party sign-ins an agent declares ([[oauth]])
         registry=registry,
         task_store=task_store,
         memory_bank=memory_bank,

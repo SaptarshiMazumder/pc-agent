@@ -373,6 +373,13 @@ button:disabled { cursor: default; opacity: 0.45; }
 .field label { font-size: var(--t-3); display: block; }
 .fhelp { display: block; font-size: var(--t-1); color: var(--faint); margin-top: 2px; }
 .fhelp.pinned { color: var(--warn); }
+/* A required [[settings]] field the user has not filled in yet: the agent does not work
+   without it, so the row says so rather than looking merely empty. */
+.field label .req { color: var(--warn); }
+.fhelp.missing { color: var(--warn); }
+/* An MCP command or endpoint, shown verbatim: the argv is what actually runs, so a
+   friendly name here would be describing something other than the thing approved. */
+.fhelp.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 
 /* Which LAYER a value came from — this agent's own settings, or the machine-wide ones. A row
    that shows a value without saying where it came from is how a settings page ends up
@@ -440,6 +447,15 @@ button:disabled { cursor: default; opacity: 0.45; }
   color: #fff; font-size: var(--t-3); font-weight: 500;
 }
 .prime-btn:hover:not(:disabled) { filter: brightness(1.12); }
+/* The quieter twin, for an action that UNDOES something (Disconnect). Same size and weight so
+   rows line up; no fill, so it never competes with the primary action next to it. */
+.ghost-btn {
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-sm); background: transparent;
+  border: 1px solid var(--hair); color: var(--dim);
+  font-size: var(--t-3); font-weight: 500; cursor: pointer;
+}
+.ghost-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 
 /* ── states ─────────────────────────────────────────────────────────────────────────── */
 /* The three every screen needs. Skipping them is what makes a working app look broken:

@@ -29,9 +29,14 @@ class ScaffoldUiTool(Tool):
         # is offered here automatically instead of existing but being un-nameable.
         self.description = (
             "START AN AGENT'S APP UI. Call this BEFORE writing any ui/ file — it copies a "
-            "complete, working app into agents/<id>/ui/: streamed replies, live tool rows, "
-            "image paste and drop, saved conversation history, and a settings page where the "
-            "user pastes their own API key (BYOK). Then EDIT what it wrote.\n"
+            "complete, working app into agents/<id>/ui/, and you then EDIT what it wrote.\n"
+            "FIRST PICK THE SHAPE, from what the agent DOES: a conversation -> chat-app; runs "
+            "on its own and reports -> dashboard-app; ingests a pile of things -> "
+            "workbench-app. Chat is the default because most agents are conversations, but it "
+            "is a poor window for an agent whose user opens it asking 'what is it now?' or "
+            "'process these forty files' — they should not have to type what a control could "
+            "do. Every shape ships sign-in, a settings page with the user's own API key "
+            "(BYOK) and this agent's [[settings]] fields, and a chat view.\n"
             "Writing ui/app.js by hand instead is the single most reliable way to ship a "
             "broken agent: the run-event payload is nested and streamed text is "
             "message_update/text_delta, and a view that gets either wrong connects, logs "

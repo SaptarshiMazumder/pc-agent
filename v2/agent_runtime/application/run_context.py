@@ -55,6 +55,13 @@ class RunContext:
     # check_write, the same choke point every fs path already flows through.
     read_roots: tuple[str, ...] = ()
     write_clamp: tuple[str, ...] = ()
+    # The KEYS this agent declared under agent.toml [[settings]] — names only, never values.
+    # Carried here because the two places that resolve a `${NAME}` placeholder (the direct
+    # `fetch` and the sandbox's host-side broker) are infrastructure with no way to reach the
+    # registry, and the answer is per-run anyway: the same name means this agent's private
+    # credential for one agent and the machine-wide variable for another. See
+    # domain.agent.resolve_setting_env for the rule.
+    settings: tuple[str, ...] = ()
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
@@ -94,6 +101,43 @@ def current_workspace(default: str | None = None) -> str | None:
     if ctx is not None and ctx.workspace:
         return ctx.workspace
     return default
+
+
+def current_setting_env(name: str) -> str:
+    """Which env var `${name}` reads for the CURRENT run.
+
+    The one entry point both credential-substitution sites use — `net.outbound._resolved` on the
+    author's own machine and the sandbox fetch broker when the plugin is boxed in. They have to
+    agree: a plugin that works unsandboxed and 401s sandboxed (or the reverse) is the kind of bug
+    that gets blamed on the sandbox for a week.
+
+    Outside a run there is no agent, so nothing is declared and the bare name is correct — that is
+    a channel or a boot-time caller reading a machine-wide variable, not an agent's private one.
+    """
+    from agent_runtime.domain.agent import resolve_setting_env
+
+    ctx = _current.get()
+    if ctx is None:
+        return name
+    return resolve_setting_env(name, ctx.agent_id, ctx.settings)
+
+
+# How a plugin asks for a LIVE OAuth token: `Authorization = "Bearer ${oauth:notion}"`. Set by the
+# composition root to a `(agent_id, name) -> str` resolver; None on a build without OAuth, where
+# the placeholder stays literal and the provider's 401 says so.
+oauth_token_resolver = None
+
+
+def current_oauth_token(name: str) -> str:
+    """The access token for `${oauth:<name>}` on behalf of the running agent.
+
+    Per agent, like everything else here: two agents declaring the same provider are two
+    different sign-ins, and one borrowing the other's would be acting as the wrong person.
+    """
+    ctx = _current.get()
+    if ctx is None or oauth_token_resolver is None:
+        return ""
+    return oauth_token_resolver(ctx.agent_id, name) or ""
 
 
 def current_plugins() -> dict:

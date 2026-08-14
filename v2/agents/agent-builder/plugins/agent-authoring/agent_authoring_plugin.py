@@ -41,6 +41,7 @@ def register(api, ctx):
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
+    from agent_authoring.domain.declaration_rules import DeclarationRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
     from agent_authoring.domain.tool_grant_rules import ToolGrantRules
@@ -68,7 +69,7 @@ def register(api, ctx):
     from agent_authoring.domain.ui_rules import UiRules
 
     from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
-    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS, PROVIDER_ENV_KEYS
 
     reader = AgentDirReader(registry)
     components = UiComponents()
@@ -94,12 +95,20 @@ def register(api, ctx):
         # Declarations that contradict where the agent is GOING: hosted (no shell, fenced
         # reads, empty per-user workspace) and buyers' installs (clamped write scope).
         PortabilityRules(),
+        # [[settings]] / [[mcp]] / [[oauth]]: the three blocks whose mistakes are invisible
+        # until SOMEBODY ELSE has installed the agent — a field nothing reads, a server whose
+        # credential was never declared, a key pasted into the file that ships.
+        declaration_rules=DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
     )
 
     # --- AUTHOR ---------------------------------------------------------------------
+    # Resolved HERE rather than at the reload_agent registration below, because create_agent
+    # needs the same handle: an agent it registers live is invisible to every open window until
+    # something announces it, and "the model will call reload_agent next" is not a mechanism.
+    broadcast = getattr(ctx, "broadcast_agents_changed", None)
     # The validator rides along so a fresh skeleton is checked IN THE SAME RESULT — the
     # builder sees problems without spending a turn deciding to call validate_agent.
-    api.register_tool(CreateAgentTool(registry, validator=validator))
+    api.register_tool(CreateAgentTool(registry, validator=validator, announce=broadcast))
 
     # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
     # the tool would write a file that never becomes callable. Register nothing rather than that.
@@ -168,7 +177,6 @@ def register(api, ctx):
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
     # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
     # and reports honestly which steps it managed.
-    broadcast = getattr(ctx, "broadcast_agents_changed", None)
     reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
     api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
 

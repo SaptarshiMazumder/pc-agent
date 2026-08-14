@@ -38,6 +38,24 @@ TEMPLATE_ROOT = BUILDER / "skills" / "build-agent" / "templates"
 BORROW_ROOT = BUILDER / "ui"
 CHAT_APP_DIR = TEMPLATE_ROOT / CHAT_APP.id
 
+#: EVERY template the catalogue offers, not just the first one. The library's own docstring says
+#: an untested template is worse than a missing one — it is the path everyone picks — so the
+#: structural checks below are parametrized over all of them.
+ALL_TEMPLATES = UiTemplates().ids()
+
+
+def _dir(template_id: str) -> Path:
+    return TEMPLATE_ROOT / template_id
+
+
+def _sources_of(template_id: str) -> dict:
+    tpl = UiTemplates().get(template_id)
+    return {
+        f"ui/{rel}": (_dir(template_id) / rel).read_text(encoding="utf-8")
+        for rel in tpl.files
+        if rel.endswith(".js")
+    }
+
 RULES = UiRules(
     events=APP_FACING_EVENTS,
     kinds=MESSAGE_UPDATE_KINDS,
@@ -56,26 +74,30 @@ def _js_sources() -> dict[str, str]:
 
 
 # ── the template is on disk and complete ────────────────────────────────────
-def test_every_file_the_registry_promises_exists():
+@pytest.mark.parametrize("template_id", ALL_TEMPLATES)
+def test_every_file_the_registry_promises_exists(template_id):
     """The registry is what the tool copies from. A name here with no file behind it is a
     scaffold that half-succeeds — which looks scaffolded and 404s in the window."""
-    for rel in CHAT_APP.files:
-        assert (CHAT_APP_DIR / rel).is_file(), f"template missing {rel}"
+    for rel in UiTemplates().get(template_id).files:
+        assert (_dir(template_id) / rel).is_file(), f"{template_id} missing {rel}"
 
 
 def test_the_borrowed_files_come_from_the_live_ui():
     """`md.js` and the SDK are taken from Agent Builder's OWN ui/ rather than copied into the
     template, so there is exactly one of each in the product. The SDK especially: a stale copy
     under templates/ would talk a protocol the daemon no longer speaks."""
-    for rel in CHAT_APP.borrowed:
-        assert (BORROW_ROOT / rel).is_file(), f"cannot borrow {rel} — not in agent-builder/ui/"
-        assert not (CHAT_APP_DIR / rel).exists(), (
-            f"{rel} is duplicated into the template — that is the drift this avoids"
-        )
+    for template_id in ALL_TEMPLATES:
+        for rel in UiTemplates().get(template_id).borrowed:
+            assert (BORROW_ROOT / rel).is_file(), f"cannot borrow {rel} — not in agent-builder/ui/"
+            assert not (_dir(template_id) / rel).exists(), (
+                f"{template_id}/{rel} is duplicated into the template — that is the drift this avoids"
+            )
 
 
-def test_the_readme_is_one_of_the_files_it_ships():
-    assert CHAT_APP.readme in CHAT_APP.files
+@pytest.mark.parametrize("template_id", ALL_TEMPLATES)
+def test_the_readme_is_one_of_the_files_it_ships(template_id):
+    tpl = UiTemplates().get(template_id)
+    assert tpl.readme in tpl.files
 
 
 # ── the template passes the checks it exists to enforce ─────────────────────
@@ -86,30 +108,34 @@ def test_the_template_has_no_ui_rule_findings():
     )
 
 
-@pytest.mark.parametrize("rel", [r for r in CHAT_APP.files if r.endswith(".js")])
-def test_the_template_js_parses(rel):
+@pytest.mark.parametrize(
+    ("template_id", "rel"),
+    [(t, r) for t in ALL_TEMPLATES for r in UiTemplates().get(t).files if r.endswith(".js")],
+)
+def test_the_template_js_parses(template_id, rel):
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
     proc = subprocess.run(
-        [node, "--check", str(CHAT_APP_DIR / rel)], capture_output=True, text=True
+        [node, "--check", str(_dir(template_id) / rel)], capture_output=True, text=True
     )
     assert proc.returncode == 0, proc.stderr
 
 
-def test_every_element_it_reaches_for_exists_in_the_markup():
+@pytest.mark.parametrize("template_id", ALL_TEMPLATES)
+def test_every_element_it_reaches_for_exists_in_the_markup(template_id):
     """`getElementById('x')` where index.html has no `x` returns null, and the next property
     access throws — inside an IIFE that runs at boot, so ONE missing id kills every control on
     the page. Cheap to check, invisible until someone opens the window."""
     import re
 
-    html = (CHAT_APP_DIR / "index.html").read_text(encoding="utf-8")
+    html = (_dir(template_id) / "index.html").read_text(encoding="utf-8")
     declared = set(re.findall(r'\bid="([^"]+)"', html))
     # ids created by JS at runtime rather than declared in the markup
     made_at_runtime = {"hero", "suggests", "setMsg", "setSave"}
 
     missing: dict[str, set[str]] = {}
-    for rel, src in _js_sources().items():
+    for rel, src in _sources_of(template_id).items():
         asked = set(re.findall(r"""\$\(\s*['"]([\w-]+)['"]\s*\)""", src))
         asked |= set(re.findall(r"""getElementById\(\s*['"]([\w-]+)['"]""", src))
         gap = asked - declared - made_at_runtime
@@ -118,11 +144,12 @@ def test_every_element_it_reaches_for_exists_in_the_markup():
     assert not missing, f"ids reached for but never declared: {missing}"
 
 
-def test_it_hardcodes_no_agent_id():
+@pytest.mark.parametrize("template_id", ALL_TEMPLATES)
+def test_it_hardcodes_no_agent_id(template_id):
     """The daemon forces this window's own agent onto every request, so an id written into the
     page is a second copy to keep in sync with agent.toml — and naming a SPECIFIC agent would
     be worse: a user's fresh install has none of the agents in this checkout."""
-    for rel, src in _js_sources().items():
+    for rel, src in _sources_of(template_id).items():
         for banned in ("agent-builder", "weather", "inbox-triage", "expense-summarizer"):
             assert banned not in src, f"{rel} names the agent '{banned}'"
 

@@ -62,13 +62,30 @@ class Response:
 
 
 def _resolved(value: str) -> str:
-    """Substitute `${NAME}` from this process's environment (the UNSANDBOXED path)."""
+    """Substitute `${NAME}` from this process's environment (the UNSANDBOXED path).
+
+    A name the RUNNING AGENT declared under `agent.toml [[settings]]` is stored privately, as
+    `<agent-id>__NAME`, so two agents can hold two different accounts for the same service.
+    Everything else is the machine-wide variable it has always been. `current_setting_env` owns
+    that rule; this function only has to ask.
+    """
+    from agent_runtime.application.run_context import current_oauth_token, current_setting_env
+
+    re = __import__("re")
+    # `${oauth:<name>}` — a LIVE token from the connection the agent signed in to, refreshed on
+    # the way out if it was about to expire. Substituted here for the same reason a secret is:
+    # the plugin says where the credential belongs and never holds one.
+    resolved = re.sub(
+        r"\$\{oauth:([A-Za-z0-9_-]+)\}",
+        lambda m: current_oauth_token(m.group(1)) or m.group(0),
+        value or "",
+    )
     names = {}
-    for name in __import__("re").findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", value or ""):
-        env = os.environ.get(name)
+    for name in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", resolved):
+        env = os.environ.get(current_setting_env(name))
         if env:
             names[name] = env
-    return substitute(value, names)
+    return substitute(resolved, names)
 
 
 def fetch(

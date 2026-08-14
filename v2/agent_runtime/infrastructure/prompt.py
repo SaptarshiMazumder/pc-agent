@@ -129,8 +129,11 @@ def _capabilities_section(tools, config, agent=None) -> str | None:
     names = {getattr(t, "name", "") for t in tools}
 
     def _gate(attr: str, global_val) -> bool:
-        spec_val = getattr(agent, attr, None) if agent else None
-        return bool(global_val) if spec_val is None else bool(spec_val)
+        # The domain owns the rule so this and the TOOLSET cannot drift — an agent told it can do
+        # something it has no tool for reads as the model lying.
+        from agent_runtime.domain.agent import capability_enabled
+
+        return capability_enabled(agent, attr, global_val)
 
     autonomy = _gate("autonomy_enabled", getattr(config, "autonomy_enabled", False))
     notify = _gate("notify_enabled", getattr(config, "notify_enabled", False))

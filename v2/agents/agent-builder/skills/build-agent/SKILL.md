@@ -12,6 +12,98 @@ reference; follow it exactly and a by-chat agent is byte-identical to a hand-aut
 
 Author files with the `write` tool. Paths may be absolute.
 
+**READ THE ORDER OF WORK BELOW FIRST, THEN FOLLOW IT.** Everything after it is reference —
+look things up there as each step needs them. The reference is long because the file format
+is exact; the procedure is short because it is what you actually do.
+
+## Order of work
+
+0. **ASK THE USER WHAT WINDOW IT SHOULD HAVE. Every time, before you build.**
+
+   ```
+   What should its window be?
+     1. None       — no window; reached from JARVIS chat or on a schedule
+     2. Chat       — a conversation window of its own
+     3. Dashboard  — numbers/charts on screen the moment it opens
+     4. Workbench  — drop files in, watch each one process
+   ```
+
+   This is a PRODUCT decision and it is theirs, not yours. Recommend one and say why in a single
+   line — a monitor wants a dashboard, an ingester wants a workbench — then use what they choose.
+   A default picked silently is how an agent that should have had a screen ends up as another
+   chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
+
+   Three more decisions, which ARE yours — answer them from the sections above, do not ask:
+   - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
+     snapshots + a skill for the routine. See "Design it as a MECHANISM".
+   - Does it reach a **third-party service**? Then `[[mcp]]`, not your own tools — and
+     `web_search` the service first rather than guessing what its API or MCP server offers.
+   - What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
+1. `agents_list` — check the id is free and learn the agents directory path.
+2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
+   first; the agent is resolvable from this moment.
+3. **`scaffold_ui`** — if it needs a window, with the template that matches the shape
+   (`chat-app` / `dashboard-app` / `workbench-app`). Then EDIT what it wrote. Never hand-write
+   `ui/` files: the run-event payload is nested and streamed text is `message_update/text_delta`,
+   and a page that gets either wrong connects, logs nothing, and never updates the screen.
+   Remember `[app]` in `agent.toml` — this tool writes files, not configuration.
+4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
+   For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
+   and writes the plugin in the right shape for you.
+5. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
+   things being silently ignored, things that only break at installer-build time, and tools
+   that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
+6. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
+   plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
+   served straight off disk, so both are live the moment you save.
+7. **RUN IT. Then read what actually happened, fix, and run it again.**
+
+   ```
+   agentd ask --agent <id> "<something a real user would say>"
+   ```
+
+   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
+   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
+
+   That trace is the point. These two look identical in prose and are completely different:
+
+   ```
+   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
+   --- tools called: NONE                                      <- it described the work
+   ```
+
+   Ask it two or three things a real user would ask. Then LOOK at the answer:
+   - Did it call the tools that fetch data, or just talk about them?
+   - Is the answer real, or a plausible-sounding placeholder?
+   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
+     crashing tool. Fix it and run again.
+
+   **Do not skip this and do not declare an agent finished without it.** Everything before this
+   step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
+   `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
+   exactly the agent that turns out to be empty when the user opens it.
+
+8. **Show the user what you built and ask.** Name the two or three decisions you took that they
+   might disagree with — the shape of the window, what it stores, what it does on a schedule —
+   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
+   something; say which thing.
+9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
+   re-validates first and refuses on errors, so a broken agent never reaches anyone else.
+
+## Rules that always apply
+
+These hold at every step above.
+
+- **Never invent a config key.** If a knob is not in this document, read an existing
+  agent's `agent.toml` and copy the shape, or ask.
+- One concern per file. Identity in IDENTITY.md, rules in AGENTS.md, procedures in skills.
+- Prefer a **skill** (markdown, no code) over a tool. Reach for a private plugin only when
+  a genuinely new capability is needed.
+- Keep `[tools] allow` tight when the agent's job is narrow — it reduces mistakes and cost.
+- After creating an agent, state exactly which files you wrote and where.
+
+---
+
 ## Where you may write
 
 **Inside the agent you are authoring, and nowhere else.** This is enforced — `write`, `edit`,
@@ -171,10 +263,123 @@ resolution = "1K"                  # whatever knobs THAT tool documents
 
 [plugins.<other-plugin>.tools.<other-tool>]
 model = "gemini/gemini-2.5-flash"
+
+# ---- what this agent needs from whoever RUNS it (omit if it needs nothing) ----
+# The declaration ships. The values never do — see "[[settings]]" below.
+[[settings]]
+key      = "ACME_API_KEY"
+label    = "Acme API key"
+kind     = "secret"                # secret | text | url
+required = true
+help     = "Read-only key from Settings → API in Acme."
+
+# ---- MCP servers this agent brings with it (omit if it needs none) ----
+# Declared HERE, not with add_mcp: agent.toml travels in the package, agentd.config.json does not.
+# See the connect-mcp skill.
+[[mcp]]
+name    = "acme"                                 # tool namespace -> acme__*
+command = ["uvx", "acme-mcp-server@latest"]      # stdio; OR url = "https://api.acme.com/mcp"
+env     = { ACME_API_KEY = "${ACME_API_KEY}" }   # ${…} names a [[settings]] key above
 ```
 
 An agent's private tools (in `plugins/` below) are **implicitly allowed** and never need
 naming in `[tools] allow`.
+
+### `[[settings]]` — what the agent needs from whoever runs it
+
+An API key, a database URL, an endpoint. Anything that differs per person and that **you must not
+know**. Declare it and the daemon does the rest: the agent's settings page grows a field for it,
+and whatever the user types lands in the `.env` on **their** machine.
+
+```toml
+[[settings]]
+key      = "COINBASE_API_KEY"      # the ENV VAR NAME — this is what your code reads
+label    = "Coinbase API key"      # what the settings page calls it; defaults to `key`
+kind     = "secret"                # secret | text | url. Unknown kinds fall back to text.
+required = true                    # the page says "required — not set yet" until it is filled
+help     = "Read-only key from Settings → API in Coinbase."
+
+[[settings]]
+key   = "TRADING_DB_URL"
+label = "Database URL"
+kind  = "url"
+```
+
+**The declaration ships; the value never does.** `agent.toml` travels inside the package, so every
+installer sees the field. `.env` is excluded from packaging and always was. A downloader opens the
+settings page, sees empty fields, and fills in their own.
+
+**Each agent's values are its own.** On disk they are stored as `<agent-id>__<KEY>`, so two agents
+that both declare `AWS_ACCESS_KEY_ID` hold two different accounts instead of overwriting each
+other. You never write the prefix and never read it: you declare `AWS_ACCESS_KEY_ID`, your code
+reads `${AWS_ACCESS_KEY_ID}`, and the daemon maps between them. It is only worth knowing so the
+line in `.env` doesn't surprise you. Provider keys (`ANTHROPIC_API_KEY` and friends) are NOT
+prefixed — those are one machine-wide credential shared by every agent, by design.
+
+So: **never put a key IN `agent.toml`.** That file is the packaged one. Writing
+`api_key = "sk-live-…"` there ships your credential to everyone who installs the agent.
+
+**A declaration is also a permission.** `config.set` will write the provider keys and the names
+this agent declared — nothing else. An undeclared name is refused with an error naming it. That is
+why a field that does not work is almost always a field you forgot to declare.
+
+**`kind = "secret"` is write-only in the UI.** The user sees "•••• saved" and can replace it, never
+read it back — the same rule the provider keys already follow inside an installed agent, for the
+same reason. `text` and `url` values ARE shown, so a typo is fixable.
+
+Reading the value in a private tool: it is an ordinary environment variable, so
+`[sandbox] secrets = ["COINBASE_API_KEY"]` in that plugin's `plugin.toml` and the
+`${COINBASE_API_KEY}` placeholder — see "Calling an external API from a private tool".
+
+**Custom settings make an agent local-only for now.** The values live in the daemon's `.env`, and a
+hosted daemon has one `.env` shared by every account — one user's key would become everyone's.
+Until per-account secrets exist, an agent with `[[settings]]` is for a local install. Say so when
+you build one.
+
+### `[[mcp]]` — servers the agent brings with it
+
+A whole toolset somebody else wrote. Declare it in `agent.toml` so it survives publishing, wire
+its credentials to `[[settings]]` keys, and **read the `connect-mcp` skill before you do** — it
+covers public vs private servers, why `add_mcp` is not the answer, and how to verify a connection
+instead of assuming one. The short version:
+
+- `${NAME}` in an `[[mcp]]` block must be a `[[settings]]` key of the same agent. The daemon
+  refuses to connect a server whose referenced settings are empty, so an agent can never silently
+  run on the daemon's own credentials.
+- Never inline a real credential — `agent.toml` ships.
+- A `command` server launches a process on the user's machine, so they approve the exact command
+  once on the settings page. A `url` server needs no approval.
+- Check `mcp.status` and name the tools back. A server that connects and exposes nothing looks
+  identical to one that worked.
+
+### `[[oauth]]` — services the user signs in to
+
+Most services worth connecting to have no API key to paste: you sign in, and they hand back a
+token that expires. Declare that too.
+
+```toml
+[[oauth]]
+name   = "myhealth"
+server = "https://api.myhealth.app"     # endpoints DISCOVERED from here (RFC 8414)
+scopes = ["read:records"]
+# a classic provider (Google, Notion, Coinbase) needs an app registered up front, so instead:
+# authorize_url = "https://accounts.example.com/o/oauth2/auth"
+# token_url     = "https://oauth2.example.com/token"
+# client_id     = "${MYHEALTH_CLIENT_ID}"       <- a [[settings]] key, so the INSTALLER
+# client_secret = "${MYHEALTH_CLIENT_SECRET}"      registers their own app
+```
+
+Then either wire it to an MCP server — `auth = "oauth:myhealth"` in the `[[mcp]]` block, instead
+of a `headers` line — or use it from a private tool:
+`headers={"Authorization": "Bearer ${oauth:myhealth}"}`. Both read the same connection, so the
+user signs in once.
+
+**Never hard-code a `client_id`/`client_secret`.** They identify YOUR registered app; shipping
+them means every installer's sign-ins run through your app. Declare them as `[[settings]]`.
+
+The tokens are per agent and per machine, stored under `<state_dir>/oauth/`. They are never
+packaged, and — say this plainly if a user asks — they are stored unencrypted, the same as every
+other credential the daemon holds.
 
 ### Read the tool catalog before you choose
 
@@ -277,6 +482,57 @@ Three files, three distinct jobs. Do not merge them.
 
 Never author `presentation.json` — the daemon fills in tagline/suggestions itself.
 
+## Design it as a MECHANISM, not a chat box with tools
+
+The most common bad agent is one that owns a subject and does nothing until asked. It waits, then
+works out from scratch how to fetch what it needs, then answers, then forgets. Everything it
+learned is gone by the next message, and the same reasoning happens again.
+
+A real agent has **standing machinery**: it runs on its own, keeps what it found, and compares
+today against yesterday. Three questions decide the whole design:
+
+**Does it run on its own?** Anything called a monitor, tracker, watcher, digest or report does.
+Give it `heartbeat` + `[capabilities] autonomy = true`, and a `HEARTBEAT.md` that says exactly
+what one tick does. A cost monitor with no heartbeat is not a cost monitor; it is a chat box that
+knows about billing.
+
+**Does it need to remember?** Anything that reports change does — "up 20% on last week" is
+impossible without last week. Write each run's result to its own `workspace/` as a dated file or
+a small JSON, and read the previous one back. Thresholds, baselines and last-seen markers all
+live there. An agent that stores nothing can only ever describe NOW.
+
+**Does it repeat a procedure?** Then write it as a `skills/<name>/SKILL.md` — the fetch, the
+shape of the data, the comparison, what counts as worth reporting. A procedure left implicit is
+re-derived every turn, differently each time. That is also why two runs of the same agent can
+disagree about the same numbers.
+
+```
+monitor / tracker / watcher   heartbeat + workspace snapshots + a skill for the routine
+assistant / helper            tools + skills, on demand — no heartbeat
+ingester                      a workbench UI + a skill for the per-item procedure
+reporter                      heartbeat + snapshots + a dashboard reading THOSE snapshots
+```
+
+The dashboard point matters: a dashboard should render **stored state**, not fire a live fetch
+every time someone opens the window. That is what makes it instant, and what lets it show a
+trend at all.
+
+**Research before you design.** Use `web_search` / `web_fetch` to read the actual API or MCP
+server you are about to integrate — what it exposes, what it needs, what its rate limits are.
+Do not build against a remembered API shape: name the tools you found, and if you could not find
+them, say so rather than guessing a package name.
+
+## When you are blocked, say so in one line and ask
+
+Check anything you CAN check — your own files, your tools, your workspace — and answer from that.
+But when the cause is somewhere you cannot see (daemon state, a tool that simply is not there,
+another agent's setup), name what is missing in one sentence and ask the user.
+
+**Do not diagnose a system you cannot inspect.** An explanation you have no way to verify reads
+like an answer and is not one — and it is worse than silence when it sends the user to fix
+something that was never broken. Every agent you build should follow this rule too; put it in its
+`AGENTS.md` in your own words.
+
 ## skills/ — playbooks
 
 `agents/<id>/skills/<skill-name>/SKILL.md`. An agent sees the global library
@@ -307,6 +563,30 @@ _trigger condition_ ("Use when…"), because that line is all the model sees bef
 reload, no restart.
 
 ## plugins/ — the agent's own tools
+
+### FIRST: does this tool already exist as an MCP server?
+
+**Before writing a tool that calls a third-party service — AWS, GitHub, Notion, Slack, Stripe,
+a database, anything with an API — check whether an MCP server already exists for it.** Nearly
+all of them do, written and maintained by that service or its community, and one `[[mcp]]` block
+gets you the whole toolset.
+
+| the tool would… | do this |
+|---|---|
+| call a third-party API | **`[[mcp]]`** — see the `connect-mcp` skill |
+| run local logic: parse, compute, transform, read the workspace | write it here |
+| drive something only this machine has | write it here |
+
+Writing your own wrapper around a public API is the slow, brittle path AND it usually does not
+work: a private tool is SANDBOXED once someone installs the agent, so it has no network and no
+credentials unless you declare them, and an SDK like `boto3` cannot function inside that box at
+all. If you find yourself writing placeholder tools and explaining the sandbox to the user, stop
+— that is this decision arriving too late.
+
+`[[mcp]]` also travels with the agent; a private tool you wrote for a public API is a maintenance
+burden you now own on every machine that installs it.
+
+### The format
 
 `agents/<id>/plugins/<plugin-id>/`. Same format as a global plugin, but visible only to
 this agent. Two files minimum:
@@ -497,10 +777,49 @@ if it exists; otherwise tell the user a restart is needed.
 Requires an `[app]` section. Served by the daemon at `/apps/<id>/` on the **same origin as
 the WebSocket**, straight from disk on every request — edit a file, reload the window, done.
 
-### Start with `scaffold_ui`. Do not write these files by hand.
+### First decide the SHAPE. Chat is a default, not the answer.
+
+Pick from what the agent DOES, not from what is easiest to scaffold:
+
+| the agent… | the shape | what the window is |
+|---|---|---|
+| holds a conversation | **chat** | a thread and a composer |
+| runs on its own and reports | **dashboard** | numbers, a chart, a table, a Refresh button |
+| ingests a pile of things | **workbench** | a drop zone and a queue with per-item status |
+| produces artifacts to review | **viewer** | the artifact, plus the two or three actions on it |
+
+A trading monitor whose window is a chat box makes the user type "what's my P&L" to see a number
+that should already be on the screen. A file-ingest agent whose window is a chat box makes them
+describe files they could have dropped. **Chat is right when the work genuinely is a conversation
+and wrong when it is a substitute for a control.**
+
+Chat and dashboard are both templates (`scaffold_ui(template='dashboard-app')`). Viewer has no
+template — build it from the dashboard, replacing the tiles with whatever the artifact is.
+
+### A window is not limited to chatting
+
+These are the primitives. Everything a shape needs is here, and none of it requires a chat turn:
 
 ```
-scaffold_ui(agent_id='<id>')      →  a complete, working app in agents/<id>/ui/
+client.invokeTool(name, args)     run one of THIS agent's tools directly — no conversation,
+                                  no model call, no tokens spent. The dashboard Refresh button.
+client.request('workspace.upload', {...})   accept dropped files
+client.request('workspace.list', {...})     + GET /file — read what the agent produced
+client.request('config.get' | 'config.set') parameters, and the [[settings]] fields
+client.on('chat.event', …)        live progress while something long runs
+agentd.resultText(res)            a tool result -> the text to show
+```
+
+`invokeTool` is the one that changes what a window can be: a button that does the thing, in
+milliseconds, with no model in the loop. Use chat for what needs judgement and tools for what
+needs doing — most agents want both, in one window.
+
+### Then `scaffold_ui`. Do not write these files by hand.
+
+```
+scaffold_ui(agent_id='<id>')                          →  chat app (default)
+scaffold_ui(agent_id='<id>', template='dashboard-app') →  dashboard
+scaffold_ui(agent_id='<id>', template='workbench-app') →  drop-zone + queue
 ```
 
 It copies a chat app that already streams replies, shows live tool rows, takes pasted
@@ -655,6 +974,11 @@ notifications.list
 notifications.ack
 config.get
 config.set
+mcp.status
+mcp.approve
+oauth.connect
+oauth.status
+oauth.disconnect
 platform.status
 platform.connect
 platform.disconnect
@@ -665,6 +989,23 @@ that is how a shipped agent asks its user for their own API key (BYOK). One limi
 agent installed from a package, `config.get` omits the secret-bearing fields (`envValues`,
 `raw`, `path`) — you can see _that_ a key is set and write a new one, never read one back.
 Everything else — installs, projects, automation — is host-only and denied.
+
+`mcp.status` reports the servers THIS agent declared in `[[mcp]]` — for each one its transport,
+the exact command, which `${…}` settings it needs, the tools it is currently providing, and a
+`problem` string when it is not up (a missing credential, or a command awaiting approval).
+`mcp.approve {name}` records the user's consent to launch one stdio server's command. Both are
+forced onto this agent, so a page can only ever see and approve its own servers.
+
+`oauth.connect {name}` starts a sign-in and returns `authorizeUrl` — **the page opens it**, the
+daemon does not. `oauth.status` says which declared connections are signed in and as whom;
+`oauth.disconnect {name}` forgets the tokens. Same scoping rule: an agent's page can only see and
+start its own.
+
+`config.get` also returns this agent's own `[[settings]]`: `settings` (the declared fields),
+`settingsValues` (the non-secret ones only), and a presence flag per key in `env`. `config.set`
+accepts the provider keys and those declared names, nothing else — an undeclared name comes back
+`{saved: false, error: "not writable from here: …"}`. The template's settings page already renders
+all of it; you only declare the fields.
 
 ### Sign-in
 
@@ -724,31 +1065,3 @@ Author with packaging in mind:
   (`publisher`, `entitlement`, a bundle id that differs from the agent id, shared plugin
   dependencies). If it declares `version`, it **outranks** `agent.toml` — so normally leave
   that key out and let the agent's own version rule.
-
-## Order of work
-
-1. `agents_list` — check the id is free and learn the agents directory path.
-2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
-   first; the agent is resolvable from this moment.
-3. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files, `ui/`.
-   For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
-   and writes the plugin in the right shape for you.
-4. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
-   things being silently ignored, things that only break at installer-build time, and tools
-   that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
-5. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
-   plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
-   served straight off disk, so both are live the moment you save.
-6. Tell the user how to try it: a new chat with that agent, or its app window.
-7. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
-   re-validates first and refuses on errors, so a broken agent never reaches anyone else.
-
-## Rules
-
-- **Never invent a config key.** If a knob is not in this document, read an existing
-  agent's `agent.toml` and copy the shape, or ask.
-- One concern per file. Identity in IDENTITY.md, rules in AGENTS.md, procedures in skills.
-- Prefer a **skill** (markdown, no code) over a tool. Reach for a private plugin only when
-  a genuinely new capability is needed.
-- Keep `[tools] allow` tight when the agent's job is narrow — it reduces mistakes and cost.
-- After creating an agent, state exactly which files you wrote and where.

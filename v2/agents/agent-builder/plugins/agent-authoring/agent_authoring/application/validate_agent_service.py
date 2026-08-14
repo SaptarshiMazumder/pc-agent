@@ -26,6 +26,7 @@ class ValidateAgentService:
         ui_rules=None,
         tool_grant_rules=None,
         portability_rules=None,
+        declaration_rules=None,
     ):
         self._reader = reader
         self._layout = layout_rules
@@ -35,6 +36,9 @@ class ValidateAgentService:
         # does not get that check, rather than failing to construct.
         self._grants = tool_grant_rules
         self._portability = portability_rules
+        # [[settings]] / [[mcp]] / [[oauth]] coherence. Optional like the two below: a caller
+        # that does not inject it simply does not get the check.
+        self._declarations = declaration_rules
         # Optional so the service still constructs where the runtime's event/method vocabulary
         # is not available to inject (unit tests). Absent => the app code simply is not read.
         self._ui = ui_rules
@@ -90,6 +94,8 @@ class ValidateAgentService:
             findings += self._grants.check(spec, raw, files)
         if self._portability is not None:
             findings += self._portability.check(spec, raw, files)
+        if self._declarations is not None:
+            findings += self._declarations.check(spec, raw, files, sources)
         if self._ui is not None:
             findings += self._ui.check(spec, raw, files, sources)
         # Checks emit what they detect; the RULEBOOK decides what each code weighs. One
