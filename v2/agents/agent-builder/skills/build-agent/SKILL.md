@@ -12,6 +12,98 @@ reference; follow it exactly and a by-chat agent is byte-identical to a hand-aut
 
 Author files with the `write` tool. Paths may be absolute.
 
+**READ THE ORDER OF WORK BELOW FIRST, THEN FOLLOW IT.** Everything after it is reference —
+look things up there as each step needs them. The reference is long because the file format
+is exact; the procedure is short because it is what you actually do.
+
+## Order of work
+
+0. **ASK THE USER WHAT WINDOW IT SHOULD HAVE. Every time, before you build.**
+
+   ```
+   What should its window be?
+     1. None       — no window; reached from JARVIS chat or on a schedule
+     2. Chat       — a conversation window of its own
+     3. Dashboard  — numbers/charts on screen the moment it opens
+     4. Workbench  — drop files in, watch each one process
+   ```
+
+   This is a PRODUCT decision and it is theirs, not yours. Recommend one and say why in a single
+   line — a monitor wants a dashboard, an ingester wants a workbench — then use what they choose.
+   A default picked silently is how an agent that should have had a screen ends up as another
+   chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
+
+   Three more decisions, which ARE yours — answer them from the sections above, do not ask:
+   - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
+     snapshots + a skill for the routine. See "Design it as a MECHANISM".
+   - Does it reach a **third-party service**? Then `[[mcp]]`, not your own tools — and
+     `web_search` the service first rather than guessing what its API or MCP server offers.
+   - What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
+1. `agents_list` — check the id is free and learn the agents directory path.
+2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
+   first; the agent is resolvable from this moment.
+3. **`scaffold_ui`** — if it needs a window, with the template that matches the shape
+   (`chat-app` / `dashboard-app` / `workbench-app`). Then EDIT what it wrote. Never hand-write
+   `ui/` files: the run-event payload is nested and streamed text is `message_update/text_delta`,
+   and a page that gets either wrong connects, logs nothing, and never updates the screen.
+   Remember `[app]` in `agent.toml` — this tool writes files, not configuration.
+4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
+   For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
+   and writes the plugin in the right shape for you.
+5. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
+   things being silently ignored, things that only break at installer-build time, and tools
+   that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
+6. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
+   plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
+   served straight off disk, so both are live the moment you save.
+7. **RUN IT. Then read what actually happened, fix, and run it again.**
+
+   ```
+   agentd ask --agent <id> "<something a real user would say>"
+   ```
+
+   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
+   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
+
+   That trace is the point. These two look identical in prose and are completely different:
+
+   ```
+   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
+   --- tools called: NONE                                      <- it described the work
+   ```
+
+   Ask it two or three things a real user would ask. Then LOOK at the answer:
+   - Did it call the tools that fetch data, or just talk about them?
+   - Is the answer real, or a plausible-sounding placeholder?
+   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
+     crashing tool. Fix it and run again.
+
+   **Do not skip this and do not declare an agent finished without it.** Everything before this
+   step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
+   `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
+   exactly the agent that turns out to be empty when the user opens it.
+
+8. **Show the user what you built and ask.** Name the two or three decisions you took that they
+   might disagree with — the shape of the window, what it stores, what it does on a schedule —
+   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
+   something; say which thing.
+9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
+   re-validates first and refuses on errors, so a broken agent never reaches anyone else.
+
+## Rules that always apply
+
+These hold at every step above.
+
+- **Never invent a config key.** If a knob is not in this document, read an existing
+  agent's `agent.toml` and copy the shape, or ask.
+- One concern per file. Identity in IDENTITY.md, rules in AGENTS.md, procedures in skills.
+- Prefer a **skill** (markdown, no code) over a tool. Reach for a private plugin only when
+  a genuinely new capability is needed.
+- Keep `[tools] allow` tight when the agent's job is narrow — it reduces mistakes and cost.
+- After creating an agent, state exactly which files you wrote and where.
+
+---
+
 ## Where you may write
 
 **Inside the agent you are authoring, and nowhere else.** This is enforced — `write`, `edit`,
@@ -929,87 +1021,3 @@ Author with packaging in mind:
   (`publisher`, `entitlement`, a bundle id that differs from the agent id, shared plugin
   dependencies). If it declares `version`, it **outranks** `agent.toml` — so normally leave
   that key out and let the agent's own version rule.
-
-## Order of work
-
-0. **ASK THE USER WHAT WINDOW IT SHOULD HAVE. Every time, before you build.**
-
-   ```
-   What should its window be?
-     1. None       — no window; reached from JARVIS chat or on a schedule
-     2. Chat       — a conversation window of its own
-     3. Dashboard  — numbers/charts on screen the moment it opens
-     4. Workbench  — drop files in, watch each one process
-   ```
-
-   This is a PRODUCT decision and it is theirs, not yours. Recommend one and say why in a single
-   line — a monitor wants a dashboard, an ingester wants a workbench — then use what they choose.
-   A default picked silently is how an agent that should have had a screen ends up as another
-   chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
-
-   Three more decisions, which ARE yours — answer them from the sections above, do not ask:
-   - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
-     snapshots + a skill for the routine. See "Design it as a MECHANISM".
-   - Does it reach a **third-party service**? Then `[[mcp]]`, not your own tools — and
-     `web_search` the service first rather than guessing what its API or MCP server offers.
-   - What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
-1. `agents_list` — check the id is free and learn the agents directory path.
-2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
-   first; the agent is resolvable from this moment.
-3. **`scaffold_ui`** — if it needs a window, with the template that matches the shape
-   (`chat-app` / `dashboard-app` / `workbench-app`). Then EDIT what it wrote. Never hand-write
-   `ui/` files: the run-event payload is nested and streamed text is `message_update/text_delta`,
-   and a page that gets either wrong connects, logs nothing, and never updates the screen.
-   Remember `[app]` in `agent.toml` — this tool writes files, not configuration.
-4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
-   For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
-   and writes the plugin in the right shape for you.
-5. **`validate_agent`** — always. It reports three classes of problem the daemon will not:
-   things being silently ignored, things that only break at installer-build time, and tools
-   that will not survive the sandbox. Fix every `[x]`, then call it again until clean.
-6. **`reload_agent`** — after creating an agent, editing `agent.toml`, or adding a private
-   plugin. NOT needed for skills or `ui/`: a SKILL.md is re-read every turn and `ui/` is
-   served straight off disk, so both are live the moment you save.
-7. **RUN IT. Then read what actually happened, fix, and run it again.**
-
-   ```
-   agentd ask --agent <id> "<something a real user would say>"
-   ```
-
-   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
-   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
-
-   That trace is the point. These two look identical in prose and are completely different:
-
-   ```
-   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
-   --- tools called: NONE                                      <- it described the work
-   ```
-
-   Ask it two or three things a real user would ask. Then LOOK at the answer:
-   - Did it call the tools that fetch data, or just talk about them?
-   - Is the answer real, or a plausible-sounding placeholder?
-   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
-     crashing tool. Fix it and run again.
-
-   **Do not skip this and do not declare an agent finished without it.** Everything before this
-   step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
-   `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
-   exactly the agent that turns out to be empty when the user opens it.
-
-8. **Show the user what you built and ask.** Name the two or three decisions you took that they
-   might disagree with — the shape of the window, what it stores, what it does on a schedule —
-   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
-   something; say which thing.
-9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
-   re-validates first and refuses on errors, so a broken agent never reaches anyone else.
-
-## Rules
-
-- **Never invent a config key.** If a knob is not in this document, read an existing
-  agent's `agent.toml` and copy the shape, or ask.
-- One concern per file. Identity in IDENTITY.md, rules in AGENTS.md, procedures in skills.
-- Prefer a **skill** (markdown, no code) over a tool. Reach for a private plugin only when
-  a genuinely new capability is needed.
-- Keep `[tools] allow` tight when the agent's job is narrow — it reduces mistakes and cost.
-- After creating an agent, state exactly which files you wrote and where.
