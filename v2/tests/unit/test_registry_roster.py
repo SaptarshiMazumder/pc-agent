@@ -21,6 +21,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -186,6 +187,8 @@ def _registry(tmp_path: Path, root, entries: list[dict], roster_block: dict | No
         }
         if spec.get("publisher_id"):
             row["publisher_id"] = spec["publisher_id"]
+        if spec.get("publisher"):
+            row["publisher"] = spec["publisher"]
         if spec.get("signer"):
             row["sig"] = signing.sign(spec["signer"], digest.encode("ascii"))
         bundles.append(row)
@@ -383,3 +386,85 @@ def test_an_unpinned_install_does_not_record_a_roster_date(tmp_path, root, acme)
     client = RegistryClient(str(directory), pinned_publisher_key="", trust_state_path=tmp_path / "t.json")
     asyncio.run(client.fetch_index())
     assert not (tmp_path / "t.json").exists()
+
+
+# ─────────────────────────── who published it, on the card ───────────────────────────
+#
+# The roster is the ONLY place a creator id has a name, and the entry carries only the id. So the
+# store's byline exists exactly to the extent that this join happens — and it happens daemon-side,
+# for the same reason installer urls are resolved there.
+
+
+def _catalog(directory: Path, root, tmp_path: Path) -> dict:
+    from agent_runtime.application.services.marketplace_service import MarketplaceService
+
+    return asyncio.run(
+        MarketplaceService(
+            registry_client=_client(directory, root, tmp_path),
+            installer=None,  # catalog() never installs anything
+            installed_store=SimpleNamespace(list=lambda: []),
+            agentd_version="1.0.0",
+            download_dir=tmp_path / "dl",
+        ).catalog()
+    )
+
+
+def test_the_catalog_names_the_creator_who_signed_each_bundle(tmp_path, root, acme):
+    """Both halves, because neither is enough. The id is what the signature was verified against
+    and is unique; the name is the half a reader can actually use."""
+    directory = _registry(
+        tmp_path, root, [{"id": "figures", "publisher_id": "acme", "signer": acme[0]}],
+        _roster(root, {"acme": acme[1]}),
+    )
+    row = _catalog(directory, root, tmp_path)["bundles"][0]
+    assert row["publisherId"] == "acme"
+    assert row["publisher"] == "Acme"  # off the SIGNED roster, never self-declared by the bundle
+
+
+def test_a_single_publisher_registry_names_its_one_publisher(tmp_path, root):
+    """Schema 1 entries carry no creator id because everything in such a registry was signed by
+    the index's one publisher. Blanking the byline there would read as 'nobody knows' about a
+    registry that knows perfectly well."""
+    directory = _registry(tmp_path, root, [{"id": "figures", "signer": root[0]}], None)
+    index_file = directory / "index.json"
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    index["publisher"] = "agentd"
+    index_file.write_text(json.dumps(index), encoding="utf-8")
+
+    row = _catalog(directory, root, tmp_path)["bundles"][0]
+    assert row["publisherId"] == ""
+    assert row["publisher"] == "agentd"
+
+
+def test_an_operator_built_entry_names_the_publisher_it_declared(tmp_path, root):
+    """No roster to look anyone up in, and the entry's own name is the index builder's — the same
+    party that signed everything in it."""
+    directory = _registry(
+        tmp_path, root, [{"id": "figures", "signer": root[0], "publisher": "agentd"}], None
+    )
+    assert _catalog(directory, root, tmp_path)["bundles"][0]["publisher"] == "agentd"
+
+
+def test_an_unlisted_creator_gets_no_name_from_its_own_manifest(tmp_path, root, acme):
+    """THE refusal that makes the byline worth reading. A creator id is checked against the signed
+    roster; a name in a bundle.toml is checked against nothing. Letting the second stand in when
+    the first is unknown would print a stranger's chosen words where a verified identity belongs —
+    which is worse than the bare id, because it looks like an answer."""
+    directory = _registry(
+        tmp_path,
+        root,
+        [{"id": "figures", "publisher_id": "ghost", "signer": acme[0], "publisher": "Acme Labs"}],
+        _roster(root, {"acme": acme[1]}),
+    )
+    row = _catalog(directory, root, tmp_path)["bundles"][0]
+    assert row["publisherId"] == "ghost"
+    assert row["publisher"] == ""
+
+
+def test_a_revoked_creator_still_has_a_name_to_show(root, acme):
+    """`trusted_keys` drops them and must — nothing they signed may install. Display must NOT:
+    a card that reads `c-9f2b…` where a name used to be says nothing about the row a reader is
+    looking at, and that row is the one about to refuse."""
+    roster = parse_publisher_roster(_roster(root, {"acme": acme[1]}, revoked=["acme"]))
+    assert roster.trusted_keys() == {}
+    assert roster.display_names() == {"acme": "Acme"}

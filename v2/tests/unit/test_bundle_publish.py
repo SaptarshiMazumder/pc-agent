@@ -30,7 +30,7 @@ from agent_runtime.infrastructure import signing
 from agent_runtime.infrastructure.marketplace.index_builder import build_index
 
 
-def _agent(tmp_path: Path, bundle_id: str, version: str = "1.0.0") -> Path:
+def _agent(tmp_path: Path, bundle_id: str, version: str = "1.0.0", publisher: str = "") -> Path:
     agent_dir = tmp_path / "agents" / bundle_id
     agent_dir.mkdir(parents=True)
     (agent_dir / "bundle.toml").write_text(
@@ -38,7 +38,8 @@ def _agent(tmp_path: Path, bundle_id: str, version: str = "1.0.0") -> Path:
         f'id = "{bundle_id}"\n'
         f'name = "{bundle_id}"\n'
         f'version = "{version}"\n'
-        'description = "a test agent"\n',
+        'description = "a test agent"\n'
+        + (f'publisher = "{publisher}"\n' if publisher else ""),
         encoding="utf-8",
     )
     (agent_dir / "IDENTITY.md").write_text("# test agent\n", encoding="utf-8")
@@ -107,6 +108,18 @@ def test_publishes_a_signed_registry_to_a_directory(tmp_path):
     assert (registry / entry["url"]).is_file()
     # The signature covers the sha256, which is what makes a rewritten index.json detectable.
     assert signing.verify(public_b64, entry["sha256"].encode("ascii"), entry["sig"])
+
+
+def test_the_manifest_publisher_reaches_the_index_entry(tmp_path):
+    """The store byline for an operator-published registry. There is no roster to look a name up
+    in here, and the one key-holder built this index from bundle.toml files they control — so the
+    name declared there is worth exactly as much as the id and description beside it."""
+    agent = _agent(tmp_path, "alpha", publisher="agentd")
+    key, _ = _keypair(tmp_path)
+    registry = tmp_path / "registry"
+
+    assert bundle_cli.run_publish(_args(agent_dir=[str(agent)], to=str(registry), key=str(key))) == 0
+    assert _index(registry)["bundles"][0]["publisher"] == "agentd"
 
 
 def test_second_publish_carries_the_first_forward(tmp_path):

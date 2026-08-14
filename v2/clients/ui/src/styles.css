@@ -1095,8 +1095,11 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 .card:hover { border-color: var(--border2); transform: translateY(-2px); box-shadow: var(--shadow); }
 .card-top { display: flex; align-items: flex-start; gap: 12px; }
 .card-icon { width: 42px; height: 42px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 11px; background: var(--accent-soft); }
-.card-name { font-weight: var(--fw-heavy); font-size: 15px; letter-spacing: -.01em; }
-.card-by { font: 11px var(--mono); color: var(--faint); margin-top: 2px; }
+/* Both truncate rather than wrap: the byline carries a publisher name and an id, either of which
+   can be long, and a card that grows a third line for one agent breaks the grid for every other.
+   Both carry a title="" with the full text, so nothing is actually lost. */
+.card-name { font-weight: var(--fw-heavy); font-size: 15px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-by { font: 11px var(--mono); color: var(--faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-desc { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.5; flex: 1; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badge { font: 10.5px var(--mono); padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--dim); }

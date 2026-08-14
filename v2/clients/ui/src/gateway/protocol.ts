@@ -131,6 +131,11 @@ export interface CatalogBundle {
   entitlement: string
   /** glyph name declared in the bundle manifest ('' => client default glyph) */
   icon?: string
+  /** the creator's name off the registry's signed roster ('' => this registry names nobody) */
+  publisher?: string
+  /** the opaque creator id this entry's signature was verified against ('' => single-publisher
+   *  registry, where `publisher` is the index's own publisher instead) */
+  publisherId?: string
   /** absent when the publisher shipped no installer for this bundle */
   installers?: InstallerAsset[]
   /** which doors the author opened (older daemons omit it: exe on, web off) */

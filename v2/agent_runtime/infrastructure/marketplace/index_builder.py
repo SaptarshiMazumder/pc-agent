@@ -208,6 +208,16 @@ def build_index(
         }
         if publisher_id:
             entry["publisher_id"] = publisher_id
+        elif manifest.publisher:
+            # WHO TO SHOW when there is no creator roster to look a name up in. This is the operator
+            # path: one key-holder builds the whole index from bundle.toml files they control, so
+            # the manifest's `publisher` is exactly as trustworthy as the id and name beside it.
+            #
+            # ONLY when the entry names no creator. In a schema-2 registry the roster is the signed
+            # answer to "who is this", while a manifest field is whatever the uploader typed —
+            # letting a stranger's bundle.toml name them would be an unverified claim rendered next
+            # to a verified id, which is worse than showing no name at all.
+            entry["publisher"] = manifest.publisher
         if private_key_b64:
             entry["sig"] = signing.sign(private_key_b64, digest.encode("ascii"))
         installers = _installers(directory, manifest.id, manifest.version, private_key_b64)

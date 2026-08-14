@@ -146,6 +146,10 @@ class RegistryEntry:
     icon: str = ""  # store-card glyph name ("" => client default)
     sig: str = ""  # base64 ed25519 over the sha256 digest (M7)
     publisher_id: str = ""  # schema 2: WHOSE key signed it (a roster id). "" => the index's own key
+    # The name an OPERATOR-built index carries for its own bundles, off bundle.toml. Only ever
+    # written when there is no `publisher_id`, i.e. when the index builder and the manifest author
+    # are the same party — a roster name is signed and this is not, so the two never compete.
+    publisher: str = ""
     installers: tuple[InstallerAsset, ...] = ()  # standalone downloads, one per platform
     delivery: DeliveryModes = DeliveryModes()  # which store actions this bundle offers
 
@@ -227,6 +231,15 @@ class PublisherRoster:
         """
         revoked = {r.strip() for r in self.revoked if r.strip()}
         return {e.id: e.key for e in self.entries if e.id and e.key and e.id not in revoked}
+
+    def display_names(self) -> dict[str, str]:
+        """id -> the name to SHOW for a creator. The only place a creator id has a name.
+
+        Revocations are NOT applied here, unlike ``trusted_keys``. A revoked creator's entries may
+        still be sitting in a catalog a client fetched, and rendering a bare `c-9f2b…` where a name
+        used to be tells a reader nothing about the row that is about to refuse to install.
+        """
+        return {e.id: (e.name or e.id) for e in self.entries if e.id}
 
 
 def roster_signing_payload(
@@ -445,6 +458,7 @@ def parse_registry_index(data: dict) -> RegistryIndex:
                 icon=str(raw.get("icon") or ""),
                 sig=str(raw.get("sig") or ""),
                 publisher_id=str(raw.get("publisher_id") or ""),
+                publisher=str(raw.get("publisher") or ""),
                 installers=_parse_installers(raw.get("installers")),
                 delivery=_parse_delivery(raw.get("delivery")),
             )
