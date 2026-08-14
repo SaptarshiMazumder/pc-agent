@@ -88,6 +88,12 @@ APP_SCOPED_METHODS = frozenset(
         "sessions.history",
         "sessions.rename",
         "sessions.delete",
+        # FORK. Copying a conversation is how a user keeps the context they built and takes it
+        # somewhere new — branch an experiment, keep a working thread intact before a risky
+        # instruction. It is a scoped write like rename/delete (agentId is forced to the
+        # connection's own agent), and strictly less dangerous than the delete already allowed:
+        # it only ever creates.
+        "sessions.duplicate",
         "agents.list",
         "agents.detail",
         "tools.list",
@@ -3634,6 +3640,10 @@ class Gateway:
                     "app": self._agent_app(aid, spec),
                     "mine": bool(owns(aid)) if callable(owns) else True,
                     "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
+                    # A reference implementation we ship (agents/samples/). Runnable like any
+                    # agent — an exemplar nobody executes rots — but a client keeps these in
+                    # their own section rather than in the list of agents the user built.
+                    "sample": bool(getattr(spec, "sample", False)),
                 }
             )
         return {

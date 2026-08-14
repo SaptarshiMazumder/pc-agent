@@ -83,7 +83,7 @@ class AddComponentService:
     """:param reader: resolves an agent id to its directory.
     :param components: the catalogue.
     :param component_root: templates/components/ — where a component's OWN files live.
-    :param borrow_root: Agent Builder's LIVE ui/, the single source for borrowed files."""
+    :param borrow_root: templates/_borrowed/, the single source for borrowed files."""
 
     def __init__(self, reader, components: UiComponents, component_root: Path, borrow_root: Path):
         self._reader = reader

@@ -187,3 +187,56 @@ def test_private_plugin_ships_inside_agentpkg(tmp_path):
     # and the INSTALLED copy's private tools discover cleanly (fresh root, no repo paths)
     out = discover_agent_plugins(agents_dir, SimpleNamespace(plugins={}))
     assert "kiosk_tool" in [t.name for t in out.get("kiosk", [])]
+
+
+# ---- samples/: the loader must reach every root the ROSTER reaches ------------------------------
+def test_a_sample_agents_private_tools_are_discovered(tmp_path):
+    """`agents/samples/<id>/` is a second definition root (FileAgentRegistry._scan_samples), so a
+    sample is a registered, runnable agent. Discovery scanned only one level, which made LOADING
+    stricter than the roster — the agent listed, opened its window, and every tool call came back
+    `tool not available`. A registered agent with none of its own tools is the worst kind of
+    broken: it looks installed and fails at first use."""
+    agents_dir = tmp_path / "agents"
+    _write_private_plugin(agents_dir, "ordinary", "top_tool", "tkit_priv_top_mod")
+    _write_private_plugin(agents_dir / "samples", "exemplar", "sample_tool", "tkit_priv_sample_mod")
+
+    out = discover_agent_plugins(agents_dir, SimpleNamespace(plugins={}))
+
+    assert "top_tool" in [t.name for t in out.get("ordinary", [])]
+    assert "sample_tool" in [t.name for t in out.get("exemplar", [])], (
+        "a sample's private tools must load — the registry registers it, so the loader must too"
+    )
+    # and the container folder is not itself an agent (it has no agent.toml)
+    assert "samples" not in out
+
+
+def test_the_samples_folder_alone_registers_nothing(tmp_path):
+    """The `agent.toml` guard still applies to the second root: a stray plugins/ dir directly
+    under samples/ must not become a tool of an agent called "samples"."""
+    agents_dir = tmp_path / "agents"
+    stray = agents_dir / "samples" / "plugins" / "x-kit"
+    stray.mkdir(parents=True)
+    (stray / "plugin.toml").write_text(
+        'id = "x-kit"\nname = "Kit"\nkind = "native"\nentry = "nope:register"\n', encoding="utf-8"
+    )
+    assert discover_agent_plugins(agents_dir, SimpleNamespace(plugins={})) == {}
+
+
+def test_tools_carry_the_folder_they_were_found_in(tmp_path):
+    """The private-tool map is keyed by LOCATION, and the container builds that key from
+    `_plugin_agent_dir` — the folder discovery actually walked — while the service looks it up
+    from the resolved spec's `dir`. If the stamp disagreed with the real folder the two keys
+    would never meet, and the agent would run with none of its own tools while the load log
+    reported shipping them. (The container used to rebuild the key as `root / id`, which is
+    exactly that bug for anything not sitting one level down.)"""
+    agents_dir = tmp_path / "agents"
+    _write_private_plugin(agents_dir / "samples", "nested", "nested_tool", "tkit_priv_nested_mod")
+
+    out = discover_agent_plugins(agents_dir, SimpleNamespace(plugins={}))
+    tools = out["nested"]
+    stamped = {getattr(t, "_plugin_agent_dir", "") for t in tools}
+
+    assert stamped == {str(agents_dir / "samples" / "nested")}, (
+        f"the stamp must be the real folder, not a reconstruction: {stamped}"
+    )
+    assert str(agents_dir / "nested") not in stamped

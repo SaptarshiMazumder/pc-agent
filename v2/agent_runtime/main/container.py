@@ -263,7 +263,21 @@ def build_service(
 
                 from agent_runtime.domain.agent import agent_dir_key
 
-                agent_map[agent_dir_key(_Path(root) / aid)] = _gate_and_wrap(
+                # THE KEY IS THE FOLDER THE PLUGIN WAS ACTUALLY FOUND IN, which the tools
+                # already carry (`_plugin_agent_dir`). Rebuilding it as `root / aid` assumed
+                # every agent sits exactly one level under the root — false for
+                # `agents/samples/<id>`, whose tools were then STORED under `.../agents/<id>`
+                # and LOOKED UP (by the resolved spec's real dir) under
+                # `.../agents/samples/<id>`. The keys never met, so the lookup returned nothing
+                # and the agent ran with none of its own tools while the load log cheerfully
+                # reported shipping six of them. Falling back to the old spelling keeps a tool
+                # whose stamp was refused (a name collision, logged loudly at discovery) working
+                # exactly as before.
+                owner_dir = next(
+                    (d for d in (getattr(t, "_plugin_agent_dir", "") for t in tlist) if d),
+                    "",
+                )
+                agent_map[agent_dir_key(owner_dir or _Path(root) / aid)] = _gate_and_wrap(
                     wrap_untrusted(
                         tlist,
                         sandbox=plugin_sandbox,

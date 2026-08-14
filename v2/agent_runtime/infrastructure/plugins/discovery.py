@@ -83,6 +83,24 @@ def discover_plugin_tools(config) -> list:
     return discover_plugin_contributions(config)[0]
 
 
+def _agent_dirs(root: Path):
+    """Every directory that can hold an agent definition — which is not just ``agents/*``.
+
+    THE ROSTER AND THE LOADER MUST AGREE. ``FileAgentRegistry`` scans a SECOND root,
+    ``agents/samples/`` (``_scan_samples``), so a sample is a registered, runnable agent. Scanning
+    only one level here made loading STRICTER than the roster, and the failure was silent in the
+    worst way: the agent appeared in the list, opened its window, and every tool call came back
+    `tool not available` — a registered agent with none of its own tools.
+
+    The ``agent.toml`` guard below still applies to everything yielded, so ``samples/`` itself is
+    skipped and only real definitions inside it are picked up.
+    """
+    yield from sorted(root.iterdir())
+    samples = root / "samples"
+    if samples.is_dir():
+        yield from sorted(samples.iterdir())
+
+
 def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitlement=None) -> dict:
     """The AGENT-PRIVATE plugin tier: ``agents/<id>/plugins/<pid>/plugin.toml`` ->
     ``{agent_id: [tools]}``.
@@ -99,7 +117,7 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
     root = Path(agents_dir or "")
     if not root.is_dir():
         return out
-    for agent_dir in sorted(root.iterdir()):
+    for agent_dir in _agent_dirs(root):
         pdir = agent_dir / "plugins"
         if not (agent_dir.is_dir() and pdir.is_dir()):
             continue

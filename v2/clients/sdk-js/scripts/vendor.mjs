@@ -3,19 +3,24 @@
  *
  *   node scripts/vendor.mjs            (runs automatically after `npm run build`)
  *
- * WHY THIS EXISTS. `UiTemplate.borrowed` says vendor/agentd-client.js comes from Agent Builder's
- * live ui/ so that "one source, copied at scaffold time, cannot drift". True for the copy INTO a
- * new agent — but nothing was copying the built SDK into that live ui/ in the first place, so the
+ * WHY THIS EXISTS. `UiTemplate.borrowed` says vendor/agentd-client.js is copied from one shared
+ * source so that "one source, copied at scaffold time, cannot drift". True for the copy INTO a
+ * new agent — but nothing was copying the built SDK into that source in the first place, so the
  * one source was itself a hand-updated file. It had already fallen behind dist/ by 12 KB.
  *
  * The drift is quiet and nasty: an agent app keeps whatever SDK it was scaffolded with, so a
  * method added to the SDK is simply absent on window.agentd — `agentd.mountSignInGate is not a
  * function` in one agent and fine in the next, with no version anywhere to compare.
  *
- * TARGETS: Agent Builder's ui/vendor (the canonical copy new agents are scaffolded from) plus
- * every agents/<id>/ui/vendor/agentd-client.js that ALREADY exists. Existing apps are updated
- * because a stale SDK talking to a current daemon is the failure this prevents; an agent with no
- * vendor/ dir is not given one, since that is a UI-less agent, not an out-of-date one.
+ * TARGETS: the borrow root under agent-builder's templates (the canonical copy new agents are
+ * scaffolded from) plus every agents/<id>/ui/vendor/agentd-client.js that ALREADY exists.
+ * Existing apps are updated because a stale SDK talking to a current daemon is the failure this
+ * prevents; an agent with no vendor/ dir is not given one, since that is a UI-less agent, not an
+ * out-of-date one.
+ *
+ * The canonical copy was `agent-builder/ui/vendor/` until that folder became a Vite build output.
+ * Writing the one source of the SDK into a directory that `npm run build` empties is a race the
+ * scaffolder loses, so it moved next to the templates that borrow it.
  */
 
 import fs from 'node:fs'
@@ -34,7 +39,12 @@ if (!fs.existsSync(built)) {
 const bytes = fs.readFileSync(built)
 
 const targets = []
-const canonical = path.join(v2, 'agents', 'agent-builder', 'ui', 'vendor', 'agentd-client.js')
+// Kept in step with BundleLayout.BORROW_ROOT on the Python side. If these two disagree, scaffolding
+// hands new agents whatever stale SDK happens to be at the path it reads.
+const canonical = path.join(
+  v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates', '_borrowed',
+  'vendor', 'agentd-client.js'
+)
 targets.push(canonical) // written even if absent: this is the copy scaffolding reads
 
 const agentsDir = path.join(v2, 'agents')

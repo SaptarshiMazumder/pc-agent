@@ -1,0 +1,5 @@
+id = "paper-library"
+name = "paper_library"
+kind = "native"
+entry = "paper_library:register"
+description = "The document library: index it, search its full text by meaning, and find work in a folder."

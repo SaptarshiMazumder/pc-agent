@@ -1,0 +1,126 @@
+# Paper Pile — a WORKBENCH agent that keeps working when nobody is watching.
+#
+# A sample, kept in agents/samples/ so Agent Builder can read a working example of every
+# capability an agent here actually has, rather than inferring them from prose.
+#
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# THE POINT OF THIS AGENT, AND WHY IT IS NOT A CHAT BOX
+#
+# A pile of documents is not a question, so the window opens on a drop zone and a library, and
+# chat is the second view. But the thing that makes it worth keeping is what happens when the
+# window is CLOSED:
+#
+#   * it re-reads its own library on a heartbeat and looks for what changed in the world
+#   * it notices when something new contradicts or supersedes a note you already have
+#   * it knows what you have decided before ("I don't care about benchmarks") and stops
+#     bringing it up
+#   * it reads a dropped batch in PARALLEL rather than one file at a time
+#   * it can be POINTED AT A FOLDER and work out for itself what is new in it
+#   * it keeps the documents' full text in SQLite, so it answers from the source, not its
+#     own summary of the source
+#
+# An agent that only answers when spoken to is a search box with a personality. Everything
+# declared below exists to make this one keep its own state, act on a schedule, and get better
+# at knowing what you care about.
+
+name = "Paper Pile"
+version = "1.0.0"
+description = "Reads documents into a searchable library, watches for work that changes what is in it, and tells you what actually moved."
+tagline = "read · connect · watch"
+color = "#2E7D32"
+suggestions = [
+  "What do I have on diffusion models?",
+  "What did I add this week, and what changed?",
+  "Which of my papers disagree with each other?",
+]
+
+# Autonomy is the difference between a library and a librarian. Every 12 hours it wakes, checks
+# the topics you actually care about, and looks for work that would change a note you already
+# have. See HEARTBEAT.md — a tick that finds nothing says so and costs one cheap turn.
+heartbeat = "12h"
+
+[app]
+title = "Paper Pile"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+# WHAT IT NEEDS FROM WHOEVER RUNS IT. The declaration ships; the values stay in that person's
+# own .env. Both are optional: with neither set it is still a perfectly good library, it just
+# cannot go looking for new work.
+[[settings]]
+key = "PAPER_PILE_WATCH"
+label = "Topics to watch"
+kind = "text"
+required = false
+help = "Comma-separated, e.g. 'diffusion models, retrieval augmentation'. The heartbeat looks for new work on these. Empty = watch nothing, ingest only."
+
+[[settings]]
+key = "PAPER_PILE_DIGEST_DAY"
+label = "Weekly digest day"
+kind = "text"
+required = false
+help = "monday…sunday. When to write the weekly 'what changed' note. Empty = no digest."
+
+[[settings]]
+key = "PAPER_PILE_INBOX"
+label = "Folder to watch"
+kind = "text"
+required = false
+help = "A folder to check for new documents on each heartbeat, e.g. C:/Users/you/Papers. It only ever COPIES what it ingests — your folder is never modified. Empty = only what you hand it."
+
+[tools]
+allow = [
+  # reading and writing the library
+  "read", "write", "edit", "ls", "grep",
+  # THE LIBRARY ITSELF (plugins/paper-library). `library_scan` finds work in a folder the user
+  # points at, `library_put` indexes a document's FULL TEXT, and `library_ask` retrieves the
+  # passages that bear on a question — so an answer can cite the source instead of paraphrasing
+  # a summary. `library_index`/`_search`/`_links` are also called directly by the app.
+  "library_index", "library_search", "library_links",
+  "library_scan", "library_put", "library_ask",
+  # `library_browse` lists a folder's sub-folders and how many documents each holds — for when
+  # the user names a place loosely ("the papers on my desktop") and you need to look before you
+  # scan. The APP uses the system folder dialog, not this.
+  "library_browse",
+  # research: `read` extracts a dropped PDF, these two find and fetch what you do NOT have yet.
+  # Without them the heartbeat has nothing to look at and the agent can only ever know what you
+  # personally handed it.
+  "web_search", "web_fetch",
+  # PARALLEL READING. A batch of forty papers read one at a time is forty sequential turns; each
+  # child gets its own context, reads one document, and returns a note. See `ingest-a-document`.
+  "spawn_subagent",
+  # AUTONOMY. `cron` schedules the weekly digest, `heartbeat_respond` closes each tick, and
+  # `report_outcome` is how a scheduled run says whether it actually did the thing.
+  "cron", "heartbeat_respond", "report_outcome",
+  # STANDING JUDGEMENTS, not documents. "I don't care about benchmark tables", "I trust this
+  # author", "I already read this and rejected it" — facts about the USER that must outlive the
+  # session, or the agent proposes the same rejected paper every fortnight.
+  "remember", "memory_search",
+  # A long autonomous tick drifts without an objective to check itself against.
+  "goal", "update_plan",
+]
+# NOTE: uploading is NOT a tool. The app calls the `workspace.upload` RPC directly (app-tier,
+# see the build-agent skill) — the agent never uploads anything, the user does.
+# NO `exec`: this agent reads documents and writes notes. A shell is scope it never uses, on
+# files the user did not write.
+
+[capabilities]
+# It wakes on its own and schedules its own digest.
+autonomy = true
+notify = true
+channels = false
+# It declares no MCP servers, so it does not need the chat-driven workshop. Stated explicitly
+# rather than inherited: on a machine where the daemon default is on, silence would grant it.
+mcp_workshop = false
+
+# NOTE: `memory_enabled` is NOT settable here. It is an OVERRIDABLE_KEY, resolved from
+# agentd.config.json under `agents.paper-pile` (domain/agent_config.py) — writing it in this file
+# would be silently ignored, and the `remember` / `memory_search` tools would quietly store
+# nothing. Long-term memory is what makes the watching bearable: without it every tick
+# re-proposes the paper you dismissed last week, and the agent feels like it is not listening,
+# because it is not.
+
+[subagents]
+# It spawns anonymous readers, not other named agents.
+allow = []

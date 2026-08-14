@@ -344,6 +344,13 @@ class AgentSpec:
     # = an unscanned/test-constructed spec, which every consumer treats as unrestricted.
     owner: str = ""
     origin: str = "authored"
+    # A REFERENCE IMPLEMENTATION shipped for people to read and run, from `agents/samples/`.
+    #
+    # Registered like any agent — an exemplar nobody can run is an exemplar that rots, and this
+    # repo has spent enough time on agents that were never executed. But flagged, so a client can
+    # keep them in their own section: a sample sitting in the user's agent list next to the
+    # agents they actually built is the conflation this flag exists to prevent.
+    sample: bool = False
 
 
 def agent_id_from_session_key(session_key: str) -> str:

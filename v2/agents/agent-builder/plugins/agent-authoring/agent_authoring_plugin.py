@@ -18,16 +18,20 @@ flags were approximating from a distance.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+
+# Safe at module scope: the loader puts this bundle's root on sys.path BEFORE importing this
+# module (loader.py — `sys.path.insert(0, root)` precedes `_load_entry_module`). The lazy imports
+# inside register() below predate that guarantee.
+from agent_authoring.bundle_layout import BundleLayout
 
 log = logging.getLogger("agentd")
 
-# agents/agent-builder/ — this file sits at <that>/plugins/agent-authoring/. Knowing the
-# product's layout is the composition root's job; the service below takes the two roots as
-# arguments so it can be pointed at a tmp dir in a test.
-AGENT_BUILDER_DIR = Path(__file__).resolve().parents[2]
-TEMPLATE_ROOT = AGENT_BUILDER_DIR / "skills" / "build-agent" / "templates"
-BORROW_ROOT = AGENT_BUILDER_DIR / "ui"
+# Knowing the product's layout is the composition root's job — but it is the same job for the MCP
+# server, so the paths themselves are owned by BundleLayout and named here for readability. The
+# services still take both roots as arguments, so a test can point them at a tmp dir.
+AGENT_BUILDER_DIR = BundleLayout.AGENT_BUILDER_DIR
+TEMPLATE_ROOT = BundleLayout.TEMPLATE_ROOT
+BORROW_ROOT = BundleLayout.BORROW_ROOT
 
 
 def register(api, ctx):

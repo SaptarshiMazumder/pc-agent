@@ -19,6 +19,7 @@ verified against the real ones by the bundle's tests, so drift is caught rather 
 from __future__ import annotations
 
 from .finding import ERROR, INFO, WARN, Finding
+from .ui_rules import is_built_app
 
 # Mirrors agent_runtime.infrastructure.marketplace.bundle_io.EXCLUDED_DIRS.
 EXCLUDED_DIRS = frozenset(
@@ -99,9 +100,11 @@ class PackageabilityRules:
                         fix=f"write {entry}, or point `entry` at the file you did write",
                     )
                 )
-            if not any(
-                f.startswith("ui/vendor/agentd-client.js") for f in files
-            ) and entry.startswith("ui/"):
+            # A BUILT app has the SDK inside its bundle — it imports `@agentd/client` and the
+            # bundler inlines it. Asking for a vendored copy there is worse than useless: the file
+            # would live in the bundler's output directory, which the next build empties.
+            vendored = any(f.startswith("ui/vendor/agentd-client.js") for f in files)
+            if not vendored and entry.startswith("ui/") and not is_built_app(files):
                 out.append(
                     Finding(
                         level=WARN,

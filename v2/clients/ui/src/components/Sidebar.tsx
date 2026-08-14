@@ -103,8 +103,8 @@ export default function Sidebar() {
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState({ agents: true, recents: true })
-  const toggleSection = (k: 'agents' | 'recents'): void =>
+  const [sectionOpen, setSectionOpen] = useState({ agents: true, samples: false, recents: true })
+  const toggleSection = (k: keyof typeof sectionOpen): void =>
     setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
   const [newAgent, setNewAgent] = useState(false)
 
@@ -112,7 +112,11 @@ export default function Sidebar() {
   const chats = recents.filter((s) => !q || (s.title || s.sessionId).toLowerCase().includes(q))
   // 'main' is the DEFAULT agent (what a plain New chat talks to) — hide it from the roster so
   // the list shows only the named agents you created. It's still the default everywhere else.
-  const namedAgents = agents.filter((a) => a.id !== MAIN_AGENT_ID)
+  // SAMPLES ARE NOT THE USER'S AGENTS. They are reference implementations we ship, runnable
+  // so they cannot rot, but listing them beside the agents someone actually built is the
+  // conflation the `sample` flag exists to prevent — so they get their own collapsed section.
+  const namedAgents = agents.filter((a) => a.id !== MAIN_AGENT_ID && !a.sample)
+  const sampleAgents = agents.filter((a) => a.sample)
 
   const projectsActive = view === 'projects' || view === 'project'
 
@@ -206,6 +210,39 @@ export default function Sidebar() {
             </button>
           ))}
         </div>
+      )}
+
+      {/* SAMPLES — reference agents we ship. Collapsed by default and never mixed in above:
+          they are here to be opened, read and run, not to pad the user's own list. */}
+      {sampleAgents.length > 0 && (
+        <>
+          <SectionHead
+            icon={<Users size={14} />}
+            label="Samples"
+            open={sectionOpen.samples}
+            onToggle={() => toggleSection('samples')}
+          />
+          {sectionOpen.samples && (
+            <div className="agents-list">
+              {sampleAgents.map((a) => (
+                <button
+                  key={a.id}
+                  className={`row ${a.id === viewedAgentId && view === 'agent' ? 'active' : ''}`}
+                  title={`${a.name || a.id} — a reference implementation you can open and run`}
+                  onClick={() => viewAgent(a.id)}
+                >
+                  <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
+                    {agentInitials(a.name, a.id)}
+                  </span>
+                  <span className="row-main">
+                    <span className="row-title">{a.name || a.id}</span>
+                    <span className="row-sub">{a.tagline || 'sample'}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* RECENTS — ALL chats across every agent (agent dot + project badge) */}

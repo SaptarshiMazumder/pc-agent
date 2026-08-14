@@ -1,0 +1,50 @@
+"""list_workflows — the agent's memory of what it has already built for this user.
+
+An architect who cannot see last week's work rebuilds it from scratch, differently, and the user
+gets a subtly different graph every time they ask for "the same thing but bigger". Reusing the
+workflow they already approved keeps the sampler, resolution and seed they liked — details that
+a rebuild silently discards.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+
+
+class ListWorkflowsTool(Tool):
+    name = "list_workflows"
+    label = "List Workflows"
+    default_retryable = True
+    description = (
+        "Every workflow already built for this user, newest first, with its format and node "
+        "count. Check here before building something 'like last time' — revising the graph they "
+        "already approved beats rebuilding it from memory."
+    )
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        folder = Path(current_workspace(".")) / "workflows"
+        if not folder.is_dir():
+            return ToolResult.text("No workflows yet — this is the first one.")
+        rows = []
+        for path in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            rows.append(f"- {path.name}  ({_describe(path)})")
+        if not rows:
+            return ToolResult.text("No workflows yet — this is the first one.")
+        return ToolResult.text(f"{len(rows)} workflow(s) in {folder}:\n" + "\n".join(rows))
+
+
+def _describe(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # A broken file is worth LISTING, loudly — it is probably the one being asked about, and
+        # hiding it would look like it was never created.
+        return "unreadable / not valid JSON"
+    if isinstance(data.get("nodes"), list):
+        return f"UI export, {len(data['nodes'])} nodes"
+    return f"API format, {len(data)} nodes — runnable"
