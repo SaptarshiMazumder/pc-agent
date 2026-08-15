@@ -32,6 +32,8 @@ PROVIDERS: dict[str, tuple[str, str, str]] = {
     ),
     "openai": ("OPENAI_API_KEY", "openai/gpt-5.1", "https://platform.openai.com/api-keys"),
     "deepseek": ("DEEPSEEK_API_KEY", "deepseek/deepseek-chat", "https://platform.deepseek.com/"),
+    # Kimi K2.5: the cheap option that still takes images (DeepSeek is text-only).
+    "moonshot": ("MOONSHOT_API_KEY", "moonshot/kimi-k2.5", "https://platform.moonshot.ai/"),
 }
 
 

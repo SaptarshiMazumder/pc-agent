@@ -520,6 +520,7 @@ PROVIDER_ENV_KEYS = (
     "GOOGLE_API_KEY",
     "OPENROUTER_API_KEY",
     "DEEPSEEK_API_KEY",
+    "MOONSHOT_API_KEY",
     "GROQ_API_KEY",
     "MISTRAL_API_KEY",
     "XAI_API_KEY",
@@ -696,6 +697,12 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "openai/o3", "label": "o3"},
     {"value": "deepseek/deepseek-chat", "label": "DeepSeek V3"},
     {"value": "deepseek/deepseek-reasoner", "label": "DeepSeek R1"},
+    # Moonshot (Kimi). The reason to reach for these is a 262k window that also takes
+    # IMAGES — DeepSeek is cheaper per token but text-only, so this is the cheap option for
+    # a turn carrying a screenshot or a scanned page.
+    {"value": "moonshot/kimi-k2.5", "label": "Kimi K2.5 (vision, 262k)"},
+    {"value": "moonshot/kimi-k2-0905-preview", "label": "Kimi K2 (262k)"},
+    {"value": "moonshot/kimi-thinking-preview", "label": "Kimi Thinking (vision)"},
     {"value": "xai/grok-4", "label": "Grok 4"},
     {"value": "xai/grok-3", "label": "Grok 3"},
     {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
@@ -744,6 +751,7 @@ _PROVIDER_LABEL = {
     "openai": "OpenAI",
     "azure": "OpenAI",
     "deepseek": "DeepSeek",
+    "moonshot": "Moonshot",
     "xai": "xAI",
     "groq": "Groq",
     "mistral": "Mistral",
@@ -762,6 +770,7 @@ _PROVIDER_KEY_ENV = {
     "openai": ("OPENAI_API_KEY",),
     "azure": ("AZURE_API_KEY", "OPENAI_API_KEY"),
     "deepseek": ("DEEPSEEK_API_KEY",),
+    "moonshot": ("MOONSHOT_API_KEY",),
     "xai": ("XAI_API_KEY",),
     "groq": ("GROQ_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),

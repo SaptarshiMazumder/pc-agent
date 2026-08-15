@@ -79,18 +79,6 @@
       "label": "DeepSeek R1"
     },
     {
-      "value": "moonshot/kimi-k2.5",
-      "label": "Kimi K2.5 (vision, 262k)"
-    },
-    {
-      "value": "moonshot/kimi-k2-0905-preview",
-      "label": "Kimi K2 (262k)"
-    },
-    {
-      "value": "moonshot/kimi-thinking-preview",
-      "label": "Kimi Thinking (vision)"
-    },
-    {
       "value": "anthropic/claude-opus-4-8",
       "label": "Claude Opus 4.8"
     },

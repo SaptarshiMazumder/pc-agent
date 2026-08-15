@@ -48,12 +48,36 @@ const canonical = path.join(
 targets.push(canonical) // written even if absent: this is the copy scaffolding reads
 
 const agentsDir = path.join(v2, 'agents')
-if (fs.existsSync(agentsDir)) {
-  for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+
+// EVERY ROOT THAT HOLDS AN AGENT, not just `agents/*`. Samples live one level deeper, under
+// `agents/samples/<id>/`, and they are real agents — the registry scans them, the loader loads
+// their plugins, and their apps ship a vendored SDK like any other. Scanning one level meant a
+// sample's copy was never refreshed and silently drifted from the daemon it talks to, which is
+// the exact failure vendoring exists to prevent.
+function agentDirs(root) {
+  if (!fs.existsSync(root)) return []
+  const dirs = []
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
-    const candidate = path.join(agentsDir, entry.name, 'ui', 'vendor', 'agentd-client.js')
-    if (candidate !== canonical && fs.existsSync(candidate)) targets.push(candidate)
+    const dir = path.join(root, entry.name)
+    dirs.push(dir)
+    if (entry.name === 'samples') {
+      for (const sub of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (sub.isDirectory()) dirs.push(path.join(dir, sub.name))
+      }
+    }
   }
+  return dirs
+}
+
+// A BUILT app keeps the ESM bundle + types in `app/vendor/`; a plain one keeps the IIFE in
+// `ui/vendor/`. Collected separately because they are vendored from DIFFERENT build outputs.
+const esmVendorDirs = []
+for (const dir of agentDirs(agentsDir)) {
+  const iife = path.join(dir, 'ui', 'vendor', 'agentd-client.js')
+  if (iife !== canonical && fs.existsSync(iife)) targets.push(iife)
+  const esm = path.join(dir, 'app', 'vendor', 'agentd-client.js')
+  if (fs.existsSync(esm)) esmVendorDirs.push(path.join(dir, 'app', 'vendor'))
 }
 
 // THE OTHER SHAPE OF APP. The IIFE above is for a plain ui/ that loads the SDK with a <script>
@@ -74,6 +98,12 @@ const pairs = [
   [path.join(sdkDir, 'dist', 'index.js'), path.join(reactVendor, 'agentd-client.js')],
   [path.join(sdkDir, 'dist', 'index.d.ts'), path.join(reactVendor, 'agentd-client.d.ts')],
   ...targets.slice(1).map((t) => [built, t]),
+  // Built apps that already vendor the SDK — refreshed from the SAME dist as the starter, so a
+  // sample and the template it teaches from can never disagree about what the SDK is.
+  ...esmVendorDirs.flatMap((dir) => [
+    [path.join(sdkDir, 'dist', 'index.js'), path.join(dir, 'agentd-client.js')],
+    [path.join(sdkDir, 'dist', 'index.d.ts'), path.join(dir, 'agentd-client.d.ts')],
+  ]),
 ]
 
 let updated = 0

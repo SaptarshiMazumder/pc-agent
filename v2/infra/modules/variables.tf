@@ -439,6 +439,7 @@ variable "services" {
         ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
         GEMINI_API_KEY        = "GEMINI_API_KEY"
         DEEPSEEK_API_KEY      = "DEEPSEEK_API_KEY"
+        MOONSHOT_API_KEY      = "MOONSHOT_API_KEY"
       }
     }
 
