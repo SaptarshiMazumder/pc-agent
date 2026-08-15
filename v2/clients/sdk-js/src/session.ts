@@ -51,11 +51,32 @@ function pathAgentId(here: URL | null): string {
   return match ? decodeURIComponent(match[1]) : ''
 }
 
+/**
+ * A credential this platform can still USE.
+ *
+ * Tokens are signed JWTs (three dot-separated parts). The opaque `sess_...` sessions that came
+ * before them cannot be resolved by any current daemon, so a stored one is not a session — it is
+ * a guarantee of failure. Keeping it looked harmless and was not: the page reported itself signed
+ * in, presented the dead token on every connect, and the daemon refused each one, producing an
+ * endless reconnect against our own server that no amount of retrying could ever fix.
+ */
+function usable(token: string): boolean {
+  return !!token && !token.startsWith('sess_') && token.split('.').length === 3
+}
+
 export function loadSession(storageKey = ''): StoredSession | null {
   try {
     const raw = localStorage.getItem(key(storageKey))
     const parsed = raw ? (JSON.parse(raw) as StoredSession) : null
-    return parsed && parsed.token ? parsed : null
+    if (!parsed || !parsed.token) return null
+    if (!usable(parsed.token)) {
+      // EVICT, do not merely ignore. Ignoring leaves it to be re-read on the next call and by
+      // every other code path that looks at storage; removing it means the page shows a sign-in
+      // form once and is then genuinely clean.
+      localStorage.removeItem(key(storageKey))
+      return null
+    }
+    return parsed
   } catch {
     return null // private mode / storage disabled — sign-in still works, it just won't persist
   }

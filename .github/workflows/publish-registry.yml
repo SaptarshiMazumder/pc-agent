@@ -12,6 +12,14 @@
 # every work-in-progress edit to the public registry the moment it merged. If you later want that,
 # add a `push:` block with those paths — the job below needs no changes.
 #
+# RUN IT WITH --ref. `gh workflow run` defaults to the repository's DEFAULT branch, not the one
+# you are working on, so a dispatch from a develop-based workflow silently publishes whatever the
+# default branch contains — an older CLI, and older vendored SDK copies inside every agent. That
+# failure is quiet in the worst way: the packages upload, the index is signed, and the marketplace
+# now serves stale code.
+#
+#   gh workflow run "Publish registry" --ref develop -f environment=dev
+#
 # ONE-TIME SETUP
 #   1. agentd bundle keygen --out agentd-publisher-key.json     (keep it OUT of the repo)
 #   2. repo secret AGENTD_PUBLISHER_KEYPAIR = the whole contents of that JSON file
@@ -46,6 +54,10 @@ on:
         description: "Space/comma separated agent ids under v2/agents (blank = every agent with a bundle.toml)"
         type: string
         default: ""
+      publisher_id:
+        description: "The creator id these bundles are published AS. Must be listed in the registry roster, and AGENTD_PUBLISHER_KEYPAIR must be that creator's key."
+        type: string
+        default: "c-ci-publisher"
       engine_version:
         description: "ALSO publish the shared engine, e.g. 0.1.6. Upload the installer to the registry bucket as agentd-engine-<version>-setup.exe first (see below)."
         type: string
@@ -193,6 +205,7 @@ jobs:
           DRY: ${{ inputs.dry_run }}
           ENGINE: ${{ steps.engine.outputs.path }}
           ENGINE_VERSION: ${{ inputs.engine_version }}
+          PUBLISHER_ID: ${{ inputs.publisher_id }}
         run: |
           cd v2
           # `if`, not `[ … ] && EXTRA=…`. A `run:` block is `bash -e`, and that one-liner evaluates
@@ -201,6 +214,12 @@ jobs:
           EXTRA=""
           if [ "$DRY" = "true" ]; then EXTRA="--dry-run"; fi
           if [ -n "$ENGINE" ]; then EXTRA="$EXTRA --engine $ENGINE --engine-version $ENGINE_VERSION"; fi
+          # WHO these bundles are published AS. A schema-2 registry carries a signed creator
+          # roster, and a client verifies each bundle against ITS creator's key — so an
+          # unattributed publish would be checked against the PLATFORM ROOT key, which never
+          # signs bundles, and every install of it would fail. The CLI refuses to produce that,
+          # which is why this is passed rather than left to a default.
+          if [ -n "$PUBLISHER_ID" ]; then EXTRA="$EXTRA --publisher-id $PUBLISHER_ID"; fi
           agentd bundle publish $DIRS \
             --to "s3://${BUCKET}" \
             --key "$RUNNER_TEMP/publisher-key.json" \

@@ -85,6 +85,13 @@ export class AgentdClient {
   private eventHandlers = new Map<string, Set<EventHandler>>()
   private statusHandlers = new Set<StatusHandler>()
   private reconnectDelay = 1000
+  /** When the current socket opened, so "did this connection actually work?" can be answered. */
+  private openedAt = 0
+  //: Backoff ceiling for a credential the server REFUSED. Retrying a dead token fast is not
+  //: resilience, it is a flood — and the server is the thing being flooded.
+  private static readonly UNAUTHORIZED_DELAY = 60_000
+  //: A socket must survive this long before it counts as a working connection.
+  private static readonly HEALTHY_MS = 10_000
   private closedByUs = false
   private lastTarget: ConnectTarget | null = null
   private readonly clientName: string
@@ -144,14 +151,30 @@ export class AgentdClient {
     this.teardownSocket() // close any socket a concurrent open() just assigned
     this.ws = ws
     ws.onopen = () => {
-      this.reconnectDelay = 1000
+      // DELIBERATELY NOT resetting the backoff here. A WebSocket upgrade succeeding says nothing
+      // about whether the connection is USABLE: the daemon accepts the upgrade and only then
+      // closes with 4401 when the credential is refused. Resetting on open therefore made every
+      // rejected attempt look like a success, pinning the delay at its minimum and turning one
+      // stale token into a steady flood against our own daemon. The reset moved to onclose,
+      // where the socket's lifetime is known.
+      this.openedAt = Date.now()
       for (const handler of this.statusHandlers) handler('open')
     }
     ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data as string) as Frame)
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       for (const [, pending] of this.pending) pending.reject(new Error('connection closed'))
       this.pending.clear()
       for (const handler of this.statusHandlers) handler('closed')
+      const lived = this.openedAt ? Date.now() - this.openedAt : 0
+      this.openedAt = 0
+      // 4401 is the daemon refusing the credential (see gateway `_handle_conn`). Reconnecting
+      // cannot fix that — only signing in again can — so go straight to the ceiling instead of
+      // asking the same question every second.
+      if (event && (event as CloseEvent).code === 4401) {
+        this.reconnectDelay = AgentdClient.UNAUTHORIZED_DELAY
+      } else if (lived >= AgentdClient.HEALTHY_MS) {
+        this.reconnectDelay = 1000 // a connection that actually served is what earns a reset
+      }
       this.scheduleReconnect()
     }
   }

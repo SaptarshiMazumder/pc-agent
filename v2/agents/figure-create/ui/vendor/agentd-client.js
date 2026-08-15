@@ -65,11 +65,19 @@ var agentd = (() => {
     const match = /\/apps\/([^/]+)/.exec(here?.pathname || "");
     return match ? decodeURIComponent(match[1]) : "";
   }
+  function usable(token) {
+    return !!token && !token.startsWith("sess_") && token.split(".").length === 3;
+  }
   function loadSession(storageKey = "") {
     try {
       const raw = localStorage.getItem(key(storageKey));
       const parsed = raw ? JSON.parse(raw) : null;
-      return parsed && parsed.token ? parsed : null;
+      if (!parsed || !parsed.token) return null;
+      if (!usable(parsed.token)) {
+        localStorage.removeItem(key(storageKey));
+        return null;
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -120,7 +128,7 @@ var agentd = (() => {
     u.pathname = "";
     return u.origin;
   }
-  var AgentdClient = class {
+  var _AgentdClient = class _AgentdClient {
     constructor(options = {}) {
       this.ws = null;
       this.input = null;
@@ -129,6 +137,8 @@ var agentd = (() => {
       this.eventHandlers = /* @__PURE__ */ new Map();
       this.statusHandlers = /* @__PURE__ */ new Set();
       this.reconnectDelay = 1e3;
+      /** When the current socket opened, so "did this connection actually work?" can be answered. */
+      this.openedAt = 0;
       this.closedByUs = false;
       this.lastTarget = null;
       this.clientName = options.clientName || `@agentd/client/${PROTOCOL_VERSION}`;
@@ -177,14 +187,21 @@ var agentd = (() => {
       this.teardownSocket();
       this.ws = ws;
       ws.onopen = () => {
-        this.reconnectDelay = 1e3;
+        this.openedAt = Date.now();
         for (const handler of this.statusHandlers) handler("open");
       };
       ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data));
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         for (const [, pending] of this.pending) pending.reject(new Error("connection closed"));
         this.pending.clear();
         for (const handler of this.statusHandlers) handler("closed");
+        const lived = this.openedAt ? Date.now() - this.openedAt : 0;
+        this.openedAt = 0;
+        if (event && event.code === 4401) {
+          this.reconnectDelay = _AgentdClient.UNAUTHORIZED_DELAY;
+        } else if (lived >= _AgentdClient.HEALTHY_MS) {
+          this.reconnectDelay = 1e3;
+        }
         this.scheduleReconnect();
       };
     }
@@ -303,6 +320,12 @@ var agentd = (() => {
       return u.toString();
     }
   };
+  //: Backoff ceiling for a credential the server REFUSED. Retrying a dead token fast is not
+  //: resilience, it is a flood — and the server is the thing being flooded.
+  _AgentdClient.UNAUTHORIZED_DELAY = 6e4;
+  //: A socket must survive this long before it counts as a working connection.
+  _AgentdClient.HEALTHY_MS = 1e4;
+  var AgentdClient = _AgentdClient;
   function fromPage(options = {}) {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
