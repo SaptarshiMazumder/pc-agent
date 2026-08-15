@@ -173,7 +173,7 @@ module "stack" {
   #
   # It must match `publisher_key` in v2/clients/desktop/flavors/*/distribution.toml. A mismatch
   # is silent until someone installs, then reads as "the bundle is corrupt".
-  registry_publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+  registry_publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 
   # The public marketplace. Both empty by default => its own cloudfront.net https address.
   marketplace_domain_name     = var.marketplace_domain_name

@@ -12,7 +12,7 @@ enabled = true
 # The public marketplace (S3 registry from terraform: agentd-dev-registry-910828b2).
 # publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
 registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
-publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 # The WRITE side: where Agent Builder's Publish button sends a packed agent. Declared here even
 # while empty, for the same reason ingest_url below is — sync-platform-urls retargets keys a flavor
 # already has and never invents one, so an absent key means Publish stays unavailable no matter
