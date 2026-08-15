@@ -69,6 +69,20 @@ class BuiltinsStagingHook(BuildHookInterface):
             if src.is_dir():
                 _copy_filtered(src, data_dst / "agents" / rel)
 
+        # THE CLIENT SDK, as a first-class asset rather than a copy hiding inside an agent.
+        #
+        # Every agent app loads `ui/vendor/agentd-client.js`, and that file is COPIED into each
+        # agent at scaffold time. One SDK fix therefore has to reach N independent copies —
+        # repo agents, user-authored agents in the account directory, already-installed agents,
+        # and the embedded runtime's own — and the ones that get missed do not fail loudly, they
+        # fail as "that method is not a function" months later. Shipping the canonical build here
+        # lets `bundle pack` re-vendor from it, so a package can never carry an SDK older than
+        # the engine that packed it.
+        sdk = root / "clients" / "sdk-js" / "dist" / "agentd-client.js"
+        if sdk.is_file():
+            (data_dst / "sdk").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(sdk, data_dst / "sdk" / "agentd-client.js")
+
         force_include = build_data.setdefault("force_include", {})
         force_include[str(builtins_dst)] = "agent_runtime/_builtin_plugins"
         force_include[str(data_dst)] = "agent_runtime/_data"

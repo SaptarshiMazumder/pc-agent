@@ -131,6 +131,21 @@ def unpack_bundle(
     return sorted(placed_plugins)
 
 
+#: Where an agent app loads the client SDK from, relative to the agent directory.
+VENDORED_SDK = Path("ui") / "vendor" / "agentd-client.js"
+
+
+def _canonical_sdk() -> bytes | None:
+    """The SDK build this ENGINE ships, or None when it ships none."""
+    try:
+        from agent_runtime.runtime_paths import sdk_client_asset
+
+        asset = sdk_client_asset()
+        return asset.read_bytes() if asset else None
+    except Exception:  # noqa: BLE001 — a missing asset must never block packing
+        return None
+
+
 def pack_bundle(
     agent_dir: Path,
     out_dir: Path,
@@ -138,13 +153,34 @@ def pack_bundle(
     vendored_plugin_dirs: dict[str, Path] | None = None,
 ) -> Path:
     """agent_dir + vendored plugin dirs -> <out_dir>/<id>-<version>.agentpkg.
-    The manifest is serialized to bundle.toml inside the zip (single source)."""
+    The manifest is serialized to bundle.toml inside the zip (single source).
+
+    THE VENDORED SDK IS RE-VENDORED HERE, from the build this engine ships. `ui/vendor/
+    agentd-client.js` is COPIED into every agent at scaffold time, so one SDK fix has to reach
+    every copy that exists anywhere — repo agents, agents authored in an account directory,
+    already-installed agents. The copies that get missed do not fail loudly; they fail later as
+    "that method is not a function", or as a sign-in that silently reads a response field the
+    server stopped sending. Substituting at pack time makes a stale package impossible: whatever
+    is on disk, the package carries the SDK that matches the engine that packed it.
+
+    The author's own files are NOT modified. Packing rewriting your source would be a surprise,
+    and the thing that actually has to be current is the artifact.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     package_path = out_dir / f"{manifest.id}-{manifest.version}.agentpkg"
+    sdk = _canonical_sdk()
     with zipfile.ZipFile(package_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("bundle.toml", _manifest_toml(manifest))
         for src in _iter_files(agent_dir):
-            zf.write(src, Path("agent") / src.relative_to(agent_dir))
+            rel = src.relative_to(agent_dir)
+            if sdk is not None and rel == VENDORED_SDK:
+                if src.read_bytes() != sdk:
+                    log.info("re-vendored %s from this engine's SDK build", VENDORED_SDK.as_posix())
+                # as_posix(): zipfile normalises separators for write() but NOT for writestr(),
+                # and a backslash in a zip entry name is a path component on POSIX readers.
+                zf.writestr((Path("agent") / rel).as_posix(), sdk)
+                continue
+            zf.write(src, Path("agent") / rel)
         for plugin_id, plugin_dir in (vendored_plugin_dirs or {}).items():
             for src in _iter_files(plugin_dir):
                 zf.write(src, Path("plugins") / plugin_id / src.relative_to(plugin_dir))

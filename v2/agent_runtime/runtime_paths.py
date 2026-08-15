@@ -41,6 +41,22 @@ PACKAGED_BUILTINS_DIR = PACKAGE_DIR / "_builtin_plugins"
 PACKAGED_DATA_DIR = PACKAGE_DIR / "_data"
 
 
+def sdk_client_asset() -> "Path | None":
+    """The canonical built agent-app SDK (`agentd-client.js`), or None if this install has none.
+
+    Two homes, one answer: a packaged install reads it from ``_data/sdk/`` (staged by
+    scripts/hatch_build.py), and a source checkout reads the freshly built file straight out of
+    ``clients/sdk-js/dist/``. Editable installs are the case that matters most here — that is
+    where agents are authored and packed.
+    """
+    packaged = PACKAGED_DATA_DIR / "sdk" / "agentd-client.js"
+    if packaged.is_file():
+        return packaged
+    # Source checkout: agent_runtime/ sits at v2/agent_runtime/, so v2/ is one level up.
+    checkout = PACKAGE_DIR.parent / "clients" / "sdk-js" / "dist" / "agentd-client.js"
+    return checkout if checkout.is_file() else None
+
+
 def is_packaged() -> bool:
     """True when running from an installed wheel (built-ins live inside the package)."""
     return PACKAGED_BUILTINS_DIR.is_dir()
