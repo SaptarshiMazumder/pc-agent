@@ -1,25 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Turn } from '../agentd'
+import type { Block, Turn } from '../agentd'
 
 /** The secondary view: questions the list cannot answer.
  *
- *  Kept deliberately small. This agent's job is the library; a full chat client here would
- *  invite using it as one, and every answer given in chat is a note that did not get written. */
+ *  IT RENDERS BLOCKS IN ORDER. Reasoning, answer text and tool calls interleave in a real run —
+ *  the agent thinks, calls something, says what it found, calls something else. Walking one
+ *  ordered array is what puts each thing where it happened; two parallel fields could only ever
+ *  render every tool followed by every word.
+ *
+ *  THE COMPOSER IS NEVER DISABLED. The moment someone most needs to speak is mid-run — to correct
+ *  a misread question, or to stop a long detour. So Ask becomes Stop and the input stays live. */
 export function Ask({
   turns,
   busy,
   onSend,
+  onStop,
 }: {
   turns: Turn[]
   busy: boolean
   onSend: (text: string) => void
+  onStop: () => void
 }) {
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [turns])
 
   const submit = () => {
-    if (busy || !text.trim()) return
+    if (!text.trim()) return
     onSend(text)
     setText('')
   }
@@ -35,17 +42,9 @@ export function Ask({
         )}
         {turns.map((t, i) => (
           <div key={i} className={`turn ${t.role}`}>
-            {t.tools.length > 0 && (
-              <ul className="tools">
-                {t.tools.map((r) => (
-                  <li key={r.id} className={r.done ? (r.ok ? 'ok' : 'bad') : 'run'}>
-                    <span className="mark">{r.done ? (r.ok ? '✓' : '✕') : '·'}</span>
-                    {r.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {t.text && <div className="bubble">{t.text}</div>}
+            {t.blocks.map((b, j) => (
+              <BlockView key={j} block={b} />
+            ))}
           </div>
         ))}
         <div ref={end} />
@@ -53,14 +52,48 @@ export function Ask({
       <div className="composer">
         <input
           value={text}
-          placeholder={busy ? 'thinking…' : 'Ask about your library'}
+          placeholder="Ask about your library"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
         />
-        <button className="prime" onClick={submit} disabled={busy || !text.trim()}>
-          Ask
-        </button>
+        {busy ? (
+          <button className="ghost" onClick={onStop}>
+            Stop
+          </button>
+        ) : (
+          <button className="prime" onClick={submit} disabled={!text.trim()}>
+            Ask
+          </button>
+        )}
       </div>
     </div>
   )
+}
+
+function BlockView({ block }: { block: Block }) {
+  switch (block.kind) {
+    case 'text':
+      return <div className="bubble">{block.text}</div>
+    case 'thinking':
+      // Collapsed by default: it is context, not the answer. Present at all, so a long research
+      // phase is visibly progress rather than a hang.
+      return (
+        <details className="thinking">
+          <summary>thinking</summary>
+          <div>{block.text}</div>
+        </details>
+      )
+    case 'tool':
+      return (
+        <div className={`tool ${block.done ? (block.ok ? 'ok' : 'bad') : 'run'}`}>
+          <span className="mark">{block.done ? (block.ok ? '✓' : '✕') : '·'}</span>
+          <span className="tool-name">{block.name}</span>
+          {/* Progress while it runs, the summary once it finishes — never both, never neither. */}
+          {!block.done && block.progress && <span className="tool-note">{block.progress}</span>}
+          {block.done && block.detail && <span className="tool-note">{block.detail}</span>}
+        </div>
+      )
+    case 'note':
+      return <div className={`note-block ${block.tone}`}>{block.text}</div>
+  }
 }

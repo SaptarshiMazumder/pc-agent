@@ -13,6 +13,7 @@ export function History({
   onOpen,
   onRename,
   onDelete,
+  onFork,
   onNew,
 }: {
   rows: SessionRow[]
@@ -21,6 +22,7 @@ export function History({
   onOpen: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
+  onFork: (id: string) => void
   onNew: () => void
 }) {
   const [editing, setEditing] = useState('')
@@ -77,6 +79,10 @@ export function History({
                 }}
               >
                 ✎
+              </button>
+              <button title="Fork — copy this conversation and continue in the copy"
+                onClick={() => onFork(r.sessionId)}>
+                ⑂
               </button>
               <button title="Delete" onClick={() => onDelete(r.sessionId)}>
                 🗑

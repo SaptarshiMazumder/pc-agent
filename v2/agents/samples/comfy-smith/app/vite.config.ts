@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -14,6 +15,21 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  resolve: {
+    alias: {
+      // THE SDK LIVES INSIDE THIS APP, on purpose.
+      //
+      // The obvious alternative is a dependency: "@agentd/client": "file:../../../../clients/sdk-js".
+      // That resolves only inside this product's own tree. An agent installed on someone else's
+      // machine has no such path, `npm install` fails, and the app cannot be built at all — by
+      // whoever received the agent, which is everyone except its author.
+      //
+      // Vendored, it is a plain file in the tree: no registry, no relative escape, no install step
+      // that can fail. The SDK's own build refreshes this copy (clients/sdk-js/scripts/vendor.mjs),
+      // so it tracks the daemon it talks to.
+      '@agentd/client': fileURLToPath(new URL('./vendor/agentd-client.js', import.meta.url)),
+    },
+  },
   build: {
     outDir: '../ui',
     emptyOutDir: true,

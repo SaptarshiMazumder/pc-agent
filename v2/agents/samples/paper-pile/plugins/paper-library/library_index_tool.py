@@ -6,7 +6,7 @@ import json
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
-from library_note_store import LibraryNoteStore
+from library_note_store import LibraryNoteStore, library_root
 
 
 class LibraryIndexTool(Tool):
@@ -49,10 +49,13 @@ class LibraryIndexTool(Tool):
                     }
                 )
             if not rows:
-                where = f" tagged '{wanted}'" if wanted else ""
+                # SAY WHERE YOU LOOKED. "The library is empty" starts an investigation; naming
+                # the folder ends the question, because the usual cause is a note written to a
+                # path that is not the one this reads.
+                tagged = f" tagged '{wanted}'" if wanted else ""
                 return ToolResult.text(
-                    f"The library is empty{where}. Drop a PDF, paste a link, or point me at a "
-                    f"folder with library_scan."
+                    f"No documents{tagged} in {library_root()}. Drop a PDF, paste a link, or "
+                    f"point me at a folder with library_scan."
                 )
             # JSON because the APP parses this. A prose list would be friendlier to read and
             # impossible to render.

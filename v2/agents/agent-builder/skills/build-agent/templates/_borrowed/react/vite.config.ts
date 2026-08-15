@@ -1,19 +1,17 @@
-import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// Served by the daemon out of `agents/<id>/ui/` at `/apps/<id>/`. Three settings follow from
-// that, and none of them is a style choice:
-//
-//   base: './'      assets resolve RELATIVE to the page. An absolute '/assets/…' would ask the
-//                   daemon's root instead of this agent's folder, and every chunk 404s.
-//   outDir: '../ui' the BUILT output is what ships — `ui/` is packaged into the .agentpkg and
-//                   served as-is. `app/` is the source, kept beside it so the next author can
-//                   rebuild. Nobody installing this agent ever runs npm.
-//   emptyOutDir     otherwise stale hashed chunks from an older build pile up in what we ship.
+// Three settings here are load-bearing. Change any of them and the app builds fine and then
+// fails on a real install, which is the worst kind of wrong.
 export default defineConfig({
   plugins: [react()],
+
+  // RELATIVE ASSET URLS. The app is served under /apps/<agent-id>/, so an absolute "/assets/…"
+  // asks the daemon ROOT for a file that is not there and every chunk 404s — a blank window with
+  // a clean console.
   base: './',
+
   resolve: {
     alias: {
       // THE SDK LIVES INSIDE THIS APP, on purpose.
@@ -29,5 +27,12 @@ export default defineConfig({
       '@agentd/client': fileURLToPath(new URL('./vendor/agentd-client.js', import.meta.url)),
     },
   },
-  build: { outDir: '../ui', emptyOutDir: true },
+
+  build: {
+    // ui/ IS WHAT SHIPS. app/ is source and never leaves the author's machine; agent.toml points
+    // [app] entry at ui/index.html, and the packer takes what is on disk. Nobody installing this
+    // agent runs npm.
+    outDir: '../ui',
+    emptyOutDir: true,
+  },
 })

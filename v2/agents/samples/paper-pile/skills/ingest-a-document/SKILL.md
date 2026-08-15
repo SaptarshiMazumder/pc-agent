@@ -17,8 +17,13 @@ may be gone; the note has to stand alone.
      there is nothing to install and no parsing to write.
    - A link → `web_fetch` it.
    - If extraction returns nothing usable (a scanned image with no text layer), **say so and
-     stop**. Do not write a note guessing from the filename — a library entry that invents its
-     own contents is worse than a missing one, because it will be believed.
+     stop on the FIRST attempt**. Do not write a note guessing from the filename — a library
+     entry that invents its own contents is worse than a missing one, because it will be
+     believed.
+   - **One attempt, then stop.** No re-reading at a different offset, no `grep`, no trying the
+     file again another way: `read` already text-extracts, so an empty result means there is no
+     text layer, and every extra turn spent proving that again holds up every other document
+     behind it. Report the file and move on — this is a two-turn outcome, not a ten-turn one.
 
 2. **Choose the slug.** Kebab-case, from the real title: `attention-is-all-you-need.md`. If a
    file with that slug already exists, you are looking at a document already in the library —

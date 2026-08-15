@@ -27,14 +27,26 @@ class ListWorkflowsTool(Tool):
     parameters = {"type": "object", "properties": {}}
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # THE WORKSPACE IS NOT A FIXED PATH. The runtime picks it per run — a signed-in user has
+        # their own, a project chat uses the project's — so it is asked for, never derived from
+        # the agent's own directory.
         folder = Path(current_workspace(".")) / "workflows"
-        if not folder.is_dir():
-            return ToolResult.text("No workflows yet — this is the first one.")
         rows = []
-        for path in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-            rows.append(f"- {path.name}  ({_describe(path)})")
+        if folder.is_dir():
+            for path in sorted(
+                folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+            ):
+                rows.append(f"- {path.name}  ({_describe(path)})")
         if not rows:
-            return ToolResult.text("No workflows yet — this is the first one.")
+            # NAME THE FOLDER. "No workflows yet" is true and useless: it reads identically
+            # whether none were built or one was written somewhere else, and the second case
+            # otherwise costs several tool calls to work out.
+            return ToolResult.text(
+                f"No workflows in {folder}\n"
+                f"That is this run's workspace — write new ones there, under workflows/. "
+                f"A file saved anywhere else is invisible to this tool AND to the app's "
+                f"Workflows tab, which reads the same folder."
+            )
         return ToolResult.text(f"{len(rows)} workflow(s) in {folder}:\n" + "\n".join(rows))
 
 

@@ -3,9 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
-    "@agentd/client": "file:../../../../clients/sdk-js",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

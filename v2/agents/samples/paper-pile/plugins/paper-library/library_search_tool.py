@@ -11,7 +11,7 @@ import json
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
-from library_note_store import LibraryNoteStore
+from library_note_store import LibraryNoteStore, library_root
 
 
 class LibrarySearchTool(Tool):
@@ -62,9 +62,9 @@ class LibrarySearchTool(Tool):
 
             if not hits:
                 return ToolResult.text(
-                    f"No NOTE contains {query!r} ({len(notes)} searched). The documents "
-                    f"themselves may still discuss it — try library_ask, which searches their "
-                    f"full text by meaning."
+                    f"No NOTE contains {query!r} — {len(notes)} note(s) searched in "
+                    f"{library_root()}. The documents themselves may still discuss it: try "
+                    f"library_ask, which searches their full text by meaning."
                 )
             return ToolResult.text(json.dumps({"count": len(hits), "matches": hits}, indent=1))
         except Exception as e:  # noqa: BLE001

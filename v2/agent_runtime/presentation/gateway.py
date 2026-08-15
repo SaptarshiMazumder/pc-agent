@@ -1836,6 +1836,8 @@ class Gateway:
                 return HttpResponse(
                     200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
                 )
+            if split.path == "/restart":
+                return self._serve_restart(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
@@ -4242,6 +4244,74 @@ class Gateway:
             raise ValueError(f"no such job: {tid}")
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
+
+    def _serve_restart(self, split, headers) -> HttpResponse:
+        """``GET /restart`` — kill this daemon and bring a fresh one up.
+
+        GET FOR A STATE CHANGE, deliberately. This port is the WebSocket server's, and
+        ``websockets`` rejects any method but GET while PARSING the request line — before
+        ``process_request`` is ever called, so a POST never reaches this function and the client
+        just sees the connection close. Every other route here (`/file`, `/platform/connect`,
+        `/healthz`) is a GET for the same reason. The token requirement is what stands in for the
+        method: a stray link cannot carry it.
+
+        ONE ENDPOINT, ANY CALLER. The desktop shell, an agent app window, `curl`, a script: all
+        of them just POST here. The alternative was a method per transport — the shell already
+        had its supervisor, an app window would have needed a socket RPC — which is two
+        implementations of one sentence.
+
+        IT CANNOT DO THE WORK ITSELF. Whatever starts the replacement has to outlive the kill, so
+        this spawns ``python -m agent_runtime.respawn`` DETACHED and answers immediately; that
+        process kills this one by pid and starts the successor. Killing by pid rather than
+        shutting down in-process is also what makes it work on a daemon too busy to unwind
+        cleanly — the signal comes from outside.
+
+        AUTH IS THE MACHINE TOKEN, the same one `/file` takes. It is in the rendezvous file,
+        which is 0600, and in the URL of every window this daemon opened. That is the honest
+        boundary for a desktop daemon: anyone who can already read your files can restart it,
+        and could equally have killed the process.
+
+        A HOSTED daemon refuses outright. There it serves other people's sessions, and no
+        window's convenience is worth ending them.
+        """
+
+        def send(code: int, reason: str, obj: dict) -> HttpResponse:
+            body = json.dumps(obj).encode("utf-8")
+            hdrs = Headers()
+            hdrs["Content-Type"] = "application/json"
+            hdrs["Content-Length"] = str(len(body))
+            hdrs["Cache-Control"] = "no-store"
+            return HttpResponse(code, reason, hdrs, body)
+
+        query = parse_qs(split.query)
+        if self.auth_token and not self._platform_bearer_ok(query, headers):
+            return send(401, "Unauthorized", {"ok": False, "error": "unauthorized"})
+        if accounts.enabled():
+            return send(
+                403,
+                "Forbidden",
+                {
+                    "ok": False,
+                    "error": "this daemon serves multiple accounts — restarting it would end "
+                    "everyone else's sessions",
+                },
+            )
+
+        try:
+            lifecycle.spawn_respawner()
+        except OSError as e:
+            return send(500, "Internal Server Error", {"ok": False, "error": str(e)})
+        log.info("restart requested over HTTP — a respawner is taking over")
+        return send(
+            200,
+            "OK",
+            {
+                "ok": True,
+                "pid": os.getpid(),
+                "detail": "restarting — this daemon stops in a moment and a fresh one takes the "
+                "same port; clients reconnect on their own",
+            },
+        )
 
     def _platform_status(self) -> dict:
         """What a client needs to know to sign in and to show its own mode.

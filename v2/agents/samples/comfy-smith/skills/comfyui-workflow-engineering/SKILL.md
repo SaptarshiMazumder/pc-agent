@@ -88,7 +88,14 @@ batch size and tiling all follow from that one number.
 
 ## 5. Write it in API format
 
-`workspace/workflows/<name>.json`, as `{"3": {"class_type": ..., "inputs": {...}}, ...}`.
+Under **the workspace this run reports**, in `workflows/`, as
+`{"3": {"class_type": ..., "inputs": {...}}, ...}`.
+
+**Do not work out that path yourself.** There is no fixed location for the workspace — a
+signed-in user has their own, a project chat uses the project's — so a path built from the
+agent's own folder is real, writable, and read by nothing. `list_workflows` prints the folder it
+reads; write there. A file saved anywhere else is invisible to it and to the Workflows tab, and
+looks exactly like a file that was never written.
 
 **The API format is the one that runs.** `/prompt` does not accept a canvas export. If the user
 also wants to open it in the ComfyUI canvas, write the UI export as a second file and say which

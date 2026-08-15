@@ -153,6 +153,19 @@ def register(api, ctx):
     )
     api.register_tool(AddUiComponentTool(component_service, components))
 
+    # THE OTHER WAY TO GIVE AN AGENT A WINDOW. `scaffold_ui` copies a finished vanilla app,
+    # which is right when a chat window IS the product: no build step, no Node, and a model
+    # writing one from scratch reliably gets the event wiring wrong. `scaffold_react_app` copies
+    # only a buildable project and deliberately no source — for a window that needs more than a
+    # conversation, where there is no single right shape and the working agents under
+    # agents/samples/ are the material to judge from.
+    from agent_authoring.application.scaffold_react_app_service import ScaffoldReactAppService
+    from agent_authoring.presentation.scaffold_react_app_tool import ScaffoldReactAppTool
+
+    api.register_tool(
+        ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react"))
+    )
+
     # --- CHECK (the tool face of the validator built above) ---------------------------
     api.register_tool(ValidateAgentTool(validator))
 

@@ -6,11 +6,13 @@ import type { QueueItem } from '../useQueue'
 export function Queue({
   items,
   onRun,
+  onStop,
   onClear,
   disabled,
 }: {
   items: QueueItem[]
   onRun: () => void
+  onStop: () => void
   onClear: () => void
   disabled: boolean
 }) {
@@ -31,9 +33,17 @@ export function Queue({
               Clear
             </button>
           )}
-          <button className="prime" onClick={onRun} disabled={disabled || working || !pending}>
-            {working ? 'reading…' : `Ingest ${pending || ''}`}
-          </button>
+          {/* While it runs, the only useful control is the one that gets you out. A batch with no
+              way to stop it is a batch you cannot correct after realising the first file is wrong. */}
+          {working ? (
+            <button className="ghost" onClick={onStop}>
+              Stop
+            </button>
+          ) : (
+            <button className="prime" onClick={onRun} disabled={disabled || !pending}>
+              Ingest {pending || ''}
+            </button>
+          )}
         </span>
       </div>
 
@@ -47,6 +57,9 @@ export function Queue({
               </span>
               <span className="q-state">{i.state}</span>
             </div>
+            {i.state === 'working' && !i.note && (
+              <span className="q-note">reading it — this can take a few minutes</span>
+            )}
             {i.note && <span className="q-note">{i.note}</span>}
           </li>
         ))}

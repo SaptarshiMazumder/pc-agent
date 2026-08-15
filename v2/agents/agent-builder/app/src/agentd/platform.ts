@@ -138,3 +138,50 @@ export function usePlatform(client: AgentdClient) {
 
   return { ...state, reload, signIn, signOut, switchMode }
 }
+
+/** Restart the daemon: `POST /restart`, the same endpoint every other client uses.
+ *
+ *  PLAIN HTTP, not a socket method, and not the desktop shell. An agent app window has no host
+ *  bridge — it is remote content by design — so it cannot reach the supervisor the main window
+ *  uses. One endpoint on the daemon serves this window, the shell, curl and any script equally,
+ *  instead of a mechanism per caller.
+ *
+ *  WHY THIS WINDOW NEEDS IT AT ALL. Adding or editing a private plugin changes Python that is
+ *  already imported. `reload_agent` re-reads the roster and hot-loads NEW plugins; it cannot
+ *  re-import a module in memory. Without a restart the author sees their old code with nothing
+ *  saying so — the most confusing state in agent authoring.
+ */
+export function useRestartDaemon(client: AgentdClient) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  const restart = useCallback(async () => {
+    setBusy(true)
+    setNote('Restarting the daemon…')
+    try {
+      // The SDK builds authenticated daemon URLs already — reuse it rather than re-deriving the
+      // origin and the token here, which is how the two end up disagreeing.
+      const url = new URL(client.fileUrl(''))
+      url.pathname = '/restart'
+      url.searchParams.delete('path')
+      // GET, not POST. This is the WebSocket server's port, and `websockets` refuses any other
+      // method while parsing the request line — before the daemon's handler runs — so a POST
+      // never arrives and the browser reports only "Failed to fetch".
+      const res = await fetch(url.toString())
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || body?.ok === false) {
+        setNote(String(body?.error || `restart refused (HTTP ${res.status})`))
+        return
+      }
+      // The socket is about to drop. The SDK reconnects on its own backoff, so the honest
+      // message is "it is coming back", not "done".
+      setNote('Restarting — this window reconnects by itself once it is back up.')
+    } catch (e) {
+      setNote(`Could not restart: ${String((e as Error)?.message || e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }, [client])
+
+  return { restart, busy, note }
+}

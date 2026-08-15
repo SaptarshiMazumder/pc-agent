@@ -11,21 +11,31 @@ import type { SettingField } from '../agentd'
  *
  *  A SECRET IS NEVER READ BACK. The daemon returns non-secret values and, for secrets, only
  *  whether one is stored. So a secret field shows "stored" and an empty box to replace it. */
+/** NOT EVERY FIELD IS WORTH A TEST BUTTON. A folder either exists and holds documents or it does
+ *  not, and that is worth checking. A list of topics to watch has nothing to check — a "Test"
+ *  beside it could only ever say "looks fine", which teaches the user that the button means
+ *  nothing, including next to the field where it does. So exactly one field has one.
+ *
+ *  And it SAVES BEFORE TESTING: proving the old value works tells you nothing about the new one. */
 export function Settings({
   fields,
   values,
   present,
   error,
   onSave,
+  onTest,
 }: {
   fields: SettingField[]
   values: Record<string, string>
   present: Record<string, boolean>
   error: string
   onSave: (patch: Record<string, string>) => Promise<string>
+  onTest: (key: string, value: string) => Promise<string>
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState('')
+  const [tested, setTested] = useState<Record<string, string>>({})
   const [failed, setFailed] = useState('')
   const [saved, setSaved] = useState(false)
 
@@ -84,7 +94,28 @@ export function Settings({
                 placeholder={secret && present[f.key] ? '•••••••• (leave blank to keep)' : ''}
                 onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
               />
-              <span className="field-key">{f.key}</span>
+              <span className="field-row">
+                <span className="field-key">{f.key}</span>
+                {f.key === 'PAPER_PILE_INBOX' && (
+                  <button
+                    className="ghost small"
+                    disabled={!draft[f.key]?.trim() || testing === f.key}
+                    onClick={async (e) => {
+                      e.preventDefault()
+                      setTesting(f.key)
+                      // SAVE FIRST. Testing the box while the agent still reads the old value
+                      // proves nothing about what will actually happen on the next run.
+                      const why = await onSave({ [f.key]: draft[f.key] ?? '' })
+                      const result = why ? `could not save: ${why}` : await onTest(f.key, draft[f.key] ?? '')
+                      setTested((prev) => ({ ...prev, [f.key]: result }))
+                      setTesting('')
+                    }}
+                  >
+                    {testing === f.key ? 'checking…' : 'Test'}
+                  </button>
+                )}
+              </span>
+              {tested[f.key] && <span className="field-help">{tested[f.key]}</span>}
             </label>
           )
         })}

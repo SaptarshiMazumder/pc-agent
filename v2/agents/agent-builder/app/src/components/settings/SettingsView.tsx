@@ -5,13 +5,14 @@
  */
 
 import type { AgentdClient } from '@agentd/client'
-import { usePlatform } from '../../agentd/platform'
+import { usePlatform, useRestartDaemon } from '../../agentd/platform'
 import { useServices } from '../../agentd/services'
 import { useSettings } from '../../agentd/settings'
 import { AccountSection } from './AccountSection'
 import { DeclaredField } from './DeclaredField'
 import { Field } from './Field'
 import { ModeSection } from './ModeSection'
+import { RestartSection } from './RestartSection'
 import { SecretField } from './SecretField'
 import { ServicesSection } from './ServicesSection'
 import { COST_EFFICIENCY_MODELS, COST_EFFICIENCY_TOGGLE, GROUPS } from './groups'
@@ -20,6 +21,7 @@ export function SettingsView({ client }: { client: AgentdClient }) {
   const s = useSettings(client)
   const platform = usePlatform(client)
   const services = useServices(client)
+  const daemon = useRestartDaemon(client)
 
   if (s.loadError) {
     return (
@@ -189,6 +191,14 @@ export function SettingsView({ client }: { client: AgentdClient }) {
             </section>
           )
         })}
+
+        {/* Last, and after the declared fields on purpose: it is the thing you reach for once
+            everything else is set and the daemon is still serving what it loaded at boot. */}
+        <RestartSection
+          onRestart={() => void daemon.restart()}
+          busy={daemon.busy}
+          note={daemon.note}
+        />
 
         <div className="set-bar">
           <span className={`set-msg ${s.message.tone}`}>

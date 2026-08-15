@@ -359,3 +359,70 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   .shell { grid-template-columns: minmax(0, 1fr); }
   .side { display: none; }
 }
+
+/* --- blocks in a turn ---------------------------------------------------- */
+
+/* Reasoning: present, but never competing with the answer for attention. */
+.thinking {
+  align-self: flex-start;
+  max-width: min(74ch, 100%);
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.thinking summary {
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-size: 10.5px;
+}
+.thinking > div {
+  margin-top: 4px;
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--hair);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dim);
+}
+
+/* One tool call, in the position it happened. */
+.tool {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: min(74ch, 100%);
+  margin-bottom: 6px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  background: var(--pane-2);
+  border: 1px solid var(--hair);
+  color: var(--dim);
+}
+.tool .mark { color: var(--faint); }
+.tool.ok .mark { color: var(--ok); }
+.tool.run { border-style: dashed; }
+.tool.bad { border-color: color-mix(in srgb, var(--warn) 45%, var(--hair)); color: var(--warn); }
+.tool.bad .mark { color: var(--warn); }
+.tool-name { font-family: ui-monospace, monospace; }
+.tool-note { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* What the RUN said about itself — a fallback, or the provider's own failure text. */
+.note-block {
+  align-self: flex-start;
+  max-width: min(74ch, 100%);
+  margin-bottom: 6px;
+  padding: var(--s2) var(--s3);
+  border-radius: 8px;
+  font-size: 12.5px;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-block.error {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--hair));
+  color: var(--warn);
+}
+
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }

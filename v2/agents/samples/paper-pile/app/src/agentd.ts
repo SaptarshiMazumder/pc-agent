@@ -27,18 +27,52 @@ export function useClient(): { client: AgentdClient; status: Status } {
   return { client, status }
 }
 
-export interface ToolRow {
+/** ONE turn is an ORDERED LIST OF BLOCKS.
+ *
+ *  THIS LOOKS LIKE A DETAIL AND IS NOT. Two parallel fields — `text` plus `tools[]` — throw away
+ *  the order in which things actually happened, and the only thing such a shape can render is
+ *  "every tool, then every word": a wall of tool names with unrelated sentences fused underneath.
+ *  Reasoning, answers and tool calls interleave in real runs, and a transcript that cannot show
+ *  that is misreporting what the agent did.
+ *
+ *  One array, appended in arrival order, and the screen matches the run. */
+export type Block = TextBlock | ThinkingBlock | ToolBlock | NoteBlock
+
+export interface TextBlock {
+  kind: 'text'
+  text: string
+}
+
+/** The model's reasoning. Streamed, because a long research phase with nothing on screen but a
+ *  motionless list of tool names reads as a hang. */
+export interface ThinkingBlock {
+  kind: 'thinking'
+  text: string
+}
+
+export interface ToolBlock {
+  kind: 'tool'
   id: string
   name: string
   done: boolean
   ok: boolean
   detail: string
+  /** From `tool_progress` — what distinguishes a slow tool from a stuck one. */
+  progress: string
+}
+
+/** Something the RUN said about itself: a model fallback, or the provider's own failure text.
+ *  Dropped, every failure looks like the same shrug and a dead key is indistinguishable from a
+ *  rate limit. */
+export interface NoteBlock {
+  kind: 'note'
+  tone: 'info' | 'error'
+  text: string
 }
 
 export interface Turn {
   role: 'user' | 'assistant'
-  text: string
-  tools: ToolRow[]
+  blocks: Block[]
   streaming: boolean
 }
 
@@ -50,9 +84,35 @@ export interface Turn {
 export function useChat(client: AgentdClient, opts: { onToolDone?: (name: string) => void } = {}) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
-  const sessionRef = useRef<string>(`chat-${Math.random().toString(36).slice(2, 10)}`)
+  // THE KEY OUTLIVES THE PAGE. A fresh random key per mount means reloading the window silently
+  // abandons the conversation you were in: the daemon still has it, the history rail can still
+  // open it, but the thread on screen is a new one and the agent answers with none of the context
+  // above it. Persisted, a reload resumes.
+  const sessionRef = useRef<string>(loadSessionKey())
+  // Resolves the promise `ask` handed back, when the RUN ends — see `ask`.
+  const finish = useRef<(() => void) | null>(null)
   const onToolDone = useRef(opts.onToolDone)
   onToolDone.current = opts.onToolDone
+
+  // Restore what was already said in the persisted session. Without this the key survives the
+  // reload but the screen does not, which reads as "it forgot" even though the next question
+  // continues the thread correctly.
+  useEffect(() => {
+    let live = true
+    client
+      .history(sessionRef.current)
+      .then((res: any) => {
+        if (!live) return
+        const restored = historyToTurns(res?.messages ?? [])
+        if (restored.length) setTurns(restored)
+      })
+      .catch(() => {
+        // A session the daemon has never heard of is the normal first-run case, not a failure.
+      })
+    return () => {
+      live = false
+    }
+  }, [client])
 
   useEffect(() => {
     // ONE subscription for the page. The returned unsubscribe is the whole reason this lives in
@@ -67,30 +127,46 @@ export function useChat(client: AgentdClient, opts: { onToolDone?: (name: string
       // common way a generated UI ends up connected, silent and empty.
       switch (event.type) {
         case 'message_update': {
-          if (event.kind !== 'text_delta') return // NOT 'message_delta' — no such event
-          const delta = String(event.delta ?? '')  // `delta`, verified — not `text`
+          const delta = String(event.delta ?? '') // `delta`, verified — not `text`
           if (!delta) return
-          setTurns((prev) => {
-            const next = [...prev]
-            const last = next[next.length - 1]
-            if (last?.role === 'assistant' && last.streaming) {
-              next[next.length - 1] = { ...last, text: last.text + delta }
-            } else {
-              next.push({ role: 'assistant', text: delta, tools: [], streaming: true })
-            }
-            return next
-          })
+          // Reasoning and answer arrive on the SAME event under different kinds. Appending both
+          // in arrival order keeps a thought that preceded a tool call before it.
+          if (event.kind === 'thinking_delta') {
+            setTurns((prev) => withCurrentAssistant(prev, (t) => appendDelta(t, 'thinking', delta)))
+            return
+          }
+          if (event.kind !== 'text_delta') return // NOT 'message_delta' — no such event
+          setTurns((prev) => withCurrentAssistant(prev, (t) => appendDelta(t, 'text', delta)))
           return
         }
         case 'tool_execution_start': {
-          const row: ToolRow = {
+          const row: ToolBlock = {
+            kind: 'tool',
             id: String(event.toolCallId ?? event.toolName ?? Math.random()),
             name: String(event.toolName ?? 'tool'),
             done: false,
             ok: true,
             detail: '',
+            progress: '',
           }
-          setTurns((prev) => withCurrentAssistant(prev, (t) => ({ ...t, tools: [...t.tools, row] })))
+          setTurns((prev) =>
+            withCurrentAssistant(prev, (t) => ({ ...t, blocks: [...t.blocks, row] })),
+          )
+          return
+        }
+        case 'tool_progress': {
+          // A slow tool and a stuck one look identical without this.
+          const text = String(event.text ?? '').trim()
+          if (!text) return
+          setTurns((prev) =>
+            withCurrentAssistant(prev, (t) =>
+              updateTool(
+                t,
+                (b) => !b.done,
+                (b) => ({ ...b, progress: text }),
+              ),
+            ),
+          )
           return
         }
         case 'tool_execution_end': {
@@ -98,23 +174,55 @@ export function useChat(client: AgentdClient, opts: { onToolDone?: (name: string
           const name = String(event.toolName ?? '')
           const ok = !event.isError
           setTurns((prev) =>
-            withCurrentAssistant(prev, (t) => ({
-              ...t,
-              tools: t.tools.map((r) =>
-                r.id === id || (!id && r.name === name && !r.done)
-                  ? { ...r, done: true, ok, detail: String(event.summary ?? '') }
-                  : r,
+            withCurrentAssistant(prev, (t) =>
+              updateTool(
+                t,
+                (b) => b.id === id || (!id && b.name === name && !b.done),
+                (b) => ({ ...b, done: true, ok, detail: String(event.summary ?? '') }),
               ),
-            })),
+            ),
           )
           // Tell the rest of the app something changed. Named, so a panel can ignore tools it
           // does not care about.
           if (name) onToolDone.current?.(name)
           return
         }
+        case 'model_fallback': {
+          // The configured model did not answer. Silence here reads as "the agent is just worse
+          // today"; the names are what let someone act on it.
+          const from = String(event.from ?? 'the configured model')
+          const to = String(event.to ?? 'a fallback model')
+          setTurns((prev) =>
+            withCurrentAssistant(prev, (t) => ({
+              ...t,
+              blocks: [
+                ...t.blocks,
+                {
+                  kind: 'note',
+                  tone: 'info',
+                  text: from + ' was unavailable — answered with ' + to + '.',
+                } as NoteBlock,
+              ],
+            })),
+          )
+          return
+        }
         case 'agent_end': {
           setBusy(false)
-          setTurns((prev) => withCurrentAssistant(prev, (t) => ({ ...t, streaming: false })))
+          const failure = String(event.error ?? '').trim()
+          setTurns((prev) =>
+            withCurrentAssistant(prev, (t) => ({
+              ...t,
+              streaming: false,
+              // THE PROVIDER'S OWN WORDS. A dead key, a rate limit and an empty balance are three
+              // different problems with three different fixes, and only this text tells them apart.
+              blocks: failure
+                ? [...t.blocks, { kind: 'note', tone: 'error', text: failure } as NoteBlock]
+                : t.blocks,
+            })),
+          )
+          finish.current?.()
+          finish.current = null
           return
         }
       }
@@ -125,24 +233,55 @@ export function useChat(client: AgentdClient, opts: { onToolDone?: (name: string
     async (text: string) => {
       const message = text.trim()
       if (!message || busy) return
-      setTurns((prev) => [...prev, { role: 'user', text: message, tools: [], streaming: false }])
+      setTurns((prev) => [
+        ...prev,
+        { role: 'user', blocks: [{ kind: 'text', text: message }], streaming: false },
+      ])
       setBusy(true)
       try {
+        // `chat.send` RETURNS AS SOON AS THE RUN IS ACCEPTED — it answers {runId} straight after
+        // create_task, not when the agent has finished. Awaiting only the RPC therefore means
+        // "the message was delivered", and a caller that treats that as "the work is done" marks
+        // a document ingested before anything has read it. So the promise this returns is settled
+        // by `agent_end` instead.
+        const done = new Promise<void>((resolve) => {
+          finish.current = resolve
+        })
         // No agentId — the daemon scopes this connection to our own agent already.
         await client.send({ message, sessionKey: sessionRef.current })
+        await done
       } catch (e) {
+        finish.current = null
         setBusy(false)
         setTurns((prev) => [
           ...prev,
-          { role: 'assistant', text: `could not send: ${String(e)}`, tools: [], streaming: false },
+          {
+            role: 'assistant',
+            blocks: [{ kind: 'note', tone: 'error', text: `could not send: ${String(e)}` }],
+            streaming: false,
+          },
         ])
       }
     },
     [client, busy],
   )
 
+  /** Stop the run in progress. Settles whatever is awaiting `ask`, so a caller driving a batch
+   *  is released rather than left waiting on a turn that will never end. */
+  const abort = useCallback(async () => {
+    try {
+      await client.abort(sessionRef.current)
+    } finally {
+      finish.current?.()
+      finish.current = null
+      setBusy(false)
+    }
+  }, [client])
+
   const reset = useCallback(() => {
-    sessionRef.current = `chat-${Math.random().toString(36).slice(2, 10)}`
+    finish.current?.()  // never leave a caller awaiting a session we just abandoned
+    finish.current = null
+    sessionRef.current = newSessionKey()
     setTurns([])
     setBusy(false)
   }, [])
@@ -154,11 +293,41 @@ export function useChat(client: AgentdClient, opts: { onToolDone?: (name: string
    *  answers with no knowledge of anything above it on screen. */
   const resume = useCallback((sessionKey: string, messages: any[]) => {
     sessionRef.current = sessionKey
+    rememberSessionKey(sessionKey)
     setTurns(historyToTurns(messages))
     setBusy(false)
   }, [])
 
-  return { turns, busy, ask, reset, resume, sessionKey: sessionRef.current }
+  return { turns, busy, ask, abort, reset, resume, sessionKey: sessionRef.current }
+}
+
+/** Where the conversation key lives across reloads. Per agent app, so two agent windows open
+ *  side by side do not adopt each other's thread. */
+const SESSION_STORAGE_KEY = 'paper-pile:session'
+
+function newSessionKey(): string {
+  const key = `chat-${Math.random().toString(36).slice(2, 10)}`
+  rememberSessionKey(key)
+  return key
+}
+
+function rememberSessionKey(key: string): void {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, key)
+  } catch {
+    // Storage can be unavailable (private mode, a locked-down embed). The app still works — the
+    // conversation simply stops surviving reloads, which is exactly the old behaviour.
+  }
+}
+
+function loadSessionKey(): string {
+  try {
+    const saved = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (saved) return saved
+  } catch {
+    /* see rememberSessionKey */
+  }
+  return newSessionKey()
 }
 
 /** Stored wire messages -> the shape this app renders.
@@ -184,7 +353,7 @@ export function historyToTurns(messages: any[]): Turn[] {
               .join('')
           : ''
     if (!text.trim()) continue
-    out.push({ role, text, tools: [], streaming: false })
+    out.push({ role, blocks: [{ kind: 'text', text }], streaming: false })
   }
   return out
 }
@@ -195,9 +364,30 @@ function withCurrentAssistant(turns: Turn[], fn: (t: Turn) => Turn): Turn[] {
   if (last?.role === 'assistant' && last.streaming) {
     next[next.length - 1] = fn(last)
   } else {
-    next.push(fn({ role: 'assistant', text: '', tools: [], streaming: true }))
+    next.push(fn({ role: 'assistant', blocks: [], streaming: true }))
   }
   return next
+}
+
+/** Append to the LAST block when it is the same kind, else start a new one. That is what keeps
+ *  text written after a tool call from being merged back into the paragraph before it. */
+function appendDelta(turn: Turn, kind: 'text' | 'thinking', delta: string): Turn {
+  const last = turn.blocks[turn.blocks.length - 1]
+  if (last && last.kind === kind) {
+    return { ...turn, blocks: [...turn.blocks.slice(0, -1), { ...last, text: last.text + delta }] }
+  }
+  return { ...turn, blocks: [...turn.blocks, { kind, text: delta }] }
+}
+
+function updateTool(
+  turn: Turn,
+  match: (b: ToolBlock) => boolean,
+  change: (b: ToolBlock) => ToolBlock,
+): Turn {
+  return {
+    ...turn,
+    blocks: turn.blocks.map((b) => (b.kind === 'tool' && match(b) ? change(b) : b)),
+  }
 }
 
 /** Call one of THIS agent's tools directly — no chat turn, no model call, no tokens.
@@ -288,6 +478,21 @@ export function useSessions(client: AgentdClient, ready: boolean) {
     [client, reload],
   )
 
+  /** Copy a conversation and return the new key.
+   *
+   *  A long thread is expensive to build. Without a fork the only ways to try a different
+   *  direction are to continue in it (losing the known-good state) or start fresh (losing the
+   *  context) — so the useful move is the one that is missing. The caller must OPEN the copy: a
+   *  fork the user does not land in is indistinguishable from one that did nothing. */
+  const fork = useCallback(
+    async (sessionId: string): Promise<string> => {
+      const res: any = await client.request('sessions.duplicate', { sessionKey: sessionId })
+      await reload()
+      return String(res?.sessionKey || '')
+    },
+    [client, reload],
+  )
+
   // WAIT FOR THE SOCKET. `fromPage()` returns a client immediately but the connection is still
   // opening, so a request on mount fails with "not connected" — and because nothing retries, the
   // panel keeps showing that error long after the daemon is reachable.
@@ -295,7 +500,7 @@ export function useSessions(client: AgentdClient, ready: boolean) {
     if (ready) void reload()
   }, [ready, reload])
 
-  return { rows, error, reload, history, rename, remove }
+  return { rows, error, reload, history, rename, remove, fork }
 }
 
 export interface SettingField {

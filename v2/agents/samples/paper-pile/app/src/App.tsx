@@ -68,7 +68,7 @@ export default function App() {
     }
   }, [invoke])
 
-  const { turns, busy, ask, reset, resume } = useChat(client, {
+  const { turns, busy, ask, abort, reset, resume } = useChat(client, {
     onToolDone: (name) => {
       // Whatever the agent changed in chat must show up in the panels. Without this the screen
       // shows the state from before it acted, and the user is looking at a lie.
@@ -77,7 +77,7 @@ export default function App() {
     },
   })
 
-  const queue = useQueue(client, ask, loadLibrary)
+  const queue = useQueue(client, ask, loadLibrary, abort)
 
   // Switching sections closes the open note. Leaving it open means clicking "Connections" shows
   // the document you were reading, which reads as a broken tab.
@@ -90,6 +90,33 @@ export default function App() {
     if (ready) void loadLibrary()
   }, [ready, loadLibrary])
 
+
+  /** Fork, then LAND in the copy — a fork you do not end up in looks like nothing happened. */
+  const forkThread = async (id: string) => {
+    const copy = await sessions.fork(id)
+    if (copy) await openThread(copy)
+  }
+
+  /** Does that folder exist, and does it hold anything worth ingesting?
+   *
+   *  Answered by `library_browse`, which is the same code path the agent uses — so a green result
+   *  here means the agent will genuinely find it, not that the string looked plausible. */
+  const testInbox = async (_key: string, value: string): Promise<string> => {
+    try {
+      const raw = await invoke('library_browse', { path: value })
+      if (!raw.trim().startsWith('{')) return raw.trim()
+      const listing = JSON.parse(raw)
+      const here = listing.documents_here ?? 0
+      const subs = (listing.folders ?? []).length
+      return here === 0 && subs === 0
+        ? `Found it, but there are no documents in ${listing.path}.`
+        : `Found ${here} document${here === 1 ? '' : 's'} here and ${subs} sub-folder${
+            subs === 1 ? '' : 's'
+          } in ${listing.path}.`
+    } catch (e) {
+      return String((e as Error)?.message ?? e)
+    }
+  }
 
   const openThread = async (id: string) => {
     const messages = await sessions.history(id)
@@ -139,6 +166,7 @@ export default function App() {
         <Queue
           items={queue.items}
           onRun={queue.run}
+          onStop={() => void queue.stop()}
           onClear={queue.clearFinished}
           disabled={!ready}
         />
@@ -174,9 +202,10 @@ export default function App() {
             present={settings.present}
             error={settings.error}
             onSave={settings.save}
+            onTest={testInbox}
           />
         ) : (
-          <Ask turns={turns} busy={busy} onSend={ask} />
+          <Ask turns={turns} busy={busy} onSend={ask} onStop={() => void abort()} />
         )}
       </main>
 
@@ -188,6 +217,7 @@ export default function App() {
           onOpen={(id) => void openThread(id)}
           onRename={(id, title) => void sessions.rename(id, title)}
           onDelete={(id) => void sessions.remove(id)}
+          onFork={(id) => void forkThread(id)}
           onNew={() => {
             reset()
             void sessions.reload()

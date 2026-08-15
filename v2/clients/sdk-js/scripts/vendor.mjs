@@ -56,16 +56,43 @@ if (fs.existsSync(agentsDir)) {
   }
 }
 
+// THE OTHER SHAPE OF APP. The IIFE above is for a plain ui/ that loads the SDK with a <script>
+// tag. A BUILT app (React/Vite) imports `@agentd/client` instead, and resolves it from
+// package.json — which in this repo is a relative `file:` path into clients/sdk-js. That path
+// exists only here: an agent scaffolded into the user's own agents dir has nothing at
+// ../../../../clients/sdk-js, so `npm install` fails and the app never builds at all.
+//
+// So the React starter carries the ESM bundle and its types INSIDE itself, aliased in
+// vite.config.ts, with no dependency on this repo or on a published package. Vendored from the
+// same build as the IIFE, in the same run, so the two can never disagree about what the SDK is.
+const reactVendor = path.join(
+  v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates', '_borrowed',
+  'react', 'vendor'
+)
+const pairs = [
+  [built, targets[0]],
+  [path.join(sdkDir, 'dist', 'index.js'), path.join(reactVendor, 'agentd-client.js')],
+  [path.join(sdkDir, 'dist', 'index.d.ts'), path.join(reactVendor, 'agentd-client.d.ts')],
+  ...targets.slice(1).map((t) => [built, t]),
+]
+
 let updated = 0
-for (const target of targets) {
+let total = 0
+for (const [source, target] of pairs) {
+  if (!fs.existsSync(source)) {
+    console.error(`vendor: no build at ${source} — run tsup first`)
+    process.exit(1)
+  }
+  const payload = fs.readFileSync(source)
+  total += payload.length
   const before = fs.existsSync(target) ? fs.readFileSync(target) : null
-  if (before && before.equals(bytes)) continue // byte-identical: leave the mtime alone
+  if (before && before.equals(payload)) continue // byte-identical: leave the mtime alone
   fs.mkdirSync(path.dirname(target), { recursive: true })
-  fs.writeFileSync(target, bytes)
+  fs.writeFileSync(target, payload)
   updated++
   console.log(`  vendored -> ${path.relative(v2, target).replace(/\\/g, '/')}`)
 }
 console.log(
-  `vendor: ${updated} updated, ${targets.length - updated} already current ` +
-    `(${(bytes.length / 1024).toFixed(1)} KB)`
+  `vendor: ${updated} updated, ${pairs.length - updated} already current ` +
+    `(${(total / 1024).toFixed(1)} KB across ${pairs.length} file(s))`
 )

@@ -23,7 +23,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 from document_embedder import DocumentEmbedder
 from library_database import LibraryDatabase, unpack_vector
-from library_note_store import database_path
+from library_note_store import database_path, library_root
 
 _WORD = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -69,8 +69,9 @@ class SemanticSearchTool(Tool):
             stats = db.stats()
             if stats["documents"] == 0:
                 return ToolResult.text(
-                    "Nothing is indexed yet. Ingest a document, or point me at a folder with "
-                    "library_scan — library_ask can only search text that was put in."
+                    f"Nothing is indexed yet in {database_path()} (notes live in "
+                    f"{library_root()}). Ingest a document, or point me at a folder with "
+                    f"library_scan — library_ask can only search text that library_put stored."
                 )
 
             passages, mode, reason = self._retrieve(db, question, k, stats)
