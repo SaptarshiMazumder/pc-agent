@@ -36,6 +36,7 @@ import {
   authLogin,
   authLogout,
   authStatus,
+  acceptHostTokens,
   startAuthRenewal
 } from './auth'
 
@@ -138,7 +139,12 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
     // ALREADY SIGNED IN is the common path — every reload takes it — so renewal has to start
     // here too, not only after a fresh sign-in. Without this, a page that resumes a stored
     // session runs on whatever life is left in that access token and then goes anonymous.
-    if (state.signedIn) startAuthRenewal(options)
+    if (state.signedIn) {
+      startAuthRenewal(options)
+      // Shell-opened app windows have no refresh token and never see this form; the desktop
+      // pushes fresh access tokens down instead. No-op in a browser tab.
+      acceptHostTokens(options)
+    }
     return { ...state, signedInHere: false }
   }
 
@@ -197,6 +203,7 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
         // agents silently vanishing. A drop-in gate that leaves the caller to discover that is
         // not a drop-in, so it is started here rather than documented.
         startAuthRenewal(options)
+        acceptHostTokens(options)
         gate.remove()
         resolve({ ...result, signedInHere: true })
       } catch (e) {

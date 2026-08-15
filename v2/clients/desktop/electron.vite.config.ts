@@ -10,7 +10,19 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
  */
 export default defineConfig({
   main: { plugins: [externalizeDepsPlugin()] },
-  preload: { plugins: [externalizeDepsPlugin()] },
+  // TWO preloads: the shell's full bridge, and a receive-only one for AGENT APP windows.
+  // They are separate builds because they are separate trust levels — see src/preload/app.ts.
+  preload: {
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: fileURLToPath(new URL('src/preload/index.ts', import.meta.url)),
+          app: fileURLToPath(new URL('src/preload/app.ts', import.meta.url))
+        }
+      }
+    }
+  },
   renderer: {
     root: fileURLToPath(new URL('../ui', import.meta.url)),
     plugins: [react()],

@@ -898,10 +898,17 @@ export const useApp = create<AppState>((set, get) => {
       // to rebuild the connection — dropping in-flight runs and re-subscribing every stream, six
       // times an hour, forever. `auth.update` swaps it in place instead.
       onTokens((p) => {
-        if (!p || get().connection !== 'open') return
-        void gateway.request('auth.update', { accessToken: p.accessToken }).catch(() => {
-          /* an older daemon has no auth.update; the next reconnect carries the token anyway */
-        })
+        if (!p) return
+        if (get().connection === 'open') {
+          void gateway.request('auth.update', { accessToken: p.accessToken }).catch(() => {
+            /* an older daemon has no auth.update; the next reconnect carries the token anyway */
+          })
+        }
+        // AND every open agent app window. Those pages got their credential from the launch URL
+        // and hold no refresh token — by design, since they run third-party code — so the shell
+        // is the only thing that can keep them alive. Without this they work for one access-token
+        // lifetime and then start failing with `auth_expired`, or silently go anonymous.
+        void platform.broadcastAppToken?.(p.accessToken)
       })
     },
 

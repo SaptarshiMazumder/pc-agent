@@ -42,6 +42,8 @@ const api = {
   pickFiles: (): Promise<Array<{ name: string; size: number; dataBase64: string }>> =>
     ipcRenderer.invoke('file:pick'),
   /** open an AGENT APP's daemon-served UI (/apps/<id>/) in its own desktop window */
+  broadcastAppToken: (token: string): Promise<unknown> =>
+    ipcRenderer.invoke('app:broadcastToken', token),
   openAppWindow: (url: string, title?: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('app:openWindow', url, title)
 }

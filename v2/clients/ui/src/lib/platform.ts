@@ -41,6 +41,8 @@ export interface AgentdPlatform {
   ) => Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
   pickFiles: () => Promise<Array<{ name: string; size: number; dataBase64: string }>>
   openAppWindow: (url: string, title?: string) => Promise<{ ok: boolean; error?: string }>
+  /** Push a freshly-minted access token to every open agent app window (desktop only). */
+  broadcastAppToken?: (token: string) => Promise<unknown>
 }
 
 const bridge = (globalThis as { agentd?: AgentdPlatform }).agentd

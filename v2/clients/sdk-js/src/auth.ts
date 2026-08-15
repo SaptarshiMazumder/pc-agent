@@ -243,6 +243,45 @@ export async function authRefresh(opts: AuthOptions = {}): Promise<string> {
  * Returns a stop function. Renews at 80% of the token's life; falls back to a 5-minute poll for a
  * session stored before `expiresAt` existed.
  */
+/**
+ * Accept access tokens pushed down by the desktop shell. Returns an unsubscribe.
+ *
+ * An app window opened from the shell gets its credential on the launch URL and holds NO refresh
+ * token — deliberately, because an agent app is third-party code and a refresh token is a 30-day
+ * credential for the user's whole account. So it cannot renew itself; the shell, which does hold
+ * the refresh token, mints short-lived access tokens and hands them down (see the desktop's
+ * src/preload/app.ts).
+ *
+ * Each pushed token is stored AND applied to the live socket via `auth.update`, so a running
+ * agent is never interrupted by a renewal. A no-op anywhere without the shell bridge — a browser
+ * tab, or an app window signed in through its own form (which has a real refresh token and uses
+ * `startAuthRenewal` instead).
+ */
+export function acceptHostTokens(opts: AuthOptions = {}): () => void {
+  const host = (globalThis as { agentdHost?: { onAccessToken(cb: (t: string) => void): () => void } })
+    .agentdHost
+  if (!host?.onAccessToken) return () => undefined
+  return host.onAccessToken((token) => {
+    if (!token) return
+    const stored = loadSession(opts.storageKey)
+    saveSession(
+      {
+        token,
+        email: stored?.email || '',
+        accountId: stored?.accountId || '',
+        refreshToken: stored?.refreshToken,
+        expiresAt: undefined // the shell owns the schedule; we only hold what it last sent
+      },
+      opts.storageKey
+    )
+    // Swap the credential on the OPEN socket rather than reconnecting: a reconnect would drop an
+    // in-flight run, which is the exact thing a silent background renewal must never do.
+    void opts.client
+      ?.request('auth.update', { accessToken: token })
+      .catch(() => opts.client?.reconnect())
+  })
+}
+
 export function startAuthRenewal(opts: AuthOptions = {}): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const tick = async (): Promise<void> => {

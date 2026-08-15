@@ -159,6 +159,14 @@ function registerIpc(): void {
 
   // --- agent apps: open an APP AGENT's daemon-served UI (/apps/<id>/) in its OWN window
   //     (shared with the agent-app shell boot below — same window either way).
+  // The shell renderer calls this on every token rotation; app windows have no other way to
+  // learn about it, and without it they run until their launch token expires and then go
+  // anonymous (which reads to the user as "all my agents disappeared").
+  ipcMain.handle('app:broadcastToken', (_e, token: string) => {
+    broadcastAccessToken(String(token || ''))
+    return { ok: true, windows: appWindows.size }
+  })
+
   ipcMain.handle('app:openWindow', (_e, rawUrl: string, title?: string) => {
     let url: URL
     try {
@@ -264,6 +272,24 @@ function registerIpc(): void {
 // app:openWindow IPC (desktop client's "Open app") and the agent-app shell boot.
 const appWindows = new Map<string, BrowserWindow>()
 
+/** The receive-only bridge for agent app windows (built alongside the shell's own preload). */
+function appPreloadPath(): string {
+  return path.join(__dirname, '../preload/app.js')
+}
+
+/**
+ * Hand every open agent app window a freshly-minted access token.
+ *
+ * Called by the SHELL renderer whenever its token rotates. This is the whole reason app windows
+ * outlive a single ten-minute token: they cannot refresh (no refresh token, by design), so the
+ * one party that can — the shell — pushes the result down.
+ */
+function broadcastAccessToken(token: string): void {
+  for (const win of appWindows.values()) {
+    if (!win.isDestroyed()) win.webContents.send('agentd:access-token', token)
+  }
+}
+
 function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
   const key = `${url.origin}${url.pathname}`
   const existing = appWindows.get(key)
@@ -281,7 +307,14 @@ function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
     title: String(title || 'agent app'),
     icon: appIconPath(),
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      // sandbox stays ON. The app preload is receive-only and needs no Node APIs — see
+      // src/preload/app.ts for why this window gets its own, much smaller, bridge.
+      sandbox: true,
+      preload: appPreloadPath()
+    }
   })
   appWindows.set(key, win)
   win.on('closed', () => appWindows.delete(key))

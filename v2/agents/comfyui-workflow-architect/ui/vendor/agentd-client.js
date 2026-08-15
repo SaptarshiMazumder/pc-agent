@@ -23,6 +23,7 @@ var agentd = (() => {
   __export(src_exports, {
     AgentdClient: () => AgentdClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
+    acceptHostTokens: () => acceptHostTokens,
     authLogin: () => authLogin,
     authLogout: () => authLogout,
     authRefresh: () => authRefresh,
@@ -490,6 +491,26 @@ var agentd = (() => {
       return "";
     }
   }
+  function acceptHostTokens(opts = {}) {
+    const host = globalThis.agentdHost;
+    if (!host?.onAccessToken) return () => void 0;
+    return host.onAccessToken((token) => {
+      if (!token) return;
+      const stored = loadSession(opts.storageKey);
+      saveSession(
+        {
+          token,
+          email: stored?.email || "",
+          accountId: stored?.accountId || "",
+          refreshToken: stored?.refreshToken,
+          expiresAt: void 0
+          // the shell owns the schedule; we only hold what it last sent
+        },
+        opts.storageKey
+      );
+      void opts.client?.request("auth.update", { accessToken: token }).catch(() => opts.client?.reconnect());
+    });
+  }
   function startAuthRenewal(opts = {}) {
     let timer;
     const tick = async () => {
@@ -587,7 +608,10 @@ var agentd = (() => {
     const blurb = options.blurb || "Sign in to continue.";
     const state = await authStatus(options);
     if (!state.available || state.signedIn) {
-      if (state.signedIn) startAuthRenewal(options);
+      if (state.signedIn) {
+        startAuthRenewal(options);
+        acceptHostTokens(options);
+      }
       return { ...state, signedInHere: false };
     }
     injectStyle();
@@ -632,6 +656,7 @@ var agentd = (() => {
         try {
           const result = await authLogin({ email, password, signup }, options);
           startAuthRenewal(options);
+          acceptHostTokens(options);
           gate.remove();
           resolve({ ...result, signedInHere: true });
         } catch (e) {
