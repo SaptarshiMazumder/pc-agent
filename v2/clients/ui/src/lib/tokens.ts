@@ -132,7 +132,20 @@ export function currentPair(): TokenPair | null {
 
 export async function setPair(next: TokenPair | null): Promise<void> {
   pair = next
-  await storage.write(next?.refreshToken || null)
+  // PERSISTENCE MUST NEVER BLOCK SIGN-IN. The desktop writes through an IPC bridge to the OS
+  // keychain, and any failure there — bridge missing, keychain unavailable, handler rejected —
+  // used to propagate out of login() and land in the sign-in form as a failed login, AFTER the
+  // server had already issued a perfectly good token. The user sees "please wait" and then the
+  // login screen again, with the actual failure three layers away from anything they can see.
+  //
+  // Degrading is strictly better: the pair is already live in memory, so this session works
+  // exactly as it should. The only thing lost is staying signed in across a restart, and that
+  // is worth saying out loud rather than dying over.
+  try {
+    await storage.write(next?.refreshToken || null)
+  } catch (e) {
+    console.warn('[auth] could not persist the refresh token; staying signed in for this session only', e)
+  }
   schedule()
   announce()
 }

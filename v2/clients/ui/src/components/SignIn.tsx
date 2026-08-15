@@ -23,6 +23,9 @@ export default function SignIn(): JSX.Element {
       else await login(email, password)
       // success: the useAuthSession subscription re-renders App, which bootstraps + connects.
     } catch (err) {
+      // The full object, not just .message: a rejected IPC call and a CORS failure both
+      // stringify to something useless, and this is the one place the cause is still in hand.
+      console.error('[auth] sign-in failed', err)
       setError(String((err as Error)?.message || err))
     } finally {
       setBusy(false)

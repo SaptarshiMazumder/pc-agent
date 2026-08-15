@@ -25,10 +25,10 @@ const ok = (m: string) => console.log('PASS  ' + m)
 const bad = (m: string) => { console.log('FAIL  ' + m); process.exitCode = 1 }
 
 ;(async () => {
-  configurePlatform('http://127.0.0.1:4100')
+  configurePlatform(process.env.SMOKE_PLATFORM || 'http://127.0.0.1:4100')
   const doc = await discoverPlatform()
   doc ? ok('discovery: ' + doc.issuer) : bad('discovery returned null')
-  accountsUrl() === 'http://127.0.0.1:4100' ? ok('accountsUrl from discovery') : bad('accountsUrl=' + accountsUrl())
+  accountsUrl() === (process.env.SMOKE_PLATFORM || 'http://127.0.0.1:4100') ? ok('accountsUrl from discovery') : bad('accountsUrl=' + accountsUrl())
   JSON.stringify(authProviders()) === '[{"id":"local","label":"Email","kind":"password"}]'
     ? ok('providers from discovery') : bad('providers=' + JSON.stringify(authProviders()))
 

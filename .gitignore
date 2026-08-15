@@ -67,3 +67,7 @@ v2/agents/*/clients/
 # Metrics normally go to stdout only; AGENTD_TELEMETRY_FILE also appends here for local viewing.
 *.telemetry.jsonl
 v2/.telemetry.jsonl
+
+# daemon runtime caches (written to state_dir; never source)
+jwks-cache.json
+platform-discovery.json
