@@ -138,6 +138,8 @@ export default function App() {
         <Topbar
           agent={selected}
           who={who}
+          railOpen={railOpen}
+          onToggleRail={() => setRailOpen((v) => !v)}
           canTogglePanel={!!selected}
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen((v) => !v)}

@@ -59,8 +59,8 @@ locals {
       # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.
-      AGENTD_PUBLIC_ACCOUNTS_URL   = local.publish_product_accounts_url
-      AGENTD_PUBLIC_WS_URL         = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
+      AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
+      AGENTD_PUBLIC_WS_URL          = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
     }
   }

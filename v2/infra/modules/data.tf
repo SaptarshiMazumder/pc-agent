@@ -52,6 +52,7 @@ resource "aws_secretsmanager_secret_version" "app" {
     GEMINI_API_KEY        = "REPLACE_ME"
     DEEPSEEK_API_KEY      = "REPLACE_ME"
     MOONSHOT_API_KEY      = "REPLACE_ME"
+    OPENAI_API_KEY        = "REPLACE_ME"
     # MCP server credentials are secrets like any other (workspace-mcp / the google plugin).
     GOOGLE_OAUTH_CLIENT_ID     = "REPLACE_ME"
     GOOGLE_OAUTH_CLIENT_SECRET = "REPLACE_ME"

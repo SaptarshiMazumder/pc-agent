@@ -140,6 +140,7 @@ export default function App() {
         status={status}
         alert={missingRequired}
         auth={account.auth}
+        onSignIn={account.signIn}
         onSignOut={account.signOut}
       />
 

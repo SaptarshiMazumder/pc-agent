@@ -77,17 +77,40 @@ h1 { font-size: 24px; }
 h2 { font-size: 16px; }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
+/* THE AREAS ARE NAMED, and that is not a style choice.
+ *
+ * With bare `grid-template-columns` and `display: none` on a hidden column, the remaining children
+ * are AUTO-PLACED: hiding the rail slid `main` into column 1 — the one collapsing had just set to
+ * zero width — and the inspector took the 1fr. Collapsing the sidebar made the entire conversation
+ * vanish and left the inspector stretched across the window.
+ *
+ * Named areas pin each child to its own track, so hiding one cannot move another. */
 .shell {
   display: grid;
+  grid-template-areas: 'rail main panel';
   grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--panel-w);
   height: 100%;
   gap: 10px;
   padding: 10px;
   background: var(--bg);
 }
-.shell.no-rail { grid-template-columns: 0 minmax(0, 1fr) var(--panel-w); }
-.shell.no-panel { grid-template-columns: var(--rail-w) minmax(0, 1fr) 0; }
-.shell.no-rail.no-panel { grid-template-columns: 0 minmax(0, 1fr) 0; }
+.rail { grid-area: rail; }
+.main { grid-area: main; }
+.panel { grid-area: panel; }
+
+/* Dropping the track as well as the element, so a collapsed column leaves no phantom gap. */
+.shell.no-rail {
+  grid-template-areas: 'main panel';
+  grid-template-columns: minmax(0, 1fr) var(--panel-w);
+}
+.shell.no-panel {
+  grid-template-areas: 'rail main';
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+}
+.shell.no-rail.no-panel {
+  grid-template-areas: 'main';
+  grid-template-columns: minmax(0, 1fr);
+}
 .shell.no-rail > .rail,
 .shell.no-panel > .panel { display: none; }
 
@@ -315,7 +338,7 @@ h2 { font-size: 16px; }
 }
 button.thought-head:hover { color: var(--dim); }
 .thought-head .spin { color: var(--purple-text); }
-.thought-caret { margin-left: auto; font-size: 9px; }
+.thought-caret { margin-left: auto; font-size: 11px; }
 .thought-body {
   /* THE FIXED HEIGHT IS THE FEATURE. Reasoning that runs for minutes must not push the answer
      off the screen — it scrolls inside this window instead. */
@@ -363,7 +386,8 @@ button.thought-head:hover { color: var(--dim); }
 
 /* the loading reel */
 .thinking { display: flex; align-items: center; padding: 2px 0; }
-.thinking-art { width: 46px; height: 46px; }
+/* These are detailed illustrations, not glyphs — below ~50px they turn to mush. */
+.thinking-art { width: 58px; height: 58px; }
 .thinking-art svg { display: block; width: 100% !important; height: 100% !important; }
 
 /* ── markdown ──────────────────────────────────────────────────────────── */
@@ -399,10 +423,12 @@ button.thought-head:hover { color: var(--dim); }
 
 /* ── plan ──────────────────────────────────────────────────────────────── */
 /* Pinned above the composer: the state of the work, not a message. Collapsed it costs one line. */
-/* Padding on the wrapper and the width on the children, so the panel lines up with the composer
-   below it rather than sitting 52px narrower. */
-.plan { flex: none; padding: 0 26px; }
-.plan-head, .plan-steps { max-width: 720px; margin: 0 auto; }
+/* THE WRAPPER owns the width and the centring — not the children.
+   Putting `margin: 0 auto` on `.plan-head, .plan-steps` looked equivalent and was not: the
+   `.plan-steps` rule further down sets `margin: 0` for the list reset, which wins on source order
+   and left-aligned the list while the head stayed centred. One owner, no collision.
+   772 = the composer's 720 plus this padding, so the two line up exactly. */
+.plan { flex: none; width: 100%; max-width: 772px; margin: 0 auto; padding: 0 26px; }
 .plan-head {
   display: flex; align-items: center; gap: 11px; width: 100%;
   padding: 10px 14px; text-align: left;
@@ -418,7 +444,7 @@ button.thought-head:hover { color: var(--dim); }
   font-size: 12px; font-variant-numeric: tabular-nums;
 }
 .plan-now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-caret { flex: none; font-size: 9px; color: var(--faint); }
+.plan-caret { flex: none; font-size: 11px; color: var(--dim); }
 
 .plan-steps {
   list-style: none; margin: 0; padding: 4px 14px 12px;
@@ -427,11 +453,13 @@ button.thought-head:hover { color: var(--dim); }
   background: var(--card);
   max-height: 220px; overflow-y: auto;
 }
-.plan-step { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 13px; }
+/* flex-start, not baseline: a step that wraps to two lines would otherwise drag its checkbox down
+   to sit against the last line. */
+.plan-step { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; font-size: 13px; }
 .plan-box {
   display: flex; align-items: center; justify-content: center; flex: none;
-  width: 17px; height: 17px; border-radius: 5px;
-  border: 1px solid var(--hair-2); font-size: 9px; color: transparent;
+  width: 17px; height: 17px; border-radius: 5px; margin-top: 2px;
+  border: 1px solid var(--hair-2); font-size: 10px; color: transparent;
 }
 .plan-step.completed .plan-box { background: var(--ok); border-color: var(--ok); color: #06110b; }
 .plan-step.completed .plan-text { color: var(--faint); text-decoration: line-through; }
@@ -629,11 +657,21 @@ button.thought-head:hover { color: var(--dim); }
 /* The inspector goes first: a 360px panel squeezed to 140px shows nothing, and a chat you cannot
    read is worse than no panel. */
 @media (max-width: 1180px) {
-  .shell, .shell.no-panel { grid-template-columns: var(--rail-w) minmax(0, 1fr) 0; }
+  .shell, .shell.no-panel {
+    grid-template-areas: 'rail main';
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+  .shell.no-rail, .shell.no-rail.no-panel {
+    grid-template-areas: 'main';
+    grid-template-columns: minmax(0, 1fr);
+  }
   .shell > .panel { display: none; }
 }
 @media (max-width: 820px) {
-  .shell, .shell.no-rail, .shell.no-panel { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  .shell, .shell.no-rail, .shell.no-panel, .shell.no-rail.no-panel {
+    grid-template-areas: 'main';
+    grid-template-columns: minmax(0, 1fr);
+  }
   .shell > .rail { display: none; }
   .topbar { padding: 18px 18px 14px; }
   .thread { padding: 18px 18px 8px; }

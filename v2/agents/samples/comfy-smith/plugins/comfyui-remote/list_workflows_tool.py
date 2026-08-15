@@ -32,11 +32,13 @@ class ListWorkflowsTool(Tool):
         # the agent's own directory.
         folder = Path(current_workspace(".")) / "workflows"
         rows = []
+        paths = []
         if folder.is_dir():
             for path in sorted(
                 folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
             ):
                 rows.append(f"- {path.name}  ({_describe(path)})")
+                paths.append(str(path))
         if not rows:
             # NAME THE FOLDER. "No workflows yet" is true and useless: it reads identically
             # whether none were built or one was written somewhere else, and the second case
@@ -47,7 +49,13 @@ class ListWorkflowsTool(Tool):
                 f"A file saved anywhere else is invisible to this tool AND to the app's "
                 f"Workflows tab, which reads the same folder."
             )
-        return ToolResult.text(f"{len(rows)} workflow(s) in {folder}:\n" + "\n".join(rows))
+        # Return the files as structured artifacts as well as readable text. The app consumes these
+        # paths directly; parsing a Windows path out of prose is fragile and previously made an
+        # existing workflow render as "Nothing built yet".
+        return ToolResult.text(
+            f"{len(rows)} workflow(s) in {folder}:\n" + "\n".join(rows),
+            artifacts=paths,
+        )
 
 
 def _describe(path: Path) -> str:

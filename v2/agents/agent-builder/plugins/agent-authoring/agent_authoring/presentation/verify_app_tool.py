@@ -8,6 +8,8 @@ that finished-looking is exactly the state this catches.
 
 from __future__ import annotations
 
+import asyncio
+
 from agent_authoring.application.verify_app_service import Step, VerifyError
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
@@ -50,6 +52,16 @@ class VerifyAppTool(Tool):
                 "behind it. A test account — never a user's real one, and never guessed: ask.",
             },
             "password": {"type": "string", "description": "the password for `email`"},
+            "screenshot": {
+                "type": "string",
+                "enum": ["on-failure", "always", "never"],
+                "description": "whether to ATTACH the screenshot so you can see it. Default "
+                "'on-failure'. An attached image stays in this conversation for the rest of the "
+                "session and is re-sent every turn, so attaching one on every check fills the "
+                "context with pictures of windows that were fine. Ask for 'always' when the "
+                "question is genuinely visual (layout, spacing, overlap). The file path is "
+                "reported either way — you can open it without spending context.",
+            },
             "steps": {
                 "type": "array",
                 "description": "optional interactions to run after the page loads, in order",
@@ -90,11 +102,21 @@ class VerifyAppTool(Tool):
             if isinstance(s, dict)
         ]
         try:
-            result = self._service.verify(
+            # A WORKER THREAD, because Playwright's sync API refuses to run inside a live asyncio
+            # loop — and a tool's `execute` is always inside one. It fails with "It looks like you
+            # are using Playwright Sync API inside the asyncio loop", which is invisible from a
+            # standalone script: the same code passes there (no loop) and fails in the daemon,
+            # which is the only place it runs for real.
+            #
+            # A thread is the whole fix. The alternative — async_playwright — would turn the
+            # driver, the service, the protocol and every test fake async to reach the same
+            # behaviour, and this call is one blocking operation with nothing to interleave.
+            result = await asyncio.to_thread(
+                self._service.verify,
                 str(params.get("agent_id") or "").strip(),
                 steps,
-                email=str(params.get("email") or "").strip(),
-                password=str(params.get("password") or ""),
+                str(params.get("email") or "").strip(),
+                str(params.get("password") or ""),
             )
         except VerifyError as e:
             return ToolResult.text(str(e), is_error=True)
@@ -102,16 +124,26 @@ class VerifyAppTool(Tool):
             # The driver could not start (no browser binaries). Its message names the fix.
             return ToolResult.text(f"could not open a browser: {e}", is_error=True)
 
+        # WHETHER TO ATTACH THE IMAGE, which is a context decision and not a cosmetic one: a
+        # declared artifact becomes a base64 block that lives in the conversation for the rest of
+        # the session and is re-sent every turn. Two full screenshots once filled a real build's
+        # context to the point where the model returned nothing at all.
+        #
+        # So: by default only when there is something to look AT. A window that passed every
+        # check does not need its portrait kept forever.
+        mode = str(params.get("screenshot") or "on-failure")
+        attach = mode == "always" or (mode == "on-failure" and not result.passed)
+
         # BLOCKED IS NOT AN ERROR. Marking it one makes the model treat a login screen as a bug
         # in the agent and go and "fix" code that was never executed.
         return ToolResult.text(
-            _render(result),
+            _render(result, attached=attach),
             is_error=not result.passed and not result.blocked,
-            artifacts=result.screenshots,
+            artifacts=result.screenshots if attach else [],
         )
 
 
-def _render(result) -> str:
+def _render(result, attached: bool = False) -> str:
     head = f"{result.agent_id} — {result.url}"
     if result.steps_run:
         head += f"\nsteps: {', '.join(result.steps_run)}"
@@ -145,8 +177,16 @@ def _render(result) -> str:
         extra.append("on screen: " + " | ".join(obs.controls[:20]))
     if result.screenshots:
         extra.append("screenshots: " + ", ".join(result.screenshots))
-        extra.append(
-            "Look at them. Passing every check and being unusable are compatible, and the "
-            "image is the only thing that shows the difference."
-        )
+        if not attached:
+            # The path is always here, so the image is one deliberate request away rather than
+            # permanently in the conversation.
+            extra.append(
+                "Not attached (the window passed). Call again with screenshot='always' if you "
+                "need to SEE the layout — passing every check and being unusable are compatible."
+            )
+        else:
+            extra.append(
+                "Look at it. Passing every check and being unusable are compatible, and the "
+                "image is the only thing that shows the difference."
+            )
     return "\n\n".join([head, body, *extra])

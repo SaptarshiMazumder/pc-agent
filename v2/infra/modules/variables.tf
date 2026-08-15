@@ -391,11 +391,11 @@ variable "registry_publisher_key" {
 
 variable "services" {
   type = map(object({
-    port          = number
-    health_path   = string
-    env           = optional(map(string), {})
-    secret_keys   = optional(map(string), {})
-    efs           = optional(bool, false)
+    port        = number
+    health_path = string
+    env         = optional(map(string), {})
+    secret_keys = optional(map(string), {})
+    efs         = optional(bool, false)
     # SINGLE-WRITER: this service owns a datastore that exactly one task may write at a time
     # (accounts, on SQLite over EFS). It forces a stop-then-start rollout instead of the default
     # start-then-stop, because the overlap window puts TWO writers on one file and the second one
@@ -440,6 +440,7 @@ variable "services" {
         GEMINI_API_KEY        = "GEMINI_API_KEY"
         DEEPSEEK_API_KEY      = "DEEPSEEK_API_KEY"
         MOONSHOT_API_KEY      = "MOONSHOT_API_KEY"
+        OPENAI_API_KEY        = "OPENAI_API_KEY"
       }
     }
 

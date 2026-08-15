@@ -17,6 +17,7 @@ import {
   authStatus,
   authLogout,
   fromPage,
+  mountSignInGate,
   resultText,
   setRunMode,
   type AgentdClient,
@@ -536,10 +537,39 @@ export function useTool(client: AgentdClient) {
   )
 }
 
-/** Files the agent has produced, from its own workspace. */
+/** Files the agent has produced.
+ *
+ * Workflows are resolved through `list_workflows`, not `workspace.list`. The runtime can give a
+ * signed-in app and an agent run different workspace roots; the tool uses `current_workspace`,
+ * which is also where the agent was told to write. Asking the gateway directly can therefore
+ * show an empty folder while the workflow exists. */
 export function useWorkspace(client: AgentdClient) {
   return useCallback(
     async (path = ''): Promise<Array<{ name: string; path: string; size: number }>> => {
+      if (path === 'workflows') {
+        const res: any = await client.invokeTool('list_workflows', {})
+        const artifacts = Array.isArray(res?.artifacts) ? res.artifacts : []
+        const structured = artifacts
+          .map((item: any) => typeof item === 'string' ? item : item?.path)
+          .filter((item: unknown): item is string => typeof item === 'string' && item.endsWith('.json'))
+          .map((filePath: string) => ({
+            name: filePath.split(/[\\/]/).pop() || filePath,
+            path: filePath,
+            size: 0,
+          }))
+        if (structured.length) return structured
+
+        // Compatibility fallback for a daemon that strips artifacts from direct tool results.
+        const text = resultText(res)
+        const folder = text.match(/(?:workflow\(s\) in|No workflows in) (.+?)(?::?\r?\n|$)/)?.[1]
+        if (!folder || text.startsWith('No workflows in ')) return []
+        const separator = folder.includes('\\') ? '\\' : '/'
+        return [...text.matchAll(/^- (.+?\.json)\s+\(/gm)].map((match) => ({
+          name: match[1],
+          path: `${folder}${separator}${match[1]}`,
+          size: 0,
+        }))
+      }
       const res: any = await client.request('workspace.list', path ? { path } : {})
       return (res?.entries ?? res?.files ?? []) as Array<{ name: string; path: string; size: number }>
     },
@@ -663,13 +693,21 @@ export function useAuth(client: AgentdClient) {
     }
   }, [])
 
+  const signIn = useCallback(
+    () => run(() => mountSignInGate({
+      client,
+      product: 'Comfy Smith',
+      blurb: 'Sign in to use your account in this window.',
+    })),
+    [run, client],
+  )
   const signOut = useCallback(() => run(() => authLogout({ client })), [run, client])
   const chooseMode = useCallback(
     (mode: RunMode) => run(() => setRunMode(mode, { client })),
     [run, client],
   )
 
-  return { auth, busy, error, signOut, chooseMode, reload: load }
+  return { auth, busy, error, signIn, signOut, chooseMode, reload: load }
 }
 
 /** Declared MCP servers and why any of them is not usable.

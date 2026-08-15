@@ -29,8 +29,10 @@ after the user has waited for the GPU.
 This is the loop, and skipping the middle step is the difference between an agent that works and
 one that sounds like it works:
 
-1. **Write** the workflow in API format to `workspace/workflows/`. Write the UI export too if
-   they want to open it in the canvas — but the API format is the one that runs.
+1. **Call `list_workflows` first and use the exact folder it reports.** Write the workflow in API
+   format there. Never derive a path from the agent definition, current directory, or a remembered
+   `workspace/workflows/` path. Write the UI export too if they want to open it in the canvas —
+   but the API format is the one that runs.
 2. **`validate_workflow`** — structure plus a live check against that server's node catalogue.
 3. **`run_workflow`** — actually queue it. This is not optional and it is not a last step you
    offer to do; it is how you find out whether you were right.

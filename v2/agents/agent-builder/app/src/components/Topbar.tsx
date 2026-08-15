@@ -10,18 +10,29 @@ import type { AgentRow } from '../agentd/roster'
 export function Topbar({
   agent,
   who,
+  railOpen,
+  onToggleRail,
   canTogglePanel,
   panelOpen,
   onTogglePanel,
 }: {
   agent: AgentRow | null
   who: WhoAmI
+  railOpen: boolean
+  onToggleRail: () => void
   canTogglePanel: boolean
   panelOpen: boolean
   onTogglePanel: () => void
 }) {
   return (
     <header className="topbar">
+      {/* The collapse control lives in the rail, so collapsing it takes the way back with it.
+          This is that way back, and it appears only when there is nothing else to click. */}
+      {!railOpen && (
+        <button className="icon-btn" onClick={onToggleRail} title="Show sidebar">
+          ⟩
+        </button>
+      )}
       <div className="head-text">
         <span className="eyebrow">{agent ? 'Building' : 'Agent Builder'}</span>
         <h1>{agent ? agent.name || agent.id : 'What should we build?'}</h1>

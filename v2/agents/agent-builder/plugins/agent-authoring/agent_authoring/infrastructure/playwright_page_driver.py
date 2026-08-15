@@ -26,6 +26,16 @@ STEP_SETTLE_MS = 1500
 
 VIEWPORT = {"width": 1280, "height": 860}
 
+#: Screenshots are DOWNSCALED before they leave here, and the reason is not disk space.
+#:
+#: A tool's declared artifact becomes a base64 image block inside the conversation, and it stays
+#: there — re-sent on every later turn for the rest of the session. One full-size PNG of this
+#: viewport is ~114KB, which is what a real build hit: two verifications and the transcript was
+#: mostly pictures, then the model started returning empty responses because the context was
+#: full. A JPEG at this width is ~15KB and shows the same layout problems.
+SHOT_WIDTH = 700
+SHOT_QUALITY = 60
+
 
 class PlaywrightPageDriver:
     def __init__(self, screenshot_dir: Path, label: str = "app"):
@@ -61,7 +71,12 @@ class PlaywrightPageDriver:
                 f"download from the python package: run `playwright install chromium`."
             ) from e
 
-        self._page = self._browser.new_page(viewport=VIEWPORT)
+        # LAY OUT BIG, CAPTURE SMALL. The page still measures 1280px wide, so wrapping and
+        # overflow are exactly what a user at that size would see; only the captured pixels
+        # shrink. Resizing the VIEWPORT instead would test a different layout.
+        self._page = self._browser.new_page(
+            viewport=VIEWPORT, device_scale_factor=SHOT_WIDTH / VIEWPORT["width"]
+        )
         page = self._page
         page.on("pageerror", lambda e: self._errors.append(str(e)))
         page.on(
@@ -196,9 +211,12 @@ class PlaywrightPageDriver:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._shots += 1
         stamp = time.strftime("%H%M%S")
-        path = self._dir / f"{self._label}-{stamp}-{self._shots}.png"
+        path = self._dir / f"{self._label}-{stamp}-{self._shots}.jpg"
         try:
-            self._page.screenshot(path=str(path), full_page=False)
+            # A JPEG, scaled down by the DEVICE ratio rather than by resizing after the fact —
+            # the page still lays out at the real viewport width (so overflow and wrapping are
+            # what a user would see) and only the pixels shrink.
+            self._page.screenshot(path=str(path), full_page=False, type="jpeg", quality=SHOT_QUALITY)
         except Exception:  # noqa: BLE001 - a missing screenshot must not lose the findings
             return ""
         return str(path)

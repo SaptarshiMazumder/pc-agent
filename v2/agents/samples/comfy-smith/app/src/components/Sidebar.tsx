@@ -31,6 +31,7 @@ export function Sidebar({
   status,
   alert,
   auth,
+  onSignIn,
   onSignOut,
 }: {
   view: View
@@ -40,6 +41,7 @@ export function Sidebar({
    *  by the time they notice it the agent has already failed for a reason it never explained. */
   alert?: boolean
   auth: AuthState | null
+  onSignIn: () => void
   onSignOut: () => void
 }) {
   return (
@@ -63,10 +65,15 @@ export function Sidebar({
         alert={alert}
       />
 
-      {auth?.signedIn && (
+      {auth?.signedIn ? (
         <button className="nav-item" onClick={onSignOut}>
           <Glyph name="out" />
           <span>Sign out</span>
+        </button>
+      ) : (
+        <button className="nav-item" onClick={onSignIn}>
+          <Glyph name="in" />
+          <span>Sign in</span>
         </button>
       )}
 
@@ -119,7 +126,7 @@ function Group({
   )
 }
 
-type Icon = 'chat' | 'file' | 'server' | 'box' | 'node' | 'gear' | 'out'
+type Icon = 'chat' | 'file' | 'server' | 'box' | 'node' | 'gear' | 'in' | 'out'
 
 /** Inline SVG on a 16px grid, stroked with `currentColor` so every icon inherits the state of
  *  the row it is in — hover, active, disabled — with no per-icon colour anywhere. */
@@ -178,6 +185,13 @@ function Glyph({ name }: { name: Icon }) {
         <svg {...common}>
           <circle cx="8" cy="8" r="2.2" />
           <path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8 3.5 3.5" />
+        </svg>
+      )
+    case 'in':
+      return (
+        <svg {...common}>
+          <path d="M10 14h2.5a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 12.5 2H10" />
+          <path d="M5.5 11 2 8l3.5-3M2 8h8" />
         </svg>
       )
     case 'out':

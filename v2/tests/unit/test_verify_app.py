@@ -11,6 +11,7 @@ that needed Chromium would be skipped on the machine that most needs it.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -274,6 +275,57 @@ def test_a_stale_build_fails_before_anything_is_believed(tmp_path):
 
     assert not result.passed
     assert any(f.code == "UI_BUILD_STALE" for f in result.findings)
+
+
+# --------------------------------------------------------------------------- the tool
+
+
+@pytest.mark.asyncio
+async def test_the_tool_does_not_drive_the_browser_on_the_event_loop(tmp_path):
+    """THE BUG THIS EXISTS FOR, and the reason a standalone check could not find it.
+
+    Playwright's sync API refuses to run inside a live asyncio loop, and a tool's `execute` is
+    always inside one. Driving it directly failed in the daemon with "It looks like you are using
+    Playwright Sync API inside the asyncio loop" while passing perfectly in a script — the only
+    difference being the loop, which the script did not have and production always does.
+
+    So the tool must hand the blocking work to a thread. This test asserts the driver never sees
+    a running loop, which is the actual requirement; asserting "it used to_thread" would pass for
+    an implementation that still blocked.
+    """
+    from agent_authoring.presentation.verify_app_tool import VerifyAppTool
+
+    _agent(tmp_path)
+    seen: dict = {}
+
+    class LoopSpy(FakeDriver):
+        def open(self, url):
+            try:
+                seen["loop"] = asyncio.get_running_loop()
+            except RuntimeError:
+                seen["loop"] = None  # no running loop here — which is the point
+            return super().open(url)
+
+    tool = VerifyAppTool(_service(tmp_path, LoopSpy(_healthy())))
+    result = await tool.execute("call-1", {"agent_id": "known"}, asyncio.Event())
+
+    assert seen["loop"] is None, "the browser was driven on the event loop — Playwright refuses"
+    assert not result.is_error
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_run_is_not_an_error_result(tmp_path):
+    """`is_error` is what makes the model treat a result as something to fix. A login screen is
+    not something to fix in the agent."""
+    from agent_authoring.presentation.verify_app_tool import VerifyAppTool
+
+    _agent(tmp_path)
+    tool = VerifyAppTool(_service(tmp_path, FakeDriver(_gated())))
+
+    result = await tool.execute("call-1", {"agent_id": "known"}, asyncio.Event())
+
+    assert not result.is_error
+    assert "NOT VERIFIED" in "".join(getattr(b, "text", "") for b in result.content)
 
 
 # --------------------------------------------------------------------------- the gate
