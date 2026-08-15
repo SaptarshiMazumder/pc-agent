@@ -81,7 +81,11 @@ jarvis = "agent_runtime.cli.main:main"
 path = "agent_runtime/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent_runtime"]
+# `identity` ships WITH the daemon because the daemon verifies access tokens locally
+# (agent_runtime/infrastructure/accounts.py -> identity.infrastructure.jwks_verifier). The
+# alternative was a second copy of the verifier inside agent_runtime, which is how two copies of
+# security code drift until only one of them has the fix.
+packages = ["agent_runtime", "identity"]
 exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
@@ -90,6 +94,7 @@ path = "scripts/hatch_build.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "agent_runtime",
+    "identity",
     "plugins",
     "agents/main/skills",
     "SOUL.md",

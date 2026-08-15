@@ -87,6 +87,27 @@ jobs:
         # node_modules from clients/ when it runs in desktop/ below
         run: npm ci
         working-directory: v2/clients
+      # AN INSTALLER BAKES ITS PLATFORM ADDRESS AND CANNOT BE CORRECTED AFTERWARDS. Whatever
+      # `platform_url` is committed in the flavor is what every downloader of this .exe will
+      # talk to, forever. A flavor that declares a hosted platform but no platform_url falls back
+      # to the per-service URLs, which is precisely the pre-discovery arrangement that rotted on
+      # every ALB recreate. Cheap, credential-free guard; the STALE case is caught by running
+      # `npm run sync:urls` before tagging (see v2/deploy/GO-LIVE.md).
+      - name: Flavors must declare platform_url
+        shell: bash
+        working-directory: v2/clients/desktop/flavors
+        run: |
+          fail=0
+          for f in */distribution.toml; do
+            grep -q '^\[platform\]' "$f" || continue
+            if ! grep -q '^platform_url[[:space:]]*=' "$f"; then
+              echo "::error file=$f::[platform] present but platform_url missing - this installer would bake stale per-service URLs"
+              fail=1
+            fi
+          done
+          [ "$fail" = 0 ] && echo "all flavors declare platform_url"
+          exit $fail
+
       - name: Build core + studio installers
         run: |
           npm run dist:core

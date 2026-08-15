@@ -19,6 +19,22 @@ const bridge = (globalThis as { agentd?: unknown }).agentd
 
 export const isDesktop = !!bridge
 
+/** OS-encrypted storage for the refresh token, when the desktop shell provides it.
+ *
+ * Reached from HERE rather than through lib/platform.ts on purpose. lib/tokens.ts needs it, and
+ * platform.ts imports lib/auth.ts, which imports tokens.ts — so going through the adapter would
+ * close exactly the cycle this leaf module exists to break, on the one code path that runs before
+ * anything else during boot. Returns undefined on the web, where localStorage is the fallback.
+ */
+export function hostSecrets():
+  | { read(): Promise<string | null>; write(token: string | null): Promise<void> }
+  | undefined {
+  const b = bridge as
+    | { secrets?: { read(): Promise<string | null>; write(t: string | null): Promise<void> } }
+    | undefined
+  return b?.secrets && typeof b.secrets.read === 'function' ? b.secrets : undefined
+}
+
 /**
  * The viewer's OS, using the same tags the registry stamps on an installer
  * ('win' | 'mac' | 'linux'; '' when it cannot be told).

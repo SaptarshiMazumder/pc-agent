@@ -115,13 +115,31 @@ def configure(config) -> None:
         or os.environ.get("AGENTD_MODEL_GATEWAY_URL", "").strip()
     )
     cfg_url = str(mp.get("api_base") or "").strip()
+    # What the DEPLOYMENT says today, ahead of what the installer baked months ago. Same
+    # precedence and same reasoning as accounts_api_base — see config.platform_discovered.
+    disc_url = ""
+    try:
+        from agent_runtime.config import platform_discovered
+
+        disc_url = platform_discovered(config, "model_proxy_url")
+    except Exception:  # noqa: BLE001 — discovery must never break model routing
+        disc_url = ""
     dist_url = str(
         getattr(profile, "model_proxy_url", "")
         or getattr(profile, "model_gateway_url", "")
         or ""
     ).strip()
     url, _source = next(
-        ((u, s) for u, s in ((env_url, "env"), (cfg_url, "config"), (dist_url, "distribution")) if u),
+        (
+            (u, s)
+            for u, s in (
+                (env_url, "env"),
+                (cfg_url, "config"),
+                (disc_url, "discovery"),
+                (dist_url, "distribution"),
+            )
+            if u
+        ),
         ("", ""),
     )
     _api_base = url.rstrip("/")

@@ -2465,6 +2465,20 @@ class Gateway:
                     await ws.send(dump_frame(Response(id="", ok=False, payload={"error": str(e)})))
                     continue
                 if isinstance(frame, Request):
+                    # auth.update is handled HERE, not in _dispatch, because it mutates
+                    # CONNECTION state (who this socket is, and which credential its model calls
+                    # pay with) rather than doing anything at the application tier. Dispatch
+                    # receives an immutable snapshot of the account by design; routing this
+                    # through it would mean giving every method the power to change identity.
+                    if frame.method == "auth.update":
+                        account, response = await self._auth_update(frame, account)
+                        accounts.reset_account(_conn_acct_tok)
+                        _conn_acct_tok = accounts.set_account(account)
+                        self.client_identities[ws] = ownership.callers(
+                            (account or {}).get("account_id"), self._hosted()
+                        )
+                        await ws.send(dump_frame(response))
+                        continue
                     response = await self._dispatch(frame, client_id, scope, public, account)
                     await ws.send(dump_frame(response))
         except websockets.ConnectionClosed:
@@ -2477,6 +2491,56 @@ class Gateway:
             self.client_public.discard(ws)
             self.client_identities.pop(ws, None)
             await self._abort_client_runs(client_id)
+
+    async def _auth_update(self, req: Request, current: dict | None) -> tuple[dict | None, Response]:
+        """Swap this connection's access token in place — no reconnect, no dropped run.
+
+        THE PROBLEM THIS SOLVES. An access token lives ten minutes; a socket lives hours and an
+        agent run can outlive the token that started it. The credential is presented once, on the
+        connect URL, so without this the only way to carry a refreshed token is to rebuild the
+        socket — which drops in-flight runs and re-subscribes every stream, once every ten minutes,
+        forever.
+
+        The client refreshes on its own schedule (it holds the refresh token; the daemon
+        deliberately does not — see the plan) and pushes the result here.
+
+        IDENTITY MAY NOT CHANGE. A new token for a DIFFERENT account is refused rather than
+        applied: this connection's runs, subscriptions and pinned state all belong to whoever
+        opened it, and silently re-pointing them at another account mid-stream would leak one
+        user's events to another. Switching accounts is a reconnect.
+        """
+        token = str((req.params or {}).get("accessToken") or "").strip()
+        if not token:
+            return current, Response(
+                id=req.id, ok=False, payload={"error": "accessToken is required"}
+            )
+        account = await accounts.resolve(token)
+        if account is None:
+            # The client's refresh produced something we will not take. Reported with a typed
+            # code so the client signs out rather than retrying a token that cannot work.
+            return current, Response(
+                id=req.id,
+                ok=False,
+                payload={"error": "the presented token is invalid or expired", "code": "auth_invalid"},
+            )
+        if current and current.get("account_id") and account.get("account_id") != current.get("account_id"):
+            return current, Response(
+                id=req.id,
+                ok=False,
+                payload={
+                    "error": "this token belongs to a different account; reconnect to switch",
+                    "code": "auth_account_mismatch",
+                },
+            )
+        log.info("connection re-authenticated: account=%s", account.get("account_id"))
+        return account, Response(
+            id=req.id,
+            ok=True,
+            payload={
+                "accountId": account.get("account_id"),
+                "expiresAt": account.get("expires_at") or 0,
+            },
+        )
 
     # --------------------------------------------------------------- dispatch
 
@@ -4868,7 +4932,39 @@ class Gateway:
         # HOSTED metering gate: an account with a budget that has already reached this month's cap
         # cannot start a new turn. A fresh check (not the cached connect-time view) so spend that
         # accrued this session counts. No budget / accounts off => never blocks.
-        if account is not None and account.get("budget_usd") is not None:
+        # AN EXPIRED CREDENTIAL CANNOT START NEW WORK. The socket stays open and its identity
+        # stands — the client is who it said it was — but the token it would pay with is dead, so
+        # letting the turn begin just moves the failure to the first model call, where it surfaces
+        # as an opaque provider error halfway through a run.
+        #
+        # A GRACE WINDOW past `exp` (AGENTD_AUTH_GRACE_S, default 120s) absorbs the ordinary race:
+        # the client refreshes shortly before expiry, and a turn starting in that gap should not
+        # be punished for a few seconds of clock skew. Runs ALREADY in flight are never touched by
+        # this check — killing a long agent run mid-tool-call over a refresh timer would be worse
+        # than the overrun it prevents.
+        #
+        # The typed code is what makes this recoverable: the client refreshes, calls auth.update,
+        # and retries, with nothing to explain to the user.
+        expires_at = float((account or {}).get("expires_at") or 0)
+        if expires_at:
+            try:
+                grace = float(os.environ.get("AGENTD_AUTH_GRACE_S", "") or 120)
+            except ValueError:
+                grace = 120.0
+            if time.time() > expires_at + grace:
+                raise RuntimeError(
+                    "auth_expired: your session token expired — refresh and retry"
+                )
+
+        # A LOCALLY-VERIFIED account carries no budget: that number lives in the ledger and moves
+        # as money is spent, so a copy inside a ten-minute-old token would be stale by
+        # construction (see accounts.resolve). We cannot tell from the token whether a cap exists,
+        # so we ask — once per TURN, not per model call, which is the same cost this check always
+        # had for capped accounts and is why it is not worth avoiding.
+        needs_budget_check = account is not None and (
+            account.get("budget_usd") is not None or account.get("verified") == "local"
+        )
+        if needs_budget_check:
             view = await accounts.check_budget(account.get("account_id"))
             if view and view.get("over"):
                 raise RuntimeError(

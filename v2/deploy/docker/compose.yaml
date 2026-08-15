@@ -21,6 +21,11 @@ services:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
       - ACCOUNTS_URL=http://accounts:4100
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal}
+      # LOCAL TOKEN VERIFICATION. With these two the proxy checks a JWT against cached public keys
+      # instead of calling /resolve before every uncached model call. Must match what the accounts
+      # service mints with, or every token is rejected as foreign.
+      - AGENTD_AUTH_ISSUER=http://localhost:4100
+      - AGENTD_AUTH_JWKS_URI=http://accounts:4100/auth/jwks.json
     ports: ["4000:4000"]
     depends_on: [accounts]
     restart: unless-stopped
@@ -30,6 +35,19 @@ services:
     image: agentd-accounts:local
     environment:
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes
+      # THE TOKEN ISSUER. Stamped into every access token as `iss` and checked by whoever
+      # verifies it, so a token from this local stack is refused by a real deployment (and vice
+      # versa). Must be the address a BROWSER uses, because that is what the discovery document
+      # below hands out — `http://accounts:4100` is a compose-internal name a browser cannot
+      # resolve. Unset it and the service falls back to the legacy `sess_` path.
+      - AGENTD_AUTH_ISSUER=http://localhost:4100
+      # What /.well-known/agentd-platform tells a client. Same rule: public addresses only.
+      - AGENTD_PUBLIC_ACCOUNTS_URL=http://localhost:4100
+      - AGENTD_PUBLIC_WS_URL=ws://localhost:8790
+      - AGENTD_PUBLIC_MODEL_PROXY_URL=http://localhost:4000
+      # Signing keys are stored unencrypted without this; fine locally, set it wherever the
+      # volume is backed up. See identity/infrastructure/sqlite_key_store.py.
+      - AGENTD_IDENTITY_KEK=${AGENTD_IDENTITY_KEK:-}
     volumes: ["accounts-data:/data"]
     ports: ["4100:4100"]
     restart: unless-stopped

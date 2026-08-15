@@ -36,6 +36,10 @@ const repoRoot = path.resolve(desktopDir, '..', '..', '..') // pc-agent/
 
 // terraform output name -> the distribution.toml key it fills. Add a row to sync a new one.
 const SYNCED = {
+  // THE ONE KEY that matters going forward. Everything else in this table is a fallback for
+  // builds that predate discovery: a modern flavor declares only platform_url and fetches the
+  // rest at runtime, which is why re-running this script stopped being load-bearing.
+  platform_url: 'platform_url',
   accounts_url: 'accounts_url',
   model_proxy_url: 'model_proxy_url',
   // Terraform-output compatibility during the rename rollout.

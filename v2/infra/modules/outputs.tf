@@ -41,8 +41,18 @@ output "app_url" {
 
 # ── Desktop-flavor wiring: these values go into the flavors' distribution.toml ──
 
+output "platform_url" {
+  description = <<-EOT
+    [platform] platform_url — THE ONE address a build bakes. Clients fetch
+    <platform_url>/.well-known/agentd-platform for everything else (sign-in, model proxy, ws,
+    issuer, providers), so a destroy/recreate cannot leave a shipped installer pointing at a dead
+    load balancer. The per-service outputs below remain for builds that predate discovery.
+  EOT
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
+}
+
 output "accounts_url" {
-  description = "[platform] accounts_url for the desktop flavors (sign-in endpoint)."
+  description = "[platform] accounts_url for the desktop flavors (sign-in endpoint). Superseded by platform_url; kept for older builds."
   value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
 }
 

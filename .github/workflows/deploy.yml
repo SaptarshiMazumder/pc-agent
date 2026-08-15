@@ -58,6 +58,13 @@ on:
       # change ships real code. Omitting it here would skip the deploy and leave the
       # containers running the old library while the repo says otherwise.
       - "v2/monitoring/**"
+      # identity/ is COPIED into accounts AND model-proxy (sign-in, and local token
+      # verification). payments/ is COPIED into accounts. Both were missing here, which meant a
+      # change confined to either shipped NOTHING: the workflow skipped, the deploy reported
+      # success, and the containers kept running the previous build while the repo said
+      # otherwise - the worst shape of failure, because it looks exactly like a good deploy.
+      - "v2/identity/**"
+      - "v2/payments/**"
       - ".github/workflows/deploy.yml"
 
 permissions:
@@ -181,8 +188,10 @@ jobs:
           touched() { echo "$CHANGED" | grep -qE "$1"; }
 
           # The path->image map is read off each Dockerfile's COPY lines, not guessed:
-          #   model-proxy  model_proxy/requirements.txt, litellm.config.yaml, custom_auth, metering
-          #   accounts     accounts/requirements.txt, app.py, ledger.py, payments.py
+          #   model-proxy  model_proxy/{requirements,litellm.config,custom_auth,metering}
+          #                + the identity/ package (local JWT verification)
+          #   accounts     accounts/{requirements,app,ledger,post_processor,identity_bridge}
+          #                + the payments/ AND identity/ packages
           #   ingest       ingest/requirements.txt, app.py
           #   web          the whole clients/ npm workspace (root + ui/ + web/ + desktop manifest)
           #   daemon       the WHEEL, so effectively all of v2 the .dockerignore lets through:
@@ -192,8 +201,9 @@ jobs:
           WF='^\.github/workflows/deploy\.yml$'
           SHARED="^v2/monitoring/|$WF"
           TO_BUILD=""
-          if touched "$SHARED|^v2/model_proxy/"; then TO_BUILD="$TO_BUILD model-proxy"; fi
-          if touched "$SHARED|^v2/accounts/";    then TO_BUILD="$TO_BUILD accounts"; fi
+          # identity/ is copied into BOTH images, so it belongs in both conditions.
+          if touched "$SHARED|^v2/model_proxy/|^v2/identity/"; then TO_BUILD="$TO_BUILD model-proxy"; fi
+          if touched "$SHARED|^v2/accounts/|^v2/identity/|^v2/payments/"; then TO_BUILD="$TO_BUILD accounts"; fi
           if touched "$SHARED|^v2/ingest/";      then TO_BUILD="$TO_BUILD ingest"; fi
           if touched "^v2/clients/|$WF";         then TO_BUILD="$TO_BUILD web"; fi
           if touched "$SHARED|^v2/agent_runtime/|^v2/plugins/|^v2/agents/|^v2/scripts/|^v2/pyproject\.toml$|^v2/deploy/docker/"; then
@@ -275,6 +285,7 @@ jobs:
             # OPTIONAL by design: an empty value leaves the browser reporter inert, which is what
             # a build for an environment without an ingest service should do.
             build web v2/clients v2/clients/web/Dockerfile \
+              --build-arg "VITE_AGENTD_PLATFORM_URL=http://${ALB}:4100" \
               --build-arg "VITE_AGENTD_ACCOUNTS_URL=http://${ALB}:4100" \
               --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787" \
               --build-arg "VITE_AGENTD_INGEST_URL=http://${ALB}:4200"

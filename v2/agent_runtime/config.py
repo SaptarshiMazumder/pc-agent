@@ -676,8 +676,28 @@ def default_local_registry(state_dir) -> str:
     return str(registry_dir) if (registry_dir / "index.json").is_file() else ""
 
 
+def platform_discovered(config, name: str) -> str:
+    """One address from the deployment's own discovery document, or "".
+
+    Sits BETWEEN a machine's config and the build's baked per-service keys in every precedence
+    chain below: an operator's env and a machine's config are still deliberate local overrides and
+    must win, but a value the deployment publishes today beats one frozen into an installer months
+    ago. That ordering is the whole point — the baked keys are a fallback for offline and for
+    builds that predate discovery, not the source of truth.
+
+    Imported lazily because agent_runtime.config is imported by nearly everything, and discovery
+    pulls in httpx.
+    """
+    try:
+        from agent_runtime.infrastructure import platform_discovery
+
+        return platform_discovery.field(config, name)
+    except Exception:  # noqa: BLE001 — discovery must never be able to break config resolution
+        return ""
+
+
 def accounts_api_base(config) -> str:
-    """Where the accounts service lives: env > config > distribution profile.
+    """Where the accounts service lives: env > config > discovery > distribution profile.
 
     THREE SOURCES, ONE ANSWER, ONE FUNCTION. This used to be resolved in two places that looked
     in different sets of them: the accounts seam read env + config and ignored the profile, while
@@ -696,6 +716,7 @@ def accounts_api_base(config) -> str:
         (
             os.environ.get("AGENTD_ACCOUNTS_URL")
             or str(acc.get("api_base") or "")
+            or platform_discovered(config, "auth_url")
             or str(getattr(profile, "accounts_url", "") or "")
         )
         .strip()

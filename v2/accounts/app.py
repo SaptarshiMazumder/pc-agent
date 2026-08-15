@@ -11,19 +11,23 @@ contract, so swapping the backing store never touches agentd.
 
 Contract (what agentd depends on):
     POST /signup   {email, password, budget_usd?}        -> {account_id}
-    POST /login    {email, password}                     -> {token, account_id, email}
-    GET  /resolve  (Authorization: Bearer <token>)       -> {account_id, email, budget_usd}
+    POST /auth/login {email, password}                   -> {access_token, refresh_token, ...}
+    POST /login    {email, password}                     -> alias of /auth/login
+    GET  /resolve  (Authorization: Bearer <access_token>) -> {account_id, email, budget_usd}
     GET  /budget/{account_id}                            -> {budget_usd, spent_usd, remaining, over}
     POST /usage    {account_id, model, in_tokens, out_tokens, cost_usd}
                                                          -> {ok, spent_usd, over}
     GET  /health                                         -> {ok: true}
 
-A session token is the browser's credential; it is NOT a model key. agentd resolves the token
-to an account and meters that account's spend — the model key (the model-proxy master key, or a
-per-account virtual key later) never leaves the server side.
+An ACCESS TOKEN is the client's credential; it is NOT a model key. It is a short-lived signed
+JWT, so the daemon and the model proxy verify it against cached public keys (GET /auth/jwks.json)
+instead of asking this service on every call. The model key never leaves the server side.
+
+Identity itself — credentials, tokens, signing keys, external providers — lives in v2/identity/
+and is composed here. THIS service owns what an account HAS (budgets, credits, the ledger); that
+module owns who someone IS. See identity/__init__.py for why the line is drawn there.
 
 Public-exposure hardening (all env-driven; unset = today's open local-dev behavior):
-    ACCOUNTS_SESSION_TTL_DAYS  sessions expire after N days (default 30; 0 = never)
     ACCOUNTS_INTERNAL_KEY      when set: /usage requires X-Internal-Key (the ledger is written
                                by trusted infra — the model proxy's callback — only), and
                                /budget/{id} requires the key OR the account's own session token
@@ -90,6 +94,24 @@ from payments.main.payment_gateway_factory import (
 )
 from payments.presentation.payment_router import build_payment_router
 
+# IDENTITY (v2/identity/) — who a caller is, as opposed to what their account HAS. Imported the
+# same way payments is: this service depends on the module's INTERFACES and its composition root,
+# and never on an adapter. See identity/__init__.py for why the split is drawn where it is.
+#
+# Deliberately NOT optional. A service that boots without its auth stack and quietly serves the
+# legacy path instead is a service whose security posture depends on whether an import worked.
+from identity.domain.errors import (
+    AccountDisabled,
+    AuthenticationFailed,
+    RefreshReuseDetected,
+    TokenInvalid,
+)
+from identity.infrastructure import sqlite_schema as identity_schema
+from identity.infrastructure.local_password_provider import PROVIDER_NAME as LOCAL_PROVIDER
+from identity.infrastructure.sqlite_identity_link_store import SqliteIdentityLinkStore
+from identity.main import identity_factory
+from identity.presentation.auth_router import build_auth_router
+
 # Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
 # the tests load this file by path, where the module has no package. Same defensive pattern as
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
@@ -101,6 +123,7 @@ try:  # pragma: no cover - exercised by whichever path the runtime takes
         PurchaseOrder,
         WebhookPostProcessor,
     )
+    from identity_bridge import SqliteAccountDirectory
 except ModuleNotFoundError:  # pragma: no cover
     import importlib.util as _ilu
     import pathlib as _pathlib
@@ -123,6 +146,7 @@ except ModuleNotFoundError:  # pragma: no cover
     AccountsPostProcessor = _post_processing.AccountsPostProcessor
     PurchaseOrder = _post_processing.PurchaseOrder
     WebhookPostProcessor = _post_processing.WebhookPostProcessor
+    SqliteAccountDirectory = _sibling("identity_bridge").SqliteAccountDirectory
 
 
 setup_logging("accounts")
@@ -132,15 +156,6 @@ setup_logging("accounts")
 DB_PATH = Path(os.environ.get("AGENTD_ACCOUNTS_DB", str(Path(__file__).parent / "data" / "accounts.db")))
 _PBKDF2_ROUNDS = 200_000
 _MIN_PASSWORD_LEN = 8
-
-
-def _session_ttl_s() -> float:
-    """Session lifetime in seconds; 0 = never expire (read per-call so tests can flip it)."""
-    try:
-        days = float(os.environ.get("ACCOUNTS_SESSION_TTL_DAYS", "30") or 30)
-    except ValueError:
-        days = 30.0
-    return days * 86_400
 
 
 def _internal_key() -> str:
@@ -185,11 +200,11 @@ def _init_db() -> None:
                 active       INTEGER NOT NULL DEFAULT 1,
                 created_at   REAL NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS sessions (
-                token        TEXT PRIMARY KEY,
-                account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                created_at   REAL NOT NULL
-            );
+            -- NOTE: the `sessions` table is GONE. It held opaque `sess_` credentials, which
+            -- were replaced by signed access tokens + rotating refresh tokens (v2/identity).
+            -- A database created before that still HAS the table; it is simply never read or
+            -- written now. Deliberately not dropped: an irreversible DDL step on live data, in
+            -- exchange for reclaiming a few kilobytes, is a bad trade.
             CREATE TABLE IF NOT EXISTS usage (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -327,6 +342,12 @@ def _init_db() -> None:
         )
         ledger.schema(c)
         SqlitePaymentIntentStore.create_schema(c)
+        # Identity's tables, versioned by identity itself (see its sqlite_schema for why it does
+        # NOT use the PRAGMA table_info pattern above). Then the backfill that makes this change
+        # non-destructive: every account that existed before identity gets a `local` identity row,
+        # so its next login resolves to the SAME account id instead of minting a second one.
+        identity_schema.create_schema(c)
+        identity_schema.backfill_local_identities(c, at=_now())
 
 
 # --- password hashing (stdlib, no bcrypt dependency) -------------------------
@@ -508,6 +529,81 @@ def health() -> dict:
     return {"ok": True, "service": "accounts"}
 
 
+@app.get("/.well-known/agentd-platform")
+def platform_discovery() -> dict:
+    """WHERE EVERYTHING IS, answered by the deployment itself.
+
+    THE FIX FOR "the same account should work everywhere". Every client used to bake every URL —
+    each desktop flavor its own `accounts_url`, the web image its own build arg — and they drifted
+    onto three different load balancers. A different stack is a different database, so the same
+    email became a different `acct_` id with different credits, silently.
+
+    Now a client bakes ONE value (the platform URL) and reads the rest from here, so there is a
+    single place per environment that can be wrong, and it is the same place for every client.
+
+    `issuer` is the load-bearing field: the daemon and the model proxy check it, so a token minted
+    by the dev stack is refused BY NAME in production instead of being quietly treated as a
+    different account.
+
+    PUBLIC and unauthenticated, necessarily — a client has to be able to read it before it can
+    sign in. Everything here is already public knowledge (hostnames), and no secret may ever be
+    added to this response.
+
+    `providers` is DATA, so the sign-in UI renders its buttons from this list. Adding Google later
+    is a row here plus an adapter — no client release, which is the same rule the rest of the
+    codebase follows for models, tools and plugins.
+    """
+    issuer = identity_factory.issuer()
+    return {
+        "issuer": issuer,
+        "auth_url": _public_url("AGENTD_PUBLIC_ACCOUNTS_URL") or issuer,
+        "jwks_uri": f"{issuer}/auth/jwks.json" if issuer else "",
+        "ws_url": _public_url("AGENTD_PUBLIC_WS_URL"),
+        "model_proxy_url": _public_url("AGENTD_PUBLIC_MODEL_PROXY_URL"),
+        # WHAT THE SIGN-IN SCREEN RENDERS, as data. The UI iterates this list; it names no
+        # provider itself, so adding Microsoft is four environment variables on this service and
+        # zero client changes. Same rule the codebase already follows for models and tools.
+        "providers": _providers(),
+        "token_auth": identity_factory.tokens_available(),
+        "access_ttl_s": identity_factory.access_ttl_s(),
+        "service": "accounts",
+    }
+
+
+def _providers() -> list[dict]:
+    """Every way to sign in to this deployment: the password form, plus any external provider.
+
+    The password entry is omitted when the primary provider cannot take one (a pure-OIDC
+    deployment), so the UI does not render a form that nothing can accept.
+    """
+    out: list[dict] = []
+    primary = identity_factory.configured_provider_name()
+    if primary == identity_factory.LOCAL:
+        out.append({"id": "local", "label": "Email", "kind": "password"})
+    for provider in identity_factory.external_providers():
+        out.append(
+            {
+                "id": provider.name,
+                # Title-cased from the configured id, so "google" renders as "Google" without a
+                # lookup table that would have to grow for every new provider.
+                "label": provider.name.replace("-", " ").title(),
+                "kind": "oidc",
+            }
+        )
+    return out
+
+
+def _public_url(env_name: str) -> str:
+    """A URL a BROWSER can reach, from the environment.
+
+    Deliberately separate from the internal service addresses the daemon and proxy use to reach
+    each other (`http://accounts.agentd.local:4100` is service-discovery DNS a visitor cannot
+    resolve). Publishing the internal one here would produce a discovery document that works
+    perfectly from inside the VPC and fails for every actual user.
+    """
+    return (os.environ.get(env_name, "") or "").strip().rstrip("/")
+
+
 @app.post("/signup")
 def signup(request: Request, payload: dict = Body(...)) -> dict:
     _check_rate(request)
@@ -532,51 +628,115 @@ def signup(request: Request, payload: dict = Body(...)) -> dict:
             "VALUES (?, ?, ?, ?, ?, 1, ?)",
             (account_id, email, salt, pw_hash, budget_val, _now()),
         )
+        # AND ITS IDENTITY RECORD, in the same transaction. Without this the account exists but
+        # has no `local` login attached, so the token path would not find it and would mint a
+        # SECOND account on first sign-in — a new id, an empty balance, and nothing to notice it
+        # by. The startup backfill covers accounts created before identity existed; this covers
+        # every one created from now on.
+        SqliteIdentityLinkStore(c).link(
+            provider=LOCAL_PROVIDER, subject=account_id, account_id=account_id, email=email
+        )
     return {"account_id": account_id, "email": email, "budget_usd": budget_val}
 
 
 @app.post("/login")
 def login(request: Request, payload: dict = Body(...)) -> dict:
+    """Sign in. Compatibility alias for /auth/login — same credential, same response.
+
+    It used to ALSO mint an opaque `sess_` row so that already-shipped clients (which read
+    `token`) kept working while the token path rolled out. That dual-issuing is gone: nothing
+    reads `token` any more, and one login endpoint that hands out two kinds of credential is two
+    things to revoke, two things to expire, and two code paths to keep secure.
+
+    Kept as a route rather than deleted because it is a published address that scripts and the
+    client's own signup flow use. New callers should use /auth/login.
+    """
     # If nobody can sign in, nothing else about the platform matters — so this ratio is one of
     # the handful of numbers on the morning dashboard.
     _check_rate(request)
+    if not identity_factory.tokens_available():
+        # A 503 rather than a startup crash: `AGENTD_AUTH_ISSUER` is derived from the stack's
+        # public address, which is legitimately empty while a stack is hibernating or has no
+        # ALB yet. Refusing to boot then would turn a dormant environment into a broken one.
+        raise HTTPException(
+            status_code=503,
+            detail="this deployment has no identity configured (AGENTD_AUTH_ISSUER is unset)",
+        )
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
     started = time.perf_counter()
     with _db() as c:
-        row = c.execute(
-            "SELECT id, pw_salt, pw_hash, active FROM accounts WHERE email=?", (email,)
-        ).fetchone()
-        if row is None or not row["active"] or not _verify_pw(password, row["pw_salt"], row["pw_hash"]):
-            count("login_total", outcome="rejected")
-            raise HTTPException(status_code=401, detail="invalid email or password")
-        token = "sess_" + secrets.token_urlsafe(32)
-        c.execute(
-            "INSERT INTO sessions (token, account_id, created_at) VALUES (?, ?, ?)",
-            (token, row["id"], _now()),
-        )
-    count("login_total", outcome="ok", _props={"account_id": row["id"]})
+        with _auth_service(c) as service:
+            try:
+                pair = service.login(
+                    email=email,
+                    password=password,
+                    client_id=str(payload.get("client_id") or "")[:64],
+                    device_label=str(payload.get("device_label") or "")[:120],
+                )
+            except (AuthenticationFailed, AccountDisabled) as e:
+                count("login_total", outcome="rejected")
+                raise HTTPException(status_code=401, detail="invalid email or password") from e
+    count("login_total", outcome="ok", _props={"account_id": pair.account_id})
     # PBKDF2 at 200k rounds is deliberately slow; watch it so a future rounds bump doesn't
     # quietly turn sign-in into a timeout.
     timing("login_ms", (time.perf_counter() - started) * 1000, outcome="ok")
-    return {"token": token, "account_id": row["id"], "email": email}
+    return {**pair.as_response(), "email": email}
+
+
+@contextmanager
+def _auth_service(conn: sqlite3.Connection | None = None):
+    """An AuthService bound to a live connection.
+
+    Built per request, like CheckoutService in _apply_purchase: the identity stores take a
+    connection, so a failed login rolls back everything it touched along with the caller's
+    transaction. Pass an existing connection to JOIN the caller's transaction rather than opening
+    a second one against the same SQLite file — nesting two writers on one file is how a request
+    deadlocks against itself.
+    """
+    if conn is not None:
+        yield identity_factory.build_auth_service(conn, SqliteAccountDirectory(conn))
+        return
+    with _db() as c:
+        try:
+            yield identity_factory.build_auth_service(c, SqliteAccountDirectory(c))
+        except RefreshReuseDetected:
+            # THE ONE FAILURE THAT MUST STILL COMMIT. _db() commits only on a clean exit, so a
+            # raise normally rolls the request back — and here the thing being rolled back is the
+            # family revocation, which IS the security response to a stolen refresh token. Without
+            # this the service detects the theft, reports it, and then quietly un-revokes the
+            # family, leaving the attacker's copy working. Same fix, same reason, as the
+            # expired-session purge in _account_for_legacy_session.
+            c.commit()
+            raise
 
 
 def _account_for_token(c: sqlite3.Connection, token: str) -> sqlite3.Row:
+    """A bearer token -> the account behind it. ONE credential kind: a signed access token.
+
+    There used to be a second branch here for opaque `sess_` sessions, kept while the token path
+    rolled out so that already-shipped clients went on working. It is gone, and the endpoint is
+    better for it: one kind of credential means one thing to revoke, one thing to expire and one
+    code path to keep secure. Nothing outside this repository ever held a `sess_` token.
+
+    THE CLAIMS ARE NOT TRUSTED FOR ANYTHING BUT `sub`. The accounts row is re-read on every call,
+    so a token minted ten minutes ago cannot assert a budget or an active flag that has since
+    changed — which is what lets a deactivation take effect immediately despite a live token.
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    if not identity_factory.tokens_available():
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    with _auth_service(c) as service:
+        try:
+            claims = service.verify_access(token)
+        except TokenInvalid as e:
+            raise HTTPException(status_code=401, detail=str(e) or "invalid or expired token") from e
     row = c.execute(
-        "SELECT a.id AS id, a.email AS email, a.budget_usd AS budget_usd, a.active AS active, "
-        "s.created_at AS session_created_at "
-        "FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token=?",
-        (token,),
+        "SELECT id, email, budget_usd, active FROM accounts WHERE id = ?",
+        (claims.account_id,),
     ).fetchone()
     if row is None or not row["active"]:
-        raise HTTPException(status_code=401, detail="invalid or expired token")
-    ttl = _session_ttl_s()
-    if ttl > 0 and _now() - float(row["session_created_at"] or 0) > ttl:
-        c.execute("DELETE FROM sessions WHERE token=?", (token,))
-        # _db() commits only on a CLEAN exit, and we are about to raise — so the purge must be
-        # committed here or it rolls back and every expired session stays in the table forever.
-        c.commit()
         raise HTTPException(status_code=401, detail="invalid or expired token")
     return row
 
@@ -1677,3 +1837,19 @@ def _handle_payment_event(body: bytes, signature: str) -> dict:
 # service that the webhook is configured when it is not.
 if has_webhook():
     app.include_router(build_payment_router(_handle_payment_event))
+
+# /auth/* — the identity module's own surface. Mounted UNCONDITIONALLY, unlike the payment webhook
+# above, because the router itself reports 501 when no issuer is configured: "this deployment has
+# no platform identity yet" is a real, discoverable answer, whereas a 404 on /auth/login looks
+# like a broken build to whoever is debugging a client.
+#
+# It is handed OUR rate limiter rather than bringing its own, so sign-in has one policy across the
+# legacy and token endpoints — two limiters would mean an attacker gets both budgets.
+app.include_router(
+    build_auth_router(
+        _auth_service,
+        rate_limit=_check_rate,
+        available=identity_factory.tokens_available,
+        external_providers=identity_factory.external_providers,
+    )
+)

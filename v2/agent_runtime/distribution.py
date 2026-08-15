@@ -79,6 +79,20 @@ class DistributionProfile:
     # is. "" => this build cannot publish, which is the correct default for a plain checkout.
     publish_url: str = ""
     publisher_key: str = ""  # base64 ed25519 pubkey ("" => unsigned mode)
+    # THE ONE BAKED ADDRESS. Everything else about the platform — where to sign in, where the
+    # model proxy is, which issuer's tokens to trust — is fetched from
+    # ``<platform_url>/.well-known/agentd-platform`` at runtime.
+    #
+    # It exists because the alternative does not survive contact with a redeploy. Each flavor used
+    # to bake four independent URLs, every one of them an ALB hostname with an AWS-assigned suffix
+    # that changes on any destroy/recreate. `sync-platform-urls.mjs` re-derives them, but nothing
+    # forces it to run before a build, so every release froze another copy — which is why the
+    # shipped artifacts under dist/ point at three different long-dead load balancers. With one
+    # key there is one thing per environment that can be wrong, and a client that fetches rather
+    # than bakes cannot be stale at all.
+    #
+    # "" => fall back to the per-service keys below, which is every existing install.
+    platform_url: str = ""
     accounts_url: str = ""  # "" => no hosted accounts (BYOK-only install)
     model_proxy_url: str = ""  # "" => no platform model proxy
     # "" => the diagnostics uploader can never run, whatever the user's toggle says. A build with
@@ -124,6 +138,7 @@ def parse_profile(data: dict, source_path: str = "") -> DistributionProfile:
         registry_url=str(store.get("registry_url") or ""),
         publish_url=str(store.get("publish_url") or "").rstrip("/"),
         publisher_key=str(store.get("publisher_key") or ""),
+        platform_url=str(platform.get("platform_url") or "").rstrip("/"),
         accounts_url=str(platform.get("accounts_url") or "").rstrip("/"),
         model_proxy_url=str(
             platform.get("model_proxy_url") or platform.get("model_gateway_url") or ""
@@ -190,6 +205,8 @@ def render_profile(profile: DistributionProfile, header: str = "") -> str:
         lines += ["", "[store]", *store]
 
     platform = []
+    if profile.platform_url:
+        platform.append(f"platform_url = {q(profile.platform_url)}")
     if profile.accounts_url:
         platform.append(f"accounts_url = {q(profile.accounts_url)}")
     if profile.model_proxy_url:

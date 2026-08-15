@@ -21,6 +21,18 @@ resource "random_password" "accounts_internal_key" {
   special = false
 }
 
+# The KEY-ENCRYPTION KEY for token signing keys. The identity module stores its private signing
+# key in the accounts database (so it can ROTATE without a deploy — see key_store.py); this wraps
+# that key at rest. Without it the private half sits in clear text on EFS, which is exactly the
+# case that matters here because EFS is backed up somewhere this secret is not.
+#
+# Generated, never authored: nobody needs to know it, and a human-chosen value would be the
+# weakest link in the chain that protects every session on the platform.
+resource "random_password" "identity_kek" {
+  length  = 48
+  special = false
+}
+
 # App secrets: the generated master key + provider API keys. The keys start as placeholders;
 # you set the REAL values later via the AWS CLI (set-keys.ps1), so they never touch git or
 # Terraform state.
@@ -36,6 +48,7 @@ resource "aws_secretsmanager_secret_version" "app" {
   secret_string = jsonencode({
     LITELLM_MASTER_KEY    = "sk-${random_password.master_key.result}"
     ACCOUNTS_INTERNAL_KEY = random_password.accounts_internal_key.result
+    AGENTD_IDENTITY_KEK   = random_password.identity_kek.result
     GEMINI_API_KEY        = "REPLACE_ME"
     DEEPSEEK_API_KEY      = "REPLACE_ME"
     # MCP server credentials are secrets like any other (workspace-mcp / the google plugin).

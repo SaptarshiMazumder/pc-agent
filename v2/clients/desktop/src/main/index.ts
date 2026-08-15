@@ -8,7 +8,7 @@
  * All agent intelligence stays in the daemon — this process never talks to an LLM.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -19,7 +19,7 @@ import { Supervisor } from './supervisor'
 
 let flavor: Flavor = {
   productId: 'agentd', productName: 'agentd', defaultAgent: '', appAgent: '', storeEnabled: true,
-  preinstalledBundles: [], accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: [],
+  preinstalledBundles: [], platformUrl: '', accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: [],
   payloadDir: '', iconPath: '', appUserModelId: ''
 }
 const supervisor = new Supervisor(() => flavor.sourcePath)
@@ -91,6 +91,7 @@ function registerIpc(): void {
     appAgent: flavor.appAgent,
     storeEnabled: flavor.storeEnabled,
     preinstalledBundles: flavor.preinstalledBundles,
+    platformUrl: flavor.platformUrl,
     accountsUrl: flavor.accountsUrl,
     modelProxyUrl: flavor.modelProxyUrl,
     // Compatibility for older renderers loaded during a rolling desktop update.
@@ -98,6 +99,47 @@ function registerIpc(): void {
     bundledPackages: flavor.bundledPackages,
     version: app.getVersion()
   }))
+  // THE REFRESH TOKEN'S HOME ON DESKTOP. A 30-day credential in localStorage is readable by
+  // anything that can read the profile directory; safeStorage wraps it with a key held by the OS
+  // keychain (DPAPI on Windows, Keychain on macOS, libsecret on Linux). The ACCESS token is never
+  // written anywhere — it is re-derivable from this one, so persisting it would only add a place
+  // to steal it from.
+  //
+  // Falls back to plaintext-on-disk when the OS declines encryption (a headless Linux box with no
+  // keyring), because the alternative is an app that silently cannot stay signed in. The file
+  // records which it was, so a later read never tries to decrypt something that was never encrypted.
+  const secretFile = path.join(app.getPath('userData'), 'refresh-token.json')
+  ipcMain.handle('secrets:read', () => {
+    try {
+      if (!fs.existsSync(secretFile)) return null
+      const box = JSON.parse(fs.readFileSync(secretFile, 'utf-8')) as {
+        v?: string
+        encrypted?: boolean
+      }
+      if (!box?.v) return null
+      if (!box.encrypted) return box.v
+      return safeStorage.decryptString(Buffer.from(box.v, 'base64'))
+    } catch {
+      return null // unreadable or from another machine's keychain => signed out, not crashed
+    }
+  })
+  ipcMain.handle('secrets:write', (_e, token: string | null) => {
+    try {
+      if (!token) {
+        if (fs.existsSync(secretFile)) fs.unlinkSync(secretFile)
+        return true
+      }
+      const canEncrypt = safeStorage.isEncryptionAvailable()
+      const box = canEncrypt
+        ? { encrypted: true, v: safeStorage.encryptString(token).toString('base64') }
+        : { encrypted: false, v: token }
+      fs.writeFileSync(secretFile, JSON.stringify(box), { mode: 0o600 })
+      return true
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle('supervisor:status', () => supervisor.current())
   ipcMain.handle('supervisor:ensure', async () => {
     const info = await supervisor.ensure()

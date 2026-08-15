@@ -95,6 +95,23 @@ except ImportError:  # pragma: no cover
         return nullcontext()
 
 
+# Identity's typed token errors + the JWT shape test. Guarded like the telemetry import above:
+# an image built before identity shipped must still boot and serve the /resolve path rather than
+# crash on an import — auth degrading to "slower" is survivable, auth failing to load is not.
+try:
+    from identity.domain.errors import TokenExpired, TokenInvalid
+    from identity.infrastructure.jwks_verifier import looks_like_jwt
+except ImportError:  # pragma: no cover - image without the identity package
+    class TokenExpired(Exception):  # type: ignore[no-redef]
+        pass
+
+    class TokenInvalid(Exception):  # type: ignore[no-redef]
+        pass
+
+    def looks_like_jwt(_token: str) -> bool:  # type: ignore[misc]
+        return False
+
+
 log = logging.getLogger("model_proxy.auth")
 
 setup_logging("model-proxy")
@@ -204,6 +221,52 @@ def _trace_from_data(data: dict) -> dict:
     return {}
 
 
+_verifier_built = False
+_verifier = None
+
+
+def _jwks_verifier():
+    """The local token verifier, or None when this deployment has no JWKS configured.
+
+    Built once, lazily, from the environment:
+        AGENTD_AUTH_JWKS_URI   where the public keys are     (default: <ACCOUNTS_URL>/auth/jwks.json)
+        AGENTD_AUTH_ISSUER     whose tokens we accept        (required — no issuer, no local path)
+
+    The issuer is REQUIRED rather than defaulted, and that is the whole security of this: without
+    it we would accept a correctly-signed token from any deployment whose keys we happened to
+    fetch, which is precisely the cross-environment account confusion this work exists to end.
+    Absent it, every token falls back to the /resolve round trip, which is safe and merely slower.
+    """
+    global _verifier_built, _verifier
+    if _verifier_built:
+        return _verifier
+    _verifier_built = True
+    try:
+        from identity.infrastructure.jwks_verifier import JwksVerifier
+
+        accounts_url = os.environ.get("ACCOUNTS_URL", "").strip().rstrip("/")
+        issuer = os.environ.get("AGENTD_AUTH_ISSUER", "").strip().rstrip("/")
+        jwks_uri = (
+            os.environ.get("AGENTD_AUTH_JWKS_URI", "").strip()
+            or (f"{accounts_url}/auth/jwks.json" if accounts_url else "")
+        )
+        if not (issuer and jwks_uri):
+            log.info("model_proxy: local token verification OFF (no issuer/jwks configured)")
+            _verifier = None
+            return None
+        _verifier = JwksVerifier(
+            jwks_uri=jwks_uri,
+            issuer=issuer,
+            # Tokens minted for the proxy. A daemon-only token must not be spendable here.
+            audience="agentd-proxy",
+        )
+        log.info("model_proxy: local token verification ENABLED (%s)", jwks_uri)
+    except Exception as e:  # noqa: BLE001 — never let this break auth entirely
+        log.warning("model_proxy: local token verification unavailable: %s", e)
+        _verifier = None
+    return _verifier
+
+
 def _accounts_client() -> httpx.AsyncClient | None:
     """Lazy shared client (created on the running loop, reused across requests)."""
     global _client
@@ -230,6 +293,27 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     if master and hmac.compare_digest(key, master):
         count("auth_total", credential="master", outcome="ok")
         return UserAPIKeyAuth(api_key=key)
+
+    # LOCAL VERIFICATION FIRST — the change that takes the accounts service out of the hot path.
+    # Every uncached model call used to make a synchronous /resolve round trip from here, which is
+    # why this module carries a stale-serving grace window just to survive an Accounts blip. A JWT
+    # is checked against a cached public key instead: no network, no shared failure mode, and the
+    # grace hack below becomes dead weight for token callers (it still covers legacy `sess_` ones).
+    verifier = _jwks_verifier()
+    if verifier is not None and looks_like_jwt(key):
+        try:
+            claims = await verifier.averify(key)
+        except TokenExpired:
+            # A DISTINCT outcome, because the client's correct reaction differs: refresh and
+            # retry, rather than sign in again. Counted separately so a spike in expiries (a
+            # broken client refresh loop) does not hide inside the generic rejection rate.
+            count("auth_total", credential="jwt", outcome="expired")
+            raise Exception("access token expired") from None
+        except TokenInvalid as e:
+            count("auth_total", credential="jwt", outcome="rejected")
+            raise Exception("invalid credentials: sign in required") from e
+        count("auth_total", credential="jwt", outcome="ok", cache="local")
+        return UserAPIKeyAuth(api_key=key, user_id=claims.account_id)
 
     client = _accounts_client()
     if not key or client is None:

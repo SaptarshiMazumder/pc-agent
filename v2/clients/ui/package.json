@@ -5,7 +5,8 @@
   "description": "The shared agentd renderer — ONE React app, built by both shells (Electron desktop + hosted web). Host capabilities are reached only through src/lib/platform.ts.",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke:auth": "esbuild scripts/auth-smoke.ts --bundle --platform=node --format=esm --outfile=scripts/auth-smoke.bundle.mjs --log-level=error && node scripts/auth-smoke-run.mjs"
   },
   "dependencies": {
     "@fontsource/bricolage-grotesque": "^5.2.10",

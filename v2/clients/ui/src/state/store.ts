@@ -23,7 +23,14 @@ import type {
 import { resultText } from '../gateway/protocol'
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
 import { setGatewayUrl } from '../lib/artifacts'
-import { getSession, isAccountsMode, resolveSession, signOut } from '../lib/auth'
+import {
+  currentAccessToken,
+  getSession,
+  isAccountsMode,
+  resolveSession,
+  signOut
+} from '../lib/auth'
+import { onTokens } from '../lib/tokens'
 import { getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
@@ -873,7 +880,10 @@ export const useApp = create<AppState>((set, get) => {
         // stores neither — that is what lets two windows differ on one machine.
         try {
           const u = new URL(url)
-          const session = getSession()?.token
+          // The FRESHEST access token, not whatever is cached: this runs on every (re)connect,
+          // including reconnects after a long sleep, and presenting an expired token would make
+          // the daemon treat a signed-in client as anonymous.
+          const session = await currentAccessToken()
           const mode = getMode()
           if (session) u.searchParams.set('session', session)
           if (mode) u.searchParams.set('mode', mode)
@@ -881,6 +891,17 @@ export const useApp = create<AppState>((set, get) => {
         } catch {
           return url
         }
+      })
+
+      // KEEP THE OPEN SOCKET AUTHENTICATED. The access token expires every ten minutes while a
+      // socket lives for hours, so without this the only way to carry a refreshed credential is
+      // to rebuild the connection — dropping in-flight runs and re-subscribing every stream, six
+      // times an hour, forever. `auth.update` swaps it in place instead.
+      onTokens((p) => {
+        if (!p || get().connection !== 'open') return
+        void gateway.request('auth.update', { accessToken: p.accessToken }).catch(() => {
+          /* an older daemon has no auth.update; the next reconnect carries the token anyway */
+        })
       })
     },
 

@@ -442,15 +442,20 @@ variable "services" {
       health_path = "/health"
       env = {
         AGENTD_ACCOUNTS_DB = "/data/accounts.db"
-        # public-exposure hardening (see deploy/accounts/app.py header for the contract)
-        ACCOUNTS_SESSION_TTL_DAYS = "30"
-        ACCOUNTS_RATE_LIMIT       = "10/60"
+        # public-exposure hardening (see accounts/app.py header for the contract).
+        # ACCOUNTS_SESSION_TTL_DAYS is GONE: credentials are signed tokens that carry their own
+        # expiry now, so there is no server-side session row whose lifetime this could set.
+        # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
+        ACCOUNTS_RATE_LIMIT = "10/60"
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
       }
       secret_keys = {
         ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
+        # Wraps the token signing key at rest (identity/infrastructure/sqlite_key_store.py).
+        # Absent, keys are stored in clear and the service logs a warning on first use.
+        AGENTD_IDENTITY_KEK = "AGENTD_IDENTITY_KEK"
       }
       efs = true
     }

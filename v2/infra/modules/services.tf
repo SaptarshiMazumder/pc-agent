@@ -32,6 +32,37 @@ locals {
       # submit. Same expression the publish service uses, so both name one address.
       AGENTD_PUBLIC_ACCOUNTS_URL = local.publish_product_accounts_url
     }
+
+    # The proxy VERIFIES what accounts MINTS, so both read the SAME computed issuer below. A
+    # mismatch between them rejects every token with a confusing "issued by another deployment",
+    # which is why neither is a configurable input.
+    "model-proxy" = {
+      AGENTD_AUTH_ISSUER = local.publish_product_accounts_url
+      # Fetched over service-discovery DNS: a server-to-server call inside the VPC, not something
+      # a browser does, so it must NOT use the public host.
+      AGENTD_AUTH_JWKS_URI = "http://accounts.${var.project}.local:${local.services["accounts"].port}/auth/jwks.json"
+    }
+
+    # THE TOKEN ISSUER FOR THIS ENVIRONMENT. Computed rather than configured because it must be
+    # this stack's own public address and nothing else: it is stamped into every access token as
+    # `iss` and checked by the daemon and the model proxy, so a dev token presented to production
+    # is refused by name instead of silently resolving to a second account with its own credits.
+    #
+    # That silent-second-account failure is exactly what the drifted per-flavor accounts URLs
+    # produced, and deriving the issuer from the same expression as `accounts_url` is what stops
+    # the two from ever disagreeing again.
+    #
+    # EMPTY WHILE HIBERNATING (no public host) is a supported state, not a broken one: the service
+    # then serves the legacy `sess_` path and reports /auth/* as not-configured.
+    accounts = {
+      AGENTD_AUTH_ISSUER = local.publish_product_accounts_url
+      # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
+      # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
+      # document that works inside the VPC and fails for every real user.
+      AGENTD_PUBLIC_ACCOUNTS_URL   = local.publish_product_accounts_url
+      AGENTD_PUBLIC_WS_URL         = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
+      AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+    }
   }
 }
 

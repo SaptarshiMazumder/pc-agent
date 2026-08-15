@@ -4,5 +4,9 @@
 # NOTE: the old deploy/docker/Dockerfile.accounts also installed httpx — the service never
 # imports it. It is needed only by fastapi.testclient (tests/unit/test_accounts_service.py),
 # and agentd already declares httpx, so the test run gets it from the root venv.
+#
+# The identity module (v2/identity/) brings PyJWT + cryptography; they are declared in
+# identity/requirements.txt and installed separately by the Dockerfile, so this file keeps
+# describing only what app.py itself needs.
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1

@@ -54,10 +54,29 @@ All env-driven; unset means today's open local-dev behaviour.
 
 | Var | Effect |
 | --- | --- |
-| `ACCOUNTS_SESSION_TTL_DAYS` | sessions expire after N days (default 30; `0` = never) |
-| `ACCOUNTS_INTERNAL_KEY` | when set, `/usage` requires `X-Internal-Key` (only trusted infra — the model proxy's callback — writes the ledger), and `/budget/{id}` requires the key **or** that account's own session token |
+| `ACCOUNTS_INTERNAL_KEY` | when set, `/usage` requires `X-Internal-Key` (only trusted infra — the model proxy's callback — writes the ledger), and `/budget/{id}` requires the key **or** that account's own access token |
 | `ACCOUNTS_CORS_ORIGINS` | comma-separated allowed origins (default `*`) |
-| `ACCOUNTS_RATE_LIMIT` | per-IP fixed window `count/seconds` on `/signup` + `/login` (default `10/60`; `0/0` disables) |
+| `ACCOUNTS_RATE_LIMIT` | per-IP fixed window `count/seconds` on `/signup` + `/login` + `/auth/*` (default `10/60`; `0/0` disables) |
+
+## Identity
+
+Sign-in itself lives in **`v2/identity/`** and is composed here — this service owns what an
+account HAS (budgets, credits, the ledger); that module owns who someone IS. See
+`identity/__init__.py` for why the line is drawn there.
+
+| Var | Effect |
+| --- | --- |
+| `AGENTD_AUTH_ISSUER` | **required to sign in.** Stamped into every token as `iss` and checked by the daemon and the model proxy, so a token from another environment is refused by name. Unset ⇒ `/auth/*` reports 501 and `/login` reports 503 |
+| `AGENTD_AUTH_ACCESS_TTL_S` | access-token life (default 600) |
+| `AGENTD_AUTH_REFRESH_TTL_DAYS` / `_FAMILY_DAYS` | refresh sliding / absolute life (30 / 90) |
+| `AGENTD_AUTH_ALG` | `EdDSA` (default) or `RS256` |
+| `AGENTD_IDENTITY_KEK` | wraps signing keys at rest; unset ⇒ stored in clear with a warning |
+| `AGENTD_IDENTITY_PROVIDER` | `local` (default) or `oidc` |
+| `AGENTD_OIDC_PROVIDERS` | comma-separated external providers, each with `AGENTD_OIDC_<NAME>_DISCOVERY` / `_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URI` |
+
+The opaque `sess_` session and its `ACCOUNTS_SESSION_TTL_DAYS` knob are **gone**: a credential is
+now a signed access token that carries its own expiry, plus a rotating refresh token. Databases
+created before this still contain an unused `sessions` table; it is never read or written.
 
 ## Tests
 

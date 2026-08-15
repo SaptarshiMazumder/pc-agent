@@ -51,8 +51,14 @@ export interface Flavor {
   appAgent: string
   storeEnabled: boolean
   preinstalledBundles: string[]
+  /** THE ONE PLATFORM ADDRESS ([platform] platform_url). Everything else about the deployment —
+   *  where to sign in, the model proxy, which issuer's tokens to trust — is fetched from
+   *  <platformUrl>/.well-known/agentd-platform at runtime, so a redeploy cannot leave a shipped
+   *  installer pointing at a dead load balancer. '' => fall back to the per-service keys below. */
+  platformUrl: string
   /** HOSTED PLATFORM ([platform] in distribution.toml): where sign-in lives. '' => BYOK-only
-   *  install, no sign-in gate — exactly the pre-platform behavior. */
+   *  install, no sign-in gate — exactly the pre-platform behavior. Now a FALLBACK for builds
+   *  that predate platformUrl; discovery wins when it answers. */
   accountsUrl: string
   /** the hosted LiteLLM Model Proxy; the daemon reads the same file itself — the shell only
    *  needs this for display/diagnostics. */
@@ -82,6 +88,7 @@ const OPEN: Flavor = {
   appAgent: '',
   storeEnabled: true,
   preinstalledBundles: [],
+  platformUrl: '',
   accountsUrl: '',
   modelProxyUrl: '',
   sourcePath: '',
@@ -205,6 +212,7 @@ export async function loadFlavor(): Promise<Flavor> {
         appAgent: String(product.app_agent || ''),
         storeEnabled: store.enabled !== false,
         preinstalledBundles: ((product.preinstalled_bundles as string[]) || []).map(String),
+        platformUrl: String(platform.platform_url || '').replace(/\/$/, ''),
         accountsUrl: String(platform.accounts_url || '').replace(/\/$/, ''),
         modelProxyUrl: String(
           platform.model_proxy_url || platform.model_gateway_url || ''

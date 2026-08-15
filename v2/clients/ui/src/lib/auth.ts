@@ -17,7 +17,17 @@
 import { useSyncExternalStore } from 'react'
 
 import { gateway } from '../gateway/client'
-import { randomUuid } from './host'
+import { platformDoc } from './discovery'
+import { hostOs, isDesktop, randomUuid } from './host'
+import {
+  clearTokens,
+  configureTokens,
+  currentPair,
+  getAccessToken,
+  pairFromResponse,
+  restore as restoreTokens,
+  setPair
+} from './tokens'
 
 export interface Session {
   token: string
@@ -59,17 +69,55 @@ export function configureAccounts(url: string): void {
   configured = (url || '').replace(/\/$/, '')
 }
 
-/** The accounts-service base URL (no trailing slash), or '' when accounts mode is off. */
+/**
+ * The accounts-service base URL (no trailing slash), or '' when accounts mode is off.
+ *
+ * PRECEDENCE, and why discovery sits where it does: an explicit `?accounts=` or a build-time env
+ * is somebody deliberately overriding, so those still win. Below them comes what the DEPLOYMENT
+ * says today (`/.well-known/agentd-platform`, resolved from the single baked `platform_url`),
+ * and only then the per-service URL an installer froze months ago.
+ *
+ * That ordering is the fix for the bug where the same email was two different accounts: baked
+ * ALB hostnames rot on every destroy/recreate, so two clients built at different times signed in
+ * against two different databases. One baked address plus a fetch removes the whole class.
+ */
 export function accountsUrl(): string {
   const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
   const env = (import.meta as { env?: Record<string, string> }).env || {}
-  const raw = q.get('accounts') || env.VITE_AGENTD_ACCOUNTS_URL || configured
-  return raw.replace(/\/$/, '')
+  const raw =
+    q.get('accounts') ||
+    env.VITE_AGENTD_ACCOUNTS_URL ||
+    platformDoc()?.authUrl ||
+    configured
+  return (raw || '').replace(/\/$/, '')
+}
+
+/**
+ * Sign-in providers to offer, from the deployment rather than from this file.
+ *
+ * The UI renders buttons from THIS list, so adding Google or Microsoft later is a row in the
+ * discovery document plus a server-side adapter — no client release. Same rule the rest of the
+ * codebase follows for models, tools and plugins: capabilities are data, never a hardcoded list.
+ *
+ * Defaults to the password form, so a deployment that predates discovery behaves as it always has.
+ */
+export function authProviders(): Array<{ id: string; label: string; kind: string }> {
+  const doc = platformDoc()
+  if (!doc || !doc.providers.length) return [{ id: 'local', label: 'Email', kind: 'password' }]
+  return doc.providers
 }
 
 export function isAccountsMode(): boolean {
   return !!accountsUrl()
 }
+
+// Wired ONCE, at module load, and as a RESOLVER rather than a value. Every path that mints or
+// spends a token — sign-in, restore, the renewal timer, sign-out — needs the accounts address,
+// and having each of them remember to configure it first is how one of them does not. (One did:
+// signing in fresh skipped it, so the renewal timer had nowhere to send its request and every
+// refresh silently returned null.) Reading it lazily also means discovery resolving after this
+// module loads is picked up with no re-configuration.
+configureTokens(() => accountsUrl())
 
 export function getSession(): Session | null {
   return cached
@@ -77,6 +125,9 @@ export function getSession(): Session | null {
 
 export function signOut(): void {
   setSession(null)
+  // Revoke server-side too, not just locally. Forgetting a 30-day refresh token without telling
+  // the server leaves a live credential on a machine the user may have just stopped trusting.
+  void clearTokens()
   // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps treating
   // this client as the old account until the socket is rebuilt without it.
   gateway.reconnect()
@@ -112,17 +163,68 @@ async function post(path: string, body: unknown): Promise<Record<string, string>
  */
 export async function login(email: string, password: string): Promise<Session> {
   const clean = email.trim().toLowerCase()
-  const d = await post('/login', { email: clean, password })
-  const s: Session = { token: d.token, accountId: d.account_id, email: d.email }
+  // ONE credential kind. This returns a PAIR: a short-lived access token that travels on every
+  // request, and a refresh token that never leaves this device except to be exchanged. The
+  // opaque `sess_` session this used to fall back to no longer exists anywhere.
+  const d = await post('/auth/login', {
+    email: clean,
+    password,
+    client_id: isDesktop ? 'desktop' : 'web',
+    device_label: deviceLabel()
+  })
+  const p = pairFromResponse(d as unknown as Record<string, unknown>)
+  await setPair(p)
+  const s: Session = { token: p.accessToken, accountId: p.accountId, email: p.email || clean }
   setSession(s)
   gateway.reconnect()
   return s
+}
+
+/** A human-readable name for the "your devices" list. Best-effort; never blocks sign-in. */
+function deviceLabel(): string {
+  try {
+    return `${isDesktop ? 'Desktop' : 'Web'} · ${hostOs() || 'unknown'}`
+  } catch {
+    return isDesktop ? 'Desktop' : 'Web'
+  }
 }
 
 export async function signup(email: string, password: string): Promise<Session> {
   const clean = email.trim().toLowerCase()
   await post('/signup', { email: clean, password })
   return login(clean, password)
+}
+
+/**
+ * Re-establish a session from the stored refresh token, at app start.
+ *
+ * This is what makes "stay signed in" work with a ten-minute access token: nothing durable is
+ * kept except the refresh token, and one exchange at boot turns it into a usable pair. Returns
+ * null when there is nothing stored or the session is genuinely over.
+ */
+export async function restoreSession(): Promise<Session | null> {
+  if (!isAccountsMode()) return null
+  const p = await restoreTokens()
+  if (!p) return null
+  const s: Session = { token: p.accessToken, accountId: p.accountId, email: p.email }
+  setSession(s)
+  return s
+}
+
+/** The freshest access token, refreshing if needed. Used to build the socket URL. */
+export async function currentAccessToken(): Promise<string> {
+  if (!isAccountsMode()) return ''
+  const live = await getAccessToken()
+  if (live) {
+    // Keep the rendered session in step with the token that is actually in use, so the UI never
+    // shows "signed in" against a credential that has been replaced.
+    const p = currentPair()
+    if (p && cached && p.accessToken !== cached.token) {
+      setSession({ token: p.accessToken, accountId: p.accountId, email: p.email })
+    }
+    return live
+  }
+  return cached?.token || ''
 }
 
 /**

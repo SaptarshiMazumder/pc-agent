@@ -16,16 +16,26 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # — the alternative is discovering the missing package the first time someone tries to pay.
 COPY payments/requirements.txt /tmp/payments-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/payments-requirements.txt
+# The identity module's dependencies (PyJWT + cryptography). NOT optional and NOT deferred: unlike
+# the payment rail, app.py imports identity at module scope, so a missing package here is a
+# service that will not start rather than a feature that is off.
+COPY identity/requirements.txt /tmp/identity-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/identity-requirements.txt
 COPY monitoring /tmp/monitoring
 RUN pip install --no-cache-dir /tmp/monitoring && rm -rf /tmp/monitoring
 RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
 # app.py imports these as siblings; omitting any is a hard startup failure, not a degraded
 # feature — the ledger IS the money.
-COPY accounts/app.py accounts/ledger.py accounts/accounts_post_processor.py /app/
+COPY accounts/app.py accounts/ledger.py accounts/accounts_post_processor.py \
+     accounts/identity_bridge.py /app/
 # The payment rail, as a package rather than a sibling (v2/payments/). Copied to /app/payments/
 # so `import payments...` resolves the same way here as it does under pytest, where v2/ is on
 # sys.path.
 COPY payments /app/payments
+# Identity (v2/identity/), same arrangement and for the same reason. `identity_bridge.py` above is
+# accounts' side of the boundary — it implements identity's AccountDirectory port — so it ships as
+# a sibling of app.py while the module itself ships as a package.
+COPY identity /app/identity
 WORKDIR /app
 USER app
 ENV AGENTD_SERVICE=accounts \

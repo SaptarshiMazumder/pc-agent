@@ -1,0 +1,13 @@
+# Identity module runtime deps.
+#
+# PyJWT does the encode/decode; `cryptography` supplies the actual key operations — PyJWT cannot
+# sign EdDSA or RS256 without it, and the failure mode without it is an obscure
+# NotImplementedError at the first login rather than an import error at boot. Pinned as a pair for
+# that reason.
+#
+# Installed even where the deployment has no issuer configured (so no tokens are minted), for the
+# same reason the accounts image installs the Stripe rail's httpx: switching AGENTD_AUTH_ISSUER on
+# must be an environment change, not a rebuild. Finding out you need a new image at the moment you
+# turn on sign-in is the worst time to find out.
+pyjwt>=2.8,<3
+cryptography>=42,<47

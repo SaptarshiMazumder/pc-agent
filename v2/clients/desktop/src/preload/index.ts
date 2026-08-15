@@ -10,6 +10,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   flavor: () => ipcRenderer.invoke('app:flavor'),
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),
+  // OS-encrypted storage for the refresh token (see src/main/index.ts). Shaped as the renderer's
+  // RefreshStorage interface so lib/tokens.ts can use it without knowing it is Electron.
+  secrets: {
+    read: (): Promise<string | null> => ipcRenderer.invoke('secrets:read'),
+    write: (token: string | null): Promise<void> => ipcRenderer.invoke('secrets:write', token)
+  },
   /** find-or-start the daemon; resolves {url, version, pid} when it's accepting */
   ensureDaemon: () => ipcRenderer.invoke('supervisor:ensure'),
   /** stop + respawn the daemon so restart-gated config changes take effect */

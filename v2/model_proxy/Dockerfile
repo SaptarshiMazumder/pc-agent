@@ -26,6 +26,13 @@ COPY model_proxy/litellm.config.yaml /app/config.yaml
 COPY model_proxy/custom_auth.py /app/custom_auth.py
 # metering.py is imported BY custom_auth as a sibling, so it must land next to it.
 COPY model_proxy/metering.py /app/metering.py
+# Identity, for LOCAL token verification (custom_auth checks a JWT against cached public keys
+# instead of calling /resolve on every uncached model call — the change that takes the accounts
+# service out of the hot path). Shipped as the same package the daemon and accounts carry, so the
+# three services can never disagree about what a valid token is.
+COPY identity/requirements.txt /tmp/identity-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/identity-requirements.txt
+COPY identity /app/identity
 ENV AGENTD_SERVICE=model-proxy
 WORKDIR /app
 # force utf-8 so litellm's Unicode startup banner doesn't crash a non-utf8 console

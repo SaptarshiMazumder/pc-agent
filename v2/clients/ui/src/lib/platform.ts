@@ -156,13 +156,23 @@ function baseName(p: string): string {
 const webPlatform: AgentdPlatform = {
   async flavor() {
     // hosted web has no installer flavor; sensible defaults (store on, no bundled agent).
-    // accountsUrl stays '' — web accounts mode is driven by ?accounts=/VITE env in auth.ts.
+    //
+    // platformUrl defaults to the page's OWN origin, which is the right answer for the hosted
+    // web client and needs no build argument at all: the app is served by the same deployment it
+    // talks to, so "where is my platform" is "where did this page come from". That is one more
+    // baked value the web image no longer has to carry, and one fewer that can rot.
+    // ?platform= / VITE_AGENTD_PLATFORM_URL still override (see lib/discovery.ts).
+    // accountsUrl stays '' — it is the pre-discovery fallback, and the web build has none.
     return {
       productId: 'agentd-web',
       productName: 'agentd',
       defaultAgent: '',
       storeEnabled: true,
       preinstalledBundles: [],
+      platformUrl:
+        typeof location !== 'undefined' && /^https?:$/.test(location.protocol)
+          ? location.origin
+          : '',
       accountsUrl: '',
       modelProxyUrl: '',
       bundledPackages: [],

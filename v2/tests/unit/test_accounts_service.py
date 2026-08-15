@@ -24,6 +24,7 @@ ACCOUNTS_APP = Path(__file__).resolve().parents[2] / "accounts" / "app.py"
 def _load_app_module(monkeypatch, tmp_path, **env: str):
     """Import a pristine copy of accounts/app.py bound to a throwaway DB."""
     monkeypatch.setenv("AGENTD_ACCOUNTS_DB", str(tmp_path / "accounts.db"))
+    monkeypatch.setenv("AGENTD_AUTH_ISSUER", "https://accounts.test.invalid")
     monkeypatch.setenv("ACCOUNTS_RATE_LIMIT", "0/0")  # off unless a test asks for it
     monkeypatch.delenv("ACCOUNTS_INTERNAL_KEY", raising=False)
     monkeypatch.delenv("ACCOUNTS_SESSION_TTL_DAYS", raising=False)
@@ -57,7 +58,7 @@ def _signup(client, email="a@b.com", password="hunter2hunter2", budget=None) -> 
 def _login(client, email="a@b.com", password="hunter2hunter2") -> str:
     r = client.post("/login", json={"email": email, "password": password})
     assert r.status_code == 200, r.text
-    return r.json()["token"]
+    return r.json()["access_token"]
 
 
 # --- health ------------------------------------------------------------------
@@ -79,7 +80,10 @@ def test_signup_login_resolve_round_trip(accounts):
     assert account_id.startswith("acct_")
 
     token = _login(client)
-    assert token.startswith("sess_")
+    # A signed access token, not the opaque `sess_` string this service used to mint. Asserted
+    # by SHAPE rather than prefix: the point is that the credential is self-describing and
+    # verifiable without asking us, which is what took this service off the model-call hot path.
+    assert token.count(".") == 2 and not token.startswith("sess_")
 
     r = client.get("/resolve", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
@@ -137,30 +141,21 @@ def test_resolve_rejects_missing_or_bogus_credentials(accounts, headers):
     assert client.get("/resolve", headers=headers).status_code == 401
 
 
-def test_expired_session_is_rejected_and_purged(monkeypatch, tmp_path):
-    module = _load_app_module(monkeypatch, tmp_path, ACCOUNTS_SESSION_TTL_DAYS="1")
+def test_a_credential_this_service_did_not_mint_is_refused(monkeypatch, tmp_path):
+    """Replaces two tests that pinned the old `sessions` table and its ACCOUNTS_SESSION_TTL_DAYS
+    knob. Both are gone: a credential is now a signed token that carries its own expiry, so there
+    is no server-side session row to purge and no TTL setting to honour.
+
+    Access-token expiry is covered where it now lives — tests/unit/test_identity_auth.py and
+    tests/unit/test_jwks_verifier.py. What is worth pinning HERE is the property those old tests
+    were really protecting: a string that did not come from us gets nothing.
+    """
+    module = _load_app_module(monkeypatch, tmp_path)
     with TestClient(module.app) as client:
         _signup(client)
-        token = _login(client)
-        assert client.get("/resolve", headers={"Authorization": f"Bearer {token}"}).status_code == 200
-
-        real_now = module._now()
-        monkeypatch.setattr(module, "_now", lambda: real_now + 2 * 86_400)  # 2 days later
-
-        assert client.get("/resolve", headers={"Authorization": f"Bearer {token}"}).status_code == 401
-        # the dead session is deleted, not merely refused
-        with module._db() as c:
-            assert c.execute("SELECT 1 FROM sessions WHERE token=?", (token,)).fetchone() is None
-
-
-def test_ttl_of_zero_means_sessions_never_expire(monkeypatch, tmp_path):
-    module = _load_app_module(monkeypatch, tmp_path, ACCOUNTS_SESSION_TTL_DAYS="0")
-    with TestClient(module.app) as client:
-        _signup(client)
-        token = _login(client)
-        real_now = module._now()
-        monkeypatch.setattr(module, "_now", lambda: real_now + 3650 * 86_400)  # a decade on
-        assert client.get("/resolve", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+        for bogus in ("sess_looks_like_the_old_kind", "", "not-a-token", "a.b.c"):
+            r = client.get("/resolve", headers={"Authorization": f"Bearer {bogus}"})
+            assert r.status_code == 401, bogus
 
 
 # --- the ledger: /usage is trusted-writers-only ------------------------------

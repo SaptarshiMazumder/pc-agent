@@ -267,6 +267,7 @@ def test_the_webhook_is_only_mounted_for_a_rail_that_has_one(monkeypatch):
 def stripe_accounts(monkeypatch, tmp_path):
     """The accounts service with the Stripe rail configured and its HTTP calls stubbed."""
     monkeypatch.setenv("AGENTD_ACCOUNTS_DB", str(tmp_path / "accounts.db"))
+    monkeypatch.setenv("AGENTD_AUTH_ISSUER", "https://accounts.test.invalid")
     monkeypatch.setenv("ACCOUNTS_RATE_LIMIT", "0/0")
     monkeypatch.setenv("ACCOUNTS_INTERNAL_KEY", "devinternal")
     monkeypatch.setenv("AGENTD_TELEMETRY", "0")
@@ -301,7 +302,7 @@ def stripe_accounts(monkeypatch, tmp_path):
     with TestClient(module.app) as client:
         client.post("/signup", json={"email": "buyer@x.io", "password": "password123"})
         d = client.post("/login", json={"email": "buyer@x.io", "password": "password123"}).json()
-        yield client, d["account_id"], {"Authorization": f"Bearer {d['token']}"}, sessions
+        yield client, d["account_id"], {"Authorization": f"Bearer {d['access_token']}"}, sessions
 
 
 def test_a_card_checkout_grants_nothing_until_the_callback(stripe_accounts):

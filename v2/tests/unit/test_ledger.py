@@ -58,6 +58,7 @@ def book(led):
 @pytest.fixture
 def accounts(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENTD_ACCOUNTS_DB", str(tmp_path / "accounts.db"))
+    monkeypatch.setenv("AGENTD_AUTH_ISSUER", "https://accounts.test.invalid")
     monkeypatch.setenv("ACCOUNTS_RATE_LIMIT", "0/0")
     monkeypatch.setenv("ACCOUNTS_INTERNAL_KEY", "devinternal")
     monkeypatch.setenv("AGENTD_TELEMETRY", "0")
@@ -503,7 +504,7 @@ def _signin(client, email="buyer@x.io"):
     """A second account, with its session token — the only credential a client ever holds."""
     client.post("/signup", json={"email": email, "password": "password123"})
     d = client.post("/login", json={"email": email, "password": "password123"}).json()
-    return d["account_id"], {"Authorization": f"Bearer {d['token']}"}
+    return d["account_id"], {"Authorization": f"Bearer {d['access_token']}"}
 
 
 def test_the_credit_packs_are_seeded_and_priced_from_the_markup(accounts, led):

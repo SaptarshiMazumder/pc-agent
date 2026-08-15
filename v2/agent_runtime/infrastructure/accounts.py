@@ -22,16 +22,22 @@ import contextvars
 import logging
 import os
 import time
+from pathlib import Path
 
 import httpx
 
 from agent_runtime.config import accounts_api_base
+from identity.domain.errors import TokenExpired, TokenInvalid
+from identity.infrastructure.jwks_verifier import looks_like_jwt
 
 log = logging.getLogger("agentd.accounts")
 
 _enabled = False
 _api_base = ""
 _client: httpx.AsyncClient | None = None
+#: Local JWT verifier, built at boot from the deployment's discovery document. None => this
+#: install has no JWKS to verify against and every token is resolved over HTTP, as before.
+_verifier = None
 _reported_no_internal_key = False  # one-time log guard for the usage-report no-op path
 
 # token -> (account dict, expiry epoch). A short TTL absorbs reconnect storms without letting a
@@ -110,6 +116,45 @@ def add_usage(model: str, in_tokens: int, out_tokens: int) -> None:
         acc["model"] = model
 
 
+def _configure_verifier(config) -> None:
+    """Build the local token verifier from the deployment's discovery document.
+
+    WHAT THIS BUYS: `resolve()` below is called on EVERY socket connect, and today every call is
+    an HTTP round trip to the accounts service. With a verifier, a JWT is checked against a cached
+    public key — no network, microseconds — and the accounts service stops being something the
+    daemon needs in order to answer "who is this?".
+
+    Silently absent when the deployment publishes no `jwks_uri` (every install that predates
+    discovery): `configured` is then False and resolve() takes the HTTP path exactly as before.
+    """
+    global _verifier
+    _verifier = None
+    try:
+        from agent_runtime.infrastructure import platform_discovery
+        from identity.infrastructure.jwks_verifier import JwksVerifier
+
+        doc = platform_discovery.resolve(config)
+        jwks_uri = str(doc.get("jwks_uri") or "")
+        issuer = str(doc.get("issuer") or "")
+        if not (jwks_uri and issuer):
+            return
+        state_dir = getattr(config, "state_dir", None)
+        _verifier = JwksVerifier(
+            jwks_uri=jwks_uri,
+            issuer=issuer,
+            # The daemon accepts tokens minted for it. A token scoped only to the proxy must not
+            # open a socket, which is what an audience check is for.
+            audience="agentd-daemon",
+            # Cached to disk so a daemon that boots while the platform is unreachable can still
+            # verify the tokens its users already hold.
+            cache_path=(Path(state_dir) / "jwks-cache.json") if state_dir else None,
+        )
+        log.info("accounts: local token verification ENABLED (%s)", jwks_uri)
+    except Exception as e:  # noqa: BLE001 — verification is an optimisation; never fail boot
+        log.warning("accounts: local token verification unavailable: %s", e)
+        _verifier = None
+
+
 def configure(config) -> None:
     """Read the accounts settings once, at boot. Safe to call again (resets the client + cache).
 
@@ -122,6 +167,7 @@ def configure(config) -> None:
         os.environ.get("AGENTD_ACCOUNTS_URL") is not None or bool(acc.get("enabled"))
     )
     _resolve_cache.clear()
+    _configure_verifier(config)
     # Built whenever a service is CONFIGURED, not only where sign-in is REQUIRED. Resolving a
     # token answers "who is this?", and a laptop needs that answer too — it is what lets one
     # identity mechanism serve both deployments instead of one each.
@@ -185,14 +231,53 @@ def reset_account(token) -> None:
 
 
 async def resolve(token: str) -> dict | None:
-    """Session token -> account dict (or None if unknown/expired). Cached briefly. Never raises:
-    a resolve failure (service down, bad token) is a None, which the caller treats as unauthorized."""
-    if not _api_base or not token or _client is None:
+    """Credential -> account dict (or None if unknown/expired). Never raises: a resolve failure
+    (service down, bad token) is a None, which the caller treats as unauthorized.
+
+    TWO PATHS. A JWT is verified LOCALLY against cached public keys — no network at all, which is
+    what takes the accounts service out of the connect path. A legacy `sess_` token is opaque and
+    can only be resolved by asking, so it takes the original HTTP route.
+
+    The locally-verified dict deliberately carries NO `budget_usd`: that number lives in the
+    ledger and changes as money is spent, so a value copied into a token minted ten minutes ago
+    would be stale by construction. Budget enforcement is the model proxy's pre-call gate, which
+    reads it fresh; the daemon's own per-turn check (gateway `_chat`) fetches it when it needs it.
+    """
+    if not token:
         return None
     now = time.time()
     hit = _resolve_cache.get(token)
     if hit and hit[1] > now:
         return hit[0]
+
+    if _verifier is not None and looks_like_jwt(token):
+        try:
+            claims = await _verifier.averify(token)
+        except TokenExpired:
+            # Distinct from invalid: the client should refresh and retry rather than sign in
+            # again. The connection gate still refuses, but the log says which it was.
+            log.info("connection presented an EXPIRED access token")
+            return None
+        except TokenInvalid as e:
+            log.warning("token verification failed: %s", e)
+            return None
+        account = {
+            "account_id": claims.account_id,
+            "email": claims.email,
+            "session_token": token,
+            "scopes": list(claims.scopes),
+            "verified": "local",
+            # Carried so the connection can tell an EXPIRED credential from a missing one and
+            # ask the client to refresh, instead of failing a turn with a generic error.
+            "expires_at": claims.expires_at,
+        }
+        # Cached only until the token itself expires, so an expiry is never masked by our cache.
+        ttl = min(_RESOLVE_TTL, max(1.0, claims.expires_at - now)) if claims.expires_at else _RESOLVE_TTL
+        _resolve_cache[token] = (account, now + ttl)
+        return account
+
+    if not _api_base or _client is None:
+        return None
     try:
         r = await _client.get("/resolve", headers={"Authorization": f"Bearer {token}"})
     except httpx.HTTPError as e:

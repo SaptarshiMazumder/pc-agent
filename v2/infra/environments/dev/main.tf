@@ -203,6 +203,11 @@ output "app_url" {
   value       = module.stack.app_url
 }
 
+output "platform_url" {
+  description = "[platform] platform_url - THE ONE address a client bakes; everything else is discovered from it."
+  value       = module.stack.platform_url
+}
+
 output "accounts_url" {
   description = "[platform] accounts_url for the desktop flavors."
   value       = module.stack.accounts_url
