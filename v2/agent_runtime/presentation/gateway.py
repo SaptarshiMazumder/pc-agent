@@ -2215,6 +2215,11 @@ class Gateway:
             "email": "",
             "accountId": "",
             "canUseCloud": model_proxy.available(),
+            # ADVERTISED IS NOT REQUIRED, and only the daemon knows which this is. A client that
+            # sees `accountsUrl` and infers "sign-in is mandatory" puts a login in front of a
+            # daemon that would have served it with no account at all — see `signInRequired` in
+            # _platform_status.
+            "signInRequired": accounts.enabled(),
         }
 
     def _serve_platform(self, split, headers) -> HttpResponse:
@@ -4349,6 +4354,12 @@ class Gateway:
             "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
             # Is there a Cloud to switch to at all on this build?
             "canUseCloud": model_proxy.available(),
+            # IS SIGN-IN DEMANDED, or merely offered? `accountsUrl` above answers "where do people
+            # sign in", which every client had been reading as "people must sign in" — so a
+            # desktop daemon that accepts the machine token happily still put a login in front of
+            # every window. Only the daemon can tell the two apart (accounts.enabled() is an
+            # explicit hosted opt-in), so it says so rather than leaving each client to guess.
+            "signInRequired": accounts.enabled(),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,

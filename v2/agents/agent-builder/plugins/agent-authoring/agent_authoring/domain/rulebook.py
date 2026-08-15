@@ -64,6 +64,10 @@ RULEBOOK: dict[str, Rule] = {
     "NOT_A_PRODUCT": Rule(note="chat-only agent; info"),
     "APP_ENTRY_MISSING": Rule(note="[app] entry file absent — 404 at launch; error"),
     "UI_NO_SDK": Rule(note="no vendored agentd-client.js — page cannot talk to the daemon"),
+    "UI_NOT_BUILT": Rule(
+        note="app/ sources with no ui/ output — app/ never ships, so the agent installs with "
+        "no window at all; error"
+    ),
     "NO_VERSION": Rule(
         blocks=(PUBLISH,),
         note="installs supersede BY VERSION; a version-less publish can never be updated",

@@ -1,10 +1,10 @@
 {
   "_comment": "KNOBS live here. KEYS/SECRETS live in v2/.env. NOTE: any AGENTD_* env var STILL OVERRIDES a value here, so keep knobs OUT of .env or they win. Keys are Config field names (config.py), not AGENTD_* names.",
-  "_comment_google": "Google moved to plugins/google/ (an MCP plugin) — no longer a hardcoded mcp_servers entry.",
+  "_comment_google": "Google moved to plugins/google/ (an MCP plugin) \u2014 no longer a hardcoded mcp_servers entry.",
   "_section_models": "The agent BRAIN (reasoning). Every model-bearing TOOL/SUBSYSTEM model lives in `plugins` below, NOT here.",
   "model": "openai/gpt-5",
   "reasoning_effort": "medium",
-  "_section_model_catalog": "The MENU of models the desktop Settings > Models dropdowns offer — the source of truth for the picker. Each entry: {value: litellm 'provider/model' id, label: display name}. The UI shows only entries whose provider API key is set in v2/.env (add a key to unlock its models); your currently-configured models always appear regardless. Edit freely — add, remove, relabel.",
+  "_section_model_catalog": "The MENU of models the desktop Settings > Models dropdowns offer \u2014 the source of truth for the picker. Each entry: {value: litellm 'provider/model' id, label: display name}. The UI shows only entries whose provider API key is set in v2/.env (add a key to unlock its models); your currently-configured models always appear regardless. Edit freely \u2014 add, remove, relabel.",
   "model_catalog": [
     {
       "value": "gemini/gemini-pro-latest",
@@ -77,6 +77,10 @@
     {
       "value": "deepseek/deepseek-reasoner",
       "label": "DeepSeek R1"
+    },
+    {
+      "value": "moonshot/kimi-k3",
+      "label": "Kimi K3 (vision, 1M)"
     },
     {
       "value": "moonshot/kimi-k2.5",
@@ -196,20 +200,20 @@
     },
     {
       "value": "groq/llama-3.3-70b-versatile",
-      "label": "Llama 3.3 70B · Groq"
+      "label": "Llama 3.3 70B \u00b7 Groq"
     },
     {
       "value": "mistral/mistral-large-latest",
       "label": "Mistral Large"
     }
   ],
-  "_section_cost_efficiency": "Brain ROUTING by need (default off => the one `model` above does every turn). enabled=true => the cheap `text_model` runs ordinary turns; escalate to `vision_model` ONLY when the context carries an image the brain must SEE (an ImageContent block, e.g. a read_image/screenshot result). GENERATING an image needs NO escalation — that's a tool call the text brain makes with text args. Once an image enters history it stays, so this becomes 'cheap brain until the first image, vision brain onward'. REQUIRES DEEPSEEK_API_KEY in v2/.env for the deepseek text_model (no failover configured => a missing key breaks text turns; set enabled=false to revert).",
+  "_section_cost_efficiency": "Brain ROUTING by need (default off => the one `model` above does every turn). enabled=true => the cheap `text_model` runs ordinary turns; escalate to `vision_model` ONLY when the context carries an image the brain must SEE (an ImageContent block, e.g. a read_image/screenshot result). GENERATING an image needs NO escalation \u2014 that's a tool call the text brain makes with text args. Once an image enters history it stays, so this becomes 'cheap brain until the first image, vision brain onward'. REQUIRES DEEPSEEK_API_KEY in v2/.env for the deepseek text_model (no failover configured => a missing key breaks text turns; set enabled=false to revert).",
   "cost_efficiency": {
     "enabled": true,
     "text_model": "deepseek/deepseek-v4-pro",
     "vision_model": "gemini/gemini-3.1-pro-preview"
   },
-  "_section_plugins": "THE control panel for every plugin + tool. A plugin is just a namespace + a set of tools; ALL knobs live on the tool (plugins.<plugin>.tools.<tool>.<knob>) — there is no plugin-level model/provider. enabled (plugin or tool level) toggles it off; model = the AI model a tool calls; provider = its backend/SDK/engine; plus any tool-specific knob. Resolves first-hit-wins: per-call > agent.toml tools[T].<knob> > this file's tools[T].<knob> > the tool's built-in default. `description` fields are ONLY for humans reading this file — the agent never sees them.",
+  "_section_plugins": "THE control panel for every plugin + tool. A plugin is just a namespace + a set of tools; ALL knobs live on the tool (plugins.<plugin>.tools.<tool>.<knob>) \u2014 there is no plugin-level model/provider. enabled (plugin or tool level) toggles it off; model = the AI model a tool calls; provider = its backend/SDK/engine; plus any tool-specific knob. Resolves first-hit-wins: per-call > agent.toml tools[T].<knob> > this file's tools[T].<knob> > the tool's built-in default. `description` fields are ONLY for humans reading this file \u2014 the agent never sees them.",
   "plugins": {
     "figure-art": {
       "tools": {
@@ -247,7 +251,7 @@
       }
     },
     "vectorize": {
-      "description": "Geometric tracing — turn a flat image's shapes into Bezier vector paths (logos/line-art).",
+      "description": "Geometric tracing \u2014 turn a flat image's shapes into Bezier vector paths (logos/line-art).",
       "tools": {
         "trace_image": {
           "description": "OPT-IN geometric vectorizer: trace a raster image's color regions -> Bezier `<path>` shapes in an..."
@@ -284,7 +288,7 @@
       }
     },
     "safe_to_send": {
-      "description": "Privacy egress gate — an independent judge that vets replies leaving on a public channel.",
+      "description": "Privacy egress gate \u2014 an independent judge that vets replies leaving on a public channel.",
       "tools": {
         "safe_to_send": {
           "description": "Egress-gate judge; if unset, falls back to the verify -> web_search -> brain chain."
@@ -304,7 +308,7 @@
       }
     },
     "computer": {
-      "description": "PC GUI automation — the vision model that drives the see->click loop.",
+      "description": "PC GUI automation \u2014 the vision model that drives the see->click loop.",
       "tools": {
         "computer": {
           "description": "Gemini computer-use model (google-genai). Point it at a trusted endpoint for sensitive screens. Behavioral knobs (optional; default in parens): max_steps (25), send_max (1440), capture (\"primary\" | \"virtual\"), pause (0.15), call_timeout_seconds (120.0), save_screenshots (false; DEV ONLY), corral_to_primary (true; Windows-only).",
@@ -315,7 +319,7 @@
       }
     },
     "memory": {
-      "description": "Long-term memory RAG — the embedding model used on write + for cosine recall.",
+      "description": "Long-term memory RAG \u2014 the embedding model used on write + for cosine recall.",
       "tools": {
         "embed": {
           "description": "Embedding model for semantic memory (provider-neutral via litellm; a local ollama model works too).",
@@ -327,14 +331,14 @@
       "description": "Web browser automation.",
       "tools": {
         "browser": {
-          "description": "Drive a browser. `provider` is the ENGINE: 'playwright' (our built-in Playwright/CDP engine, default) or 'agent_browser' (external Vercel agent-browser via its MCP server; install separately). No model. Behavioral knobs (all optional; built-in default in parens): headless (true), persistent (true), cdp_url (none — set e.g. \"http://localhost:9222\" to attach to a running Chrome), downloads (true), channel (\"chrome\" | \"\" for bundled Chromium), stealth (true), cursor_scan (true), chrome_profile (none), console_buffer (200), action_timeout_ms (12000), agent_browser_command (none).",
+          "description": "Drive a browser. `provider` is the ENGINE: 'playwright' (our built-in Playwright/CDP engine, default) or 'agent_browser' (external Vercel agent-browser via its MCP server; install separately). No model. Behavioral knobs (all optional; built-in default in parens): headless (true), persistent (true), cdp_url (none \u2014 set e.g. \"http://localhost:9222\" to attach to a running Chrome), downloads (true), channel (\"chrome\" | \"\" for bundled Chromium), stealth (true), cursor_scan (true), chrome_profile (none), console_buffer (200), action_timeout_ms (12000), agent_browser_command (none).",
           "provider": "playwright",
           "headless": false
         }
       }
     },
     "skills": {
-      "description": "Relevance-filtered skills — optional embedding model for ranking skills by the current message.",
+      "description": "Relevance-filtered skills \u2014 optional embedding model for ranking skills by the current message.",
       "tools": {
         "relevance": {
           "description": "Embedding model for skill relevance. Empty => the feature stays off.",
@@ -366,10 +370,10 @@
           "description": "Find files by name/glob pattern anywhere on the machine. By default it searches the user's folder..."
         },
         "ls": {
-          "description": "List a directory's contents — directories first (with a trailing /), then files with their byte s..."
+          "description": "List a directory's contents \u2014 directories first (with a trailing /), then files with their byte s..."
         },
         "read": {
-          "description": "Read a file's contents (text, code, .docx, .pdf, .xlsx, .pptx — documents are text-extracted; .pn..."
+          "description": "Read a file's contents (text, code, .docx, .pdf, .xlsx, .pptx \u2014 documents are text-extracted; .pn..."
         },
         "write": {
           "description": "Create a new file or completely overwrite an existing one with `content`; parent directories are ..."
@@ -388,7 +392,7 @@
       "description": "",
       "tools": {
         "export_pdf": {
-          "description": "Render an SVG to a VECTOR PDF (selectable text, scalable paths) via headless Chromium — for publi..."
+          "description": "Render an SVG to a VECTOR PDF (selectable text, scalable paths) via headless Chromium \u2014 for publi..."
         },
         "export_pptx": {
           "description": "Export an editable PowerPoint (.pptx) figure: the artwork as a picture, plus REAL editable text b..."
@@ -402,7 +406,7 @@
           "description": "Composite artwork with a vector overlay into the final figure. Artwork is ONE of: `artwork` (rast..."
         },
         "render_editable_overlay": {
-          "description": "Build an EDITABLE annotation layer as SVG from a high-level spec — no hand-written path math. Ele..."
+          "description": "Build an EDITABLE annotation layer as SVG from a high-level spec \u2014 no hand-written path math. Ele..."
         },
         "render_svg": {
           "description": "Rasterize an SVG to a PNG with a headless browser (so gradients, arrow markers, and blur/shadow f..."
@@ -494,7 +498,7 @@
   "resource_manager_enabled": true,
   "resource_vision_enabled": true,
   "resource_summarize_enabled": true,
-  "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here — it gates whether the computer tool is registered at all.",
+  "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here \u2014 it gates whether the computer tool is registered at all.",
   "computer_enabled": true,
   "_section_channels": "MCP servers + messaging channels + webhook ingress.",
   "mcp_servers": [],
@@ -516,8 +520,8 @@
       "model": "deepseek/deepseek-v4-pro",
       "cost_efficiency": {
         "enabled": true,
-        "text_model": "deepseek/deepseek-v4-pro",
-        "vision_model": "gemini/gemini-3.1-pro-preview"
+        "text_model": "moonshot/kimi-k3",
+        "vision_model": "moonshot/kimi-k3"
       },
       "max_turns": 250,
       "override_default": true

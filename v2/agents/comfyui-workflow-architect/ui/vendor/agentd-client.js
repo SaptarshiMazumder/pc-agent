@@ -425,7 +425,11 @@ var agentd = (() => {
       email: stored?.email || "",
       accountId: stored?.accountId || "",
       mode: effectiveMode(opts.storageKey, !!stored, canUseCloud),
-      canUseCloud
+      canUseCloud,
+      // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there —
+      // a client that guessed "not required" against a daemon that requires it would show no
+      // login and then fail every call with no explanation.
+      required: status.signInRequired !== false
     };
   }
   async function authLogin(args, opts = {}) {
@@ -602,6 +606,14 @@ var agentd = (() => {
     sub.textContent = blurb;
     return wrap;
   }
+  function wantsVerifyBypass() {
+    if (typeof location === "undefined") return false;
+    try {
+      return new URL(location.href).searchParams.get("verify") === "1";
+    } catch {
+      return false;
+    }
+  }
   async function mountSignInGate(options = {}) {
     const allowSignup = options.allowSignup !== false;
     const product = options.product || typeof document !== "undefined" && document.title || "this app";
@@ -612,6 +624,9 @@ var agentd = (() => {
         startAuthRenewal(options);
         acceptHostTokens(options);
       }
+      return { ...state, signedInHere: false };
+    }
+    if (!state.required && wantsVerifyBypass()) {
       return { ...state, signedInHere: false };
     }
     injectStyle();

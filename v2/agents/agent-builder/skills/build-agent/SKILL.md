@@ -33,6 +33,12 @@ is exact; the procedure is short because it is what you actually do.
    A default picked silently is how an agent that should have had a screen ends up as another
    chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
 
+   **Write down what they asked for, as a checklist** (`update_plan`), before you build anything.
+   Every requirement they stated, one line each. You will verify against it in step 8, and you
+   cannot verify against a memory of a conversation forty tool calls ago — that is how an agent
+   delivers four of five requested things and reports success, having genuinely forgotten the
+   fifth.
+
    Three more decisions, which ARE yours — answer them from the sections above, do not ask:
    - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
      snapshots + a skill for the routine. See "Design it as a MECHANISM".
@@ -104,34 +110,78 @@ is exact; the procedure is short because it is what you actually do.
 7. **RUN IT. Then read what actually happened, fix, and run it again.**
 
    ```
-   agentd ask --agent <id> "<something a real user would say>"
+   run_agent(agent_id='<id>', message='<something a real user would say>')
    ```
 
-   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
-   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
+   One message on a fresh session. It returns the reply, **which tools the agent called**, and
+   how the run ended.
 
-   That trace is the point. These two look identical in prose and are completely different:
+   Use the TOOL, not a shell command. `agentd` is a console script that exists only where the
+   wheel was pip-installed — in a source checkout, which is where agents are authored, there is
+   nothing on PATH by that name, and hunting for one has cost a real build eleven `exec` calls.
+
+   The tools line is the point. These two look identical in prose and are completely different:
 
    ```
-   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
-   --- tools called: NONE                                      <- it described the work
+   tools called: get_cost_snapshot, compare_thresholds     <- it did the work
+   tools called: NONE                                      <- it described the work
    ```
 
    Ask it two or three things a real user would ask. Then LOOK at the answer:
    - Did it call the tools that fetch data, or just talk about them?
    - Is the answer real, or a plausible-sounding placeholder?
-   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
-     crashing tool. Fix it and run again.
+   - When it fails, the reason comes back in the agent's own words — a missing key, an
+     unconnected server, a crashing tool. Fix it and run again.
 
    **Do not skip this and do not declare an agent finished without it.** Everything before this
    step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
    `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
    exactly the agent that turns out to be empty when the user opens it.
 
-8. **Show the user what you built and ask.** Name the two or three decisions you took that they
-   might disagree with — the shape of the window, what it stores, what it does on a schedule —
-   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
-   something; say which thing.
+7b. **OPEN THE WINDOW. `verify_app` — every time the agent has a `ui/`.**
+
+   ```
+   verify_app(agent_id='<id>')
+   ```
+
+   Step 7 proved the agent's BRAIN works. This is the only step that looks at its SCREEN, and a
+   screen is the part that can be perfectly built, perfectly served, and blank. Every failure it
+   catches looks like success from your side: the build printed no errors and the files are on
+   disk.
+
+   It reports assets that 404, a crash on mount, console errors, a page that rendered nothing, a
+   socket that never opened, a layout that overflows — and it REFUSES if `app/src` is newer than
+   `ui/`, because otherwise you are checking the previous build.
+
+   **Then drive what you actually built.** The generic checks cannot know what THIS agent is for:
+
+   ```
+   verify_app(agent_id='<id>', steps=[{action: 'click', target: 'Refresh'}])
+   verify_app(agent_id='<id>', steps=[{action: 'type', target: 'Ask anything', text: 'hello'},
+                                      {action: 'press', target: 'Enter'}])
+   ```
+
+   Target the VISIBLE TEXT of a control, not a selector. Most windows are fine until you touch
+   them — the handler that throws only throws on click — so a verification that never interacts
+   reports a healthy page with a dead button.
+
+   **LOOK AT THE SCREENSHOTS it returns.** Passing every check and being unusable are entirely
+   compatible: overlapping text, a panel off screen, a control with no label. The image is the
+   only thing that shows the difference, and you can see it.
+
+   Fix, verify, repeat. **Do not tell the user an agent with a window is finished while this
+   still reports errors.**
+
+8. **Show the user what you built, against what they ASKED for.**
+
+   Walk the checklist you wrote in step 0 — every requirement they gave, and whether it is done.
+   Not a summary of what you built: a comparison. An agent that does four of the five things
+   asked for reads as finished unless somebody checks the fifth, and you are the only one who
+   can, because you are the only one who saw all five.
+
+   Then name the two or three decisions you took that they might disagree with — the shape of
+   the window, what it stores, what it does on a schedule — and ask whether that is what they
+   wanted, BEFORE calling it done. You had to guess at something; say which thing.
 9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
    re-validates first and refuses on errors, so a broken agent never reaches anyone else.
 

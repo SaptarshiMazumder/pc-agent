@@ -30,3 +30,8 @@ dist/
 misc/
 misc/**
 **/misc/
+# Terraform state — machine-specific, contains resource IDs and sometimes secrets.
+tfstates/
+*.tfstate
+*.tfstate.*
+.terraform/

@@ -44,6 +44,21 @@ if (!fs.existsSync(marker)) {
 }
 const runtimeTime = fs.statSync(marker).mtimeMs
 
+// THE BROWSER, which pip never downloads. Same class of failure as a stale daemon and the same
+// answer: refuse here rather than let it surface on a user's machine, where the symptom is
+// "Executable doesn't exist" from a tool they just asked an agent to use.
+const browsers = path.join(desktopDir, 'runtime', 'ms-playwright')
+const hasChromium =
+  fs.existsSync(browsers) && fs.readdirSync(browsers).some((d) => d.startsWith('chromium'))
+if (!hasChromium) {
+  console.error(
+    '[check-runtime] no chromium at runtime/ms-playwright — the installer would ship a runtime ' +
+      'whose browser tools cannot start (verify_app, the browser tool).\n' +
+      '  fix: powershell -File scripts/build-runtime.ps1'
+  )
+  process.exit(1)
+}
+
 // Everything the wheel embeds (scripts/hatch_build.py): the daemon source, the shared plugin
 // bundles, and the packaging inputs themselves.
 const WATCHED = [

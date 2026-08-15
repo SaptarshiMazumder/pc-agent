@@ -68,6 +68,28 @@ if (-not (Test-Path $Python)) {
 & $Python -m pip install --quiet --upgrade pip
 & $Python -m pip install --quiet --force-reinstall "${Wheel}[mcp]"
 
+# 3b. CHROMIUM, into the bundle. The playwright PACKAGE is a wheel dependency; the BROWSER is a
+#     separate ~170MB download that pip never fetches, so a packaged install had python-side
+#     playwright and no browser to drive. Every tool that opens a page -- the shared `browser`
+#     tool, and agent-builder's verify_app -- failed on a fresh machine with "Executable doesn't
+#     exist", and the only fix was a command line the product never mentions.
+#
+#     PLAYWRIGHT_BROWSERS_PATH puts it inside the runtime tree instead of the builder's user
+#     cache, so it is a thing we SHIP rather than a thing that happened to be on the build agent.
+#     supervisor.ts points the spawned daemon at the same folder.
+$BrowsersDir = Join-Path $RuntimeDir "ms-playwright"
+$env:PLAYWRIGHT_BROWSERS_PATH = $BrowsersDir
+Write-Host "installing chromium into $BrowsersDir (a few hundred MB, cached across runs) ..."
+& $Python -m playwright install chromium
+if ($LASTEXITCODE -ne 0) {
+    throw "playwright could not download chromium. The installer would ship a browser-less runtime - see the error above."
+}
+# The download is silent about a partial result, so assert the thing itself is there. A build
+# that ships no browser must fail HERE, not on a user's machine three steps into an agent.
+if (-not (Get-ChildItem $BrowsersDir -Directory -Filter "chromium*" -ErrorAction SilentlyContinue)) {
+    throw "no chromium under $BrowsersDir after `playwright install chromium`. Refusing to package a runtime whose browser tools cannot start."
+}
+
 # 4. smoke: the embedded runtime must import + report its version. The check IS the point --
 #    a runtime that cannot import is exactly what once shipped as a dead daemon -- so a failure
 #    here STOPS the build instead of printing a traceback and carrying on. (It read
@@ -80,5 +102,7 @@ $version = & $Python -c "import agent_runtime; print(agent_runtime.__version__)"
 if ($LASTEXITCODE -ne 0 -or -not $version) {
     throw "the embedded runtime cannot import agent_runtime. Refusing to call it ready - see the error above."
 }
+$browserSize = [math]::Round((Get-ChildItem $BrowsersDir -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB)
 Write-Host "runtime ready: agentd $version at $CpythonDir"
+Write-Host "chromium bundled: $BrowsersDir ($browserSize MB)"
 Write-Host "next: npm run dist:core  (or dist:studio)"

@@ -293,6 +293,15 @@ interface AuthState {
     mode: RunMode;
     /** Is there a Cloud to switch to on this build? */
     canUseCloud: boolean;
+    /**
+     * Does this daemon DEMAND an account, or merely offer one?
+     *
+     * `available` says an accounts service exists. That is not the same question, and conflating
+     * them is why a desktop daemon — which accepts the machine token and requires no account at
+     * all — still put a sign-in form in front of every window. Only the daemon knows: it is an
+     * explicit hosted opt-in, not something a client can infer from a configured URL.
+     */
+    required: boolean;
 }
 interface AuthOptions {
     /** The connected client, so a change can reconnect it and take effect at once. */
@@ -371,12 +380,6 @@ interface GateResult extends AuthState {
     /** true when a gate was actually displayed and the user completed it. */
     signedInHere: boolean;
 }
-/**
- * Sign the user in, showing a form only if one is needed.
- *
- * Resolves once the app may proceed. Rejects only if the daemon itself cannot be reached — a
- * wrong password does not reject, it is reported in the form and the user tries again.
- */
 declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResult>;
 /** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
 declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;

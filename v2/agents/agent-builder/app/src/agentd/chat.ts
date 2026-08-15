@@ -31,9 +31,17 @@ export interface BotItem {
   /** Still being written into — draws the caret, and the next delta appends here. */
   streaming: boolean
 }
+/** Reasoning. Kept in the ordered list like everything else — it happened at a point in time and
+ *  moving it out would lose that — but rendered in a box of its own rather than as transcript.
+ *
+ *  `streaming` is what tells the view to keep the box open and following; `seconds` is measured
+ *  when it closes, so a finished block can collapse to "Thought for 34s". */
 export interface ThinkItem {
   kind: 'think'
   text: string
+  streaming: boolean
+  startedAt: number
+  seconds: number
 }
 export interface ToolItem {
   kind: 'tool'
@@ -51,6 +59,58 @@ export interface FallbackItem {
 }
 
 export type ThreadItem = ScopeItem | UserItem | BotItem | ThinkItem | ToolItem | FallbackItem
+
+/* ── the plan ───────────────────────────────────────────────────────────────────────────────
+ *
+ * `update_plan` carries the WHOLE plan every time it is called, not a delta. So the panel keeps
+ * the LATEST call and replaces — appending would leave four copies of a growing list on screen
+ * after a build that re-planned four times.
+ *
+ * It is deliberately not a thread item. A plan is the current state of the work, not something
+ * that was said at a point in time, and the fourth copy of it scrolled past is worse than useless.
+ */
+
+export type PlanStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface PlanStep {
+  step: string
+  status: PlanStatus
+  tool?: string
+}
+
+export interface Plan {
+  explanation: string
+  steps: PlanStep[]
+}
+
+export const PLAN_TOOL = 'update_plan'
+
+/** The plan out of an `update_plan` argument object, or null if it is not one.
+ *
+ *  Every field is checked rather than trusted: these arguments are model output, and a malformed
+ *  plan should render nothing rather than a panel full of `undefined`. */
+function planFrom(args: unknown): Plan | null {
+  if (!args || typeof args !== 'object') return null
+  const raw = (args as Record<string, unknown>).plan
+  if (!Array.isArray(raw)) return null
+  const steps: PlanStep[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const step = String((item as Record<string, unknown>).step || '').trim()
+    if (!step) continue
+    const status = String((item as Record<string, unknown>).status || 'pending')
+    steps.push({
+      step,
+      status: status === 'completed' || status === 'in_progress' ? status : 'pending',
+      tool: String((item as Record<string, unknown>).tool || '') || undefined,
+    })
+  }
+  if (!steps.length) return null
+  return {
+    explanation: String((args as Record<string, unknown>).explanation || '').trim(),
+    steps,
+  }
+}
 
 const MAX_FILES = 10
 
@@ -133,11 +193,29 @@ function preamble(agent: AgentRow): string {
 
 const newSessionKey = () => `builder-${Date.now().toString(36)}`
 
+/** Stamp a still-open thinking block as finished, unless more thinking is what is arriving.
+ *
+ *  Reasoning ends the moment ANYTHING else does — a token of the answer, a tool call, the end of
+ *  the turn. Without this the box would keep growing and following for the rest of the run, which
+ *  is the wall of text this whole treatment exists to end. */
+function closeThinking(items: ThreadItem[], stillThinking: boolean): ThreadItem[] {
+  const next = [...items]
+  const last = next[next.length - 1]
+  if (stillThinking || last?.kind !== 'think' || !last.streaming) return next
+  next[next.length - 1] = {
+    ...last,
+    streaming: false,
+    seconds: Math.max(1, Math.round((Date.now() - last.startedAt) / 1000)),
+  }
+  return next
+}
+
 export function useChat(
   client: AgentdClient,
   opts: { onToolDone?: () => void; onSession?: (key: string) => void } = {},
 ) {
   const [items, setItems] = useState<ThreadItem[]>([])
+  const [plan, setPlan] = useState<Plan | null>(null)
   const [running, setRunning] = useState(false)
   const [pending, setPending] = useState<Attachment[]>([])
   const [sessionKey, setSessionKey] = useState(newSessionKey)
@@ -161,7 +239,7 @@ export function useChat(
      *  opens a fresh bubble BELOW it. That is the whole ordering rule. */
     const appendTo = (kind: 'bot' | 'think', delta: string) =>
       setItems((prev) => {
-        const next = [...prev]
+        const next = closeThinking(prev, kind === 'think')
         const last = next[next.length - 1]
         if (kind === 'bot') {
           if (last?.kind === 'bot' && last.streaming) {
@@ -169,21 +247,24 @@ export function useChat(
           } else {
             next.push({ kind: 'bot', text: delta, streaming: true })
           }
-        } else if (last?.kind === 'think') {
+        } else if (last?.kind === 'think' && last.streaming) {
           next[next.length - 1] = { ...last, text: last.text + delta }
         } else {
-          next.push({ kind: 'think', text: delta })
+          next.push({ kind: 'think', text: delta, streaming: true, startedAt: Date.now(), seconds: 0 })
         }
         return next
       })
 
     /** Commit whatever is streaming and drop the caret. Called whenever the assistant STOPS
      *  writing prose — a tool starting counts, and forgetting it left a blinking caret stranded
-     *  on every bubble that was interrupted by a tool call. */
+     *  on every bubble that was interrupted by a tool call.
+     *
+     *  It closes an open THINKING block too, which is what stamps its duration and lets the box
+     *  fold down to one line. */
     const settle = () =>
       setItems((prev) =>
-        prev.map((it, i) =>
-          i === prev.length - 1 && it.kind === 'bot' && it.streaming
+        closeThinking(prev, false).map((it, i, all) =>
+          i === all.length - 1 && it.kind === 'bot' && it.streaming
             ? { ...it, streaming: false }
             : it,
         ),
@@ -204,12 +285,21 @@ export function useChat(
           // The assistant stopped writing to start a tool. Settle the bubble (and lose the caret)
           // — the next delta opens a fresh one below the tool row.
           settle()
+          const name = String(ev.toolName || '?')
+          // THE PLAN IS NOT A MESSAGE. It goes to the pinned panel and REPLACES what is there;
+          // it never becomes a row, because every re-plan would leave another stale copy of a
+          // growing list scrolled up the thread.
+          if (name === PLAN_TOOL) {
+            const next = planFrom(ev.args)
+            if (next) setPlan(next)
+            return
+          }
           setItems((prev) => [
             ...prev,
             {
               kind: 'tool',
               id: String(ev.toolCallId || ev.toolName || Math.random()),
-              name: String(ev.toolName || '?'),
+              name,
               args: summarize(ev.args),
               done: false,
               error: false,
@@ -360,29 +450,42 @@ export function useChat(
     scopeSentRef.current = false
     setSessionKey(key)
     setItems([])
+    setPlan(null)
     setRunning(false)
     setPending([])
     callbacks.current.onSession?.(key)
   }, [])
 
   /** Open a saved conversation: render its transcript, then keep talking INTO it — the same
-   *  sessionKey goes back out on the next send, so the thread continues rather than forking. */
+   *  sessionKey goes back out on the next send, so the thread continues rather than forking.
+   *
+   *  Returns the agent this conversation was ABOUT, if the transcript says. Reopening a chat used
+   *  to blank the inspector: focus was cleared for every session change, and only a NEW chat has
+   *  no subject. A resumed one does — it is written down in its own first message — so it is read
+   *  back rather than thrown away. */
   const open = useCallback(
-    async (key: string) => {
+    async (key: string): Promise<string> => {
       sessionRef.current = key
       scopeRef.current = null // a resumed chat already carries its context in message 1
       scopeSentRef.current = true
       setSessionKey(key)
       setItems([])
+      setPlan(null)
       setRunning(false)
       setPending([])
       callbacks.current.onSession?.(key)
       try {
         const res = await client.history(key, AGENT_ID)
-        const replayed = (res?.messages || []).flatMap(replay)
-        if (sessionRef.current === key) setItems(replayed)
+        const messages = res?.messages || []
+        const replayed = messages.flatMap(replay)
+        if (sessionRef.current !== key) return ''
+        setItems(replayed)
+        // The plan a reopened conversation was left at — the LAST update_plan in the transcript,
+        // for the same reason the live one replaces: every call carried the whole list.
+        setPlan(lastPlanIn(messages))
+        return subjectOf(messages)
       } catch (e) {
-        if (sessionRef.current !== key) return
+        if (sessionRef.current !== key) return ''
         setItems([
           {
             kind: 'bot',
@@ -390,6 +493,7 @@ export function useChat(
             streaming: false,
           },
         ])
+        return ''
       }
     },
     [client],
@@ -406,6 +510,7 @@ export function useChat(
 
   return {
     items,
+    plan,
     running,
     pending,
     sessionKey,
@@ -417,6 +522,35 @@ export function useChat(
     addFiles,
     removeFile,
   }
+}
+
+/** Which agent a saved conversation was about, read back out of the transcript.
+ *
+ *  Two witnesses, both written by this app itself and both durable:
+ *
+ *    the scope preamble  `We are working on the EXISTING agent \`x\`` — what `preamble()` sends
+ *                        on the first message of a scoped chat, in plain sight in the transcript
+ *    create_agent        the tool call that MADE it, whose `agent_id` argument names it
+ *
+ *  Nothing is inferred from prose. An unscoped chat that built nothing returns '' and the
+ *  inspector stays empty, which is the honest answer. */
+function subjectOf(messages: any[]): string {
+  for (const m of messages) {
+    const blocks = Array.isArray(m?.content) ? m.content : []
+    if (m?.role === 'user') {
+      const text =
+        typeof m.content === 'string' ? m.content : blocks.map((c: any) => c?.text || '').join('')
+      const found = /EXISTING agent `([^`]+)`/.exec(text)
+      if (found) return found[1]
+    }
+    for (const c of blocks) {
+      if ((c?.type === 'tool_use' || c?.type === 'toolcall') && c?.name === 'create_agent') {
+        const id = (c.input || c.arguments || {})?.agent_id
+        if (id) return String(id)
+      }
+    }
+  }
+  return ''
 }
 
 /** One stored message -> the same items a live run produces.
@@ -439,7 +573,19 @@ function replay(m: any): ThreadItem[] {
   for (const [i, c] of (Array.isArray(m.content) ? m.content : []).entries()) {
     if (c?.type === 'text' && String(c.text || '').trim()) {
       out.push({ kind: 'bot', text: String(c.text), streaming: false })
+    } else if (c?.type === 'thinking' && String(c.thinking || c.text || '').trim()) {
+      // Restored folded. The transcript does not record how long it took, so `seconds` stays 0
+      // and the label says "Thought process" rather than inventing a duration.
+      out.push({
+        kind: 'think',
+        text: String(c.thinking || c.text),
+        streaming: false,
+        startedAt: 0,
+        seconds: 0,
+      })
     } else if (c?.type === 'tool_use' || c?.type === 'toolcall') {
+      // The plan belongs to the panel, live or restored — never to the thread.
+      if (String(c.name || '') === PLAN_TOOL) continue
       out.push({
         kind: 'tool',
         id: String(c.id ?? `${i}`),
@@ -453,4 +599,19 @@ function replay(m: any): ThreadItem[] {
     }
   }
   return out
+}
+
+/** The plan a saved conversation was left at: the LAST `update_plan` anywhere in its transcript. */
+function lastPlanIn(messages: any[]): Plan | null {
+  let found: Plan | null = null
+  for (const m of messages) {
+    if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue
+    for (const c of m.content) {
+      if ((c?.type !== 'tool_use' && c?.type !== 'toolcall') || String(c.name || '') !== PLAN_TOOL) {
+        continue
+      }
+      found = planFrom(c.input || c.arguments) ?? found
+    }
+  }
+  return found
 }

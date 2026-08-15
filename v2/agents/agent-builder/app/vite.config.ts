@@ -30,5 +30,11 @@ export default defineConfig({
     // separate request with `Cache-Control: no-store`, so splitting buys nothing here and costs
     // a round trip per chunk on every open.
     rollupOptions: { output: { manualChunks: undefined } },
+    // The bundle is ~640 KB because the three loading animations (~300 KB of Lottie JSON) and the
+    // player are inlined rather than fetched. That is the point: this window is served off
+    // localhost, so the bytes are free, and an indicator that 404s while the agent is mid-run
+    // would be the worst possible thing to be missing. Vite's 500 KB advisory is aimed at apps
+    // shipped over the public internet, which this is not.
+    chunkSizeWarningLimit: 900,
   },
 })

@@ -1,13 +1,18 @@
 /* Agent Builder — the shell, and the wiring between its three regions.
  *
- *   rail       which conversation, and which view
- *   main       the conversation, or the settings page
+ *   rail       which conversation, and the way into settings
+ *   main       the conversation
  *   inspector  the agent being built: its files, and the three things you can do to it
  *
- * FOCUS BELONGS TO A CONVERSATION. What the inspector points at is decided when a chat starts —
- * in the hero, or by the agent that chat just created — and never re-pointed mid-thread, because
- * a panel you can aim somewhere else is a panel that can disagree with the conversation beside
- * it. To work on something else, start a new chat.
+ * FOCUS BELONGS TO A CONVERSATION. What the inspector points at is decided by the conversation —
+ * chosen in the hero, created by the chat itself, or read back out of a resumed transcript — and
+ * never re-pointed mid-thread, because a panel you can aim somewhere else is a panel that can
+ * disagree with the conversation beside it. To work on something else, start a new chat.
+ *
+ * SETTINGS IS A MODAL, NOT A VIEW. It used to be the second half of a two-way switch in the rail,
+ * which made "configure the thing" and "use the thing" mutually exclusive: opening settings closed
+ * the conversation you opened them because of. A modal is the honest shape — you go in, change
+ * something, and come back to exactly what you left.
  */
 
 import { mountSignInGate } from '@agentd/client'
@@ -21,18 +26,17 @@ import { useAgents } from './agentd/roster'
 import { useSessions } from './agentd/sessions'
 import { Composer } from './components/Composer'
 import { Inspector } from './components/Inspector'
+import { PlanPanel } from './components/PlanPanel'
 import { Rail } from './components/Rail'
-import { SettingsView } from './components/settings/SettingsView'
+import { SettingsModal } from './components/settings/SettingsModal'
 import { Thread } from './components/Thread'
 import { Topbar } from './components/Topbar'
-
-export type View = 'build' | 'settings'
 
 export default function App() {
   const { client, status } = useClient()
   const ready = status === 'open'
 
-  const [view, setView] = useState<View>('build')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [selected, setSelected] = useState<AgentRow | null>(null)
   const [railOpen, setRailOpen] = useState(true)
   const [panelOpen, setPanelOpen] = useState(true)
@@ -55,9 +59,6 @@ export default function App() {
 
   const chat = useChat(client, {
     onToolDone: () => void refreshFiles.current(),
-    // The conversation CHANGED — a new one, or a saved one reopened. Focus goes with it: carrying
-    // the last chat's agent into the next one is the drift this panel is not allowed to have.
-    onSession: () => setSelected(null),
   })
 
   // Boot, on the first open — the same order and the same place the vanilla window used.
@@ -94,8 +95,22 @@ export default function App() {
     [agents, chat],
   )
 
+  /** Resume a saved conversation, and point the inspector at whatever that conversation was
+   *  about. The transcript names it (see `subjectOf`); an unscoped chat that built nothing names
+   *  nothing, and an empty panel is then the truthful answer rather than a stale one. */
+  const openChat = useCallback(
+    async (key: string) => {
+      setSelected(null)
+      const id = await chat.open(key)
+      if (!id) return
+      const agent = agents.find((a) => a.id === id)
+      if (agent) setSelected(agent)
+    },
+    [chat, agents],
+  )
+
   const newChat = useCallback(() => {
-    setView('build')
+    setSelected(null) // a new chat is about nothing until it is told
     chat.reset()
   }, [chat])
 
@@ -106,70 +121,59 @@ export default function App() {
     .join(' ')
 
   return (
-    <>
-      <div className="aurora" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </div>
+    <div className={shellClass}>
+      <Rail
+        open={railOpen}
+        onToggle={() => setRailOpen((v) => !v)}
+        chats={chats}
+        openKey={chat.sessionKey}
+        onOpenChat={(key) => void openChat(key)}
+        onNewChat={newChat}
+        onSettings={() => setSettingsOpen(true)}
+        status={status}
+        daemonVersion={daemonVersion}
+      />
 
-      <div className={shellClass}>
-        <Rail
-          open={railOpen}
-          onToggle={() => setRailOpen((v) => !v)}
-          view={view}
-          onView={setView}
-          chats={chats}
-          openKey={chat.sessionKey}
-          onOpenChat={(key) => void chat.open(key)}
-          onNewChat={newChat}
-          status={status}
-          daemonVersion={daemonVersion}
-        />
-
-        <main className="main">
-          <Topbar
-            root={view === 'settings' ? 'Settings' : 'Agent Builder'}
-            leaf={selected ? `building ${selected.name || selected.id}` : ''}
-            who={who}
-            canTogglePanel={!!selected}
-            onTogglePanel={() => setPanelOpen((v) => !v)}
-          />
-
-          <section className="view" id="view-build" hidden={view !== 'build'}>
-            <Thread
-              items={chat.items}
-              agents={openable(agents)}
-              onOpenAgent={openAgent}
-              onSuggest={(text) => void chat.send(text)}
-            />
-            <Composer
-              running={chat.running}
-              pending={chat.pending}
-              onSend={(text) => void chat.send(text)}
-              onAbort={() => void chat.abort()}
-              onFiles={(list) => void chat.addFiles(list)}
-              onRemoveFile={chat.removeFile}
-            />
-          </section>
-
-          {/* Mounted only while it is shown, which is what loads it: the vanilla window called
-              Settings.load() on every switch to this view, and mounting does the same thing
-              without a second place to remember it. */}
-          {view === 'settings' && (
-            <section className="view" id="view-settings">
-              <SettingsView client={client} />
-            </section>
-          )}
-        </main>
-
-        <Inspector
+      <main className="main">
+        <Topbar
           agent={selected}
-          client={client}
-          files={files}
-          onChanged={() => void files.refresh()}
+          who={who}
+          canTogglePanel={!!selected}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
         />
-      </div>
-    </>
+
+        <section className="stage">
+          <Thread
+            items={chat.items}
+            running={chat.running}
+            agents={openable(agents)}
+            onOpenAgent={openAgent}
+            onSuggest={(text) => void chat.send(text)}
+          />
+          {chat.plan && <PlanPanel plan={chat.plan} />}
+          <Composer
+            running={chat.running}
+            pending={chat.pending}
+            onSend={(text) => void chat.send(text)}
+            onAbort={() => void chat.abort()}
+            onFiles={(list) => void chat.addFiles(list)}
+            onRemoveFile={chat.removeFile}
+          />
+        </section>
+      </main>
+
+      <Inspector
+        agent={selected}
+        client={client}
+        files={files}
+        onChanged={() => void files.refresh()}
+      />
+
+      {/* Mounted only while open, which is what loads it: the vanilla window called
+          Settings.load() on every switch to that view, and mounting does the same thing without a
+          second place to remember it. */}
+      {settingsOpen && <SettingsModal client={client} onClose={() => setSettingsOpen(false)} />}
+    </div>
   )
 }

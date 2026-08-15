@@ -177,6 +177,20 @@ export class Supervisor {
     const flavorPath = this.getFlavorPath()
     if (flavorPath && !env.AGENTD_DISTRIBUTION) env.AGENTD_DISTRIBUTION = flavorPath
 
+    // THE BUNDLED BROWSER. The installer ships chromium next to the runtime (see
+    // build-runtime.ps1 + extraResources), but playwright only looks in the USER'S cache unless
+    // told otherwise — so without this line the browser is packaged, present, and never found:
+    // every page-opening tool fails on a fresh machine exactly as if we had shipped nothing.
+    //
+    // Only when it is really there. A dev checkout has no bundle, and pointing playwright at an
+    // empty directory would turn "install chromium" into "the download is corrupt".
+    if (app.isPackaged) {
+      const bundled = path.join(process.resourcesPath, 'ms-playwright')
+      if (!env.PLAYWRIGHT_BROWSERS_PATH && fsSync.existsSync(bundled)) {
+        env.PLAYWRIGHT_BROWSERS_PATH = bundled
+      }
+    }
+
     let lastError = ''
     for (const command of commandCandidates()) {
       this.set('starting', `starting agentd (${command[0]})… first start can take a minute`)

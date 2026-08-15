@@ -86,7 +86,7 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className={`composer glass ${dragging ? 'drag' : ''}`}>
+      <div className={`composer ${dragging ? 'drag' : ''}`}>
         {pending.length > 0 && (
           <div className="attachments">
             {pending.map((a, i) => (
@@ -138,11 +138,19 @@ export function Composer({
         />
 
         <div className="composer-foot">
-          <button className="attach-btn" title="Attach files" onClick={() => pickRef.current?.click()}>
+          <button
+            className="icon-btn"
+            title="Attach files"
+            onClick={() => pickRef.current?.click()}
+          >
             +
           </button>
           <span className="hint">
-            {running ? 'running…' : 'Enter to send · Shift+Enter for a new line · paste or drop images'}
+            {running
+              ? 'running…'
+              : dragging
+                ? 'drop to attach'
+                : 'Enter to send · Shift+Enter for a new line · paste or drop images'}
           </span>
           <button
             className={`send ${running ? 'stop' : ''}`}

@@ -24,6 +24,10 @@ extraResources:
   - from: runtime/cpython
     to: python
     filter: ['**/*']
+  # Same as the core flavor: the browser playwright does NOT ship with. See electron-builder.yml.
+  - from: runtime/ms-playwright
+    to: ms-playwright
+    filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico

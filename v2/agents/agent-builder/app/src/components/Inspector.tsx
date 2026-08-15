@@ -1,8 +1,8 @@
 /* WHAT THIS PANEL IS FOR: watching the files appear as an agent gets built.
  *
- * A conversation is about ONE agent, decided when it starts — in the hero, or by the agent that
- * chat just created. There is no chooser here: a panel you can re-point mid-chat is a panel that
- * can disagree with the conversation. To work on something else, start a new chat. The whole
+ * A conversation is about ONE agent — chosen in the hero, created by the chat, or read back out of
+ * a resumed transcript. There is no chooser here: a panel you can re-point mid-chat is a panel
+ * that can disagree with the conversation. To work on something else, start a new chat. The whole
  * panel is hidden until an agent is in focus.
  */
 
@@ -77,37 +77,48 @@ export function Inspector({
 
   if (!agent) return null
 
+  const initials = (agent.name || agent.id).slice(0, 2).toUpperCase()
+
   return (
-    <aside className="panel glass" id="panel">
-      <div className="panel-head">
-        <span className="panel-label">Working on</span>
-        <h2 className="panel-agent">{agent.name || agent.id}</h2>
-        <p className="panel-sub">
-          {[agent.tagline || agent.description || agent.id, agent.version && `v${agent.version}`]
-            .filter(Boolean)
-            .join('  ·  ')}
-        </p>
+    <aside className="panel">
+      <div className="card panel-head">
+        <span className="tile lg" style={agent.color ? { background: agent.color } : undefined}>
+          {initials}
+        </span>
+        <div className="panel-id">
+          <h2>{agent.name || agent.id}</h2>
+          <p>
+            {[agent.tagline || agent.description || agent.id, agent.version && `v${agent.version}`]
+              .filter(Boolean)
+              .join('  ·  ')}
+          </p>
+        </div>
       </div>
 
-      <div className="panel-actions">
+      <div className="card panel-actions">
+        <div className="card-label">
+          <span>Actions</span>
+        </div>
+        <div className="action-row">
+          <button
+            className="ghost-btn"
+            disabled={busy}
+            title="Check this agent for problems the daemon will not report"
+            onClick={() => void runTool('validate_agent', 'Validation')}
+          >
+            Validate
+          </button>
+          <button
+            className="ghost-btn"
+            disabled={busy}
+            title="Build the shareable .agentpkg"
+            onClick={() => void runTool('package_agent', 'Package')}
+          >
+            Package
+          </button>
+        </div>
         <button
-          className="ghost-btn sm"
-          disabled={busy}
-          title="Check this agent for problems the daemon will not report"
-          onClick={() => void runTool('validate_agent', 'Validation')}
-        >
-          Validate
-        </button>
-        <button
-          className="ghost-btn sm"
-          disabled={busy}
-          title="Build the shareable .agentpkg"
-          onClick={() => void runTool('package_agent', 'Package')}
-        >
-          Package
-        </button>
-        <button
-          className="prime-btn sm"
+          className="prime-btn wide"
           disabled={busy || !canPublish}
           title={
             canPublish
@@ -120,20 +131,21 @@ export function Inspector({
         </button>
       </div>
 
-      <div className="tree-head">
-        <span className="rail-label">Files</span>
-        {/* The tree re-reads itself after every tool, but a file can also change from outside this
-            window — an editor, another run. This is the way to be sure. */}
-        <button className="link-btn" title="Re-read from disk" onClick={() => void files.refresh()}>
-          refresh
-        </button>
+      <div className="card panel-files">
+        <div className="card-label">
+          <span>Files</span>
+          {/* The tree re-reads itself after every tool, but a file can also change from outside
+              this window — an editor, another run. This is the way to be sure. */}
+          <button className="link-btn" title="Re-read from disk" onClick={() => void files.refresh()}>
+            refresh
+          </button>
+        </div>
+        <FileTree rows={files.rows} error={files.error} onToggle={files.toggle} onOpen={setViewing} />
       </div>
 
-      <FileTree rows={files.rows} error={files.error} onToggle={files.toggle} onOpen={setViewing} />
-
       {out && (
-        <div className="panel-out">
-          <div className="panel-out-head">
+        <div className="card panel-out">
+          <div className="card-label">
             <span>{out.title}</span>
             <button className="link-btn" onClick={() => setOut(null)}>
               clear

@@ -37,6 +37,15 @@ export interface AuthState {
   mode: RunMode
   /** Is there a Cloud to switch to on this build? */
   canUseCloud: boolean
+  /**
+   * Does this daemon DEMAND an account, or merely offer one?
+   *
+   * `available` says an accounts service exists. That is not the same question, and conflating
+   * them is why a desktop daemon — which accepts the machine token and requires no account at
+   * all — still put a sign-in form in front of every window. Only the daemon knows: it is an
+   * explicit hosted opt-in, not something a client can infer from a configured URL.
+   */
+  required: boolean
 }
 
 export interface AuthOptions {
@@ -134,7 +143,11 @@ export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
     email: stored?.email || '',
     accountId: stored?.accountId || '',
     mode: effectiveMode(opts.storageKey, !!stored, canUseCloud),
-    canUseCloud
+    canUseCloud,
+    // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there —
+    // a client that guessed "not required" against a daemon that requires it would show no
+    // login and then fail every call with no explanation.
+    required: status.signInRequired !== false
   }
 }
 

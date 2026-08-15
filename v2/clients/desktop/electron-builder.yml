@@ -21,6 +21,13 @@ extraResources:
   - from: runtime/cpython
     to: python
     filter: ['**/*']
+  # CHROMIUM. Not a nicety: playwright ships as a python package with NO browser, so without
+  # this every tool that opens a page dies on a fresh machine with "Executable doesn't exist"
+  # and a command line the product never tells anyone to run. supervisor.ts points the daemon
+  # at this folder via PLAYWRIGHT_BROWSERS_PATH.
+  - from: runtime/ms-playwright
+    to: ms-playwright
+    filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico

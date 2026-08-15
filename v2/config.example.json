@@ -1,5 +1,5 @@
 {
-  "_comment": "Default agentd config, seeded to ~/.agentd/config.json on first run. KNOBS live here; API KEYS live in .env (~/.agentd/.env for the installed app, v2/.env in a checkout). `model_catalog` is the model-picker menu \u2014 an entry appears once its provider key is set. Edit freely.",
+  "_comment": "Default agentd config, seeded to ~/.agentd/config.json on first run. KNOBS live here; API KEYS live in .env (~/.agentd/.env for the installed app, v2/.env in a checkout). `model_catalog` is the model-picker menu — an entry appears once its provider key is set. Edit freely.",
   "model": "gemini/gemini-2.5-flash",
   "reasoning_effort": "medium",
   "memory_enabled": true,
@@ -75,6 +75,22 @@
     {
       "value": "deepseek/deepseek-reasoner",
       "label": "DeepSeek R1"
+    },
+    {
+      "value": "moonshot/kimi-k3",
+      "label": "Kimi K3 (vision, 1M)"
+    },
+    {
+      "value": "moonshot/kimi-k2.5",
+      "label": "Kimi K2.5 (vision, 262k)"
+    },
+    {
+      "value": "moonshot/kimi-k2-0905-preview",
+      "label": "Kimi K2 (262k)"
+    },
+    {
+      "value": "moonshot/kimi-thinking-preview",
+      "label": "Kimi Thinking (vision)"
     },
     {
       "value": "anthropic/claude-opus-4-8",

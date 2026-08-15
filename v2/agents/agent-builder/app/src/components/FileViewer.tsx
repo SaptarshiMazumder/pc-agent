@@ -53,18 +53,21 @@ export function FileViewer({
   }, [entry, url, media])
 
   return (
-    <div className="viewer-back" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="viewer glass">
-        <header>
-          <div className="viewer-title">
-            <span className="vname">{entry.name}</span>
-            <span className="vpath">{entry.path}</span>
+    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal viewer" role="dialog" aria-modal="true" aria-label={entry.name}>
+        <header className="modal-head">
+          <div className="modal-title">
+            <span className="tile sm">▤</span>
+            <div>
+              <h1>{entry.name}</h1>
+              <p>{entry.path}</p>
+            </div>
           </div>
-          <button className="icon-btn" onClick={onClose}>
+          <button className="icon-btn" onClick={onClose} title="Close (Esc)">
             ✕
           </button>
         </header>
-        <div className="viewer-body">
+        <div className="modal-body viewer-body">
           {entry.kind === 'image' && <img src={url} alt={entry.name} />}
           {entry.kind === 'video' && <video src={url} controls />}
           {entry.kind === 'audio' && <audio src={url} controls />}
@@ -72,7 +75,9 @@ export function FileViewer({
             <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(body.text) }} />
           )}
           {!media && body.state === 'text' && <pre>{body.text}</pre>}
-          {!media && (body.state === 'loading' || body.state === 'note') && body.text}
+          {!media && (body.state === 'loading' || body.state === 'note') && (
+            <div className="tree-empty">{body.text}</div>
+          )}
         </div>
       </div>
     </div>

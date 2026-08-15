@@ -18,6 +18,7 @@ flags were approximating from a distance.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 # Safe at module scope: the loader puts this bundle's root on sys.path BEFORE importing this
 # module (loader.py — `sys.path.insert(0, root)` precedes `_load_entry_module`). The lazy imports
@@ -164,6 +165,41 @@ def register(api, ctx):
 
     api.register_tool(
         ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react"))
+    )
+
+    # VERIFY THE WINDOW. validate_agent proves an agent is well-formed and `agentd ask` proves
+    # its brain runs; neither opens the screen, which is the one part that can be perfectly built,
+    # perfectly served and blank. The driver is a FACTORY: a browser is expensive and must not be
+    # held open between calls. The gateway reader is injected so the daemon token is resolved
+    # here and never travels through the model's context.
+    from agent_runtime import lifecycle
+    from agent_runtime.application.run_context import current_workspace
+
+    from agent_authoring.application.verify_app_service import VerifyAppService
+    from agent_authoring.infrastructure.playwright_page_driver import PlaywrightPageDriver
+    from agent_authoring.presentation.verify_app_tool import VerifyAppTool
+
+    def _shot_dir():
+        # Agent Builder's OWN workspace: the screenshots are evidence for the builder, not files
+        # the built agent should ship or a user should find in their agent's folder.
+        return Path(current_workspace(".")) / "verify"
+
+    # RUN WHAT IT BUILT. The skill used to send it to the shell for `agentd ask`, which exists
+    # only where the wheel was pip-installed — not in a source checkout, which is where agents
+    # are authored. A tool cannot be missing from PATH.
+    from agent_authoring.presentation.run_agent_tool import RunAgentTool
+
+    api.register_tool(RunAgentTool())
+
+    api.register_tool(
+        VerifyAppTool(
+            VerifyAppService(
+                reader,
+                driver_factory=lambda: PlaywrightPageDriver(_shot_dir()),
+                gateway_reader=lifecycle.find_running,
+                screenshot_dir=_shot_dir(),
+            )
+        )
     )
 
     # --- CHECK (the tool face of the validator built above) ---------------------------

@@ -79,103 +79,35 @@ async def _ask(
     timeout: float,
     quiet: bool,
 ) -> int:
-    import json
-    import uuid
+    """PRINTING only. The run itself lives in clients/one_shot_run so a TOOL can do the same
+    thing without a shell — Agent Builder needs to run what it built, and on a source checkout
+    there is no `agentd` on PATH to shell out to."""
+    import sys
 
-    import websockets
+    from agent_runtime.clients.one_shot_run import run_once
 
-    from agent_runtime import lifecycle
-
-    if url is None:
-        try:
-            info, _spawned = lifecycle.ensure_running()
-        except RuntimeError as e:
-            print(f"could not start the daemon: {e}")
-            return 1
-        url = info.connect_url()
-
-    # A FRESH session by default. Reusing one silently carries the previous run's context into
-    # this one, which turns "does this agent work?" into "does it work given whatever I asked it
-    # last time" — the two answers differ exactly when it matters.
-    session_key = session or f"ask-{uuid.uuid4().hex[:8]}"
-    tools: list[str] = []
-    reply: list[str] = []
-    stop_reason = ""
-    error = ""
-
-    try:
-        async with websockets.connect(url, max_size=32 * 1024 * 1024) as ws:
-            await ws.send(
-                json.dumps(
-                    {
-                        "type": "req",
-                        "id": uuid.uuid4().hex[:12],
-                        "method": "chat.send",
-                        "params": {
-                            "message": message,
-                            "sessionKey": session_key,
-                            **({"agentId": agent} if agent else {}),
-                        },
-                    }
-                )
-            )
-            async with asyncio.timeout(timeout):
-                async for raw in ws:
-                    frame = json.loads(raw)
-                    if frame.get("type") == "res" and not frame.get("ok", True):
-                        print(f"error: {(frame.get('payload') or {}).get('error')}")
-                        return 1
-                    if frame.get("type") != "event" or frame.get("event") != "chat.event":
-                        continue
-                    # The run event is NESTED inside the frame's payload, and flattened to
-                    # {"type": <name>, **payload} by AgentEvent.to_dict.
-                    event = (frame.get("payload") or {}).get("event") or {}
-                    kind = event.get("type") or ""
-                    if kind == "tool_execution_start":
-                        tools.append(str(event.get("name") or event.get("toolName") or "?"))
-                    elif kind == "message_end":
-                        # The assistant's text lives in message.content blocks, not on the event.
-                        msg = event.get("message") or {}
-                        if msg.get("role") == "assistant":
-                            for block in msg.get("content") or ():
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    text = str(block.get("text") or "").strip()
-                                    if text:
-                                        reply.append(text)
-                    elif kind == "agent_end":
-                        stop_reason = str(event.get("stopReason") or "")
-                        # WHY it failed, not just that it did. A caller iterating on an agent
-                        # needs the provider's own sentence ("Missing GEMINI_API_KEY") — that is
-                        # the difference between fixing it and guessing at it.
-                        error = str(event.get("error") or "").strip()
-                        break
-    except TimeoutError:
-        print(f"timed out after {timeout:g}s — the run did not finish")
-        return 1
-    except OSError as e:
-        print(f"could not reach the daemon at {url}: {e}")
+    outcome = await run_once(
+        message=message, agent=agent, session=session, url=url, timeout=timeout
+    )
+    if outcome.transport_error:
+        print(outcome.transport_error)
         return 1
 
-    answer = "\n".join(reply).strip()
-    print(answer or "(the agent produced no reply)")
-    if error:
+    print(outcome.reply or "(the agent produced no reply)")
+    if outcome.error:
         # WHY it failed, in the provider's own words. Without this the caller sees
         # "⚠️ Agent couldn't generate a response" — true, useless, and identical for a missing
         # API key, a rate limit and a broken tool.
-        import sys
-
-        print(f"\nRUN FAILED: {error.splitlines()[0]}", file=sys.stderr)
+        print(f"\nRUN FAILED: {outcome.error.splitlines()[0]}", file=sys.stderr)
     if not quiet:
         # The trace goes to STDERR so `agentd ask ... > answer.txt` captures the answer alone
         # while a human (or a tool reading both streams) still sees what actually ran.
-        import sys
-
         print(
-            f"\n--- tools called: {', '.join(tools) if tools else 'NONE'}"
-            f"\n--- stop reason : {stop_reason or 'unknown'}",
+            f"\n--- tools called: {', '.join(outcome.tools) if outcome.tools else 'NONE'}"
+            f"\n--- stop reason : {outcome.stop_reason or 'unknown'}",
             file=sys.stderr,
         )
     # EXIT CODE FOLLOWS THE RUN. `agentd ask ... && something` has to mean what it looks like,
     # and a caller looping on this needs to branch on failure without parsing prose.
-    return 1 if (error or stop_reason == "error") else 0
+    return 0 if outcome.ok else 1
 
