@@ -1,6 +1,6 @@
 """agentd - minimal agent gateway daemon."""
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 # BEFORE ANY THIRD-PARTY IMPORT. litellm fixes its tiktoken cache to a directory inside its own
 # site-packages folder the moment it is imported, and on an install the user cannot write to

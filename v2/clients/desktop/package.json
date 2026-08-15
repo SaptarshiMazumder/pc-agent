@@ -1,7 +1,7 @@
 {
   "name": "agentd-desktop",
   "productName": "agentd",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "agentd desktop shell — the Electron host for the shared @agentd/ui renderer: supervisor, native file access, installers",
   "main": "./out/main/index.js",
   "author": "agentd",
