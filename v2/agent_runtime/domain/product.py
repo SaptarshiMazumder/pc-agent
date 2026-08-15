@@ -95,10 +95,18 @@ class PlatformEndpoints:
 
     Both or neither. A product with an accounts url but no model proxy would show a sign-in
     prompt and then fail every model call, which is worse than being honestly BYOK.
+
+    ``platform_url`` is the address a modern build actually uses: the client fetches
+    ``/.well-known/agentd-platform`` from it and learns the rest (sign-in, model proxy, token
+    issuer, login providers) at runtime. The two per-service URLs stay as the offline fallback and
+    for clients older than discovery. A creator's installer that carried only those would be
+    permanently pinned to whatever load balancer existed on the day it was built — which is the
+    exact rot this replaced.
     """
 
     accounts_url: str = ""
     model_proxy_url: str = ""
+    platform_url: str = ""
 
     @property
     def hosted(self) -> bool:
@@ -173,6 +181,10 @@ class ProductSpec:
             # A single-agent product has no store: browsing a marketplace inside an app that IS
             # one marketplace listing is a different product's feature.
             store_enabled=False,
+            # THE ONE ADDRESS FIRST. A creator's installer that shipped only the two per-service
+            # URLs would be pinned forever to whichever load balancer existed on build day; with
+            # this, it asks the platform where things are every time it starts.
+            platform_url=self.platform.platform_url,
             accounts_url=self.platform.accounts_url,
             model_proxy_url=self.platform.model_proxy_url,
         )

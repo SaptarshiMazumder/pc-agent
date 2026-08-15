@@ -47,6 +47,7 @@ def product_defaults(config) -> ProductDefaults:
     endpoints = PlatformEndpoints(
         accounts_url=str(getattr(profile, "accounts_url", "") or ""),
         model_proxy_url=str(getattr(profile, "model_proxy_url", "") or ""),
+        platform_url=str(getattr(profile, "platform_url", "") or ""),
     )
     return ProductDefaults(
         platform=endpoints,

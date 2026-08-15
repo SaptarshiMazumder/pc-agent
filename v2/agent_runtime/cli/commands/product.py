@@ -61,6 +61,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         parser.add_argument(
             "--model-proxy-url", default="", help="hosted model proxy for this product"
         )
+        parser.add_argument(
+            "--platform-url",
+            default="",
+            help="THE address this product discovers everything else from (/.well-known/agentd-platform)",
+        )
 
     payload = sub.add_parser("payload", help="write the payload only (no installer)")
     common(payload)
@@ -109,7 +114,10 @@ def _overrides(args):
     proxy = getattr(args, "model_proxy_url", "") or ""
     # BOTH or NEITHER. One without the other builds a product that prompts for sign-in and then
     # fails every model call — worse than an honestly BYOK build.
-    platform = PlatformEndpoints(accounts, proxy) if (accounts and proxy) else None
+    platform_url = getattr(args, "platform_url", "") or ""
+    platform = (
+        PlatformEndpoints(accounts, proxy, platform_url) if (accounts and proxy) else None
+    )
     return ProductOverrides(
         name=args.name,
         version=args.version,

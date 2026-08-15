@@ -120,13 +120,19 @@ try {
   /* no core flavor / unreadable — app-agent stays BYOK */
 }
 const accountsUrl = opt('accounts-url') || String(corePlatform.accounts_url || '')
+// THE ONE ADDRESS the product discovers everything else from. Inherited like the two below, so a
+// creator's exe built from a hosted checkout resolves sign-in and the model proxy at RUNTIME
+// instead of baking whichever load balancer happened to exist on build day.
+const platformUrl = opt('platform-url') || String(corePlatform.platform_url || '')
 const proxyUrl =
   opt('model-proxy-url') ||
   opt('model-gateway-url') ||
   String(corePlatform.model_proxy_url || corePlatform.model_gateway_url || '')
 if (accountsUrl && proxyUrl) {
   args.push('--accounts-url', accountsUrl, '--model-proxy-url', proxyUrl)
-  console.log(`  hosted: sign-in ${accountsUrl}, model proxy ${proxyUrl}`)
+  if (platformUrl) args.push('--platform-url', platformUrl)
+  console.log(`  hosted: platform ${platformUrl || '(none - falls back to baked urls)'}`)
+  console.log(`          sign-in ${accountsUrl}, model proxy ${proxyUrl}`)
 }
 
 // Run from v2/: when agentd is NOT pip-installed in the venv (a plain checkout — the package
