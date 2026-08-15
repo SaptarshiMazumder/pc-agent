@@ -173,7 +173,33 @@ jobs:
           fi
           printf '%s' "$KEYPAIR" > "$RUNNER_TEMP/publisher-key.json"
           chmod 600 "$RUNNER_TEMP/publisher-key.json"
-          python -c "import json,os,sys; d=json.load(open(os.environ['RUNNER_TEMP']+'/publisher-key.json')); sys.exit(0 if d.get('private_key') and d.get('public_key') else 'AGENTD_PUBLISHER_KEYPAIR is not an agentd keypair JSON (needs private_key + public_key)')"
+          # VALIDATE WITH A HUMAN ERROR, not a stack trace. A malformed secret used to surface as a
+          # raw JSONDecodeError pointing at a line number inside a file nobody can look at (it is a
+          # secret), which says nothing about the actual cause — and the actual cause is almost
+          # always the same one: `gh secret set --body "<json>"` from PowerShell, which strips the
+          # double quotes out of the argument before gh ever sees it, turning {"a":"b"} into {a:b}.
+          # Piping the value on STDIN avoids that entirely.
+          python - <<'PY'
+          import json, os, sys
+          path = os.environ['RUNNER_TEMP'] + '/publisher-key.json'
+          raw = open(path, 'rb').read().decode('utf-8-sig', 'replace')
+          hint = (
+              "\n  Set it by PIPING the file, never as an argument:\n"
+              "    Get-Content agentd-creator-key.json -Raw | gh secret set AGENTD_PUBLISHER_KEYPAIR --repo <owner>/<repo>\n"
+              "  PowerShell strips quotes from native-command arguments, so --body \"<json>\" arrives unquoted."
+          )
+          try:
+              d = json.loads(raw)
+          except json.JSONDecodeError as e:
+              print(f"::error::AGENTD_PUBLISHER_KEYPAIR is not valid JSON ({e}). "
+                    f"It begins {raw[:12]!r} and is {len(raw)} chars.{hint}")
+              sys.exit(1)
+          if not (d.get('private_key') and d.get('public_key')):
+              print(f"::error::AGENTD_PUBLISHER_KEYPAIR parsed but is not an agentd keypair — "
+                    f"needs private_key + public_key, got {sorted(d)}.{hint}")
+              sys.exit(1)
+          print(f"signing key staged: public_key {d['public_key'][:16]}…")
+          PY
 
       # `bundle publish` READS the current index.json first and carries forward every bundle it is
       # not republishing, so publishing one agent does not unpublish the others. It also refuses on
