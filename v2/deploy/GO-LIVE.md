@@ -154,6 +154,38 @@ The release workflow refuses to build if a flavor declaring `[platform]` has no 
 
 ---
 
+## 5b. Ship the new runtime to EVERY surface
+
+Four surfaces get the engine by four different routes, and pushing code only covers two of them.
+This is the order, and skipping a step leaves that surface on the old build with no warning.
+
+| Surface | Gets the new runtime from | Step |
+| --- | --- | --- |
+| Hosted web + web agent UIs | the daemon/web images | `git push develop` (§2) |
+| Desktop dev machines | the repo | `git pull` + `npm ci` |
+| Downloaded `.exe` (core/studio) | the release installers | tag + push (§5) |
+| **Creator-published agents** | **the registry** | **the two commands below** |
+
+The last row is the one that gets missed. A creator's installer is a ~200 KB stub that downloads
+the engine from the registry's single signed `engine` row — so until that row is republished, every
+stub keeps installing the OLD engine. And each published `.agentpkg` carries its own vendored copy
+of the client SDK, so agents published before an SDK fix keep shipping the broken one until they
+are republished too.
+
+```powershell
+# 1. the ENGINE row — creator stubs follow this. Upload the built installer first.
+aws s3 cp "v2\clients\desktop\dist\core\agentd Setup 0.1.9.exe" `
+  "s3://<registry-bucket>/agentd-engine-0.1.9-setup.exe"
+gh workflow run "Publish registry" -f environment=dev -f engine_version=0.1.9 -f engine_only=true
+
+# 2. the AGENTS — republishes every agent with a bundle.toml, picking up the vendored SDK.
+gh workflow run "Publish registry" -f environment=dev
+```
+
+Run step 2 after ANY change under `v2/clients/sdk-js`: the SDK is vendored into each agent's
+`ui/vendor/agentd-client.js` at build time, so a fix there does not reach a published agent until
+that agent is packed again.
+
 ## 6. End-to-end check
 
 | Surface | Check |

@@ -51,7 +51,12 @@ export interface AuthOptions {
   storageKey?: string
 }
 
-const DEFAULT_TIMEOUT = 15000
+// 15s was not enough for SIGNUP. The accounts service hashes at 200k PBKDF2 rounds and then
+// writes to a network filesystem, which on a small container measures in the tens of seconds —
+// so a correct signup was being reported to the user as "login timed out". Sign-in itself is
+// sub-second; this ceiling exists for the slow path, and the honest fix for THAT is on the
+// server (see the accounts service), not a bigger number here.
+const DEFAULT_TIMEOUT = 45000
 
 function origin(opts: AuthOptions): string {
   if (opts.origin) return opts.origin.replace(/\/$/, '')
@@ -161,14 +166,97 @@ export async function authLogin(
     'login'
   )
 
-  const token = String(login?.token || login?.session || '')
+  // `access_token` is the field a current server returns. `token`/`session` were the OPAQUE
+  // session this platform issued before signed tokens, kept here only so an SDK build newer than
+  // its server still works — the reverse (reading only `token`) is what broke every agent app's
+  // sign-in the day the server stopped issuing it, with the server returning 200 the whole time.
+  const token = String(login?.access_token || login?.token || login?.session || '')
   if (!token) throw new Error('the accounts server returned no session token')
   saveSession(
-    { token, email: String(login?.email || email), accountId: String(login?.account_id || '') },
+    {
+      token,
+      email: String(login?.email || email),
+      accountId: String(login?.account_id || ''),
+      refreshToken: String(login?.refresh_token || '') || undefined,
+      expiresAt: login?.expires_in
+        ? Date.now() + Number(login.expires_in) * 1000
+        : undefined
+    },
     opts.storageKey
   )
   opts.client?.reconnect() // the daemon reads identity when the socket opens
   return authStatus(opts)
+}
+
+/**
+ * Renew the access token from the stored refresh token. Returns the new access token, or '' when
+ * there is nothing to renew with (an older session, or one the server has revoked).
+ *
+ * WHY AN APP WINDOW NEEDS THIS AT ALL. Its credential arrives on the page URL and lasts about ten
+ * minutes; the socket then reconnects at some point and presents it again. An expired token is not
+ * refused — the daemon accepts the connection ANONYMOUSLY — so the page keeps working while
+ * quietly losing access to everything the account owns. Renewing on a timer is what stops that,
+ * and it fails CLOSED: a rejected refresh clears the session so the UI shows a sign-in form
+ * instead of an inexplicably empty app.
+ */
+export async function authRefresh(opts: AuthOptions = {}): Promise<string> {
+  const stored = loadSession(opts.storageKey)
+  if (!stored?.refreshToken) return ''
+  const status = await platformStatus(opts)
+  const accountsUrl = String(status.accountsUrl || '').replace(/\/$/, '')
+  if (!accountsUrl) return ''
+  try {
+    const next = await post(
+      `${accountsUrl}/auth/refresh`,
+      { refresh_token: stored.refreshToken },
+      opts.timeoutMs ?? DEFAULT_TIMEOUT,
+      'refresh'
+    )
+    const token = String(next?.access_token || '')
+    if (!token) return ''
+    saveSession(
+      {
+        token,
+        email: stored.email,
+        accountId: stored.accountId,
+        refreshToken: String(next?.refresh_token || '') || stored.refreshToken,
+        expiresAt: next?.expires_in ? Date.now() + Number(next.expires_in) * 1000 : undefined
+      },
+      opts.storageKey
+    )
+    // The daemon reads identity when the socket OPENS, so a renewed token only takes effect on
+    // the next connection. Reconnecting here is what makes the renewal actually mean something.
+    opts.client?.reconnect()
+    return token
+  } catch {
+    // A refresh that the server REFUSED is terminal: the family is gone or expired, and retrying
+    // forever with a dead credential is how a page ends up anonymous without saying so.
+    saveSession(null, opts.storageKey)
+    opts.client?.reconnect()
+    return ''
+  }
+}
+
+/**
+ * Keep this window's access token fresh for as long as the page is open.
+ *
+ * Returns a stop function. Renews at 80% of the token's life; falls back to a 5-minute poll for a
+ * session stored before `expiresAt` existed.
+ */
+export function startAuthRenewal(opts: AuthOptions = {}): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const tick = async (): Promise<void> => {
+    const stored = loadSession(opts.storageKey)
+    if (!stored?.refreshToken) return
+    const life = (stored.expiresAt || 0) - Date.now()
+    if (life > 0 && life < 600_000) await authRefresh(opts)
+    const next = stored.expiresAt ? Math.max(30_000, life * 0.8) : 300_000
+    timer = setTimeout(() => void tick(), next)
+  }
+  void tick()
+  return () => {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 /** Forget this client's session. Other windows keep theirs — each holds its own. */

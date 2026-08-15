@@ -14,9 +14,21 @@
  */
 
 export interface StoredSession {
+  /** The ACCESS token — short-lived (~10 min) and the only one that travels on a connection. */
   token: string
   email: string
   accountId: string
+  /**
+   * The refresh token, used ONLY to mint a new access token at <accountsUrl>/auth/refresh.
+   *
+   * Without it an app window is signed in for exactly one access-token lifetime: the credential
+   * rides the socket URL, the socket eventually reconnects, and the daemon then accepts the page
+   * ANONYMOUSLY — which reads to the user as "all my agents disappeared", because an anonymous
+   * connection sees none of the account's own agents.
+   */
+  refreshToken?: string
+  /** Epoch ms when `token` expires, so renewal can happen BEFORE a request fails. */
+  expiresAt?: number
 }
 
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */

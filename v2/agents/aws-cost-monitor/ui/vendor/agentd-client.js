@@ -25,6 +25,7 @@ var agentd = (() => {
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
     authLogin: () => authLogin,
     authLogout: () => authLogout,
+    authRefresh: () => authRefresh,
     authStatus: () => authStatus,
     effectiveMode: () => effectiveMode,
     fromPage: () => fromPage,
@@ -35,7 +36,8 @@ var agentd = (() => {
     saveMode: () => saveMode,
     saveSession: () => saveSession,
     setRunMode: () => setRunMode,
-    signOutAndGate: () => signOutAndGate
+    signOutAndGate: () => signOutAndGate,
+    startAuthRenewal: () => startAuthRenewal
   });
 
   // src/protocol.ts
@@ -297,23 +299,32 @@ var agentd = (() => {
       const u = new URL("/file", origin2);
       u.searchParams.set("path", path);
       if (this.lastTarget.token) u.searchParams.set("token", this.lastTarget.token);
+      else if (this.lastTarget.session) u.searchParams.set("session", this.lastTarget.session);
       return u.toString();
     }
   };
   function fromPage(options = {}) {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
-    const scope = here.searchParams.get("scope") || "";
+    const pathAgent = /\/apps\/([^/]+)/.exec(here.pathname);
+    const scope = here.searchParams.get("scope") || (pathAgent ? `agent:${decodeURIComponent(pathAgent[1])}` : "");
     const urlSession = here.searchParams.get("session") || "";
     const urlMode = here.searchParams.get("mode") || "";
+    if (urlSession) saveSession({ token: urlSession, email: "", accountId: "" });
+    if (urlMode === "local" || urlMode === "cloud") saveMode(urlMode);
+    if ((urlSession || urlMode) && typeof history !== "undefined") {
+      here.searchParams.delete("session");
+      here.searchParams.delete("mode");
+      history.replaceState(null, "", here.toString());
+    }
     const client = new AgentdClient(options);
     client.connect(async () => {
       const stored = loadSession()?.token;
       return {
         url: here.origin,
         token: token || void 0,
-        session: stored || urlSession || void 0,
-        mode: urlMode || effectiveMode("", !!(stored || urlSession)),
+        session: stored || void 0,
+        mode: effectiveMode("", !!stored),
         scope: scope || void 0
       };
     });
@@ -321,7 +332,7 @@ var agentd = (() => {
   }
 
   // src/auth.ts
-  var DEFAULT_TIMEOUT = 15e3;
+  var DEFAULT_TIMEOUT = 45e3;
   function origin(opts) {
     if (opts.origin) return opts.origin.replace(/\/$/, "");
     if (typeof location === "undefined") throw new Error("no origin: pass options.origin");
@@ -408,14 +419,68 @@ var agentd = (() => {
       timeoutMs,
       "login"
     );
-    const token = String(login?.token || login?.session || "");
+    const token = String(login?.access_token || login?.token || login?.session || "");
     if (!token) throw new Error("the accounts server returned no session token");
     saveSession(
-      { token, email: String(login?.email || email), accountId: String(login?.account_id || "") },
+      {
+        token,
+        email: String(login?.email || email),
+        accountId: String(login?.account_id || ""),
+        refreshToken: String(login?.refresh_token || "") || void 0,
+        expiresAt: login?.expires_in ? Date.now() + Number(login.expires_in) * 1e3 : void 0
+      },
       opts.storageKey
     );
     opts.client?.reconnect();
     return authStatus(opts);
+  }
+  async function authRefresh(opts = {}) {
+    const stored = loadSession(opts.storageKey);
+    if (!stored?.refreshToken) return "";
+    const status = await platformStatus(opts);
+    const accountsUrl = String(status.accountsUrl || "").replace(/\/$/, "");
+    if (!accountsUrl) return "";
+    try {
+      const next = await post(
+        `${accountsUrl}/auth/refresh`,
+        { refresh_token: stored.refreshToken },
+        opts.timeoutMs ?? DEFAULT_TIMEOUT,
+        "refresh"
+      );
+      const token = String(next?.access_token || "");
+      if (!token) return "";
+      saveSession(
+        {
+          token,
+          email: stored.email,
+          accountId: stored.accountId,
+          refreshToken: String(next?.refresh_token || "") || stored.refreshToken,
+          expiresAt: next?.expires_in ? Date.now() + Number(next.expires_in) * 1e3 : void 0
+        },
+        opts.storageKey
+      );
+      opts.client?.reconnect();
+      return token;
+    } catch {
+      saveSession(null, opts.storageKey);
+      opts.client?.reconnect();
+      return "";
+    }
+  }
+  function startAuthRenewal(opts = {}) {
+    let timer;
+    const tick = async () => {
+      const stored = loadSession(opts.storageKey);
+      if (!stored?.refreshToken) return;
+      const life = (stored.expiresAt || 0) - Date.now();
+      if (life > 0 && life < 6e5) await authRefresh(opts);
+      const next = stored.expiresAt ? Math.max(3e4, life * 0.8) : 3e5;
+      timer = setTimeout(() => void tick(), next);
+    };
+    void tick();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }
   async function authLogout(opts = {}) {
     saveSession(null, opts.storageKey);
@@ -499,6 +564,7 @@ var agentd = (() => {
     const blurb = options.blurb || "Sign in to continue.";
     const state = await authStatus(options);
     if (!state.available || state.signedIn) {
+      if (state.signedIn) startAuthRenewal(options);
       return { ...state, signedInHere: false };
     }
     injectStyle();
@@ -542,6 +608,7 @@ var agentd = (() => {
         say(signup ? "Creating your account\u2026" : "Signing in\u2026");
         try {
           const result = await authLogin({ email, password, signup }, options);
+          startAuthRenewal(options);
           gate.remove();
           resolve({ ...result, signedInHere: true });
         } catch (e) {

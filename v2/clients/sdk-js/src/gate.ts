@@ -30,7 +30,14 @@
  * back to the surrounding page's, so an unthemed agent still looks like itself.
  */
 
-import { AuthOptions, AuthState, authLogin, authLogout, authStatus } from './auth'
+import {
+  AuthOptions,
+  AuthState,
+  authLogin,
+  authLogout,
+  authStatus,
+  startAuthRenewal
+} from './auth'
 
 export interface SignInGateOptions extends AuthOptions {
   /** Product name in the heading. Defaults to the document title, then the agent id. */
@@ -128,6 +135,10 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
 
   const state = await authStatus(options)
   if (!state.available || state.signedIn) {
+    // ALREADY SIGNED IN is the common path — every reload takes it — so renewal has to start
+    // here too, not only after a fresh sign-in. Without this, a page that resumes a stored
+    // session runs on whatever life is left in that access token and then goes anonymous.
+    if (state.signedIn) startAuthRenewal(options)
     return { ...state, signedInHere: false }
   }
 
@@ -180,6 +191,12 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
       say(signup ? 'Creating your account…' : 'Signing in…')
       try {
         const result = await authLogin({ email, password, signup }, options)
+        // RENEW FOR AS LONG AS THE PAGE IS OPEN. The access token this just stored lasts about
+        // ten minutes; the socket outlives it and reconnects, and an expired token is not
+        // refused — the daemon accepts the page ANONYMOUSLY, which shows up as the account's
+        // agents silently vanishing. A drop-in gate that leaves the caller to discover that is
+        // not a drop-in, so it is started here rather than documented.
+        startAuthRenewal(options)
         gate.remove()
         resolve({ ...result, signedInHere: true })
       } catch (e) {
