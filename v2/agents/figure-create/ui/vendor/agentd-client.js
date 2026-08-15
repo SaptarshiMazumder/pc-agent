@@ -317,7 +317,7 @@ var agentd = (() => {
       const u = new URL("/file", origin2);
       u.searchParams.set("path", path);
       if (this.lastTarget.token) u.searchParams.set("token", this.lastTarget.token);
-      else if (this.lastTarget.session) u.searchParams.set("session", this.lastTarget.session);
+      if (this.lastTarget.session) u.searchParams.set("session", this.lastTarget.session);
       return u.toString();
     }
   };

@@ -41,63 +41,91 @@ def _body(response) -> dict:
     return json.loads(response.body.decode("utf-8"))
 
 
-def test_it_spawns_the_respawner_and_does_not_kill_anything_itself(gateway, monkeypatch):
+def _identity(monkeypatch, allowed: bool):
+    """Patched on the CLASS, so it takes `self` like the real method."""
+
+    async def identities(_self, _q, _h):
+        return frozenset({"someone"}) if allowed else None
+
+    monkeypatch.setattr(Gateway, "_http_identities", identities, raising=False)
+
+
+@pytest.mark.asyncio
+async def test_it_spawns_the_respawner_and_does_not_kill_anything_itself(gateway, monkeypatch):
     """THE WHOLE DESIGN. If this handler killed the daemon, there would be nobody left to start
     the next one — the endpoint's job is to hand the work to a process that outlives it."""
+    _identity(monkeypatch, True)
     spawned: list[bool] = []
     monkeypatch.setattr(
         "agent_runtime.presentation.gateway.lifecycle.spawn_respawner",
         lambda: spawned.append(True) or 4321,
     )
 
-    response = gateway._serve_restart(FakeSplit(), {})
+    response = await gateway._serve_restart(FakeSplit(), {})
 
     assert response.status_code == 200
     assert _body(response)["ok"] is True
     assert spawned == [True]
 
 
-def test_an_unauthenticated_caller_is_refused(gateway, monkeypatch):
-    """The machine token, same as /file. It lives in the 0600 rendezvous file and in the URL of
-    every window this daemon opened — the honest boundary for a desktop daemon."""
-    gateway.auth_token = "secret"
+@pytest.mark.asyncio
+async def test_a_signed_in_window_is_authorised_by_its_session(gateway, monkeypatch):
+    """THE BUG THIS EXISTS FOR. A window that has signed in sends `?session=`, not the machine
+    token — the SDK sends one or the other. Checking only for the token 401s exactly the window
+    the button is on, and signing in is what causes it."""
+    _identity(monkeypatch, True)
     monkeypatch.setattr(
-        "agent_runtime.presentation.gateway.lifecycle.spawn_respawner",
-        lambda: pytest.fail("restarted without a token"),
+        "agent_runtime.presentation.gateway.lifecycle.spawn_respawner", lambda: 1
     )
 
-    response = gateway._serve_restart(FakeSplit(query="token=wrong"), {})
+    response = await gateway._serve_restart(FakeSplit(query="session=sess_abc"), {})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_an_unauthenticated_caller_is_refused(gateway, monkeypatch):
+    """Same rule as /file and the socket — one door, three transports."""
+    _identity(monkeypatch, False)
+    monkeypatch.setattr(
+        "agent_runtime.presentation.gateway.lifecycle.spawn_respawner",
+        lambda: pytest.fail("restarted without a credential"),
+    )
+
+    response = await gateway._serve_restart(FakeSplit(query="token=wrong"), {})
 
     assert response.status_code == 401
 
 
-def test_a_hosted_daemon_refuses(gateway, monkeypatch):
+@pytest.mark.asyncio
+async def test_a_hosted_daemon_refuses(gateway, monkeypatch):
     """There it serves other people's sessions, and no window's convenience is worth ending
     them."""
+    _identity(monkeypatch, True)
     monkeypatch.setattr("agent_runtime.presentation.gateway.accounts.enabled", lambda: True)
     monkeypatch.setattr(
         "agent_runtime.presentation.gateway.lifecycle.spawn_respawner",
         lambda: pytest.fail("restarted a multi-account daemon"),
     )
 
-    response = gateway._serve_restart(FakeSplit(), {})
+    response = await gateway._serve_restart(FakeSplit(), {})
 
     assert response.status_code == 403
     assert "sessions" in _body(response)["error"]
 
 
-def test_a_failed_spawn_is_reported_not_swallowed(gateway, monkeypatch):
+@pytest.mark.asyncio
+async def test_a_failed_spawn_is_reported_not_swallowed(gateway, monkeypatch):
     """A 200 with no respawner is the worst outcome available: the caller waits for a daemon
     that is never coming, with nothing on screen to say why."""
+    _identity(monkeypatch, True)
 
     def boom():
         raise OSError("no interpreter")
 
-    monkeypatch.setattr(
-        "agent_runtime.presentation.gateway.lifecycle.spawn_respawner", boom
-    )
+    monkeypatch.setattr("agent_runtime.presentation.gateway.lifecycle.spawn_respawner", boom)
 
-    response = gateway._serve_restart(FakeSplit(), {})
+    response = await gateway._serve_restart(FakeSplit(), {})
 
     assert response.status_code == 500
     assert "no interpreter" in _body(response)["error"]

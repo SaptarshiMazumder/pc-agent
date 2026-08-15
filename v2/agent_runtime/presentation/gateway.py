@@ -1837,7 +1837,7 @@ class Gateway:
                     200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
                 )
             if split.path == "/restart":
-                return self._serve_restart(split, getattr(request, "headers", {}))
+                return await self._serve_restart(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
@@ -4245,7 +4245,7 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
-    def _serve_restart(self, split, headers) -> HttpResponse:
+    async def _serve_restart(self, split, headers) -> HttpResponse:
         """``GET /restart`` — kill this daemon and bring a fresh one up.
 
         GET FOR A STATE CHANGE, deliberately. This port is the WebSocket server's, and
@@ -4266,10 +4266,10 @@ class Gateway:
         shutting down in-process is also what makes it work on a daemon too busy to unwind
         cleanly — the signal comes from outside.
 
-        AUTH IS THE MACHINE TOKEN, the same one `/file` takes. It is in the rendezvous file,
-        which is 0600, and in the URL of every window this daemon opened. That is the honest
-        boundary for a desktop daemon: anyone who can already read your files can restart it,
-        and could equally have killed the process.
+        AUTH IS `_http_identities` — the SAME rule as `/file` and the socket, one door with
+        three transports. A signed-in window presents `?session=`, a machine-token client
+        presents `?token=`; accepting only the second one 401s the very window this button is
+        for, because signing in is what makes it send a session instead.
 
         A HOSTED daemon refuses outright. There it serves other people's sessions, and no
         window's convenience is worth ending them.
@@ -4284,7 +4284,7 @@ class Gateway:
             return HttpResponse(code, reason, hdrs, body)
 
         query = parse_qs(split.query)
-        if self.auth_token and not self._platform_bearer_ok(query, headers):
+        if await self._http_identities(query, headers) is None:
             return send(401, "Unauthorized", {"ok": False, "error": "unauthorized"})
         if accounts.enabled():
             return send(
