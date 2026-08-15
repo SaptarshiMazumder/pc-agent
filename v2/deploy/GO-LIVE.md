@@ -23,17 +23,27 @@ $env:AWS_REGION = "ap-northeast-1"
 $ENVIRONMENT = "dev"          # dev | staging | production
 $SECRET = "agentd/$ENVIRONMENT/app"
 
-# Read the current secret, add the key if it is missing, write it back.
 $cur = aws secretsmanager get-secret-value --secret-id $SECRET --query SecretString --output text | ConvertFrom-Json
 if (-not $cur.AGENTD_IDENTITY_KEK) {
   $kek = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 48 | ForEach-Object { [char]$_ })
   $cur | Add-Member -NotePropertyName AGENTD_IDENTITY_KEK -NotePropertyValue $kek -Force
-  $cur | ConvertTo-Json -Compress | Set-Content -Encoding utf8 kek.json
+  # WriteAllText, NOT Set-Content/Out-File. Windows PowerShell 5.1 writes UTF-8 *with a BOM*, and
+  # those three leading bytes make the secret invalid JSON — every service that reads it then dies
+  # with "unable to retrieve secret from asm: invalid character ... looking for beginning of
+  # value", which names neither the encoding nor this step. .NET's WriteAllText emits no BOM.
+  # (This is not hypothetical: it took down accounts, model-proxy and daemon at once.)
+  [System.IO.File]::WriteAllText("$PWD\kek.json", ($cur | ConvertTo-Json -Compress))
   aws secretsmanager put-secret-value --secret-id $SECRET --secret-string file://kek.json
   Remove-Item kek.json
   "added AGENTD_IDENTITY_KEK"
 } else { "already present" }
+
+# ALWAYS verify it still parses before applying anything.
+aws secretsmanager get-secret-value --secret-id $SECRET --query SecretString --output text | ConvertFrom-Json | Select-Object -ExpandProperty AGENTD_IDENTITY_KEK
 ```
+
+If a secret ever does get corrupted, Secrets Manager keeps the previous value — recover with
+`--version-stage AWSPREVIOUS` rather than retyping the provider keys.
 
 > **Never rotate this value once tokens are live.** It decrypts the stored signing key; changing it
 > makes that key unreadable and every existing session dies. Losing it is recoverable only by

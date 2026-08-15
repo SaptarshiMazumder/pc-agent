@@ -396,6 +396,13 @@ variable "services" {
     env           = optional(map(string), {})
     secret_keys   = optional(map(string), {})
     efs           = optional(bool, false)
+    # SINGLE-WRITER: this service owns a datastore that exactly one task may write at a time
+    # (accounts, on SQLite over EFS). It forces a stop-then-start rollout instead of the default
+    # start-then-stop, because the overlap window puts TWO writers on one file and the second one
+    # cannot open it: "sqlite3.OperationalError: database is locked", at startup, every deploy.
+    # The cost is a few seconds of downtime for that service, which a desired_count=1 service
+    # already has. Remove it when accounts moves to Postgres.
+    single_writer = optional(bool, false)
     cpu           = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
     memory        = optional(number, 512) # MB
     desired_count = optional(number, 1)
@@ -451,6 +458,7 @@ variable "services" {
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
       }
+      single_writer = true
       secret_keys = {
         ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
         # Wraps the token signing key at rest (identity/infrastructure/sqlite_key_store.py).

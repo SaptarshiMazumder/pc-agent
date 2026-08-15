@@ -179,6 +179,14 @@ resource "aws_ecs_service" "svc" {
     rollback = true
   }
 
+  # ROLLOUT ORDER. The ECS default (min 100% / max 200%) starts the replacement task BEFORE
+  # draining the old one, which is right for a stateless service and wrong for one that owns a
+  # single-writer datastore: for a few seconds two containers hold the same SQLite file on EFS,
+  # and the newcomer dies on "database is locked" before it can finish its startup migration.
+  # 0/100 inverts it — drain first, then start — so there is never more than one writer.
+  deployment_minimum_healthy_percent = each.value.single_writer ? 0 : 100
+  deployment_maximum_percent         = each.value.single_writer ? 100 : 200
+
   # Boot grace: health-check failures in this window don't count against the task, so a slow
   # starter is not killed before it can serve. It does NOT rescue a crash loop — a container
   # that exits is still a failure — so it costs the breaker nothing.

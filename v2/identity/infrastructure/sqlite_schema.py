@@ -23,7 +23,9 @@ either way.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+import time
 
 #: Bump when adding a step to _STEPS.
 SCHEMA_VERSION = 1
@@ -118,7 +120,7 @@ def create_schema(conn: sqlite3.Connection) -> int:
     return SCHEMA_VERSION
 
 
-def backfill_local_identities(conn: sqlite3.Connection, *, at: float) -> int:
+def backfill_local_identities(conn: sqlite3.Connection, *, at: float, retries: int = 5) -> int:
     """Give every pre-existing account a ``local`` identity row. Returns rows created.
 
     THE MIGRATION THAT MAKES THIS NON-DESTRUCTIVE. Accounts that signed up before identity existed
@@ -128,13 +130,38 @@ def backfill_local_identities(conn: sqlite3.Connection, *, at: float) -> int:
     account id as the subject, and every existing user lands on their own account.
 
     Idempotent: the unique index makes a second run a no-op.
+
+    RETRIES, THEN GIVES UP WITHOUT RAISING — and both halves of that matter. On EFS the database
+    can be briefly held by another writer (a deploy that overlaps two tasks), and a bare attempt
+    dies with "database is locked" *inside application startup*, which kills the container: the
+    service will not boot because a backfill could not get a lock for a second. That is a far
+    worse outcome than the backfill being late.
+
+    Late is safe here precisely because this is idempotent and runs on EVERY boot, so a skipped
+    pass is picked up by the next one. It is deliberately NOT silent: a WARNING says the adoption
+    has not happened yet, which is the thing an operator would want to know if it never does.
     """
-    cur = conn.execute(
-        "INSERT INTO identities (provider, subject, account_id, email, email_verified, linked_at) "
-        "SELECT 'local', a.id, a.id, a.email, 0, ? FROM accounts a "
-        "WHERE NOT EXISTS ("
-        "  SELECT 1 FROM identities i WHERE i.provider = 'local' AND i.subject = a.id"
-        ")",
-        (at,),
-    )
-    return int(cur.rowcount or 0)
+    delay = 0.2
+    for attempt in range(max(1, retries)):
+        try:
+            cur = conn.execute(
+                "INSERT INTO identities (provider, subject, account_id, email, email_verified, linked_at) "
+                "SELECT 'local', a.id, a.id, a.email, 0, ? FROM accounts a "
+                "WHERE NOT EXISTS ("
+                "  SELECT 1 FROM identities i WHERE i.provider = 'local' AND i.subject = a.id"
+                ")",
+                (at,),
+            )
+            return int(cur.rowcount or 0)
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() and "busy" not in str(e).lower():
+                raise
+            if attempt == retries - 1:
+                logging.getLogger("identity").warning(
+                    "identity backfill skipped this boot (%s); it is idempotent and will run on "
+                    "the next start. Existing accounts cannot sign in until it does.", e
+                )
+                return 0
+            time.sleep(delay)
+            delay *= 2
+    return 0
