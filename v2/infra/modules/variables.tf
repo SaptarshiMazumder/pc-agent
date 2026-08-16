@@ -106,6 +106,35 @@ variable "hibernate" {
   default     = false
 }
 
+variable "require_credits" {
+  description = <<-EOT
+    MUST AN ACCOUNT HOLD CREDITS TO RUN A MODEL AT ALL? This is what makes "cloud mode costs
+    credits" true rather than merely tracked.
+
+    WHAT IT FIXES. The proxy's per-account rule is "enforce only if this account was EVER granted
+    credits" (accounts `credits_enforced` = does a credit_grants row exist). That distinction
+    exists so that switching enforcement on could not refuse the next message of every account
+    created before credits shipped. Its side effect is a hole: an account that has never pressed
+    Buy has no grant row, so a zero balance reads as "never on a credit plan" and is allowed —
+    free, unlimited, on the deployment's provider keys. This closes it deployment-wide.
+
+    WHO IT COVERS. The model proxy is the one chokepoint both desktop Cloud and hosted web cross,
+    and `turn_key()` pays with the caller's own session token, so the account is identifiable on
+    both. Desktop BYOK never reaches the proxy and is correctly unaffected.
+
+    WHAT IT DOES NOT COVER. A turn with no person behind it falls back to the master key, which
+    carries no account, so the gate cannot fire: cron ticks, the daemon's own system calls, and
+    ANONYMOUS VISITORS TO A PUBLIC AGENT APP. That last one is a real remaining hole and needs its
+    own decision (require sign-in for public apps, or accept it).
+
+    DEFAULT TRUE, and deliberately so. The failure this direction risks is a new user being asked
+    to press Buy; the failure the other direction risks is an environment quietly serving free
+    unlimited inference on your provider keys. Set it false per environment to opt back out.
+  EOT
+  type        = bool
+  default     = true
+}
+
 locals {
   # Hibernating implies paused: there is nowhere to route to, so running tasks would only burn
   # money. Written once here rather than as `var.paused || var.hibernate` in five places.

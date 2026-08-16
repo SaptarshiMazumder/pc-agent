@@ -37,7 +37,11 @@ locals {
     # mismatch between them rejects every token with a confusing "issued by another deployment",
     # which is why neither is a configurable input.
     "model-proxy" = {
-      AGENTD_AUTH_ISSUER = local.publish_product_accounts_url
+      # Computed rather than a static entry in var.services because it reads a variable, and a
+      # variable's default cannot reference another variable. See `require_credits` for what the
+      # switch buys and the one case it cannot cover (anonymous public-app visitors).
+      MODEL_PROXY_REQUIRE_CREDITS = var.require_credits ? "1" : "0"
+      AGENTD_AUTH_ISSUER          = local.publish_product_accounts_url
       # Fetched over service-discovery DNS: a server-to-server call inside the VPC, not something
       # a browser does, so it must NOT use the public host.
       AGENTD_AUTH_JWKS_URI = "http://accounts.${var.project}.local:${local.services["accounts"].port}/auth/jwks.json"
