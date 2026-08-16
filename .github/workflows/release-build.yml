@@ -48,10 +48,41 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: v2/clients/sdk-js/package-lock.json
+      # EVERY AGENT APP LOADS THIS FILE, and `clients/sdk-js/dist/` is gitignored — so a fresh
+      # checkout has no build of it and scripts/hatch_build.py silently omits
+      # `_data/sdk/agentd-client.js` from the wheel. That wheel is what the embedded runtime
+      # installs, so the shipped engine ends up with no canonical SDK and two things quietly stop
+      # working inside every installed copy: pack-time re-vendoring, and the serve-time
+      # substitution that keeps agents a user CREATED on their own machine current
+      # (gateway._app_asset_bytes). Both looked correct in the repo and did nothing in the product.
+      - name: Build the agent-app SDK (staged into the wheel)
+        working-directory: v2/clients/sdk-js
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsup
       - name: Build wheel
         run: |
           pip install build
           python -m build --wheel --outdir dist
+      # LOUD, because the failure this guards is silent by nature: the hatch hook stages the SDK
+      # only `if sdk.is_file()`, so a missing build ships a working-looking wheel that has quietly
+      # dropped it. A release is the last place that should be discovered from a user's bug report.
+      - name: The wheel must carry the agent-app SDK
+        run: |
+          python - <<'PY'
+          import glob, sys, zipfile
+          whl = sorted(glob.glob("dist/agentd-*.whl"))[0]
+          want = "agent_runtime/_data/sdk/agentd-client.js"
+          names = zipfile.ZipFile(whl).namelist()
+          if want not in names:
+              sys.exit(f"{whl} is missing {want} — the SDK build step did not run or produced nothing")
+          print(f"ok: {whl} carries {want}")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: wheel
