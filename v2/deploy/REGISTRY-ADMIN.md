@@ -4,6 +4,11 @@ Who this is for: anyone who administers the marketplace — approves new creator
 ones. You do NOT need AWS access, the root key, or the operator's machine. You need an admin
 account and the CLI.
 
+> **There is a UI for this now.** The **Creators** panel of the admin console does everything
+> below with buttons — see **[ADMIN-CONSOLE.md](ADMIN-CONSOLE.md)**. The CLI here is unchanged and
+> remains the right tool for scripting, for the offline root-key flow, and for when the console
+> itself is what is broken. Both call the same service and enforce the same allowlist.
+
 How the trust works, in four lines:
 
 - every creator signs their own agents with their own key (minted for them, kept in the cloud)

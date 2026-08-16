@@ -80,6 +80,7 @@ export type View =
   | 'project' // one project's detail page (uses currentProjectId)
   | 'agent' // one agent's detail page (uses viewedAgentId)
   | 'app' // an agent's OWN UI, embedded (uses appAgentId)
+  | 'admin' // the platform control plane — only reachable by an admin account
 
 /** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
  *  the CURRENT agent's list, so a tab from another agent must remember where it

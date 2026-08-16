@@ -33,6 +33,7 @@ from agent_runtime.application.interfaces.publish_intake import (
     FORBIDDEN,
     LISTED,
     OK,
+    PENDING_REVIEW,
     UNAUTHORIZED,
     IntakeResult,
 )
@@ -56,7 +57,8 @@ class RosterAdminService:
         now=None,
     ):
         """:param admins: iterable of admin identities — account ids and/or emails, matched
-        case-insensitively. Empty => every admin call is refused (fail-closed).
+        case-insensitively. The FALLBACK, used when no authority can be reached. Empty => every
+        admin call is refused (fail-closed).
         :param vault: a RootKeyVault. The ONLY consumer of the root private key in this process.
         :param intake: the PublishIntakeService, for completing parked publishes on admit. None =>
         admission still works; parked packages wait for the author's next publish.
@@ -73,15 +75,31 @@ class RosterAdminService:
 
     # ================================================================== auth
     def authorize(self, token: str) -> IntakeResult | None:
-        """None when the caller is an admin; the refusal to return otherwise."""
+        """None when the caller is an admin; the refusal to return otherwise.
+
+        TWO SOURCES, IN THIS ORDER, and the order is the point. The accounts service is the
+        platform's ONE authority on who is an admin — it is where the dashboard promotes and
+        demotes people — so it is asked first and its answer is final in BOTH directions. Only
+        when it cannot answer at all (an outage, or a build that predates the admin surface) does
+        this fall back to the identities this service was configured with.
+
+        Without that ordering the two would disagree the moment anyone was promoted in the
+        dashboard: this service would keep enforcing a list frozen at container start, inside a
+        Lambda that stays warm for hours. Falling back rather than failing closed on an outage is
+        deliberate too — the configured list is deploy data, so it is a trustworthy answer, just a
+        staler one than asking.
+        """
         account = self._auth.account(token)
         if not account:
             return IntakeResult(UNAUTHORIZED, "not signed in, or the session expired.")
-        identities = {
-            str(account.get(field) or "").strip().lower()
-            for field in ("account_id", "id", "email")
-        } - {""}
-        if not (identities & self._admins):
+        decided = getattr(self._auth, "is_admin", lambda _t: None)(token)
+        if decided is None:
+            identities = {
+                str(account.get(field) or "").strip().lower()
+                for field in ("account_id", "id", "email")
+            } - {""}
+            decided = bool(identities & self._admins)
+        if not decided:
             # Deliberately the same words whether the list is empty or the caller is just not on
             # it: "who administers this registry" is not information for a non-admin.
             return IntakeResult(FORBIDDEN, "this account is not a registry admin.")
@@ -107,6 +125,37 @@ class RosterAdminService:
                 }
             )
         return None, out
+
+    def creators(self, token: str) -> tuple[IntakeResult | None, list[dict]]:
+        """EVERY creator and their state — what an admin dashboard lists.
+
+        `pending()` answers "who is waiting", which is the right question for the approval CLI and
+        the wrong one for a dashboard: a reviewer also needs to see who was already admitted and
+        who was revoked, or the page reads as "there are no creators" on a healthy registry.
+
+        Parked packages are attached to the pending ones only. Listing them for an admitted
+        creator would be misleading — admission publishes whatever was parked, so anything still
+        showing there afterwards is not waiting on a decision.
+        """
+        refusal = self.authorize(token)
+        if refusal:
+            return refusal, []
+        lister = getattr(self._creators, "all", None)
+        if lister is None:
+            # A directory implementation that predates this listing. Degrade to what every
+            # implementation has rather than failing the page.
+            _, waiting = self.pending(token)
+            return None, waiting
+        rows = lister()
+        for row in rows:
+            if row.get("state") == PENDING_REVIEW and self._parker is not None:
+                row["parked"] = [
+                    {"bundle_id": p.bundle_id, "size": p.size, "parked_at": p.parked_at}
+                    for p in self._parker.parked(row["creator_id"])
+                ]
+            else:
+                row["parked"] = []
+        return None, rows
 
     # ================================================================== admit
     def admit(self, token: str, creator_ids: list[str] | None = None) -> IntakeResult:

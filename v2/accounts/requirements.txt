@@ -10,3 +10,8 @@
 # describing only what app.py itself needs.
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
+# The admin control plane reads key METADATA from Secrets Manager and DynamoDB and rolls services
+# after a secret write (accounts/admin_api.py). Imported lazily and treated as optional at runtime
+# — a laptop with no AWS credentials renders those panels as "not configured" rather than failing —
+# but declared here so the deployed image never has to discover it is missing.
+boto3>=1.34,<2

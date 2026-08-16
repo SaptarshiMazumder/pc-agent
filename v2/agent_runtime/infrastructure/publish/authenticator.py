@@ -44,6 +44,41 @@ class AccountsAuthenticator:
             return None
         return body if isinstance(body, dict) else None
 
+    def is_admin(self, token: str) -> bool | None:
+        """Is this token's account a platform admin? True / False / None = could not tell.
+
+        WHY ASK RATHER THAN KEEP A LIST. This service used to carry its own copy of the admin
+        allowlist in an environment variable, frozen at construction. That made two problems at
+        once: a warm Lambda container kept serving a stale list after an admin was added, and
+        "who administers this platform" had two answers that could disagree with the dashboard's.
+        Accounts owns identity, so accounts owns this answer too — and we already call that service
+        to turn the token into an account, so this is one more question on a path we take anyway.
+
+        NONE IS NOT FALSE. A transport failure or an older accounts build (no /admin/whoami) must
+        be distinguishable from a definite "no", so the caller can fall back to its configured
+        list rather than locking every admin out during an accounts hiccup. A definite False is
+        returned only when the service actually answered.
+        """
+        token = (token or "").strip()
+        if not token or not self._base:
+            return None
+        try:
+            response = self._get(
+                f"{self._base}/admin/whoami", headers={"Authorization": f"Bearer {token}"}
+            )
+        except Exception as e:  # noqa: BLE001 — a transport failure is "cannot tell", not "no"
+            log.warning("publish auth: cannot reach accounts for admin check (%s)", e)
+            return None
+        if response.status_code == 404:
+            return None  # an accounts build that predates the admin surface
+        if response.status_code != 200:
+            return None
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        return bool(body.get("is_admin")) if isinstance(body, dict) else None
+
     def _get(self, url: str, headers: dict):
         if self._http is not None:
             return self._http.get(url, headers=headers, timeout=self._timeout)
