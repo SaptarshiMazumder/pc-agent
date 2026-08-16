@@ -31,8 +31,11 @@ class VerifyAppTool(Tool):
         "composer, drop a file — and it re-checks afterwards, because most windows are fine "
         "until you touch them. Generic checks cannot know what YOUR agent is supposed to do; "
         "the steps are how you check that part.\n"
-        "It returns screenshots. LOOK AT THEM: an app can pass every check and still be "
-        "unusable, and that is the one thing only an image will tell you.\n"
+        "It returns the window's ACCESSIBILITY TREE — every role, label, heading and disabled "
+        "state, as text. Read it: that is where you see whether the control you built is on "
+        "screen, whether it is enabled, and whether the page rendered what you meant. Pass "
+        "`screenshot: true` only when the question is about how it LOOKS, because an image costs "
+        "roughly fifty times the context and answers fewer questions.\n"
         "THREE OUTCOMES, and the third is not a failure. NOT VERIFIED means a sign-in gate stood "
         "in front of the app, so nothing behind it was checked — the agent is NOT broken and you "
         "must not report it as such, or fix code that was never run. You must also not report "
@@ -53,14 +56,13 @@ class VerifyAppTool(Tool):
             },
             "password": {"type": "string", "description": "the password for `email`"},
             "screenshot": {
-                "type": "string",
-                "enum": ["on-failure", "always", "never"],
-                "description": "whether to ATTACH the screenshot so you can see it. Default "
-                "'on-failure'. An attached image stays in this conversation for the rest of the "
-                "session and is re-sent every turn, so attaching one on every check fills the "
-                "context with pictures of windows that were fine. Ask for 'always' when the "
-                "question is genuinely visual (layout, spacing, overlap). The file path is "
-                "reported either way — you can open it without spending context.",
+                "type": "boolean",
+                "description": "take and attach a picture of the window. OFF by default, and "
+                "leave it off: you already get the accessibility tree, which answers 'did it "
+                "render', 'is the control there', 'is it disabled' — and does it in ~2KB where "
+                "an image costs ~114KB of context that is re-sent on every later turn. Turn it "
+                "on for the one thing the tree cannot show: how it LOOKS. Overlapping text, "
+                "spacing, something off screen, or the user saying the UI is wrong.",
             },
             "steps": {
                 "type": "array",
@@ -117,6 +119,7 @@ class VerifyAppTool(Tool):
                 steps,
                 str(params.get("email") or "").strip(),
                 str(params.get("password") or ""),
+                bool(params.get("screenshot")),
             )
         except VerifyError as e:
             return ToolResult.text(str(e), is_error=True)
@@ -124,26 +127,23 @@ class VerifyAppTool(Tool):
             # The driver could not start (no browser binaries). Its message names the fix.
             return ToolResult.text(f"could not open a browser: {e}", is_error=True)
 
-        # WHETHER TO ATTACH THE IMAGE, which is a context decision and not a cosmetic one: a
-        # declared artifact becomes a base64 block that lives in the conversation for the rest of
-        # the session and is re-sent every turn. Two full screenshots once filled a real build's
-        # context to the point where the model returned nothing at all.
-        #
-        # So: by default only when there is something to look AT. A window that passed every
-        # check does not need its portrait kept forever.
-        mode = str(params.get("screenshot") or "on-failure")
-        attach = mode == "always" or (mode == "on-failure" and not result.passed)
-
         # BLOCKED IS NOT AN ERROR. Marking it one makes the model treat a login screen as a bug
         # in the agent and go and "fix" code that was never executed.
         return ToolResult.text(
-            _render(result, attached=attach),
+            _render(result),
             is_error=not result.passed and not result.blocked,
-            artifacts=result.screenshots if attach else [],
+            # Only ever the images actually taken — the driver skips them unless asked, so this
+            # is empty on a normal run rather than being filtered here.
+            artifacts=result.screenshots,
         )
 
 
-def _render(result, attached: bool = False) -> str:
+#: A whole app's aria tree is ~2KB; a documentation page can be far more. This is generous for
+#: the first and a hard stop for the second — a tool result is context, paid on every later turn.
+MAX_SNAPSHOT_CHARS = 8000
+
+
+def _render(result) -> str:
     head = f"{result.agent_id} — {result.url}"
     if result.steps_run:
         head += f"\nsteps: {', '.join(result.steps_run)}"
@@ -172,21 +172,27 @@ def _render(result, attached: bool = False) -> str:
 
     obs = result.after_steps or result.observation
     extra = []
-    if obs and obs.controls:
-        # What is ON SCREEN, so the next call can drive it instead of guessing at selectors.
-        extra.append("on screen: " + " | ".join(obs.controls[:20]))
+    if obs and obs.snapshot:
+        # WHAT IS ON SCREEN, with roles and states. This is the evidence — it is how you check
+        # that the control you built exists and is enabled, and it is what to drive next: the
+        # `steps` targets are these accessible names.
+        extra.append("on screen:\n" + _clip(obs.snapshot))
     if result.screenshots:
-        extra.append("screenshots: " + ", ".join(result.screenshots))
-        if not attached:
-            # The path is always here, so the image is one deliberate request away rather than
-            # permanently in the conversation.
-            extra.append(
-                "Not attached (the window passed). Call again with screenshot='always' if you "
-                "need to SEE the layout — passing every check and being unusable are compatible."
-            )
-        else:
-            extra.append(
-                "Look at it. Passing every check and being unusable are compatible, and the "
-                "image is the only thing that shows the difference."
-            )
+        extra.append(
+            "screenshot: "
+            + ", ".join(result.screenshots)
+            + "\nLook at it — you asked for it because the tree above cannot answer how "
+            "something LOOKS, and that is the question it answers."
+        )
     return "\n\n".join([head, body, *extra])
+
+
+def _clip(snapshot: str) -> str:
+    """The tree is small for an app and large for a document. Capped, and SAID when capped —
+    a silently truncated structure reads as a page that ends where the text stops."""
+    if len(snapshot) <= MAX_SNAPSHOT_CHARS:
+        return snapshot
+    return (
+        snapshot[:MAX_SNAPSHOT_CHARS]
+        + f"\n… (+{len(snapshot) - MAX_SNAPSHOT_CHARS} more characters of tree, not shown)"
+    )

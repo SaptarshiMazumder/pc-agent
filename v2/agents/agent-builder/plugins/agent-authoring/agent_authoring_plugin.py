@@ -195,7 +195,7 @@ def register(api, ctx):
         VerifyAppTool(
             VerifyAppService(
                 reader,
-                driver_factory=lambda: PlaywrightPageDriver(_shot_dir()),
+                driver_factory=lambda shot: PlaywrightPageDriver(_shot_dir(), want_shot=shot),
                 gateway_reader=lifecycle.find_running,
                 screenshot_dir=_shot_dir(),
             )

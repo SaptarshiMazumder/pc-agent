@@ -38,9 +38,12 @@ SHOT_QUALITY = 60
 
 
 class PlaywrightPageDriver:
-    def __init__(self, screenshot_dir: Path, label: str = "app"):
+    def __init__(self, screenshot_dir: Path, label: str = "app", want_shot: bool = False):
         self._dir = Path(screenshot_dir)
         self._label = label
+        # Screenshots are OFF unless asked for. The aria tree is the default evidence; an image
+        # is for questions about pixels, and it costs ~50x as much context to carry.
+        self._want_shot = want_shot
         self._pw = None
         self._browser = None
         self._page = None
@@ -174,17 +177,13 @@ class PlaywrightPageDriver:
         metrics = page.evaluate(
             "() => ({scroll: document.documentElement.scrollWidth, view: window.innerWidth})"
         )
-        controls = page.evaluate(
-            """() => Array.from(
-                 document.querySelectorAll('button, a[href], input, textarea, select')
-               )
-               .filter(el => el.offsetParent !== null)
-               .slice(0, 40)
-               .map(el => `${el.tagName.toLowerCase()}: ${
-                 (el.innerText || el.getAttribute('placeholder') ||
-                  el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 60)
-               }`)"""
-        )
+        # THE ARIA TREE, not a hand-rolled element list. It already carries roles, accessible
+        # names, headings and states like [disabled] — everything the querySelectorAll version
+        # tried to reconstruct, correctly, and in the browser's own words.
+        try:
+            snapshot = page.locator("body").aria_snapshot()
+        except Exception:  # noqa: BLE001 - an older playwright; the checks below still stand
+            snapshot = ""
         # The gate, by its contract ids. Checked BEFORE anything is judged, because a gated page
         # legitimately has no content and no socket — and calling that a defect blames the agent
         # for a login it never got past.
@@ -203,8 +202,10 @@ class PlaywrightPageDriver:
             socket_open=self._socket_open,
             scroll_width=int(metrics.get("scroll") or 0),
             viewport_width=int(metrics.get("view") or 0),
-            controls=[c for c in controls if c],
-            screenshot=self._screenshot(),
+            snapshot=snapshot,
+            # Only when asked. An image is ~50x the size of the tree above and answers fewer
+            # questions; it is worth its cost exactly when the question is about pixels.
+            screenshot=self._screenshot() if self._want_shot else "",
         )
 
     def _screenshot(self) -> str:

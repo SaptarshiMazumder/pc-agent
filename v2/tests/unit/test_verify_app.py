@@ -135,6 +135,7 @@ class FakeDriver:
         self.steps: list[Step] = []
         self.credentials: tuple[str, str] | None = None
         self.closed = False
+        self.want_shot = False
 
     def open(self, url: str) -> PageObservation:
         self.opened = url
@@ -165,9 +166,15 @@ def _agent(tmp_path: Path, toml: str = '[app]\nentry = "ui/index.html"\n') -> Pa
 
 
 def _service(tmp_path, driver, gateway=FakeGateway()):
+    def factory(screenshot: bool):
+        # The factory takes the screenshot decision — the cost is in TAKING the image, so the
+        # driver is told before it looks at anything.
+        driver.want_shot = screenshot
+        return driver
+
     return VerifyAppService(
         FakeReader(tmp_path),
-        driver_factory=lambda: driver,
+        driver_factory=factory,
         gateway_reader=lambda: gateway,
         screenshot_dir=tmp_path / "shots",
     )

@@ -945,6 +945,31 @@ agentd.resultText(res)            a tool result -> the text to show
 milliseconds, with no model in the loop. Use chat for what needs judgement and tools for what
 needs doing — most agents want both, in one window.
 
+### A tool a WINDOW calls returns data, not just prose
+
+```python
+return ToolResult.text(
+    f"{len(found)} workflow(s) in {folder}:\n" + rows,   # for the MODEL to reason about
+    details={"folder": str(folder), "workflows": found},  # for the WINDOW to render
+)
+```
+
+`invokeTool` gives the page back `{text, details, artifacts}`. **Read `details`. Never parse
+`text`.**
+
+A tool's text is a message written for a reader — it has a sentence, some bullets, a path in the
+middle of a line. Scraping it works on the day you write the regex and breaks the day someone
+rewords the sentence, and it breaks SILENTLY: the panel renders its empty state over a folder
+with files in it, with nothing in the console and no error to search for. That is not a
+hypothetical; it is where this paragraph came from.
+
+Two rules that go with it:
+
+- **`artifacts` is not a data channel.** It means "files THIS tool produced and wants shown to
+  the user" — a listing tool that fills it can surface any file it happens to find.
+- **A failed lookup is not an empty result.** `catch` around the call must not render "nothing
+  here"; those are different answers and only one of them is about the workspace.
+
 ### A built app, when one of the three shapes is not enough
 
 ```

@@ -70,9 +70,14 @@ class PageObservation:
     socket_open: bool | None = None
     scroll_width: int = 0
     viewport_width: int = 0
-    #: Visible interactive elements, as "<tag>: <label>" — what the model can drive next.
-    controls: list[str] = field(default_factory=list)
-    #: Where the screenshot was written, if one was taken.
+    #: THE ACCESSIBILITY TREE — roles, labels, headings, disabled states — as text.
+    #:
+    #: This is the evidence, not the screenshot. A whole app serialises to about 2KB against
+    #: ~114KB for an image, and unlike an image it can be READ: "is the button there", "is it
+    #: disabled", "did the heading render" are all answerable from it, by a model with no vision
+    #: and by a diff. The image only wins on questions that are genuinely about pixels.
+    snapshot: str = ""
+    #: Where the screenshot was written, when one was taken at all.
     screenshot: str = ""
 
 

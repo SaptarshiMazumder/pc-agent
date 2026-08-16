@@ -1543,7 +1543,19 @@ class Gateway:
         text = "".join(getattr(b, "text", "") for b in (result.content or []))
         if result.is_error:
             raise RuntimeError(text or f"{name} failed")
-        return {"text": text, "artifacts": resolve_artifacts(result.artifacts)}
+        # `details` IS THE PROGRAM'S CHANNEL, and dropping it left windows with nothing but prose.
+        #
+        # A tool's text is written for a reader: "3 workflow(s) in C:\…\workflows:" and a bulleted
+        # list. A panel that needs those filenames had one option, and took it — a regex over the
+        # message. That worked until the message changed, which is a sentence, and then the tab
+        # silently showed nothing with no error anywhere.
+        #
+        # ToolResult.details already exists for structured output the model never sees. Passing it
+        # through costs a key and removes the reason to ever parse the prose.
+        payload: dict = {"text": text, "artifacts": resolve_artifacts(result.artifacts)}
+        if result.details is not None:
+            payload["details"] = _json_safe(result.details)
+        return payload
 
     async def _fire_channel(self, channel, msg) -> None:
         """An inbound message arrived -> run the bound agent on a conversation-bound

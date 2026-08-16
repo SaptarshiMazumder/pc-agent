@@ -23,7 +23,7 @@ import { useChat, useClient, useFiles, useSessions, useSettings, useTool } from 
 import { useQueue } from './useQueue'
 import { Dropzone } from './components/Dropzone'
 import { Queue } from './components/Queue'
-import { Library, type Doc } from './components/Library'
+import { Library, type Doc, type IndexedFile } from './components/Library'
 import { Reader } from './components/Reader'
 import { Connections } from './components/Connections'
 import { Ask } from './components/Ask'
@@ -46,6 +46,7 @@ export default function App() {
   const { client, status } = useClient()
   const invoke = useTool(client)
   const [docs, setDocs] = useState<Doc[]>([])
+  const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([])
   const [selected, setSelected] = useState<Doc | null>(null)
   const [view, setView] = useState<View>('library')
   const [error, setError] = useState('')
@@ -57,11 +58,16 @@ export default function App() {
 
   const loadLibrary = useCallback(async () => {
     try {
-      const raw = await invoke('library_index', {})
-      // The tool answers prose when the library is empty and JSON when it is not — the empty
-      // case is a sentence a human should read, not a data structure.
-      const parsed = raw.trim().startsWith('{') ? JSON.parse(raw) : { documents: [] }
-      setDocs(parsed.documents ?? [])
+      const [notesRaw, inventoryRaw] = await Promise.all([
+        invoke('library_index', {}),
+        invoke('library_inventory', {}),
+      ])
+      // Notes and indexed sources are different stores. Showing only notes made generated summaries
+      // look like the RAG inventory, which is exactly the ambiguity this screen must avoid.
+      const notes = notesRaw.trim().startsWith('{') ? JSON.parse(notesRaw) : { documents: [] }
+      const inventory = inventoryRaw.trim().startsWith('{') ? JSON.parse(inventoryRaw) : { files: [] }
+      setDocs(notes.documents ?? [])
+      setIndexedFiles(inventory.files ?? [])
       setError('')
     } catch (e) {
       setError(`could not read the library: ${(e as Error)?.message ?? e}`)
@@ -140,8 +146,8 @@ export default function App() {
                     {s.icon}
                   </span>
                   <span className="nav-label">{s.label}</span>
-                  {s.id === 'library' && docs.length > 0 && (
-                    <span className="count">{docs.length}</span>
+                  {s.id === 'library' && indexedFiles.length > 0 && (
+                    <span className="count">{indexedFiles.length}</span>
                   )}
                 </button>
               </li>
@@ -183,7 +189,7 @@ export default function App() {
         {selected && view !== 'ask' ? (
           <Reader doc={selected} invoke={invoke} onBack={() => setSelected(null)} />
         ) : view === 'library' ? (
-          <Library docs={docs} invoke={invoke} onOpen={setSelected} />
+          <Library docs={docs} indexedFiles={indexedFiles} invoke={invoke} onOpen={setSelected} />
         ) : view === 'links' ? (
           <Connections docs={docs} invoke={invoke} onOpen={setSelected} />
         ) : view === 'files' ? (

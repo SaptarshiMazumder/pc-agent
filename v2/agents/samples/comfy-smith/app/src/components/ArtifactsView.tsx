@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentdClient } from '@agentd/client'
-import { useWhenOpen } from '../agentd'
+import { useWhenOpen, type WorkflowEntry } from '../agentd'
 import { WorkflowPanel, type Workflow } from './WorkflowPanel'
 
 interface Entry {
@@ -20,34 +20,49 @@ interface Entry {
 export function ArtifactsView({
   client,
   listWorkspace,
+  listWorkflows,
   invoke,
   refreshKey,
 }: {
   client: AgentdClient
   listWorkspace: (path?: string) => Promise<Entry[]>
+  listWorkflows: () => Promise<WorkflowEntry[]>
   invoke: (name: string, params?: Record<string, unknown>) => Promise<string>
   /** Changes whenever a tool that writes files finishes, so the list follows the conversation. */
   refreshKey: unknown
 }) {
-  const [workflows, setWorkflows] = useState<Entry[]>([])
+  const [workflows, setWorkflows] = useState<WorkflowEntry[]>([])
   const [outputs, setOutputs] = useState<Entry[]>([])
   const [selected, setSelected] = useState<Workflow | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    // Each folder is optional — nothing has been built yet on a fresh install, and an empty
-    // list is the honest rendering of that. A failure that is NOT "no such folder" is shown.
-    const read = async (folder: string): Promise<Entry[]> => {
-      try {
-        return await listWorkspace(folder)
-      } catch (e) {
-        if (!/not found|no such|ENOENT/i.test(String(e))) setError(String(e))
-        return []
-      }
+    // TWO DIFFERENT QUESTIONS, asked of two different places on purpose.
+    //
+    // Workflows come from the agent's OWN tool, because it resolves the same workspace the agent
+    // writes to; the gateway can resolve a different one for a signed-in window and report an
+    // empty folder over a file that exists.
+    //
+    // Renders come from the gateway, because they are just files and there is no tool that lists
+    // them — and unlike the workflows, nothing depends on which root they came from.
+    try {
+      setWorkflows(await listWorkflows())
+      setError('')
+    } catch (e) {
+      // Shown, not swallowed. An empty list and a failed question look identical on screen, and
+      // only one of them means "nothing has been built".
+      setError(String(e))
+      setWorkflows([])
     }
-    setWorkflows((await read('workflows')).filter((f) => f.name.endsWith('.json')))
-    setOutputs((await read('outputs')).filter((f) => /\.(png|jpg|jpeg|webp|gif|mp4|webm)$/i.test(f.name)))
-  }, [listWorkspace])
+    try {
+      const files = await listWorkspace('outputs')
+      setOutputs(files.filter((f) => /\.(png|jpg|jpeg|webp|gif|mp4|webm)$/i.test(f.name)))
+    } catch (e) {
+      // A missing outputs/ is the normal state before the first render — not worth a banner.
+      if (!/not found|no such|ENOENT/i.test(String(e))) setError(String(e))
+      setOutputs([])
+    }
+  }, [listWorkspace, listWorkflows])
 
   useWhenOpen(client, load)
 
@@ -55,7 +70,7 @@ export function ArtifactsView({
     if (client.connected) void load()
   }, [client, load, refreshKey])
 
-  const open = async (entry: Entry) => {
+  const open = async (entry: { name: string; path: string }) => {
     setError('')
     try {
       // The agent's own `read`, not GET /file: this path is already authorised by the
@@ -75,7 +90,9 @@ export function ArtifactsView({
           <span className="muted">{workflows.length}</span>
         </header>
         {error && <p className="panel-error">{error}</p>}
-        {!workflows.length && <p className="panel-empty">Nothing built yet.</p>}
+        {/* Only when the question SUCCEEDED and came back empty. Saying "nothing built yet"
+            after a failed lookup is a claim about the workspace we did not manage to read. */}
+        {!error && !workflows.length && <p className="panel-empty">Nothing built yet.</p>}
         <ul className="files">
           {workflows.map((f) => (
             <li key={f.path}>
@@ -84,7 +101,9 @@ export function ArtifactsView({
                 onClick={() => void open(f)}
               >
                 <span className="f-name">{f.name}</span>
-                <span className="f-size">{kb(f.size)}</span>
+                {/* What it IS, not how big it is: only the API format can be run, and that is
+                    the difference the Run button depends on. */}
+                <span className="f-size">{_shape(f)}</span>
               </button>
             </li>
           ))}
@@ -120,7 +139,10 @@ export function ArtifactsView({
   )
 }
 
-function kb(size: number): string {
-  if (!size) return ''
-  return size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`
+/** A workflow's shape, in three words. `''` means the file would not parse — worth SAYING,
+ *  because an unreadable workflow is the one you most need to know about and it is otherwise
+ *  indistinguishable from a healthy one in a list of filenames. */
+function _shape(entry: WorkflowEntry): string {
+  if (!entry.format) return 'unreadable'
+  return entry.format === 'api' ? `${entry.nodes} nodes · runnable` : `${entry.nodes} nodes · UI`
 }

@@ -22,6 +22,7 @@ from document_put_tool import DocumentPutTool
 from folder_browse_tool import FolderBrowseTool
 from folder_scan_tool import FolderScanTool
 from library_index_tool import LibraryIndexTool
+from library_inventory_tool import LibraryInventoryTool
 from library_links_tool import LibraryLinksTool
 from library_note_store import LibraryNoteStore
 from library_search_tool import LibrarySearchTool
@@ -37,6 +38,7 @@ def register(api, ctx):
 
     # The notes: what has been read and how it connects.
     api.register_tool(LibraryIndexTool(notes))
+    api.register_tool(LibraryInventoryTool())
     api.register_tool(LibrarySearchTool(notes))
     api.register_tool(LibraryLinksTool(notes))
 

@@ -88,54 +88,55 @@ def test_a_small_search_is_untouched(tmp_path):
 # --------------------------------------------------------------------------- verify_app
 
 
-def test_a_passing_verification_does_not_attach_its_screenshot(tmp_path, monkeypatch):
-    """An attached image lives in the conversation for the rest of the session. A window that
-    passed every check does not need its portrait kept forever — the PATH is enough, and the
-    model can ask for the image when the question is actually visual."""
+def test_the_tree_is_the_default_evidence_not_a_picture(tmp_path):
+    """~2KB against ~114KB, and it answers more: roles, labels, disabled states. The image only
+    wins on questions about pixels, and it is re-sent on every later turn."""
     from test_verify_app import FakeDriver, _agent, _healthy, _service  # same-directory helper
 
     from agent_authoring.presentation.verify_app_tool import VerifyAppTool
 
     _agent(tmp_path)
-    shot = _healthy(screenshot=str(tmp_path / "shot.jpg"))
-    tool = VerifyAppTool(_service(tmp_path, FakeDriver(shot)))
+    seen = _healthy(snapshot='- navigation:\n  - button "Chat"\n  - button "Settings" [disabled]')
+    driver = FakeDriver(seen)
+    tool = VerifyAppTool(_service(tmp_path, driver))
 
     result = asyncio.run(tool.execute("c", {"agent_id": "known"}, asyncio.Event()))
 
-    assert result.artifacts == []
-    assert "shot.jpg" in _text(result), "the path must still be reported"
-    assert "screenshot='always'" in _text(result), "and how to actually see it"
+    assert result.artifacts == [], "no image unless asked for"
+    assert driver.want_shot is False, "and none TAKEN — the cost is in capturing it"
+    body = _text(result)
+    assert 'button "Chat"' in body and "[disabled]" in body
 
 
-def test_a_failing_verification_does_attach_it(tmp_path, monkeypatch):
-    """This is the case the image exists for: something is wrong and the layout may be why."""
+def test_asking_for_a_picture_takes_and_attaches_one(tmp_path):
+    """For the one thing the tree cannot show: how it looks."""
     from test_verify_app import FakeDriver, _agent, _healthy, _service
 
     from agent_authoring.presentation.verify_app_tool import VerifyAppTool
 
     _agent(tmp_path)
-    broken = _healthy(
-        text="", screenshot=str(tmp_path / "shot.jpg")
-    )  # blank render => an error finding
-    tool = VerifyAppTool(_service(tmp_path, FakeDriver(broken)))
+    driver = FakeDriver(_healthy(screenshot=str(tmp_path / "shot.jpg")))
+    tool = VerifyAppTool(_service(tmp_path, driver))
 
-    result = asyncio.run(tool.execute("c", {"agent_id": "known"}, asyncio.Event()))
+    result = asyncio.run(
+        tool.execute("c", {"agent_id": "known", "screenshot": True}, asyncio.Event())
+    )
 
+    assert driver.want_shot is True
     assert result.artifacts == [str(tmp_path / "shot.jpg")]
 
 
-@pytest.mark.parametrize("mode,expected", [("always", 1), ("never", 0)])
-def test_the_caller_can_override(tmp_path, mode, expected):
+def test_a_huge_tree_is_capped_and_says_so(tmp_path):
+    """A silently truncated structure reads as a page that ends where the text stops."""
     from test_verify_app import FakeDriver, _agent, _healthy, _service
 
-    from agent_authoring.presentation.verify_app_tool import VerifyAppTool
+    from agent_authoring.presentation.verify_app_tool import MAX_SNAPSHOT_CHARS, VerifyAppTool
 
     _agent(tmp_path)
-    shot = _healthy(screenshot=str(tmp_path / "shot.jpg"))
-    tool = VerifyAppTool(_service(tmp_path, FakeDriver(shot)))
+    huge = _healthy(snapshot="- button \"x\"\n" * 5000)
+    tool = VerifyAppTool(_service(tmp_path, FakeDriver(huge)))
 
-    result = asyncio.run(
-        tool.execute("c", {"agent_id": "known", "screenshot": mode}, asyncio.Event())
-    )
+    body = _text(asyncio.run(tool.execute("c", {"agent_id": "known"}, asyncio.Event())))
 
-    assert len(result.artifacts) == expected
+    assert len(body) < MAX_SNAPSHOT_CHARS * 1.3
+    assert "more characters of tree, not shown" in body

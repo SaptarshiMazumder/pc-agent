@@ -28,6 +28,7 @@ import {
   useSettings,
   useTool,
   useWhenOpen,
+  useWorkflows,
   useWorkspace,
 } from './agentd'
 import { ArtifactsView } from './components/ArtifactsView'
@@ -67,6 +68,7 @@ export default function App() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [changed, setChanged] = useState(0)
   const listWorkspace = useWorkspace(client)
+  const listWorkflows = useWorkflows(client)
   const invoke = useTool(client)
   const panes = usePanes()
 
@@ -78,8 +80,9 @@ export default function App() {
    *  could have changed it — never on a timer, because nothing changes unless the agent acts. */
   const refresh = useCallback(async () => {
     try {
-      const files = await listWorkspace('workflows')
-      const newest = files.filter((f) => f.name.endsWith('.json')).pop()
+      // NEWEST FIRST is the tool's own order, so "the current workflow" is [0] and not a guess
+      // about how the filesystem happened to list a folder.
+      const [newest] = await listWorkflows()
       if (!newest) return
       // Read it with the agent's OWN `read` tool rather than GET /file. Same bytes, but this
       // path is already authorised by the connection — /file wants the token and an absolute
@@ -90,7 +93,7 @@ export default function App() {
       // A missing workspace/workflows dir is the normal state before the first build. The panel
       // renders its own empty state; a thrown error here would blank the whole app instead.
     }
-  }, [listWorkspace, invoke])
+  }, [listWorkflows, invoke])
 
   const { turns, busy, ask, stop, reset, open, sessionKey } = useChat(client, {
     onToolDone: (name) => {
@@ -215,6 +218,7 @@ export default function App() {
             <ArtifactsView
               client={client}
               listWorkspace={listWorkspace}
+              listWorkflows={listWorkflows}
               invoke={invoke}
               refreshKey={changed}
             />

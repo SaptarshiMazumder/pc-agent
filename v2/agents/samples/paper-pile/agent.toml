@@ -24,7 +24,7 @@
 # at knowing what you care about.
 
 name = "Paper Pile"
-version = "1.0.0"
+version = "1.1.0"
 description = "Reads documents into a searchable library, watches for work that changes what is in it, and tells you what actually moved."
 tagline = "read · connect · watch"
 color = "#2E7D32"
@@ -77,7 +77,7 @@ allow = [
   # points at, `library_put` indexes a document's FULL TEXT, and `library_ask` retrieves the
   # passages that bear on a question — so an answer can cite the source instead of paraphrasing
   # a summary. `library_index`/`_search`/`_links` are also called directly by the app.
-  "library_index", "library_search", "library_links",
+  "library_index", "library_inventory", "library_search", "library_links",
   "library_scan", "library_put", "library_ask",
   # `library_browse` lists a folder's sub-folders and how many documents each holds — for when
   # the user names a place loosely ("the papers on my desktop") and you need to look before you

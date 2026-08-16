@@ -23,10 +23,8 @@ var agentd = (() => {
   __export(src_exports, {
     AgentdClient: () => AgentdClient,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
-    acceptHostTokens: () => acceptHostTokens,
     authLogin: () => authLogin,
     authLogout: () => authLogout,
-    authRefresh: () => authRefresh,
     authStatus: () => authStatus,
     effectiveMode: () => effectiveMode,
     fromPage: () => fromPage,
@@ -37,8 +35,7 @@ var agentd = (() => {
     saveMode: () => saveMode,
     saveSession: () => saveSession,
     setRunMode: () => setRunMode,
-    signOutAndGate: () => signOutAndGate,
-    startAuthRenewal: () => startAuthRenewal
+    signOutAndGate: () => signOutAndGate
   });
 
   // src/protocol.ts
@@ -66,19 +63,11 @@ var agentd = (() => {
     const match = /\/apps\/([^/]+)/.exec(here?.pathname || "");
     return match ? decodeURIComponent(match[1]) : "";
   }
-  function usable(token) {
-    return !!token && !token.startsWith("sess_") && token.split(".").length === 3;
-  }
   function loadSession(storageKey = "") {
     try {
       const raw = localStorage.getItem(key(storageKey));
       const parsed = raw ? JSON.parse(raw) : null;
-      if (!parsed || !parsed.token) return null;
-      if (!usable(parsed.token)) {
-        localStorage.removeItem(key(storageKey));
-        return null;
-      }
-      return parsed;
+      return parsed && parsed.token ? parsed : null;
     } catch {
       return null;
     }
@@ -129,7 +118,7 @@ var agentd = (() => {
     u.pathname = "";
     return u.origin;
   }
-  var _AgentdClient = class _AgentdClient {
+  var AgentdClient = class {
     constructor(options = {}) {
       this.ws = null;
       this.input = null;
@@ -138,8 +127,6 @@ var agentd = (() => {
       this.eventHandlers = /* @__PURE__ */ new Map();
       this.statusHandlers = /* @__PURE__ */ new Set();
       this.reconnectDelay = 1e3;
-      /** When the current socket opened, so "did this connection actually work?" can be answered. */
-      this.openedAt = 0;
       this.closedByUs = false;
       this.lastTarget = null;
       this.clientName = options.clientName || `@agentd/client/${PROTOCOL_VERSION}`;
@@ -188,21 +175,14 @@ var agentd = (() => {
       this.teardownSocket();
       this.ws = ws;
       ws.onopen = () => {
-        this.openedAt = Date.now();
+        this.reconnectDelay = 1e3;
         for (const handler of this.statusHandlers) handler("open");
       };
       ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data));
-      ws.onclose = (event) => {
+      ws.onclose = () => {
         for (const [, pending] of this.pending) pending.reject(new Error("connection closed"));
         this.pending.clear();
         for (const handler of this.statusHandlers) handler("closed");
-        const lived = this.openedAt ? Date.now() - this.openedAt : 0;
-        this.openedAt = 0;
-        if (event && event.code === 4401) {
-          this.reconnectDelay = _AgentdClient.UNAUTHORIZED_DELAY;
-        } else if (lived >= _AgentdClient.HEALTHY_MS) {
-          this.reconnectDelay = 1e3;
-        }
         this.scheduleReconnect();
       };
     }
@@ -321,12 +301,6 @@ var agentd = (() => {
       return u.toString();
     }
   };
-  //: Backoff ceiling for a credential the server REFUSED. Retrying a dead token fast is not
-  //: resilience, it is a flood — and the server is the thing being flooded.
-  _AgentdClient.UNAUTHORIZED_DELAY = 6e4;
-  //: A socket must survive this long before it counts as a working connection.
-  _AgentdClient.HEALTHY_MS = 1e4;
-  var AgentdClient = _AgentdClient;
   function fromPage(options = {}) {
     const here = new URL(window.location.href);
     const token = here.searchParams.get("token") || "";
@@ -356,7 +330,7 @@ var agentd = (() => {
   }
 
   // src/auth.ts
-  var DEFAULT_TIMEOUT = 45e3;
+  var DEFAULT_TIMEOUT = 15e3;
   function origin(opts) {
     if (opts.origin) return opts.origin.replace(/\/$/, "");
     if (typeof location === "undefined") throw new Error("no origin: pass options.origin");
@@ -447,88 +421,14 @@ var agentd = (() => {
       timeoutMs,
       "login"
     );
-    const token = String(login?.access_token || login?.token || login?.session || "");
+    const token = String(login?.token || login?.session || "");
     if (!token) throw new Error("the accounts server returned no session token");
     saveSession(
-      {
-        token,
-        email: String(login?.email || email),
-        accountId: String(login?.account_id || ""),
-        refreshToken: String(login?.refresh_token || "") || void 0,
-        expiresAt: login?.expires_in ? Date.now() + Number(login.expires_in) * 1e3 : void 0
-      },
+      { token, email: String(login?.email || email), accountId: String(login?.account_id || "") },
       opts.storageKey
     );
     opts.client?.reconnect();
     return authStatus(opts);
-  }
-  async function authRefresh(opts = {}) {
-    const stored = loadSession(opts.storageKey);
-    if (!stored?.refreshToken) return "";
-    const status = await platformStatus(opts);
-    const accountsUrl = String(status.accountsUrl || "").replace(/\/$/, "");
-    if (!accountsUrl) return "";
-    try {
-      const next = await post(
-        `${accountsUrl}/auth/refresh`,
-        { refresh_token: stored.refreshToken },
-        opts.timeoutMs ?? DEFAULT_TIMEOUT,
-        "refresh"
-      );
-      const token = String(next?.access_token || "");
-      if (!token) return "";
-      saveSession(
-        {
-          token,
-          email: stored.email,
-          accountId: stored.accountId,
-          refreshToken: String(next?.refresh_token || "") || stored.refreshToken,
-          expiresAt: next?.expires_in ? Date.now() + Number(next.expires_in) * 1e3 : void 0
-        },
-        opts.storageKey
-      );
-      opts.client?.reconnect();
-      return token;
-    } catch {
-      saveSession(null, opts.storageKey);
-      opts.client?.reconnect();
-      return "";
-    }
-  }
-  function acceptHostTokens(opts = {}) {
-    const host = globalThis.agentdHost;
-    if (!host?.onAccessToken) return () => void 0;
-    return host.onAccessToken((token) => {
-      if (!token) return;
-      const stored = loadSession(opts.storageKey);
-      saveSession(
-        {
-          token,
-          email: stored?.email || "",
-          accountId: stored?.accountId || "",
-          refreshToken: stored?.refreshToken,
-          expiresAt: void 0
-          // the shell owns the schedule; we only hold what it last sent
-        },
-        opts.storageKey
-      );
-      void opts.client?.request("auth.update", { accessToken: token }).catch(() => opts.client?.reconnect());
-    });
-  }
-  function startAuthRenewal(opts = {}) {
-    let timer;
-    const tick = async () => {
-      const stored = loadSession(opts.storageKey);
-      if (!stored?.refreshToken) return;
-      const life = (stored.expiresAt || 0) - Date.now();
-      if (life > 0 && life < 6e5) await authRefresh(opts);
-      const next = stored.expiresAt ? Math.max(3e4, life * 0.8) : 3e5;
-      timer = setTimeout(() => void tick(), next);
-    };
-    void tick();
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
   }
   async function authLogout(opts = {}) {
     saveSession(null, opts.storageKey);
@@ -620,10 +520,6 @@ var agentd = (() => {
     const blurb = options.blurb || "Sign in to continue.";
     const state = await authStatus(options);
     if (!state.available || state.signedIn) {
-      if (state.signedIn) {
-        startAuthRenewal(options);
-        acceptHostTokens(options);
-      }
       return { ...state, signedInHere: false };
     }
     if (!state.required && wantsVerifyBypass()) {
@@ -670,8 +566,6 @@ var agentd = (() => {
         say(signup ? "Creating your account\u2026" : "Signing in\u2026");
         try {
           const result = await authLogin({ email, password, signup }, options);
-          startAuthRenewal(options);
-          acceptHostTokens(options);
           gate.remove();
           resolve({ ...result, signedInHere: true });
         } catch (e) {

@@ -537,44 +537,53 @@ export function useTool(client: AgentdClient) {
   )
 }
 
-/** Files the agent has produced.
- *
- * Workflows are resolved through `list_workflows`, not `workspace.list`. The runtime can give a
- * signed-in app and an agent run different workspace roots; the tool uses `current_workspace`,
- * which is also where the agent was told to write. Asking the gateway directly can therefore
- * show an empty folder while the workflow exists. */
+/** Files in the agent's workspace, straight from the daemon. One concern. */
 export function useWorkspace(client: AgentdClient) {
   return useCallback(
     async (path = ''): Promise<Array<{ name: string; path: string; size: number }>> => {
-      if (path === 'workflows') {
-        const res: any = await client.invokeTool('list_workflows', {})
-        const artifacts = Array.isArray(res?.artifacts) ? res.artifacts : []
-        const structured = artifacts
-          .map((item: any) => typeof item === 'string' ? item : item?.path)
-          .filter((item: unknown): item is string => typeof item === 'string' && item.endsWith('.json'))
-          .map((filePath: string) => ({
-            name: filePath.split(/[\\/]/).pop() || filePath,
-            path: filePath,
-            size: 0,
-          }))
-        if (structured.length) return structured
-
-        // Compatibility fallback for a daemon that strips artifacts from direct tool results.
-        const text = resultText(res)
-        const folder = text.match(/(?:workflow\(s\) in|No workflows in) (.+?)(?::?\r?\n|$)/)?.[1]
-        if (!folder || text.startsWith('No workflows in ')) return []
-        const separator = folder.includes('\\') ? '\\' : '/'
-        return [...text.matchAll(/^- (.+?\.json)\s+\(/gm)].map((match) => ({
-          name: match[1],
-          path: `${folder}${separator}${match[1]}`,
-          size: 0,
-        }))
-      }
       const res: any = await client.request('workspace.list', path ? { path } : {})
       return (res?.entries ?? res?.files ?? []) as Array<{ name: string; path: string; size: number }>
     },
     [client],
   )
+}
+
+export interface WorkflowEntry {
+  name: string
+  path: string
+  format: 'api' | 'ui' | ''
+  nodes: number
+  runnable: boolean
+}
+
+/** The workflows, ASKED OF THE AGENT'S OWN TOOL and read as data.
+ *
+ *  TWO LESSONS HERE, both learned the hard way.
+ *
+ *  1. NOT `workspace.list`. The daemon resolves a workspace per caller — a signed-in window and
+ *     an agent run can legitimately get different roots — so the gateway happily reported an
+ *     empty folder while the file existed. The tool uses `current_workspace`, which is the same
+ *     path the agent was told to write to, so asking the tool asks the right question.
+ *
+ *  2. READ `details`, NEVER THE TEXT. A tool's prose is written for the model; parsing it in a
+ *     UI is scraping. It was done here with a regex over "3 workflow(s) in …" for exactly one
+ *     afternoon, and a reworded line made this panel render "Nothing built yet" over a folder
+ *     with two files in it — no error, nothing in the console, nothing to search for.
+ */
+export function useWorkflows(client: AgentdClient) {
+  return useCallback(async (): Promise<WorkflowEntry[]> => {
+    const res: any = await client.invokeTool('list_workflows', {})
+    const found = res?.details?.workflows
+    if (!Array.isArray(found)) {
+      // A daemon too old to pass `details` through. Say so rather than rendering an empty
+      // folder — "nothing here" and "I could not ask" are different answers.
+      throw new Error(
+        'list_workflows returned no structured details — this daemon predates ' +
+          'tools.invoke returning them. Restart it after updating.',
+      )
+    }
+    return found as WorkflowEntry[]
+  }, [client])
 }
 
 // ---------------------------------------------------------------------------

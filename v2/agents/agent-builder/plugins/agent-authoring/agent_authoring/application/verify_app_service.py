@@ -89,8 +89,8 @@ class VerifyAppService:
     def __init__(self, reader, driver_factory, gateway_reader, screenshot_dir):
         """
         :param reader: agent id -> directory.
-        :param driver_factory: () -> PageDriver. A factory, not an instance: a browser is
-            expensive and must not be held open between calls.
+        :param driver_factory: (screenshot: bool) -> PageDriver. A factory, not an instance: a
+            browser is expensive and must not be held open between calls.
         :param gateway_reader: () -> the daemon's rendezvous info (host/port/token), or None.
             Injected so the TOKEN is resolved here and never travels through the model.
         :param screenshot_dir: where screenshots land.
@@ -106,6 +106,7 @@ class VerifyAppService:
         steps: list[Step] | None = None,
         email: str = "",
         password: str = "",
+        screenshot: bool = False,
     ) -> VerifyResult:
         agent_dir = self._reader.agent_dir(agent_id)
         if agent_dir is None:
@@ -131,7 +132,9 @@ class VerifyAppService:
             f"http://{info.host}:{info.port}/apps/{agent_id}/"
             f"?token={info.token}&scope=agent:{agent_id}&verify=1"
         )
-        driver = self._driver_factory()
+        # The factory takes the screenshot decision, so the driver never captures an image
+        # nobody asked for — the cost is in TAKING it, not in whether it is later attached.
+        driver = self._driver_factory(screenshot)
         signed_in = False
         try:
             observation = driver.open(url)

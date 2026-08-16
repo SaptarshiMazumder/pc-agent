@@ -160,6 +160,26 @@ class LibraryDatabase:
         with closing(self._connect()) as conn:
             return [dict(r) for r in conn.execute("SELECT * FROM documents ORDER BY slug")]
 
+    def document_inventory(self) -> list[dict]:
+        """Every RAG-indexed source with per-document retrieval coverage.
+
+        This is deliberately sourced from SQLite rather than the markdown notes: a note is a
+        summary, while a row here proves the source text was chunked for retrieval.
+        """
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT d.*,
+                       COUNT(c.id) AS chunks,
+                       SUM(CASE WHEN c.vector IS NOT NULL THEN 1 ELSE 0 END) AS embedded_chunks
+                FROM documents d
+                LEFT JOIN chunks c ON c.doc_id = d.id
+                GROUP BY d.id
+                ORDER BY d.indexed_at DESC, d.title COLLATE NOCASE, d.slug
+                """
+            )
+            return [dict(r) for r in rows]
+
     # -- chunks -----------------------------------------------------------------------------
 
     def replace_chunks(self, doc_id: int, texts: list[str]) -> int:

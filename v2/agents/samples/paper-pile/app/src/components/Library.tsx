@@ -10,6 +10,19 @@ export interface Doc {
   summary: string
 }
 
+export interface IndexedFile {
+  slug: string
+  title: string
+  source_path: string
+  source_name: string
+  filed_copy: string
+  size: number
+  indexed_at: string
+  chunks: number
+  embedded_chunks: number
+  search_mode: 'semantic + lexical' | 'lexical'
+}
+
 /** The library, plus search.
  *
  *  TWO KINDS OF SEARCH, deliberately. Typing filters the TITLES already on screen — instant,
@@ -18,10 +31,12 @@ export interface Doc {
  *  about X", and conflating them makes one of the two feel broken. */
 export function Library({
   docs,
+  indexedFiles,
   invoke,
   onOpen,
 }: {
   docs: Doc[]
+  indexedFiles: IndexedFile[]
   invoke: (name: string, params?: Record<string, unknown>) => Promise<string>
   onOpen: (doc: Doc) => void
 }) {
@@ -64,17 +79,61 @@ export function Library({
     }
   }
 
-  if (!docs.length) {
+  if (!docs.length && !indexedFiles.length) {
     return (
       <div className="empty-state">
         <h1>The library is empty</h1>
-        <p>Drop a PDF or a paper on the left. I read it, summarise it, and file it here.</p>
+        <p>Drop a PDF or a paper on the left. I read it, index its full text, and file it here.</p>
       </div>
     )
   }
 
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return 'size unavailable'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   return (
     <div className="scroll">
+      <header className="library-head">
+        <div>
+          <h1>Indexed files</h1>
+          <p>Every source whose full text is in retrieval — not generated summary cards.</p>
+        </div>
+        <span className="inventory-total">{indexedFiles.length} indexed</span>
+      </header>
+
+      <ul className="indexed-files">
+        {indexedFiles.map((f) => (
+          <li key={f.slug}>
+            <div className="indexed-file">
+              <span className="file-icon" aria-hidden="true">▧</span>
+              <span className="file-details">
+                <strong>{f.source_name}</strong>
+                <span className="file-title">{f.title}</span>
+                <span className="file-path">{f.filed_copy || f.source_path || 'Indexed from supplied text'}</span>
+              </span>
+              <span className="file-stats">
+                <span className={`rag-status ${f.search_mode === 'semantic + lexical' ? 'semantic' : ''}`}>
+                  {f.search_mode}
+                </span>
+                <span>{f.chunks} chunks · {f.embedded_chunks}/{f.chunks} embedded</span>
+                <span>{formatBytes(f.size)}{f.indexed_at ? ` · indexed ${f.indexed_at}` : ''}</span>
+              </span>
+            </div>
+          </li>
+        ))}
+        {indexedFiles.length === 0 && (
+          <li className="inventory-empty">No source files are in the RAG index yet.</li>
+        )}
+      </ul>
+
+      <div className="notes-heading">
+        <h2>Reading notes</h2>
+        <p>{docs.length} generated {docs.length === 1 ? 'note' : 'notes'} for browsing and connections.</p>
+      </div>
       <div className="search">
         <input
           value={query}
