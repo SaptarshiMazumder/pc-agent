@@ -59,6 +59,7 @@ from agent_runtime.presentation.protocol import (
     dump_frame,
     parse_frame,
 )
+from agent_runtime.runtime_paths import sdk_client_asset
 
 log = logging.getLogger("agentd")
 
@@ -403,6 +404,45 @@ def _subagent_depth(session_key: str) -> int:
         return 0
     nxt = parts[parts.index("sub") + 1] if parts.index("sub") + 1 < len(parts) else ""
     return int(nxt) if nxt.isdigit() else 1
+
+
+#: Where an agent app loads the client SDK from, relative to its own `ui/` root. Kept in step
+#: with bundle_io.VENDORED_SDK and clients/sdk-js/scripts/vendor.mjs — the same one path.
+VENDORED_SDK_REL = "vendor/agentd-client.js"
+
+
+def _app_asset_bytes(target: Path, ui_root: Path) -> bytes:
+    """The bytes to serve for one app asset — with the vendored SDK substituted for the copy on
+    disk.
+
+    WHY THE FILE ON DISK IS NOT TRUSTED. `vendor/agentd-client.js` is COPIED into an agent when it
+    is scaffolded, so it is a snapshot of whatever the SDK was on the day that agent was born and
+    it never changes again. Pack time re-vendors it (bundle_io.pack_bundle), which covers agents
+    that arrive as a package — but an agent AUTHORED here is served straight off disk and is never
+    packed at all. Those copies age silently against a daemon that keeps moving.
+
+    That is not a theoretical decay. When the accounts service stopped returning the pre-token
+    `login.token` field, every agent holding an older SDK read a field the server no longer sent
+    and reported "the accounts server returned no session token" — while the server answered 200.
+    Rebuilding the image fixed the agents shipped IN it and none of the ones users had already
+    created, because those live in each account's own directory.
+
+    Substituting here fixes all of them at once, with no migration to run and nothing to remember:
+    the SDK an app loads is the SDK belonging to the engine serving it, always.
+
+    FAILS OPEN. An install with no canonical SDK staged (`_data/sdk/`, see runtime_paths) serves
+    the file on disk exactly as before — a missing build asset must never turn into a 404 on the
+    one script the page cannot start without.
+    """
+    if target.name != Path(VENDORED_SDK_REL).name:
+        return target.read_bytes()  # the overwhelmingly common path: not the SDK, no work
+    try:
+        if target.relative_to(ui_root).as_posix() != VENDORED_SDK_REL:
+            return target.read_bytes()
+        canonical = sdk_client_asset()
+        return canonical.read_bytes() if canonical else target.read_bytes()
+    except (ValueError, OSError):
+        return target.read_bytes()
 
 
 def _oauth_page(message: str) -> HttpResponse:
@@ -1944,7 +1984,9 @@ class Gateway:
             # An entry-page open is the natural heartbeat for keeping a hosted web app current:
             # no cron, no watcher — an agent nobody visits is an agent nobody needs updated.
             self._web_app_refresh(agent_id)
-        body = target.read_bytes()
+        # NOT `target.read_bytes()`: the vendored SDK is served from this engine's build rather
+        # than the snapshot frozen into the agent when it was scaffolded. See _app_asset_bytes.
+        body = _app_asset_bytes(target, ui_root)
         hdrs = Headers()
         hdrs["Content-Type"] = guess_mime(target)
         hdrs["Content-Length"] = str(len(body))

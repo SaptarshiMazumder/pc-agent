@@ -467,12 +467,60 @@ def test_agents_reports_an_unconfigured_registry(stack):
     assert body["bundles"] == []
 
 
+def test_agents_normalises_the_engine_row_to_a_list(monkeypatch, tmp_path):
+    """The index carries `engine` as a LIST (one row per platform) and carried a bare object in an
+    earlier schema. Reading it as an object when it is a list does not crash — it silently renders
+    nothing, which is the worst of the three outcomes and the reason this is normalised server-side.
+    Caught against the real dev registry, not in review."""
+    module = _load(monkeypatch, tmp_path, AGENTD_ADMIN_IDENTITIES="boss@example.com",
+                   AGENTD_REGISTRY="https://registry.test.invalid/index.json")
+    listed = {"schema": 2, "bundles": [], "engine": [{"platform": "win", "version": "0.1.8"}]}
+    objected = {"schema": 1, "bundles": [], "engine": {"platform": "win", "version": "0.0.9"}}
+
+    with TestClient(module.app) as client:
+        _signup(client, "boss@example.com")
+        boss = _token(client, "boss@example.com")
+        for index, expected in ((listed, "0.1.8"), (objected, "0.0.9"), ({"bundles": []}, None)):
+            monkeypatch.setattr(module.admin_api, "_fetch_json", lambda _u, i=index: i)
+            body = client.get("/admin/agents", headers=_auth(boss)).json()
+            assert isinstance(body["engines"], list)
+            assert (body["engines"][0]["version"] if body["engines"] else None) == expected
+
+
 def test_creators_without_a_publish_service_is_503_not_a_crash(stack):
     client, _ = stack
     boss = _token(client, "boss@example.com")
     r = client.get("/admin/creators", headers=_auth(boss))
     assert r.status_code == 503
     assert "publish service" in r.json()["detail"]
+
+
+def test_creators_says_so_when_the_publish_service_can_only_answer_pending(monkeypatch, tmp_path):
+    """THE WRONG ANSWER PRESENTED CONFIDENTLY. An older publish image has /pending but not the full
+    listing, and a registry whose creators are all already admitted has an EMPTY pending — so a
+    silent fallback renders "no creators" on a marketplace that has several. Caught on the live dev
+    stack, where exactly that happened."""
+    module = _load(monkeypatch, tmp_path, AGENTD_ADMIN_IDENTITIES="boss@example.com",
+                   AGENTD_PUBLISH_URL="http://publish.test.invalid")
+    calls = []
+
+    def fake_proxy(method, url, token, body=None):
+        calls.append(url)
+        if url.endswith("/creators"):
+            return 404, {"message": "no route"}
+        return 200, {"pending": [{"creator_id": "c-new", "name": "New"}]}
+
+    monkeypatch.setattr(module.admin_api, "_proxy", fake_proxy)
+    with TestClient(module.app) as client:
+        _signup(client, "boss@example.com")
+        r = client.get("/admin/creators", headers=_auth(_token(client, "boss@example.com")))
+        assert r.status_code == 200
+        body = r.json()
+        assert body["partial"] is True
+        assert "awaiting review" in body["reason"].lower()
+        # And the degraded rows still carry a state, so the client renders ONE shape either way.
+        assert body["creators"][0]["state"] == "pending_review"
+    assert any(u.endswith("/creators") for u in calls) and any(u.endswith("/pending") for u in calls)
 
 
 def test_setting_a_secret_without_a_secret_configured_is_503(stack):

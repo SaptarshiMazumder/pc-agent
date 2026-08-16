@@ -5,6 +5,28 @@
 #
 # Build (context = v2/):  docker build -t agentd-web -f deploy/docker/Dockerfile .
 
+# --- sdk stage: the agent-app client SDK ------------------------------------------------
+# EVERY AGENT APP LOADS THIS FILE, and `clients/sdk-js/dist/` is gitignored — so a CI checkout
+# has no build of it, `scripts/hatch_build.py` silently skips staging it into `_data/sdk/`, and
+# the shipped daemon ends up with NO canonical SDK. Two things then quietly do nothing: pack-time
+# re-vendoring (bundle_io._canonical_sdk) and the serve-time substitution that keeps already
+# created agents current (gateway._app_asset_bytes). Both looked correct in the repo and were
+# no-ops in production.
+#
+# Built HERE rather than as a CI step so that a plain `docker build` produces the same image a
+# deploy does. `npx tsup` only — `npm run build` would also run the vendor script, which writes
+# into agents/ and belongs to a developer's checkout, not to an image layer.
+FROM node:20-slim AS sdk
+WORKDIR /sdk
+COPY clients/sdk-js/package.json clients/sdk-js/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+# ONLY what tsup reads. There is no .dockerignore on this context, so `COPY clients/sdk-js/ .`
+# would drag a developer's `node_modules/` — built for their OS — straight over the Linux one
+# `npm ci` just installed, and the build would fail on a native binary or, worse, not fail.
+COPY clients/sdk-js/tsconfig.json clients/sdk-js/tsup.config.ts ./
+COPY clients/sdk-js/src ./src
+RUN npx tsup
+
 # --- build stage: wheel + curated .agentpkg bundles -------------------------------------
 FROM python:3.11-slim AS build
 WORKDIR /src
@@ -20,6 +42,10 @@ p=tomllib.load(open("/tmp/deps/pyproject.toml","rb"))["project"]; \
 deps=p["dependencies"]+p.get("optional-dependencies",{}).get("mcp",[]); \
 subprocess.check_call([sys.executable,"-m","pip","install","--no-cache-dir",*deps])'
 COPY . .
+# BEFORE the wheel is built: hatch_build.py stages this into `_data/sdk/agentd-client.js`, and it
+# stages only what exists at that moment. Copied over the gitignored path the build already looks
+# in, so there is one answer to "where is the SDK" in a checkout and in an image alike.
+COPY --from=sdk /sdk/dist/agentd-client.js clients/sdk-js/dist/agentd-client.js
 # the wheel embeds plugins/ + starter data (scripts/hatch_build.py) => packaged mode
 RUN python -m build --wheel -o /dist
 # curated agents ship as .agentpkg (never baked into the agents dir): the entrypoint
