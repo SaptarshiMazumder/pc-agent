@@ -264,3 +264,97 @@ def test_revoking_someone_not_in_the_directory_still_revokes_on_the_roster():
     assert result.status == OK
     roster = parse_publisher_roster(parts["index_store"].index["publishers"])
     assert "c-ghost" in roster.revoked
+
+
+# ──────────────────── the accounts service is the authority ────────────────────
+#
+# The admin list used to be an environment variable frozen into this service at construction, in a
+# Lambda that stays warm for hours. Two things were wrong with that at once: promoting someone in
+# the dashboard did not reach a running container, and "who is an admin" had two answers that could
+# disagree. Accounts owns identity, so accounts owns this — asked over the SAME call path that
+# already turns a token into an account.
+
+
+class OracleAuth(FakeAuth):
+    """An authenticator that can also answer "is this an admin", like the real one."""
+
+    def __init__(self, verdicts, **kw):
+        super().__init__(**kw)
+        self._verdicts = verdicts
+        self.asked = []
+
+    def is_admin(self, token):
+        self.asked.append(token)
+        return self._verdicts.get(token)
+
+
+def test_the_accounts_answer_wins_over_the_configured_list():
+    """Someone promoted in the dashboard is an admin here immediately, without a redeploy — even
+    though the configured list has never heard of them."""
+    auth = OracleAuth({"user-tok": True})
+    svc, _ = service(authenticator=auth, admins=["admin@example.com"])
+    assert svc.authorize("user-tok") is None
+    assert auth.asked == ["user-tok"]
+
+
+def test_the_accounts_answer_also_wins_when_it_is_no():
+    """Final in BOTH directions. A demotion that only removed the dashboard row would be no
+    demotion at all if a stale configured list could still let them in."""
+    auth = OracleAuth({"admin-tok": False})
+    svc, _ = service(authenticator=auth, admins=["admin@example.com"])
+    assert svc.authorize("admin-tok").status == FORBIDDEN
+
+
+def test_it_falls_back_to_config_when_accounts_cannot_answer():
+    """None is not False. An accounts hiccup — or a build that predates /admin/whoami — must not
+    lock every admin out of a registry they are configured to administer."""
+    auth = OracleAuth({"admin-tok": None})
+    svc, _ = service(authenticator=auth, admins=["admin@example.com"])
+    assert svc.authorize("admin-tok") is None
+    assert svc.authorize("user-tok").status == FORBIDDEN
+
+
+def test_an_authenticator_without_the_oracle_still_works():
+    """The offline CLI path builds this with a plain authenticator. It must keep using the
+    configured list rather than crashing on a missing method."""
+    svc, _ = service(authenticator=FakeAuth(), admins=["admin@example.com"])
+    assert svc.authorize("admin-tok") is None
+    assert svc.authorize("user-tok").status == FORBIDDEN
+
+
+# ──────────────────────────── the full creator listing ────────────────────────────
+
+
+def test_creators_lists_everyone_not_just_those_waiting():
+    """`pending` answers the approval CLI's question. A dashboard also has to show who was already
+    admitted and who was revoked, or a healthy registry reads as "there are no creators"."""
+
+    class Directory(FakeDirectory):
+        def all(self):
+            return [
+                {"creator_id": "c-bob", "name": "Bob", "state": PENDING_REVIEW, "wrapped": True},
+                {"creator_id": "c-ann", "name": "Ann", "state": LISTED, "wrapped": True},
+            ]
+
+    svc, _ = service(creators=Directory(pending=[BOB]))
+    refusal, rows = svc.creators("admin-tok")
+    assert refusal is None
+    assert {r["creator_id"] for r in rows} == {"c-bob", "c-ann"}
+    # Parked packages belong to the ones still waiting; showing them for an admitted creator would
+    # imply a decision is still outstanding when admission already published them.
+    assert all(r["parked"] == [] for r in rows)
+
+
+def test_creators_refuses_a_non_admin():
+    svc, _ = service()
+    refusal, rows = svc.creators("user-tok")
+    assert refusal.status == FORBIDDEN
+    assert rows == []
+
+
+def test_creators_degrades_to_pending_on_an_older_directory():
+    """A directory implementation without `all()` must render the page it can, not fail it."""
+    svc, _ = service()  # FakeDirectory has no all()
+    refusal, rows = svc.creators("admin-tok")
+    assert refusal is None
+    assert [r["creator_id"] for r in rows] == ["c-bob"]

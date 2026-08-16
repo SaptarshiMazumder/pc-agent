@@ -34,6 +34,7 @@ from agent_runtime.application.interfaces.publish_intake import (
     REVOKED,
     Creator,
 )
+from agent_runtime.infrastructure.publish.root_vault import ROOT_ROW_ID
 
 log = logging.getLogger("agentd")
 
@@ -116,6 +117,41 @@ class DynamoCreatorDirectory:
         """Creators awaiting admission — what the operator's roster command reads."""
         rows = self._scan(self._creators)
         return [self._to_creator(r) for r in rows if str(r.get("state") or "") == PENDING_REVIEW]
+
+    def all(self) -> list[dict]:
+        """EVERY creator with their state and dates — what an admin dashboard lists.
+
+        Returns plain dicts rather than `Creator` because the extra fields a reviewer needs
+        (created, admitted, revoked) are not part of the Creator contract the publish path uses,
+        and widening that dataclass to serve a listing would push presentation concerns into the
+        domain type every signing call depends on.
+
+        THE ROOT KEY ROW IS EXCLUDED. It shares this table but is not a creator — it is the
+        platform's own signing identity, and listing it among people would invite someone to try
+        revoking it, which is the one action here with no way back.
+
+        Never returns `private_key`, in any form. The wrapped blob's PRESENCE is a health signal
+        the keys panel reports separately; its contents have no reason to leave this process.
+        """
+        out = []
+        for row in self._scan(self._creators):
+            creator_id = str(row.get("creator_id") or "")
+            if not creator_id or creator_id == ROOT_ROW_ID:
+                continue
+            out.append(
+                {
+                    "creator_id": creator_id,
+                    "account_id": str(row.get("account_id") or ""),
+                    "name": str(row.get("name") or ""),
+                    "state": str(row.get("state") or PENDING_REVIEW),
+                    "public_key": str(row.get("public_key") or ""),
+                    "created": str(row.get("created") or ""),
+                    "admitted": str(row.get("admitted") or ""),
+                    "revoked": str(row.get("revoked") or ""),
+                    "wrapped": bool(row.get("private_key")),
+                }
+            )
+        return sorted(out, key=lambda c: (c["state"], c["name"].lower()))
 
     def admit(self, creator_id: str) -> None:
         """Mark a creator LISTED. Called after the operator has published a roster naming them —

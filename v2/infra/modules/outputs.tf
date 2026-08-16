@@ -166,11 +166,7 @@ output "publish_ecr_repository" {
 
 output "publish_url" {
   description = "What an author's client sets as publish_target. Empty until publish_image_tag is set."
-  value = (
-    local.publish_enabled && local.public_host != ""
-    ? "${local.url_scheme}://${local.public_host}:${var.publish_listener_port}"
-    : ""
-  )
+  value       = local.publish_public_url
 }
 
 output "publish_creators_table" {

@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from 'react'
-import { Settings, SlidersHorizontal, Database, User, CreditCard } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Settings, SlidersHorizontal, Database, User, CreditCard, ShieldCheck } from 'lucide-react'
 
+import { isAdmin } from '../lib/admin'
+import { useAuthSession } from '../lib/auth'
 import { useBilling } from '../lib/billing'
 import { useApp, type View } from '../state/store'
 
@@ -18,12 +20,39 @@ const ITEMS: { id: View; label: string; icon: ReactNode }[] = [
   { id: 'subscription', label: 'Subscription', icon: <CreditCard size={16} /> }
 ]
 
+/** The control plane, appended for admins only. Its own entry rather than a row inside Settings:
+ *  it governs the whole platform, not this install, and burying it under Settings would imply the
+ *  opposite. */
+const ADMIN_ITEM: { id: View; label: string; icon: ReactNode } = {
+  id: 'admin',
+  label: 'Admin',
+  icon: <ShieldCheck size={16} />
+}
+
 export default function SettingsMenu({ variant }: { variant: 'footer' | 'rail' }) {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const { billing } = useBilling()
+  const session = useAuthSession()
   const [open, setOpen] = useState(false)
-  const active = ITEMS.some((i) => i.id === view)
+  const [admin, setAdmin] = useState(false)
+
+  // Asked once per account, not per render. Not a security boundary — the server refuses every
+  // /admin/* call regardless; this only decides whether the entry is drawn.
+  useEffect(() => {
+    let live = true
+    if (!session) {
+      setAdmin(false)
+      return
+    }
+    void isAdmin(session.accountId).then((yes) => live && setAdmin(yes))
+    return () => {
+      live = false
+    }
+  }, [session?.accountId])
+
+  const items = admin ? [...ITEMS, ADMIN_ITEM] : ITEMS
+  const active = items.some((i) => i.id === view)
   const label = (it: { id: View; label: string }): string =>
     it.id === 'subscription' && billing ? 'Credits & billing' : it.label
 
@@ -46,7 +75,7 @@ export default function SettingsMenu({ variant }: { variant: 'footer' | 'rail' }
       {open && (
         <div className={`app-menu ${variant === 'rail' ? 'app-menu--rail' : ''}`}>
           <div className="app-menu-label">Menu</div>
-          {ITEMS.map((it) => (
+          {items.map((it) => (
             <button
               key={it.id}
               className={`app-menu-item ${view === it.id ? 'active' : ''}`}

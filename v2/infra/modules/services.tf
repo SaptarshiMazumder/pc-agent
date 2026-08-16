@@ -66,6 +66,38 @@ locals {
       AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
       AGENTD_PUBLIC_WS_URL          = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+
+      # ── the admin control plane (accounts/admin_api.py) ──
+      #
+      # WHO MAY ADMINISTER, from the SAME variable the publish service reads. One list, two
+      # services, no way for them to disagree about who is an admin. This is the break-glass tier
+      # — permanent while deployed and not demotable from the dashboard — and the editable roster
+      # lives in the accounts database beside it.
+      AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
+      # WHERE EVERYTHING IS. All derived from the resources themselves, so no address, table or
+      # ARN is typed twice, and an environment cannot end up pointed at another one's.
+      AGENTD_APP_SECRET_ID   = aws_secretsmanager_secret.app.arn
+      AGENTD_CREATORS_TABLE  = aws_dynamodb_table.creators.name
+      AGENTD_PUBLISH_KMS_KEY = aws_kms_alias.publish.name
+      AGENTD_ECS_CLUSTER     = aws_ecs_cluster.main.name
+      AGENTD_REGISTRY        = local.registry_index_url
+      AGENTD_PUBLISH_URL     = local.publish_public_url
+      # WHO READS WHICH SECRET, INVERTED FROM THE SERVICES MAP ITSELF rather than written out.
+      # ECS injects secrets at container start, so setting a provider key does nothing until the
+      # containers reading it restart — the dashboard rolls them, and this is how it knows which.
+      # Because it is derived, adding a secret to any service's `secret_keys` makes the rollout
+      # correct for free; a hand-maintained copy would drift silently and the symptom would be a
+      # new key that appears to have been set and has not taken effect anywhere.
+      # The values are the ECS SERVICE names (prefixed), because that is what UpdateService takes
+      # — not the bare map keys, which would 404 against the cluster.
+      AGENTD_KEY_CONSUMERS = jsonencode({
+        for secret_key in distinct(flatten([
+          for svc in values(local.services) : values(svc.secret_keys)
+        ])) : secret_key => sort([
+          for name, svc in local.services :
+          "${local.name_prefix}-${name}" if contains(values(svc.secret_keys), secret_key)
+        ])
+      })
     }
   }
 }
@@ -79,7 +111,9 @@ resource "aws_ecs_task_definition" "svc" {
   cpu                      = each.value.cpu
   memory                   = each.value.memory
   execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  # The control plane wears a role the other containers do not — see iam.tf for why the two are
+  # separate rather than one role with everything on it.
+  task_role_arn = each.value.admin_plane ? aws_iam_role.task_admin.arn : aws_iam_role.task.arn
 
   # Only attach an EFS volume when the service asks for one (efs = true).
   dynamic "volume" {

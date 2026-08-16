@@ -34,6 +34,18 @@ locals {
   # gateway's HTTP hook shares the WebSocket port). Stamped into index.json as `web.host` on
   # every publish, so store cards everywhere — including desktop — can render Open-in-browser.
   publish_web_host = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["daemon"].port}"
+
+  # The publish service's own public address. Named here rather than only in outputs.tf because
+  # the admin control plane proxies creator admission through it (accounts/admin_api.py) and both
+  # must resolve to one string — an output and a task env var derived from separate expressions is
+  # exactly how two addresses drift apart.
+  # Empty until the Lambda exists, which the admin router reports as "no publish service is
+  # configured" rather than failing a page.
+  publish_public_url = (
+    local.publish_enabled && local.public_host != ""
+    ? "${local.url_scheme}://${local.public_host}:${var.publish_listener_port}"
+    : ""
+  )
 }
 
 # ─────────────────────────────── image ───────────────────────────────

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import AccountView from './components/AccountView'
+import AdminView from './components/AdminView'
 import AgentView from './components/AgentView'
 import Canvas from './components/Canvas'
 import ChatView from './components/ChatView'
@@ -89,6 +90,7 @@ export default function App() {
         {view === 'project' && <ProjectView />}
         {view === 'agent' && <AgentView />}
         {view === 'app' && <AppView />}
+        {view === 'admin' && <AdminView />}
       </main>
       <Canvas />
     </div>

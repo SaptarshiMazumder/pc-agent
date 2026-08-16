@@ -109,6 +109,7 @@ from identity.domain.errors import (
 from identity.infrastructure import sqlite_schema as identity_schema
 from identity.infrastructure.local_password_provider import PROVIDER_NAME as LOCAL_PROVIDER
 from identity.infrastructure.sqlite_identity_link_store import SqliteIdentityLinkStore
+from identity.infrastructure.sqlite_refresh_store import SqliteRefreshStore
 from identity.main import identity_factory
 from identity.presentation.auth_router import build_auth_router
 
@@ -117,6 +118,7 @@ from identity.presentation.auth_router import build_auth_router
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
 # the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
 try:  # pragma: no cover - exercised by whichever path the runtime takes
+    import admin_api
     import ledger
     from accounts_post_processor import (
         AccountsPostProcessor,
@@ -141,6 +143,7 @@ except ModuleNotFoundError:  # pragma: no cover
         spec.loader.exec_module(module)
         return module
 
+    admin_api = _sibling("admin_api")
     ledger = _sibling("ledger")
     _post_processing = _sibling("accounts_post_processor")
     AccountsPostProcessor = _post_processing.AccountsPostProcessor
@@ -338,6 +341,23 @@ def _init_db() -> None:
             );
             CREATE UNIQUE INDEX IF NOT EXISTS ix_ent_acct_agent
                 ON entitlements(account_id, agent_id);
+
+            -- WHO MAY ADMINISTER THE PLATFORM. Separate from every other table here because being
+            -- an admin is not something an account HAS (credits, entitlements) -- it is something
+            -- it IS, and it is the only row in this database that grants power over other people's
+            -- accounts.
+            --
+            -- THIS TABLE IS NOT THE ONLY SOURCE. `AGENTD_ADMIN_IDENTITIES` (deploy config) is
+            -- checked as well, and deliberately CANNOT be demoted from the dashboard -- see
+            -- _is_admin for why that break-glass exists and why seeding rows from it would be
+            -- worse than reading it directly.
+            CREATE TABLE IF NOT EXISTS admins (
+                account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                email      TEXT NOT NULL DEFAULT '',
+                added_by   TEXT NOT NULL DEFAULT '',
+                added_at   REAL NOT NULL DEFAULT 0,
+                active     INTEGER NOT NULL DEFAULT 1
+            );
             """
         )
         ledger.schema(c)
@@ -784,6 +804,7 @@ def _require_internal(x_internal_key: str | None) -> bool:
     return bool(x_internal_key) and secrets.compare_digest(x_internal_key, configured)
 
 
+
 @app.get("/budget/{account_id}")
 def budget(
     account_id: str,
@@ -987,17 +1008,18 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
     return {"ok": shortfall == 0, "drained": drained, "shortfall": shortfall, **view}
 
 
-@app.post("/grant")
-def grant(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
-    """Add credits to an account. THE MOCKED PURCHASE.
+def _apply_grant(payload: dict) -> dict:
+    """Add credits to an account, and post the matching ledger entry. THE MOCKED PURCHASE.
 
     Real payments are deliberately out of scope (see the plan's NullPaymentProvider seam), but
     the accounting is not: money history cannot be backfilled, so grants, expiry, class and
     consumption are all recorded for real from day one. Swapping a payment rail in later means
     calling this after a successful charge instead of calling it by hand.
+
+    EXTRACTED FROM THE ROUTE so the admin dashboard can grant credits without a second copy of
+    this logic. Two callers, two DIFFERENT authorizations (the internal key for infra, an admin
+    token for a human), one set of money semantics — which is the half that must never fork.
     """
-    if not _require_internal(x_internal_key):
-        raise HTTPException(status_code=401, detail="internal key required")
     account_id = (payload.get("account_id") or "").strip()
     credits = max(0, int(payload.get("credits") or 0))
     if not account_id or credits <= 0:
@@ -1031,6 +1053,14 @@ def grant(payload: dict = Body(...), x_internal_key: str | None = Header(default
         view = _funding_view(c, account_id, "")
     count("credits_granted_total", credits, credit_class=credit_class, _props={"account_id": account_id})
     return {"ok": True, **view}
+
+
+@app.post("/grant")
+def grant(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+    """Trusted infra adds credits. The logic is in _apply_grant; this is the internal-key door."""
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    return _apply_grant(payload)
 
 
 @app.post("/usage")
@@ -1851,5 +1881,42 @@ app.include_router(
         rate_limit=_check_rate,
         available=identity_factory.tokens_available,
         external_providers=identity_factory.external_providers,
+    )
+)
+
+
+# /admin/* — the platform control plane. Mounted unconditionally for the same reason /auth is:
+# the router itself answers "you are not an admin" (403) and "this deployment has no admins"
+# (also 403, deliberately indistinguishable), both of which are real answers. A 404 would look
+# like a broken build to whoever is debugging a dashboard.
+#
+# THE SETTINGS ARE READ PER CALL, not captured at import. An operator who adds an admin identity
+# or points the deployment at a registry restarts one process and it takes effect; a snapshot
+# taken at module scope would need a rebuild to notice.
+def _rotate_signing_key(c: sqlite3.Connection, retire_after_s: float) -> str:
+    """Rotate the token signing key. Lives here rather than in admin_api because building the
+    key store is identity's composition concern, and the admin router must not learn it."""
+    from identity.infrastructure.sqlite_key_store import SqliteKeyStore
+
+    return SqliteKeyStore(c).rotate(retire_after_s=retire_after_s).kid
+
+
+app.include_router(
+    admin_api.build_admin_router(
+        admin_api.AdminDeps(
+            db=_db,
+            account_for_token=_account_for_token,
+            budget_view=_budget_view,
+            funding_view=_funding_view,
+            apply_grant=_apply_grant,
+            revoke_sessions=lambda c, account_id: SqliteRefreshStore(c).revoke_account(account_id),
+            rotate_signing_key=_rotate_signing_key,
+            ledger_balances=ledger.balances,
+            micros_to_usd=ledger.micros_to_usd,
+            access_ttl_s=identity_factory.access_ttl_s,
+            now=_now,
+            month_key=_month_key,
+            settings=admin_api.AdminSettings.from_env,
+        )
     )
 )

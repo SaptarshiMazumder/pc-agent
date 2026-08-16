@@ -28,6 +28,7 @@ logging.getLogger().setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 PUBLISH_ROUTE = "/registry/publish"
 ADMIN_PENDING_ROUTE = "/registry/admin/pending"
+ADMIN_CREATORS_ROUTE = "/registry/admin/creators"
 ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
 ADMIN_REVOKE_ROUTE = "/registry/admin/revoke"
 
@@ -209,7 +210,13 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
 
 def _is_admin_route(path: str) -> bool:
     return any(
-        path.endswith(r) for r in (ADMIN_PENDING_ROUTE, ADMIN_ADMIT_ROUTE, ADMIN_REVOKE_ROUTE)
+        path.endswith(r)
+        for r in (
+            ADMIN_PENDING_ROUTE,
+            ADMIN_CREATORS_ROUTE,
+            ADMIN_ADMIT_ROUTE,
+            ADMIN_REVOKE_ROUTE,
+        )
     )
 
 
@@ -228,6 +235,17 @@ def _admin(event, path: str) -> dict:
             if refusal:
                 return _json(refusal.status, refusal.body())
             return _json(200, {"pending": waiting})
+
+        if path.endswith(ADMIN_CREATORS_ROUTE):
+            # EVERY creator, not just the ones waiting. `pending` answers the approval CLI's
+            # question; a dashboard also has to show who was admitted and who was revoked, or a
+            # healthy registry renders as "there are no creators".
+            if _method(event) != "GET":
+                return _json(405, {"message": "GET this route"})
+            refusal, everyone = admin.creators(token)
+            if refusal:
+                return _json(refusal.status, refusal.body())
+            return _json(200, {"creators": everyone})
 
         if _method(event) != "POST":
             return _json(405, {"message": "POST a JSON body to this route"})

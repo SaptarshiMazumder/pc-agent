@@ -432,7 +432,13 @@ variable "services" {
     # The cost is a few seconds of downtime for that service, which a desired_count=1 service
     # already has. Remove it when accounts moves to Postgres.
     single_writer = optional(bool, false)
-    cpu           = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
+    # ADMIN CONTROL PLANE: this service serves /admin/* and therefore needs to read key metadata,
+    # write a platform secret and roll the services that read it. It wears a SEPARATE task role
+    # carrying those grants (iam.tf) so no other container inherits them — a container running
+    # third-party agent code must not be able to read the secret it would need to impersonate the
+    # platform. Exactly one service should ever set this.
+    admin_plane = optional(bool, false)
+    cpu         = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
     memory        = optional(number, 512) # MB
     desired_count = optional(number, 1)
     # Seconds a replaced task keeps draining. Short by default so a rollout isn't held
@@ -490,6 +496,9 @@ variable "services" {
         ACCOUNTS_CORS_ORIGINS = "*"
       }
       single_writer = true
+      # Accounts owns identity, so accounts owns "is this account an admin" — and therefore serves
+      # /admin/*. The publish service asks IT rather than keeping a second list.
+      admin_plane = true
       secret_keys = {
         ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
         # Wraps the token signing key at rest (identity/infrastructure/sqlite_key_store.py).
