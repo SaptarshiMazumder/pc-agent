@@ -1030,12 +1030,19 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
             }
             for b in (index.get("bundles") or [])
         ]
+        # ONE ROW PER PLATFORM, always a list. The index carries `engine` as a list today and
+        # carried a bare object in an earlier schema; normalising here means the client renders one
+        # shape and a registry written by either version displays correctly. Reading it as an
+        # object when it is a list does not crash — it silently shows nothing, which is the worst
+        # of the three outcomes and is exactly what this avoids.
+        raw_engine = index.get("engine") or []
+        engines = [raw_engine] if isinstance(raw_engine, dict) else list(raw_engine)
         return {
             "configured": True,
             "registry_url": cfg.registry_url,
             "schema": index.get("schema"),
             "bundles": bundles,
-            "engine": index.get("engine") or {},
+            "engines": engines,
             "web": index.get("web") or {},
             "roster": roster,
             "revoked": sorted(revoked),
@@ -1056,11 +1063,27 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         base = _publish_base(cfg)
         status, body = _proxy("GET", f"{base}/registry/admin/creators", admin_token)
         if status == 404:
-            # An older publish image has `pending` but not the full listing. Degrade to what it
-            # does have rather than showing an empty page that looks like "no creators".
+            # AN OLDER PUBLISH IMAGE has `pending` but not the full listing. Degrade to what it
+            # does have — but SAY SO, because the degraded answer is indistinguishable from the
+            # healthy one in the worst possible case: a registry whose creators are all already
+            # admitted has an empty `pending`, so a silent fallback renders "no creators" on a
+            # marketplace that has several. That is a wrong answer presented as a confident one.
             status, body = _proxy("GET", f"{base}/registry/admin/pending", admin_token)
             if status < 400:
-                return {"creators": body.get("pending") or [], "partial": True}
+                waiting = body.get("pending") or []
+                for row in waiting:
+                    # `pending` omits the state field because everything it returns has the same
+                    # one. Stamped here so the client renders one shape either way.
+                    row.setdefault("state", "pending_review")
+                return {
+                    "creators": waiting,
+                    "partial": True,
+                    "reason": (
+                        "This publish service predates the full creator listing, so only creators "
+                        "still AWAITING REVIEW are shown — anyone already admitted or revoked is "
+                        "missing. Deploy the current publish image to see everyone."
+                    ),
+                }
         if status >= 400:
             raise HTTPException(status_code=status, detail=body.get("message") or "refused")
         return body

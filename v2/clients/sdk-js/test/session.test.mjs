@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import { test, beforeEach } from 'node:test'
 
 import {
+  accessTokenExpiry,
   effectiveMode,
   loadMode,
   loadSession,
@@ -33,6 +34,22 @@ function at(href) {
   globalThis.location = { href }
 }
 
+/**
+ * A token of the shape the platform actually issues: a signed JWT, three parts, with an `exp`.
+ *
+ * The fixtures here used to be `sess_...` strings — the OPAQUE sessions that came before token
+ * auth. `usable()` refuses those now (a stored one is a guarantee of failure, not a session), so
+ * every test that read one back was asserting against a shape the SDK is right to evict.
+ * Nothing is signed: the SDK reads `exp` and never verifies, which is the daemon's job.
+ */
+function jwt(expiresInS = 600) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  return `${b64({ alg: 'EdDSA', typ: 'JWT' })}.${b64({
+    sub: 'acct_1',
+    exp: Math.floor(Date.now() / 1000) + expiresInS
+  })}.notasignature`
+}
+
 beforeEach(() => {
   store.clear()
   delete globalThis.location
@@ -42,42 +59,46 @@ beforeEach(() => {
 
 test('an opener-built url keys off ?scope=', () => {
   at('http://127.0.0.1:8787/apps/game-master/?scope=agent:game-master&token=T')
-  saveSession({ token: 'sess_gm', email: 'a@b.c', accountId: 'acct_1' })
+  const gm = jwt()
+  saveSession({ token: gm, email: 'a@b.c', accountId: 'acct_1' })
   assert.ok(store.has('agentd.session.game-master'))
-  assert.equal(loadSession().token, 'sess_gm')
+  assert.equal(loadSession().token, gm)
 })
 
 test('a BARE marketplace link keys off the /apps/<id>/ path', () => {
   // No ?scope=, no ?token= — this is what a store card links to.
   at('http://run.example:8787/apps/bedtime-kids/')
-  saveSession({ token: 'sess_bk', email: 'a@b.c', accountId: 'acct_1' })
+  saveSession({ token: jwt(), email: 'a@b.c', accountId: 'acct_1' })
   assert.ok(store.has('agentd.session.bedtime-kids'), 'the path must name the agent')
   assert.ok(!store.has('agentd.session.app'), 'never the shared fallback key')
 })
 
 test('two web-delivered agents on one origin never share a session', () => {
+  const bk = jwt()
+  const gm = jwt()
   at('http://run.example:8787/apps/bedtime-kids/')
-  saveSession({ token: 'sess_bk', email: 'a@b.c', accountId: 'acct_1' })
+  saveSession({ token: bk, email: 'a@b.c', accountId: 'acct_1' })
   at('http://run.example:8787/apps/game-master/')
   assert.equal(loadSession(), null, "another agent's session is not mine")
-  saveSession({ token: 'sess_gm', email: 'x@y.z', accountId: 'acct_2' })
+  saveSession({ token: gm, email: 'x@y.z', accountId: 'acct_2' })
 
   at('http://run.example:8787/apps/bedtime-kids/')
-  assert.equal(loadSession().token, 'sess_bk')
+  assert.equal(loadSession().token, bk)
   at('http://run.example:8787/apps/game-master/')
-  assert.equal(loadSession().token, 'sess_gm')
+  assert.equal(loadSession().token, gm)
 })
 
 test('an explicit storage key always wins', () => {
   at('http://run.example:8787/apps/bedtime-kids/')
-  saveSession({ token: 'sess_x', email: '', accountId: '' }, 'custom.key')
+  const t = jwt()
+  saveSession({ token: t, email: '', accountId: '' }, 'custom.key')
   assert.ok(store.has('custom.key'))
-  assert.equal(loadSession('custom.key').token, 'sess_x')
+  assert.equal(loadSession('custom.key').token, t)
 })
 
 test('a page that is not an app falls back to one shared key', () => {
   at('http://127.0.0.1:8787/')
-  saveSession({ token: 'sess_shell', email: '', accountId: '' })
+  saveSession({ token: jwt(), email: '', accountId: '' })
   assert.ok(store.has('agentd.session.app'))
 })
 
@@ -91,9 +112,65 @@ test('a stored blob with no token is not a session', () => {
 
 test('null clears it', () => {
   at('http://run.example:8787/apps/bedtime-kids/')
-  saveSession({ token: 'sess_bk', email: '', accountId: '' })
+  saveSession({ token: jwt(), email: '', accountId: '' })
   saveSession(null)
   assert.equal(loadSession(), null)
+})
+
+// ── a credential that has run out ───────────────────────────────────────────
+//
+// THE "LOGGED OUT AFTER TEN MINUTES" REPORT. A shell-opened app window is handed an access token
+// on its launch url and holds no refresh token, so it cannot renew. The daemon does not REFUSE the
+// expired token on the next reconnect — it accepts the page anonymously — so the window went on
+// calling itself signed in while the account's agents silently disappeared from it.
+
+test('an expired token with no way to renew is not a session', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  saveSession({ token: jwt(-60), email: 'a@b.c', accountId: 'acct_1' })
+  assert.equal(loadSession(), null, 'the page must show a sign-in form, not go quietly anonymous')
+  assert.ok(!store.has('agentd.session.bedtime-kids'), 'and it is EVICTED, not merely ignored')
+})
+
+test('an expired token WITH a refresh token survives — renewal is the fix, not sign-out', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  saveSession({ token: jwt(-60), email: 'a@b.c', accountId: 'acct_1', refreshToken: 'r_1' })
+  assert.equal(loadSession()?.refreshToken, 'r_1', 'one HTTP call from being fine')
+})
+
+test('a token close to expiry is spent, so the prompt beats the first failed request', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  saveSession({ token: jwt(5), email: '', accountId: '' })
+  assert.equal(loadSession(), null)
+})
+
+test('a live token is untouched', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  const live = jwt(600)
+  saveSession({ token: live, email: '', accountId: '' })
+  assert.equal(loadSession().token, live)
+})
+
+test('an explicit expiresAt is honored over the claim', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  // A long-lived token the CALLER knows is already spent (the shell stopped pushing renewals).
+  saveSession({ token: jwt(3600), email: '', accountId: '', expiresAt: Date.now() - 1000 })
+  assert.equal(loadSession(), null)
+})
+
+test('a token whose exp cannot be read is left alone', () => {
+  at('http://run.example:8787/apps/bedtime-kids/')
+  // Three parts, so `usable`, but the middle is not JSON. Evicting on an unreadable claim would
+  // sign people out over a decoding quirk; the daemon is the authority on validity either way.
+  saveSession({ token: 'aaa.bbb.ccc', email: '', accountId: '' })
+  assert.equal(loadSession().token, 'aaa.bbb.ccc')
+})
+
+test('accessTokenExpiry reads exp, and reports 0 when it cannot', () => {
+  const soon = jwt(120)
+  const read = accessTokenExpiry(soon)
+  assert.ok(Math.abs(read - (Date.now() + 120_000)) < 2000, 'within clock noise of the claim')
+  assert.equal(accessTokenExpiry('not.a.jwt'), 0)
+  assert.equal(accessTokenExpiry(''), 0)
 })
 
 test('storage being unavailable is not a failure', () => {

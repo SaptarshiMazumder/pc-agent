@@ -64,12 +64,35 @@ function usable(token: string): boolean {
   return !!token && !token.startsWith('sess_') && token.split('.').length === 3
 }
 
+/**
+ * When an access token dies, in epoch ms — read from its own `exp` claim. 0 when unreadable.
+ *
+ * The claim is read, NOT trusted: nothing is authorised on the strength of it. The daemon verifies
+ * the signature and would reject a token whose `exp` we misread in our favour. All this decides is
+ * when the page should stop pretending the credential still works.
+ */
+export function accessTokenExpiry(token: string): number {
+  try {
+    const body = (token || '').split('.')[1]
+    if (!body) return 0
+    // base64url -> base64. atob is the one decoder present in every browser and in Node 16+.
+    const json = atob(body.replace(/-/g, '+').replace(/_/g, '/'))
+    const exp = Number(JSON.parse(json)?.exp || 0)
+    return exp > 0 ? exp * 1000 : 0
+  } catch {
+    return 0 // not our token shape — `usable` already refuses those
+  }
+}
+
+/** Renew slightly BEFORE the cliff, so the prompt arrives ahead of the first failed request. */
+const EXPIRY_SKEW_MS = 30_000
+
 export function loadSession(storageKey = ''): StoredSession | null {
   try {
     const raw = localStorage.getItem(key(storageKey))
     const parsed = raw ? (JSON.parse(raw) as StoredSession) : null
     if (!parsed || !parsed.token) return null
-    if (!usable(parsed.token)) {
+    if (!usable(parsed.token) || spent(parsed)) {
       // EVICT, do not merely ignore. Ignoring leaves it to be re-read on the next call and by
       // every other code path that looks at storage; removing it means the page shows a sign-in
       // form once and is then genuinely clean.
@@ -80,6 +103,29 @@ export function loadSession(storageKey = ''): StoredSession | null {
   } catch {
     return null // private mode / storage disabled — sign-in still works, it just won't persist
   }
+}
+
+/**
+ * An access token that has run out AND has no refresh token behind it.
+ *
+ * WHY THIS COUNTS AS SIGNED OUT. An app window opened by the shell is handed its credential on the
+ * launch url and holds no refresh token, so it cannot renew — see `fromPage` in client.ts. Ten
+ * minutes later the token is dead, and the daemon does NOT refuse the reconnect: it accepts the
+ * page ANONYMOUSLY. The page went on reporting itself signed in against a credential that had
+ * expired, so the user saw their agents silently vanish with no error and no sign-in form — the
+ * "logged out after ten minutes" report this exists to answer.
+ *
+ * Treating it as signed out turns that into one visible sign-in prompt, and signing in THERE
+ * yields a real refresh token, so it does not recur for that window.
+ *
+ * WITH a refresh token, an expired access token is NOT spent: renewal is exactly the path that
+ * fixes it (auth.ts `authRefresh`), and evicting here would sign out a session that was one HTTP
+ * call from being fine.
+ */
+function spent(s: StoredSession): boolean {
+  if (s.refreshToken) return false
+  const expiresAt = s.expiresAt || accessTokenExpiry(s.token)
+  return expiresAt > 0 && Date.now() > expiresAt - EXPIRY_SKEW_MS
 }
 
 export function saveSession(value: StoredSession | null, storageKey = ''): void {

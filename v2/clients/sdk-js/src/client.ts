@@ -22,7 +22,14 @@ import {
   type SendResult,
   type SessionRow
 } from './protocol'
-import { effectiveMode, loadSession, saveMode, saveSession, type RunMode } from './session'
+import {
+  accessTokenExpiry,
+  effectiveMode,
+  loadSession,
+  saveMode,
+  saveSession,
+  type RunMode
+} from './session'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 type EventHandler = (payload: Record<string, any>) => void
@@ -364,7 +371,19 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
   // for the life of the window. Adoption is what makes both orderings moot.
   const urlSession = here.searchParams.get('session') || ''
   const urlMode = here.searchParams.get('mode') || ''
-  if (urlSession) saveSession({ token: urlSession, email: '', accountId: '' })
+  // `expiresAt` is stamped from the token's own `exp`, so the window knows when its borrowed
+  // credential runs out. Without it the page kept presenting a dead token and the daemon accepted
+  // the reconnect ANONYMOUSLY — signed in by its own account, invisible to the user (see `spent`
+  // in session.ts). An opener-supplied session carries NO refresh token, deliberately: this window
+  // runs third-party code and must never hold a 30-day credential for the whole account.
+  if (urlSession) {
+    saveSession({
+      token: urlSession,
+      email: '',
+      accountId: '',
+      expiresAt: accessTokenExpiry(urlSession) || undefined
+    })
+  }
   if (urlMode === 'local' || urlMode === 'cloud') saveMode(urlMode as RunMode)
   if ((urlSession || urlMode) && typeof history !== 'undefined') {
     here.searchParams.delete('session')

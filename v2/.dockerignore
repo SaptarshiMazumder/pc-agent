@@ -8,6 +8,18 @@
 # desktop/terminal clients (incl. the ~1GB bundled CPython runtime) and their builds
 clients/
 
+# …EXCEPT the agent-app SDK's source, which the daemon image compiles in its own `sdk` stage
+# (deploy/docker/Dockerfile). Every agent app loads that file, and `clients/` being excluded here
+# — on top of `dist/` being gitignored — is why the built image carried no canonical SDK at all,
+# quietly disabling both pack-time re-vendoring and the serve-time substitution that keeps
+# already-created agents current. Source only: node_modules/ and dist/ stay out (the stage runs
+# its own `npm ci`), and nothing else under clients/ is re-admitted.
+!clients/sdk-js/package.json
+!clients/sdk-js/package-lock.json
+!clients/sdk-js/tsconfig.json
+!clients/sdk-js/tsup.config.ts
+!clients/sdk-js/src
+
 # delivered per-agent products (installers) — never part of the source image
 agents/*/clients/
 

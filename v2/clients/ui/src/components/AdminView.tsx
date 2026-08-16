@@ -742,18 +742,26 @@ function AgentsPanel(): ReactNode {
 
       {data?.configured && (
         <Panel title="Shared engine">
+          {data.engines?.length ? (
+            <Table head={['Platform', 'Version', 'Size', 'Digest']}>
+              {data.engines.map((e, i) => (
+                <tr key={`${e.platform}-${e.version}-${i}`}>
+                  <td className="admin-strong">{e.platform || '—'}</td>
+                  <td className="admin-mono">{e.version || '—'}</td>
+                  <td>{e.size ? `${Math.round(e.size / 1_000_000)} MB` : '—'}</td>
+                  <td className="admin-mono admin-muted">
+                    {e.sha256 ? `${e.sha256.slice(0, 16)}…` : 'missing — no stub can verify what it runs'}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          ) : (
+            <Empty>
+              No engine is published, so per-agent installers cannot be built — anyone without
+              agentd already installed has no way in.
+            </Empty>
+          )}
           <div className="kv-card">
-            <div className="kv-row">
-              <span className="kv-key">Version</span>
-              <span className="kv-val">
-                {data.engine?.version || 'none published'}
-                {data.engine?.platform ? ` · ${data.engine.platform}` : ''}
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="kv-key">Digest</span>
-              <span className="kv-val admin-mono">{data.engine?.sha256 || '— no stub can verify what it runs'}</span>
-            </div>
             <div className="kv-row">
               <span className="kv-key">Web host</span>
               <span className="kv-val admin-mono">{data.web?.host || '—'}</span>
@@ -834,6 +842,12 @@ function CreatorsPanel(): ReactNode {
       }
     >
       {note && <div className="admin-note">{note}</div>}
+      {data?.partial && (
+        <div className="admin-error">
+          <AlertTriangle size={14} />
+          {data.reason || 'Only creators awaiting review are shown.'}
+        </div>
+      )}
       {data?.creators?.length ? (
         <Table head={['Creator', 'State', 'Waiting to publish', 'Joined', 'Key', '']}>
           {data.creators.map((c) => (
@@ -885,6 +899,8 @@ function CreatorsPanel(): ReactNode {
             </tr>
           ))}
         </Table>
+      ) : data?.partial ? (
+        <Empty>Nobody is awaiting review right now.</Empty>
       ) : (
         <Empty>No creators yet. The first person to press Publish appears here, waiting.</Empty>
       )}

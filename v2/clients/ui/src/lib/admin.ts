@@ -290,12 +290,21 @@ export type Bundle = {
   size: number
 }
 
+/** One shared-engine installer. The registry carries one per platform, so this is always a list. */
+export type Engine = {
+  platform?: string
+  version?: string
+  url?: string
+  size?: number
+  sha256?: string
+}
+
 export type AgentsView = {
   configured: boolean
   registry_url: string
   schema?: number
   bundles: Bundle[]
-  engine?: { version?: string; platform?: string; sha256?: string; url?: string }
+  engines: Engine[]
   web?: { host?: string }
   roster?: { id: string; name: string; key: string; added: string }[]
   revoked?: string[]
@@ -317,8 +326,10 @@ export type Creator = {
   parked: { bundle_id: string; size: number; parked_at: string }[]
 }
 
-export const creators = (): Promise<{ creators: Creator[]; partial?: boolean }> =>
-  call<{ creators: Creator[]; partial?: boolean }>('/admin/creators')
+/** `partial` means the publish service could only answer "who is waiting" — see `reason`. */
+export type CreatorList = { creators: Creator[]; partial?: boolean; reason?: string }
+
+export const creators = (): Promise<CreatorList> => call<CreatorList>('/admin/creators')
 
 export const admitCreator = (creator_id?: string): Promise<{ message?: string }> =>
   post('/admin/creators/admit', creator_id ? { creator_id } : {})

@@ -148,6 +148,10 @@ declare class AgentdClient {
     private eventHandlers;
     private statusHandlers;
     private reconnectDelay;
+    /** When the current socket opened, so "did this connection actually work?" can be answered. */
+    private openedAt;
+    private static readonly UNAUTHORIZED_DELAY;
+    private static readonly HEALTHY_MS;
     private closedByUs;
     private lastTarget;
     private readonly clientName;
@@ -234,12 +238,32 @@ declare function fromPage(options?: AgentdClientOptions): AgentdClient;
  * Keyed per agent, so two agent apps on one machine never share or clobber each other's.
  */
 interface StoredSession {
+    /** The ACCESS token — short-lived (~10 min) and the only one that travels on a connection. */
     token: string;
     email: string;
     accountId: string;
+    /**
+     * The refresh token, used ONLY to mint a new access token at <accountsUrl>/auth/refresh.
+     *
+     * Without it an app window is signed in for exactly one access-token lifetime: the credential
+     * rides the socket URL, the socket eventually reconnects, and the daemon then accepts the page
+     * ANONYMOUSLY — which reads to the user as "all my agents disappeared", because an anonymous
+     * connection sees none of the account's own agents.
+     */
+    refreshToken?: string;
+    /** Epoch ms when `token` expires, so renewal can happen BEFORE a request fails. */
+    expiresAt?: number;
 }
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */
 type RunMode = 'local' | 'cloud';
+/**
+ * When an access token dies, in epoch ms — read from its own `exp` claim. 0 when unreadable.
+ *
+ * The claim is read, NOT trusted: nothing is authorised on the strength of it. The daemon verifies
+ * the signature and would reject a token whose `exp` we misread in our favour. All this decides is
+ * when the page should stop pretending the credential still works.
+ */
+declare function accessTokenExpiry(token: string): number;
 declare function loadSession(storageKey?: string): StoredSession | null;
 declare function saveSession(value: StoredSession | null, storageKey?: string): void;
 declare function loadMode(storageKey?: string): RunMode | null;
@@ -329,6 +353,40 @@ declare function authLogin(args: {
     password: string;
     signup?: boolean;
 }, opts?: AuthOptions): Promise<AuthState>;
+/**
+ * Renew the access token from the stored refresh token. Returns the new access token, or '' when
+ * there is nothing to renew with (an older session, or one the server has revoked).
+ *
+ * WHY AN APP WINDOW NEEDS THIS AT ALL. Its credential arrives on the page URL and lasts about ten
+ * minutes; the socket then reconnects at some point and presents it again. An expired token is not
+ * refused — the daemon accepts the connection ANONYMOUSLY — so the page keeps working while
+ * quietly losing access to everything the account owns. Renewing on a timer is what stops that,
+ * and it fails CLOSED: a rejected refresh clears the session so the UI shows a sign-in form
+ * instead of an inexplicably empty app.
+ */
+declare function authRefresh(opts?: AuthOptions): Promise<string>;
+/**
+ * Keep this window's access token fresh for as long as the page is open.
+ *
+ * Returns a stop function. Renews at 80% of the token's life; falls back to a 5-minute poll for a
+ * session stored before `expiresAt` existed.
+ */
+/**
+ * Accept access tokens pushed down by the desktop shell. Returns an unsubscribe.
+ *
+ * An app window opened from the shell gets its credential on the launch URL and holds NO refresh
+ * token — deliberately, because an agent app is third-party code and a refresh token is a 30-day
+ * credential for the user's whole account. So it cannot renew itself; the shell, which does hold
+ * the refresh token, mints short-lived access tokens and hands them down (see the desktop's
+ * src/preload/app.ts).
+ *
+ * Each pushed token is stored AND applied to the live socket via `auth.update`, so a running
+ * agent is never interrupted by a renewal. A no-op anywhere without the shell bridge — a browser
+ * tab, or an app window signed in through its own form (which has a real refresh token and uses
+ * `startAuthRenewal` instead).
+ */
+declare function acceptHostTokens(opts?: AuthOptions): () => void;
+declare function startAuthRenewal(opts?: AuthOptions): () => void;
 /** Forget this client's session. Other windows keep theirs — each holds its own. */
 declare function authLogout(opts?: AuthOptions): Promise<AuthState>;
 /** Choose which keys pay for THIS client's model calls. Other clients are unaffected. */
@@ -384,4 +442,4 @@ declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResul
 /** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
 declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type EventFrame, type Frame, type GateResult, type Hello, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, authLogin, authLogout, authStatus, effectiveMode, fromPage, loadMode, loadSession, mountSignInGate, resultText, saveMode, saveSession, setRunMode, signOutAndGate };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type EventFrame, type Frame, type GateResult, type Hello, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accessTokenExpiry, authLogin, authLogout, authRefresh, authStatus, effectiveMode, fromPage, loadMode, loadSession, mountSignInGate, resultText, saveMode, saveSession, setRunMode, signOutAndGate, startAuthRenewal };
