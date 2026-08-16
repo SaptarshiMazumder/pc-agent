@@ -9,7 +9,7 @@ author's work, or hand-edit. Sign-in is not special. It is the first thing that 
 A COMPONENT IS A PATCH, NOT A COPY, and that is the whole difference from a template:
 
     files      its own files, copied from templates/components/<id>/   (may be none)
-    borrowed   taken from Agent Builder's LIVE ui/ — the SDK. One copy in the product, so the
+    borrowed   taken from templates/_borrowed/ — the SDK. One copy in the product, so the
                vendored SDK can never disagree with the daemon it talks to.
     scripts    <script src="..."> tags that must exist in index.html, in order
     styles     a token block appended to style.css once, so the component matches the agent's theme
@@ -74,7 +74,7 @@ class UiComponent:
     title: str
     summary: str
     files: tuple[str, ...] = ()  # from templates/components/<id>/
-    borrowed: tuple[str, ...] = ()  # from agent-builder's own live ui/
+    borrowed: tuple[str, ...] = ()  # from templates/_borrowed/
     scripts: tuple[str, ...] = ()  # <script src> paths to ensure in index.html
     styles: str = ""  # CSS appended to style.css (guarded by style_marker)
     style_marker: str = ""  # how to tell the CSS is already there

@@ -12,7 +12,7 @@ import {
 import { useApp } from '../state/store'
 import PageShell from './PageShell'
 import SearchBox from './SearchBox'
-import { platform } from '../lib/platform'
+import { isDesktop, platform } from '../lib/platform'
 
 /** does a field match a search query (matched on its label + bare key) */
 function fieldMatches(f: FieldDef, ql: string): boolean {
@@ -1166,6 +1166,8 @@ function RuntimeTab({
         <GroupCard key={group.title} group={group} ctx={ctx} />
       ))}
 
+      <RestartCard />
+
       <div className="settings-group">
         <div className="settings-section">Advanced — raw config</div>
         <p className="settings-help">
@@ -1188,5 +1190,58 @@ function RuntimeTab({
         </div>
       </div>
     </>
+  )
+}
+
+/** Restart the daemon, on purpose rather than as a side effect of saving something.
+ *
+ *  The mechanism was already here — saving a restart-gated setting bounces the daemon — but it
+ *  was reachable ONLY that way. Anything that changes on disk rather than through this page
+ *  (a plugin's Python edited by hand, an agent added by another tool, a runtime file changed
+ *  during development) had no way to take effect except quitting the whole product. That is a
+ *  thing people do many times an hour while building an agent.
+ */
+function RestartCard() {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const supervisor = useApp((s) => s.supervisor)
+
+  // A browser tab cannot restart a daemon it did not start — on the web `restartDaemon` exists
+  // but is a no-op, so testing for the method is not enough. Rendering a button that silently
+  // does nothing is worse than rendering none.
+  if (!isDesktop || !platform?.restartDaemon) return null
+
+  const restart = async () => {
+    setBusy(true)
+    setNote('Restarting…')
+    try {
+      await platform.restartDaemon()
+      setNote('Restarted. Agents, plugins and config were all re-read.')
+    } catch (e) {
+      setNote(`Restart failed: ${String(e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="settings-group">
+      <div className="settings-section">Restart</div>
+      <p className="settings-help">
+        Stops agentd and starts it again. Use it after editing an agent&apos;s plugin code or any
+        file the daemon reads at startup — those are loaded once, so a change on disk is ignored
+        until it restarts. Conversations are on disk and survive; a run in progress does not.
+      </p>
+      <div className="row-end">
+        {note && <span className="settings-help">{note}</span>}
+        <button className="btn" onClick={() => void restart()} disabled={busy}>
+          {busy ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}
+          {busy ? 'Restarting…' : 'Restart agentd'}
+        </button>
+      </div>
+      {/* The supervisor's own words while it happens — "starting agentd…", or the reason it
+          could not. Without it a slow start looks like a button that did nothing. */}
+      {busy && supervisor?.message && <div className="settings-help mt-8">{supervisor.message}</div>}
+    </div>
   )
 }

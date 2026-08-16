@@ -1,0 +1,94 @@
+# SAMPLE AGENT — a reference implementation, not an installed product.
+#
+# It lives in agents/samples/, which the registry does NOT scan, so it never appears in anyone's
+# agent list. It exists to be READ: this is what a finished agent of the CHAT shape looks like,
+# with a real artifact, a real validator, and a React app.
+#
+# What it demonstrates, in the order you meet it below:
+#   * a chat agent whose output is a FILE, so the app is a conversation PLUS an artifact pane
+#   * an agent that drives a REMOTE machine: it asks that server what it can do instead of
+#     asking the user, and it RUNS its own output there instead of claiming it works
+#   * a private plugin that CHECKS the agent's own output, so correctness is a fact not a claim
+#   * a skill holding the engineering procedure, instead of re-deriving it every turn
+#   * research tools, because the ecosystem it works in changes weekly
+
+name = "Comfy Smith"
+version = "1.0.0"
+description = "Drives a remote ComfyUI: reads what that server has installed, builds a workflow against it, runs it, and fixes what fails."
+tagline = "inspect · build · run · fix"
+color = "#A66CFF"
+suggestions = [
+  "What's on my ComfyUI server?",
+  "Build a text-to-image workflow with what's installed, then run it",
+  "This render came out blurry — here's the workflow, fix it",
+]
+
+# The window. `entry` points at the BUILT React output — `ui/` is vite's outDir and the only
+# part that ships; `app/` beside it is the source, so the next author can rebuild.
+[app]
+title = "Comfy Smith"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+[tools]
+# EVERY ABILITY THIS JOB ACTUALLY NEEDS. A sample that is deliberately weak teaches weak agents,
+# so nothing is trimmed here for brevity — each line is here because the work requires it.
+#
+#   web_search/web_fetch  model names, node names and file layouts change weekly. An architect
+#                         working from memory invents download URLs that 404.
+#   browser               model pages (Civitai, HuggingFace) are JS-rendered; web_fetch gets an
+#                         empty shell, and "I could not find the file size" is usually this.
+#   spawn_subagent        research three candidate models AT ONCE, each in its own context,
+#                         instead of spending this conversation's budget on pages of docs.
+#   grep                  search its own workflow library — "which of my workflows used this
+#                         sampler" is a content question, and `find` only matches names.
+#   exec + process        a PAIR (see the build-agent skill). This is also the SSH route: when a
+#                         job needs a custom node or a checkpoint that is not on the server,
+#                         `ssh <COMFY_SSH> "<command>"` installs it. No bespoke ssh tool and no
+#                         new dependency — OpenSSH ships with the OS and the approval flow
+#                         already covers running a command.
+allow = [
+  "read", "write", "edit", "ls", "find", "grep",
+  "web_search", "web_fetch", "browser",
+  "spawn_subagent",
+  "exec", "process",
+]
+
+[subagents]
+# Research delegation only — it fans out reading, it does not orchestrate other products.
+allow = ["*"]
+
+# ---- what it needs from whoever runs it -------------------------------------------------
+# THE SERVER IS SOMEWHERE ELSE. This agent does not run ComfyUI and does not expect it on this
+# machine — it drives one over HTTP: a pod on RunPod or Vast, a box on the LAN, a colleague's
+# workstation. That is the only thing it needs told.
+#
+# NOTE WHAT IS *NOT* DECLARED HERE. There is no VRAM field and no models-folder field, and that
+# omission is the design. Both are questions about a machine the user is renting by the hour and
+# reading paths off a terminal for — they get them wrong, they go stale the moment a model is
+# downloaded, and the answer is one HTTP call away (`/system_stats`, `/models`). A settings field
+# for something the system can observe is a bug that presents as a form.
+#
+# The rule this follows: DECLARE WHAT ONLY THE USER KNOWS. Ask the server everything else.
+[[settings]]
+key      = "COMFY_URL"
+label    = "ComfyUI server URL"
+kind     = "url"
+required = true
+help     = "Where your ComfyUI is running, e.g. https://abc123-8188.proxy.runpod.net or http://192.168.1.50:8188."
+
+[[settings]]
+key      = "COMFY_TOKEN"
+label    = "Access token"
+kind     = "secret"
+help     = "Only if your ComfyUI sits behind an authenticating proxy. Sent as a Bearer token. Leave empty otherwise."
+
+[[settings]]
+key      = "COMFY_SSH"
+label    = "SSH target (optional)"
+kind     = "text"
+help     = "e.g. root@1.2.3.4 -p 22222. Lets it install missing custom nodes and download models onto that box instead of telling you to."
+
+# Its own comfy_* tools are NOT listed: an agent's private tools are implicitly allowed, and
+# naming them here would imply another agent could call them.

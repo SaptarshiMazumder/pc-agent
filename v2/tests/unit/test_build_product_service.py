@@ -237,7 +237,12 @@ def test_payload_writer_produces_a_readable_document_and_the_bundle(tmp_path):
     # The icon is NORMALISED: declared at brand/logo.ico, shipped as icon.ico, so the engine and
     # the stub both know where it is without parsing the toml to find out.
     assert (payload.dir / "icon.ico").read_bytes() == b"ICON-BYTES"
-    profile = parse_profile(tomllib.loads((payload.dir / "distribution.toml").read_text()))
+    # encoding is EXPLICIT: the writer emits UTF-8, and `read_text()` decodes with the machine's
+    # locale — so on a non-UTF-8 default (cp932, cp1252) this failed on any non-ASCII byte in a
+    # file the product code wrote correctly.
+    profile = parse_profile(
+        tomllib.loads((payload.dir / "distribution.toml").read_text(encoding="utf-8"))
+    )
     assert profile.app_agent == "weather"
     assert profile.icon == "icon.ico"
     assert profile.accounts_url == "https://accounts.x"
@@ -250,7 +255,8 @@ def test_payload_writer_omits_the_icon_when_the_agent_has_none(tmp_path):
     )
     assert payload.icon == ""
     assert not (payload.dir / "icon.ico").exists()
-    assert parse_profile(tomllib.loads((payload.dir / "distribution.toml").read_text())).icon == ""
+    written = (payload.dir / "distribution.toml").read_text(encoding="utf-8")
+    assert parse_profile(tomllib.loads(written)).icon == ""
 
 
 def test_payload_writer_clears_stale_output(tmp_path):

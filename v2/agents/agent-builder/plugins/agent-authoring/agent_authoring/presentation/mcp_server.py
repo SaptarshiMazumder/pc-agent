@@ -54,6 +54,7 @@ def _services():
 
     from agent_authoring.application.scaffold_ui_service import ScaffoldUiService
     from agent_authoring.application.validate_agent_service import ValidateAgentService
+    from agent_authoring.bundle_layout import BundleLayout
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.declaration_rules import DeclarationRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
@@ -87,8 +88,8 @@ def _services():
     scaffolder = ScaffoldUiService(
         reader,
         templates=templates,
-        template_root=Path(__file__).resolve().parents[4] / "skills" / "build-agent" / "templates",
-        borrow_root=Path(__file__).resolve().parents[4] / "ui",
+        template_root=BundleLayout.TEMPLATE_ROOT,
+        borrow_root=BundleLayout.BORROW_ROOT,
         components=components,
     )
     return agents_dir, registry, validator, templates, scaffolder

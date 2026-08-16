@@ -128,6 +128,16 @@ function build(product: string, blurb: string, allowSignup: boolean): HTMLElemen
  * Resolves once the app may proceed. Rejects only if the daemon itself cannot be reached — a
  * wrong password does not reject, it is reported in the form and the user tries again.
  */
+/** `?verify=1` on the page URL — set by the tool that opens an agent's window to check it. */
+function wantsVerifyBypass(): boolean {
+  if (typeof location === 'undefined') return false
+  try {
+    return new URL(location.href).searchParams.get('verify') === '1'
+  } catch {
+    return false
+  }
+}
+
 export async function mountSignInGate(options: SignInGateOptions = {}): Promise<GateResult> {
   const allowSignup = options.allowSignup !== false
   const product =
@@ -145,6 +155,20 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
       // pushes fresh access tokens down instead. No-op in a browser tab.
       acceptHostTokens(options)
     }
+    return { ...state, signedInHere: false }
+  }
+
+  // VERIFICATION RUNS PAST THE GATE, and only where the gate was optional anyway.
+  //
+  // A headless browser is a fresh profile with no stored session, so it meets this form every
+  // time — and an automated check that can only ever photograph a login screen verifies nothing.
+  // Handing it credentials would mean a real account, on every run, to look at a window the
+  // daemon would have served to nobody in particular.
+  //
+  // `required` is the daemon's own answer to "must anyone sign in here", so this grants exactly
+  // nothing that was being withheld: where sign-in IS demanded the flag is ignored and the form
+  // appears as always. It removes a prompt, never a check.
+  if (!state.required && wantsVerifyBypass()) {
     return { ...state, signedInHere: false }
   }
 

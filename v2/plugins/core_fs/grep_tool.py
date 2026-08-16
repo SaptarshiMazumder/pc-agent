@@ -45,7 +45,16 @@ SKIP_SUFFIXES = frozenset(
 #: A single file that is almost certainly generated or vendored. Read caps keep one enormous
 #: minified bundle from eating the whole result budget.
 MAX_FILE_BYTES = 2 * 1024 * 1024
-MAX_LINE_CHARS = 400
+MAX_LINE_CHARS = 200
+
+#: THE REAL CEILING, and it is in BYTES because the line cap never was one.
+#:
+#: `max_results` counts LINES, so a search that dutifully stopped at its limit could still return
+#: 200 lines × 400 characters — 80KB, in one call. Two such searches put 92KB into a single
+#: conversation, and every later turn re-sent all of it; the run ended with the model returning
+#: empty responses because there was no context left. A result that large is also not readable:
+#: the answer was in the first few lines and the rest was noise with a cost.
+MAX_OUTPUT_BYTES = 10 * 1024
 
 
 def _search(
@@ -61,6 +70,8 @@ def _search(
     out: list[str] = []
     files_matched = 0
     scanned = 0
+    # A one-element list so the inner loops can spend it without `nonlocal` plumbing.
+    budget = [MAX_OUTPUT_BYTES]
     for root in roots:
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d.lower() not in FIND_SKIP_DIRS]
@@ -87,7 +98,7 @@ def _search(
                     continue
                 files_matched += 1
                 for i in hits:
-                    if len(out) >= max_results:
+                    if len(out) >= max_results or budget[0] <= 0:
                         break
                     lo = max(0, i - context)
                     hi = min(len(lines), i + context + 1)
@@ -98,7 +109,14 @@ def _search(
                         # ':' marks the match, '-' the context — the grep convention, so the
                         # reader can tell which line actually matched.
                         sep = ":" if j == i else "-"
-                        out.append(f"{path}{sep}{j + 1}{sep}{body}")
+                        line = f"{path}{sep}{j + 1}{sep}{body}"
+                        out.append(line)
+                        # The byte budget is spent HERE, per line, rather than checked at the
+                        # end: a result assembled first and truncated afterwards has already
+                        # done the reading, and the caller still waits for it.
+                        budget[0] -= len(line) + 1
+                        if budget[0] <= 0:
+                            return out, files_matched, scanned
     return out, files_matched, scanned
 
 
@@ -185,8 +203,14 @@ class GrepTool(Tool):
             f"{len(lines)} line(s) in {files_matched} file(s) for {raw!r} "
             f"({scanned} file(s) searched)"
         )
-        if len(lines) >= max_results:
-            # Say so. A truncated result that looks complete is how a search convinces someone
-            # a thing does not exist.
+        # SAY WHICH LIMIT STOPPED IT. A truncated result that looks complete is how a search
+        # convinces someone a thing does not exist — and "raise max_results" is useless advice
+        # when the byte budget was what ran out, since a bigger count returns the same bytes.
+        if sum(len(line) + 1 for line in lines) >= MAX_OUTPUT_BYTES:
+            header += (
+                f" — CAPPED at {MAX_OUTPUT_BYTES // 1024}KB of output; narrow with `glob`/`path` "
+                f"or a tighter pattern (raising max_results will not help)"
+            )
+        elif len(lines) >= max_results:
             header += f" — CAPPED at {max_results}; narrow with `glob`/`path` or raise max_results"
         return ToolResult.text(header + ":\n" + "\n".join(lines))

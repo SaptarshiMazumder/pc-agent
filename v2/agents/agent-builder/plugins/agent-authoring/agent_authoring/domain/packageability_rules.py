@@ -19,6 +19,7 @@ verified against the real ones by the bundle's tests, so drift is caught rather 
 from __future__ import annotations
 
 from .finding import ERROR, INFO, WARN, Finding
+from .ui_rules import is_built_app
 
 # Mirrors agent_runtime.infrastructure.marketplace.bundle_io.EXCLUDED_DIRS.
 EXCLUDED_DIRS = frozenset(
@@ -47,9 +48,39 @@ class PackageabilityRules:
     def check(self, spec, raw_toml: dict, files: list[str]) -> list[Finding]:
         findings: list[Finding] = []
         findings += self._app_and_version(spec, raw_toml, files)
+        findings += self._built_app(files)
         findings += self._excluded_dirs(files)
         findings += self._workspace_contents(files)
         return findings
+
+    # ------------------------------------------------------- built apps
+    def _built_app(self, files: list[str]) -> list[Finding]:
+        """An app compiled from ``app/`` whose ``ui/`` is missing.
+
+        ONLY ``ui/`` SHIPS. `app/` is source; the packer takes what is on disk and the daemon
+        serves the build. So sources with no output is an agent that installs and opens a window
+        onto nothing — and it is invisible to every other check here, because every file the
+        author wrote is present and correct.
+
+        The STALER case — sources newer than the build — needs mtimes, which this rule set does
+        not have (it sees a list of names). `verify_app` refuses on it, and that is the right
+        home: it is the tool that would otherwise report success about the previous build.
+        """
+        if not is_built_app(files):
+            return []
+        if any(f.startswith("ui/") for f in files):
+            return []
+        return [
+            Finding(
+                level=ERROR,
+                code="UI_NOT_BUILT",
+                message="app/ holds the source of a built app but there is no ui/ — `app/` never "
+                "ships, so this agent installs with no window at all",
+                path="app/",
+                fix="cd app && npm install && npm run build (it writes ../ui), and rebuild after "
+                "every source change — the daemon serves ui/, not app/",
+            )
+        ]
 
     # ------------------------------------------------------- product-ability
     def _app_and_version(self, spec, raw_toml: dict, files: list[str]) -> list[Finding]:
@@ -99,9 +130,11 @@ class PackageabilityRules:
                         fix=f"write {entry}, or point `entry` at the file you did write",
                     )
                 )
-            if not any(
-                f.startswith("ui/vendor/agentd-client.js") for f in files
-            ) and entry.startswith("ui/"):
+            # A BUILT app has the SDK inside its bundle — it imports `@agentd/client` and the
+            # bundler inlines it. Asking for a vendored copy there is worse than useless: the file
+            # would live in the bundler's output directory, which the next build empties.
+            vendored = any(f.startswith("ui/vendor/agentd-client.js") for f in files)
+            if not vendored and entry.startswith("ui/") and not is_built_app(files):
                 out.append(
                     Finding(
                         level=WARN,

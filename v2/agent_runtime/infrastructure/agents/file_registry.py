@@ -396,8 +396,31 @@ class FileAgentRegistry:
         specs = self._scan(self._agents_dir)
         if "main" not in specs:
             specs["main"] = self._synthesize_main()
+        # SAMPLES — reference implementations under `agents/samples/`, registered so they can be
+        # RUN (an exemplar nobody executes is one that rots) but flagged so a client can keep
+        # them out of the user's own agent list. A real agent of the same id always wins: the
+        # samples we ship must never shadow something the user built.
+        for agent_id, spec in self._scan_samples().items():
+            specs.setdefault(agent_id, spec)
         log.info("agents: %d loaded (%s)", len(specs), ", ".join(sorted(specs)))
         return specs
+
+    def _scan_samples(self) -> dict[str, AgentSpec]:
+        """`agents/samples/<id>/` -> specs flagged `sample=True`.
+
+        A separate root rather than a naming convention: "is it under samples/" is a fact about
+        where it lives, which cannot drift, while "is it named sample-*" is a promise every
+        future author has to keep.
+        """
+        import dataclasses
+
+        root = self._agents_dir / "samples"
+        if not root.is_dir():
+            return {}
+        return {
+            agent_id: dataclasses.replace(spec, sample=True)
+            for agent_id, spec in self._scan(root).items()
+        }
 
     # ---- the two layers -----------------------------------------------------
 

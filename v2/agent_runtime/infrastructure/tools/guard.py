@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
+import time
 from dataclasses import dataclass
 
 from agent_runtime.domain.messages import TextContent
@@ -27,6 +28,17 @@ from agent_runtime.domain.messages import TextContent
 from . import Tool, ToolResult
 
 _UNSET = object()
+
+#: How close together identical calls must be to count as a LOOP.
+#:
+#: The repeat counter lives as long as the daemon, so without a window it measures "how many
+#: times has this exact call ever been made, consecutively" — which for a no-argument tool is
+#: just "how many times has it been called". A window listing files once per visit hit the limit
+#: and stayed blocked until a restart.
+#:
+#: Anything genuinely spinning repeats in milliseconds. Thirty seconds is far longer than that
+#: and far shorter than any legitimate gap (a user clicking, a turn ending, a run finishing).
+LOOP_WINDOW_SEC = 30.0
 
 # Transient (retryable) error heuristic — same shape as the computer driver's.
 _TRANSIENT = (socket.gaierror, ConnectionError, TimeoutError)
@@ -109,8 +121,10 @@ class GuardedTool(Tool):
     def __init__(self, inner: Tool, policy: ToolPolicy):
         self._inner = inner
         self._policy = policy
-        # loop-detection state (per tool, lives for the session)
+        # loop-detection state (per tool, lives for the session — see _loop_block for why the
+        # timestamp matters as much as the fingerprint)
         self._last_fp: str | None = None
+        self._last_at = 0.0
         self._repeat_count = 0
         self._consec_errors = 0
 
@@ -143,14 +157,32 @@ class GuardedTool(Tool):
             return repr(params)
 
     def _loop_block(self, params) -> ToolResult | None:
-        """Block an IDENTICAL call repeated too many times in a row."""
+        """Block an IDENTICAL call repeated too many times in a row.
+
+        "IN A ROW" HAS TO MEAN SOMETHING. This wrapper is one long-lived object per tool, so the
+        counter is not per-run, per-caller or per-turn: it simply accumulates for as long as the
+        daemon lives. For a tool that takes NO arguments every call fingerprints the same, so the
+        count only ever rises — which made a no-argument tool usable exactly `limit` times per
+        daemon lifetime and dead afterwards, whoever called it and however far apart.
+
+        That is what it looked like in practice: a window listing workflows once per visit, and
+        an agent calling the same tool at the start of ten different conversations, both banned
+        as runaway loops. Meanwhile a genuine spin — the same call over and over with nothing in
+        between — is unchanged, because that is what the window below actually measures.
+
+        So the count decays with TIME. A loop is fast by nature; a legitimate repeat is not.
+        """
         limit = self._policy.loop_max_repeats
         fp = self._fingerprint(params)
-        if fp == self._last_fp:
-            self._repeat_count += 1
-        else:
+        now = time.monotonic()
+        # A gap this long is not a loop. Anything spinning does it far faster, and anything
+        # slower than this had a reason to wait — a user clicked, a turn ended, a run finished.
+        if fp != self._last_fp or (now - self._last_at) > LOOP_WINDOW_SEC:
             self._last_fp = fp
             self._repeat_count = 1
+        else:
+            self._repeat_count += 1
+        self._last_at = now
         if limit and self._repeat_count > limit:
             return ToolResult.text(
                 f"loop guard: '{self.name}' was called with identical arguments "

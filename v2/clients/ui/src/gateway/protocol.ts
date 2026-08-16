@@ -49,6 +49,9 @@ export interface AgentInfo {
   color?: string
   /** the agent's own app UI, when it ships one (null/absent for plain chat agents) */
   app?: AgentApp | null
+  /** a reference implementation we ship (agents/samples/), runnable but not the user's own —
+   *  the sidebar keeps these in a separate collapsed section rather than in their agent list */
+  sample?: boolean
 }
 
 export interface Hello {

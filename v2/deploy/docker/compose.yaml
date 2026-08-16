@@ -1,7 +1,7 @@
 # Full HOSTED stack, local (docker compose) — mirrors the AWS Fargate topology, one box down.
 # Four services + volumes; the SAME images graduate to ECR/Fargate later (Stage 3).
 #
-#   1) put provider keys in v2/.env   (GEMINI_API_KEY, DEEPSEEK_API_KEY, ...)
+#   1) put provider keys in v2/.env   (GEMINI_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY, ...)
 #   2) from v2/:  docker compose -f deploy/docker/compose.yaml up --build
 #   3) open  http://localhost:8080  -> sign in, chat  (per-account isolated)
 #

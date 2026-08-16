@@ -88,6 +88,12 @@ APP_SCOPED_METHODS = frozenset(
         "sessions.history",
         "sessions.rename",
         "sessions.delete",
+        # FORK. Copying a conversation is how a user keeps the context they built and takes it
+        # somewhere new — branch an experiment, keep a working thread intact before a risky
+        # instruction. It is a scoped write like rename/delete (agentId is forced to the
+        # connection's own agent), and strictly less dangerous than the delete already allowed:
+        # it only ever creates.
+        "sessions.duplicate",
         "agents.list",
         "agents.detail",
         "tools.list",
@@ -514,6 +520,7 @@ PROVIDER_ENV_KEYS = (
     "GOOGLE_API_KEY",
     "OPENROUTER_API_KEY",
     "DEEPSEEK_API_KEY",
+    "MOONSHOT_API_KEY",
     "GROQ_API_KEY",
     "MISTRAL_API_KEY",
     "XAI_API_KEY",
@@ -690,6 +697,12 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "openai/o3", "label": "o3"},
     {"value": "deepseek/deepseek-chat", "label": "DeepSeek V3"},
     {"value": "deepseek/deepseek-reasoner", "label": "DeepSeek R1"},
+    # Moonshot (Kimi). The reason to reach for these is a 262k window that also takes
+    # IMAGES — DeepSeek is cheaper per token but text-only, so this is the cheap option for
+    # a turn carrying a screenshot or a scanned page.
+    {"value": "moonshot/kimi-k2.5", "label": "Kimi K2.5 (vision, 262k)"},
+    {"value": "moonshot/kimi-k2-0905-preview", "label": "Kimi K2 (262k)"},
+    {"value": "moonshot/kimi-thinking-preview", "label": "Kimi Thinking (vision)"},
     {"value": "xai/grok-4", "label": "Grok 4"},
     {"value": "xai/grok-3", "label": "Grok 3"},
     {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
@@ -738,6 +751,7 @@ _PROVIDER_LABEL = {
     "openai": "OpenAI",
     "azure": "OpenAI",
     "deepseek": "DeepSeek",
+    "moonshot": "Moonshot",
     "xai": "xAI",
     "groq": "Groq",
     "mistral": "Mistral",
@@ -756,6 +770,7 @@ _PROVIDER_KEY_ENV = {
     "openai": ("OPENAI_API_KEY",),
     "azure": ("AZURE_API_KEY", "OPENAI_API_KEY"),
     "deepseek": ("DEEPSEEK_API_KEY",),
+    "moonshot": ("MOONSHOT_API_KEY",),
     "xai": ("XAI_API_KEY",),
     "groq": ("GROQ_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),
@@ -1528,7 +1543,19 @@ class Gateway:
         text = "".join(getattr(b, "text", "") for b in (result.content or []))
         if result.is_error:
             raise RuntimeError(text or f"{name} failed")
-        return {"text": text, "artifacts": resolve_artifacts(result.artifacts)}
+        # `details` IS THE PROGRAM'S CHANNEL, and dropping it left windows with nothing but prose.
+        #
+        # A tool's text is written for a reader: "3 workflow(s) in C:\…\workflows:" and a bulleted
+        # list. A panel that needs those filenames had one option, and took it — a regex over the
+        # message. That worked until the message changed, which is a sentence, and then the tab
+        # silently showed nothing with no error anywhere.
+        #
+        # ToolResult.details already exists for structured output the model never sees. Passing it
+        # through costs a key and removes the reason to ever parse the prose.
+        payload: dict = {"text": text, "artifacts": resolve_artifacts(result.artifacts)}
+        if result.details is not None:
+            payload["details"] = _json_safe(result.details)
+        return payload
 
     async def _fire_channel(self, channel, msg) -> None:
         """An inbound message arrived -> run the bound agent on a conversation-bound
@@ -1830,6 +1857,8 @@ class Gateway:
                 return HttpResponse(
                     200, "OK", Headers({"Content-Type": "text/plain", "Content-Length": "2"}), b"ok"
                 )
+            if split.path == "/restart":
+                return await self._serve_restart(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
@@ -2198,6 +2227,11 @@ class Gateway:
             "email": "",
             "accountId": "",
             "canUseCloud": model_proxy.available(),
+            # ADVERTISED IS NOT REQUIRED, and only the daemon knows which this is. A client that
+            # sees `accountsUrl` and infers "sign-in is mandatory" puts a login in front of a
+            # daemon that would have served it with no account at all — see `signInRequired` in
+            # _platform_status.
+            "signInRequired": accounts.enabled(),
         }
 
     def _serve_platform(self, split, headers) -> HttpResponse:
@@ -3634,6 +3668,10 @@ class Gateway:
                     "app": self._agent_app(aid, spec),
                     "mine": bool(owns(aid)) if callable(owns) else True,
                     "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
+                    # A reference implementation we ship (agents/samples/). Runnable like any
+                    # agent — an exemplar nobody executes rots — but a client keeps these in
+                    # their own section rather than in the list of agents the user built.
+                    "sample": bool(getattr(spec, "sample", False)),
                 }
             )
         return {
@@ -4233,6 +4271,74 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
+    async def _serve_restart(self, split, headers) -> HttpResponse:
+        """``GET /restart`` — kill this daemon and bring a fresh one up.
+
+        GET FOR A STATE CHANGE, deliberately. This port is the WebSocket server's, and
+        ``websockets`` rejects any method but GET while PARSING the request line — before
+        ``process_request`` is ever called, so a POST never reaches this function and the client
+        just sees the connection close. Every other route here (`/file`, `/platform/connect`,
+        `/healthz`) is a GET for the same reason. The token requirement is what stands in for the
+        method: a stray link cannot carry it.
+
+        ONE ENDPOINT, ANY CALLER. The desktop shell, an agent app window, `curl`, a script: all
+        of them just POST here. The alternative was a method per transport — the shell already
+        had its supervisor, an app window would have needed a socket RPC — which is two
+        implementations of one sentence.
+
+        IT CANNOT DO THE WORK ITSELF. Whatever starts the replacement has to outlive the kill, so
+        this spawns ``python -m agent_runtime.respawn`` DETACHED and answers immediately; that
+        process kills this one by pid and starts the successor. Killing by pid rather than
+        shutting down in-process is also what makes it work on a daemon too busy to unwind
+        cleanly — the signal comes from outside.
+
+        AUTH IS `_http_identities` — the SAME rule as `/file` and the socket, one door with
+        three transports. A signed-in window presents `?session=`, a machine-token client
+        presents `?token=`; accepting only the second one 401s the very window this button is
+        for, because signing in is what makes it send a session instead.
+
+        A HOSTED daemon refuses outright. There it serves other people's sessions, and no
+        window's convenience is worth ending them.
+        """
+
+        def send(code: int, reason: str, obj: dict) -> HttpResponse:
+            body = json.dumps(obj).encode("utf-8")
+            hdrs = Headers()
+            hdrs["Content-Type"] = "application/json"
+            hdrs["Content-Length"] = str(len(body))
+            hdrs["Cache-Control"] = "no-store"
+            return HttpResponse(code, reason, hdrs, body)
+
+        query = parse_qs(split.query)
+        if await self._http_identities(query, headers) is None:
+            return send(401, "Unauthorized", {"ok": False, "error": "unauthorized"})
+        if accounts.enabled():
+            return send(
+                403,
+                "Forbidden",
+                {
+                    "ok": False,
+                    "error": "this daemon serves multiple accounts — restarting it would end "
+                    "everyone else's sessions",
+                },
+            )
+
+        try:
+            lifecycle.spawn_respawner()
+        except OSError as e:
+            return send(500, "Internal Server Error", {"ok": False, "error": str(e)})
+        log.info("restart requested over HTTP — a respawner is taking over")
+        return send(
+            200,
+            "OK",
+            {
+                "ok": True,
+                "pid": os.getpid(),
+                "detail": "restarting — this daemon stops in a moment and a fresh one takes the "
+                "same port; clients reconnect on their own",
+            },
+        )
+
     def _platform_status(self) -> dict:
         """What a client needs to know to sign in and to show its own mode.
 
@@ -4260,6 +4366,12 @@ class Gateway:
             "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
             # Is there a Cloud to switch to at all on this build?
             "canUseCloud": model_proxy.available(),
+            # IS SIGN-IN DEMANDED, or merely offered? `accountsUrl` above answers "where do people
+            # sign in", which every client had been reading as "people must sign in" — so a
+            # desktop daemon that accepts the machine token happily still put a login in front of
+            # every window. Only the daemon can tell the two apart (accounts.enabled() is an
+            # explicit hosted opt-in), so it says so rather than leaving each client to guess.
+            "signInRequired": accounts.enabled(),
             "modelProxy": proxy_status,
             # Wire compatibility for already-shipped clients. New clients read modelProxy.
             "modelGateway": proxy_status,

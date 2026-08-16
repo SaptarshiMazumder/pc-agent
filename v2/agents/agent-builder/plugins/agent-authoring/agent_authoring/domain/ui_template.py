@@ -10,11 +10,16 @@ Two provenances, and the distinction is the point:
   ``files``    the template's OWN files. Copied from ``templates/<id>/``. These are what the
                model then edits: markup, styling, the agent's surface.
 
-  ``borrowed`` files taken from Agent Builder's LIVE ``ui/`` instead of from the template.
-               ``vendor/agentd-client.js`` is the SDK and ``md.js`` is the renderer; keeping a
-               second copy under ``templates/`` would mean two versions of each in one product,
-               and the SDK copy could then disagree with the daemon it talks to. One source,
-               copied at scaffold time, cannot drift.
+  ``borrowed`` files taken from ``templates/_borrowed/`` — shared by every template instead of
+               being copied into each one. ``vendor/agentd-client.js`` is the SDK and ``md.js``
+               is the renderer; a per-template copy would mean three versions of each in one
+               product, and the SDK copies could then disagree with the daemon they talk to. One
+               source, copied at scaffold time, cannot drift.
+
+               That source used to be Agent Builder's own live ``ui/``. It moved when that folder
+               became a Vite build output, because a build empties its output directory — the one
+               copy every agent is scaffolded from is not something to leave in the path of
+               ``npm run build``.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ class UiTemplate:
     title: str
     summary: str
     files: tuple[str, ...]      # relative to templates/<id>/
-    borrowed: tuple[str, ...]   # relative to agent-builder's own ui/
+    borrowed: tuple[str, ...]   # relative to templates/_borrowed/
     readme: str                 # which of `files` is the instructions the model must read
 
     @property

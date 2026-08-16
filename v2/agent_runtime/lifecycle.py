@@ -241,6 +241,38 @@ def spawn_daemon(wait_sec: float = 300.0) -> GatewayInfo:
     )
 
 
+def spawn_respawner() -> int:
+    """Start the out-of-process restarter and return its pid.
+
+    NOTHING CAN RESTART ITSELF. The daemon can stop, and after that it can do nothing — so the
+    process that starts the replacement has to be a different one, already running when the kill
+    lands. `POST /restart` spawns this and answers; it does the killing and the starting.
+
+    Detached with the same flags as ``spawn_daemon``: it must survive the death of the process
+    that spawned it, which is the whole point and also the one thing easy to get wrong.
+    """
+    kwargs: dict = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        )
+    else:
+        kwargs["start_new_session"] = True
+    # `sys.executable`, never `daemon_command()`: that may be a console-script wrapper, and this
+    # needs an interpreter to run a module with.
+    proc = subprocess.Popen(  # noqa: S603 — our own module, no user input in the argv
+        [sys.executable, "-m", "agent_runtime.respawn"], **kwargs
+    )
+    return proc.pid
+
+
 def ensure_running(wait_sec: float = 300.0) -> tuple[GatewayInfo, bool]:
     """The live daemon, spawning one if needed. Returns (info, spawned_now)."""
     info = find_running()
@@ -249,16 +281,26 @@ def ensure_running(wait_sec: float = 300.0) -> tuple[GatewayInfo, bool]:
     return spawn_daemon(wait_sec), True
 
 
-def stop_daemon(timeout: float = 10.0) -> bool:
-    """Stop the running daemon (if any). Returns True when it is down."""
+def stop_daemon(timeout: float = 10.0, kill_tree: bool = True) -> bool:
+    """Stop the running daemon (if any). Returns True when it is down.
+
+    ``kill_tree`` kills the daemon's descendants too, which is right for a plain stop: the
+    ``agentd`` console-script forks a python child that would otherwise keep the port.
+
+    IT IS WRONG FOR A RESTART, and silently so. The respawner is spawned BY the daemon, so it is
+    one of those descendants — ``/T`` kills it mid-flight, and the result is a dead daemon, a
+    closed port, and nothing left running to start the replacement. Observed exactly once, which
+    was enough: the endpoint answered 200 and the machine lost its daemon.
+    """
     info = find_running()
     if info is None:
         clear_gateway_file()
         return True
     if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/PID", str(info.pid), "/T", "/F"], capture_output=True, check=False
-        )
+        argv = ["taskkill", "/PID", str(info.pid), "/F"]
+        if kill_tree:
+            argv.insert(-1, "/T")
+        subprocess.run(argv, capture_output=True, check=False)
     else:
         import signal
 

@@ -320,10 +320,19 @@ export class AgentdClient {
     const origin = toHttpOrigin(new URL(this.lastTarget.url).toString())
     const u = new URL('/file', origin)
     u.searchParams.set('path', path)
+    // BOTH, when we have both — not token-or-session.
+    //
+    // The daemon mints a NEW machine token every time it starts, and a window's token is fixed
+    // at the moment it opened. So after any daemon restart the token this client holds is dead,
+    // while its SESSION is still perfectly good — the socket proves it by reconnecting on the
+    // same credentials. Sending only the token turned that into a 401 on every /file URL in a
+    // signed-in window: images stopped loading and the reason was invisible, because nothing
+    // about a stale token looks different from a wrong one.
+    //
+    // The daemon reads `session or token`, so sending both means the live credential wins and
+    // the dead one is simply ignored.
     if (this.lastTarget.token) u.searchParams.set('token', this.lastTarget.token)
-    // No machine token (a hosted app page): the SESSION is the credential — /file
-    // authenticates it exactly like the socket gate does, one rule, two transports.
-    else if (this.lastTarget.session) u.searchParams.set('session', this.lastTarget.session)
+    if (this.lastTarget.session) u.searchParams.set('session', this.lastTarget.session)
     return u.toString()
   }
 }

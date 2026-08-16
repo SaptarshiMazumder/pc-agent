@@ -54,7 +54,7 @@ class ScaffoldUiService:
     :param reader: resolves an agent id to its directory (the bundle's only FS reader).
     :param templates: the catalogue.
     :param template_root: where the templates live — ``skills/build-agent/templates/``.
-    :param borrow_root: the LIVE ``ui/`` that ``borrowed`` files are taken from.
+    :param borrow_root: ``templates/_borrowed/``, where ``borrowed`` files are taken from.
 
     Both roots are injected rather than derived here: knowing where this bundle sits inside
     the product is the composition root's business, and injecting it is what lets a test point
@@ -111,8 +111,8 @@ class ScaffoldUiService:
             src = self._borrow_root / rel
             if not src.is_file():
                 raise ScaffoldError(
-                    f"cannot scaffold: {rel} is missing from {self._borrow_root} — it is copied "
-                    f"from the live UI so there is only ever one copy in the product"
+                    f"cannot scaffold: {rel} is missing from {self._borrow_root} — it is shared "
+                    f"by every template so there is only ever one copy in the product"
                 )
             plan.append((rel, src))
 

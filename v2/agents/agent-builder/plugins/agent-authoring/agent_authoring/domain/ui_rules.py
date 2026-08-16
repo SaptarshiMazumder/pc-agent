@@ -49,6 +49,47 @@ _STRIPPER = JsCommentStripper()
 #   * a component present whose SDK symbol is missing -> ERROR. A guaranteed "not a function" on
 #     load: a dead window, every time. ONE rule for N components, driven by `requires`.
 _SDK_VENDOR_SUFFIX = "vendor/agentd-client.js"
+
+
+def is_built_app(files) -> bool:
+    """Is this app COMPILED from source rather than hand-written into ``ui/``?
+
+    The convention, and the only signal worth keying on: source in ``app/`` with its own
+    ``package.json``, bundler output in ``ui/``. Two rules depend on knowing the difference —
+    ``ui/`` is unreadable machine output for such an app, and the SDK is inside the bundle rather
+    than beside it as a vendored file.
+    """
+    return any(f == "app/package.json" for f in files)
+
+
+def app_sources(sources: dict) -> dict:
+    """The agent's OWN app code, whichever layout it uses.
+
+    Three exclusions, each for a different reason:
+
+      ui/vendor/**   the SDK, vendored verbatim — not the agent's code
+      ui/assets/**   BUILD OUTPUT. Minified, identifiers renamed. Running name-matching rules over
+                     it yields either vacuous passes or nonsense hits on mangled variables.
+      anything else  not code these rules understand
+
+    When ``app/src/`` is present it is the real source, and it is read INSTEAD of ``ui/`` — a
+    built app has nothing readable there.
+    """
+    src = {
+        rel: text
+        for rel, text in sources.items()
+        if rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx"))
+    }
+    if src:
+        return src
+    return {
+        rel: text
+        for rel, text in sources.items()
+        if rel.startswith("ui/")
+        and rel.endswith(".js")
+        and "/vendor/" not in rel
+        and not rel.startswith("ui/assets/")
+    }
 # The component whose absence is worth warning about. Others are opt-in features; this one is the
 # difference between an agent that can be sold and one that cannot.
 _REQUIRED_COMPONENT = "sign-in"
@@ -100,13 +141,10 @@ class UiRules:
         self._components = tuple(components)
 
     def check(self, spec, raw_toml: dict, files: list[str], sources: dict) -> list[Finding]:
-        """`sources` maps an agent-relative path -> its text. Only ui/*.js is considered."""
+        """`sources` maps an agent-relative path -> its text. Only the agent's OWN app code is
+        considered — see `app_sources`."""
         out: list[Finding] = []
-        for rel, src in sorted(sources.items()):
-            if not (rel.startswith("ui/") and rel.endswith(".js")):
-                continue
-            if "/vendor/" in rel:
-                continue  # the SDK itself — vendored verbatim, not the agent's code
+        for rel, src in sorted(app_sources(sources).items()):
             # Comments are not code. Without this the rules fire on a file that WARNS about
             # the very mistake they check for — which is the most careful code they will ever
             # see, and exactly the false alarm that gets a check switched off.
@@ -128,11 +166,7 @@ class UiRules:
         """
         if not isinstance(raw_toml.get("app"), dict):
             return []
-        own = {
-            rel: src
-            for rel, src in sources.items()
-            if rel.startswith("ui/") and rel.endswith(".js") and "/vendor/" not in rel
-        }
+        own = app_sources(sources)
         if not own:
             return []
 

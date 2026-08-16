@@ -37,7 +37,11 @@ locals {
     # mismatch between them rejects every token with a confusing "issued by another deployment",
     # which is why neither is a configurable input.
     "model-proxy" = {
-      AGENTD_AUTH_ISSUER = local.publish_product_accounts_url
+      # Computed rather than a static entry in var.services because it reads a variable, and a
+      # variable's default cannot reference another variable. See `require_credits` for what the
+      # switch buys and the one case it cannot cover (anonymous public-app visitors).
+      MODEL_PROXY_REQUIRE_CREDITS = var.require_credits ? "1" : "0"
+      AGENTD_AUTH_ISSUER          = local.publish_product_accounts_url
       # Fetched over service-discovery DNS: a server-to-server call inside the VPC, not something
       # a browser does, so it must NOT use the public host.
       AGENTD_AUTH_JWKS_URI = "http://accounts.${var.project}.local:${local.services["accounts"].port}/auth/jwks.json"
@@ -59,8 +63,8 @@ locals {
       # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.
-      AGENTD_PUBLIC_ACCOUNTS_URL   = local.publish_product_accounts_url
-      AGENTD_PUBLIC_WS_URL         = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
+      AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
+      AGENTD_PUBLIC_WS_URL          = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
     }
   }

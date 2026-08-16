@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from agent_authoring.application.scaffold_ui_service import ScaffoldError, ScaffoldUiService
+from agent_authoring.bundle_layout import BundleLayout
 from agent_authoring.domain.ui_rules import UiRules
 from agent_authoring.domain.ui_template import CHAT_APP, UiTemplates
 
@@ -34,8 +35,10 @@ from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "agents" / "agent-builder"
-TEMPLATE_ROOT = BUILDER / "skills" / "build-agent" / "templates"
-BORROW_ROOT = BUILDER / "ui"
+# From the bundle itself, not re-derived here. A test that computes its own copy of these paths
+# passes happily while the shipped code reads somewhere else entirely.
+TEMPLATE_ROOT = BundleLayout.TEMPLATE_ROOT
+BORROW_ROOT = BundleLayout.BORROW_ROOT
 CHAT_APP_DIR = TEMPLATE_ROOT / CHAT_APP.id
 
 #: EVERY template the catalogue offers, not just the first one. The library's own docstring says
@@ -82,13 +85,13 @@ def test_every_file_the_registry_promises_exists(template_id):
         assert (_dir(template_id) / rel).is_file(), f"{template_id} missing {rel}"
 
 
-def test_the_borrowed_files_come_from_the_live_ui():
-    """`md.js` and the SDK are taken from Agent Builder's OWN ui/ rather than copied into the
+def test_the_borrowed_files_come_from_one_shared_source():
+    """`md.js` and the SDK are taken from templates/_borrowed/ rather than copied into each
     template, so there is exactly one of each in the product. The SDK especially: a stale copy
-    under templates/ would talk a protocol the daemon no longer speaks."""
+    under templates/<id>/ would talk a protocol the daemon no longer speaks."""
     for template_id in ALL_TEMPLATES:
         for rel in UiTemplates().get(template_id).borrowed:
-            assert (BORROW_ROOT / rel).is_file(), f"cannot borrow {rel} — not in agent-builder/ui/"
+            assert (BORROW_ROOT / rel).is_file(), f"cannot borrow {rel} — not in {BORROW_ROOT}"
             assert not (_dir(template_id) / rel).exists(), (
                 f"{template_id}/{rel} is duplicated into the template — that is the drift this avoids"
             )

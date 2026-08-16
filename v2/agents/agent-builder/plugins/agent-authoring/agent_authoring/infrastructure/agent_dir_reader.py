@@ -79,16 +79,26 @@ class AgentDirReader:
                                     right thing from one reaching out with no declaration, and
                                     would warn about the fix
             ui/**/*.js              the app checks (event shapes, callable methods)
+            app/src/**/*.ts(x)      the SAME checks for an app that is BUILT rather than
+                                    hand-written — see below
 
         The vendored SDK under ui/vendor/ is included — the UI rules skip it themselves, and
         reading it is how a check could later confirm which methods really exist.
+
+        A BUILT app (React + Vite: source in ``app/``, bundler output in ``ui/``) keeps nothing
+        readable in ``ui/`` — the output is minified, its identifiers are renamed, and the UI rules
+        are pattern-matching on names. Reading only ``ui/`` there means either silence or nonsense:
+        every check passes vacuously, or `payload.type` fires on a mangled variable. The author's
+        real code is in ``app/src/``, so that is what gets read.
 
         Unreadable or oversized files are skipped: a source scan is guidance, never a gate."""
         out: dict[str, str] = {}
         for rel in files:
             wanted = (
-                rel.startswith("plugins/") and (rel.endswith(".py") or rel.endswith("plugin.toml"))
-            ) or (rel.startswith("ui/") and rel.endswith(".js"))
+                (rel.startswith("plugins/") and (rel.endswith(".py") or rel.endswith("plugin.toml")))
+                or (rel.startswith("ui/") and rel.endswith(".js"))
+                or (rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx")))
+            )
             if not wanted:
                 continue
             p = agent_dir / rel

@@ -33,6 +33,12 @@ is exact; the procedure is short because it is what you actually do.
    A default picked silently is how an agent that should have had a screen ends up as another
    chat box, and rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
 
+   **Write down what they asked for, as a checklist** (`update_plan`), before you build anything.
+   Every requirement they stated, one line each. You will verify against it in step 8, and you
+   cannot verify against a memory of a conversation forty tool calls ago — that is how an agent
+   delivers four of five requested things and reports success, having genuinely forgotten the
+   fifth.
+
    Three more decisions, which ARE yours — answer them from the sections above, do not ask:
    - Does it **run on its own**? A monitor/tracker/reporter does: heartbeat + workspace
      snapshots + a skill for the routine. See "Design it as a MECHANISM".
@@ -42,11 +48,56 @@ is exact; the procedure is short because it is what you actually do.
 1. `agents_list` — check the id is free and learn the agents directory path.
 2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
    first; the agent is resolvable from this moment.
-3. **`scaffold_ui`** — if it needs a window, with the template that matches the shape
-   (`chat-app` / `dashboard-app` / `workbench-app`). Then EDIT what it wrote. Never hand-write
-   `ui/` files: the run-event payload is nested and streamed text is `message_update/text_delta`,
-   and a page that gets either wrong connects, logs nothing, and never updates the screen.
-   Remember `[app]` in `agent.toml` — this tool writes files, not configuration.
+3. **Give it a window** — two ways, and the choice is about how much the window has to do.
+
+   **`scaffold_ui`** copies a complete vanilla app (`chat-app` / `dashboard-app` /
+   `workbench-app`); you then EDIT what it wrote. No build step, no Node. Right when the window
+   IS one of those three things.
+
+   **`scaffold_react_app`** writes a buildable project and **no source at all** — for a window
+   that needs more than one view, or an artifact beside the chat, or panels driven by direct
+   tool calls. You write `src/` yourself, **after reading `agents/samples/`** (step 3a).
+
+   Either way: never hand-write `ui/` from nothing. The run-event payload is nested and streamed
+   text is `message_update/text_delta`; a page that gets either wrong connects, logs nothing, and
+   never updates the screen. And remember `[app]` in `agent.toml` — these tools write files, not
+   configuration.
+
+3a. **READ THE SAMPLES BEFORE YOU WRITE AN APP.** `agents/samples/` holds complete, working
+   agents. Read **more than one**, always.
+
+   They overlap where the platform has a right answer and differ where the product does, and the
+   differences are the part worth thinking about — one may keep an artifact beside the
+   conversation, another may put a queue in front of it. Neither is "the way". Say which you took
+   from and why, in one line.
+
+   **They are references, not a mould.** Take the mechanism, not the layout. Build what THIS
+   agent needs, including things no sample has — that is the job, and a window that is a
+   recoloured copy of a sample is a failure of it, not adherence to it.
+
+   What to look for, because each of these is invisible until a user hits it:
+
+   - **a turn is an ORDERED list of blocks.** Text, reasoning and tool calls interleave in the
+     order they happened. Two parallel fields (`text` + `tools[]`) throw that order away and can
+     only render "every tool, then every word" — a wall of tool names with unrelated sentences
+     fused underneath.
+   - **stream the reasoning.** `message_update` also carries `kind: 'thinking_delta'`. Without it
+     a long research phase is a motionless list of tool names, which reads as a hang.
+   - **`tool_progress` on the running row**, so a slow tool is distinguishable from a stuck one.
+   - **wait for the socket before the first request.** A request sent while it is still opening
+     rejects immediately with "not connected", and nothing retries — the panel renders empty and
+     looks like a permission problem.
+   - **render `agent_end.error` and `model_fallback`.** The provider's own words are the only
+     thing that separates a dead key from a rate limit from an empty balance. Drop them and every
+     failure looks like the same shrug.
+   - **never disable the composer while the agent works.** Offer Stop. The moment someone most
+     needs to speak is mid-run.
+   - **attachments**: drop, paste and pick. A pasted screenshot has no filename — name it from
+     its mime type or it is stored with no extension and never reaches a vision model as an image.
+   - **persist the session key**, restore history on load, and offer fork/rename/delete.
+   - **a settings page generated from `[[settings]]`**, secrets write-only, and a test button that
+     saves first.
+   - **direct `invokeTool` panels** for anything that is a lookup rather than a question.
 4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
    For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
    and writes the plugin in the right shape for you.
@@ -59,34 +110,78 @@ is exact; the procedure is short because it is what you actually do.
 7. **RUN IT. Then read what actually happened, fix, and run it again.**
 
    ```
-   agentd ask --agent <id> "<something a real user would say>"
+   run_agent(agent_id='<id>', message='<something a real user would say>')
    ```
 
-   One message, non-interactive, then it exits. It prints the reply on stdout and, on stderr,
-   **which tools the agent called** and how the run ended — and exits non-zero if the run failed.
+   One message on a fresh session. It returns the reply, **which tools the agent called**, and
+   how the run ended.
 
-   That trace is the point. These two look identical in prose and are completely different:
+   Use the TOOL, not a shell command. `agentd` is a console script that exists only where the
+   wheel was pip-installed — in a source checkout, which is where agents are authored, there is
+   nothing on PATH by that name, and hunting for one has cost a real build eleven `exec` calls.
+
+   The tools line is the point. These two look identical in prose and are completely different:
 
    ```
-   --- tools called: get_cost_snapshot, compare_thresholds     <- it did the work
-   --- tools called: NONE                                      <- it described the work
+   tools called: get_cost_snapshot, compare_thresholds     <- it did the work
+   tools called: NONE                                      <- it described the work
    ```
 
    Ask it two or three things a real user would ask. Then LOOK at the answer:
    - Did it call the tools that fetch data, or just talk about them?
    - Is the answer real, or a plausible-sounding placeholder?
-   - `RUN FAILED:` tells you exactly what broke — a missing key, an unconnected server, a
-     crashing tool. Fix it and run again.
+   - When it fails, the reason comes back in the agent's own words — a missing key, an
+     unconnected server, a crashing tool. Fix it and run again.
 
    **Do not skip this and do not declare an agent finished without it.** Everything before this
    step checks that the agent is well-FORMED; this is the only step that checks it WORKS.
    `validate_agent` cannot tell you an agent is useless, and an agent that has never run once is
    exactly the agent that turns out to be empty when the user opens it.
 
-8. **Show the user what you built and ask.** Name the two or three decisions you took that they
-   might disagree with — the shape of the window, what it stores, what it does on a schedule —
-   and ask whether that is what they wanted, BEFORE calling it done. You had to guess at
-   something; say which thing.
+7b. **OPEN THE WINDOW. `verify_app` — every time the agent has a `ui/`.**
+
+   ```
+   verify_app(agent_id='<id>')
+   ```
+
+   Step 7 proved the agent's BRAIN works. This is the only step that looks at its SCREEN, and a
+   screen is the part that can be perfectly built, perfectly served, and blank. Every failure it
+   catches looks like success from your side: the build printed no errors and the files are on
+   disk.
+
+   It reports assets that 404, a crash on mount, console errors, a page that rendered nothing, a
+   socket that never opened, a layout that overflows — and it REFUSES if `app/src` is newer than
+   `ui/`, because otherwise you are checking the previous build.
+
+   **Then drive what you actually built.** The generic checks cannot know what THIS agent is for:
+
+   ```
+   verify_app(agent_id='<id>', steps=[{action: 'click', target: 'Refresh'}])
+   verify_app(agent_id='<id>', steps=[{action: 'type', target: 'Ask anything', text: 'hello'},
+                                      {action: 'press', target: 'Enter'}])
+   ```
+
+   Target the VISIBLE TEXT of a control, not a selector. Most windows are fine until you touch
+   them — the handler that throws only throws on click — so a verification that never interacts
+   reports a healthy page with a dead button.
+
+   **LOOK AT THE SCREENSHOTS it returns.** Passing every check and being unusable are entirely
+   compatible: overlapping text, a panel off screen, a control with no label. The image is the
+   only thing that shows the difference, and you can see it.
+
+   Fix, verify, repeat. **Do not tell the user an agent with a window is finished while this
+   still reports errors.**
+
+8. **Show the user what you built, against what they ASKED for.**
+
+   Walk the checklist you wrote in step 0 — every requirement they gave, and whether it is done.
+   Not a summary of what you built: a comparison. An agent that does four of the five things
+   asked for reads as finished unless somebody checks the fifth, and you are the only one who
+   can, because you are the only one who saw all five.
+
+   Then name the two or three decisions you took that they might disagree with — the shape of
+   the window, what it stores, what it does on a schedule — and ask whether that is what they
+   wanted, BEFORE calling it done. You had to guess at something; say which thing.
 9. **`package_agent`** — only when they want to SHARE it. Produces the `.agentpkg`. It
    re-validates first and refuses on errors, so a broken agent never reaches anyone else.
 
@@ -637,6 +732,40 @@ def register(api, ctx):
     api.register_tool(LookupEntryTool())
 ```
 
+### A tool NEVER works out where the workspace is — it asks
+
+```python
+from agent_runtime.application.run_context import current_workspace
+
+folder = Path(current_workspace(".")) / "outputs"
+```
+
+**There is no fixed path to an agent's workspace, and the agent directory is not it.** The
+runtime picks it per run: a signed-in user gets their own, a chat inside a project gets the
+project's shared one, and a hosted deployment gives every account a separate one. Two runs of the
+same agent can have two different workspaces, both correct.
+
+So a path built from the agent's own directory — or from `__file__`, or from anything the model
+saw in an `ls` — points at a folder that is real, writable, and **not the one anything else
+reads**. The failure is silent and completely convincing: the write succeeds, the file is on
+disk, and every tool and every panel that lists the workspace reports nothing there. Observed:
+an agent wrote its output into its own definition folder, then spent three tool calls and a page
+of reasoning working out why its own listing tool could not see a file it had just written.
+
+The same rule applies to the app: `workspace.list` reads the run's workspace, so a file written
+outside it is invisible in the window too.
+
+**And when a tool finds nothing, it says WHERE it looked.**
+
+```python
+return ToolResult.text(f"No workflows in {folder}")     # ends the question
+return ToolResult.text("No workflows yet")              # starts an investigation
+```
+
+An empty result that names its folder turns exactly this class of bug into one line of output.
+It costs nothing and it is the difference between the agent noticing a path mismatch and the
+agent theorising about one.
+
 ### An agent's own tools become UNTRUSTED once someone installs the agent
 
 Trust is decided by **provenance**: an agent's private tools are classified
@@ -793,8 +922,10 @@ that should already be on the screen. A file-ingest agent whose window is a chat
 describe files they could have dropped. **Chat is right when the work genuinely is a conversation
 and wrong when it is a substitute for a control.**
 
-Chat and dashboard are both templates (`scaffold_ui(template='dashboard-app')`). Viewer has no
-template — build it from the dashboard, replacing the tiles with whatever the artifact is.
+Chat, dashboard and workbench are vanilla templates (`scaffold_ui(template='dashboard-app')`) —
+copied whole, no build step. A viewer has no template, and neither does anything that mixes two
+of these: for those, `scaffold_react_app` plus the samples, which is what the next section is
+about.
 
 ### A window is not limited to chatting
 
@@ -814,7 +945,57 @@ agentd.resultText(res)            a tool result -> the text to show
 milliseconds, with no model in the loop. Use chat for what needs judgement and tools for what
 needs doing — most agents want both, in one window.
 
-### Then `scaffold_ui`. Do not write these files by hand.
+### A tool a WINDOW calls returns data, not just prose
+
+```python
+return ToolResult.text(
+    f"{len(found)} workflow(s) in {folder}:\n" + rows,   # for the MODEL to reason about
+    details={"folder": str(folder), "workflows": found},  # for the WINDOW to render
+)
+```
+
+`invokeTool` gives the page back `{text, details, artifacts}`. **Read `details`. Never parse
+`text`.**
+
+A tool's text is a message written for a reader — it has a sentence, some bullets, a path in the
+middle of a line. Scraping it works on the day you write the regex and breaks the day someone
+rewords the sentence, and it breaks SILENTLY: the panel renders its empty state over a folder
+with files in it, with nothing in the console and no error to search for. That is not a
+hypothetical; it is where this paragraph came from.
+
+Two rules that go with it:
+
+- **`artifacts` is not a data channel.** It means "files THIS tool produced and wants shown to
+  the user" — a listing tool that fills it can surface any file it happens to find.
+- **A failed lookup is not an empty result.** `catch` around the call must not render "nothing
+  here"; those are different answers and only one of them is about the workspace.
+
+### A built app, when one of the three shapes is not enough
+
+```
+scaffold_react_app(agent_id='<id>')   →  app/ with package.json, vite.config.ts,
+                                         tsconfig.json, index.html, vendor/ — and NO src/
+```
+
+The missing `src/` is the design. There is no single right shape for a window that does several
+things, so instead of a fourth opinion you get the working agents under `agents/samples/` to
+judge from. Read more than one, decide, then write it.
+
+Two things about that project that only fail on somebody ELSE's machine, so check them before you
+hand the agent over:
+
+- **The SDK is vendored, not depended on.** `vendor/agentd-client.js` with an alias in
+  `vite.config.ts` and a `paths` entry in `tsconfig.json`. The samples in this repo instead
+  declare `"@agentd/client": "file:../../../../clients/sdk-js"` — correct where they live and
+  broken everywhere else, because that path exists only inside this product's own tree. **If you
+  copy a sample's `package.json`, delete that line.** The author never sees the failure; every
+  recipient does.
+- **`ui/` is the build output and `ui/` is what ships.** The daemon serves it and the packer
+  takes what is on disk, so an unbuilt change is invisible however correct the source is. Run
+  `npm install && npm run build` in `app/` before you call the agent finished, and again after
+  every source change.
+
+### Or `scaffold_ui`, for a plain window. Do not write these files by hand.
 
 ```
 scaffold_ui(agent_id='<id>')                          →  chat app (default)
@@ -960,6 +1141,7 @@ sessions.list
 sessions.history
 sessions.rename
 sessions.delete
+sessions.duplicate
 agents.list
 agents.detail
 tools.list
@@ -983,6 +1165,12 @@ platform.status
 platform.connect
 platform.disconnect
 ```
+
+`sessions.duplicate` copies a conversation and returns the new `sessionKey` — a **Fork** button.
+It matters more than it sounds: a long thread is expensive to build, and without a fork the only
+ways to try a different direction are to continue in it (losing the known-good state) or start
+fresh (losing the context). Open the copy after forking — a fork the user does not land in is
+indistinguishable from one that did nothing.
 
 `config.get` / `config.set` ARE available, so an agent MAY offer its own settings screen —
 that is how a shipped agent asks its user for their own API key (BYOK). One limit: for an

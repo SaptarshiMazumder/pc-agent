@@ -20,14 +20,19 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+# Safe at module scope: the loader puts this bundle's root on sys.path BEFORE importing this
+# module (loader.py — `sys.path.insert(0, root)` precedes `_load_entry_module`). The lazy imports
+# inside register() below predate that guarantee.
+from agent_authoring.bundle_layout import BundleLayout
+
 log = logging.getLogger("agentd")
 
-# agents/agent-builder/ — this file sits at <that>/plugins/agent-authoring/. Knowing the
-# product's layout is the composition root's job; the service below takes the two roots as
-# arguments so it can be pointed at a tmp dir in a test.
-AGENT_BUILDER_DIR = Path(__file__).resolve().parents[2]
-TEMPLATE_ROOT = AGENT_BUILDER_DIR / "skills" / "build-agent" / "templates"
-BORROW_ROOT = AGENT_BUILDER_DIR / "ui"
+# Knowing the product's layout is the composition root's job — but it is the same job for the MCP
+# server, so the paths themselves are owned by BundleLayout and named here for readability. The
+# services still take both roots as arguments, so a test can point them at a tmp dir.
+AGENT_BUILDER_DIR = BundleLayout.AGENT_BUILDER_DIR
+TEMPLATE_ROOT = BundleLayout.TEMPLATE_ROOT
+BORROW_ROOT = BundleLayout.BORROW_ROOT
 
 
 def register(api, ctx):
@@ -148,6 +153,54 @@ def register(api, ctx):
         )
     )
     api.register_tool(AddUiComponentTool(component_service, components))
+
+    # THE OTHER WAY TO GIVE AN AGENT A WINDOW. `scaffold_ui` copies a finished vanilla app,
+    # which is right when a chat window IS the product: no build step, no Node, and a model
+    # writing one from scratch reliably gets the event wiring wrong. `scaffold_react_app` copies
+    # only a buildable project and deliberately no source — for a window that needs more than a
+    # conversation, where there is no single right shape and the working agents under
+    # agents/samples/ are the material to judge from.
+    from agent_authoring.application.scaffold_react_app_service import ScaffoldReactAppService
+    from agent_authoring.presentation.scaffold_react_app_tool import ScaffoldReactAppTool
+
+    api.register_tool(
+        ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react"))
+    )
+
+    # VERIFY THE WINDOW. validate_agent proves an agent is well-formed and `agentd ask` proves
+    # its brain runs; neither opens the screen, which is the one part that can be perfectly built,
+    # perfectly served and blank. The driver is a FACTORY: a browser is expensive and must not be
+    # held open between calls. The gateway reader is injected so the daemon token is resolved
+    # here and never travels through the model's context.
+    from agent_runtime import lifecycle
+    from agent_runtime.application.run_context import current_workspace
+
+    from agent_authoring.application.verify_app_service import VerifyAppService
+    from agent_authoring.infrastructure.playwright_page_driver import PlaywrightPageDriver
+    from agent_authoring.presentation.verify_app_tool import VerifyAppTool
+
+    def _shot_dir():
+        # Agent Builder's OWN workspace: the screenshots are evidence for the builder, not files
+        # the built agent should ship or a user should find in their agent's folder.
+        return Path(current_workspace(".")) / "verify"
+
+    # RUN WHAT IT BUILT. The skill used to send it to the shell for `agentd ask`, which exists
+    # only where the wheel was pip-installed — not in a source checkout, which is where agents
+    # are authored. A tool cannot be missing from PATH.
+    from agent_authoring.presentation.run_agent_tool import RunAgentTool
+
+    api.register_tool(RunAgentTool())
+
+    api.register_tool(
+        VerifyAppTool(
+            VerifyAppService(
+                reader,
+                driver_factory=lambda shot: PlaywrightPageDriver(_shot_dir(), want_shot=shot),
+                gateway_reader=lifecycle.find_running,
+                screenshot_dir=_shot_dir(),
+            )
+        )
+    )
 
     # --- CHECK (the tool face of the validator built above) ---------------------------
     api.register_tool(ValidateAgentTool(validator))

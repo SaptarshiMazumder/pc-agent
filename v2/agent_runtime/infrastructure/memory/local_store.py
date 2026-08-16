@@ -25,7 +25,64 @@ from pathlib import Path
 
 # Domain types + their (de)serialization. Imported from the canonical domain path
 # now that this module lives in the infrastructure layer.
-from agent_runtime.domain.messages import Message, message_from_dict, message_to_dict
+from agent_runtime.domain.messages import (
+    AssistantMessage,
+    Message,
+    TextContent,
+    ToolResultMessage,
+    message_from_dict,
+    message_to_dict,
+)
+
+#: What the model is told about a tool call whose result was never written. Deliberately states
+#: the FACT (it did not finish) rather than inventing an outcome — an invented "succeeded" would
+#: make the model build on work that never happened.
+INTERRUPTED_TOOL_RESULT = (
+    "This tool call did not finish — the run was interrupted (the daemon stopped or the "
+    "connection dropped) before a result was recorded. Treat it as not run: if you still need "
+    "it, call it again."
+)
+
+
+def close_unanswered_tool_calls(messages: list[Message]) -> list[Message]:
+    """Give every tool call a result, so an interrupted run cannot brick a conversation.
+
+    THE PROTOCOL INVARIANT. An assistant message carrying ``tool_calls`` must be followed by one
+    tool message per ``tool_call_id`` — the model has to see the outcome of every call it made.
+    Providers validate the WHOLE message array up front, so one unanswered call is rejected as a
+    400 covering the entire request, not just the bad part.
+
+    HOW A TRANSCRIPT ENDS UP LIKE THAT. The loop persists the assistant turn, runs the tools,
+    then persists their results. Anything that stops the process in between — a daemon restart,
+    a crash, a killed task — leaves the call written and the result not. Nothing then repairs it,
+    so every later message replays the same malformed history and fails identically. Observed in
+    the wild: a conversation with 97 healthy records answered eleven consecutive sends with
+    "couldn't generate a response", and could never recover on its own.
+
+    Repair happens ON LOAD and IN MEMORY. The file is left exactly as it is — it is the record of
+    what happened, and an interrupted call IS what happened. Every existing broken session is
+    fixed the next time it is opened, with no migration.
+    """
+    answered = {
+        m.tool_call_id for m in messages if isinstance(m, ToolResultMessage) and m.tool_call_id
+    }
+    repaired: list[Message] = []
+    for message in messages:
+        repaired.append(message)
+        if not isinstance(message, AssistantMessage):
+            continue
+        for call in message.tool_calls:
+            if call.id and call.id not in answered:
+                answered.add(call.id)
+                repaired.append(
+                    ToolResultMessage(
+                        tool_call_id=call.id,
+                        tool_name=getattr(call, "name", "") or "tool",
+                        content=[TextContent(text=INTERRUPTED_TOOL_RESULT)],
+                        is_error=True,
+                    )
+                )
+    return repaired
 
 
 def _iso_now() -> str:
@@ -116,7 +173,7 @@ class SessionStore:
                 if entry.get("type") == "message":  # skip the header line
                     messages.append(message_from_dict(entry["message"]))
                     self._last_id = entry.get("id")  # remember the tail for chaining
-        return messages
+        return close_unanswered_tool_calls(messages)
 
     def append(self, message: Message) -> str:
         """Append one message to the transcript; returns the new line's id.

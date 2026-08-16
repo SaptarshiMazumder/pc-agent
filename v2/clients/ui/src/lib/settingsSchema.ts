@@ -165,6 +165,7 @@ export const SETTINGS_TABS: TabDef[] = [
           { key: 'env:GEMINI_API_KEY', label: 'Google Gemini', type: 'secret', placeholder: 'AIza…' },
           { key: 'env:OPENROUTER_API_KEY', label: 'OpenRouter', type: 'secret' },
           { key: 'env:DEEPSEEK_API_KEY', label: 'DeepSeek', type: 'secret' },
+          { key: 'env:MOONSHOT_API_KEY', label: 'Moonshot (Kimi)', type: 'secret', placeholder: 'sk-…' },
           { key: 'env:GROQ_API_KEY', label: 'Groq', type: 'secret' },
           { key: 'env:XAI_API_KEY', label: 'xAI (Grok)', type: 'secret' },
           { key: 'env:MISTRAL_API_KEY', label: 'Mistral', type: 'secret' }
