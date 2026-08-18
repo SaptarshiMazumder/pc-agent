@@ -1106,6 +1106,28 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         count("admin_action_total", outcome="creator_admitted")
         return body
 
+    @router.post("/agents/unlist")
+    def unlist_agent(
+        payload: dict = Body(...), authorization: str | None = Header(default=None)
+    ) -> dict:
+        """Take an agent off the marketplace.
+
+        Removes the LISTING, not the files and not anyone's installed copy — so republishing the
+        same version restores it. Deleting the artifacts is deliberately still a CLI operation
+        (`agentd bundle unlist --purge-artifacts`): it is the one step here with no way back, and a
+        button is the wrong shape for it.
+        """
+        admin_token = _bearer(authorization)
+        require_admin(authorization)
+        cfg = deps.settings()
+        status, body = _proxy(
+            "POST", f"{_publish_base(cfg)}/registry/admin/unlist", admin_token, payload
+        )
+        if status >= 400:
+            raise HTTPException(status_code=status, detail=body.get("message") or "refused")
+        count("admin_action_total", outcome="agent_unlisted")
+        return body
+
     @router.post("/creators/revoke")
     def revoke_creator(
         payload: dict = Body(...), authorization: str | None = Header(default=None)

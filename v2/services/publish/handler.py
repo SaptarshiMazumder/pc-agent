@@ -31,6 +31,7 @@ ADMIN_PENDING_ROUTE = "/registry/admin/pending"
 ADMIN_CREATORS_ROUTE = "/registry/admin/creators"
 ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
 ADMIN_REVOKE_ROUTE = "/registry/admin/revoke"
+ADMIN_UNLIST_ROUTE = "/registry/admin/unlist"
 
 
 # ────────────────────────────── composition ──────────────────────────────
@@ -216,6 +217,7 @@ def _is_admin_route(path: str) -> bool:
             ADMIN_CREATORS_ROUTE,
             ADMIN_ADMIT_ROUTE,
             ADMIN_REVOKE_ROUTE,
+            ADMIN_UNLIST_ROUTE,
         )
     )
 
@@ -253,6 +255,9 @@ def _admin(event, path: str) -> dict:
         if path.endswith(ADMIN_ADMIT_ROUTE):
             ids = body.get("creator_ids") or ([body["creator_id"]] if body.get("creator_id") else [])
             result = admin.admit(token, [str(i) for i in ids])
+        elif path.endswith(ADMIN_UNLIST_ROUTE):
+            ids = body.get("bundle_ids") or ([body["bundle_id"]] if body.get("bundle_id") else [])
+            result = admin.unlist(token, [str(i) for i in ids])
         else:
             result = admin.revoke(token, str(body.get("creator_id") or ""))
         return _json(result.status, result.body())

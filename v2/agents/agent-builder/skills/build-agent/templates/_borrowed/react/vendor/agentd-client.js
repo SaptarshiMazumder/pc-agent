@@ -26,16 +26,21 @@ function pathAgentId(here) {
 function usable(token) {
   return !!token && !token.startsWith("sess_") && token.split(".").length === 3;
 }
-function accessTokenExpiry(token) {
+function claims(token) {
   try {
     const body = (token || "").split(".")[1];
-    if (!body) return 0;
-    const json = atob(body.replace(/-/g, "+").replace(/_/g, "/"));
-    const exp = Number(JSON.parse(json)?.exp || 0);
-    return exp > 0 ? exp * 1e3 : 0;
+    if (!body) return null;
+    return JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/")));
   } catch {
-    return 0;
+    return null;
   }
+}
+function accessTokenExpiry(token) {
+  const exp = Number(claims(token)?.exp || 0);
+  return exp > 0 ? exp * 1e3 : 0;
+}
+function accessTokenAccount(token) {
+  return String(claims(token)?.sub || "");
 }
 var EXPIRY_SKEW_MS = 3e4;
 function loadSession(storageKey = "") {
@@ -482,14 +487,17 @@ function acceptHostTokens(opts = {}) {
   return host.onAccessToken((token) => {
     if (!token) return;
     const stored = loadSession(opts.storageKey);
+    if (stored?.accountId && accessTokenAccount(token) !== stored.accountId) return;
     saveSession(
       {
         token,
         email: stored?.email || "",
         accountId: stored?.accountId || "",
         refreshToken: stored?.refreshToken,
-        expiresAt: void 0
-        // the shell owns the schedule; we only hold what it last sent
+        // From the token's own `exp` rather than left empty. The shell still owns the SCHEDULE —
+        // it decides when to push next — but the window has to know when what it is holding dies,
+        // or an unattended one goes on presenting a spent credential (see `spent` in session.ts).
+        expiresAt: accessTokenExpiry(token) || void 0
       },
       opts.storageKey
     );
@@ -672,6 +680,7 @@ export {
   AgentdClient,
   PROTOCOL_VERSION,
   acceptHostTokens,
+  accessTokenAccount,
   accessTokenExpiry,
   authLogin,
   authLogout,

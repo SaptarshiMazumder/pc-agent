@@ -65,23 +65,33 @@ function usable(token: string): boolean {
 }
 
 /**
- * When an access token dies, in epoch ms — read from its own `exp` claim. 0 when unreadable.
+ * An access token's claims, decoded and NOT verified. Null when unreadable.
  *
- * The claim is read, NOT trusted: nothing is authorised on the strength of it. The daemon verifies
- * the signature and would reject a token whose `exp` we misread in our favour. All this decides is
- * when the page should stop pretending the credential still works.
+ * Read, never trusted: nothing is authorised on the strength of what comes out of here. The daemon
+ * checks the signature and would reject a token whose claims we misread in our own favour. These
+ * two readers only decide what the PAGE should do with a credential it already holds — when to
+ * stop pretending it works, and whether it belongs to this window at all.
  */
-export function accessTokenExpiry(token: string): number {
+function claims(token: string): Record<string, unknown> | null {
   try {
     const body = (token || '').split('.')[1]
-    if (!body) return 0
+    if (!body) return null
     // base64url -> base64. atob is the one decoder present in every browser and in Node 16+.
-    const json = atob(body.replace(/-/g, '+').replace(/_/g, '/'))
-    const exp = Number(JSON.parse(json)?.exp || 0)
-    return exp > 0 ? exp * 1000 : 0
+    return JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
   } catch {
-    return 0 // not our token shape — `usable` already refuses those
+    return null // not our token shape — `usable` already refuses those
   }
+}
+
+/** When an access token dies, in epoch ms, from its own `exp`. 0 when unreadable. */
+export function accessTokenExpiry(token: string): number {
+  const exp = Number(claims(token)?.exp || 0)
+  return exp > 0 ? exp * 1000 : 0
+}
+
+/** Which account an access token speaks for, from its `sub`. '' when unreadable. */
+export function accessTokenAccount(token: string): string {
+  return String(claims(token)?.sub || '')
 }
 
 /** Renew slightly BEFORE the cliff, so the prompt arrives ahead of the first failed request. */

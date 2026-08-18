@@ -24,7 +24,15 @@
  */
 
 import { AgentdClient } from './client'
-import { type RunMode, effectiveMode, loadSession, saveMode, saveSession } from './session'
+import {
+  type RunMode,
+  accessTokenAccount,
+  accessTokenExpiry,
+  effectiveMode,
+  loadSession,
+  saveMode,
+  saveSession
+} from './session'
 
 export interface AuthState {
   /** Is an accounts service configured on this daemon? false => no sign-in to offer. */
@@ -277,13 +285,30 @@ export function acceptHostTokens(opts: AuthOptions = {}): () => void {
   return host.onAccessToken((token) => {
     if (!token) return
     const stored = loadSession(opts.storageKey)
+    // WHOSE TOKEN IS THIS? The shell broadcasts to EVERY open app window at once — it does not
+    // know, and cannot know, that one of them is signed in as somebody else. A window that signed
+    // in through its own form is a DIFFERENT account on purpose (see session.ts: one daemon, many
+    // sockets, many answers), and taking the shell's token here would end that quietly and
+    // badly: storage would hold this account's email and refresh token beside the OTHER
+    // account's access token, `auth.update` would be refused for mismatching the connection, and
+    // the reconnect in the catch below would then present the token we had just stored — landing
+    // the window on the shell's account while still displaying this one's email.
+    //
+    // An empty stored accountId is the ordinary case, not an exception: a window opened BY the
+    // shell adopts its credential from the launch url and records no account (client.ts
+    // `fromPage`), so it has nothing to disagree with and accepts every push, exactly as before.
+    // An unreadable token fails CLOSED — a credential we cannot attribute is not one to adopt.
+    if (stored?.accountId && accessTokenAccount(token) !== stored.accountId) return
     saveSession(
       {
         token,
         email: stored?.email || '',
         accountId: stored?.accountId || '',
         refreshToken: stored?.refreshToken,
-        expiresAt: undefined // the shell owns the schedule; we only hold what it last sent
+        // From the token's own `exp` rather than left empty. The shell still owns the SCHEDULE —
+        // it decides when to push next — but the window has to know when what it is holding dies,
+        // or an unattended one goes on presenting a spent credential (see `spent` in session.ts).
+        expiresAt: accessTokenExpiry(token) || undefined
       },
       opts.storageKey
     )

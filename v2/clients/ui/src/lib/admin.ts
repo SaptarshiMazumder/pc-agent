@@ -313,6 +313,15 @@ export type AgentsView = {
 
 export const agents = (): Promise<AgentsView> => call<AgentsView>('/admin/agents')
 
+/**
+ * Take an agent off the marketplace.
+ *
+ * Removes the listing only — the files stay and installed copies are untouched, so republishing
+ * the same version puts it back. Deleting artifacts remains a CLI operation on purpose.
+ */
+export const unlistAgent = (bundle_id: string): Promise<{ message?: string }> =>
+  post('/admin/agents/unlist', { bundle_id })
+
 export type Creator = {
   creator_id: string
   account_id: string

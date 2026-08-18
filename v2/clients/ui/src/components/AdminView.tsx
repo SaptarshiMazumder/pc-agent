@@ -696,6 +696,27 @@ function UsagePanel(): ReactNode {
 function AgentsPanel(): ReactNode {
   const { data, error, busy, reload } = usePanel(() => api.agents(), [])
   const usageQuery = usePanel(() => api.usage('agent'), [])
+  const [note, setNote] = useState('')
+
+  async function unlist(b: api.Bundle): Promise<void> {
+    if (
+      !confirm(
+        `Take "${b.title || b.id}" off the marketplace?\n\n` +
+          'The listing disappears from every store and nothing new can install it. The files are ' +
+          'KEPT and copies already installed keep working — republishing the same version puts it ' +
+          'back.'
+      )
+    )
+      return
+    setNote('')
+    try {
+      const r = await api.unlistAgent(b.id)
+      setNote(r.message || `${b.id} is off the marketplace.`)
+      reload()
+    } catch (e) {
+      setNote((e as Error).message)
+    }
+  }
 
   return (
     <>
@@ -709,15 +730,19 @@ function AgentsPanel(): ReactNode {
           </button>
         }
       >
+        {note && <div className="admin-note">{note}</div>}
         {!data?.configured ? (
           <Empty>This deployment has no registry configured, so nothing is published.</Empty>
         ) : data.error ? (
           <div className="admin-error">{data.error}</div>
         ) : data.bundles.length ? (
-          <Table head={['Agent', 'Version', 'Creator', 'Delivery', 'Status']}>
+          <Table head={['Agent', 'Version', 'Creator', 'Delivery', 'Status', '']}>
             {data.bundles.map((b) => (
               <tr key={b.id}>
-                <td className="admin-strong">{b.title || b.id}</td>
+                <td>
+                  <div className="admin-strong">{b.title || b.id}</div>
+                  <div className="admin-mono admin-muted">{b.id}</div>
+                </td>
                 <td className="admin-mono">{b.version}</td>
                 <td>{b.publisher_name || b.publisher_id || '—'}</td>
                 <td>
@@ -731,6 +756,15 @@ function AgentsPanel(): ReactNode {
                   ) : (
                     <span className="admin-chip admin-chip-ok">listed</span>
                   )}
+                </td>
+                <td>
+                  <button
+                    className="btn danger"
+                    title="Take this agent off the marketplace (reversible — the files are kept)"
+                    onClick={() => void unlist(b)}
+                  >
+                    Remove
+                  </button>
                 </td>
               </tr>
             ))}
