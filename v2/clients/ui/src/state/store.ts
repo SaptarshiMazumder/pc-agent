@@ -71,7 +71,8 @@ export interface OutgoingAttachment {
 
 export type View =
   | 'chat'
-  | 'marketplace' // the agent marketplace (was 'store')
+  | 'myagents' // the user's own shelf — replaced 'marketplace' as the nav destination
+  | 'marketplace' // the agent marketplace (kept routable; the PUBLIC storefront is on hold)
   | 'settings'
   | 'account'
   | 'subscription'
@@ -81,6 +82,7 @@ export type View =
   | 'agent' // one agent's detail page (uses viewedAgentId)
   | 'app' // an agent's OWN UI, embedded (uses appAgentId)
   | 'admin' // the platform control plane — only reachable by an admin account
+  | 'org' // one organization's page (uses viewedOrgId) — members, seats, invites, usage
 
 /** One open chat tab. Tabs OWN their agent binding: sessionRows only ever holds
  *  the CURRENT agent's list, so a tab from another agent must remember where it
@@ -300,6 +302,8 @@ interface AppState {
    *  viewedAgentId so backing out of an app returns to that agent's page rather than
    *  whichever agent happened to be browsed last. */
   appAgentId: string
+  /** which organization the org page (view:'org') is showing — set from the profile switcher */
+  viewedOrgId: string
   projects: ProjectRow[]
   sessions: Record<string, SessionState>
   /** Chrome-style tabs: chats opened this app-session, in tab order */
@@ -354,6 +358,8 @@ interface AppState {
   /** open an agent's DETAIL page (view:'agent') — browse its chats/workspace/skills, does NOT
    *  start or switch a chat (that's selectAgent / "New chat with agent" on the page) */
   viewAgent(agentId: string): void
+  /** open an organization's page (view:'org') — members, seats, invites, domains, usage */
+  viewOrg(orgId: string): void
   /** open a project's DETAIL page (view:'project') */
   openProject(projectId: string): void
   /** start a FRESH chat as the given agent (from the agent detail page's "New chat with …") */
@@ -843,6 +849,7 @@ export const useApp = create<AppState>((set, get) => {
     currentProjectId: '',
     viewedAgentId: '',
     appAgentId: '',
+    viewedOrgId: '',
     projects: [],
     sessions: {},
     composerSeed: null,
@@ -929,7 +936,9 @@ export const useApp = create<AppState>((set, get) => {
 
     setView(view) {
       set({ view })
-      if (view === 'marketplace') void get().refreshCatalog()
+      // My Agents joins the user's agents against the catalog for publish state, so it needs the
+      // same refresh the marketplace did — stale here means a just-published agent shows "private".
+      if (view === 'marketplace' || view === 'myagents') void get().refreshCatalog()
     },
 
     openToolConfig(toolName) {
@@ -1078,6 +1087,10 @@ export const useApp = create<AppState>((set, get) => {
     viewAgent(agentId) {
       // open the agent's detail PAGE — browse only; does NOT switch the chat agent
       set({ view: 'agent', viewedAgentId: agentId })
+    },
+
+    viewOrg(orgId) {
+      set({ view: 'org', viewedOrgId: orgId })
     },
 
     openAgentApp(agentId) {

@@ -273,7 +273,7 @@ class FileAgentRegistry:
     with it an overlay; what it never loses is ownership of the shared layer (see ``owns``).
     """
 
-    def __init__(self, config, overlay_dir=None, account_id=None):
+    def __init__(self, config, overlay_dir=None, account_id=None, org_layers=None):
         self._config = config
         self._agents_dir = Path(
             getattr(config, "agents_dir", None) or Path(config.state_dir).parent / "agents"
@@ -283,8 +283,16 @@ class FileAgentRegistry:
         #: overlay_dir, and for the same reason: the registry is built once, the answer isn't.
         #: Ownership needs the id itself (records name accounts), not just the overlay path.
         self._account_id = account_id
+        #: () -> the CURRENT connection's ORG layers as ((org_id, role, path), ...) — tenancy
+        #: E3's ordered middle layer (curated < org < personal). Same per-connection-callable
+        #: shape as the two above; the composition root derives it from the verified token's
+        #: own orgs claim, so a connection with no memberships resolves () and nothing here
+        #: runs. The ROLE rides along because `owns` needs it: every member SEES an org agent,
+        #: only org admins/owners may change it.
+        self._org_layers = org_layers
         #: str(overlay path) -> that account's specs. Keyed by PATH rather than account id so the
         #: cache cannot outlive a re-pointed root, and so a test can drive it without an account.
+        #: Org layers cache HERE TOO (also path-keyed), so refresh() clears every layer at once.
         self._overlays: dict[str, dict[str, AgentSpec]] = {}
         self._specs = self._discover()
 
@@ -451,6 +459,34 @@ class FileAgentRegistry:
             self._overlays[key] = cached
         return cached
 
+    def _org_layer_list(self) -> tuple:
+        """The caller's ((org_id, role, Path), ...), or () — resolved per call, like the
+        overlay, and degrading to () on a broken resolver for the same reason."""
+        if self._org_layers is None:
+            return ()
+        try:
+            return tuple(self._org_layers() or ())
+        except Exception:  # noqa: BLE001 — a broken resolver must not take the catalogue down
+            log.exception("agents: org-layer resolver failed — org agents absent this call")
+            return ()
+
+    def _org_specs(self) -> dict[str, AgentSpec]:
+        """The caller's ORG layer, merged across their orgs (org-id order, deterministic).
+
+        Each org's dir scans exactly like an account overlay — record-less dirs presumed the
+        ORG's own — and caches in the same path-keyed map, so refresh() invalidates every
+        layer with one clear. A non-member's list is (), so for them this dict does not
+        merely hide org agents: it never contains them."""
+        merged: dict[str, AgentSpec] = {}
+        for org_id, _role, path in sorted(self._org_layer_list(), key=lambda t: str(t[0])):
+            key = str(path)
+            cached = self._overlays.get(key)
+            if cached is None:
+                cached = self._scan(Path(path), default_owner=str(org_id))
+                self._overlays[key] = cached
+            merged.update(cached)
+        return merged
+
     def _current(self) -> dict[str, AgentSpec]:
         """What THIS caller may see: their own installs + the agents that are THEIRS to see.
 
@@ -460,19 +496,30 @@ class FileAgentRegistry:
         desktop dir, another account's stray copy, operator debris) is invisible, not merely
         refused. The operator (machine token, no account) still sees everything — it is theirs.
         Same choke-point principle as `withheld_reason`: absent from this dict means no roster
-        entry, no session key, no app served, nothing for any surface to get wrong."""
+        entry, no session key, no app served, nothing for any surface to get wrong.
+
+        ORDERED LAYERS (tenancy E3): curated < org < personal — an id collision resolves to
+        the personal copy, so installing your own build of the company agent gets you yours
+        without touching anybody else's."""
         overlay = self._overlay()
-        specs = {**self._specs, **overlay} if overlay else self._specs
+        org = self._org_specs()
+        specs = {**self._specs, **org, **overlay} if (overlay or org) else self._specs
         if not self._hosted():
             return specs
         acct = self._account_id() if callable(self._account_id) else None
         if not acct:
             return specs
+        # The owner filter, widened from the hardcoded (platform, acct) 2-tuple to the caller's
+        # identity SET — which is what lets an org-owned spec pass for its members and nobody
+        # else. Overlay/org entries already passed their own layer's membership to be here.
+        allowed = {ownership.PLATFORM_OWNER, acct} | {
+            str(org_id) for org_id, _role, _path in self._org_layer_list()
+        }
         return {
             aid: s
             for aid, s in specs.items()
             # empty owner = a spec injected without a scan (tests, exotic registries): unrestricted
-            if aid in overlay or not s.owner or s.owner in (ownership.PLATFORM_OWNER, acct)
+            if aid in overlay or aid in org or not s.owner or s.owner in allowed
         }
 
     def _write_target(self) -> tuple[dict[str, AgentSpec], Path]:
@@ -771,7 +818,7 @@ class FileAgentRegistry:
         the dir has one, else the layer's presumed owner), so hot paths never touch disk. See
         planning/platform/identity-ownership-statelessness.md, Step 2."""
         aid = (agent_id or "").strip().lower()
-        spec = self._overlay().get(aid) or self._specs.get(aid)
+        spec = self._overlay().get(aid) or self._org_specs().get(aid) or self._specs.get(aid)
         if spec is None:
             return None
         owner = getattr(spec, "owner", "") or self._shared_owner_default()
@@ -783,10 +830,20 @@ class FileAgentRegistry:
         On a desktop the human is the operator, so "local" stays theirs even while signed in —
         signing in adds an identity, it never subtracts one (the game-master regression: a
         signed-in author suddenly unable to touch the agents on their own machine). On a hosted
-        daemon a stranger acts only as their account, and curated agents stay the platform's."""
+        daemon a stranger acts only as their account, and curated agents stay the platform's.
+
+        AN ORG'S AGENT IS OWNED BY ITS ADMINS, not its members (tenancy E3): every member SEES
+        it (that is `_current`), but `mine` gates change — share/unshare/edit — and a member
+        changing the whole company's agent is exactly the isolation-granularity bug the plan
+        names. The role comes from the same verified-token layer list `_current` uses."""
         info = self._ownership(agent_id)
         if info is None:
             return False
+        if ownership.is_org(info[0]):
+            return any(
+                str(org_id) == info[0] and str(role) in ("owner", "admin")
+                for org_id, role, _path in self._org_layer_list()
+            )
         acct = self._account_id() if callable(self._account_id) else None
         return ownership.owned_by_caller(info[0], acct, self._hosted())
 

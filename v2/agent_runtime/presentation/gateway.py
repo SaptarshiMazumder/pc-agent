@@ -1536,8 +1536,10 @@ class Gateway:
                 else str(getattr(spec, "workspace", "") or "")
             )
             read_roots, write_clamp = user_state.tenant_scope(
-                self.config, acct, getattr(spec, "dir", None), workspace
+                self.config, acct, getattr(spec, "dir", None), workspace,
+                org_ids=accounts.org_ids(),
             )
+            _spec_owner = str(getattr(spec, "owner", "") or "")
             run_ctx = RunContext(
                 agent_id=scope,
                 session_key=f"agent:{scope}:app",
@@ -1546,6 +1548,8 @@ class Gateway:
                 plugins=getattr(spec, "plugins", None),
                 read_roots=read_roots,
                 write_clamp=write_clamp,
+                # same attribution rule as a full turn: an org's agent bills the org's pool
+                org_id=_spec_owner if ownership.is_org(_spec_owner) else "",
             )
         # find_tool returns the reliability WRAPPER (GuardedTool, real tool in `_inner`); the
         # self-declared `artifact_action` lives on the inner tool — unwrap to read it (same as the
@@ -2146,7 +2150,9 @@ class Gateway:
                 token = auth[len("Bearer ") :].strip()
         account = await accounts.resolve(_param("session") or token)
         if account is not None:
-            return ownership.callers(account.get("account_id"), self._hosted())
+            return ownership.callers(
+                account.get("account_id"), self._hosted(), accounts.org_ids_from(account)
+            )
         if accounts.enabled():
             return None  # sign-in required — the machine token must not bypass it (WS rule)
         if self.auth_token and not hmac.compare_digest(token, self.auth_token):
@@ -2167,7 +2173,10 @@ class Gateway:
         roots: list[Path] = []
         state_dir = getattr(self.config, "state_dir", None)
         if state_dir:
-            roots.extend(user_state.account_root(state_dir, acct) for acct in identities)
+            # identity_root, NOT account_root: the set now carries org ids too (tenancy E3),
+            # and account_root would silently mint accounts/<org_id> — two namespaces in one
+            # folder. An org identity grants its orgs/<id> subtree (shared definitions).
+            roots.extend(user_state.identity_root(state_dir, ident) for ident in identities)
         if self.registry is not None:
             try:
                 for aid in self.registry.list_ids():
@@ -2516,7 +2525,11 @@ class Gateway:
         self.client_identities[ws] = (
             frozenset()
             if public
-            else ownership.callers((account or {}).get("account_id"), self._hosted())
+            else ownership.callers(
+                (account or {}).get("account_id"),
+                self._hosted(),
+                accounts.org_ids_from(account),
+            )
         )
         if account is not None:
             log.info(
@@ -2551,7 +2564,9 @@ class Gateway:
                         accounts.reset_account(_conn_acct_tok)
                         _conn_acct_tok = accounts.set_account(account)
                         self.client_identities[ws] = ownership.callers(
-                            (account or {}).get("account_id"), self._hosted()
+                            (account or {}).get("account_id"),
+                            self._hosted(),
+                            accounts.org_ids_from(account),
                         )
                         await ws.send(dump_frame(response))
                         continue
@@ -2739,6 +2754,10 @@ class Gateway:
                 payload = await self._agents_create(req.params)
             elif req.method == "agents.remove":
                 payload = self._agents_remove(req.params)
+            elif req.method == "agents.shareToOrg":
+                payload = await self._agents_share_to_org(req.params)
+            elif req.method == "agents.unshareFromOrg":
+                payload = await self._agents_unshare_from_org(req.params)
             elif req.method == "cron.list":
                 payload = self._cron_list()
             elif req.method == "cron.add":
@@ -3699,6 +3718,8 @@ class Gateway:
             if callable(listed) and not listed(aid):
                 continue
             spec = self.registry.get(aid)
+            _owner = str(getattr(spec, "owner", "") or "")
+            _is_org = ownership.is_org(_owner)
             agents.append(
                 {
                     "id": aid,
@@ -3714,6 +3735,11 @@ class Gateway:
                     # agent — an exemplar nobody executes rots — but a client keeps these in
                     # their own section rather than in the list of agents the user built.
                     "sample": bool(getattr(spec, "sample", False)),
+                    # WHOSE it is, as data (tenancy E5): 'org' rows render in the client's
+                    # Organization section; the orgId lets it name the org from its own
+                    # /me/orgs fetch. Personal/curated rows carry 'personal', unchanged.
+                    "scope": "org" if _is_org else "personal",
+                    **({"orgId": _owner} if _is_org else {}),
                 }
             )
         return {
@@ -4134,6 +4160,90 @@ class Gateway:
         log.info("agents.create %s (%s)", spec.id, name or spec.id)
         return {"created": True, "agentId": spec.id, "name": spec.name}
 
+    async def _agents_share_to_org(self, params: dict) -> dict:
+        """Install a copy of the CALLER's agent into an org's shared layer (tenancy E3) —
+        the Kajima move: after this, every member's registry resolves the agent read-only.
+
+        THE DEFINITION TRAVELS, THE DATA STAYS. Only `definition_entries` (the folder minus
+        USER_DATA_DIRS) are copied — the same view the tenant fence grants strangers — so the
+        author's sessions/workspace can never ride along into the whole company's read scope.
+        Org admin+ only, proven from the VERIFIED token's own claim, never a frame parameter;
+        and the caller must own the source agent (`mine`), so nobody shares somebody else's."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        org_id = (params.get("orgId") or "").strip()
+        if not agent_id or not org_id:
+            return {"shared": False, "error": "agentId and orgId required"}
+        role = accounts.org_role(org_id)
+        if role not in ("owner", "admin"):
+            # covers non-members too — fail closed, and don't say which of the two it was
+            return {"shared": False, "error": "requires an org admin or owner"}
+        if self.registry is None:
+            return {"shared": False, "error": "no agent registry"}
+        owns = getattr(self.registry, "owns", None)
+        if callable(owns) and not owns(agent_id):
+            return {"shared": False, "error": f"'{agent_id}' is not yours to share"}
+        source = self.registry.resolve_dir(agent_id)
+        if source is None or not (Path(source) / "agent.toml").is_file():
+            return {"shared": False, "error": f"unknown agent: {agent_id}"}
+
+        import shutil
+
+        from agent_runtime.domain.agent import definition_entries
+        from agent_runtime.infrastructure.agents import ownership_store
+
+        target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
+        staged = target.with_name(target.name + ".installing")
+        try:
+            shutil.rmtree(staged, ignore_errors=True)
+            staged.mkdir(parents=True)
+            for entry in definition_entries(Path(source)):
+                entry = Path(entry)
+                if entry.is_dir():
+                    shutil.copytree(entry, staged / entry.name)
+                else:
+                    shutil.copy2(entry, staged / entry.name)
+            # The org's OWN provenance record (the packer-excluded file): owner = the org,
+            # origin = installed — a copy, never the author's original.
+            ownership_store.write(
+                staged,
+                ownership.OwnershipRecord(
+                    owner=org_id, origin=ownership.INSTALLED, source_id=agent_id
+                ),
+            )
+            shutil.rmtree(target, ignore_errors=True)  # replace = re-share of a newer build
+            staged.rename(target)
+        except OSError as e:
+            shutil.rmtree(staged, ignore_errors=True)
+            return {"shared": False, "error": f"install failed: {e}"}
+        self.registry.refresh()
+        await self._broadcast_agents_changed()
+        log.info("agents.shareToOrg %s -> %s", agent_id, org_id)
+        return {"shared": True, "agentId": agent_id, "orgId": org_id}
+
+    async def _agents_unshare_from_org(self, params: dict) -> dict:
+        """Remove an agent from an org's shared layer. The ORG COPY only — the author's
+        original is a different folder and is never touched (the E3 verification case)."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        org_id = (params.get("orgId") or "").strip()
+        if not agent_id or not org_id:
+            return {"removed": False, "error": "agentId and orgId required"}
+        if accounts.org_role(org_id) not in ("owner", "admin"):
+            return {"removed": False, "error": "requires an org admin or owner"}
+        target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
+        if not target.is_dir():
+            return {"removed": False, "error": f"'{agent_id}' is not shared to this org"}
+        import shutil
+
+        try:
+            shutil.rmtree(target)
+        except OSError as e:
+            return {"removed": False, "error": f"remove failed: {e}"}
+        if self.registry is not None:
+            self.registry.refresh()
+        await self._broadcast_agents_changed()
+        log.info("agents.unshareFromOrg %s -> %s", agent_id, org_id)
+        return {"removed": True, "agentId": agent_id, "orgId": org_id}
+
     async def _broadcast_agents_changed(self) -> None:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""
         await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
@@ -4405,6 +4515,13 @@ class Gateway:
             "signedIn": bool(account.get("account_id")),
             "email": str(account.get("email") or ""),
             "accountId": str(account.get("account_id") or ""),
+            # This connection's ORG memberships, straight from its verified token (tenancy E5).
+            # The client's switcher renders THESE — it never asserts an org the token doesn't.
+            "orgs": [
+                {"id": str(o.get("id") or ""), "role": str(o.get("role") or "member")}
+                for o in (account.get("orgs") or ())
+                if isinstance(o, dict) and str(o.get("id") or "").strip()
+            ],
             "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
             # Is there a Cloud to switch to at all on this build?
             "canUseCloud": model_proxy.available(),

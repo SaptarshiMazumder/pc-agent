@@ -28,7 +28,7 @@ import sqlite3
 import time
 
 #: Bump when adding a step to _STEPS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _STEPS: dict[int, str] = {
     1: """
@@ -88,6 +88,61 @@ _STEPS: dict[int, str] = {
         active       INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS ix_signing_keys_active ON signing_keys(active, expires_at);
+    """,
+    2: """
+    -- ORGANIZATIONS (enterprise tenancy, plan E1). An org is NOT a new kind of tenant — it is
+    -- a tenant that accounts are MEMBERS of. These tables live in identity's ledger, not the
+    -- money file, because membership is a fact about WHO someone is in which context, and this
+    -- ledger is the one written portably for the Postgres move.
+    CREATE TABLE IF NOT EXISTS orgs (
+        id            TEXT PRIMARY KEY,         -- 'org_' + hex, minted like acct_
+        name          TEXT NOT NULL,
+        -- Exactly one; the recovery anchor. An org whose last admin left must still have one
+        -- account that can act for it, the Claude-for-Work primary-owner rule.
+        primary_owner TEXT NOT NULL REFERENCES accounts(id),
+        seats_total   INTEGER NOT NULL DEFAULT 5,
+        active        INTEGER NOT NULL DEFAULT 1,
+        created_at    REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS org_members (
+        org_id     TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL DEFAULT 'member',   -- owner | admin | member
+        -- POLICY, not pricing (the Lovable/ChatGPT pattern): 0 = uncapped. Enforced by the
+        -- funding gate when a turn draws the org pool, never at the membership door.
+        monthly_credit_cap INTEGER NOT NULL DEFAULT 0,
+        added_by   TEXT NOT NULL DEFAULT '',
+        added_at   REAL NOT NULL DEFAULT 0,
+        active     INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (org_id, account_id)
+    );
+    -- "My orgs" is the switcher's query and runs at every token mint — it must never scan.
+    CREATE INDEX IF NOT EXISTS ix_org_members_account ON org_members(account_id, active);
+
+    -- Allowed email domains (offer-to-join at login). `verified` stays 0 for every row today:
+    -- domain verification of any kind is deliberately deferred (user call, 2026-08-18) — the
+    -- column exists so the DNS tier is a value change, not a migration.
+    CREATE TABLE IF NOT EXISTS org_domains (
+        org_id   TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+        domain   TEXT NOT NULL,                  -- lowercased, no '@'
+        verified INTEGER NOT NULL DEFAULT 0,
+        added_by TEXT NOT NULL DEFAULT '',
+        added_at REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (org_id, domain)
+    );
+    -- The login hook asks "which orgs claim this domain" — by domain, across orgs.
+    CREATE INDEX IF NOT EXISTS ix_org_domains_domain ON org_domains(domain);
+
+    CREATE TABLE IF NOT EXISTS org_invites (
+        token_hash TEXT PRIMARY KEY,             -- sha256; plaintext returned once, never stored
+        org_id     TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+        email      TEXT NOT NULL DEFAULT '',     -- '' = open link
+        role       TEXT NOT NULL DEFAULT 'member',
+        expires_at REAL NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL DEFAULT '',
+        used_by    TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS ix_org_invites_org ON org_invites(org_id);
     """,
 }
 

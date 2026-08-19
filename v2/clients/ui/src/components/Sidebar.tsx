@@ -5,8 +5,8 @@ import {
   Users,
   Folder,
   History,
+  LayoutGrid,
   PanelLeft,
-  ShoppingBag,
   Sun,
   Moon,
   SquarePen,
@@ -143,7 +143,7 @@ export default function Sidebar() {
         ))}
         <div className="rail-spacer" />
         <ProfileMenu variant="rail" />
-        <button className="rail-btn" title="Marketplace" onClick={() => setView('marketplace')}><ShoppingBag size={18} /></button>
+        <button className="rail-btn" title="My Agents" onClick={() => setView('myagents')}><LayoutGrid size={18} /></button>
         <SettingsMenu variant="rail" />
         <button className="rail-btn" title="toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
         {newAgent && <NewAgentModal onClose={() => setNewAgent(false)} />}
@@ -275,8 +275,8 @@ export default function Sidebar() {
 
       <div className="footer-nav">
         <ProfileMenu variant="footer" />
-        <button className={`icon-btn footer-icon push-end ${view === 'marketplace' ? 'active' : ''}`} title="Marketplace" onClick={() => setView('marketplace')}>
-          <ShoppingBag size={17} />
+        <button className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`} title="My Agents" onClick={() => setView('myagents')}>
+          <LayoutGrid size={17} />
         </button>
         <SettingsMenu variant="footer" />
         <button className="icon-btn footer-icon" title="toggle theme" onClick={toggleTheme}>

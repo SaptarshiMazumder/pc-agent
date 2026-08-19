@@ -34,6 +34,12 @@ class Principal:
     #: The auth-session this principal belongs to (one login = one id). Survives refresh rotation,
     #: which is what makes it usable as the key for a future revocation list.
     session_id: str = ""
+    #: ORG MEMBERSHIPS at mint time, as ``(org_id, role)`` pairs — the token's ``orgs`` claim.
+    #: Carried in the token so the daemon learns membership with ZERO extra hops at connect
+    #: (it already verifies tokens locally against JWKS). Stale by at most the access TTL,
+    #: the same revocation latency the platform already accepts for account state. Empty for
+    #: every personal-only account — the degenerate case costs nothing on the wire.
+    orgs: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
     def with_scopes(self, scopes: tuple[str, ...]) -> "Principal":
         """A copy narrowed to ``scopes`` — the seam for downscoped tokens (an agent-app
@@ -46,4 +52,5 @@ class Principal:
             scopes=scopes,
             amr=self.amr,
             session_id=self.session_id,
+            orgs=self.orgs,
         )

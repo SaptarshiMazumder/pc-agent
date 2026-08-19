@@ -28,7 +28,7 @@ from jwt import algorithms as jwt_algorithms
 from identity.application.interfaces.key_store import KeyStore, SigningKey
 from identity.domain.errors import IdentityConfigurationError, TokenExpired, TokenInvalid
 from identity.domain.principal import Principal
-from identity.domain.token import AccessClaims
+from identity.domain.token import AccessClaims, orgs_from_wire, orgs_to_wire
 
 #: Clock skew tolerance. Two machines that never talk to each other must agree on "expired", and
 #: a minute is the usual allowance; without it a client whose clock runs slightly fast rejects a
@@ -92,6 +92,10 @@ class JwtTokenIssuer:
             "email_verified": bool(principal.email_verified),
             "ver": 1,
         }
+        # Org memberships ride the token (enterprise tenancy E1) — omitted entirely for the
+        # personal-only account, so the common token's size does not change by a byte.
+        if principal.orgs:
+            payload["orgs"] = orgs_to_wire(principal.orgs)
         token = jwt.encode(
             payload,
             self._private(key),
@@ -110,6 +114,7 @@ class JwtTokenIssuer:
             issued_at=now,
             expires_at=exp,
             jti=jti,
+            orgs=principal.orgs,
         )
         return token, claims
 
@@ -163,6 +168,7 @@ class JwtTokenIssuer:
             issued_at=float(payload.get("iat") or 0),
             expires_at=float(payload.get("exp") or 0),
             jti=str(payload.get("jti") or ""),
+            orgs=orgs_from_wire(payload.get("orgs")),
         )
 
     # -- jwks -------------------------------------------------------------------------------

@@ -316,7 +316,7 @@ def _hook_args(model: str, agent_id: str = ""):
 
 
 def _with_funding(auth, monkeypatch, view):
-    async def fake_funding(account_id, agent_id):
+    async def fake_funding(account_id, agent_id, org_id=""):
         return view
 
     monkeypatch.setattr(auth, "_funding", fake_funding)
@@ -416,10 +416,74 @@ async def test_infra_calls_without_an_account_are_not_metered(auth, monkeypatch)
 async def test_metering_outage_fails_open(auth, monkeypatch):
     """A funding-lookup failure must not become a total outage for every paying user. The
     ledger counter + its alarm are what catch the resulting drift."""
-    async def unavailable(account_id, agent_id):
+    async def unavailable(account_id, agent_id, org_id=""):
         return None
 
     monkeypatch.setattr(auth, "_funding", unavailable)
     assert await auth.usage_logger_instance.async_pre_call_hook(
         **_hook_args("anthropic/claude-opus")
     ) is None
+
+
+# --- org attribution (tenancy E2) ---------------------------------------------
+
+
+def _org_hook_args(model: str, org_id: str = "org_kajima"):
+    headers = {
+        "x-agentd-run-id": "RUN-1",
+        "x-agentd-agent-id": "kajima-helper",
+        "x-agentd-org-id": org_id,
+    }
+    return {
+        "user_api_key_dict": SimpleNamespace(user_id="acct_1", parent_otel_span=None),
+        "cache": None,
+        "data": {"model": model, "metadata": {"headers": headers}},
+        "call_type": "acompletion",
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_org_header_reaches_the_funding_question(auth, monkeypatch):
+    """The daemon stamps X-Agentd-Org-Id on org-agent turns; the gate must ask about THAT
+    org's pool, not the personal pocket — or the two never mixing on the accounts side is
+    moot, because the wrong question was asked."""
+    seen = {}
+
+    async def spy(account_id, agent_id, org_id=""):
+        seen.update(account_id=account_id, agent_id=agent_id, org_id=org_id)
+        return {"credits_remaining": 10, "model_tier_max": ""}
+
+    monkeypatch.setattr(auth, "_funding", spy)
+    await auth.usage_logger_instance.async_pre_call_hook(
+        **_org_hook_args("deepseek/deepseek-chat")
+    )
+    assert seen == {"account_id": "acct_1", "agent_id": "kajima-helper", "org_id": "org_kajima"}
+
+
+@pytest.mark.asyncio
+async def test_a_capped_member_is_told_it_was_the_cap(auth, monkeypatch):
+    """Pool full, member cap spent: same 402 as empty, but the message names the cap — or the
+    member reports 'the company ran out' and the admin finds a full pool."""
+    from fastapi import HTTPException
+
+    _with_funding(
+        auth, monkeypatch,
+        {"credits_remaining": 0, "credits_enforced": True, "member_capped": True},
+    )
+    with pytest.raises(HTTPException) as e:
+        await auth.usage_logger_instance.async_pre_call_hook(
+            **_org_hook_args("deepseek/deepseek-chat")
+        )
+    assert e.value.status_code == 402
+    assert "cap" in e.value.detail
+
+
+def test_the_org_id_survives_into_the_success_callback_trace(auth):
+    """The usage row's org_id comes from _trace_from_kwargs — the same header, recovered in
+    the callback where contextvars may not reach."""
+    kwargs = {
+        "litellm_params": {
+            "metadata": {"headers": {"x-agentd-run-id": "RUN-1", "x-agentd-org-id": "org_kajima"}}
+        }
+    }
+    assert auth._trace_from_kwargs(kwargs)["org_id"] == "org_kajima"

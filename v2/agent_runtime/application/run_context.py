@@ -55,6 +55,13 @@ class RunContext:
     # check_write, the same choke point every fs path already flows through.
     read_roots: tuple[str, ...] = ()
     write_clamp: tuple[str, ...] = ()
+    # WHICH ORG this turn is ATTRIBUTED to for funding ("" = personal, every desktop and every
+    # non-org turn). Set where the RunContext is built, from the resolved agent's OWNER — an
+    # org's agent bills the org's pool; nothing else does. A field rather than a lookup because
+    # the one consumer (the model proxy's outbound trace) is infrastructure that must not
+    # reach back into the registry per call, and because contextvars don't cross the process
+    # boundary any better for this id than for run_id above.
+    org_id: str = ""
     # The KEYS this agent declared under agent.toml [[settings]] — names only, never values.
     # Carried here because the two places that resolve a `${NAME}` placeholder (the direct
     # `fetch` and the sandbox's host-side broker) are infrastructure with no way to reach the

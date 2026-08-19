@@ -24,6 +24,33 @@ from dataclasses import dataclass, field
 from identity.domain.principal import Principal
 
 
+def orgs_from_wire(value) -> tuple[tuple[str, str], ...]:
+    """The token's ``orgs`` claim (``[{"id", "role"}]``) -> ``((org_id, role), ...)``.
+
+    ONE decoder, shared by the issuer's verify and the JWKS verifier, so the two paths cannot
+    drift on what a malformed claim means. Fail closed on shape: an entry without an id is
+    dropped, never guessed at — an org id that is not there grants nothing.
+    """
+    out: list[tuple[str, str]] = []
+    for entry in value or ():
+        if isinstance(entry, dict):
+            org_id = str(entry.get("id") or "").strip()
+            role = str(entry.get("role") or "member").strip() or "member"
+        elif isinstance(entry, (tuple, list)) and entry:
+            org_id = str(entry[0] or "").strip()
+            role = str(entry[1] if len(entry) > 1 else "member").strip() or "member"
+        else:
+            continue
+        if org_id:
+            out.append((org_id, role))
+    return tuple(out)
+
+
+def orgs_to_wire(orgs: tuple[tuple[str, str], ...]) -> list[dict]:
+    """The inverse — what the issuer writes into the JWT payload."""
+    return [{"id": org_id, "role": role} for org_id, role in (orgs or ())]
+
+
 @dataclass(frozen=True)
 class AccessClaims:
     """A verified access token, decoded. Produced only by a successful verification."""
@@ -40,6 +67,9 @@ class AccessClaims:
     expires_at: float = 0.0
     #: Unique per token. Exists so a future denylist has something to name; unused in P1.
     jti: str = ""
+    #: Org memberships as the token asserted them — ``(org_id, role)`` pairs. The daemon widens
+    #: the connection's identity set from THIS, never from anything the client sends in a frame.
+    orgs: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
     def principal(self) -> Principal:
         return Principal(
@@ -49,6 +79,7 @@ class AccessClaims:
             scopes=self.scopes,
             amr=self.amr,
             session_id=self.session_id,
+            orgs=self.orgs,
         )
 
 

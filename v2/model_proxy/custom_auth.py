@@ -121,9 +121,9 @@ log.info("model_proxy telemetry %s", "ENABLED" if _TELEMETRY else "DISABLED (age
 # a revoked/expired session linger at the proxy.
 _resolve_cache: dict[str, tuple[str, float]] = {}
 
-# (account_id, agent_id) -> (funding view, expiry). Same reasoning as the resolve cache: this is
-# read before every uncached model call, so it must not be a round trip every time.
-_funding_cache: dict[tuple[str, str], tuple[dict, float]] = {}
+# (account_id, agent_id, org_id) -> (funding view, expiry). Same reasoning as the resolve cache:
+# this is read before every uncached model call, so it must not be a round trip every time.
+_funding_cache: dict[tuple[str, str, str], tuple[dict, float]] = {}
 
 
 def _require_credits() -> bool:
@@ -158,6 +158,9 @@ def _bind_trace(request: Request) -> dict:
         "run_id": (headers.get("x-agentd-run-id") or "")[:64],
         "turn_id": (headers.get("x-agentd-turn-id") or "")[:80],
         "agent_id": (headers.get("x-agentd-agent-id") or "")[:64],
+        # WHICH ORG'S POOL this turn draws (tenancy E2) — stamped by the daemon only on turns
+        # that run an org's agent; absent everywhere else, so personal turns are unchanged.
+        "org_id": (headers.get("x-agentd-org-id") or "")[:64],
     }
     trace = {k: v for k, v in trace.items() if v}
     if trace:
@@ -178,6 +181,7 @@ def _extract_trace(headers) -> dict:
         "run_id": run_id,
         "turn_id": str(lower.get("x-agentd-turn-id") or "")[:80],
         "agent_id": agent_id,
+        "org_id": str(lower.get("x-agentd-org-id") or "")[:64],
     }
 
 
@@ -419,26 +423,32 @@ def _usage_fields(kwargs: dict, response_obj) -> tuple[str, int, int, float, int
     return model, in_tokens, out_tokens, float(cost), _cached_tokens(usage)
 
 
-async def _funding(account_id: str, agent_id: str) -> dict | None:
+async def _funding(account_id: str, agent_id: str, org_id: str = "") -> dict | None:
     """This account's spendable credits + tier ceiling, briefly cached.
 
     Cached because it sits on the same hot path as /resolve — one extra synchronous round trip
     per model call is a real cost to every user's every message. A short TTL means an exhausted
     balance is noticed within seconds, which is the right trade for a cap whose job is to stop
     runaway spend rather than to be exact to the credit.
+
+    `org_id` (from the daemon's trace, org-agent turns only) asks about THAT org's pool —
+    bounded by this member's monthly cap — instead of the personal pocket.
     """
     internal = os.environ.get("ACCOUNTS_INTERNAL_KEY", "").strip()
     client = _accounts_client()
     if not internal or client is None or not account_id:
         return None
     now = time.time()
-    hit = _funding_cache.get((account_id, agent_id))
+    hit = _funding_cache.get((account_id, agent_id, org_id))
     if hit and hit[1] > now:
         return hit[0]
     try:
+        params = {"account_id": account_id, "agent_id": agent_id}
+        if org_id:
+            params["org_id"] = org_id
         r = await client.get(
             "/funding",
-            params={"account_id": account_id, "agent_id": agent_id},
+            params=params,
             headers={"X-Internal-Key": internal},
         )
     except httpx.HTTPError as e:
@@ -453,7 +463,7 @@ async def _funding(account_id: str, agent_id: str) -> dict | None:
         return None
     view = r.json() or {}
     ttl = float(os.environ.get("AGENTD_FUNDING_TTL", "10") or 10)
-    _funding_cache[(account_id, agent_id)] = (view, now + ttl)
+    _funding_cache[(account_id, agent_id, org_id)] = (view, now + ttl)
     count("funding_lookup_total", outcome="ok")
     return view
 
@@ -488,8 +498,10 @@ class AccountsUsageLogger(CustomLogger):
         account_id = str(getattr(user_api_key_dict, "user_id", "") or "").strip()
         if not account_id:
             return None  # master-key infra / ops calls carry no account to meter
-        agent_id = str((_trace_from_data(data) or {}).get("agent_id") or "")
-        view = await _funding(account_id, agent_id)
+        trace = _trace_from_data(data) or {}
+        agent_id = str(trace.get("agent_id") or "")
+        org_id = str(trace.get("org_id") or "")
+        view = await _funding(account_id, agent_id, org_id)
         if view is None:
             return None  # metering unavailable -> fail open (see _funding)
 
@@ -523,10 +535,23 @@ class AccountsUsageLogger(CustomLogger):
         # grants credits and "no grant" should mean "no service".
         enforced = bool(view.get("credits_enforced")) or _require_credits()
         if enforced and remaining <= 0:
+            if view.get("member_capped"):
+                # The ORG pool has credits, but THIS member's monthly cap is spent — say which,
+                # or the member reports "the company ran out" and the admin finds a full pool.
+                count(
+                    "run_refused_total", reason="member_cap",
+                    _props={"account_id": account_id, "org_id": org_id},
+                )
+                raise HTTPException(
+                    status_code=402,
+                    detail="your monthly organization credit cap is used up — "
+                    "ask an org admin to raise it",
+                )
             count("run_refused_total", reason="no_credits", _props={"account_id": account_id})
             raise HTTPException(
                 status_code=402,
-                detail="out of credits — top up to keep going",
+                detail="out of credits — top up to keep going"
+                + (" (organization pool)" if org_id else ""),
             )
         if not metering.tier_allowed(model, tier_max):
             count(
@@ -591,6 +616,7 @@ class AccountsUsageLogger(CustomLogger):
                     json={
                         "account_id": account_id,
                         "agent_id": trace.get("agent_id", ""),
+                        "org_id": trace.get("org_id", ""),
                         "credits": charged,
                         "run_id": trace.get("run_id", ""),
                     },
@@ -645,6 +671,8 @@ class AccountsUsageLogger(CustomLogger):
                 "funding_source": funding_source,
                 # WHICH AGENT spent it — per-agent attribution, not just per-account
                 "agent_id": trace.get("agent_id", ""),
+                # WHICH ORG'S POOL paid ('' = personal) — what the org rollup + cap read
+                "org_id": trace.get("org_id", ""),
                 # the last hop of the tracking number: onto the money row itself
                 "run_id": trace.get("run_id", ""),
                 "turn_id": trace.get("turn_id", ""),

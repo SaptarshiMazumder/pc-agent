@@ -208,6 +208,34 @@ def account_id() -> str | None:
     return acc.get("account_id") if acc else None
 
 
+def org_ids_from(account: dict | None) -> tuple[str, ...]:
+    """The org ids carried on one RESOLVED account dict (i.e. from a verified token / the
+    accounts service's own /resolve answer) — never from anything a client typed in a frame."""
+    if not account:
+        return ()
+    return tuple(
+        str(o.get("id") or "").strip()
+        for o in (account.get("orgs") or ())
+        if isinstance(o, dict) and str(o.get("id") or "").strip()
+    )
+
+
+def org_ids() -> tuple[str, ...]:
+    """The current caller's ORG memberships (tenancy E3), from the verified token's own claim.
+    () everywhere orgs don't exist: desktop, anonymous, and every account with no memberships,
+    so the common path costs one contextvar read and nothing else."""
+    return org_ids_from(current_account.get())
+
+
+def org_role(org_id: str) -> str:
+    """The caller's role in ``org_id`` per their token ('' = not a member). Fail closed."""
+    acc = current_account.get()
+    for o in (acc or {}).get("orgs") or ():
+        if isinstance(o, dict) and str(o.get("id") or "") == org_id:
+            return str(o.get("role") or "member")
+    return ""
+
+
 def memory_partition(agent_id: str) -> str:
     """Namespace an agent's long-term memory by the CURRENT account, so two users' notes never mix.
     The memory bank isolates by an ``agent_id`` string column, so folding the account into that key
@@ -266,6 +294,10 @@ async def resolve(token: str) -> dict | None:
             "email": claims.email,
             "session_token": token,
             "scopes": list(claims.scopes),
+            # ORG MEMBERSHIPS from the token's own claim (tenancy E1) — the daemon's ONLY
+            # source for them. Same wire shape the accounts /resolve returns, so the HTTP
+            # fallback path below carries the identical field with no translation.
+            "orgs": [{"id": org_id, "role": role} for org_id, role in claims.orgs],
             "verified": "local",
             # Carried so the connection can tell an EXPIRED credential from a missing one and
             # ask the client to refresh, instead of failing a turn with a generic error.

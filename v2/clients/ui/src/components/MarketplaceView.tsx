@@ -44,7 +44,7 @@ const INSTALL_TARGET = isDesktop ? 'this app' : 'this server — for everyone us
  *
  * The PUBLIC marketplace page passes no decorator at all: nobody is signed in there, so there is
  * no identity to carry and the bare link is the only honest one. */
-function webHref(webUrl: string): string {
+export function webHref(webUrl: string): string {
   const s = getSession()
   if (!s?.token) return webUrl
   try {
