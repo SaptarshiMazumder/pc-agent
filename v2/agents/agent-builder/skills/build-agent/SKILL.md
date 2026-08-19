@@ -1008,6 +1008,32 @@ screenshots, remembers conversations, **signs the user in on a hosted install**,
 settings page where the user pastes their own API key. Then you **edit** it — the title, the hero
 text, the suggestions, the accent colour — and add whatever surface this particular agent needs.
 
+### EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. No exceptions.
+
+`validate_agent` reports `UI_NO_SIGN_IN` as an **error** when an app never calls the gate, and
+that error blocks both `package_agent` and `publish_agent`. An agent without it cannot ship.
+
+One mechanism, and it is the SDK's:
+
+```js
+await agentd.mountSignInGate({ client })   // vanilla: before the socket is wired
+```
+```tsx
+await mountSignInGate()                    // React: in main.tsx, before the first render
+```
+
+`scaffold_ui` writes it. `scaffold_react_app` writes `src/main.tsx` containing it — the one
+source file it ships, because this is the one part of an app that is not a judgement call.
+
+**Never write your own login form.** The gate's element ids (`gateEmail`, `gatePass`, `gateForm`)
+are a contract the packaged-build login test drives, so a hand-rolled form silently disables it —
+and a second login is a second implementation of credential handling, written by somebody who was
+not thinking about credentials that day. It hits the same endpoints either way; the only thing a
+custom form adds is a way to get it wrong.
+
+It renders **nothing** when a stored session still works, and nothing on a build with no accounts
+service — so it is correct to leave in an agent that will only ever run locally.
+
 ### Sign-in comes with the template — never hand-write a login
 
 An agent that runs on platform keys needs the user signed in, or every model call fails. The

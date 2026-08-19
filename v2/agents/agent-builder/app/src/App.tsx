@@ -20,7 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
 import { useChat } from './agentd/chat'
 import { useClient } from './agentd/client'
-import { useWhoAmI } from './agentd/platform'
+import { useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable, type AgentRow } from './agentd/roster'
 import { useAgents } from './agentd/roster'
 import { useSessions } from './agentd/sessions'
@@ -43,6 +43,7 @@ export default function App() {
   const [daemonVersion, setDaemonVersion] = useState('')
 
   const who = useWhoAmI(client, status)
+  const daemon = useRestartDaemon(client)
 
   // An agent that did not exist a moment ago was just BUILT — in this window, by this
   // conversation. Focus it, because watching its files appear is what the inspector is for and
@@ -140,6 +141,9 @@ export default function App() {
           who={who}
           railOpen={railOpen}
           onToggleRail={() => setRailOpen((v) => !v)}
+          onRestart={() => void daemon.restart()}
+          restarting={daemon.busy}
+          restartNote={daemon.note}
           canTogglePanel={!!selected}
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen((v) => !v)}

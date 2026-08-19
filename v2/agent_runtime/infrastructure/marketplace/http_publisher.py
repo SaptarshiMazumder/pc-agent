@@ -256,9 +256,10 @@ class HttpRegistryPublisher:
             401: "not signed in, or the session expired. Sign in again and retry.",
             403: "this account may not publish (revoked, or not a creator).",
             409: (
-                "that bundle id belongs to another creator, or this version is not newer than the "
-                "published one. Bump `version` in agent.toml — installs supersede BY VERSION, so "
-                "republishing the same number reaches nobody."
+                "that bundle id belongs to another creator, or this version is not newer than "
+                "the published one. Publishing again raises the number by default; if you asked "
+                "to keep it, publish with a higher version instead — installs supersede BY "
+                "VERSION, so republishing the same number reaches nobody."
             ),
             413: "the package is too large for the publish service.",
             429: "too many publishes; wait and retry.",

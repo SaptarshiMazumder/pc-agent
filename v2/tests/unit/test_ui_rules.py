@@ -162,10 +162,14 @@ def sign_in(js: str, vendored: str = "function mountSignInGate(){}"):
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
 
 
-def test_an_app_agent_with_no_sign_in_is_flagged():
+def test_an_app_agent_with_no_sign_in_is_refused():
+    """MANDATORY, not advisory. It was a warning for exactly as long as it took to publish past
+    one — an agent with a window has to know who is using it, and on a hosted install every model
+    call fails without it, with nothing on screen to explain why. The rulebook also closes PACK
+    and PUBLISH on this code, so an agent that skips it cannot ship at all."""
     found = sign_in("const client = agentd.fromPage()")
     assert "UI_NO_SIGN_IN" in found
-    assert found["UI_NO_SIGN_IN"].level == "warn", "it works locally — broken only once hosted"
+    assert found["UI_NO_SIGN_IN"].level == "error"
     # The fix names the TOOL, not the line to type. Ranked by strength: a tool that does every
     # step (SDK refresh, script tag, theme tokens, the call) and is safe to re-run beats an
     # instruction to hand-write one of the four and forget the rest — which is how an agent ends

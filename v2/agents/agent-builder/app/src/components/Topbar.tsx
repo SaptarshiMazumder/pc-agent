@@ -15,6 +15,9 @@ export function Topbar({
   canTogglePanel,
   panelOpen,
   onTogglePanel,
+  onRestart,
+  restarting,
+  restartNote,
 }: {
   agent: AgentRow | null
   who: WhoAmI
@@ -23,6 +26,13 @@ export function Topbar({
   canTogglePanel: boolean
   panelOpen: boolean
   onTogglePanel: () => void
+  /** Restart the daemon. HERE as well as in Settings because this is where the reason to
+   *  restart occurs: you have just watched the agent write a plugin, and its Python is already
+   *  imported. Making that a trip through a settings page is three clicks away from the moment
+   *  you need it, every time. */
+  onRestart: () => void
+  restarting: boolean
+  restartNote: string
 }) {
   return (
     <header className="topbar">
@@ -44,6 +54,18 @@ export function Topbar({
       </div>
 
       <div className="topbar-actions">
+        {/* The note doubles as the status: "Restarting…" while it happens, the refusal if it is
+            refused. A button that changes label and says nothing else leaves you watching a
+            window that went quiet. */}
+        {restartNote && <span className="restart-note">{restartNote}</span>}
+        <button
+          className="ghost-btn"
+          onClick={onRestart}
+          disabled={restarting}
+          title="Restart agentd — needed after editing a plugin's Python, which is already imported"
+        >
+          {restarting ? 'Restarting…' : 'Restart'}
+        </button>
         {/* WHO this window is connected as — the identity a Publish would be signed with. Hidden
             entirely when the daemon is too old to answer; "not signed in" only when it SAID so. */}
         {who.known && (

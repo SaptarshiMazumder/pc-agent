@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .finding import Finding
+from .finding import ERROR, Finding
 
 PACK = "pack"
 PUBLISH = "publish"
@@ -71,6 +71,16 @@ RULEBOOK: dict[str, Rule] = {
     "NO_VERSION": Rule(
         blocks=(PUBLISH,),
         note="installs supersede BY VERSION; a version-less publish can never be updated",
+    ),
+    # EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. Not a recommendation — an agent that ships
+    # without it has no way to know who is using it, and on a hosted install every model call
+    # fails with a provider error and nothing on screen explains why. The check was a warning
+    # for exactly as long as it took someone to publish past it.
+    "UI_NO_SIGN_IN": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an app with no sign-in cannot be packed or published; the SDK's gate is the only "
+        "mechanism — never a second login of the agent's own",
     ),
     "DEFINITION_IN_EXCLUDED_DIR": Rule(
         note="definition files under an excluded dir ship to nobody"

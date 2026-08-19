@@ -174,17 +174,29 @@ class UiRules:
         installed = [c for c in self._components if self._present(c, code)]
 
         if not any(c.id == _REQUIRED_COMPONENT for c in installed):
+            # MANDATORY, not advisory. Every agent with a window signs its user in: the window is
+            # the only place that knows whether anyone is there, and an agent that never asks has
+            # no identity to attribute anything to. On a hosted install it is also fatal —
+            # every model call fails with a provider error and nothing on screen says why.
+            #
+            # ONE MECHANISM. The SDK's gate, on the SDK's endpoints. An agent that grows its own
+            # login is a second front door onto the same accounts service, written once by
+            # somebody who was not thinking about credentials that day.
             return [
                 Finding(
-                    WARN,
+                    ERROR,
                     "UI_NO_SIGN_IN",
-                    "this app never signs the user in, so on a hosted install (one with platform "
-                    "keys) every model call will fail with a provider error and nothing will "
-                    "explain why.",
+                    "this app never signs the user in. Every agent with a window must — it is "
+                    "how the agent knows who is using it, and on a hosted install every model "
+                    "call fails without it, with nothing on screen to explain why.",
                     path="ui/app.js",
                     fix=f"add_ui_component('{{agent}}', '{_REQUIRED_COMPONENT}') — it does every "
                     "step (SDK, script tag, theme tokens, the call itself) and is safe to re-run. "
-                    "The panel renders NOTHING on a local/BYOK install.",
+                    "In a React app, call `mountSignInGate()` from @agentd/client BEFORE the "
+                    "first render (see main.tsx in the React starter). Do NOT write your own "
+                    "login form: the gate's element ids are what the packaged-build login test "
+                    "drives, and a second implementation is a second way to get credentials "
+                    "wrong. The gate renders NOTHING when a stored session still works.",
                 )
             ]
 

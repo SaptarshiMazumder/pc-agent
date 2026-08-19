@@ -255,6 +255,12 @@ h2 { font-size: 16px; }
 }
 
 .topbar-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+/* What the restart is doing, beside the button doing it. Truncated rather than wrapped: this
+   sits in a header row, and a two-line status would move the whole page. */
+.restart-note {
+  font-size: 12px; color: var(--faint); max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .whoami {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 12px; border-radius: 999px;
