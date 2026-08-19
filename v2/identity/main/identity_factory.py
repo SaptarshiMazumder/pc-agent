@@ -126,12 +126,18 @@ def external_providers() -> list:
         return []
 
 
-def build_auth_service(conn: sqlite3.Connection, directory: AccountDirectory) -> AuthService:
+def build_auth_service(
+    conn: sqlite3.Connection, directory: AccountDirectory, org_resolver=None
+) -> AuthService:
     """Assemble the whole stack around one live database connection.
 
     Built PER REQUEST, like ``CheckoutService`` in accounts' ``_apply_purchase``: the stores take
     a connection, so the caller's transaction is the unit of work and a failed login rolls back
     everything it touched.
+
+    ``org_resolver`` (optional): ``account_id -> ((org_id, role), ...)`` — the caller's org
+    memberships, minted into the access token's ``orgs`` claim. Accounts injects one bound to
+    the same connection; every other caller passes nothing and gets today's org-less tokens.
     """
     iss = issuer()
     if not iss:
@@ -153,4 +159,5 @@ def build_auth_service(conn: sqlite3.Connection, directory: AccountDirectory) ->
         directory=directory,
         access_ttl_s=access_ttl_s(),
         audience=audience(),
+        org_resolver=org_resolver,
     )

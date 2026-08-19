@@ -38,7 +38,7 @@ import jwt
 from jwt import PyJWK
 
 from identity.domain.errors import TokenExpired, TokenInvalid
-from identity.domain.token import AccessClaims
+from identity.domain.token import AccessClaims, orgs_from_wire
 
 log = logging.getLogger("identity.verify")
 
@@ -70,6 +70,7 @@ def _claims_from(payload: dict) -> AccessClaims:
         issued_at=float(payload.get("iat") or 0),
         expires_at=float(payload.get("exp") or 0),
         jti=str(payload.get("jti") or ""),
+        orgs=orgs_from_wire(payload.get("orgs")),
     )
 
 

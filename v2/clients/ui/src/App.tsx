@@ -15,6 +15,8 @@ import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
 import AppView from './components/AppView'
 import MarketplaceView from './components/MarketplaceView'
+import MyAgentsView from './components/MyAgentsView'
+import OrgView from './components/OrgView'
 import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useMode } from './lib/mode'
@@ -81,6 +83,7 @@ export default function App() {
           </div>
         )}
         {view === 'chat' && <ChatView />}
+        {view === 'myagents' && <MyAgentsView />}
         {view === 'marketplace' && <MarketplaceView />}
         {view === 'settings' && <SettingsView />}
         {view === 'datasources' && <DataSourcesView />}
@@ -91,6 +94,7 @@ export default function App() {
         {view === 'agent' && <AgentView />}
         {view === 'app' && <AppView />}
         {view === 'admin' && <AdminView />}
+        {view === 'org' && <OrgView />}
       </main>
       <Canvas />
     </div>

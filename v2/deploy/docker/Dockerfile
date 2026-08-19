@@ -48,6 +48,12 @@ COPY . .
 COPY --from=sdk /sdk/dist/agentd-client.js clients/sdk-js/dist/agentd-client.js
 # the wheel embeds plugins/ + starter data (scripts/hatch_build.py) => packaged mode
 RUN python -m build --wheel -o /dist
+# LOUD, because the failure it guards is silent: hatch_build stages the SDK only `if
+# sdk.is_file()`, so a context that cannot see it (the `clients/` line in .dockerignore did
+# exactly this) produces a perfectly good-looking image with no canonical SDK inside.
+RUN python -c "import glob,sys,zipfile; \
+w=sorted(glob.glob('/dist/agentd-*.whl'))[0]; n='agent_runtime/_data/sdk/agentd-client.js'; \
+sys.exit(0 if n in zipfile.ZipFile(w).namelist() else f'{w} is missing {n}')"
 # curated agents ship as .agentpkg (never baked into the agents dir): the entrypoint
 # installs them into the state volume on boot, so an agent update is a package push,
 # not an image rebuild of the daemon layer. --no-deps: everything is already in the layer above.

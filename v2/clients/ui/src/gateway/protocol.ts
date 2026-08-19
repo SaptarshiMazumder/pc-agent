@@ -52,6 +52,13 @@ export interface AgentInfo {
   /** a reference implementation we ship (agents/samples/), runnable but not the user's own —
    *  the sidebar keeps these in a separate collapsed section rather than in their agent list */
   sample?: boolean
+  /** is this agent the caller's to CHANGE (share/unshare/edit)? server-resolved ownership */
+  mine?: boolean
+  /** whose shelf it belongs on: 'org' rows render in the Organization section (tenancy E5);
+   *  absent/'personal' is every agent that existed before orgs did */
+  scope?: 'personal' | 'org'
+  /** the owning organization when scope === 'org' — named via the accounts /me/orgs fetch */
+  orgId?: string
 }
 
 export interface Hello {

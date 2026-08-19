@@ -989,6 +989,96 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
             "offset": start,
         }
 
+    # ---------------------------------------------------------------- orgs
+
+    @router.get("/orgs")
+    def orgs(
+        authorization: str | None = Header(default=None),
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict:
+        """Every organization: seats, members, pool remaining, month spend — the platform
+        operator's view (tenancy E1). Org ADMINS see their own org through /orgs/{id}; this
+        panel is for the person who runs the deployment, behind the same admin door as
+        everything else here."""
+        require_admin(authorization)
+        size, start = _page(limit, offset)
+        with deps.db() as c:
+            month = deps.month_key(deps.now())
+            total = int(c.execute("SELECT COUNT(*) n FROM orgs").fetchone()["n"])
+            rows = c.execute(
+                "SELECT o.id, o.name, o.primary_owner, o.seats_total, o.active, o.created_at, "
+                "a.email AS owner_email, "
+                "(SELECT COUNT(*) FROM org_members m WHERE m.org_id = o.id AND m.active = 1) "
+                "  AS seats_used, "
+                "(SELECT COALESCE(SUM(g.credits - g.credits_used), 0) FROM credit_grants g "
+                "  WHERE g.org_id = o.id AND g.credits > g.credits_used "
+                "  AND (g.expires_at = 0 OR g.expires_at > ?)) AS pool_remaining, "
+                "(SELECT COALESCE(SUM(u.credits), 0) FROM usage u "
+                "  WHERE u.org_id = o.id AND u.month = ?) AS month_credits "
+                "FROM orgs o LEFT JOIN accounts a ON a.id = o.primary_owner "
+                "ORDER BY o.created_at DESC LIMIT ? OFFSET ?",
+                (deps.now(), month, size, start),
+            ).fetchall()
+        return {
+            "orgs": [
+                {
+                    "id": str(r["id"]),
+                    "name": str(r["name"]),
+                    "primary_owner": str(r["primary_owner"]),
+                    "owner_email": str(r["owner_email"] or ""),
+                    "seats_total": int(r["seats_total"] or 0),
+                    "seats_used": int(r["seats_used"] or 0),
+                    "active": bool(r["active"]),
+                    "created_at": float(r["created_at"] or 0),
+                    "pool_credits_remaining": int(r["pool_remaining"] or 0),
+                    "month_credits": int(r["month_credits"] or 0),
+                }
+                for r in rows
+            ],
+            "total": total,
+            "limit": size,
+            "offset": start,
+        }
+
+    @router.post("/orgs/{org_id}/credits")
+    def org_credits(
+        org_id: str,
+        payload: dict = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> dict:
+        """Grant credits to an ORG'S POOL — the same _apply_grant money semantics the personal
+        grant action uses (ledger posting included), with the org as the target."""
+        admin = require_admin(authorization)
+        result = deps.apply_grant({**dict(payload or {}), "org_id": org_id})
+        count(
+            "admin_action_total", action="org_grant",
+            _props={"account_id": admin["id"], "org_id": org_id},
+        )
+        return result
+
+    @router.post("/orgs/{org_id}/active")
+    def org_active(
+        org_id: str,
+        payload: dict = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> dict:
+        """Suspend / reinstate an org. Suspension vanishes it from every member's NEXT token
+        (one access-TTL), stops org-pool funding answers, and 404s its routes — membership
+        rows are kept, so reinstating restores everyone."""
+        admin = require_admin(authorization)
+        active = 1 if payload.get("active") else 0
+        with deps.db() as c:
+            row = c.execute("SELECT 1 FROM orgs WHERE id = ?", (org_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="unknown organization")
+            c.execute("UPDATE orgs SET active = ? WHERE id = ?", (active, org_id))
+        count(
+            "admin_action_total", action="org_active",
+            _props={"account_id": admin["id"], "org_id": org_id, "active": active},
+        )
+        return {"ok": True, "org_id": org_id, "active": bool(active)}
+
     # ---------------------------------------------------------------- catalog
 
     @router.get("/agents")
@@ -1104,6 +1194,28 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         if status >= 400:
             raise HTTPException(status_code=status, detail=body.get("message") or "refused")
         count("admin_action_total", outcome="creator_admitted")
+        return body
+
+    @router.post("/agents/unlist")
+    def unlist_agent(
+        payload: dict = Body(...), authorization: str | None = Header(default=None)
+    ) -> dict:
+        """Take an agent off the marketplace.
+
+        Removes the LISTING, not the files and not anyone's installed copy — so republishing the
+        same version restores it. Deleting the artifacts is deliberately still a CLI operation
+        (`agentd bundle unlist --purge-artifacts`): it is the one step here with no way back, and a
+        button is the wrong shape for it.
+        """
+        admin_token = _bearer(authorization)
+        require_admin(authorization)
+        cfg = deps.settings()
+        status, body = _proxy(
+            "POST", f"{_publish_base(cfg)}/registry/admin/unlist", admin_token, payload
+        )
+        if status >= 400:
+            raise HTTPException(status_code=status, detail=body.get("message") or "refused")
+        count("admin_action_total", outcome="agent_unlisted")
         return body
 
     @router.post("/creators/revoke")

@@ -50,6 +50,7 @@ class AuthService:
         access_ttl_s: int = 600,
         audience: tuple[str, ...] = ("agentd-daemon", "agentd-proxy"),
         clock=time.time,
+        org_resolver=None,
     ):
         self._provider = provider
         self._principals = principals
@@ -59,6 +60,13 @@ class AuthService:
         self._access_ttl_s = int(access_ttl_s)
         self._audience = audience
         self._clock = clock
+        # ``account_id -> ((org_id, role), ...)`` — the org memberships that ride the access
+        # token as the ``orgs`` claim (enterprise tenancy E1). A CALLABLE, not a table, for the
+        # same reason the other five ports are ports: identity does not know where memberships
+        # live. Resolved at EVERY mint (login AND refresh), so a removed member's next token —
+        # at most one access-TTL away — no longer carries the org. None = no orgs anywhere,
+        # which is every deployment that has not composed one in: byte-identical behaviour.
+        self._org_resolver = org_resolver
 
     # -- sign in / sign up ------------------------------------------------------------------
 
@@ -189,6 +197,16 @@ class AuthService:
         # The session id must be settled BEFORE the access token is signed: `sid` is a claim, so
         # minting the refresh row afterwards would either omit it or force a second signature.
         session_id = family_id or uuid.uuid4().hex
+        # Memberships are read at mint time — never copied forward from an old token's claims,
+        # the same re-read rule step 3 of refresh applies to the account itself. A resolver
+        # failure means NO orgs on this token (fail closed), not a failed sign-in: a person
+        # must still be able to log into their own account when the org tables are having a day.
+        orgs: tuple = ()
+        if self._org_resolver is not None:
+            try:
+                orgs = tuple(self._org_resolver(principal.account_id) or ())
+            except Exception:  # noqa: BLE001 — membership is an extra, the login is the point
+                orgs = ()
         scoped = Principal(
             account_id=principal.account_id,
             email=principal.email,
@@ -196,6 +214,7 @@ class AuthService:
             scopes=principal.scopes or DEFAULT_SCOPES,
             amr=principal.amr,
             session_id=session_id,
+            orgs=orgs,
         )
         access, claims = self._issuer.issue(scoped, audience=self._audience)
         plaintext, _record = self._refresh.issue(

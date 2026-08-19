@@ -37,6 +37,17 @@ RECORD_FILENAME = ".agentd-meta.json"
 LOCAL_OWNER = "local"
 PLATFORM_OWNER = "platform"
 
+#: Organization identities are namespaced by PREFIX, exactly like accounts (`acct_`): the two
+#: kinds share every identity set and every owner field, and the prefix is what keeps an org id
+#: from ever being mistaken for an account (and minting `accounts/<org_id>` on disk — the
+#: namespace conflation the tenancy plan names at `_file_roots_for`).
+ORG_PREFIX = "org_"
+
+
+def is_org(identity: str) -> bool:
+    """Is this identity an ORGANIZATION (vs an account / local / platform)?"""
+    return str(identity or "").startswith(ORG_PREFIX)
+
 AUTHORED = "authored"
 INSTALLED = "installed"
 CURATED = "curated"
@@ -105,16 +116,28 @@ def origin_for_install(owner: str) -> str:
     return CURATED if owner == PLATFORM_OWNER else INSTALLED
 
 
-def callers(account_id: str | None, hosted: bool) -> frozenset[str]:
+def callers(
+    account_id: str | None, hosted: bool, org_ids: tuple[str, ...] = ()
+) -> frozenset[str]:
     """Every identity the current caller may act as.
 
     Desktop keeps "local" alongside a signed-in account — the machine is still theirs; signing
     in adds an identity, it must never subtract one. Hosted grants exactly one: the account, or
-    (machine token, no account) the platform itself."""
+    (machine token, no account) the platform itself.
+
+    ``org_ids`` (tenancy E3) widens the set with the caller's ORG memberships — sourced ONLY
+    from a verified token's ``orgs`` claim, never from anything a client typed. They ride the
+    account: no account, no orgs (an org id without a person behind it is nobody), so the
+    anonymous and machine-token paths are unchanged. Every fence downstream (`may_observe`, the
+    egress fan-out, `_file_roots_for`, the registry's owner filter) consumes this one set, which
+    is why membership lands here and nowhere else."""
     account_id = (account_id or "").strip()
+    orgs = frozenset(o for o in (org_ids or ()) if is_org(str(o or "").strip()))
     if hosted:
-        return frozenset({account_id}) if account_id else frozenset({PLATFORM_OWNER})
-    return frozenset({account_id, LOCAL_OWNER}) if account_id else frozenset({LOCAL_OWNER})
+        return frozenset({account_id}) | orgs if account_id else frozenset({PLATFORM_OWNER})
+    if account_id:
+        return frozenset({account_id, LOCAL_OWNER}) | orgs
+    return frozenset({LOCAL_OWNER})
 
 
 def presumed_owner(in_overlay: bool, account_id: str | None, hosted: bool) -> str:

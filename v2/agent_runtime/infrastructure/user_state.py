@@ -43,6 +43,38 @@ def account_root(state_dir, account_id: str) -> Path:
     return Path(state_dir) / "accounts" / _safe(account_id)
 
 
+def org_root(state_dir, org_id: str) -> Path:
+    """One ORGANIZATION's root: ``<state_dir>/orgs/<org_id>`` (tenancy E3).
+
+    A SIBLING namespace to ``accounts/``, never inside it: an org holds shared agent
+    DEFINITIONS its members read, while every member's chats/workspace/memory stay under their
+    OWN account subtree — the definitions-shared / data-private split that keeps two employees
+    using the company agent invisible to each other."""
+    return Path(state_dir) / "orgs" / _safe(org_id)
+
+
+def org_agents_dir(state_dir, org_id: str) -> Path:
+    """An org's shared agents: ``<state_dir>/orgs/<org_id>/agents`` — one folder per agent,
+    definition only (agent.toml, ui/, plugins/, skills/), exactly the curated-catalogue shape.
+    Runtime data never lands here: every run routes its transcripts/workspace through
+    ``account_agent_dir`` under the CALLING member's own subtree."""
+    return org_root(state_dir, org_id) / "agents"
+
+
+def identity_root(state_dir, identity: str) -> Path:
+    """WHERE one identity's world lives — the identity→root mapper the tenancy plan names.
+
+    ``org_*`` ids map to ``orgs/``; everything else is an account under ``accounts/``. Exists
+    because ``_file_roots_for`` (and anything else walking an identity SET) would otherwise
+    hand an org id to ``account_root`` and silently mint ``accounts/<org_id>`` — two namespaces
+    conflated into one folder, which is the quiet kind of tenancy bug."""
+    from agent_runtime.domain import ownership
+
+    if ownership.is_org(identity):
+        return org_root(state_dir, identity)
+    return account_root(state_dir, identity)
+
+
 def account_agent_dir(state_dir, account_id: str, agent_id: str | None) -> Path:
     """The per-account root for one agent's data: ``<state_dir>/accounts/<acct>/agents/<agent>``."""
     return account_root(state_dir, account_id) / "agents" / _safe(agent_id or "main")
@@ -155,7 +187,31 @@ def migrate_legacy_account_layout(state_dir) -> list[str]:
     return migrated
 
 
-def tenant_scope(config, account_id: str, agent_dir, workspace) -> tuple[tuple, tuple]:
+def _org_definition_grants(state_dir, org_ids) -> list[str]:
+    """READ grants for the caller's orgs: every org agent's DEFINITION VIEW (its folder minus
+    ``USER_DATA_DIRS``), per agent — the same shape the account's own agent gets, applied to
+    each shared one. Granted per-entry rather than the org root wholesale as defence in depth:
+    the org tree is definition-only by construction (see ``org_agents_dir``), and this keeps
+    that true even if a stray data folder ever lands there. A non-member's set simply contains
+    no org ids, so the org root is never in their scope — which is what "no two enterprises
+    step on each other" means at the filesystem."""
+    from agent_runtime.domain.agent import definition_entries
+
+    grants: list[str] = []
+    for org_id in org_ids or ():
+        root = org_agents_dir(state_dir, org_id)
+        try:
+            agent_dirs = sorted(p for p in root.iterdir() if p.is_dir())
+        except OSError:
+            continue
+        for d in agent_dirs:
+            grants.extend(str(e) for e in definition_entries(d))
+    return grants
+
+
+def tenant_scope(
+    config, account_id: str, agent_dir, workspace, org_ids: tuple[str, ...] = ()
+) -> tuple[tuple, tuple]:
     """The filesystem this run may SEE and the boundary it may WRITE inside:
     ``(read_roots, write_clamp)`` — the per-run values behind ``check_read`` and
     ``check_write``'s clamp (application/write_scope).
@@ -200,7 +256,11 @@ def tenant_scope(config, account_id: str, agent_dir, workspace) -> tuple[tuple, 
     definition = list(definition_entries(agent_dir)) if agent_dir else []
     if account_id:
         own = str(account_root(config.state_dir, account_id))
-        reads = (own, *ws, *definition, *shared)
+        # THE ORG LAYER (tenancy E3): members may READ their orgs' shared agent definitions —
+        # and only read. The write clamp below never widens: org agents are installed by the
+        # share RPC, not edited in place by members' runs.
+        org_defs = _org_definition_grants(config.state_dir, org_ids)
+        reads = (own, *ws, *definition, *org_defs, *shared)
         clamp = (own, *ws)
     else:
         reads = (*ws, *definition, *shared)

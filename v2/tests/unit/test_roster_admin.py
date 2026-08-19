@@ -358,3 +358,75 @@ def test_creators_degrades_to_pending_on_an_older_directory():
     refusal, rows = svc.creators("admin-tok")
     assert refusal is None
     assert [r["creator_id"] for r in rows] == ["c-bob"]
+
+
+# ──────────────────────────── unlisting from the marketplace ────────────────────────────
+
+
+class StoreWithBundles(FakeStore):
+    def __init__(self, bundles):
+        super().__init__()
+        self.index = {"schema": 2, "bundles": list(bundles)}
+        self.written = []
+
+    def read_index(self):
+        return self.index
+
+    def write_index(self, index):
+        self.index = index
+        self.written.append(index)
+
+
+def _store_with(*ids):
+    return StoreWithBundles([{"id": i, "version": "1.0.0", "url": f"{i}.agentpkg"} for i in ids])
+
+
+def test_unlist_removes_only_the_named_rows():
+    store = _store_with("weather", "expenses")
+    svc, _ = service(index_store=store)
+    result = svc.unlist("admin-tok", ["weather"])
+    assert result.status == OK
+    assert [b["id"] for b in store.index["bundles"]] == ["expenses"]
+
+
+def test_unlist_refuses_a_non_admin_and_changes_nothing():
+    store = _store_with("weather")
+    svc, _ = service(index_store=store)
+    assert svc.unlist("user-tok", ["weather"]).status == FORBIDDEN
+    assert store.written == [], "a refused unlist must not touch the index"
+
+
+def test_unlist_of_an_unknown_bundle_names_what_is_there():
+    """A typo must not silently succeed — and the message has to be actionable, because the caller
+    cannot see the registry from where they are standing."""
+    store = _store_with("weather")
+    svc, _ = service(index_store=store)
+    result = svc.unlist("admin-tok", ["wether"])
+    assert result.status == NOT_FOUND
+    assert "wether" in result.message and "weather" in result.message
+    assert store.written == []
+
+
+def test_unlist_needs_at_least_one_id():
+    store = _store_with("weather")
+    svc, _ = service(index_store=store)
+    assert svc.unlist("admin-tok", []).status == NOT_FOUND
+    assert store.written == []
+
+
+def test_unlist_is_all_or_nothing():
+    """One bad id in a batch must not take the good ones with it — the index is rewritten once,
+    so a partial apply would be a half-removed marketplace with no record of which half."""
+    store = _store_with("weather", "expenses")
+    svc, _ = service(index_store=store)
+    assert svc.unlist("admin-tok", ["weather", "nope"]).status == NOT_FOUND
+    assert [b["id"] for b in store.index["bundles"]] == ["weather", "expenses"]
+
+
+def test_unlist_keeps_the_artifacts():
+    """Reversible by construction: republishing the same version restores the row, pointing at
+    files that never moved. Deleting them stays a CLI operation."""
+    store = _store_with("weather")
+    svc, _ = service(index_store=store)
+    result = svc.unlist("admin-tok", ["weather"])
+    assert "files are kept" in result.message.lower() or "kept" in result.message.lower()

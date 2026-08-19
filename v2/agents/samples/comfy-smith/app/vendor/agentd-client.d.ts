@@ -256,14 +256,10 @@ interface StoredSession {
 }
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */
 type RunMode = 'local' | 'cloud';
-/**
- * When an access token dies, in epoch ms — read from its own `exp` claim. 0 when unreadable.
- *
- * The claim is read, NOT trusted: nothing is authorised on the strength of it. The daemon verifies
- * the signature and would reject a token whose `exp` we misread in our favour. All this decides is
- * when the page should stop pretending the credential still works.
- */
+/** When an access token dies, in epoch ms, from its own `exp`. 0 when unreadable. */
 declare function accessTokenExpiry(token: string): number;
+/** Which account an access token speaks for, from its `sub`. '' when unreadable. */
+declare function accessTokenAccount(token: string): string;
 declare function loadSession(storageKey?: string): StoredSession | null;
 declare function saveSession(value: StoredSession | null, storageKey?: string): void;
 declare function loadMode(storageKey?: string): RunMode | null;
@@ -442,4 +438,4 @@ declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResul
 /** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
 declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type EventFrame, type Frame, type GateResult, type Hello, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accessTokenExpiry, authLogin, authLogout, authRefresh, authStatus, effectiveMode, fromPage, loadMode, loadSession, mountSignInGate, resultText, saveMode, saveSession, setRunMode, signOutAndGate, startAuthRenewal };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type EventFrame, type Frame, type GateResult, type Hello, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accessTokenAccount, accessTokenExpiry, authLogin, authLogout, authRefresh, authStatus, effectiveMode, fromPage, loadMode, loadSession, mountSignInGate, resultText, saveMode, saveSession, setRunMode, signOutAndGate, startAuthRenewal };

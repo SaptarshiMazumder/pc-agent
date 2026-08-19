@@ -224,6 +224,14 @@ def apply(kwargs: dict) -> dict:
     # correlation context can reach the proxy, and the proxy is where cost is known — so
     # without these headers a usage row can never be tied back to the message that caused it.
     trace = telemetry.trace_headers()
+    # ORG ATTRIBUTION (tenancy E2): a turn on an org's agent names the org so the proxy draws
+    # that org's pool. From the task-local RunContext — the same isolation the account pin has,
+    # so concurrent turns can never swap pools. Absent on every personal/desktop turn.
+    from agent_runtime.application.run_context import current_run_context
+
+    ctx = current_run_context()
+    if ctx is not None and getattr(ctx, "org_id", ""):
+        trace = {**trace, "X-Agentd-Org-Id": str(ctx.org_id)}
     if trace:
         kwargs["extra_headers"] = {**(kwargs.get("extra_headers") or {}), **trace}
     return kwargs

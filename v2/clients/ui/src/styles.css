@@ -1636,3 +1636,36 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   padding: 6px 11px; cursor: pointer;
 }
 .admin-select:focus { outline: none; border-color: var(--accent); }
+
+/* ---- My Agents (the shelf that replaced the marketplace button) --------------- */
+.shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 26px; }
+.shelf-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
+  padding: 16px; display: flex; flex-direction: column; gap: 13px;
+}
+.shelf-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.shelf-avatar { width: 36px; height: 36px; font-size: 14px; flex: none; }
+.shelf-title-wrap { min-width: 0; flex: 1; }
+.shelf-title { font-weight: var(--fw-semi); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-sub { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-head .admin-chip { margin-left: 0; flex: none; }
+.shelf-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.shelf-actions .btn { padding: 6px 13px; font-size: 12.5px; text-decoration: none; }
+.shelf-available { margin-top: 8px; }
+
+/* ---- Organizations (tenancy E5: switcher, org page, share rows) --------------- */
+.org-inline-form { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.org-inline-form .input { flex: 1; max-width: 340px; }
+.org-join-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 2px; border-bottom: 1px solid var(--border); color: var(--text);
+}
+.org-join-row:last-of-type { border-bottom: 0; }
+.org-join-row svg { vertical-align: -2px; margin-right: 5px; color: var(--dim); }
+.org-cap-input { width: 92px; }
+.org-pool-line { display: flex; align-items: center; gap: 8px; }
+/* the pending-offer marker on the Organizations menu row */
+.org-offer-dot { color: var(--accent); font-weight: var(--fw-semi); }
+/* an org row nested under the Organizations menu entry */
+.app-menu-item--sub { padding-left: 38px; }
+.org-switch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

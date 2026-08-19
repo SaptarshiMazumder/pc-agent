@@ -120,6 +120,7 @@ from identity.presentation.auth_router import build_auth_router
 try:  # pragma: no cover - exercised by whichever path the runtime takes
     import admin_api
     import ledger
+    import orgs_api
     from accounts_post_processor import (
         AccountsPostProcessor,
         PurchaseOrder,
@@ -145,6 +146,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
     admin_api = _sibling("admin_api")
     ledger = _sibling("ledger")
+    orgs_api = _sibling("orgs_api")
     _post_processing = _sibling("accounts_post_processor")
     AccountsPostProcessor = _post_processing.AccountsPostProcessor
     PurchaseOrder = _post_processing.PurchaseOrder
@@ -274,6 +276,14 @@ def _init_db() -> None:
         # account's usage in a way nothing detects and nothing can undo.
         if "event_id" not in have:
             c.execute("ALTER TABLE usage ADD COLUMN event_id TEXT NOT NULL DEFAULT ''")
+        # WHICH ORG'S POOL a turn drew from ('' = personal — every row that ever existed).
+        # On usage it is what makes the org rollup and the per-member cap one indexed query;
+        # on credit_grants it is what makes a grant AN ORG'S rather than a person's.
+        if "org_id" not in have:
+            c.execute("ALTER TABLE usage ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
+        have_grants = {r["name"] for r in c.execute("PRAGMA table_info(credit_grants)")}
+        if "org_id" not in have_grants:
+            c.execute("ALTER TABLE credit_grants ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
 
         # Indexes over migrated columns come LAST, and unconditionally.
         #
@@ -287,6 +297,12 @@ def _init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month);
             CREATE INDEX IF NOT EXISTS ix_usage_run   ON usage(run_id);
+            -- Tenant-id-leading, PARTIAL: the org rollup and the per-member cap both start from
+            -- org_id, and excluding '' keeps the index empty on a deployment with no orgs.
+            CREATE INDEX IF NOT EXISTS ix_usage_org
+                ON usage(org_id, month, account_id) WHERE org_id <> '';
+            CREATE INDEX IF NOT EXISTS ix_grants_org
+                ON credit_grants(org_id) WHERE org_id <> '';
             -- PARTIAL, because every row written before event_id existed carries '' and a
             -- plain UNIQUE index would collide on the second of them. Rows without a key keep
             -- the old at-least-once behaviour; rows with one are exactly-once.
@@ -697,11 +713,28 @@ def login(request: Request, payload: dict = Body(...)) -> dict:
             except (AuthenticationFailed, AccountDisabled) as e:
                 count("login_total", outcome="rejected")
                 raise HTTPException(status_code=401, detail="invalid email or password") from e
+        # The domain OFFER (tenancy E1): orgs that claim this email's domain, surfaced for the
+        # client to render — never a silent auto-add. Same connection, one indexed query.
+        joinable = orgs_api.joinable_orgs(c, email, pair.account_id)
     count("login_total", outcome="ok", _props={"account_id": pair.account_id})
     # PBKDF2 at 200k rounds is deliberately slow; watch it so a future rounds bump doesn't
     # quietly turn sign-in into a timeout.
     timing("login_ms", (time.perf_counter() - started) * 1000, outcome="ok")
-    return {**pair.as_response(), "email": email}
+    out = {**pair.as_response(), "email": email}
+    if joinable:
+        out["joinable_orgs"] = joinable
+    return out
+
+
+def _org_resolver(conn: sqlite3.Connection):
+    """``account_id -> ((org_id, role), ...)`` for the token's ``orgs`` claim, bound to the
+    caller's live connection. ONE query implementation (orgs_api.org_memberships) shared with
+    every /orgs route, so what a token asserts and what a route enforces cannot drift."""
+
+    def resolve(account_id: str):
+        return orgs_api.org_memberships(conn, account_id)
+
+    return resolve
 
 
 @contextmanager
@@ -715,11 +748,15 @@ def _auth_service(conn: sqlite3.Connection | None = None):
     deadlocks against itself.
     """
     if conn is not None:
-        yield identity_factory.build_auth_service(conn, SqliteAccountDirectory(conn))
+        yield identity_factory.build_auth_service(
+            conn, SqliteAccountDirectory(conn), org_resolver=_org_resolver(conn)
+        )
         return
     with _db() as c:
         try:
-            yield identity_factory.build_auth_service(c, SqliteAccountDirectory(c))
+            yield identity_factory.build_auth_service(
+                c, SqliteAccountDirectory(c), org_resolver=_org_resolver(c)
+            )
         except RefreshReuseDetected:
             # THE ONE FAILURE THAT MUST STILL COMMIT. _db() commits only on a clean exit, so a
             # raise normally rolls the request back — and here the thing being rolled back is the
@@ -780,6 +817,7 @@ def resolve(authorization: str | None = Header(default=None)) -> dict:
         with _db() as c:
             row = _account_for_token(c, token)
             view = _budget_view(c, row["id"])
+            orgs = orgs_api.org_memberships(c, str(row["id"]))
     except HTTPException:
         count("resolve_total", outcome="rejected")
         timing("resolve_ms", (time.perf_counter() - started) * 1000, outcome="rejected")
@@ -792,6 +830,9 @@ def resolve(authorization: str | None = Header(default=None)) -> dict:
         "budget_usd": row["budget_usd"],
         "spent_usd": view["spent_usd"],
         "over": view["over"],
+        # Same shape as the token's own claim, so a daemon on the HTTP path (no local JWKS)
+        # learns membership from the same answer the JWT path decodes locally.
+        "orgs": [{"id": org_id, "role": role} for org_id, role in orgs],
     }
 
 
@@ -830,23 +871,65 @@ def budget(
 # the only caller that cannot be bypassed by a user-controlled desktop.
 
 
-def _live_grants(c: sqlite3.Connection, account_id: str, agent_id: str) -> list[sqlite3.Row]:
+def _live_grants(
+    c: sqlite3.Connection, account_id: str, agent_id: str, org_id: str = ""
+) -> list[sqlite3.Row]:
     """Unexpired grants with credits left, spendable on this agent, SOONEST-EXPIRING FIRST.
 
     Draining the soonest-expiring grant first is use-it-or-lose-it: it maximises what the user
     actually gets to spend, and it means breakage is genuine non-use rather than an artefact of
     which row we happened to pick.
+
+    TWO POCKETS THAT NEVER MIX (tenancy E2). An org-attributed turn (org_id given) draws the
+    ORG'S pool and only the org's pool; a personal turn draws only rows with org_id='' — which
+    is every row that existed before orgs did, so the personal path is byte-identical. Crossing
+    silently in either direction is the failure mode: an employee's own credits funding company
+    work by accident, or the company pool leaking into personal chats.
     """
     scopes = ["platform"] + ([f"agent:{agent_id}"] if agent_id else [])
     now = _now()
+    if org_id:
+        # A SUSPENDED org's pool answers zero everywhere at once — suspension would be
+        # decorative if grants kept draining while the routes 404ed.
+        where = (
+            "org_id = ? AND EXISTS (SELECT 1 FROM orgs o WHERE o.id = org_id AND o.active = 1)"
+        )
+        args = [org_id]
+    else:
+        where, args = "account_id = ? AND org_id = ''", [account_id]
     rows = c.execute(
-        "SELECT * FROM credit_grants WHERE account_id=? AND credits > credits_used "
+        f"SELECT * FROM credit_grants WHERE {where} AND credits > credits_used "
         "AND (expires_at = 0 OR expires_at > ?) "
         f"AND scope IN ({','.join('?' * len(scopes))}) "
         "ORDER BY CASE WHEN expires_at = 0 THEN 1 ELSE 0 END, expires_at ASC, id ASC",
-        (account_id, now, *scopes),
+        (*args, now, *scopes),
     ).fetchall()
     return list(rows)
+
+
+def _org_cap_left(c: sqlite3.Connection, org_id: str, account_id: str) -> int | None:
+    """How much of the member's monthly org allowance remains — None = uncapped.
+
+    The cap is POLICY on the membership row (Lovable/ChatGPT pattern), checked at the same
+    funding gate every turn already passes. Month-to-date comes from the usage ledger's own
+    org_id column, so the cap and the admin rollup can never disagree about what was spent.
+    """
+    member = c.execute(
+        "SELECT monthly_credit_cap FROM org_members "
+        "WHERE org_id = ? AND account_id = ? AND active = 1",
+        (org_id, account_id),
+    ).fetchone()
+    if member is None:
+        return 0  # not an (active) member: fail CLOSED — no allowance at all
+    cap = int(member["monthly_credit_cap"] or 0)
+    if cap <= 0:
+        return None
+    spent = c.execute(
+        "SELECT COALESCE(SUM(credits), 0) AS s FROM usage "
+        "WHERE org_id = ? AND account_id = ? AND month = ?",
+        (org_id, account_id, _month_key(_now())),
+    ).fetchone()
+    return max(0, cap - int(spent["s"] or 0))
 
 
 def _entitlement_state(c: sqlite3.Connection, account_id: str, agent_id: str) -> tuple[bool, bool]:
@@ -872,8 +955,10 @@ def _entitlement_state(c: sqlite3.Connection, account_id: str, agent_id: str) ->
     return True, held
 
 
-def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict:
-    grants = _live_grants(c, account_id, agent_id)
+def _funding_view(
+    c: sqlite3.Connection, account_id: str, agent_id: str, org_id: str = ""
+) -> dict:
+    grants = _live_grants(c, account_id, agent_id, org_id)
     remaining = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
     # The tier ceiling comes from the grant we would spend FIRST, so a cheap-models-only
     # promotional grant cannot be dodged by also holding an unrestricted one.
@@ -885,13 +970,35 @@ def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict
     # before every uncached model call, so gating on entitlement costs zero extra round trips.
     # A second hot-path call per message would be a real latency tax on every user (DEF-6).
     required, held = _entitlement_state(c, account_id, agent_id)
+    if org_id:
+        # ORG-ATTRIBUTED TURN (tenancy E2). The pool is the org's; what THIS member may draw of
+        # it is bounded by their monthly cap, so the proxy's one existing zero-balance gate
+        # enforces both — at/over cap produces the same 402 an empty pool does.
+        cap_left = _org_cap_left(c, org_id, account_id)
+        capped = cap_left is not None
+        if capped:
+            remaining = min(remaining, cap_left)
+        # An org pool is ALWAYS enforced — "was never on a credit plan" is a personal-tier
+        # grace, and extending it to orgs would let an unfunded org run for free forever.
+        return {
+            "account_id": account_id,
+            "org_id": org_id,
+            "credits_remaining": remaining,
+            "model_tier_max": tier_max,
+            "funding_source": "org_pool",
+            "credit_class": str(grants[0]["credit_class"]) if grants else "",
+            "entitlement_required": required,
+            "entitled": held,
+            "credits_enforced": True,
+            "member_capped": capped and cap_left == 0,
+        }
     # HAS THIS ACCOUNT EVER BEEN GRANTED CREDITS? Not "does it have any left" — ANY row, spent or
     # expired. It is what tells the proxy whether a zero balance means "exhausted" (refuse) or
     # "this account was never on a credit plan" (the deployment's free tier — allow, which is
     # what every account did before the gate could fire at all). Without the distinction,
     # switching enforcement on refuses every existing user's very first message.
     ever_granted = c.execute(
-        "SELECT 1 FROM credit_grants WHERE account_id = ? LIMIT 1", (account_id,)
+        "SELECT 1 FROM credit_grants WHERE account_id = ? AND org_id = '' LIMIT 1", (account_id,)
     ).fetchone() is not None
     return {
         "account_id": account_id,
@@ -909,16 +1016,19 @@ def _funding_view(c: sqlite3.Connection, account_id: str, agent_id: str) -> dict
 def funding(
     account_id: str,
     agent_id: str = "",
+    org_id: str = "",
     x_internal_key: str | None = Header(default=None),
 ) -> dict:
     """What this account can spend right now, and on which model tier. Read by the proxy before
-    every uncached call — so it is on the hot path and must stay a single indexed query."""
+    every uncached call — so it is on the hot path and must stay a single indexed query.
+    `org_id` (stamped by the daemon on turns that run an ORG's agent) switches the answer to
+    that org's pool, bounded by this member's monthly cap."""
     if not _require_internal(x_internal_key):
         raise HTTPException(status_code=401, detail="internal key required")
     with _db() as c:
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="unknown account")
-        return _funding_view(c, account_id, agent_id)
+        return _funding_view(c, account_id, agent_id, (org_id or "").strip())
 
 
 @app.get("/me/credits")
@@ -970,16 +1080,18 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
     account_id = (payload.get("account_id") or "").strip()
     credits = max(0, int(payload.get("credits") or 0))
     agent_id = (payload.get("agent_id") or "").strip()
+    org_id = (payload.get("org_id") or "").strip()
     if not account_id:
         raise HTTPException(status_code=400, detail="account_id required")
     with _db() as c:
-        grants = _live_grants(c, account_id, agent_id)
+        grants = _live_grants(c, account_id, agent_id, org_id)
         available = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
         if available <= 0:
             count("debit_total", outcome="insufficient")
             raise HTTPException(
                 status_code=402,
-                detail=f"insufficient credits: need {credits}, have 0",
+                detail=f"insufficient credits: need {credits}, have 0"
+                + (f" (org pool {org_id})" if org_id else ""),
             )
         # DRAIN, never refuse, when the balance covers only part of the charge. The call this
         # bills for ALREADY RAN — refusing changes nothing about the money spent, it only leaves
@@ -1001,7 +1113,7 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
                 (take, g["id"]),
             )
             left -= take
-        view = _funding_view(c, account_id, agent_id)
+        view = _funding_view(c, account_id, agent_id, org_id)
     count("debit_total", outcome="drained" if shortfall else "ok")
     # The single number that says "are we selling faster than we are serving?"
     count("credits_consumed_total", drained, _props={"account_id": account_id})
@@ -1021,9 +1133,12 @@ def _apply_grant(payload: dict) -> dict:
     token for a human), one set of money semantics — which is the half that must never fork.
     """
     account_id = (payload.get("account_id") or "").strip()
+    org_id = (payload.get("org_id") or "").strip()
     credits = max(0, int(payload.get("credits") or 0))
-    if not account_id or credits <= 0:
-        raise HTTPException(status_code=400, detail="account_id and positive credits required")
+    if (not account_id and not org_id) or credits <= 0:
+        raise HTTPException(
+            status_code=400, detail="an account_id or org_id, and positive credits, required"
+        )
     scope = (payload.get("scope") or "platform").strip() or "platform"
     credit_class = (payload.get("credit_class") or "paid").strip()
     tier_max = (payload.get("model_tier_max") or "").strip()
@@ -1034,13 +1149,24 @@ def _apply_grant(payload: dict) -> dict:
     days = float(payload.get("expires_days") or 0)
     expires_at = (_now() + days * 86_400) if days != 0 else 0.0
     with _db() as c:
+        if org_id:
+            # AN ORG'S POOL (tenancy E2). The row still needs a real account behind it (the FK,
+            # and the ledger's idea of whom we owe): the org's primary owner anchors it unless
+            # the caller named a buyer. Draw-side only org_id matters — see _live_grants.
+            org = c.execute(
+                "SELECT id, primary_owner, active FROM orgs WHERE id = ?", (org_id,)
+            ).fetchone()
+            if org is None or not org["active"]:
+                raise HTTPException(status_code=404, detail="unknown organization")
+            account_id = account_id or str(org["primary_owner"])
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="unknown account")
         ts = _now()
         cur = c.execute(
-            "INSERT INTO credit_grants (account_id, scope, credits, credits_used, credit_class, "
-            "model_tier_max, expires_at, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
-            (account_id, scope, credits, credit_class, tier_max, expires_at, ts),
+            "INSERT INTO credit_grants (account_id, org_id, scope, credits, credits_used, "
+            "credit_class, model_tier_max, expires_at, created_at) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (account_id, org_id, scope, credits, credit_class, tier_max, expires_at, ts),
         )
         # NO CASH CAME IN, but a liability was still created: we now owe this account service.
         # Posted as a promotional grant whatever the credit_class says, because that is what
@@ -1050,7 +1176,7 @@ def _apply_grant(payload: dict) -> dict:
             c, ts, account_id=account_id, credits=credits,
             ref=f"grant:{cur.lastrowid}", idempotency_key=f"grant:{cur.lastrowid}",
         )
-        view = _funding_view(c, account_id, "")
+        view = _funding_view(c, account_id, "", org_id)
     count("credits_granted_total", credits, credit_class=credit_class, _props={"account_id": account_id})
     return {"ok": True, **view}
 
@@ -1095,6 +1221,9 @@ def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default
     # every retry. Absent (an older proxy) falls back to the previous at-least-once behaviour
     # rather than rejecting the row — losing a billing record is worse than duplicating one.
     event_id = str(payload.get("event_id") or "").strip()[:80]
+    # WHICH ORG'S POOL paid (tenancy E2) — '' on every personal turn. Forwarded by the proxy
+    # from the daemon's per-turn trace; it is what the org rollup and per-member cap read.
+    org_id = str(payload.get("org_id") or "").strip()[:64]
     ts = _now()
     with _db() as c:
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
@@ -1103,10 +1232,10 @@ def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default
         cur = c.execute(
             "INSERT INTO usage (account_id, ts, month, model, in_tokens, out_tokens, cost_usd, "
             "run_id, turn_id, credits, funding_source, agent_id, model_tier, cached_tokens, "
-            "event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "event_id, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(event_id) WHERE event_id <> '' DO NOTHING",
             (account_id, ts, _month_key(ts), model, in_tok, out_tok, cost, run_id, turn_id,
-             credits, funding_source, agent_id, model_tier, cached_tok, event_id),
+             credits, funding_source, agent_id, model_tier, cached_tok, event_id, org_id),
         )
         duplicate = cur.rowcount == 0
         if not duplicate:
@@ -1900,6 +2029,20 @@ def _rotate_signing_key(c: sqlite3.Connection, retire_after_s: float) -> str:
 
     return SqliteKeyStore(c).rotate(retire_after_s=retire_after_s).kid
 
+
+# /orgs/* + /me/orgs — enterprise organizations (tenancy plan E1). Mounted unconditionally like
+# /auth and /admin: every route resolves the caller's token first and fails closed on
+# membership, so on a deployment with no orgs the surface simply answers 404s.
+app.include_router(
+    orgs_api.build_orgs_router(
+        orgs_api.OrgDeps(
+            db=_db,
+            account_for_token=_account_for_token,
+            now=_now,
+            month_key=_month_key,
+        )
+    )
+)
 
 app.include_router(
     admin_api.build_admin_router(

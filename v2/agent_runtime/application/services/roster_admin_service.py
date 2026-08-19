@@ -247,6 +247,59 @@ class RosterAdminService:
         )
 
     # ================================================================== internals
+    # ================================================================== unlist
+    def unlist(self, token: str, bundle_ids: list[str]) -> IntakeResult:
+        """Take agents OFF the marketplace: their rows leave index.json.
+
+        WHAT THIS IS AND IS NOT. It removes the LISTING, not the artifacts and not the installs.
+        No store shows the agent and no client can resolve it, so nothing new can be installed —
+        but the `.agentpkg` and its installers stay in the bucket, and copies already on machines
+        are untouched. That is what makes this reversible: republishing the same version puts the
+        row back, pointing at files that never went anywhere.
+
+        DELETING THE ARTIFACTS IS DELIBERATELY NOT HERE. `agentd bundle unlist --purge-artifacts`
+        does that, from an operator's machine, because it is the one step with no way back and a
+        dashboard button is the wrong shape for it.
+
+        Under the SAME LOCK as publishing and roster edits: index.json is one document, and an
+        unlist racing a publish would otherwise silently resurrect the row it just removed. Writing
+        through the index store also regenerates catalog.json, so the public storefront stops
+        showing the card in the same operation rather than on someone's next publish.
+        """
+        refusal = self.authorize(token)
+        if refusal:
+            return refusal
+        wanted = list(dict.fromkeys(i for i in (bundle_ids or []) if i))
+        if not wanted:
+            return IntakeResult(NOT_FOUND, "name at least one bundle to unlist.")
+
+        with self._lock:
+            index = self._store.read_index() or {}
+            rows = [b for b in (index.get("bundles") or []) if isinstance(b, dict)]
+            present = {str(b.get("id") or "") for b in rows}
+            missing = [i for i in wanted if i not in present]
+            if missing:
+                known = ", ".join(sorted(present)) or "none"
+                return IntakeResult(
+                    NOT_FOUND,
+                    f"not in this registry: {', '.join(sorted(missing))} (it lists: {known})",
+                )
+            removed = [
+                f"{b.get('id')} {b.get('version')}".strip()
+                for b in rows
+                if str(b.get("id") or "") in set(wanted)
+            ]
+            index["bundles"] = [b for b in rows if str(b.get("id") or "") not in set(wanted)]
+            self._store.write_index(index)
+
+        log.info("unlisted %s", ", ".join(removed))
+        return IntakeResult(
+            OK,
+            f"unlisted {', '.join(removed)}. The listing is gone from the marketplace; the files "
+            "are kept, so republishing the same version restores it. Copies already installed are "
+            "unaffected.",
+        )
+
     def _rewrite_roster(self, mutate) -> None:
         """Read index -> mutate its publishers block -> re-sign -> write. Under the lock, because
         index.json is one document and publishes are rewriting it too."""

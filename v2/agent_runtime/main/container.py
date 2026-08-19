@@ -55,6 +55,33 @@ def _account_agents_overlay(config: Config):
     return resolve
 
 
+def _org_agent_layers(config: Config):
+    """The CURRENT connection's ORG layers — ((org_id, role, path), ...) — for the registry's
+    middle layer (tenancy E3). Same contextvar resolution as the two callables above; the org
+    list itself comes from the VERIFIED token's claim via accounts.current_account, so a layer
+    exists for a connection exactly when its token proves membership. () for everyone else —
+    desktop, anonymous, and every account with no orgs — which is the whole degenerate case.
+    """
+    from agent_runtime.infrastructure import accounts as _accounts
+    from agent_runtime.infrastructure import user_state as _user_state
+
+    def resolve():
+        acc = _accounts.current_account.get()
+        if not acc:
+            return ()
+        return tuple(
+            (
+                str(o.get("id")),
+                str(o.get("role") or "member"),
+                _user_state.org_agents_dir(config.state_dir, str(o.get("id"))),
+            )
+            for o in (acc.get("orgs") or ())
+            if isinstance(o, dict) and str(o.get("id") or "").strip()
+        )
+
+    return resolve
+
+
 def build_browser_manager(config: Config):
     """Build the browser provider (Playwright today), or None if unavailable.
 
@@ -155,7 +182,10 @@ def build_service(
     )
 
     registry = registry or FileAgentRegistry(
-        config, overlay_dir=_account_agents_overlay(config), account_id=_current_account_id
+        config,
+        overlay_dir=_account_agents_overlay(config),
+        account_id=_current_account_id,
+        org_layers=_org_agent_layers(config),
     )
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
     # entitle every compatible plugin; a distribution profile with a pinned publisher key
@@ -560,11 +590,16 @@ def build_service(
 
     def _tenant_scope(agent, workspace):
         """The TENANT scope for one run: (read_roots, write_clamp). All the knowledge lives in
-        user_state.tenant_scope (the layout authority); this closure only supplies the three
-        per-call facts — who is signed in, which agent resolved, where the run's workspace is.
-        Non-hosted deployments get ((), ()) = unrestricted, so desktop is byte-for-byte."""
+        user_state.tenant_scope (the layout authority); this closure only supplies the per-call
+        facts — who is signed in, their orgs (read-only definition grants), which agent
+        resolved, where the run's workspace is. Non-hosted deployments get ((), ()) =
+        unrestricted, so desktop is byte-for-byte."""
         return _user_state.tenant_scope(
-            config, _accounts.account_id() or "", getattr(agent, "dir", None), workspace
+            config,
+            _accounts.account_id() or "",
+            getattr(agent, "dir", None),
+            workspace,
+            org_ids=_accounts.org_ids(),
         )
 
     def _effective_workspace(agent, session_id: str) -> str:
@@ -834,7 +869,10 @@ def build_gateway(config: Config) -> Gateway:
     from agent_runtime.infrastructure.agents import FileAgentRegistry
 
     registry = FileAgentRegistry(
-        config, overlay_dir=_account_agents_overlay(config), account_id=_current_account_id
+        config,
+        overlay_dir=_account_agents_overlay(config),
+        account_id=_current_account_id,
+        org_layers=_org_agent_layers(config),
     )
     task_store = build_task_store(config)  # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)

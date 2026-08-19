@@ -26,6 +26,7 @@ from agent_runtime.application.run_context import (
     current_trace_ids,
     set_run_context,
 )
+from agent_runtime.domain import ownership as _ownership
 from agent_runtime.domain.agent import (
     MCP_WORKSHOP_TOOL,
     AgentSpec,
@@ -581,6 +582,11 @@ class AgentService:
                 from agent_runtime.application.write_scope import NOTHING
 
                 read_roots, write_clamp = ((NOTHING,), (NOTHING,))
+        # ORG ATTRIBUTION (tenancy E2): a turn that runs an ORG'S agent bills that org's pool.
+        # The agent's stamped OWNER is the whole rule — the registry only resolves an org's
+        # agent for that org's members in the first place, so owner-is-an-org implies the
+        # caller belongs to it. Everything else (personal agents, curated, desktop) carries "".
+        _owner = str(getattr(agent, "owner", "") or "")
         set_run_context(
             RunContext(
                 agent_id=agent.id,
@@ -590,6 +596,7 @@ class AgentService:
                 plugins=getattr(agent, "plugins", None) or None,
                 run_id=_run_id,
                 turn_id=_turn_id,
+                org_id=_owner if _ownership.is_org(_owner) else "",
                 # getattr, like `plugins` above: an AgentSpec always has these, but the service
                 # is handed stand-in agent objects too (tests, and any caller that builds a
                 # minimal spec). A missing field means "declared nothing" — unrestricted.
