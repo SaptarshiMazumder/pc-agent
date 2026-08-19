@@ -25,9 +25,10 @@ COPY monitoring /tmp/monitoring
 RUN pip install --no-cache-dir /tmp/monitoring && rm -rf /tmp/monitoring
 RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
 # app.py imports these as siblings; omitting any is a hard startup failure, not a degraded
-# feature — the ledger IS the money.
+# feature — the ledger IS the money. (Proven live 2026-08-19: the image shipped without
+# orgs_api.py and the container exited 1 on FileNotFoundError before serving a byte.)
 COPY accounts/app.py accounts/ledger.py accounts/accounts_post_processor.py \
-     accounts/identity_bridge.py accounts/admin_api.py /app/
+     accounts/identity_bridge.py accounts/admin_api.py accounts/orgs_api.py /app/
 # The payment rail, as a package rather than a sibling (v2/payments/). Copied to /app/payments/
 # so `import payments...` resolves the same way here as it does under pytest, where v2/ is on
 # sys.path.
