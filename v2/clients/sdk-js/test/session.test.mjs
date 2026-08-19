@@ -20,6 +20,7 @@ import {
   loadMode,
   loadSession,
   saveMode,
+  resetIdentity,
   saveSession
 } from '../dist/index.js'
 
@@ -53,6 +54,10 @@ function jwt(expiresInS = 600) {
 beforeEach(() => {
   store.clear()
   delete globalThis.location
+  // The manager holds the session in MEMORY as well as in storage — that is what makes it a
+  // single-flight renewer rather than a wrapper over localStorage. Emptying the store behind its
+  // back therefore proves nothing unless the manager is dropped with it.
+  resetIdentity()
 })
 
 // ── which key ───────────────────────────────────────────────────────────────

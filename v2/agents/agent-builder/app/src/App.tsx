@@ -18,9 +18,10 @@
 import { mountSignInGate } from '@agentd/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
+import { hasWindow, openAgentWindow } from './agentd/app-window'
 import { useChat } from './agentd/chat'
 import { useClient } from './agentd/client'
-import { useWhoAmI } from './agentd/platform'
+import { useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable, type AgentRow } from './agentd/roster'
 import { useAgents } from './agentd/roster'
 import { useSessions } from './agentd/sessions'
@@ -29,6 +30,7 @@ import { Inspector } from './components/Inspector'
 import { PlanPanel } from './components/PlanPanel'
 import { Rail } from './components/Rail'
 import { SettingsModal } from './components/settings/SettingsModal'
+import { StartModal, type StartMode } from './components/StartModal'
 import { Thread } from './components/Thread'
 import { Topbar } from './components/Topbar'
 
@@ -41,8 +43,13 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(true)
   const [panelOpen, setPanelOpen] = useState(true)
   const [daemonVersion, setDaemonVersion] = useState('')
+  // Which start dialog is open, and the suggestion that opened it. One piece of state, because
+  // "create" and "edit" are two questions asked by one screen and never both at once.
+  const [start, setStart] = useState<{ mode: StartMode; seed?: string } | null>(null)
+  const [windowError, setWindowError] = useState('')
 
   const who = useWhoAmI(client, status)
+  const daemon = useRestartDaemon(client)
 
   // An agent that did not exist a moment ago was just BUILT — in this window, by this
   // conversation. Focus it, because watching its files appear is what the inspector is for and
@@ -85,15 +92,45 @@ export default function App() {
     })()
   }, [ready, client])
 
-  const openAgent = useCallback(
+  /** Work on an existing agent, in a conversation of its own.
+   *
+   *  A FRESH CHAT, not a re-point of the open one. Focus belongs to a conversation (see the file
+   *  header): re-aiming it mid-thread leaves a transcript whose first half is about one agent and
+   *  whose second half is about another, and a resumed copy of it can only pick one. */
+  const editAgent = useCallback(
     (id: string) => {
       const agent = agents.find((a) => a.id === id)
       if (!agent) return
+      setStart(null)
+      chat.reset()
       setSelected(agent) // the inspector follows the conversation
       chat.setScope(agent) // and the model is told what it is looking at
     },
     [agents, chat],
   )
+
+  /** Start building something new, having answered the one question worth asking first. */
+  const createAgent = useCallback(
+    (window: boolean, seed?: string) => {
+      setStart(null)
+      setSelected(null) // there is nothing to inspect until it exists
+      chat.reset()
+      chat.setIntent({ window })
+      if (seed) void chat.send(seed)
+    },
+    [chat],
+  )
+
+  const openWindow = useCallback(async () => {
+    if (!selected) return
+    try {
+      await openAgentWindow(selected)
+    } catch (e) {
+      // Surfaced, never swallowed: a button that silently does nothing is worse than one that
+      // says the pop-up was blocked.
+      setWindowError(String((e as Error)?.message || e))
+    }
+  }, [selected])
 
   /** Resume a saved conversation, and point the inspector at whatever that conversation was
    *  about. The transcript names it (see `subjectOf`); an unscoped chat that built nothing names
@@ -109,11 +146,6 @@ export default function App() {
     [chat, agents],
   )
 
-  const newChat = useCallback(() => {
-    setSelected(null) // a new chat is about nothing until it is told
-    chat.reset()
-  }, [chat])
-
   // NOTHING IN FOCUS -> NO PANEL. Not an empty panel with a placeholder in it: there is no
   // question for the panel to answer yet, and a column of dashes is furniture.
   const shellClass = ['shell', railOpen ? '' : 'no-rail', selected && panelOpen ? '' : 'no-panel']
@@ -128,7 +160,8 @@ export default function App() {
         chats={chats}
         openKey={chat.sessionKey}
         onOpenChat={(key) => void openChat(key)}
-        onNewChat={newChat}
+        onCreate={() => setStart({ mode: 'create' })}
+        onEdit={() => setStart({ mode: 'edit' })}
         onSettings={() => setSettingsOpen(true)}
         status={status}
         daemonVersion={daemonVersion}
@@ -140,6 +173,9 @@ export default function App() {
           who={who}
           railOpen={railOpen}
           onToggleRail={() => setRailOpen((v) => !v)}
+          onRestart={() => void daemon.restart()}
+          restarting={daemon.busy}
+          restartNote={daemon.note}
           canTogglePanel={!!selected}
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen((v) => !v)}
@@ -149,9 +185,12 @@ export default function App() {
           <Thread
             items={chat.items}
             running={chat.running}
-            agents={openable(agents)}
-            onOpenAgent={openAgent}
-            onSuggest={(text) => void chat.send(text)}
+            hasAgents={openable(agents).length > 0}
+            onCreate={() => setStart({ mode: 'create' })}
+            onEdit={() => setStart({ mode: 'edit' })}
+            // A suggestion says WHAT to build; the dialog is still HOW. Routing it through the
+            // same door is what stops the most-taken path being the one that skips the question.
+            onSuggest={(text) => setStart({ mode: 'create', seed: text })}
           />
           {chat.plan && <PlanPanel plan={chat.plan} />}
           <Composer
@@ -161,7 +200,17 @@ export default function App() {
             onAbort={() => void chat.abort()}
             onFiles={(list) => void chat.addFiles(list)}
             onRemoveFile={chat.removeFile}
+            onOpenWindow={hasWindow(selected) ? () => void openWindow() : undefined}
+            openWindowLabel={selected?.app?.title ? `Open ${selected.name || selected.id}` : undefined}
           />
+          {windowError && (
+            <div className="composer-error" role="alert">
+              {windowError}
+              <button className="icon-btn" onClick={() => setWindowError('')} title="Dismiss">
+                ✕
+              </button>
+            </div>
+          )}
         </section>
       </main>
 
@@ -175,6 +224,17 @@ export default function App() {
       {/* Mounted only while open, which is what loads it: the vanilla window called
           Settings.load() on every switch to that view, and mounting does the same thing without a
           second place to remember it. */}
+      {start && (
+        <StartModal
+          mode={start.mode}
+          agents={openable(agents)}
+          seed={start.seed}
+          onCreate={createAgent}
+          onEdit={editAgent}
+          onClose={() => setStart(null)}
+        />
+      )}
+
       {settingsOpen && <SettingsModal client={client} onClose={() => setSettingsOpen(false)} />}
     </div>
   )

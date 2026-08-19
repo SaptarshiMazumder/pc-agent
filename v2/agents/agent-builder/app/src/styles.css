@@ -255,6 +255,12 @@ h2 { font-size: 16px; }
 }
 
 .topbar-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+/* What the restart is doing, beside the button doing it. Truncated rather than wrapped: this
+   sits in a header row, and a two-line status would move the whole page. */
+.restart-note {
+  font-size: 12px; color: var(--faint); max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .whoami {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 12px; border-radius: 999px;
@@ -676,4 +682,85 @@ button.thought-head:hover { color: var(--dim); }
   .topbar { padding: 18px 18px 14px; }
   .thread { padding: 18px 18px 8px; }
   .composer-wrap { padding: 10px 18px 16px; }
+}
+
+
+/* ── the start dialog ────────────────────────────────────────────────────────────────────── */
+/* Reuses .modal-back and .modal. Only what is new to this screen lives here — a second backdrop
+   with its own blur radius is how two dialogs in one app come to look like two apps. */
+.start-modal { max-width: 640px; }
+.start-modal .modal-head { align-items: center; justify-content: space-between; }
+.start-modal .modal-head h2 { font-size: 16px; }
+.modal-note { padding: 18px 22px 0; color: var(--dim); font-size: 13px; }
+.modal-foot { padding: 4px 22px 20px; color: var(--faint); font-size: 12px; }
+.modal-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 16px 22px 20px; border-top: 1px solid var(--hair); margin-top: 4px;
+}
+
+/* Two cards, not a radio pair: the choice carries a consequence each way, and the consequence is
+   the thing worth reading. A radio label has nowhere to put it. */
+.choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px 22px 20px; }
+.choice {
+  display: flex; flex-direction: column; gap: 7px; text-align: left;
+  padding: 16px; border-radius: 14px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--hair-2); color: var(--ink);
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
+}
+.choice:hover { border-color: var(--purple-line); background: var(--raised); }
+.choice:active { transform: translateY(1px); }
+.choice-title { font-size: 14px; font-weight: 600; }
+.choice-body { font-size: 12px; color: var(--dim); line-height: 1.5; }
+
+.pick-list {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 16px; margin: 4px 6px; max-height: 46vh; overflow-y: auto;
+}
+.pick-row-btn {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  padding: 11px 13px; border-radius: 11px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--ink); font-size: 13px;
+}
+.pick-row-btn:hover { background: var(--card); }
+.pick-row-btn.is-picked { background: var(--purple-soft); border-color: var(--purple-line); }
+.pick-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-tag {
+  flex: none; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--faint); border: 1px solid var(--hair-2); border-radius: 999px; padding: 2px 7px;
+}
+
+.primary-btn {
+  padding: 9px 16px; border-radius: 11px; cursor: pointer; font-size: 13px; font-weight: 600;
+  background: var(--purple); border: 1px solid var(--purple-line); color: #fff;
+}
+.primary-btn:hover { filter: brightness(1.08); }
+.primary-btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+
+.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* The rail's second entry point. Quieter than "Create new agent" on purpose — editing is the
+   commoner action but the less consequential one, and two equally loud buttons make neither. */
+.edit-btn { margin: -4px 10px 4px; }
+
+/* ── open the agent's own window ─────────────────────────────────────────────────────────── */
+/* Beside the composer, because building a window and looking at it are one loop. Rendered only
+   when the focused agent HAS a window — see Composer's prop comment. */
+.open-app-btn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: var(--card); border: 1px solid var(--hair-2); color: var(--dim);
+  max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.open-app-btn:hover { border-color: var(--purple-line); color: var(--ink); background: var(--raised); }
+.open-app-btn .ico { font-size: 13px; }
+
+.composer-error {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin: 8px 0 0; padding: 9px 13px; border-radius: 11px; font-size: 12px;
+  background: rgba(255, 107, 107, 0.1); border: 1px solid rgba(255, 107, 107, 0.35);
+  color: var(--bad);
+}
+
+@media (max-width: 640px) {
+  .choice-grid { grid-template-columns: 1fr; }
 }

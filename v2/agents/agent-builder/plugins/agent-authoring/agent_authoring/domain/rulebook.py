@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .finding import Finding
+from .finding import ERROR, Finding
 
 PACK = "pack"
 PUBLISH = "publish"
@@ -71,6 +71,31 @@ RULEBOOK: dict[str, Rule] = {
     "NO_VERSION": Rule(
         blocks=(PUBLISH,),
         note="installs supersede BY VERSION; a version-less publish can never be updated",
+    ),
+    # EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. Not a recommendation — an agent that ships
+    # without it has no way to know who is using it, and on a hosted install every model call
+    # fails with a provider error and nothing on screen explains why. The check was a warning
+    # for exactly as long as it took someone to publish past it.
+    "UI_NO_SIGN_IN": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an app with no sign-in cannot be packed or published; the SDK's gate is the only "
+        "mechanism — never a second login of the agent's own",
+    ),
+    # ONE SIGN-IN IMPLEMENTATION ON THIS PLATFORM. Listed here rather than left to block on its
+    # error level alone: this table is where the shipping policy is written down, and a code that
+    # blocks only because of how it happens to be priced is a code somebody later re-prices to a
+    # warning without ever reading that it was load-bearing.
+    #
+    # There were three copies of sign-in once. They drifted — one would not renew a token that had
+    # already expired, one had no single-flight guard and got whole refresh-token families revoked,
+    # and they posted to different endpoints. Users were signed out ten minutes in, and signing
+    # back in did not help. An agent that writes a fourth copy inflicts that on its own users only.
+    "UI_OWN_LOGIN": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an agent that mints or stores credentials itself cannot be packed or published — "
+        "mountSignInGate() draws the form, identity().accessToken() hands over a credential",
     ),
     "DEFINITION_IN_EXCLUDED_DIR": Rule(
         note="definition files under an excluded dir ship to nobody"

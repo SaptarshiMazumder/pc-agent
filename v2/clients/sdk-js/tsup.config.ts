@@ -1,9 +1,17 @@
 import { defineConfig } from 'tsup'
 
+// `@agentd/auth` is SOURCE WE OWN, not a third-party dependency, and it must land INSIDE both
+// bundles. tsup externalises anything in `dependencies` by default, which left the ESM build
+// importing a bare '@agentd/auth' specifier — fine here, fatal for every agent: a React agent app
+// vendors that file and resolves nothing at that name, so `npm run build` fails for the recipient
+// and never for us. The IIFE build inlines it either way; naming it here makes the two agree.
+const BUNDLE_IN = ['@agentd/auth']
+
 export default defineConfig([
   // ESM for bundlers / Node / the desktop client
   {
     entry: { index: 'src/index.ts' },
+    noExternal: BUNDLE_IN,
     format: ['esm'],
     dts: true,
     sourcemap: true,
@@ -12,6 +20,7 @@ export default defineConfig([
   // IIFE for no-build agent apps: <script src=".../agentd-client.js"> -> window.agentd
   {
     entry: { 'agentd-client': 'src/index.ts' },
+    noExternal: BUNDLE_IN,
     format: ['iife'],
     globalName: 'agentd',
     sourcemap: false,

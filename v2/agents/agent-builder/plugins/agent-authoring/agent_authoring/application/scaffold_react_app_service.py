@@ -1,9 +1,13 @@
 """ScaffoldReactAppService — put a buildable React project in an agent's ``app/``.
 
-WHAT IT DOES NOT DO IS THE POINT. It writes no components, no hooks, no layout — only the four
-config files and the vendored SDK. What the window should BE is a judgement about this particular
-agent, and the material for that judgement is ``agents/samples/``: working agents that already
-solve the parts which are easy to get wrong and impossible to notice.
+WHAT IT DOES NOT DO IS THE POINT. It writes no components, no hooks, no layout — only the config
+files, the vendored SDK, and ``src/main.tsx``. What the window should BE is a judgement about this
+particular agent, and the material for that judgement is ``agents/samples/``: working agents that
+already solve the parts which are easy to get wrong and impossible to notice.
+
+``main.tsx`` is the exception because it is NOT a judgement: every agent with a window signs its
+user in, ``validate_agent`` refuses an app that does not, and a mandatory step left to the author
+is a step that gets forgotten. So it ships written.
 
 The vanilla ``scaffold_ui`` templates take the opposite bet, and it is the right bet for what they
 are: a complete app copied onto disk, because a model writing one from a blank file reliably gets
@@ -39,6 +43,11 @@ STARTER_FILES = (
     "README.md",
     "vendor/agentd-client.js",
     "vendor/agentd-client.d.ts",
+    # THE ONE SOURCE FILE. Everything else in src/ is a judgement about the agent, which is why
+    # this starter deliberately ships none of it — but signing the user in is not a judgement.
+    # Every agent with a window does it, validate_agent refuses an app that does not, and a rule
+    # the author has to remember is a rule that gets forgotten. So it arrives already written.
+    "src/main.tsx",
 )
 
 

@@ -78,10 +78,23 @@ def test_the_build_writes_where_the_daemon_reads():
     assert "base: './'" in config
 
 
-def test_the_starter_ships_no_source():
-    """Deliberate: what the window should BE is a judgement about the agent, made from the
-    samples. A copied src/ would be a fourth opinion competing with them."""
-    assert not (STARTER / "src").exists()
+def test_the_starter_ships_only_the_one_mandatory_source_file():
+    """What the window should BE is a judgement about the agent, made from the samples — a copied
+    src/ would be a fourth opinion competing with them.
+
+    SIGNING IN IS NOT A JUDGEMENT. Every agent with a window does it, validate_agent refuses an
+    app that does not, and a mandatory step left to the author is a step that gets forgotten. So
+    exactly one file ships, and it is that one."""
+    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["main.tsx"]
+
+
+def test_the_shipped_entry_actually_signs_in():
+    """The file exists for one reason. A starter that shipped a main.tsx WITHOUT the gate would
+    be worse than shipping none — it looks like the question was already handled."""
+    main = (STARTER / "src" / "main.tsx").read_text(encoding="utf-8")
+
+    assert "mountSignInGate" in main
+    assert main.index("mountSignInGate") < main.index("root.render"), "gate before the render"
 
 
 # --------------------------------------------------------------------------- scaffolding

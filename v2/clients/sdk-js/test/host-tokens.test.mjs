@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 
-import { acceptHostTokens, loadSession, saveSession } from '../dist/index.js'
+import { acceptHostTokens, loadSession, resetIdentity, saveSession } from '../dist/index.js'
 
 const store = new Map()
 globalThis.localStorage = {
@@ -64,6 +64,10 @@ beforeEach(() => {
   store.clear()
   globalThis.location = { href: 'http://run.example:8787/apps/agent-builder/' }
   delete globalThis.agentdHost
+  // The manager holds the session in MEMORY as well as in storage — that is what makes it a
+  // single-flight renewer rather than a wrapper over localStorage. Emptying the store behind its
+  // back therefore proves nothing unless the manager is dropped with it.
+  resetIdentity()
 })
 
 test('a window running on the SHELL account takes every pushed token', () => {

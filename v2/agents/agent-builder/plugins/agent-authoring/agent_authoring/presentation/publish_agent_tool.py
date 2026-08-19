@@ -60,6 +60,14 @@ class PublishAgentTool(Tool):
                 "type": "boolean",
                 "description": "must be true, together with dry_run=false, to actually publish",
             },
+            "version": {
+                "type": "string",
+                "description": "what to ship as. OMIT IT and the patch is bumped automatically "
+                "(1.0.0 -> 1.0.1), which is what you want almost every time — installs supersede "
+                "BY VERSION, so republishing the same number reaches nobody. Pass 'minor' or "
+                "'major' for a bigger step, an exact number like '2.0.0', or 'keep' to leave it "
+                "alone when retrying a publish that already bumped.",
+            },
             "with_installer": {
                 "type": "boolean",
                 "description": "also publish the per-agent installer (default true). Without it "
@@ -239,6 +247,37 @@ class PublishAgentTool(Tool):
                 is_error=True,
             )
 
+        # THE VERSION, decided here and WRITTEN before anything is packed.
+        #
+        # The service refuses a number that is not higher than the published one, and its advice
+        # was "bump `version` in agent.toml" — a manual step, remembered by nobody, discovered
+        # only after a full pack-and-upload had already run. The default is now a patch bump.
+        #
+        # A DRY RUN CHANGES NOTHING. It reports the number it would ship as; a preview that
+        # edited the agent's declaration would be the one thing a preview must never do.
+        from ..domain.versioning import VersionError, resolve_version, rewrite_version
+
+        import tomllib
+
+        toml_path = agent_dir / "agent.toml"
+        try:
+            toml_text = toml_path.read_text(encoding="utf-8")
+            current = str(tomllib.loads(toml_text).get("version") or "").strip()
+        except (OSError, ValueError) as e:
+            return ToolResult.text(f"could not read {toml_path}: {e}", is_error=True)
+
+        try:
+            shipping = resolve_version(current, str(params.get("version") or ""))
+            updated = rewrite_version(toml_text, shipping) if shipping != current else toml_text
+        except VersionError as e:
+            return ToolResult.text(f"{e}\n\n(Nothing was built or sent.)", is_error=True)
+
+        if not dry_run and shipping != current:
+            try:
+                toml_path.write_text(updated, encoding="utf-8")
+            except OSError as e:
+                return ToolResult.text(f"could not update {toml_path}: {e}", is_error=True)
+
         with_installer = params.get("with_installer")
         request = PublishRequest(
             agent_dir=agent_dir,
@@ -249,14 +288,28 @@ class PublishAgentTool(Tool):
         # event loop is handed off rather than stalled — a publish takes minutes on a slow link.
         result = await asyncio.to_thread(publisher.publish, request)
 
+        # SAY WHAT HAPPENED TO THE NUMBER. Silently editing an agent's declaration would be the
+        # kind of helpfulness nobody can audit; on a dry run this is the whole point, because it
+        # is where you notice a version you did not mean.
+        note = ""
+        if shipping != current:
+            note = (
+                f"\n\nversion {current or '(none)'} -> {shipping}"
+                + (" (would be written on a real publish)" if dry_run else " — agent.toml updated")
+            )
+        elif str(params.get("version") or "") == "keep":
+            note = f"\n\nversion kept at {current} as asked — the service refuses a repeat."
+
         return ToolResult.text(
-            self._render(result, publisher.name),
+            self._render(result, publisher.name) + note,
             is_error=not result.ok,
             details={
                 "ok": result.ok,
                 "agentId": agent_id,
                 "bundleId": result.bundle_id,
                 "version": result.version,
+                "versionFrom": current,
+                "versionShipped": shipping,
                 "target": publisher.name,
                 "dryRun": result.dry_run,
                 "pending": result.pending,

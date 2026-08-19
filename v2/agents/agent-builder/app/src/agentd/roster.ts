@@ -20,6 +20,14 @@ export interface AgentRow {
   mine?: boolean
   /** authored | installed | curated. Absent on an older daemon. */
   origin?: string
+  /**
+   * This agent's own window, when it has one that WORKS.
+   *
+   * The daemon only fills this in for an agent that declares `[app]` AND whose entry file is
+   * actually on disk (gateway `_agent_app`), so its presence is the whole test for "can this be
+   * opened" — a half-built window advertises nothing rather than offering a button that 404s.
+   */
+  app?: { title: string; url: string; mode?: string }
 }
 
 /** Agents this window can open. Agent Builder itself is excluded: it is the thing doing the

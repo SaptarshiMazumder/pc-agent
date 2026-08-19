@@ -94,6 +94,18 @@ def app_sources(sources: dict) -> dict:
 # difference between an agent that can be sold and one that cannot.
 _REQUIRED_COMPONENT = "sign-in"
 
+#: Reaching the accounts service, or a credential store, WITHOUT the SDK in between.
+#:
+#: Each of these is something only the shared implementation should ever do. The endpoints mint and
+#: rotate credentials; the storage keys are where the one implementation keeps them, and a second
+#: writer there is two things fighting over one slot.
+_OWN_LOGIN_PATTERNS = (
+    r"/auth/(?:login|refresh|logout|logout-all)\b",
+    r"[\"'`]/login[\"'`]",
+    r"\brefresh_token\b",
+    r"\bagentd\.(?:session|refresh|auth)\b",
+)
+
 # `payload.type` / `p.type` etc. — reading the wrapper as if it were the event.
 _PAYLOAD_DOT_TYPE = re.compile(r"\b(\w+)\.type\b")
 # The handler shapes that hand you the WRAPPER, so we know which identifier is the payload.
@@ -173,18 +185,37 @@ class UiRules:
         code = "\n".join(_STRIPPER.strip(src) for src in own.values())
         installed = [c for c in self._components if self._present(c, code)]
 
+        # BEFORE the missing-gate check, because an app that reached for the accounts service
+        # itself plainly HAS a sign-in — telling it there is none would send the author looking
+        # for the wrong thing. The problem is whose implementation, not whether one exists.
+        rolled = self._own_login(code)
+        if rolled:
+            return rolled
+
         if not any(c.id == _REQUIRED_COMPONENT for c in installed):
+            # MANDATORY, not advisory. Every agent with a window signs its user in: the window is
+            # the only place that knows whether anyone is there, and an agent that never asks has
+            # no identity to attribute anything to. On a hosted install it is also fatal —
+            # every model call fails with a provider error and nothing on screen says why.
+            #
+            # ONE MECHANISM. The SDK's gate, on the SDK's endpoints. An agent that grows its own
+            # login is a second front door onto the same accounts service, written once by
+            # somebody who was not thinking about credentials that day.
             return [
                 Finding(
-                    WARN,
+                    ERROR,
                     "UI_NO_SIGN_IN",
-                    "this app never signs the user in, so on a hosted install (one with platform "
-                    "keys) every model call will fail with a provider error and nothing will "
-                    "explain why.",
+                    "this app never signs the user in. Every agent with a window must — it is "
+                    "how the agent knows who is using it, and on a hosted install every model "
+                    "call fails without it, with nothing on screen to explain why.",
                     path="ui/app.js",
                     fix=f"add_ui_component('{{agent}}', '{_REQUIRED_COMPONENT}') — it does every "
                     "step (SDK, script tag, theme tokens, the call itself) and is safe to re-run. "
-                    "The panel renders NOTHING on a local/BYOK install.",
+                    "In a React app, call `mountSignInGate()` from @agentd/client BEFORE the "
+                    "first render (see main.tsx in the React starter). Do NOT write your own "
+                    "login form: the gate's element ids are what the packaged-build login test "
+                    "drives, and a second implementation is a second way to get credentials "
+                    "wrong. The gate renders NOTHING when a stored session still works.",
                 )
             ]
 
@@ -211,6 +242,53 @@ class UiRules:
                     )
                 ]
         return []
+
+    @staticmethod
+    def _own_login(code: str) -> list[Finding]:
+        """An app that talks to the accounts service ITSELF, rather than through the SDK.
+
+        WHY THIS IS AN ERROR AND NOT A STYLE NOTE. There were three implementations of sign-in in
+        this codebase — the agentd client's, the SDK's, and a push-down path — and they drifted
+        exactly as three copies of one job do. The SDK's copy would not renew a token that had
+        already expired, had no single-flight guard (so two windows waking together tripped the
+        server's refresh-reuse detector and revoked the whole family), and posted to a different
+        endpoint than the other one. Users were signed out ten minutes after signing in, and
+        signing back in did not help. All three are now one implementation, and an agent that
+        reaches past it re-creates the problem for its own users only — the hardest kind to find.
+
+        WHAT AN AGENT SHOULD DO INSTEAD is never write a credential path at all: `mountSignInGate()`
+        for the form, and `identity().accessToken()` when it needs a credential, which renews first
+        if what it holds is spent.
+
+        Matched on the ENDPOINT and the storage key, not on the word "login" — an agent is welcome
+        to have a page, a button and a route by that name. What it may not do is mint or keep a
+        credential of its own.
+        """
+        reached = sorted(
+            {
+                found.group(0)
+                for pattern in _OWN_LOGIN_PATTERNS
+                for found in re.finditer(pattern, code)
+            }
+        )
+        if not reached:
+            return []
+        return [
+            Finding(
+                ERROR,
+                "UI_OWN_LOGIN",
+                "this app handles credentials itself ("
+                + ", ".join(reached[:4])
+                + ") instead of going through the SDK. Every client on this platform shares one "
+                "sign-in implementation; a second one is a second set of renewal bugs, and the "
+                "last set signed users out ten minutes after they signed in.",
+                path="ui/app.js",
+                fix="delete it and use the SDK: `await agentd.mountSignInGate()` draws the form, "
+                "and `agentd.identity().accessToken()` hands you a credential — renewing first "
+                "when the one it holds has expired. Neither needs an endpoint or a storage key "
+                "from you.",
+            )
+        ]
 
     @staticmethod
     def _present(component, code: str) -> bool:
