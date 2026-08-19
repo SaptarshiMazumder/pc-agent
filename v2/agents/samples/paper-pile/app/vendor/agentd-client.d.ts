@@ -1,3 +1,6 @@
+import { TokenManager } from '@agentd/auth';
+export { AuthConfig, SecretStore, SessionStore, TokenManager, TokenPair, accessTokenAccount, accessTokenExpiry, localSessionStore, memorySessionStore } from '@agentd/auth';
+
 /**
  * Wire protocol types — the TS mirror of agent_runtime/presentation/protocol.py and the payloads in
  * docs/PROTOCOL.md. Additive server fields are always allowed; clients ignore what they don't know.
@@ -226,41 +229,53 @@ declare function fromPage(options?: AgentdClientOptions): AgentdClient;
 /**
  * What THIS client knows about itself: who is signed in, and which keys it wants to pay with.
  *
- * A leaf — it imports nothing, so both the socket (client.ts) and the sign-in flow (auth.ts) can
- * read it without forming a cycle.
- *
  * THE CLIENT HOLDS BOTH FACTS. The daemon stores neither. That is not a stylistic choice: a
  * daemon-side session is ONE slot, and one slot cannot serve two people — the second to sign in
- * overwrites the first, signing out signs out everybody, and one window's Cloud switch moves
- * every other window's billing. Held per client and presented per connection, a hundred users on
- * one daemon is a hundred sockets with a hundred answers.
+ * overwrites the first, signing out signs out everybody, and one window's Cloud switch moves every
+ * other window's billing. Held per client and presented per connection, a hundred users on one
+ * daemon is a hundred sockets with a hundred answers.
  *
- * Keyed per agent, so two agent apps on one machine never share or clobber each other's.
+ * THE CREDENTIAL HALF NOW LIVES IN `@agentd/auth`, not here. This module used to own the storage
+ * format, the expiry rules and (next door, in auth.ts) a renewal loop — a second implementation of
+ * what the agentd client already did, which drifted from it and lost. What is left here is the
+ * part that genuinely is this client's own: WHICH KEYS PAY, which is not an identity question and
+ * has no server-side equivalent.
+ */
+
+/**
+ * A session as the rest of the SDK reads it.
+ *
+ * A projection of `@agentd/auth`'s `TokenPair`, kept in this shape because agent apps already
+ * destructure it. The manager is the source of truth; this is a view of it.
  */
 interface StoredSession {
-    /** The ACCESS token — short-lived (~10 min) and the only one that travels on a connection. */
+    /** The ACCESS token — short-lived and the only one that travels on a connection. */
     token: string;
     email: string;
     accountId: string;
-    /**
-     * The refresh token, used ONLY to mint a new access token at <accountsUrl>/auth/refresh.
-     *
-     * Without it an app window is signed in for exactly one access-token lifetime: the credential
-     * rides the socket URL, the socket eventually reconnects, and the daemon then accepts the page
-     * ANONYMOUSLY — which reads to the user as "all my agents disappeared", because an anonymous
-     * connection sees none of the account's own agents.
-     */
+    /** Absent in a window opened BY the desktop app: it is fed tokens instead of renewing. */
     refreshToken?: string;
-    /** Epoch ms when `token` expires, so renewal can happen BEFORE a request fails. */
+    /** Epoch ms when `token` expires. */
     expiresAt?: number;
 }
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */
 type RunMode = 'local' | 'cloud';
-/** When an access token dies, in epoch ms, from its own `exp`. 0 when unreadable. */
-declare function accessTokenExpiry(token: string): number;
-/** Which account an access token speaks for, from its `sub`. '' when unreadable. */
-declare function accessTokenAccount(token: string): string;
+/**
+ * The session this client can still use, or null.
+ *
+ * SYNCHRONOUS, because the socket URL is built from it and a page must be able to answer "who am
+ * I" before its first await. Renewal happens on its own schedule; this reports what is held now.
+ * Anything that needs a credential it can RELY on should await `identity().accessToken()`, which
+ * renews first.
+ */
 declare function loadSession(storageKey?: string): StoredSession | null;
+/**
+ * Write a session directly.
+ *
+ * The ONE legitimate caller is `fromPage` in client.ts, adopting the access token an opener put on
+ * the launch URL. Everything else should go through sign-in or renewal — writing a credential by
+ * hand is how a page ends up holding one nothing can renew.
+ */
 declare function saveSession(value: StoredSession | null, storageKey?: string): void;
 declare function loadMode(storageKey?: string): RunMode | null;
 /** null clears the choice, returning this client to the default (cloud when it has a session). */
@@ -269,21 +284,44 @@ declare function saveMode(value: RunMode | null, storageKey?: string): void;
  * The mode this client should run in: what it CHOSE, else the default.
  *
  * ONE PLACE, because two readers need the same answer and a disagreement between them is
- * invisible: the settings page renders it, and the socket sends it. If the page defaulted to
- * cloud while the connect URL sent nothing, the UI would promise platform keys while the calls
- * went out on the user's own.
+ * invisible: the settings page renders it, and the socket sends it. If the page defaulted to cloud
+ * while the connect URL sent nothing, the UI would promise platform keys while the calls went out
+ * on the user's own.
  *
  * Default is CLOUD once signed in — and only where there is a proxy to reach.
  */
 declare function effectiveMode(storageKey?: string, signedIn?: boolean, canUseCloud?: boolean): RunMode;
 
 /**
- * Sign-in — ORDINARY HTTP, from the client, exactly like any web app.
+ * What the DAEMON says about the platform it is part of: where people sign in, and whether a
+ * model proxy exists to switch to.
  *
- *   GET  <daemon>/platform/status     → where the accounts service is
- *   POST <accountsUrl>/signup         (only when creating)
- *   POST <accountsUrl>/login          → a session token
- *   store it, reconnect
+ * Its own module because two things need it and they must not import each other: the sign-in flow
+ * (auth.ts) and the token manager that renews what sign-in produced (identity.ts). A leaf.
+ */
+/** Options shared by everything that talks to the daemon over plain HTTP. */
+interface DaemonOptions {
+    /** Daemon HTTP origin. Defaults to the page's own — an agent app is served BY the daemon. */
+    origin?: string;
+    /** The daemon's bearer token. Defaults to `?token=` on the page URL. */
+    token?: string;
+    timeoutMs?: number;
+}
+declare const DEFAULT_TIMEOUT = 45000;
+declare function daemonOrigin(opts: DaemonOptions): string;
+declare function daemonToken(opts: DaemonOptions): string;
+declare function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T>;
+/** The daemon's own view: where sign-in lives, and whether a proxy exists to switch to. */
+declare function platformStatus(opts: DaemonOptions): Promise<Record<string, any>>;
+/** Just the accounts service address, or '' when this daemon has none. */
+declare function accountsUrl(opts: DaemonOptions): Promise<string>;
+
+/**
+ * Sign-in for an agent window — ORDINARY HTTP, from the client, exactly like any web app.
+ *
+ *   GET  <daemon>/platform/status   → where the accounts service is
+ *   POST <accounts>/signup          (only when creating)
+ *   POST <accounts>/auth/login      → an access token and a refresh token
  *
  * The daemon is not in the middle of this. It answers one question — "where do people sign in?" —
  * and is then told the answer on the next connection.
@@ -291,15 +329,15 @@ declare function effectiveMode(storageKey?: string, signedIn?: boolean, canUseCl
  * WHY NOT THROUGH THE DAEMON. It was, briefly: three socket methods, with the daemon performing
  * the exchange and keeping the token. That put ONE session on the machine, and one session cannot
  * serve two people — the second to sign in overwrote the first, signing out signed out everybody,
- * and any way to read the token back handed one user another's credential. Routing it through a
- * socket bought nothing this does not, and cost that.
+ * and any way to read the token back handed one user another's credential.
  *
- * SO THE CLIENT DECIDES BOTH FACTS: who it is, and which keys pay. Both travel on the connection
- * (`?session=`, `?mode=`), which is why a hundred users on one daemon is a hundred sockets each
- * answering for itself.
- *
- * CHANGING EITHER RECONNECTS. The daemon reads them when the socket opens, so a sign-in that did
- * not reconnect would leave it still seeing the old answer.
+ * EVERY LINE OF CREDENTIAL HANDLING BELOW IS A DELEGATION. This file used to implement sign-in,
+ * refresh and a renewal timer itself — a second copy of what `clients/ui` already had, which
+ * drifted from it and lost. It would not renew a token that had ALREADY expired (the one case that
+ * matters), it had no single-flight guard, so two windows waking together could trip the server's
+ * refresh-reuse detector and get the whole family revoked, and it posted to `/login` where the
+ * other client posted to `/auth/login`. One implementation now lives in `@agentd/auth` and both
+ * clients call it. Adding credential logic here means writing the third copy, so do not.
  */
 
 interface AuthState {
@@ -323,14 +361,9 @@ interface AuthState {
      */
     required: boolean;
 }
-interface AuthOptions {
-    /** The connected client, so a change can reconnect it and take effect at once. */
+interface AuthOptions extends DaemonOptions {
+    /** The connected client, so a change can reach the daemon at once. */
     client?: AgentdClient;
-    /** Daemon HTTP origin. Defaults to the page's own — an agent app is served BY the daemon. */
-    origin?: string;
-    /** The daemon's bearer token. Defaults to `?token=` on the page URL. */
-    token?: string;
-    timeoutMs?: number;
     /** Storage key override; defaults to one derived from the agent id in the page URL. */
     storageKey?: string;
 }
@@ -350,39 +383,36 @@ declare function authLogin(args: {
     signup?: boolean;
 }, opts?: AuthOptions): Promise<AuthState>;
 /**
- * Renew the access token from the stored refresh token. Returns the new access token, or '' when
- * there is nothing to renew with (an older session, or one the server has revoked).
+ * Renew the access token now. Returns the new one, or '' when there was nothing to renew with.
  *
- * WHY AN APP WINDOW NEEDS THIS AT ALL. Its credential arrives on the page URL and lasts about ten
- * minutes; the socket then reconnects at some point and presents it again. An expired token is not
- * refused — the daemon accepts the connection ANONYMOUSLY — so the page keeps working while
- * quietly losing access to everything the account owns. Renewing on a timer is what stops that,
- * and it fails CLOSED: a rejected refresh clears the session so the UI shows a sign-in form
- * instead of an inexplicably empty app.
+ * Rarely wanted directly: renewal runs on its own from the moment this window has a session, and
+ * anything that needs a credential should ASK for one (`identity().accessToken()`) rather than
+ * renew first and hope.
  */
 declare function authRefresh(opts?: AuthOptions): Promise<string>;
 /**
- * Keep this window's access token fresh for as long as the page is open.
+ * Keep this window's access token fresh for as long as the page is open. Returns a stop function.
  *
- * Returns a stop function. Renews at 80% of the token's life; falls back to a 5-minute poll for a
- * session stored before `expiresAt` existed.
+ * Renewal is ALREADY RUNNING by the time anything can call this — it starts with the manager, so a
+ * window cannot end up holding a credential nothing is looking after just because its author did
+ * not know to ask. Kept because agent apps call it, and because saying so explicitly is
+ * reasonable. Idempotent.
  */
+declare function startAuthRenewal(opts?: AuthOptions): () => void;
 /**
- * Accept access tokens pushed down by the desktop shell. Returns an unsubscribe.
+ * Accept access tokens pushed down by the desktop app. Returns an unsubscribe.
  *
- * An app window opened from the shell gets its credential on the launch URL and holds NO refresh
+ * A window opened from the desktop app gets its credential on the launch URL and holds NO refresh
  * token — deliberately, because an agent app is third-party code and a refresh token is a 30-day
- * credential for the user's whole account. So it cannot renew itself; the shell, which does hold
- * the refresh token, mints short-lived access tokens and hands them down (see the desktop's
- * src/preload/app.ts).
+ * credential for the user's whole account. So it cannot renew itself; the desktop app, which does
+ * hold the refresh token, mints short-lived access tokens and hands them down (see the desktop's
+ * src/preload/app.ts). A no-op in a browser tab, where there is no bridge to listen to.
  *
- * Each pushed token is stored AND applied to the live socket via `auth.update`, so a running
- * agent is never interrupted by a renewal. A no-op anywhere without the shell bridge — a browser
- * tab, or an app window signed in through its own form (which has a real refresh token and uses
- * `startAuthRenewal` instead).
+ * WHETHER a pushed token is taken is the manager's decision (`adopt`): the push reaches every open
+ * window at once, and a window signed in as somebody else must not silently become the pusher's
+ * account.
  */
 declare function acceptHostTokens(opts?: AuthOptions): () => void;
-declare function startAuthRenewal(opts?: AuthOptions): () => void;
 /** Forget this client's session. Other windows keep theirs — each holds its own. */
 declare function authLogout(opts?: AuthOptions): Promise<AuthState>;
 /** Choose which keys pay for THIS client's model calls. Other clients are unaffected. */
@@ -438,4 +468,49 @@ declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResul
 /** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
 declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type EventFrame, type Frame, type GateResult, type Hello, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accessTokenAccount, accessTokenExpiry, authLogin, authLogout, authRefresh, authStatus, effectiveMode, fromPage, loadMode, loadSession, mountSignInGate, resultText, saveMode, saveSession, setRunMode, signOutAndGate, startAuthRenewal };
+/**
+ * The agent window's TokenManager — ONE per storage key, shared by everything in the page.
+ *
+ * The SDK used to carry its own sign-in and its own renewal loop, a second implementation of what
+ * `clients/ui` already did. They drifted, as two copies of one job do: this one refused to renew a
+ * token that had already expired, had no single-flight guard, and posted to a different endpoint.
+ * A user signed into an agent window was quietly signed out ten minutes later.
+ *
+ * So there is no implementation here at all — only the three facts `@agentd/auth` cannot know
+ * about an agent window:
+ *
+ *   * WHERE THE ACCOUNTS SERVICE IS. The window asks its own daemon (`/platform/status`) rather
+ *     than reading a build-time env, because an agent is served by whichever daemon happens to be
+ *     running it.
+ *   * WHERE THE SESSION LIVES. Keyed per agent, so two agent windows on one origin never share or
+ *     clobber each other's — see `sessionKey`.
+ *   * WHAT TO DO WHEN THE CREDENTIAL CHANGES. Swapped onto the OPEN socket with `auth.update`, so
+ *     a renewal never interrupts a run in flight. Reconnecting instead would drop it, which is the
+ *     one thing a silent background renewal must never do.
+ *
+ * NO REFRESH TOKEN IS A NORMAL STATE. A window opened by the desktop app is handed an access token
+ * on its launch URL and never receives a refresh token — deliberately, since an agent is
+ * third-party code and that is a 30-day credential for the whole account. Such a window cannot
+ * renew and is fed instead (`adopt`, driven by `acceptHostTokens`).
+ */
+
+interface IdentityOptions extends DaemonOptions {
+    /** The connected client, so a new credential can reach the daemon at once. */
+    client?: AgentdClient;
+    /** Storage key override; defaults to one derived from the agent id in the page URL. */
+    storageKey?: string;
+}
+/**
+ * The storage key for THIS window.
+ *
+ * `?scope=` is present only when an OPENER built the url (the desktop app, a launch link). A page
+ * reached from a marketplace card is just `/apps/<id>/`, so the path is the only thing that says
+ * which agent this is — and without that fallback every such app on one origin shares the key
+ * `agentd.session.app`, i.e. one agent's session silently becomes another's.
+ */
+declare function sessionKey(explicit?: string): string;
+declare function identity(opts?: IdentityOptions): TokenManager;
+/** Drop the memoised managers. Tests only — a page has exactly one lifetime. */
+declare function resetIdentity(): void;
+
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type GateResult, type Hello, type IdentityOptions, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accountsUrl, authLogin, authLogout, authRefresh, authStatus, daemonOrigin, daemonToken, effectiveMode, fromPage, identity, loadMode, loadSession, mountSignInGate, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, signOutAndGate, startAuthRenewal, withTimeout };

@@ -8,7 +8,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ThinkItem, ThreadItem } from '../agentd/chat'
-import type { AgentRow } from '../agentd/roster'
 import { renderMarkdown } from '../markdown/md'
 import { Hero } from './Hero'
 import { Thinking } from './Thinking'
@@ -16,14 +15,16 @@ import { Thinking } from './Thinking'
 export function Thread({
   items,
   running,
-  agents,
-  onOpenAgent,
+  hasAgents,
+  onCreate,
+  onEdit,
   onSuggest,
 }: {
   items: ThreadItem[]
   running: boolean
-  agents: AgentRow[]
-  onOpenAgent: (id: string) => void
+  hasAgents: boolean
+  onCreate: () => void
+  onEdit: () => void
   onSuggest: (text: string) => void
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -55,7 +56,12 @@ export function Thread({
     <div className="thread" ref={boxRef}>
       <div className="thread-inner">
         {items.length === 0 ? (
-          <Hero agents={agents} onOpenAgent={onOpenAgent} onSuggest={onSuggest} />
+          <Hero
+            hasAgents={hasAgents}
+            onCreate={onCreate}
+            onEdit={onEdit}
+            onSuggest={onSuggest}
+          />
         ) : (
           items.map((item, i) => <Item key={i} item={item} />)
         )}
@@ -113,6 +119,21 @@ function Thought({ item }: { item: ThinkItem }) {
 
 function Item({ item }: { item: ThreadItem }) {
   switch (item.kind) {
+    case 'intent':
+      // Shown for the same reason the scope row is: this is an instruction the model was given,
+      // and a client that quietly prepends instructions to your words leaves you unable to tell
+      // what it was actually asked.
+      return (
+        <div className="scope-row">
+          <span className="scope-dot" />
+          <span>
+            Building a new agent <b>{item.window ? 'with its own window' : 'with no window'}</b>
+          </span>
+          <span className="scope-path">
+            {item.window ? 'declares [app]' : 'runs in agentd'}
+          </span>
+        </div>
+      )
     case 'scope':
       return (
         <div className="scope-row">

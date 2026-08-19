@@ -18,15 +18,15 @@ import { useSyncExternalStore } from 'react'
 
 import { gateway } from '../gateway/client'
 import { platformDoc } from './discovery'
-import { hostOs, isDesktop, randomUuid } from './host'
+import { randomUuid } from './host'
 import {
   clearTokens,
   configureTokens,
   currentPair,
   getAccessToken,
-  pairFromResponse,
+  onTokens,
   restore as restoreTokens,
-  setPair
+  tokens
 } from './tokens'
 
 export interface Session {
@@ -35,28 +35,29 @@ export interface Session {
   email: string
 }
 
-const LS_KEY = 'agentd.session'
-
 const listeners = new Set<() => void>()
-function readLS(): Session | null {
-  try {
-    const raw = localStorage.getItem(LS_KEY)
-    return raw ? (JSON.parse(raw) as Session) : null
-  } catch {
-    return null
-  }
-}
-// cached snapshot so useSyncExternalStore sees a STABLE reference between changes
-let cached: Session | null = readLS()
 
-function setSession(s: Session | null): void {
-  cached = s
-  try {
-    if (s) localStorage.setItem(LS_KEY, JSON.stringify(s))
-    else localStorage.removeItem(LS_KEY)
-  } catch {
-    /* private mode / quota — the in-memory cache still drives this session */
-  }
+/**
+ * The rendered session, DERIVED from the credential rather than stored beside it.
+ *
+ * This module used to keep its own `agentd.session` row in localStorage, written by hand at each
+ * of the four places that changed a token. A renewal replaces the access token without going
+ * through any of them, so the screen could show one credential while the socket presented
+ * another — and a stale row survived a sign-out that failed halfway. There is one source of truth
+ * now; this is a projection of it, kept as a cached snapshot only because `useSyncExternalStore`
+ * needs a stable reference between changes.
+ */
+let cached: Session | null = null
+
+function project(): Session | null {
+  const p = currentPair()
+  return p && p.accessToken
+    ? { token: p.accessToken, accountId: p.accountId, email: p.email }
+    : null
+}
+
+function announce(): void {
+  cached = project()
   listeners.forEach((l) => l())
 }
 
@@ -118,30 +119,22 @@ export function isAccountsMode(): boolean {
 // refresh silently returned null.) Reading it lazily also means discovery resolving after this
 // module loads is picked up with no re-configuration.
 configureTokens(() => accountsUrl())
+// Every change to the credential — sign-in, renewal, sign-out — re-renders whoever is showing it.
+// Subscribing HERE rather than in each caller is what makes the projection above trustworthy.
+onTokens(announce)
+cached = project()
 
 export function getSession(): Session | null {
   return cached
 }
 
 export function signOut(): void {
-  setSession(null)
-  // Revoke server-side too, not just locally. Forgetting a 30-day refresh token without telling
+  // Revokes server-side too, not just locally. Forgetting a 30-day refresh token without telling
   // the server leaves a live credential on a machine the user may have just stopped trusting.
   void clearTokens()
   // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps treating
   // this client as the old account until the socket is rebuilt without it.
   gateway.reconnect()
-}
-
-async function post(path: string, body: unknown): Promise<Record<string, string>> {
-  const r = await fetch(accountsUrl() + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  })
-  const data = (await r.json().catch(() => ({}))) as Record<string, string>
-  if (!r.ok) throw new Error(data.detail || `sign-in failed (HTTP ${r.status})`)
-  return data
 }
 
 /**
@@ -162,37 +155,36 @@ async function post(path: string, body: unknown): Promise<Record<string, string>
  * identity to broadcast — which this design deliberately does not have.
  */
 export async function login(email: string, password: string): Promise<Session> {
-  const clean = email.trim().toLowerCase()
-  // ONE credential kind. This returns a PAIR: a short-lived access token that travels on every
-  // request, and a refresh token that never leaves this device except to be exchanged. The
-  // opaque `sess_` session this used to fall back to no longer exists anywhere.
-  const d = await post('/auth/login', {
-    email: clean,
-    password,
-    client_id: isDesktop ? 'desktop' : 'web',
-    device_label: deviceLabel()
-  })
-  const p = pairFromResponse(d as unknown as Record<string, unknown>)
-  await setPair(p)
-  const s: Session = { token: p.accessToken, accountId: p.accountId, email: p.email || clean }
-  setSession(s)
-  gateway.reconnect()
-  return s
-}
-
-/** A human-readable name for the "your devices" list. Best-effort; never blocks sign-in. */
-function deviceLabel(): string {
-  try {
-    return `${isDesktop ? 'Desktop' : 'Web'} · ${hostOs() || 'unknown'}`
-  } catch {
-    return isDesktop ? 'Desktop' : 'Web'
-  }
+  return enter({ email, password })
 }
 
 export async function signup(email: string, password: string): Promise<Session> {
-  const clean = email.trim().toLowerCase()
-  await post('/signup', { email: clean, password })
-  return login(clean, password)
+  return enter({ email, password, signup: true })
+}
+
+/**
+ * ONE credential kind, from the ONE implementation.
+ *
+ * The exchange itself — which endpoint, which fields, what to do with the pair that comes back —
+ * belongs to `@agentd/auth`, so that this client and every agent window ask the same server the
+ * same question. Signing up is the same call with a flag: it is the same credential at the end,
+ * and having a second path here is how the two drifted the first time.
+ */
+async function enter(args: {
+  email: string
+  password: string
+  signup?: boolean
+}): Promise<Session> {
+  const p = await tokens().login(args)
+  const s: Session = {
+    token: p.accessToken,
+    accountId: p.accountId,
+    email: p.email || args.email.trim().toLowerCase()
+  }
+  // The credential lives in the socket url, so the daemon goes on treating this client as whoever
+  // it was until the socket is rebuilt with the new one.
+  gateway.reconnect()
+  return s
 }
 
 /**
@@ -204,27 +196,19 @@ export async function signup(email: string, password: string): Promise<Session> 
  */
 export async function restoreSession(): Promise<Session | null> {
   if (!isAccountsMode()) return null
-  const p = await restoreTokens()
-  if (!p) return null
-  const s: Session = { token: p.accessToken, accountId: p.accountId, email: p.email }
-  setSession(s)
-  return s
+  await restoreTokens()
+  return getSession()
 }
 
-/** The freshest access token, refreshing if needed. Used to build the socket URL. */
+/**
+ * The freshest access token, refreshing if needed. Used to build the socket URL.
+ *
+ * Nothing re-renders here any more: the manager announces every change, so the screen follows the
+ * credential without this function having to remember to say so.
+ */
 export async function currentAccessToken(): Promise<string> {
   if (!isAccountsMode()) return ''
-  const live = await getAccessToken()
-  if (live) {
-    // Keep the rendered session in step with the token that is actually in use, so the UI never
-    // shows "signed in" against a credential that has been replaced.
-    const p = currentPair()
-    if (p && cached && p.accessToken !== cached.token) {
-      setSession({ token: p.accessToken, accountId: p.accountId, email: p.email })
-    }
-    return live
-  }
-  return cached?.token || ''
+  return (await getAccessToken()) || cached?.token || ''
 }
 
 /**

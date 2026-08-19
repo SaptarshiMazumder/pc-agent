@@ -82,6 +82,21 @@ RULEBOOK: dict[str, Rule] = {
         note="an app with no sign-in cannot be packed or published; the SDK's gate is the only "
         "mechanism — never a second login of the agent's own",
     ),
+    # ONE SIGN-IN IMPLEMENTATION ON THIS PLATFORM. Listed here rather than left to block on its
+    # error level alone: this table is where the shipping policy is written down, and a code that
+    # blocks only because of how it happens to be priced is a code somebody later re-prices to a
+    # warning without ever reading that it was load-bearing.
+    #
+    # There were three copies of sign-in once. They drifted — one would not renew a token that had
+    # already expired, one had no single-flight guard and got whole refresh-token families revoked,
+    # and they posted to different endpoints. Users were signed out ten minutes in, and signing
+    # back in did not help. An agent that writes a fourth copy inflicts that on its own users only.
+    "UI_OWN_LOGIN": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an agent that mints or stores credentials itself cannot be packed or published — "
+        "mountSignInGate() draws the form, identity().accessToken() hands over a credential",
+    ),
     "DEFINITION_IN_EXCLUDED_DIR": Rule(
         note="definition files under an excluded dir ship to nobody"
     ),
