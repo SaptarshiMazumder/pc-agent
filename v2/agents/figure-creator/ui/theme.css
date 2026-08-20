@@ -1,0 +1,70 @@
+/* Figure Creator — what is THIS AGENT'S rather than agentd's.
+ *
+ * Everything structural comes from vendor/agentd-shell.css (the shell's own stylesheet, vendored
+ * verbatim). This file only ever holds three kinds of thing:
+ *
+ *   1. the accent, so the window reads as Figure Creator and not as a second agentd;
+ *   2. the tokens the SDK's sign-in gate reads (--gate-*), which have no shell equivalent;
+ *   3. the handful of elements this window has and the shell does not.
+ *
+ * KEEP IT SHORT ON PURPOSE. Every rule added here is a rule that stops following the product:
+ * restyle the shell and this file is what fails to move. If something here starts to look like
+ * layout, it belongs in the shell's stylesheet instead. */
+
+:root {
+  /* Figure Creator's accent — a deeper indigo than the shell's lime, because this window is a
+     studio for scientific figures and the artwork has to be the loudest thing on screen. */
+  --accent: #4f46e5;
+  --accent-soft: rgba(79, 70, 229, 0.12);
+  --accent-text: #4338ca;
+
+  /* the shared sign-in gate (clients/sdk-js/src/gate.ts) themes itself from these */
+  --gate-accent: var(--accent);
+  --gate-bg: rgba(18, 18, 24, 0.72);
+}
+
+/* Fill the window: an agent app is the whole page, not a widget in one. */
+html, body { height: 100%; margin: 0; }
+.app-root { height: 100vh; }
+
+/* The workspace tree in the sidebar gets its own scroll region under the chat list, so a long
+   conversation list never pushes the files out of reach. */
+.app-files {
+  display: flex; flex-direction: column; min-height: 0;
+  max-height: 42%; overflow-y: auto; padding: 0 12px 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* The one state the shell has no component for: the daemon is unreachable, so there is no socket
+   to render a product around. Deliberately plain text — a spinner here would promise a recovery
+   that is not coming without the user starting the service. */
+.app-fatal {
+  display: grid; place-items: center; height: 100vh; padding: 24px;
+  text-align: center; color: var(--dim); font: inherit; background: var(--bg);
+}
+
+/* The account footer (sidebar bottom). Its pieces have no shell equivalent — the shell's own
+   profile menu is a popover wired to pages an app-scoped socket cannot call — so the rules live
+   here, built from the shell's tokens so they follow a restyle anyway. */
+.app-account {
+  margin-top: auto; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px 12px; border-top: 1px solid var(--border);
+}
+.app-account-who { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.app-account-mark {
+  display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--accent-text);
+}
+.app-account-mail {
+  flex: 1; min-width: 0; font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-account-credits { font-size: 11.5px; color: var(--dim); padding-left: 32px; }
+.app-account-credits.empty { color: var(--danger); font-weight: var(--fw-semi); }
+.app-account-actions { display: flex; gap: 4px; padding-left: 28px; }
+
+/* The main column holds either the chat or the settings page. The chat stays MOUNTED while
+   settings is open (a run must not lose its stream), so its wrapper has to keep filling the
+   column — and disappear completely when hidden, which `display: flex` would otherwise fight. */
+.app-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.app-pane[hidden] { display: none; }

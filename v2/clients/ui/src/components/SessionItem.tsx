@@ -4,7 +4,7 @@ import { MoreHorizontal } from 'lucide-react'
 import type { SessionRow } from '../gateway/protocol'
 import { agentColor, agentLabel } from '../lib/agentPresentation'
 import { whenLabel, whenTimeLabel } from '../lib/timefmt'
-import { useApp } from '../state/store'
+import { useSessionsHost } from '../chat/sessionsHost'
 import ChatMenu from './ChatMenu'
 import { useHoverTip } from './HoverTip'
 
@@ -29,14 +29,16 @@ export default function SessionItem({
   withProjectBadge?: boolean
   table?: boolean
 }) {
-  const renameSession = useApp((s) => s.renameSession)
-  const deleteSession = useApp((s) => s.deleteSession)
-  const moveSession = useApp((s) => s.moveSession)
-  const duplicateSession = useApp((s) => s.duplicateSession)
-  const exportSessionMd = useApp((s) => s.exportSessionMd)
-  const projects = useApp((s) => s.projects)
-  const agents = useApp((s) => s.agents)
-  const hello = useApp((s) => s.hello)
+  const {
+    renameSession,
+    deleteSession,
+    moveSession,
+    duplicateSession,
+    exportSessionMd,
+    projects,
+    agents,
+    agentName: defaultAgentName
+  } = useSessionsHost()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [menu, setMenu] = useState<DOMRect | null>(null) // ⋯ menu anchor (open when set)
@@ -44,7 +46,7 @@ export default function SessionItem({
   const ref = useRef<HTMLInputElement>(null)
   const label = session.title || session.sessionId
   const agent = agents.find((a) => a.id === session.agentId)
-  const agentName = agentLabel(agent?.name, session.agentId, hello?.agentName)
+  const agentName = agentLabel(agent?.name, session.agentId, defaultAgentName)
   const project = session.projectId ? projects.find((p) => p.id === session.projectId) : undefined
   const meta = `${agent ? agentName + ' · ' : ''}${session.messages} msgs · ${whenLabel(session.modified * 1000)}`
 

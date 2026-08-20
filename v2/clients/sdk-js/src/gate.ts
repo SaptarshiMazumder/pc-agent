@@ -14,6 +14,10 @@
  *   - this daemon has no accounts service configured, so there is nothing to sign in to
  *   - somebody is already signed in
  *
+ * `require: true` removes the FIRST of those. A product that cannot run as nobody says so, and
+ * then a daemon with no accounts service gets an explanation in the window instead of an app
+ * running signed out. Its caller reads `signedIn` on the result rather than assuming one.
+ *
  * THAT LIST USED TO BE LONGER, AND WRONG. It also skipped the gate whenever the platform's keys
  * were already paying for model calls — because this was never a login, it was a checkout screen
  * ("Runs on our servers — no API keys to set up"). On a BYOK install nobody is paying, so the
@@ -49,6 +53,22 @@ export interface SignInGateOptions extends AuthOptions {
   mount?: HTMLElement
   /** Allow account creation from the gate (default true). Set false for invite-only products. */
   allowSignup?: boolean
+  /**
+   * THIS PRODUCT demands an identity, whatever the deployment would settle for.
+   *
+   * `AuthState.required` is the DAEMON's answer to "must anyone sign in here", and it is false on
+   * every desktop install — the machine token already authorises that window, so the gate steps
+   * aside. An agent whose every run costs somebody money, or writes into somebody's workspace,
+   * cannot let the deployment decide that: the same package has to behave identically on a laptop
+   * and on the hosted daemon, and "who is this?" is the agent's question, not the host's.
+   *
+   * Set here rather than inferred from `[app] mode` or from being hosted, because an agent that
+   * needs an account needs it for reasons only the agent knows.
+   *
+   * Callers must then read `signedIn` on the result: with this set, a resolved promise means the
+   * gate is finished, NOT that somebody is behind it (see the no-accounts-service case below).
+   */
+  require?: boolean
 }
 
 export interface GateResult extends AuthState {
@@ -138,6 +158,35 @@ function wantsVerifyBypass(): boolean {
   }
 }
 
+/**
+ * THE DEAD END: sign-in is demanded and this daemon has no accounts service to demand it from.
+ *
+ * The same card, with no form — because the honest thing to render is neither a login that can
+ * post nowhere nor an app that quietly runs as nobody. Reached only with `require`, so an
+ * ordinary BYOK app never sees it.
+ */
+function buildBlocked(product: string): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'agentd-gate'
+  wrap.id = 'gate'
+  wrap.innerHTML = `
+    <div class="agentd-gate-card">
+      <div class="agentd-gate-mark" aria-hidden="true">&#9681;</div>
+      <h1 class="agentd-gate-title" id="gateTitle"></h1>
+      <p class="agentd-gate-sub" id="gateSub"></p>
+      <div class="agentd-gate-error" id="gateError"></div>
+    </div>`
+  const $ = (id: string) => wrap.querySelector(`#${id}`) as HTMLElement
+  // textContent throughout: `product` is caller-supplied and must not be able to inject markup
+  // into the page it is gating.
+  $('gateTitle').textContent = `Sign in to ${product}`
+  $('gateSub').textContent = `${product} runs on your account, so it cannot be used signed out.`
+  $('gateError').textContent =
+    'This service has no accounts service configured, so there is nowhere to sign in. ' +
+    'Point the daemon at one (AGENTD_ACCOUNTS_URL, or accounts.api_base in its config) and reload.'
+  return wrap
+}
+
 export async function mountSignInGate(options: SignInGateOptions = {}): Promise<GateResult> {
   const allowSignup = options.allowSignup !== false
   const product =
@@ -145,16 +194,30 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
   const blurb = options.blurb || 'Sign in to continue.'
 
   const state = await authStatus(options)
-  if (!state.available || state.signedIn) {
+  // WHO DECIDES. `state.required` is the deployment's answer, `options.require` the product's;
+  // either one is enough. A hosted daemon must not be able to waive an agent's own rule, and an
+  // agent must not have to detect that it is hosted in order to keep it.
+  const demanded = options.require === true || state.required
+
+  if (state.signedIn) {
     // ALREADY SIGNED IN is the common path — every reload takes it — so renewal has to start
     // here too, not only after a fresh sign-in. Without this, a page that resumes a stored
     // session runs on whatever life is left in that access token and then goes anonymous.
-    if (state.signedIn) {
-      startAuthRenewal(options)
-      // Shell-opened app windows have no refresh token and never see this form; the desktop
-      // pushes fresh access tokens down instead. No-op in a browser tab.
-      acceptHostTokens(options)
-    }
+    startAuthRenewal(options)
+    // Shell-opened app windows have no refresh token and never see this form; the desktop
+    // pushes fresh access tokens down instead. No-op in a browser tab.
+    acceptHostTokens(options)
+    return { ...state, signedInHere: false }
+  }
+
+  if (!state.available) {
+    // NOTHING TO SIGN IN TO. An optional gate steps aside exactly as before. A REQUIRED one
+    // cannot: an app that runs anonymous here is the app that then reads and writes whatever
+    // workspace an anonymous connection happens to land on. Say so in the window — the
+    // alternative is an app that looks broken for a reason only a server log explains.
+    if (!demanded) return { ...state, signedInHere: false }
+    injectStyle()
+    ;(options.mount || document.body).appendChild(buildBlocked(product))
     return { ...state, signedInHere: false }
   }
 
@@ -165,10 +228,10 @@ export async function mountSignInGate(options: SignInGateOptions = {}): Promise<
   // Handing it credentials would mean a real account, on every run, to look at a window the
   // daemon would have served to nobody in particular.
   //
-  // `required` is the daemon's own answer to "must anyone sign in here", so this grants exactly
-  // nothing that was being withheld: where sign-in IS demanded the flag is ignored and the form
-  // appears as always. It removes a prompt, never a check.
-  if (!state.required && wantsVerifyBypass()) {
+  // `demanded` is the daemon's answer OR the product's, so this grants exactly nothing that was
+  // being withheld: wherever sign-in IS demanded the flag is ignored and the form appears as
+  // always. It removes a prompt, never a check.
+  if (!demanded && wantsVerifyBypass()) {
     return { ...state, signedInHere: false }
   }
 

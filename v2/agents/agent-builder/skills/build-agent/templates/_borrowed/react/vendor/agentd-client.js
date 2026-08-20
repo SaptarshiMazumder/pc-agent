@@ -602,6 +602,8 @@ var _AgentdClient = class _AgentdClient {
     this.pending = /* @__PURE__ */ new Map();
     this.eventHandlers = /* @__PURE__ */ new Map();
     this.statusHandlers = /* @__PURE__ */ new Set();
+    /** The last status announced — see `onStatus` for why this is remembered. */
+    this.status = "connecting";
     this.reconnectDelay = 1e3;
     /** When the current socket opened, so "did this connection actually work?" can be answered. */
     this.openedAt = 0;
@@ -640,6 +642,7 @@ var _AgentdClient = class _AgentdClient {
   async open() {
     if (!this.input) return;
     this.teardownSocket();
+    this.status = "connecting";
     for (const handler of this.statusHandlers) handler("connecting");
     let target;
     try {
@@ -654,12 +657,14 @@ var _AgentdClient = class _AgentdClient {
     this.ws = ws;
     ws.onopen = () => {
       this.openedAt = Date.now();
+      this.status = "open";
       for (const handler of this.statusHandlers) handler("open");
     };
     ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data));
     ws.onclose = (event) => {
       for (const [, pending] of this.pending) pending.reject(new Error("connection closed"));
       this.pending.clear();
+      this.status = "closed";
       for (const handler of this.statusHandlers) handler("closed");
       const lived = this.openedAt ? Date.now() - this.openedAt : 0;
       this.openedAt = 0;
@@ -704,8 +709,18 @@ var _AgentdClient = class _AgentdClient {
     this.eventHandlers.get(event).add(handler);
     return () => this.eventHandlers.get(event)?.delete(handler);
   }
+  /**
+   * Subscribe to connection status. Returns the unsubscribe.
+   *
+   * THE CURRENT STATUS ARRIVES IMMEDIATELY, before this returns. Status was transitions-only, and
+   * a subscriber that mounted after the socket opened — which is most of them, since connecting
+   * starts at construction and React mounts a frame later — heard nothing until the next
+   * reconnect. The symptom is a composer that says "connecting…" and refuses to send over a
+   * perfectly open socket.
+   */
   onStatus(handler) {
     this.statusHandlers.add(handler);
+    handler(this.status);
     return () => this.statusHandlers.delete(handler);
   }
   handleFrame(frame) {
@@ -949,19 +964,41 @@ function wantsVerifyBypass() {
     return false;
   }
 }
+function buildBlocked(product) {
+  const wrap = document.createElement("div");
+  wrap.className = "agentd-gate";
+  wrap.id = "gate";
+  wrap.innerHTML = `
+    <div class="agentd-gate-card">
+      <div class="agentd-gate-mark" aria-hidden="true">&#9681;</div>
+      <h1 class="agentd-gate-title" id="gateTitle"></h1>
+      <p class="agentd-gate-sub" id="gateSub"></p>
+      <div class="agentd-gate-error" id="gateError"></div>
+    </div>`;
+  const $ = (id) => wrap.querySelector(`#${id}`);
+  $("gateTitle").textContent = `Sign in to ${product}`;
+  $("gateSub").textContent = `${product} runs on your account, so it cannot be used signed out.`;
+  $("gateError").textContent = "This service has no accounts service configured, so there is nowhere to sign in. Point the daemon at one (AGENTD_ACCOUNTS_URL, or accounts.api_base in its config) and reload.";
+  return wrap;
+}
 async function mountSignInGate(options = {}) {
   const allowSignup = options.allowSignup !== false;
   const product = options.product || typeof document !== "undefined" && document.title || "this app";
   const blurb = options.blurb || "Sign in to continue.";
   const state = await authStatus(options);
-  if (!state.available || state.signedIn) {
-    if (state.signedIn) {
-      startAuthRenewal(options);
-      acceptHostTokens(options);
-    }
+  const demanded = options.require === true || state.required;
+  if (state.signedIn) {
+    startAuthRenewal(options);
+    acceptHostTokens(options);
     return { ...state, signedInHere: false };
   }
-  if (!state.required && wantsVerifyBypass()) {
+  if (!state.available) {
+    if (!demanded) return { ...state, signedInHere: false };
+    injectStyle();
+    (options.mount || document.body).appendChild(buildBlocked(product));
+    return { ...state, signedInHere: false };
+  }
+  if (!demanded && wantsVerifyBypass()) {
     return { ...state, signedInHere: false };
   }
   injectStyle();

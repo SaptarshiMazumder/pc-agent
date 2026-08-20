@@ -150,6 +150,8 @@ declare class AgentdClient {
     private pending;
     private eventHandlers;
     private statusHandlers;
+    /** The last status announced — see `onStatus` for why this is remembered. */
+    private status;
     private reconnectDelay;
     /** When the current socket opened, so "did this connection actually work?" can be answered. */
     private openedAt;
@@ -176,6 +178,15 @@ declare class AgentdClient {
     request<T = Record<string, any>>(method: string, params?: Record<string, unknown>): Promise<T>;
     /** Subscribe to a broadcast event by name. Returns the unsubscribe. */
     on(event: string, handler: EventHandler): () => void;
+    /**
+     * Subscribe to connection status. Returns the unsubscribe.
+     *
+     * THE CURRENT STATUS ARRIVES IMMEDIATELY, before this returns. Status was transitions-only, and
+     * a subscriber that mounted after the socket opened — which is most of them, since connecting
+     * starts at construction and React mounts a frame later — heard nothing until the next
+     * reconnect. The symptom is a composer that says "connecting…" and refuses to send over a
+     * perfectly open socket.
+     */
     onStatus(handler: StatusHandler): () => void;
     private handleFrame;
     /** Handshake — introduces this client + its protocol so the server can flag compatibility. */
@@ -434,6 +445,10 @@ declare function setRunMode(mode: RunMode, opts?: AuthOptions): Promise<AuthStat
  *   - this daemon has no accounts service configured, so there is nothing to sign in to
  *   - somebody is already signed in
  *
+ * `require: true` removes the FIRST of those. A product that cannot run as nobody says so, and
+ * then a daemon with no accounts service gets an explanation in the window instead of an app
+ * running signed out. Its caller reads `signedIn` on the result rather than assuming one.
+ *
  * THAT LIST USED TO BE LONGER, AND WRONG. It also skipped the gate whenever the platform's keys
  * were already paying for model calls — because this was never a login, it was a checkout screen
  * ("Runs on our servers — no API keys to set up"). On a BYOK install nobody is paying, so the
@@ -459,6 +474,22 @@ interface SignInGateOptions extends AuthOptions {
     mount?: HTMLElement;
     /** Allow account creation from the gate (default true). Set false for invite-only products. */
     allowSignup?: boolean;
+    /**
+     * THIS PRODUCT demands an identity, whatever the deployment would settle for.
+     *
+     * `AuthState.required` is the DAEMON's answer to "must anyone sign in here", and it is false on
+     * every desktop install — the machine token already authorises that window, so the gate steps
+     * aside. An agent whose every run costs somebody money, or writes into somebody's workspace,
+     * cannot let the deployment decide that: the same package has to behave identically on a laptop
+     * and on the hosted daemon, and "who is this?" is the agent's question, not the host's.
+     *
+     * Set here rather than inferred from `[app] mode` or from being hosted, because an agent that
+     * needs an account needs it for reasons only the agent knows.
+     *
+     * Callers must then read `signedIn` on the result: with this set, a resolved promise means the
+     * gate is finished, NOT that somebody is behind it (see the no-accounts-service case below).
+     */
+    require?: boolean;
 }
 interface GateResult extends AuthState {
     /** true when a gate was actually displayed and the user completed it. */

@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { FileText, FolderOpen, Eye, Download, Check } from 'lucide-react'
 
 import type { Artifact } from '../lib/artifacts'
-import { fileUrl, humanSize } from '../lib/artifacts'
+import { humanSize } from '../lib/artifacts'
 import { platform } from '../lib/platform'
-import { useApp } from '../state/store'
+import { useCanvasHost } from '../canvas/host'
 import FileName from './FileName'
 
 /** "Image · PNG" / "Deck · PPTX" style subtitle. */
@@ -19,7 +19,7 @@ function subtitle(a: Artifact): string {
 /** View (open in the Canvas) + Download (save a copy) — plus Reveal for documents.
  *  stopPropagation so a button press doesn't also trigger the card's open-canvas click. */
 function Actions({ a }: { a: Artifact }): JSX.Element {
-  const openCanvas = useApp((s) => s.openCanvas)
+  const { openCanvas, fileUrl } = useCanvasHost()
   const [saved, setSaved] = useState(false)
   async function download(e: React.MouseEvent): Promise<void> {
     e.stopPropagation()
@@ -62,7 +62,7 @@ function Meta({ a }: { a: Artifact }): JSX.Element {
 }
 
 function ImageArtifact({ a }: { a: Artifact }): JSX.Element {
-  const openCanvas = useApp((s) => s.openCanvas)
+  const { openCanvas, fileUrl } = useCanvasHost()
   const [broken, setBroken] = useState(false)
   if (broken) return <FileArtifact a={a} />
   return (
@@ -76,6 +76,7 @@ function ImageArtifact({ a }: { a: Artifact }): JSX.Element {
 }
 
 function VideoArtifact({ a }: { a: Artifact }): JSX.Element {
+  const { fileUrl } = useCanvasHost()
   // overlay at the TOP so it never fights the video's own controls at the bottom
   return (
     <div className="artifact-card">
@@ -88,6 +89,7 @@ function VideoArtifact({ a }: { a: Artifact }): JSX.Element {
 }
 
 function AudioArtifact({ a }: { a: Artifact }): JSX.Element {
+  const { fileUrl } = useCanvasHost()
   return (
     <div className="artifact-audiocard">
       <div className="artifact-bar">
@@ -99,7 +101,7 @@ function AudioArtifact({ a }: { a: Artifact }): JSX.Element {
 }
 
 function FileArtifact({ a }: { a: Artifact }): JSX.Element {
-  const openCanvas = useApp((s) => s.openCanvas)
+  const { openCanvas, fileUrl } = useCanvasHost()
   const ext = a.name.includes('.') ? a.name.split('.').pop()!.toUpperCase() : 'FILE'
   return (
     <div className="artifact-file artifact-clickable" title="open in the canvas" onClick={() => openCanvas(a)}>

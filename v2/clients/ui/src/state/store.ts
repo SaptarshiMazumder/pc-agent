@@ -35,30 +35,21 @@ import { getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
 import { reportReconnect, reportRun } from '../lib/rum'
+import {
+  emptySession,
+  historyToItems,
+  reduceEvent,
+  runError,
+  type ChatItem,
+  type SessionState
+} from '../chat/session'
 
-export type ChatItem = (
-  | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; streaming: boolean }
-  | { kind: 'thinking'; text: string; streaming: boolean }
-  | { kind: 'tool'; name: string; args: Record<string, unknown>; result: string; isError: boolean; done: boolean; progress?: string }
-  | { kind: 'system'; text: string; tone: 'info' | 'error' }
-  // a delegated sub-agent run, GROUPED into one drillable block: the child's beats (each tool it
-  // ran, one level down) accumulate under `steps` while it runs, then it settles done/error
-  | { kind: 'subagent'; agent: string; steps: string[]; status: 'running' | 'done' | 'error'; detail?: string }
-) & { ts?: number; artifacts?: Artifact[] } // ts: epoch ms (server-side); artifacts: media the item produced
-
-export interface SessionState {
-  items: ChatItem[]
-  running: boolean
-  // deliverables a tool produced, held until the next assistant answer renders them
-  // (so the tool log stays pure text and media collects under the answer)
-  pendingArtifacts?: Artifact[]
-  // live model/token usage for the CURRENT (or most recent) loop step — surfaced in the
-  // persistent status strip under the composer, Claude-style, NOT archived per step in the
-  // scrollback. Populated from model_trace events (config.model_trace / AGENTD_MODEL_TRACE);
-  // undefined when tracing is off.
-  usage?: { model: string; tokensIn: number; tokensOut: number; step: number }
-}
+// THE TRANSCRIPT MODEL AND ITS REDUCER LIVE IN chat/session.ts. They moved there when a second
+// client started rendering the same conversation: an agent app, over the SDK, through
+// @agentd/canvas. What is left in this store is everything that is true of THIS SHELL and not
+// of a conversation — latency reporting, desktop notifications, the signed-out re-check.
+// Re-exported because every component here imports these types from the store.
+export type { ChatItem, SessionState } from '../chat/session'
 
 /** A file the user is sending TO the agent (e.g. an edited image from the canvas). Bytes
  *  ride the WS send as base64; the daemon saves them to the workspace and hands back real
@@ -150,6 +141,9 @@ function newSessionKey(): string {
 
 const NOTIFY_PREF_KEY = 'agentd-notifications'
 
+/** A run failure that might really be an expired credential at the Model Proxy. */
+const AUTH_SHAPED = /\b401\b|sign in required|authentication/i
+
 /** Fire an OS notification when a watched run finishes while the window is in the background.
  *  Honors the client "Desktop notifications" pref (localStorage, default on) and never fires
  *  while the app is focused. Best-effort — silently no-ops if notifications are unavailable. */
@@ -168,112 +162,6 @@ function desktopNotify(title: string, body: string): void {
   } catch {
     /* notifications unavailable */
   }
-}
-
-/** ISO timestamp (as stored in the transcript) -> epoch ms, or undefined. */
-function toMs(iso: unknown): number | undefined {
-  if (typeof iso !== 'string' || !iso) return undefined
-  const ms = Date.parse(iso)
-  return Number.isNaN(ms) ? undefined : ms
-}
-
-/** Rebuild a saved transcript (sessions.history message dicts) into the same
- *  ChatItem[] the live event path produces, so a resumed session renders identically:
- *  user text, assistant text/thinking, and tool calls merged with their results.
- *  Each stored line carries `ts` — kept so history shows real send times. */
-function historyToItems(messages: any[]): ChatItem[] {
-  const items: ChatItem[] = []
-  const toolIndexByCallId = new Map<string, number>()
-  // a "run" = a user message and everything until the next one. Tool deliverables buffer
-  // for the whole run and attach to that run's FINAL assistant answer — matching the live
-  // path (flush at agent_end), so multi-turn / repeated answers don't strand the media.
-  let pending: Artifact[] = []
-  let runLastTextIdx = -1
-
-  const flushRun = () => {
-    if (pending.length) {
-      if (runLastTextIdx >= 0) {
-        const have = new Set((items[runLastTextIdx].artifacts || []).map((a) => a.path))
-        const add = pending.filter((a) => !have.has(a.path))
-        if (add.length) {
-          items[runLastTextIdx] = {
-            ...items[runLastTextIdx],
-            artifacts: [...(items[runLastTextIdx].artifacts || []), ...add]
-          }
-        }
-      } else {
-        attachToLastAssistant(items, pending, items[items.length - 1]?.ts ?? 0)
-      }
-    }
-    pending = []
-    runLastTextIdx = -1
-  }
-
-  for (const message of messages) {
-    const ts = toMs(message.ts)
-    if (message.role === 'user') {
-      flushRun() // the previous run ended
-      const atts = (message.attachments || []) as Artifact[]  // files the user attached (by ref)
-      items.push({ kind: 'user', text: String(message.content ?? ''), ts, ...(atts.length ? { artifacts: atts } : {}) })
-    } else if (message.role === 'assistant') {
-      for (const block of message.content || []) {
-        if (block.type === 'text' && block.text) {
-          runLastTextIdx = items.length // track the run's latest answer bubble
-          items.push({ kind: 'assistant', text: block.text, streaming: false, ts })
-        } else if (block.type === 'thinking' && block.thinking) {
-          items.push({ kind: 'thinking', text: block.thinking, streaming: false, ts })
-        } else if (block.type === 'toolCall') {
-          toolIndexByCallId.set(String(block.id), items.length)
-          items.push({ kind: 'tool', name: block.name || '?', args: block.arguments || {},
-                       result: '', isError: false, done: false, ts })
-        }
-      }
-      if (message.errorMessage) {
-        items.push({ kind: 'system', tone: 'error', text: String(message.errorMessage), ts })
-      }
-    } else if (message.role === 'toolResult') {
-      const text = (message.content || []).map((block: any) => block?.text || '').join('')
-      // tool block is text-only; buffer its DECLARED deliverables for the run's answer
-      for (const a of message.artifacts || []) {
-        if (!pending.some((p) => p.path === a.path)) pending.push(a)
-      }
-      const index = toolIndexByCallId.get(String(message.toolCallId))
-      if (index !== undefined && items[index]?.kind === 'tool') {
-        const tool = items[index] as Extract<ChatItem, { kind: 'tool' }>
-        items[index] = { ...tool, result: text, isError: !!message.isError, done: true }
-      } else {
-        // orphan result (no matching call in this transcript) — show it anyway
-        items.push({ kind: 'tool', name: message.toolName || '?', args: {}, result: text, isError: !!message.isError, done: true, ts })
-      }
-    }
-  }
-  flushRun() // the final run
-  return items
-}
-
-/** Incoming artifacts not already waiting in the pending buffer — dedupes WITHIN a run
- *  (so the model declaring the same file twice shows it once) while still allowing a
- *  later turn to re-present a file the user asks to see again. */
-function newArtifacts(session: SessionState, incoming?: Artifact[]): Artifact[] | undefined {
-  if (!incoming?.length) return undefined
-  const seen = new Set((session.pendingArtifacts || []).map((a) => a.path))
-  const fresh = incoming.filter((a) => !seen.has(a.path))
-  return fresh.length ? fresh : undefined
-}
-
-/** Attach deliverables to the last assistant bubble (walking from the end); if there is
- *  no assistant item yet, push a bare one to carry them. Dedupes against what's there. */
-function attachToLastAssistant(items: ChatItem[], artifacts: Artifact[], ts: number): void {
-  if (!artifacts.length) return
-  for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i].kind === 'assistant') {
-      const have = new Set((items[i].artifacts || []).map((a) => a.path))
-      const add = artifacts.filter((a) => !have.has(a.path))
-      if (add.length) items[i] = { ...items[i], artifacts: [...(items[i].artifacts || []), ...add] }
-      return
-    }
-  }
-  items.push({ kind: 'assistant', text: '', streaming: false, ts, artifacts })
 }
 
 interface AppState {
@@ -436,180 +324,57 @@ export const useApp = create<AppState>((set, get) => {
   let runStartedAt = 0
   let firstTokenMs = 0
 
-  function appendStreaming(sessionKey: string, kind: 'assistant' | 'thinking', delta: string, ts: number): void {
-    if (kind === 'assistant' && runStartedAt && !firstTokenMs) {
+  /**
+   * ONE run event -> this shell's state.
+   *
+   * The TRANSCRIPT part is `reduceEvent` (chat/session.ts), shared with the agent-app bundle so
+   * both render a run identically. What stays here is what only a shell does with a run:
+   *
+   *   * PERCEIVED first-token latency (RUM 5.3) — from pressing send to the first character the
+   *     user can actually read. Not the number the proxy reports, which excludes queueing, the
+   *     WebSocket hop and the render, i.e. most of what a slow reply feels like. Assistant text
+   *     only: a wall of thinking tokens is not an answer arriving.
+   *   * the finished-run notification, for a chat the user has tabbed away from.
+   *   * the hosted signed-out re-check on an auth-shaped failure.
+   */
+  function handleAgentEvent(sessionKey: string, event: AgentEvent, ts: number): void {
+    if (
+      event.type === 'message_update' &&
+      event.kind === 'text_delta' &&
+      runStartedAt &&
+      !firstTokenMs
+    ) {
       firstTokenMs = Date.now() - runStartedAt
     }
-    patchSession(sessionKey, (session) => {
-      const items = [...session.items]
-      const last = items[items.length - 1]
-      if (last && last.kind === kind && last.streaming) {
-        items[items.length - 1] = { ...last, text: last.text + delta }
-      } else {
-        items.push({ kind, text: delta, streaming: true, ts } as ChatItem)
-      }
-      return { ...session, items }
-    })
-  }
 
-  function handleAgentEvent(sessionKey: string, event: AgentEvent, ts: number): void {
-    switch (event.type) {
-      case 'message_update':
-        if (event.kind === 'text_delta') appendStreaming(sessionKey, 'assistant', event.delta || '', ts)
-        else if (event.kind === 'thinking_delta') appendStreaming(sessionKey, 'thinking', event.delta || '', ts)
-        break
-      case 'message_end':
-        // just end streaming here — declared deliverables stay buffered and attach to the
-        // FINAL answer at agent_end (flushing per-turn latched them onto intermediate turns
-        // when the model took several turns / repeated itself)
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          items: session.items.map((item) =>
-            'streaming' in item && item.streaming ? { ...item, streaming: false } : item
-          )
-        }))
-        break
-      case 'model_trace':
-        // update the persistent status strip (model + token usage), NOT the scrollback — Claude
-        // shows this live in a status bar and hides it once the step is over, never archiving a
-        // per-step line in the transcript. Each trace REPLACES the last (in-place, one indicator).
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          usage: {
-            model: String(event.model || session.usage?.model || ''),
-            tokensIn: Number(event.tokensIn || 0),
-            tokensOut: Number(event.tokensOut || 0),
-            step: Number(event.step || 0)
-          }
-        }))
-        break
-      case 'tool_execution_start':
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          items: [
-            ...session.items,
-            { kind: 'tool', name: event.toolName || '?', args: event.args || {}, result: '', isError: false, done: false, ts }
-          ]
-        }))
-        break
-      case 'tool_progress':
-        // a running tool's incremental steps (the computer tool's per-step updates, GuardedTool
-        // retries, …) — accumulate onto the matching not-yet-done tool block so they render live
-        patchSession(sessionKey, (session) => {
-          const items = [...session.items]
-          const text = String(event.text || '').trim()
-          if (text) {
-            for (let i = items.length - 1; i >= 0; i--) {
-              const item = items[i]
-              if (item.kind === 'tool' && !item.done && item.name === (event.toolName || '?')) {
-                items[i] = { ...item, progress: item.progress ? `${item.progress}\n${text}` : text }
-                break
-              }
-            }
-          }
-          return { ...session, items }
-        })
-        break
-      case 'tool_execution_end':
-        patchSession(sessionKey, (session) => {
-          const items = [...session.items]
-          for (let i = items.length - 1; i >= 0; i--) {
-            const item = items[i]
-            if (item.kind === 'tool' && !item.done && item.name === (event.toolName || '?')) {
-              // tool block is text-only; its deliverables buffer for the coming answer
-              items[i] = { ...item, result: resultText(event.result), isError: !!event.isError, done: true }
-              break
-            }
-          }
-          const fresh = newArtifacts(session, event.artifacts)
-          const pendingArtifacts = fresh ? [...(session.pendingArtifacts || []), ...fresh] : session.pendingArtifacts
-          return { ...session, items, pendingArtifacts }
-        })
-        break
-      case 'subagent_event':
-        patchSession(sessionKey, (session) => {
-          const agent = event.childAgent
-          const items = [...session.items]
-          // attach to the most recent STILL-RUNNING block for this child; otherwise open a new one
-          let idx = -1
-          for (let i = items.length - 1; i >= 0; i--) {
-            const it = items[i]
-            if (it.kind === 'subagent' && it.agent === agent && it.status === 'running') { idx = i; break }
-          }
-          if (event.kind === 'start' || idx < 0) {
-            // a fresh delegation (or a stray beat before its start) → new grouped block
-            items.push({ kind: 'subagent', agent, steps: event.kind === 'tool' && event.tool ? [event.tool] : [], status: event.kind === 'error' ? 'error' : event.kind === 'done' ? 'done' : 'running', detail: event.detail, ts })
-          } else {
-            const prev = items[idx] as Extract<ChatItem, { kind: 'subagent' }>
-            if (event.kind === 'tool' && event.tool) {
-              items[idx] = { ...prev, steps: [...prev.steps, event.tool] }
-            } else if (event.kind === 'done' || event.kind === 'error') {
-              items[idx] = { ...prev, status: event.kind, detail: event.detail }
-            }
-          }
-          return { ...session, items }
-        })
-        break
-      case 'model_fallback':
-        // The configured model could not serve this turn and another one answered instead.
-        // Goes in the SCROLLBACK, not the status strip: it is a fact about this specific
-        // exchange ("you are not talking to the model you chose, and here is why"), and it
-        // used to live only in a log file — which is how an unpaid API key looked like the
-        // app hanging for days.
-        patchSession(sessionKey, (session) => ({
-          ...session,
-          items: [
-            ...session.items,
-            {
-              kind: 'system' as const,
-              tone: 'error' as const,
-              text:
-                `${String(event.from || 'the configured model')} is unavailable — ` +
-                `${String(event.to || 'a fallback')} answered instead. ` +
-                String(event.reason || ''),
-              ts
-            }
-          ]
-        }))
-        break
-      case 'agent_end': {
-        const error = event.stopReason === 'error' ? String(event.error || 'run failed') : ''
-        reportRun(error ? 'error' : String(event.stopReason || 'ok'), firstTokenMs)
-        runStartedAt = 0
-        firstTokenMs = 0
-        patchSession(sessionKey, (session) => {
-          const items = error
-            ? [...session.items, { kind: 'system' as const, tone: 'error' as const, text: error, ts }]
-            : session.items.map((item) =>
-                'streaming' in item && item.streaming ? { ...item, streaming: false } : item
-              )
-          // flush the run's DECLARED deliverables onto its final answer (once, at run end)
-          if (session.pendingArtifacts?.length) attachToLastAssistant(items, session.pendingArtifacts, ts)
-          return { items, running: false, pendingArtifacts: [] }
-        })
-        // Hosted mode: an auth-shaped run failure may mean the session token expired at the
-        // Model Proxy. Re-check against the accounts service and only sign out on a
-        // DEFINITIVE rejection (never on a flaky network) — the sign-in gate then takes over.
-        if (error && isAccountsMode() && /\b401\b|sign in required|authentication/i.test(error)) {
-          void resolveSession().then((verdict) => {
-            if (verdict === 'invalid') {
-              signOut()
-              if (!isDesktop) location.reload() // web: drop the account-scoped connection too
-            }
-          })
+    patchSession(sessionKey, (session) => reduceEvent(session, event, ts))
+
+    if (event.type !== 'agent_end') return
+
+    const error = runError(event)
+    reportRun(error ? 'error' : String(event.stopReason || 'ok'), firstTokenMs)
+    runStartedAt = 0
+    firstTokenMs = 0
+
+    // Hosted mode: an auth-shaped run failure may mean the session token expired at the
+    // Model Proxy. Re-check against the accounts service and only sign out on a
+    // DEFINITIVE rejection (never on a flaky network) — the sign-in gate then takes over.
+    if (error && isAccountsMode() && AUTH_SHAPED.test(error)) {
+      void resolveSession().then((verdict) => {
+        if (verdict === 'invalid') {
+          signOut()
+          if (!isDesktop) location.reload() // web: drop the account-scoped connection too
         }
-        // desktop notification for a watched chat (an open tab / the current chat) finishing —
-        // NOT for background sub-agent / cron / heartbeat runs, and only when tabbed away
-        if (!error) {
-          const st = get()
-          if (st.currentSessionKey === sessionKey || st.openTabs.some((t) => t.id === sessionKey)) {
-            desktopNotify(st.flavor?.productName || 'agentd', 'Your agent finished responding.')
-          }
-        }
-        break
+      })
+      return
+    }
+    // desktop notification for a watched chat (an open tab / the current chat) finishing —
+    // NOT for background sub-agent / cron / heartbeat runs, and only when tabbed away
+    if (!error) {
+      const st = get()
+      if (st.currentSessionKey === sessionKey || st.openTabs.some((t) => t.id === sessionKey)) {
+        desktopNotify(st.flavor?.productName || 'agentd', 'Your agent finished responding.')
       }
-      default:
-        break
     }
   }
 

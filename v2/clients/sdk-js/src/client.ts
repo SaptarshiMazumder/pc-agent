@@ -91,6 +91,8 @@ export class AgentdClient {
   private pending = new Map<string, Pending>()
   private eventHandlers = new Map<string, Set<EventHandler>>()
   private statusHandlers = new Set<StatusHandler>()
+  /** The last status announced — see `onStatus` for why this is remembered. */
+  private status: ConnectionStatus = 'connecting'
   private reconnectDelay = 1000
   /** When the current socket opened, so "did this connection actually work?" can be answered. */
   private openedAt = 0
@@ -145,6 +147,7 @@ export class AgentdClient {
     // Tear down any existing socket FIRST so a re-connect never leaves two live sockets
     // both fanning out events (double-render bug in strict-mode UIs).
     this.teardownSocket()
+    this.status = 'connecting'
     for (const handler of this.statusHandlers) handler('connecting')
     let target: ConnectTarget
     try {
@@ -165,13 +168,15 @@ export class AgentdClient {
       // stale token into a steady flood against our own daemon. The reset moved to onclose,
       // where the socket's lifetime is known.
       this.openedAt = Date.now()
-      for (const handler of this.statusHandlers) handler('open')
+      this.status = 'open'
+    for (const handler of this.statusHandlers) handler('open')
     }
     ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data as string) as Frame)
     ws.onclose = (event) => {
       for (const [, pending] of this.pending) pending.reject(new Error('connection closed'))
       this.pending.clear()
-      for (const handler of this.statusHandlers) handler('closed')
+      this.status = 'closed'
+    for (const handler of this.statusHandlers) handler('closed')
       const lived = this.openedAt ? Date.now() - this.openedAt : 0
       this.openedAt = 0
       // 4401 is the daemon refusing the credential (see gateway `_handle_conn`). Reconnecting
@@ -227,8 +232,18 @@ export class AgentdClient {
     return () => this.eventHandlers.get(event)?.delete(handler)
   }
 
+  /**
+   * Subscribe to connection status. Returns the unsubscribe.
+   *
+   * THE CURRENT STATUS ARRIVES IMMEDIATELY, before this returns. Status was transitions-only, and
+   * a subscriber that mounted after the socket opened — which is most of them, since connecting
+   * starts at construction and React mounts a frame later — heard nothing until the next
+   * reconnect. The symptom is a composer that says "connecting…" and refuses to send over a
+   * perfectly open socket.
+   */
   onStatus(handler: StatusHandler): () => void {
     this.statusHandlers.add(handler)
+    handler(this.status)
     return () => this.statusHandlers.delete(handler)
   }
 

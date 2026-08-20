@@ -1,5 +1,5 @@
 # Build context for the web image = v2/clients/ (the npm workspace root).
-# It needs: package.json, package-lock.json, ui/, web/ — and NOTHING else.
+# It needs: package.json, package-lock.json, ui/, web/, auth/ — and NOTHING else.
 # The other workspaces contribute their package.json and nothing more (see the bottom).
 
 **/node_modules
