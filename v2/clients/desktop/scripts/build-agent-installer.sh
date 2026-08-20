@@ -148,6 +148,21 @@ else
 fi
 echo
 
+# Is this agent's built window current with its source? True (0) when there is nothing to check --
+# an agent with no app/ has a hand-written ui/ served straight off disk, and one with no ui/ fails
+# later for a better reason than this.
+stale_window() {
+  local dir="$AGENTS_DIR/$1"
+  [[ -f "$dir/app/package.json" ]] || return 0
+  [[ -f "$dir/ui/index.html" ]] || return 0
+  # -newer is a plain mtime comparison, and `find -quit` stops at the first hit rather than walking
+  # a whole src tree to answer a yes/no question.
+  local newer
+  newer="$(find "$dir/app/src" "$dir/app/vite.config.ts" "$dir/app/package.json" \
+             -newer "$dir/ui/index.html" -print -quit 2>/dev/null || true)"
+  [[ -z "$newer" ]]
+}
+
 # -- stage 3: one installer per agent -------------------------------------------------
 # A failing agent does NOT abort the run (a bad agent shouldn't cost you the other 8);
 # failures are collected and reported, and the script exits non-zero at the end.
@@ -158,6 +173,16 @@ n=0
 for id in "${AGENT_IDS[@]}"; do
   n=$(( n + 1 ))
   echo "== [3/3] ($n/$total) $id =="
+  # THE WINDOW THAT SHIPS IS ui/, AND ONLY ui/. An agent whose app/ has been edited since its last
+  # build would be packaged around the OLDER screen -- and nothing downstream would say so, because
+  # every file is present and the exe builds perfectly. Refuse here rather than hand somebody an
+  # installer that is quietly a version behind its own source.
+  if ! stale_window "$id"; then
+    echo "!! $id FAILED - its window is older than its source; run build_app (or npm run build in app/)"
+    FAILED+=("$id")
+    echo
+    continue
+  fi
   if (cd "$DESKTOP" && npm run gen:app -- "$id" && npm run dist:app -- "$id"); then
     BUILT+=("$id")
   else

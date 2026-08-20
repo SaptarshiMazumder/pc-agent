@@ -19,7 +19,8 @@
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "zustand": "^5.0.2",
-    "@agentd/auth": "file:../auth"
+    "@agentd/auth": "file:../auth",
+    "@agentd/billing": "file:../billing"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

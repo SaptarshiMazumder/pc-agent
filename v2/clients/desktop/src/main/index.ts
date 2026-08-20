@@ -167,7 +167,21 @@ function registerIpc(): void {
     return { ok: true, windows: appWindows.size }
   })
 
-  ipcMain.handle('app:openWindow', (_e, rawUrl: string, title?: string) => {
+  ipcMain.handle('app:openWindow', (event, rawUrl: string, title?: string) => {
+    // WHO IS ASKING, decided here and never by the caller.
+    //
+    // Two kinds of window can reach this channel. The shell's own renderer is ours and may open
+    // anything. An AGENT APP window runs third-party code — the whole premise of the marketplace —
+    // and this call takes a URL, so granting it generally would let any published agent open a
+    // desktop window pointed at any address it liked, wearing this app's frame.
+    //
+    // Agent Builder is the exception, because building an agent's window and looking at it are one
+    // loop and the second half of it used to live in a different application. It is identified by
+    // the WINDOW the request arrived on, which the page cannot state or forge — not by anything in
+    // the message.
+    if (!mayOpenAppWindows(event.sender)) {
+      return { ok: false, error: 'this window may not open app windows' }
+    }
     let url: URL
     try {
       url = new URL(String(rawUrl || ''))
@@ -275,6 +289,36 @@ const appWindows = new Map<string, BrowserWindow>()
 /** The receive-only bridge for agent app windows (built alongside the shell's own preload). */
 function appPreloadPath(): string {
   return path.join(__dirname, '../preload/app.js')
+}
+
+/**
+ * The one agent app allowed to open other agents' windows.
+ *
+ * A specific id in the shell, which is not something this codebase does lightly. The justification
+ * is the same one the daemon already accepts for this agent (CROSS_AGENT_READS): Agent Builder is
+ * not an agent among agents, it is the tool that makes them, and the window it is building is the
+ * thing it exists to show you.
+ */
+const BUILDER_APP_PATH = '/apps/agent-builder/'
+
+/**
+ * May this sender open app windows?
+ *
+ * The shell's own renderer may — it is our code, and it is where the "Open app" button has always
+ * lived. An agent app window may only if it IS Agent Builder, decided by matching the sender
+ * against the window register rather than by anything the page said about itself.
+ *
+ * Fails CLOSED: a sender we cannot place is refused. A window that is not in the register is not a
+ * window this process opened.
+ */
+function mayOpenAppWindows(sender: Electron.WebContents): boolean {
+  if (mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents) return true
+  for (const [key, win] of appWindows) {
+    if (!win.isDestroyed() && win.webContents === sender) {
+      return new URL(key).pathname === BUILDER_APP_PATH
+    }
+  }
+  return false
 }
 
 /**

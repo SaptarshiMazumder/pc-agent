@@ -1,3 +1,5 @@
+import { BillingClient, BillingHost } from '@agentd/billing';
+export { BillingClient, BillingHost, Catalog, CreditPack, Credits, Purchase, notifyCreditsChanged, onCreditsChanged } from '@agentd/billing';
 import { TokenManager } from '@agentd/auth';
 export { AuthConfig, SecretStore, SessionStore, TokenManager, TokenPair, accessTokenAccount, accessTokenExpiry, localSessionStore, memorySessionStore } from '@agentd/auth';
 
@@ -500,6 +502,76 @@ declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResul
 declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;
 
 /**
+ * Credits, for an agent window — the data half. The UI half is `wallet.ts`.
+ *
+ * NOTHING NEW IS PLUMBED HERE. An agent window already knows who the user is (`identity()`, an
+ * auto-refreshing TokenManager) and where the accounts service lives (`accountsUrl()`, answered by
+ * the daemon it is served from). Those are exactly the two questions `BillingClient` asks its host,
+ * so this file is the wiring and not an implementation — the implementation is `@agentd/billing`,
+ * shared byte-for-byte with the agentd client so an agent and the desktop app cannot disagree
+ * about what a purchase is.
+ */
+
+interface CreditsOptions extends DaemonOptions {
+    client?: AgentdClient;
+    storageKey?: string;
+}
+/** The host answers, for a page served by a daemon. */
+declare function creditsHost(opts?: CreditsOptions): BillingHost;
+/** A ready-to-use billing client for this window. */
+declare function billing(opts?: CreditsOptions): BillingClient;
+
+/**
+ * Credits & billing, as a panel any agent window can mount.
+ *
+ *   await agentd.mountCreditsPanel({ client, mount: someElement })
+ *
+ * THE SAME SCREEN EVERY AGENT SHOWS, because it is the same code every agent runs. It ships inside
+ * the SDK — like the sign-in gate in `gate.ts` — and `npm run build` re-vendors it into every
+ * agent's `ui/vendor/agentd-client.js`. A copy under templates/ would put a second version of the
+ * shop in one product, and the copy could then disagree with the accounts service it buys from.
+ * That is the whole reason this is not a snippet the model writes per agent.
+ *
+ * LAID OUT TO MATCH the agentd renderer's Credits & billing page (SubscriptionView.tsx): balance
+ * card, buy-credits grid, the rail's own disclosure, then the receipt. Same information in the
+ * same order, so a user who tops up in the desktop app and then inside an agent sees one product.
+ *
+ * WHAT IT DOES NOT DECIDE. Not the packs (GET /products — a database row, so what is on sale
+ * changes without releasing a client), not the prices (same), and not the disclosure sentence
+ * (`paymentNote`, the rail's own words — so wiring up a real rail rewrites this panel's promises
+ * instead of leaving a stale "no card is charged" note on a screen that now charges).
+ *
+ * IT RENDERS NOTHING WHEN THERE IS NOTHING TO SELL: no accounts service (a BYOK build), or nobody
+ * signed in. Safe to call unconditionally, which is what makes it a component and not a decision.
+ */
+
+interface CreditsPanelOptions extends CreditsOptions {
+    /** Where to render. Defaults to `#agentd-credits` if present, else appended to <body>. */
+    mount?: HTMLElement;
+    /** Scope the balance to one agent's subscription pocket. Defaults to the platform balance. */
+    agentId?: string;
+    /** Where a card rail should return the customer. Defaults to this page. */
+    returnUrl?: string;
+}
+interface CreditsPanelHandle {
+    /** Re-read the balance from the server. */
+    refresh(): Promise<void>;
+    /** Remove the panel and stop listening. */
+    destroy(): void;
+    /** Did it render anything? False on a BYOK build or when nobody is signed in. */
+    shown: boolean;
+}
+/**
+ * Mount the panel. Resolves once it has drawn, or decided not to.
+ *
+ * Never rejects for an ordinary refusal — a failed purchase is reported INSIDE the panel, where
+ * the user can read it and try again. A daemon that cannot be reached resolves to a panel that
+ * drew nothing, because the app's own status chip already reports that and a second alarm for one
+ * fault is noise.
+ */
+declare function mountCreditsPanel(options?: CreditsPanelOptions): Promise<CreditsPanelHandle>;
+
+/**
  * The agent window's TokenManager — ONE per storage key, shared by everything in the page.
  *
  * The SDK used to carry its own sign-in and its own renewal loop, a second implementation of what
@@ -544,4 +616,4 @@ declare function identity(opts?: IdentityOptions): TokenManager;
 /** Drop the memoised managers. Tests only — a page has exactly one lifetime. */
 declare function resetIdentity(): void;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type GateResult, type Hello, type IdentityOptions, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accountsUrl, authLogin, authLogout, authRefresh, authStatus, daemonOrigin, daemonToken, effectiveMode, fromPage, identity, loadMode, loadSession, mountSignInGate, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, signOutAndGate, startAuthRenewal, withTimeout };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditsOptions, type CreditsPanelHandle, type CreditsPanelOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type GateResult, type Hello, type IdentityOptions, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accountsUrl, authLogin, authLogout, authRefresh, authStatus, billing, creditsHost, daemonOrigin, daemonToken, effectiveMode, fromPage, identity, loadMode, loadSession, mountCreditsPanel, mountSignInGate, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, signOutAndGate, startAuthRenewal, withTimeout };

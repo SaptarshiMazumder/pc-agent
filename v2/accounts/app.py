@@ -1565,7 +1565,7 @@ def my_purchase(
     }
 
 
-def _checkout_return_urls(payload: dict) -> tuple[str, str]:
+def _checkout_return_urls(payload: dict, *, required: bool) -> tuple[str, str]:
     """Where the rail sends the customer back afterwards.
 
     The client supplies them because only it knows its own origin — a desktop window, the hosted
@@ -1573,11 +1573,17 @@ def _checkout_return_urls(payload: dict) -> tuple[str, str]:
     (comma-separated) constrains that to origins we recognise: unset means any absolute http(s)
     URL, which is right for local development and should be set in a deployment, because the
     alternative is an open redirect wearing our domain in the address bar.
+
+    `required` IS THE CONFIGURED RAIL'S ANSWER, NOT A CONVENIENCE. A redirect URL only means
+    anything to a rail that redirects. Demanding one from every caller made a rail that settles in
+    place — the one this deployment runs on today — refuse checkouts unless the client invented two
+    URLs for a journey nobody takes. Every agent window would have carried that lie. Still fully
+    validated when it IS supplied, so a caller that sends one on the mock rail is checked anyway.
     """
     env = os.environ.get
     success = str(payload.get("success_url") or env("AGENTD_CHECKOUT_SUCCESS_URL") or "").strip()
     cancel = str(payload.get("cancel_url") or env("AGENTD_CHECKOUT_CANCEL_URL") or "").strip()
-    if not success or not cancel:
+    if required and (not success or not cancel):
         raise HTTPException(
             status_code=400,
             detail="success_url and cancel_url are required — the payment page has to know "
@@ -1586,6 +1592,8 @@ def _checkout_return_urls(payload: dict) -> tuple[str, str]:
     configured = (env("AGENTD_CHECKOUT_RETURN_ORIGINS") or "").split(",")
     allowed = [o.strip() for o in configured if o.strip()]
     for url in (success, cancel):
+        if not url:
+            continue  # legal only when `required` is false; already refused above otherwise
         if not url.startswith(("http://", "https://")):
             raise HTTPException(status_code=400, detail=f"{url!r} is not an absolute http(s) URL")
         if allowed and not any(url.startswith(origin) for origin in allowed):
@@ -1615,7 +1623,9 @@ def my_checkout(
     product_id = str(payload.get("product_id") or "").strip()
     if not product_id:
         raise HTTPException(status_code=400, detail="product_id required")
-    success_url, cancel_url = _checkout_return_urls(payload)
+    # Only a rail with a callback sends the customer away and needs somewhere to send
+    # them back to. `has_webhook()` is that same question, already answered in one place.
+    success_url, cancel_url = _checkout_return_urls(payload, required=has_webhook())
     client_key = str(payload.get("idempotency_key") or "").strip()[:80]
     ts = _now()
 

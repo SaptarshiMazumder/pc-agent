@@ -52,16 +52,14 @@ def _services():
     from agent_runtime.infrastructure.agents import FileAgentRegistry
     from agent_runtime.presentation.gateway import APP_SCOPED_METHODS, PROVIDER_ENV_KEYS
 
-    from agent_authoring.application.scaffold_ui_service import ScaffoldUiService
     from agent_authoring.application.validate_agent_service import ValidateAgentService
-    from agent_authoring.bundle_layout import BundleLayout
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.declaration_rules import DeclarationRules
+    from agent_authoring.domain.freshness_rules import FreshnessRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
     from agent_authoring.domain.ui_component import UiComponents
     from agent_authoring.domain.ui_rules import UiRules
-    from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
 
     agents_dir = _agents_dir()
@@ -83,19 +81,12 @@ def _services():
             components=components.all(),
         ),
         declaration_rules=DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
+        freshness_rules=FreshnessRules(),
     )
-    templates = UiTemplates()
-    scaffolder = ScaffoldUiService(
-        reader,
-        templates=templates,
-        template_root=BundleLayout.TEMPLATE_ROOT,
-        borrow_root=BundleLayout.BORROW_ROOT,
-        components=components,
-    )
-    return agents_dir, registry, validator, templates, scaffolder
+    return agents_dir, registry, validator
 
 
-AGENTS_DIR, REGISTRY, VALIDATOR, TEMPLATES, SCAFFOLDER = _services()
+AGENTS_DIR, REGISTRY, VALIDATOR = _services()
 SKILLS = Path(__file__).resolve().parents[4] / "skills"
 
 mcp = FastMCP("agentd-authoring")
@@ -139,29 +130,17 @@ def validate_agent(agent_id: str) -> str:
     return VALIDATOR.validate(agent_id).as_text()
 
 
-@mcp.tool()
-def scaffold_ui(agent_id: str, template: str = "", confirm_overwrite: bool = False) -> str:
-    """START AN AGENT'S APP WINDOW. Call this instead of hand-writing ui/ files.
-
-    Copies a complete, working app into agents/<id>/ui/ — then you EDIT it. Hand-written UI gets
-    the same two protocol details wrong every time (the run-event payload is nested; streamed
-    text is message_update/text_delta), and both failures are invisible: the socket connects, the
-    console is clean, the screen never updates.
-
-    Pick the template from what the agent DOES: chat-app (a conversation), dashboard-app (runs on
-    its own and reports), workbench-app (ingests a pile of things). Empty = chat-app.
-    Also add an [app] table to agent.toml — this writes files, not configuration.
-    """
-    result = SCAFFOLDER.scaffold(
-        agent_id, template_id=template, confirm_overwrite=confirm_overwrite
-    )
-    return str(result)
-
-
-@mcp.tool()
-def list_ui_templates() -> str:
-    """The app shapes available to scaffold_ui, and what each is for."""
-    return TEMPLATES.describe()
+# `scaffold_ui` and `list_ui_templates` ARE DELIBERATELY NOT EXPOSED HERE.
+#
+# They copied a complete vanilla app — plain JS into `ui/`, no build step. A window is a React
+# project now: source in `app/`, compiled into `ui/` by `build_app`, with the toolchain shipped
+# inside the product so a user has nothing to install. One way to give an agent a window means
+# there is no wrong one to pick, and a tool surface that still OFFERS the old way is a decision
+# driver pointing at it however the documentation reads.
+#
+# The service and the templates are still on disk: a dozen agents in this product have
+# hand-written `ui/` folders, served straight off disk. Nothing maintains
+# them. What ended is offering vanilla as a choice for something new.
 
 
 if __name__ == "__main__":

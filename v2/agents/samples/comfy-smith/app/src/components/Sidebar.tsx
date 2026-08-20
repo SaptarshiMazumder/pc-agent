@@ -12,7 +12,7 @@
 
 import type { AuthState } from '../agentd'
 
-export type View = 'chat' | 'artifacts' | 'server' | 'models' | 'nodes' | 'settings'
+export type View = 'chat' | 'artifacts' | 'server' | 'models' | 'nodes' | 'credits' | 'settings'
 
 const MAIN: Array<{ id: View; label: string; icon: Icon }> = [
   { id: 'chat', label: 'Chat', icon: 'chat' },
@@ -56,9 +56,15 @@ export function Sidebar({
 
       <span className="side-grow" />
 
+      {/* Credits ABOVE Settings, and a section of its own rather than a block inside it:
+          topping up is what a user comes looking for when a run stops, and settings is where
+          you go to change how the thing works. */}
       <Group
         label=""
-        items={[{ id: 'settings' as View, label: 'Settings', icon: 'gear' as Icon }]}
+        items={[
+          { id: 'credits' as View, label: 'Credits', icon: 'card' as Icon },
+          { id: 'settings' as View, label: 'Settings', icon: 'gear' as Icon },
+        ]}
         view={view}
         onView={onView}
         alertOn="settings"
@@ -126,7 +132,7 @@ function Group({
   )
 }
 
-type Icon = 'chat' | 'file' | 'server' | 'box' | 'node' | 'gear' | 'in' | 'out'
+type Icon = 'chat' | 'file' | 'server' | 'box' | 'node' | 'card' | 'gear' | 'in' | 'out'
 
 /** Inline SVG on a 16px grid, stroked with `currentColor` so every icon inherits the state of
  *  the row it is in — hover, active, disabled — with no per-icon colour anywhere. */
@@ -178,6 +184,13 @@ function Glyph({ name }: { name: Icon }) {
           <circle cx="12" cy="12" r="2" />
           <circle cx="12" cy="4" r="2" />
           <path d="M6 4h4M4 6v4a2 2 0 0 0 2 2h4" />
+        </svg>
+      )
+    case 'card':
+      return (
+        <svg {...common}>
+          <rect x="1.6" y="3.4" width="12.8" height="9.2" rx="1.6" />
+          <path d="M1.6 6.6h12.8M4 10h2.4" />
         </svg>
       )
     case 'gear':

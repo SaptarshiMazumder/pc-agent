@@ -8,7 +8,6 @@ import type { AgentdClient } from '@agentd/client'
 import { usePlatform, useRestartDaemon } from '../../agentd/platform'
 import { useServices } from '../../agentd/services'
 import { useSettings } from '../../agentd/settings'
-import { AccountSection } from './AccountSection'
 import { DeclaredField } from './DeclaredField'
 import { Field } from './Field'
 import { ModeSection } from './ModeSection'
@@ -52,14 +51,12 @@ export function SettingsView({ client }: { client: AgentdClient }) {
   return (
     <div className="settings-scroll">
       <div className="settings-inner">
-        {/* Account first, Run mode second — that is the order they depend on. Cloud needs somebody
-            to bill, so the second control greys out until the first one is filled in. */}
-        <AccountSection
-          auth={platform.auth}
-          error={platform.error}
-          onSignIn={platform.signIn}
-          onSignOut={platform.signOut}
-        />
+        {/* SIGNING IN MOVED OUT, to the account menu at the bottom of the sidebar. It is the
+            first thing a new user needs and it was three scrolls into a config screen; it also
+            belongs next to the identity it changes, not next to reasoning effort. Run mode stays
+            here because it is a property of the MACHINE — it applies to every agent on it, which
+            is a settings-shaped fact rather than an account one. It greys out until somebody is
+            signed in, and says so. */}
         <ModeSection
           auth={platform.auth}
           chosen={platform.chosen}

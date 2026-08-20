@@ -82,6 +82,19 @@ RULEBOOK: dict[str, Rule] = {
         note="an app with no sign-in cannot be packed or published; the SDK's gate is the only "
         "mechanism — never a second login of the agent's own",
     ),
+    # AND EVERY AGENT WITH A WINDOW SELLS CREDITS. The same argument, one step later in the same
+    # story: running out of credits is the ONE failure a user can fix themselves, and an agent
+    # that cannot take the top-up simply stops working and says nothing. The user has to already
+    # know a separate app exists, find it, and buy there. Nobody does. They uninstall.
+    #
+    # It blocks PACK and PUBLISH rather than merely warning for the reason the sign-in rule
+    # learned the hard way: a warning is a thing you publish past.
+    "UI_NO_CREDITS": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an app with no credits panel cannot be packed or published; mountCreditsPanel() "
+        "is the only mechanism — never a store of the agent's own",
+    ),
     # ONE SIGN-IN IMPLEMENTATION ON THIS PLATFORM. Listed here rather than left to block on its
     # error level alone: this table is where the shipping policy is written down, and a code that
     # blocks only because of how it happens to be priced is a code somebody later re-prices to a
@@ -96,6 +109,19 @@ RULEBOOK: dict[str, Rule] = {
         blocks=(PACK, PUBLISH),
         note="an agent that mints or stores credentials itself cannot be packed or published — "
         "mountSignInGate() draws the form, identity().accessToken() hands over a credential",
+    ),
+    # A WINDOW BUILT FROM SOURCE THAT NO LONGER EXISTS. `app/` is compiled into `ui/`, and only
+    # `ui/` is served, packed and published — so an agent whose source has moved on from its build
+    # looks finished from every angle its author can see and hands everyone else the older screen.
+    #
+    # Listed here rather than left to its error level, for the same reason as UI_OWN_LOGIN: this
+    # table is where shipping policy is written down. It is also the newest way to get this wrong —
+    # building used to be part of editing, and it is now a separate step somebody has to remember.
+    "APP_BUILD_STALE": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="ui/ predates app/src — the packer ships ui/, so this would deliver the old window; "
+        "call build_app",
     ),
     "DEFINITION_IN_EXCLUDED_DIR": Rule(
         note="definition files under an excluded dir ship to nobody"

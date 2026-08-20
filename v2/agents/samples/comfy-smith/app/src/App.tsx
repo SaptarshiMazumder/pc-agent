@@ -38,6 +38,7 @@ import { InspectorView, type Inspector } from './components/InspectorView'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar, type View } from './components/Sidebar'
 import { WorkflowPanel, type Workflow } from './components/WorkflowPanel'
+import Credits from './components/Credits'
 
 const SUGGESTIONS = [
   {
@@ -228,6 +229,7 @@ export default function App() {
             <InspectorView kind={view as Inspector} invoke={invoke} connected={status === 'open'} />
           )}
 
+          {view === 'credits' && <Credits />}
           {view === 'settings' && (
             <SettingsView
               data={settings.data}
@@ -277,6 +279,8 @@ function title(view: View): string {
       return 'Models'
     case 'nodes':
       return 'Nodes'
+    case 'credits':
+      return 'Credits & billing'
     case 'settings':
       return 'Settings'
   }

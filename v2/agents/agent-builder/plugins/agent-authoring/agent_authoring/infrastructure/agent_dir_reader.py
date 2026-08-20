@@ -109,3 +109,23 @@ class AgentDirReader:
             except OSError:
                 continue
         return out
+
+    def mtimes(self, agent_dir: Path, files: list[str]) -> dict:
+        """When each file was last written, epoch seconds.
+
+        For the freshness rule, which asks whether a built ``ui/`` predates the ``app/src`` it was
+        built from. That question cannot be answered from file CONTENT, so it is the one thing a
+        rule needs that `sources` cannot give it — and it stays here, with the other I/O, rather
+        than in the rule.
+
+        A path that cannot be stat'd is simply absent, and the rule treats absence as "do not
+        know" rather than as evidence. Freshness is a gate, and a gate built on a failed stat call
+        is a gate that refuses to ship on a permissions hiccup.
+        """
+        out: dict[str, float] = {}
+        for rel in files:
+            try:
+                out[rel] = (agent_dir / rel).stat().st_mtime
+            except OSError:
+                continue
+        return out

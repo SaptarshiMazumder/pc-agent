@@ -108,7 +108,7 @@ jobs:
         with:
           name: wheel
           path: v2/dist
-      - name: Assemble the embedded runtime (CPython + wheel)
+      - name: Assemble the embedded runtime (CPython + wheel + chromium + node)
         run: |
           $wheel = (Get-ChildItem ../../dist -Filter "agentd-*.whl" | Select-Object -First 1).FullName
           Write-Host "using wheel: $wheel"

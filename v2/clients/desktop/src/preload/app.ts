@@ -14,10 +14,20 @@
  * the refresh token, mints short-lived access tokens, and hands those down. The app can only ever
  * hold something that expires in minutes.
  *
- * Hence the surface here is ONE receive-only channel. No filesystem, no keychain, no daemon
- * control, nothing that can be called INTO — the page cannot use this to ask for anything, only
- * to be told. Adding a method to this file means widening what untrusted agent code can reach,
- * so it should be argued for rather than assumed.
+ * Hence the surface here is almost entirely a receive-only channel. No filesystem, no keychain,
+ * no daemon control. Adding a method here widens what untrusted agent code can reach, so it is
+ * argued for rather than assumed — and there is exactly one, argued below.
+ *
+ * `openAppWindow` — REQUESTED, NOT GRANTED. Every window this preload is loaded into can call it,
+ * because a preload is per-window-type and not per-agent; what stops an arbitrary agent using it
+ * is the MAIN PROCESS, which looks up which window the request came from and serves only Agent
+ * Builder (see `app:openWindow` in src/main/index.ts). The check is on the sender's identity,
+ * which the caller cannot state or forge — not on anything passed in here.
+ *
+ * Why it exists at all: building an agent's window and looking at it are one loop, and without
+ * this the second half lived in another application. An app window's only other route is
+ * `window.open`, which this shell deliberately sends to the SYSTEM BROWSER — so the app opened
+ * outside the desktop app entirely, with none of the token-pushing above.
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
@@ -39,5 +49,17 @@ contextBridge.exposeInMainWorld('agentdHost', {
     }
     ipcRenderer.on(CHANNEL, handler)
     return () => ipcRenderer.removeListener(CHANNEL, handler)
+  },
+
+  /**
+   * Open an agent's own app window — the same call, and the same window, as the desktop client's
+   * "Open app" button (`openAppWindow` in src/preload/index.ts).
+   *
+   * Answers `{ ok: false, error }` rather than throwing when the caller is not allowed to, so a
+   * refusal is something the page can show rather than an unhandled rejection in a console nobody
+   * is reading.
+   */
+  openAppWindow(url: string, title?: string): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('app:openWindow', url, title)
   }
 })

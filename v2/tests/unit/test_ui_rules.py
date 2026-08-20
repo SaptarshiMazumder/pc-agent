@@ -155,7 +155,23 @@ APP = {"app": {"width": 1100}}
 SDK = "ui/vendor/agentd-client.js"
 
 
-def sign_in(js: str, vendored: str = "function mountSignInGate(){}"):
+# Every REQUIRED component, satisfied. A test about one of them has to satisfy the others, or the
+# missing-component check short-circuits and the test reads a finding it was not asking about.
+OTHER_REQUIRED = "await agentd.mountCreditsPanel({ client, mount })"
+
+
+FULL_SDK = "function mountSignInGate(){}\nfunction mountCreditsPanel(){}"
+
+
+def sign_in(js: str, vendored: str | None = FULL_SDK):
+    sources = {"ui/app.js": js + "\n" + OTHER_REQUIRED}
+    if vendored is not None:
+        sources[SDK] = vendored
+    return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
+
+
+def only(js: str, vendored: str | None = "function mountSignInGate(){}"):
+    """The raw form: exactly the code given, nothing added. For the missing-component tests."""
     sources = {"ui/app.js": js}
     if vendored is not None:
         sources[SDK] = vendored
@@ -167,15 +183,16 @@ def test_an_app_agent_with_no_sign_in_is_refused():
     one — an agent with a window has to know who is using it, and on a hosted install every model
     call fails without it, with nothing on screen to explain why. The rulebook also closes PACK
     and PUBLISH on this code, so an agent that skips it cannot ship at all."""
-    found = sign_in("const client = agentd.fromPage()")
+    found = only("const client = agentd.fromPage()")
     assert "UI_NO_SIGN_IN" in found
     assert found["UI_NO_SIGN_IN"].level == "error"
-    # The fix names the TOOL, not the line to type. Ranked by strength: a tool that does every
-    # step (SDK refresh, script tag, theme tokens, the call) and is safe to re-run beats an
-    # instruction to hand-write one of the four and forget the rest — which is how an agent ends
-    # up calling a gate its year-old vendored SDK cannot run.
-    assert "add_ui_component" in found["UI_NO_SIGN_IN"].fix
-    assert "sign-in" in found["UI_NO_SIGN_IN"].fix
+    # The fix is the INSTRUCTION, not a tool name. It used to name `add_ui_component`, which does
+    # its work through <script> tags, style.css appends and app.js splicing — vanilla-era
+    # mechanisms that no longer exist now every agent UI is React. Pointing at a tool that cannot
+    # finish the job sends the model down a path where half the steps silently do nothing.
+    assert "mountSignInGate" in found["UI_NO_SIGN_IN"].fix
+    assert "main.tsx" in found["UI_NO_SIGN_IN"].fix
+    assert "add_ui_component" not in found["UI_NO_SIGN_IN"].fix
 
 
 def test_calling_the_gate_is_clean():
@@ -288,3 +305,119 @@ def test_an_app_that_merely_HAS_a_login_page_is_left_alone():
 
 def test_an_ordinary_agent_using_the_sdk_is_left_alone():
     assert "UI_OWN_LOGIN" not in sign_in("await agentd.mountSignInGate()")
+
+
+def test_an_app_agent_with_no_credits_panel_is_refused():
+    """MANDATORY for the same reason sign-in is, one step later in the same story.
+
+    Running out of credits is the ONE failure a user can fix themselves. Without this panel the
+    agent stops working and says nothing about why or where to go — the user has to already know
+    that a separate app exists, find it, and top up there. Every agent that can spend credits can
+    sell them.
+    """
+    found = only("await agentd.mountSignInGate()")
+    assert "UI_NO_CREDITS" in found
+    assert found["UI_NO_CREDITS"].level == "error"
+    # It must say the thing that is actually missing. `Credits.tsx` ships with every React
+    # scaffold, so "add the component" is advice the author has already followed; what they have
+    # not done is RENDER it, and the fix has to say so in those words.
+    assert "SHIPPING IT IS NOT ENOUGH" in found["UI_NO_CREDITS"].fix
+    assert "<Credits />" in found["UI_NO_CREDITS"].fix
+    assert "add_ui_component" not in found["UI_NO_CREDITS"].fix
+
+
+def test_both_missing_components_are_reported_in_one_pass():
+    """A queue of round trips is not a report. An author fixing two one-line omissions should see
+    both the first time, not find the second after fixing the first."""
+    found = only("const client = agentd.fromPage()")
+    assert set(found) == {"UI_NO_SIGN_IN", "UI_NO_CREDITS"}
+
+
+def test_an_app_that_has_both_is_quiet():
+    """The whole point: the templates ship both, so a freshly scaffolded agent passes untouched."""
+    found = sign_in("await agentd.mountSignInGate()")
+    assert not found
+
+
+def test_the_credits_panel_may_be_mounted_directly():
+    """`creditsSection()` is the template's wrapper; an app that calls the SDK itself — a React
+    agent, or one with its own settings layout — is equally installed and must not be nagged."""
+    sources = {
+        "ui/app.js": "await agentd.mountSignInGate()\nawait agentd.mountCreditsPanel({ client })",
+        SDK: FULL_SDK,
+    }
+    found = {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
+    assert not found
+
+
+def test_a_credits_panel_the_vendored_sdk_cannot_run_is_an_error():
+    """An SDK vendored before the panel existed gives 'agentd.mountCreditsPanel is not a function'
+    on the settings page — the same dead-window failure the sign-in check already catches, which
+    is why it is ONE rule driven by each component's declared `requires`."""
+    found = sign_in("await agentd.mountSignInGate()", vendored="function mountSignInGate(){}")
+    assert found["UI_SDK_PREDATES_COMPONENT"].level == "error"
+    assert "mountCreditsPanel" in found["UI_SDK_PREDATES_COMPONENT"].message
+
+
+# --- shipped is not the same as wired ---------------------------------------
+# The React starter DELIVERS `Credits.tsx`, whose whole body is a call to `mountCreditsPanel`.
+# A scan of every source file found that call inside the definition, so an agent that never
+# rendered `<Credits />` passed the check that existed to prove it had: a credits page shipped,
+# validated, and invisible. These pin the distinction from both sides.
+
+STARTER_CREDITS = (
+    "import { mountCreditsPanel } from '@agentd/client'\n"
+    "export default function Credits() { void mountCreditsPanel({}) ; return <div/> }"
+)
+
+
+def react(app_tsx: str) -> dict:
+    """A React agent: source in app/src, the two starter files, and whatever App.tsx says."""
+    sources = {
+        "app/package.json": "{}",
+        "app/src/main.tsx": "import { mountSignInGate } from '@agentd/client'\nawait mountSignInGate()",
+        "app/src/Credits.tsx": STARTER_CREDITS,
+        "app/src/App.tsx": app_tsx,
+    }
+    return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
+
+
+def test_a_shipped_credits_file_nobody_renders_is_still_missing():
+    """THE HOLE. `Credits.tsx` arrives with every React scaffold, so its presence proves only that
+    the scaffolder ran. An agent whose window never renders it has no credits page, and the user
+    who runs out of credits inside it has nowhere to go."""
+    found = react("export default function App() { return <div>hi</div> }")
+    assert "UI_NO_CREDITS" in found
+    assert found["UI_NO_CREDITS"].level == "error"
+
+
+def test_rendering_it_counts():
+    assert not react("export default function App() { return <Credits /> }")
+
+
+def test_importing_it_counts():
+    """A component imported into a router or a tab bar may be rendered somewhere this rule cannot
+    see. An import is a deliberate act and enough — the rule stays conservative rather than
+    demanding one spelling of 'used'."""
+    assert not react("import Credits from './Credits'\nconst routes = { credits: Credits }")
+
+
+def test_calling_the_sdk_directly_counts():
+    """An agent with its own layout may skip the shipped wrapper entirely. What is mandatory is
+    that the user can see a balance, not that they got there through our file."""
+    assert not react(
+        "import { mountCreditsPanel } from '@agentd/client'\nmountCreditsPanel({ mount: el })"
+    )
+
+
+def test_sign_in_is_unaffected_by_the_provides_rule():
+    """sign-in ships no file of its own, so there is nowhere for its call to hide. Its check must
+    behave exactly as before — a component with `provides=()` is not quietly re-scoped."""
+    assert "UI_NO_SIGN_IN" not in react("export default function App() { return <Credits /> }")
+    bare = {
+        "app/package.json": "{}",
+        "app/src/App.tsx": "export default function App() { return <Credits /> }",
+        "app/src/Credits.tsx": STARTER_CREDITS,
+    }
+    found = {f.code: f for f in RULES.check(None, APP, list(bare), bare)}
+    assert "UI_NO_SIGN_IN" in found

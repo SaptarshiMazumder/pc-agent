@@ -16,6 +16,9 @@
 
 import { useSyncExternalStore } from 'react'
 
+import { BillingClient } from '@agentd/billing'
+import type { Catalog, CreditPack, Credits, Purchase } from '@agentd/billing'
+
 import { gateway } from '../gateway/client'
 import { platformDoc } from './discovery'
 import { randomUuid } from './host'
@@ -232,16 +235,6 @@ export async function resolveSession(): Promise<'valid' | 'invalid' | 'unknown'>
 }
 
 /** What the signed-in account can spend right now. */
-export type Credits = {
-  creditsRemaining: number
-  fundingSource: string
-  creditClass: string
-  modelTierMax: string
-  entitlementRequired: boolean
-  entitled: boolean
-  expiresAt: number
-}
-
 /**
  * Read the account's own balance from the accounts service.
  *
@@ -250,151 +243,48 @@ export type Credits = {
  * throwing: a balance is decoration, and a metering hiccup must not break the chat that is
  * already running.
  */
-export async function fetchCredits(agentId = ''): Promise<Credits | null> {
-  const s = getSession()
-  if (!s || !isAccountsMode()) return null
-  try {
-    const q = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''
-    const r = await fetch(accountsUrl() + '/me/credits' + q, {
-      headers: { Authorization: `Bearer ${s.token}` }
-    })
-    if (!r.ok) return null
-    const d = (await r.json()) as Record<string, unknown>
-    return {
-      creditsRemaining: Number(d.credits_remaining || 0),
-      fundingSource: String(d.funding_source || ''),
-      creditClass: String(d.credit_class || ''),
-      modelTierMax: String(d.model_tier_max || ''),
-      entitlementRequired: Boolean(d.entitlement_required),
-      entitled: d.entitled !== false,
-      expiresAt: Number(d.expires_at || 0)
-    }
-  } catch {
-    return null
-  }
-}
-
-// --------------------------------------------------------------------------- buying credits
-
-/** One thing on the shelf. Shaped by the server's `products` row, never by the client. */
-export type CreditPack = {
-  id: string
-  kind: string
-  title: string
-  priceUsd: number
-  credits: number
-  modelTierMax: string
-  periodDays: number
-}
-
-export type Catalog = {
-  packs: CreditPack[]
-  /** Which payment rail is configured. For display only — never branch behaviour on it. */
-  provider: string
-  /** The rail's own sentence about what confirming will do ("no card is charged", or later the
-   *  real thing). Rendered verbatim so swapping the rail rewrites the disclosure itself. */
-  paymentNote: string
-}
-
-function toPack(d: Record<string, unknown>): CreditPack {
-  return {
-    id: String(d.id || ''),
-    kind: String(d.kind || ''),
-    title: String(d.title || ''),
-    priceUsd: Number(d.price_usd || 0),
-    credits: Number(d.credits || 0),
-    modelTierMax: String(d.model_tier_max || ''),
-    periodDays: Number(d.period_days || 0)
-  }
-}
-
 /**
- * What is for sale. PUBLIC — no token, because a store has to be browsable before you sign in.
+ * MONEY LIVES IN `@agentd/billing`, NOT HERE.
  *
- * The shelf is asked for by `kind`, so a new kind of product (an agent subscription, a seat)
- * does not silently appear in the buy-credits dialog.
+ * These four used to be four fetches in this file. They are now four one-liners over the shared
+ * client, for the same reason sign-in moved to `@agentd/auth`: an agent window shows the same
+ * balance and buys from the same shelf, and two implementations of "what a purchase is" is two
+ * sets of idempotency and refusal bugs. The signatures are unchanged, so every component that
+ * calls them is untouched.
+ *
+ * The three facts this client answers differently from an agent window — where accounts is, what
+ * the current token is, and how to mint an idempotency key — are exactly what `BillingHost` asks
+ * for, and are all this file still owns about money.
  */
+const shop = new BillingClient({
+  accountsUrl,
+  accessToken: currentAccessToken,
+  // ONE fallback rule for the whole renderer — see `randomUuid` in lib/host.ts for why
+  // crypto.randomUUID cannot be called directly.
+  newKey: randomUuid
+})
+
+export async function fetchCredits(agentId = ''): Promise<Credits | null> {
+  if (!getSession() || !isAccountsMode()) return null
+  return shop.credits(agentId)
+}
+
 export async function fetchCatalog(kind = 'credit_pack'): Promise<Catalog | null> {
   if (!isAccountsMode()) return null
-  try {
-    const r = await fetch(`${accountsUrl()}/products?kind=${encodeURIComponent(kind)}`)
-    if (!r.ok) return null
-    const d = (await r.json()) as { products?: Record<string, unknown>[]; provider?: string; payment_note?: string }
-    return {
-      packs: (d.products || []).map(toPack),
-      provider: String(d.provider || ''),
-      paymentNote: String(d.payment_note || '')
-    }
-  } catch {
-    return null
-  }
-}
-
-export type Purchase = {
-  ok: boolean
-  replayed: boolean
-  credits: number
-  priceUsd: number
-  creditsRemaining: number
-  /** The rail's own account of what it did — shown as-is on the receipt line. */
-  paymentDetail: string
+  return shop.catalog(kind)
 }
 
 /**
- * Buy one thing from the catalogue as the signed-in account.
+ * Buy a pack.
  *
- * SENDS ONLY A product_id. Price and credit count come from the server's row — a client that
- * could name its own price could mint itself a fortune, so there is deliberately no parameter
- * for either here.
- *
- * The idempotency key is minted PER CALL (one per button press), so a retry after a lost
- * response returns the original purchase instead of buying a second pack. Unlike the other
- * helpers this THROWS on failure: a silent null is right for a balance you are decorating a
- * screen with, and wrong for a purchase the user is waiting on.
+ * Goes through `/me/checkout`, which is a strict superset of the old `/me/purchase`: on the rail
+ * configured today it settles in place and returns the completed purchase, and on a card rail it
+ * returns a link to go and pay. `checkoutUrl` is empty in the first case, which is the only thing
+ * a caller has to look at — never at which rail is configured.
  */
 export async function purchase(productId: string): Promise<Purchase> {
-  const s = getSession()
-  if (!s || !isAccountsMode()) throw new Error('sign in to buy credits')
-  const r = await fetch(`${accountsUrl()}/me/purchase`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ product_id: productId, idempotency_key: newIdempotencyKey() })
-  })
-  const d = (await r.json().catch(() => ({}))) as Record<string, unknown>
-  if (!r.ok) throw new Error(String(d.detail || `purchase failed (HTTP ${r.status})`))
-  notifyCreditsChanged()
-  const payment = (d.payment || {}) as Record<string, unknown>
-  return {
-    ok: true,
-    replayed: d.replayed === true,
-    credits: Number(d.credits || 0),
-    priceUsd: Number(d.price_usd || 0),
-    creditsRemaining: Number(d.credits_remaining || 0),
-    paymentDetail: String(payment.detail || '')
-  }
-}
-
-/** ONE fallback rule for the whole renderer — see `randomUuid` in lib/host.ts for why
- *  crypto.randomUUID cannot be called directly. This used to carry its own weaker fallback;
- *  two answers to the same host limitation is how one of them stays broken. */
-function newIdempotencyKey(): string {
-  return randomUuid()
-}
-
-// A balance can change without this tab doing anything that re-renders it: a purchase on the
-// Credits page must move the chip in the composer. One tiny bus, rather than every consumer
-// polling — polling a money endpoint on a timer is a cost we would pay forever.
-const creditListeners = new Set<() => void>()
-
-/** Subscribe to "the balance probably changed"; returns an unsubscribe. */
-export function onCreditsChanged(cb: () => void): () => void {
-  creditListeners.add(cb)
-  return () => creditListeners.delete(cb)
-}
-
-/** Announce a balance change. Called by `purchase`; safe to call after any known debit. */
-export function notifyCreditsChanged(): void {
-  creditListeners.forEach((l) => l())
+  if (!getSession() || !isAccountsMode()) throw new Error('sign in to buy credits')
+  return shop.buy(productId, typeof location === 'undefined' ? '' : location.href.split('#')[0])
 }
 
 /** React hook: the current session (re-renders on sign-in/out). */
@@ -408,3 +298,9 @@ export function useAuthSession(): Session | null {
     getSession
   )
 }
+
+// The money types and the "balance probably changed" bus come from `@agentd/billing`, which every
+// agent window also uses. Re-exported from here so components keep one import site, while there is
+// still exactly ONE definition of each in the product.
+export type { Catalog, CreditPack, Credits, Purchase } from '@agentd/billing'
+export { notifyCreditsChanged, onCreditsChanged } from '@agentd/billing'

@@ -659,3 +659,40 @@ def test_close_expired_books_breakage_and_is_safe_to_rerun(accounts):
 
     b = client.get("/ledger/balances", headers=INTERNAL).json()
     assert b["balanced"] and b["accounts"]["breakage_revenue"] > 0
+
+
+def test_checkout_on_a_settling_rail_needs_no_return_urls(accounts):
+    """A redirect url only means something to a rail that redirects.
+
+    Demanding one from every caller made the rail this deployment actually runs on refuse
+    checkouts unless the client invented two URLs for a journey nobody takes — which every agent
+    window would then have had to carry. The mock rail settles in place, so the response is the
+    completed purchase, not a link.
+    """
+    client, _ = accounts
+    _account_id, auth = _signin(client, "nourls@x.io")
+
+    before = client.get("/me/credits", headers=auth).json()["credits_remaining"]
+    r = client.post("/me/checkout", headers=auth,
+                    json={"product_id": "credits-1k", "idempotency_key": "click-1"})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "succeeded" and "checkout_url" not in body
+    assert body["credits"] == 1000
+    assert client.get("/me/credits", headers=auth).json()["credits_remaining"] == before + 1000
+
+
+def test_a_return_url_is_still_validated_when_one_is_offered(accounts, monkeypatch):
+    """Optional is not unchecked. A caller that sends a url on the mock rail is held to the same
+    allowlist as one on a card rail — otherwise the guard only exists on the path that redirects,
+    which is the path an attacker would avoid."""
+    client, _ = accounts
+    _account_id, auth = _signin(client, "badurl@x.io")
+    monkeypatch.setenv("AGENTD_CHECKOUT_RETURN_ORIGINS", "https://app.example")
+
+    r = client.post("/me/checkout", headers=auth, json={
+        "product_id": "credits-1k", "success_url": "https://evil.example/ok",
+        "cancel_url": "https://app.example/no",
+    })
+    assert r.status_code == 400 and "allowed origin" in r.text

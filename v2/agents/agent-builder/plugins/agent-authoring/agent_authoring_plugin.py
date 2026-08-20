@@ -42,22 +42,20 @@ def register(api, ctx):
 
     from agent_authoring.application.package_agent_service import PackageAgentService
     from agent_authoring.application.reload_agent_service import ReloadAgentService
-    from agent_authoring.application.scaffold_ui_service import ScaffoldUiService
     from agent_authoring.application.validate_agent_service import ValidateAgentService
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.declaration_rules import DeclarationRules
+    from agent_authoring.domain.freshness_rules import FreshnessRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
     from agent_authoring.domain.tool_grant_rules import ToolGrantRules
-    from agent_authoring.domain.ui_template import UiTemplates
     from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
     from agent_authoring.infrastructure.agent_packer import AgentPacker
     from agent_authoring.infrastructure.registry_reload_adapter import RegistryReloadAdapter
     from agent_authoring.presentation.create_agent_tool import CreateAgentTool
     from agent_authoring.presentation.package_agent_tool import PackageAgentTool
     from agent_authoring.presentation.reload_agent_tool import ReloadAgentTool
-    from agent_authoring.presentation.scaffold_ui_tool import ScaffoldUiTool
     from agent_authoring.presentation.validate_agent_tool import ValidateAgentTool
 
     # --- CHECK, BUILT FIRST — the author tools gate on it -----------------------------
@@ -104,6 +102,12 @@ def register(api, ctx):
         # until SOMEBODY ELSE has installed the agent — a field nothing reads, a server whose
         # credential was never declared, a key pasted into the file that ships.
         declaration_rules=DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
+        # Is the window that SHIPS built from the source that EXISTS? `app/` is compiled into
+        # `ui/`, and only `ui/` is served, packed and published — so an agent whose source has
+        # moved on from its build looks finished, validates clean, and hands everyone else the
+        # older screen. Now the easy mistake to make: building used to be part of editing, and
+        # with build_app it is a separate step somebody has to remember.
+        freshness_rules=FreshnessRules(),
     )
 
     # --- AUTHOR ---------------------------------------------------------------------
@@ -125,34 +129,30 @@ def register(api, ctx):
     else:
         log.info("agent-authoring: no live-reload handle — create_tool not registered")
 
-    # --- START THE APP FROM SOMETHING THAT WORKS -------------------------------------
-    # Registered next to create_agent because it is the same kind of step: create_agent makes
-    # the agent exist, scaffold_ui makes its window exist. Both hand back a working starting
-    # point and say what to do next; neither tries to author the whole thing.
+    # --- PIECES OF AN APP THAT ALREADY EXISTS ----------------------------------------
+    # `add_ui_component` IS GONE, with the vanilla templates it existed to patch. It worked by
+    # adding a `<script src>` tag to index.html, appending tokens to style.css and splicing a
+    # snippet into app.js — three mechanisms a React agent does not have. Against the only kind of
+    # window this product now builds it could do half its steps and report success, which is worse
+    # than not offering it: the model would call it, believe the piece was installed, and ship an
+    # agent without one.
     #
-    # TWO TIERS OF REUSE, and they are different operations rather than one with a flag:
-    #   templates  a WHOLE app, copied. Refuses over an existing ui/ — that is somebody's work.
-    #   components a PIECE, patched into an app that already exists. Idempotent, so it can be
-    #              applied whenever the model is unsure.
-    # ONE AddComponentService instance serves both, which is what stops "scaffold with sign-in"
-    # and "add sign-in later" from becoming two definitions of the same snippet.
-    from agent_authoring.application.add_component_service import AddComponentService
-    from agent_authoring.presentation.add_ui_component_tool import AddUiComponentTool
+    # THE CATALOGUE IT READ REMAINS, and is not the same thing. `UiComponents` is what tells
+    # `validate_agent` which pieces are mandatory and how to recognise them, so it is load-bearing
+    # for UI_NO_SIGN_IN and UI_NO_CREDITS. What ended is the PATCHER, not the definition.
+    #
+    # The fix messages on those findings now say what to write, in React, instead of naming a tool
+    # that cannot finish the job.
 
-    templates = UiTemplates()
-    component_service = AddComponentService(
-        reader, components, TEMPLATE_ROOT / "components", BORROW_ROOT
-    )
-    api.register_tool(
-        ScaffoldUiTool(
-            ScaffoldUiService(
-                reader, templates, TEMPLATE_ROOT, BORROW_ROOT, components=component_service
-            ),
-            templates,
-            components,
-        )
-    )
-    api.register_tool(AddUiComponentTool(component_service, components))
+    # `scaffold_ui` IS DELIBERATELY NOT REGISTERED. It copied a complete vanilla app — plain JS
+    # into `ui/`, no build step — and a window is a React project now: source in `app/`, compiled
+    # into `ui/` by `build_app`, with the toolchain shipped in the product so there is nothing for
+    # a user to install. One way to give an agent a window, so there is no wrong one to pick.
+    #
+    # The hand-written `ui/` folders a dozen older agents still carry are served straight off disk
+    # and keep working; nothing maintains them any more, and rebuilding one means rebuilding it in
+    # React. That is deliberate — two UI stacks meant two of everything, and every new capability
+    # had to land twice.
 
     # THE OTHER WAY TO GIVE AN AGENT A WINDOW. `scaffold_ui` copies a finished vanilla app,
     # which is right when a chat window IS the product: no build step, no Node, and a model
@@ -165,6 +165,24 @@ def register(api, ctx):
 
     api.register_tool(
         ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react"))
+    )
+
+    # AND THE STEP THAT MAKES IT VISIBLE. `app/` is source and `ui/` is what the daemon serves, so
+    # an edit that is never built is an edit the user cannot see — they reload the window, get the
+    # old screen, and nothing on it explains why. Until this tool existed the only way to run vite
+    # was a terminal, which the people who INSTALL this product do not have.
+    #
+    # The toolchain and the dependency store are separate objects on purpose: one finds and runs
+    # Node, the other decides how an app gets its packages (a link to the product's shared copy, or
+    # a real install in a source checkout). Both read the environment the supervisor prepared.
+    from agent_authoring.application.build_app_service import BuildAppService
+    from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
+    from agent_authoring.infrastructure.node_toolchain import NodeToolchain
+    from agent_authoring.presentation.build_app_tool import BuildAppTool
+
+    toolchain = NodeToolchain()
+    api.register_tool(
+        BuildAppTool(BuildAppService(reader, toolchain, AppDependencyStore(toolchain)))
     )
 
     # VERIFY THE WINDOW. validate_agent proves an agent is well-formed and `agentd ask` proves

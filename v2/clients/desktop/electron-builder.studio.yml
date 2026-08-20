@@ -28,6 +28,18 @@ extraResources:
   - from: runtime/ms-playwright
     to: ms-playwright
     filter: ['**/*']
+  # NODE + npm. An agent's window is a React project compiled from app/ into ui/, and only ui/
+  # is served -- so without this a user who built an agent through Agent Builder has no way to
+  # rebuild its window. supervisor.ts puts this on the daemon's PATH.
+  - from: runtime/node
+    to: node
+    filter: ['**/*']
+  # THE SHARED AGENT-APP DEPENDENCIES. react + vite, installed once for the product rather than
+  # once per agent -- so creating an agent costs no download and works offline. build_app links
+  # each agent's app/node_modules at this tree; supervisor.ts passes the path down.
+  - from: runtime/app-deps
+    to: app-deps
+    filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico

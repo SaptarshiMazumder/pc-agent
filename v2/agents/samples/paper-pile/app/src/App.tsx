@@ -31,14 +31,18 @@ import { Artifacts } from './components/Artifacts'
 import { Settings } from './components/Settings'
 import { History } from './components/History'
 import { FolderButton } from './components/FolderButton'
+import Credits from './components/Credits'
 
-type View = 'library' | 'links' | 'ask' | 'files' | 'settings'
+type View = 'library' | 'links' | 'ask' | 'files' | 'credits' | 'settings'
 
 const SECTIONS: Array<{ id: View; label: string; icon: string }> = [
   { id: 'library', label: 'Library', icon: '▤' },
   { id: 'links', label: 'Connections', icon: '⁂' },
   { id: 'ask', label: 'Ask', icon: '✳' },
   { id: 'files', label: 'Artifacts', icon: '❑' },
+  // Credits ABOVE Settings and a section of its own: topping up is what a user comes
+  // looking for when a run stops, and settings is where you go to change how it works.
+  { id: 'credits', label: 'Credits', icon: '◈' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ]
 
@@ -201,6 +205,8 @@ export default function App() {
             onDelete={(rel) => void files.remove(rel)}
             onRefresh={(p) => void files.reload(p)}
           />
+        ) : view === 'credits' ? (
+          <Credits />
         ) : view === 'settings' ? (
           <Settings
             fields={settings.fields}

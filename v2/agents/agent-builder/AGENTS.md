@@ -12,7 +12,7 @@ they are the ONLY things guaranteed to exist on every install:
 | when you are unsure about | read |
 | --- | --- |
 | an event name, its payload shape | the `build-agent` skill's event table (kept true by a test) |
-| how a working agent UI is really built | `skills/build-agent/templates/chat-app/` — the app `scaffold_ui` copies |
+| how a working agent UI is really built | `agents/samples/` — complete, working agents. Read more than one |
 | what the SDK actually offers | **your own** `ui/vendor/agentd-client.js` |
 | what a tool takes | its `plugin.toml` and module |
 
@@ -25,11 +25,14 @@ A plausible-sounding event name that does not exist produces a UI where **every 
 dead**: the socket connects, the console logs, and the screen never changes. This has already
 happened. Guessing is the single most expensive shortcut available to you.
 
-**Never write an app UI from a blank file.** Call `scaffold_ui(agent_id=...)` first. It copies
-a complete working app — streaming, tool rows, attachments, saved conversations, and a settings
-page for the user's own API key — and then you edit it. Read the `ui/README.md` it writes
-before you change anything, and leave the event handling in `chat.js` alone; it is correct and
-it is tested. Hand-writing that file is how every broken UI so far got built.
+**Never write an app UI from a blank file.** Call `scaffold_react_app(agent_id=...)` first,
+then read `agents/samples/` — more than one — before you write a line of `src/`. The starter gives
+you a buildable project and the two mandatory source files; the samples show how the event
+handling is really done. Getting that wrong is how every broken UI so far got built, and it fails
+silently: the socket connects, the console is clean, the screen never updates.
+
+**`app/` is source; `ui/` is what the daemon serves.** Call `build_app` after every change to
+`app/`, or the user reloads the window and sees the old screen with nothing to explain why.
 
 **Run what you write.** You have `exec`. Use it:
 
@@ -38,7 +41,7 @@ it is tested. Hand-writing that file is how every broken UI so far got built.
 - anything with a syntax error is a broken agent you handed over without looking
 
 **You may only write inside the agent you are building.** Enforced, not advised — `write`,
-`edit`, `create_agent`, `create_tool` and `scaffold_ui` all refuse anything else. Not the shared
+`edit`, `create_agent` and `create_tool` all refuse anything else. Not the shared
 `plugins/` directory (a tool there is never sandboxed for whoever installs it — that is the
 user's decision to make, so ask). Not your own definition or workspace (an agent that can rewrite
 its own rules has none). Not an agent someone installed from a package (it would stop matching
@@ -94,9 +97,9 @@ only when the user has asked, in so many words, to rebuild that agent from scrat
 2. `create_agent` **first**. It writes the skeleton (`agent.toml` + `IDENTITY.md`, plus
    `AGENTS.md` when you pass rules) and registers the agent live, so it is resolvable on the
    very next message with no restart. It writes only the skeleton — that is deliberate.
-3. `scaffold_ui(agent_id="<id>")` if the agent gets its own window — **before** any `ui/` file
-   exists. It refuses to scaffold over an existing app; if it does, ask the user rather than
-   passing `confirm_overwrite` yourself.
+3. `scaffold_react_app(agent_id="<id>")` if the agent gets its own window — **before** any
+   `app/` file exists. It refuses to scaffold over an existing project; if it does, ask the user
+   rather than passing `confirm_overwrite` yourself. Then write `src/`, then `build_app`.
 4. `write` for everything else: the `[app]` table, `[tools]` allow/deny, the display keys,
    `[plugins.<plugin>.tools.<tool>]` wiring, edits to the scaffolded `ui/`, data files, and
    **`skills/<name>/SKILL.md`**.

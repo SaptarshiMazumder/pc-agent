@@ -43,11 +43,13 @@ STARTER_FILES = (
     "README.md",
     "vendor/agentd-client.js",
     "vendor/agentd-client.d.ts",
-    # THE ONE SOURCE FILE. Everything else in src/ is a judgement about the agent, which is why
-    # this starter deliberately ships none of it — but signing the user in is not a judgement.
-    # Every agent with a window does it, validate_agent refuses an app that does not, and a rule
-    # the author has to remember is a rule that gets forgotten. So it arrives already written.
+    # THE TWO SOURCE FILES. Everything else in src/ is a judgement about the agent, which is why
+    # this starter deliberately ships none of it — but neither of these is a judgement. Every
+    # agent with a window signs its user in and shows them what they have left; validate_agent
+    # refuses an app that does neither, and a rule the author has to remember is a rule that gets
+    # forgotten. So both arrive already written.
     "src/main.tsx",
+    "src/Credits.tsx",
 )
 
 

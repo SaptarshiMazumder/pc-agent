@@ -22,6 +22,7 @@ var agentd = (() => {
   var src_exports = {};
   __export(src_exports, {
     AgentdClient: () => AgentdClient,
+    BillingClient: () => BillingClient,
     DEFAULT_TIMEOUT: () => DEFAULT_TIMEOUT,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
     TokenManager: () => TokenManager,
@@ -33,6 +34,8 @@ var agentd = (() => {
     authLogout: () => authLogout,
     authRefresh: () => authRefresh,
     authStatus: () => authStatus,
+    billing: () => billing,
+    creditsHost: () => creditsHost,
     daemonOrigin: () => daemonOrigin,
     daemonToken: () => daemonToken,
     effectiveMode: () => effectiveMode,
@@ -42,7 +45,10 @@ var agentd = (() => {
     loadSession: () => loadSession,
     localSessionStore: () => localSessionStore,
     memorySessionStore: () => memorySessionStore,
+    mountCreditsPanel: () => mountCreditsPanel,
     mountSignInGate: () => mountSignInGate,
+    notifyCreditsChanged: () => notifyCreditsChanged,
+    onCreditsChanged: () => onCreditsChanged,
     platformStatus: () => platformStatus,
     resetIdentity: () => resetIdentity,
     resultText: () => resultText,
@@ -983,10 +989,10 @@ var agentd = (() => {
 `;
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
-    const el = document.createElement("style");
-    el.id = STYLE_ID;
-    el.textContent = CSS;
-    document.head.appendChild(el);
+    const el2 = document.createElement("style");
+    el2.id = STYLE_ID;
+    el2.textContent = CSS;
+    document.head.appendChild(el2);
   }
   function build(product, blurb, allowSignup) {
     const wrap = document.createElement("div");
@@ -1115,6 +1121,335 @@ var agentd = (() => {
     const state = await authLogout(options);
     if (!state.available) return { ...state, signedInHere: false };
     return mountSignInGate(options);
+  }
+
+  // ../billing/src/credits-bus.ts
+  var listeners = /* @__PURE__ */ new Set();
+  function onCreditsChanged(cb) {
+    listeners.add(cb);
+    return () => {
+      listeners.delete(cb);
+    };
+  }
+  function notifyCreditsChanged() {
+    listeners.forEach((l) => l());
+  }
+
+  // ../billing/src/billing-client.ts
+  function toPack(d) {
+    return {
+      id: String(d.id || ""),
+      kind: String(d.kind || ""),
+      title: String(d.title || ""),
+      priceUsd: Number(d.price_usd || 0),
+      credits: Number(d.credits || 0),
+      modelTierMax: String(d.model_tier_max || ""),
+      periodDays: Number(d.period_days || 0)
+    };
+  }
+  var BillingClient = class {
+    constructor(host) {
+      this.host = host;
+    }
+    async base() {
+      const url = String(await this.host.accountsUrl() || "").replace(/\/$/, "");
+      if (!url) throw new Error("this daemon has no accounts service configured");
+      return url;
+    }
+    async authed() {
+      const token = String(await this.host.accessToken() || "");
+      if (!token) throw new Error("sign in first");
+      return { Authorization: `Bearer ${token}` };
+    }
+    /**
+     * The balance, or null when there is nothing to show — not signed in, no accounts service, or
+     * the request failed. Null is rendered as "unavailable" rather than as zero, because showing a
+     * confident 0 to someone with credits is worse than admitting we do not know.
+     */
+    async credits(agentId = "") {
+      try {
+        const q = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+        const r = await fetch(`${await this.base()}/me/credits${q}`, { headers: await this.authed() });
+        if (!r.ok) return null;
+        const d = await r.json();
+        return {
+          creditsRemaining: Number(d.credits_remaining || 0),
+          fundingSource: String(d.funding_source || ""),
+          creditClass: String(d.credit_class || ""),
+          modelTierMax: String(d.model_tier_max || ""),
+          entitlementRequired: Boolean(d.entitlement_required),
+          entitled: d.entitled !== false,
+          expiresAt: Number(d.expires_at || 0)
+        };
+      } catch {
+        return null;
+      }
+    }
+    /**
+     * What is for sale. NOT signed-in-only and NOT hardcoded: the packs come from the `products`
+     * table, whose prices derive from the markup dial, so changing what is on sale is a row in a
+     * database and never a release of a client — and the price shown cannot drift from the price
+     * charged, because there is only one of them.
+     */
+    async catalog(kind = "credit_pack") {
+      try {
+        const r = await fetch(`${await this.base()}/products?kind=${encodeURIComponent(kind)}`);
+        if (!r.ok) return null;
+        const d = await r.json();
+        return {
+          packs: (d.products || []).map(toPack),
+          provider: String(d.provider || ""),
+          paymentNote: String(d.payment_note || "")
+        };
+      } catch {
+        return null;
+      }
+    }
+    /**
+     * Buy a pack. THROWS with the server's own message on refusal.
+     *
+     * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
+     * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
+     * card payment comes back where it started.
+     */
+    async buy(productId, returnUrl = "") {
+      const body = {
+        product_id: productId,
+        idempotency_key: this.host.newKey()
+      };
+      if (returnUrl) {
+        body.success_url = returnUrl;
+        body.cancel_url = returnUrl;
+      }
+      const r = await fetch(`${await this.base()}/me/checkout`, {
+        method: "POST",
+        headers: { ...await this.authed(), "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(String(d.detail || `purchase failed (HTTP ${r.status})`));
+      const checkoutUrl = String(d.checkout_url || "");
+      if (!checkoutUrl) notifyCreditsChanged();
+      const payment = d.payment || {};
+      return {
+        ok: true,
+        replayed: d.replayed === true,
+        credits: Number(d.credits || 0),
+        priceUsd: Number(d.price_usd || 0),
+        creditsRemaining: Number(d.credits_remaining || 0),
+        paymentDetail: String(payment.detail || ""),
+        checkoutUrl
+      };
+    }
+  };
+
+  // src/credits.ts
+  function newKey() {
+    const c = typeof crypto === "undefined" ? null : crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    if (c && typeof c.getRandomValues === "function") {
+      const b = c.getRandomValues(new Uint8Array(16));
+      return Array.from(b, (n) => n.toString(16).padStart(2, "0")).join("");
+    }
+    return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  }
+  function creditsHost(opts = {}) {
+    return {
+      accountsUrl: () => accountsUrl(opts),
+      accessToken: () => identity(opts).accessToken(),
+      newKey
+    };
+  }
+  function billing(opts = {}) {
+    return new BillingClient(creditsHost(opts));
+  }
+
+  // src/wallet.ts
+  var STYLE_ID2 = "agentd-wallet-style";
+  var CSS2 = `
+.agentd-wallet{font-family:var(--wallet-font,system-ui,-apple-system,Segoe UI,sans-serif);
+  color:var(--wallet-fg,#e8eaed);display:flex;flex-direction:column;gap:18px}
+.agentd-wallet[hidden]{display:none}
+.agentd-wallet-h{margin:0;font-size:12px;font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--wallet-muted,#9aa0a6)}
+.agentd-wallet-card{padding:16px;border-radius:var(--wallet-radius,12px);
+  background:var(--wallet-card,#14171d);border:1px solid var(--wallet-border,rgba(255,255,255,.1))}
+.agentd-wallet-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.agentd-wallet-bal{font-size:22px;font-weight:650}
+.agentd-wallet-sub{margin-top:4px;font-size:12.5px;color:var(--wallet-muted,#9aa0a6)}
+.agentd-wallet-warn{margin-top:10px;font-size:12.5px;color:var(--wallet-warn,#f0a35e)}
+.agentd-wallet-warn[hidden]{display:none}
+.agentd-wallet-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.agentd-wallet-pack{padding:14px;border-radius:var(--wallet-radius,12px);
+  background:var(--wallet-card,#14171d);border:1px solid var(--wallet-border,rgba(255,255,255,.1));
+  display:flex;flex-direction:column;gap:8px}
+.agentd-wallet-name{font-size:15px;font-weight:620}
+.agentd-wallet-meta{font-size:12.5px;color:var(--wallet-muted,#9aa0a6)}
+.agentd-wallet-btn{margin-top:auto;padding:9px 12px;border:0;border-radius:8px;cursor:pointer;
+  font-size:13px;font-weight:600;color:var(--wallet-on-accent,#0d1117);
+  background:var(--wallet-accent,#8ab4f8)}
+.agentd-wallet-btn[disabled]{opacity:.6;cursor:default}
+.agentd-wallet-ghost{padding:6px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;
+  color:var(--wallet-fg,#e8eaed);background:transparent;
+  border:1px solid var(--wallet-border,rgba(255,255,255,.16))}
+.agentd-wallet-note{font-size:12.5px;line-height:1.5;color:var(--wallet-muted,#9aa0a6)}
+.agentd-wallet-note[hidden]{display:none}
+.agentd-wallet-err{padding:8px 10px;border-radius:8px;font-size:12.5px;
+  background:var(--wallet-error-bg,rgba(163,35,43,.16));color:var(--wallet-error-fg,#f5a3a8)}
+.agentd-wallet-err[hidden]{display:none}
+`;
+  function injectStyle2() {
+    if (typeof document === "undefined" || document.getElementById(STYLE_ID2)) return;
+    const node = document.createElement("style");
+    node.id = STYLE_ID2;
+    node.textContent = CSS2;
+    document.head.appendChild(node);
+  }
+  function el(tag, cls = "", text = "") {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+  function priceLine(pack) {
+    const price = `$${pack.priceUsd.toFixed(2)}`;
+    return pack.periodDays > 0 ? `${price} \xB7 expires after ${pack.periodDays} days` : price;
+  }
+  function fundingLine(c) {
+    const base = c.fundingSource === "agent_subscription" ? "Funded by an agent subscription" : "Your platform balance";
+    const promo = c.creditClass === "promotional" ? " \xB7 promotional" : "";
+    const tier = c.modelTierMax ? ` \xB7 up to the \u201C${c.modelTierMax}\u201D tier` : "";
+    return base + promo + tier;
+  }
+  var NOTHING = {
+    refresh: async () => {
+    },
+    destroy: () => {
+    },
+    shown: false
+  };
+  async function mountCreditsPanel(options = {}) {
+    if (typeof document === "undefined") return NOTHING;
+    let status;
+    try {
+      status = await authStatus(options);
+    } catch {
+      return NOTHING;
+    }
+    if (!status.available || !status.signedIn) return NOTHING;
+    injectStyle2();
+    const shop = billing(options);
+    const agentId = options.agentId ?? "";
+    const returnUrl = options.returnUrl || (typeof location === "undefined" ? "" : location.href.split("#")[0]);
+    const balance = el("div", "agentd-wallet-bal", "checking\u2026");
+    const source = el("div", "agentd-wallet-sub");
+    const warn = el("div", "agentd-wallet-warn");
+    warn.hidden = true;
+    const refreshBtn = el("button", "agentd-wallet-ghost", "Refresh");
+    refreshBtn.type = "button";
+    refreshBtn.title = "Re-read your balance from the platform";
+    const top = el("div", "agentd-wallet-top");
+    top.append(balance, refreshBtn);
+    const balanceCard = el("div", "agentd-wallet-card");
+    balanceCard.append(top, source, warn);
+    const grid = el("div", "agentd-wallet-grid");
+    const note = el("div", "agentd-wallet-note");
+    const receipt = el("div", "agentd-wallet-note");
+    const error = el("div", "agentd-wallet-err");
+    note.hidden = receipt.hidden = error.hidden = true;
+    const root = el("div", "agentd-wallet");
+    root.append(
+      el("h2", "agentd-wallet-h", "Balance"),
+      balanceCard,
+      el("h2", "agentd-wallet-h", "Buy credits"),
+      grid,
+      note,
+      receipt,
+      error
+    );
+    const host = options.mount || document.getElementById("agentd-credits") || document.body;
+    host.appendChild(root);
+    function say(node, text) {
+      node.textContent = text;
+      node.hidden = !text;
+    }
+    async function refresh() {
+      const c = await shop.credits(agentId);
+      balance.textContent = c ? `${c.creditsRemaining.toLocaleString()} credits` : "unavailable";
+      source.textContent = c ? fundingLine(c) : "";
+      say(
+        warn,
+        c && c.creditsRemaining === 0 ? "Out of credits \u2014 messages are refused until you top up." : ""
+      );
+    }
+    async function buy(pack, btn) {
+      const label = btn.textContent || "";
+      btn.disabled = true;
+      btn.textContent = "Adding\u2026";
+      say(error, "");
+      say(receipt, "");
+      try {
+        const r = await shop.buy(pack.id, returnUrl);
+        if (r.checkoutUrl) {
+          say(receipt, "Opening the payment page\u2026");
+          location.assign(r.checkoutUrl);
+          return;
+        }
+        say(
+          receipt,
+          r.replayed ? `Already bought \u2014 you have ${r.creditsRemaining.toLocaleString()} credits.` : `Added ${r.credits.toLocaleString()} credits. Balance: ${r.creditsRemaining.toLocaleString()}. ${r.paymentDetail}`
+        );
+        await refresh();
+      } catch (e) {
+        say(error, e instanceof Error ? e.message : String(e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+    function drawPacks(catalog) {
+      grid.replaceChildren();
+      if (!catalog) {
+        grid.append(el("div", "agentd-wallet-note", "Could not load the store."));
+        return;
+      }
+      if (!catalog.packs.length) {
+        grid.append(
+          el("div", "agentd-wallet-note", "No credit packs are configured on this environment.")
+        );
+        return;
+      }
+      for (const pack of catalog.packs) {
+        const card = el("div", "agentd-wallet-pack");
+        card.append(
+          el("div", "agentd-wallet-name", `${pack.credits.toLocaleString()} credits`),
+          el("div", "agentd-wallet-meta", priceLine(pack))
+        );
+        if (pack.title) card.append(el("div", "agentd-wallet-meta", pack.title));
+        const btn = el(
+          "button",
+          "agentd-wallet-btn",
+          `Buy \xB7 $${pack.priceUsd.toFixed(2)}`
+        );
+        btn.type = "button";
+        btn.addEventListener("click", () => void buy(pack, btn));
+        card.append(btn);
+        grid.append(card);
+      }
+      say(note, catalog.paymentNote);
+    }
+    refreshBtn.addEventListener("click", () => void refresh());
+    const off = onCreditsChanged(() => void refresh());
+    await refresh();
+    drawPacks(await shop.catalog());
+    return {
+      refresh,
+      shown: true,
+      destroy() {
+        off();
+        root.remove();
+      }
+    };
   }
   return __toCommonJS(src_exports);
 })();

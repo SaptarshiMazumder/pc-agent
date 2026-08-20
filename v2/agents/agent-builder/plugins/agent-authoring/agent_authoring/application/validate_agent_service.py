@@ -27,6 +27,7 @@ class ValidateAgentService:
         tool_grant_rules=None,
         portability_rules=None,
         declaration_rules=None,
+        freshness_rules=None,
     ):
         self._reader = reader
         self._layout = layout_rules
@@ -42,6 +43,9 @@ class ValidateAgentService:
         # Optional so the service still constructs where the runtime's event/method vocabulary
         # is not available to inject (unit tests). Absent => the app code simply is not read.
         self._ui = ui_rules
+        # Is the built ui/ older than the app/src it came from? The only rule that needs file
+        # TIMES rather than file content, so it is the only one handed a different snapshot.
+        self._freshness = freshness_rules
 
     def validate(self, agent_id: str) -> Report:
         agent_id = (agent_id or "").strip()
@@ -96,6 +100,8 @@ class ValidateAgentService:
             findings += self._declarations.check(spec, raw, files, sources)
         if self._ui is not None:
             findings += self._ui.check(spec, raw, files, sources)
+        if self._freshness is not None:
+            findings += self._freshness.check(spec, raw, files, self._reader.mtimes(agent_dir, files))
         # Checks emit what they detect; the RULEBOOK decides what each code weighs. One
         # repricing seam, so severity policy is edited in the table, never in a rule module.
         from ..domain.rulebook import apply_policy

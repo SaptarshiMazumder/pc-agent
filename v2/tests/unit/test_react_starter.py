@@ -78,14 +78,29 @@ def test_the_build_writes_where_the_daemon_reads():
     assert "base: './'" in config
 
 
-def test_the_starter_ships_only_the_one_mandatory_source_file():
+def test_the_starter_ships_only_the_mandatory_source_files():
     """What the window should BE is a judgement about the agent, made from the samples — a copied
     src/ would be a fourth opinion competing with them.
 
-    SIGNING IN IS NOT A JUDGEMENT. Every agent with a window does it, validate_agent refuses an
-    app that does not, and a mandatory step left to the author is a step that gets forgotten. So
-    exactly one file ships, and it is that one."""
-    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["main.tsx"]
+    THE TWO MANDATORY ONES ARE NOT JUDGEMENTS. Every agent with a window signs its user in and
+    shows them what they have left; validate_agent refuses an app that does neither, and a
+    mandatory step left to the author is a step that gets forgotten. So exactly these ship, and
+    the list is asserted EXACTLY — a third file appearing here means somebody started making
+    judgements on the author's behalf."""
+    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["Credits.tsx", "main.tsx"]
+
+
+def test_the_shipped_credits_panel_uses_the_sdk():
+    """Same reason as the gate: the panel exists so there is ONE store in the product. A starter
+    that shipped a hand-rolled React store would be worse than shipping none — it looks like the
+    question was answered, and it is a second implementation of taking money."""
+    credits = (STARTER / "src" / "Credits.tsx").read_text(encoding="utf-8")
+
+    assert "mountCreditsPanel" in credits
+    assert "@agentd/client" in credits
+    # Mounted into a ref'd node and torn down on unmount: StrictMode double-mounts in development,
+    # and a panel left in a detached node keeps its balance listener alive forever.
+    assert "destroy()" in credits
 
 
 def test_the_shipped_entry_actually_signs_in():

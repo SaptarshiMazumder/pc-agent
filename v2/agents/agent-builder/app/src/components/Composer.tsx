@@ -23,6 +23,7 @@ export function Composer({
   onRemoveFile,
   onOpenWindow,
   openWindowLabel,
+  openWindowBusy,
 }: {
   running: boolean
   pending: Attachment[]
@@ -35,6 +36,9 @@ export function Composer({
    *  it except ask for a window, which is a conversation, not a click. */
   onOpenWindow?: () => void
   openWindowLabel?: string
+  /** A build is running. Disabled rather than hidden: the button vanishing mid-press is worse
+   *  than one that plainly says it is busy. */
+  openWindowBusy?: boolean
 }) {
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -156,8 +160,13 @@ export function Composer({
               used to live only in the agentd window: build here, switch app, find the agent, open
               it, come back. */}
           {onOpenWindow && (
-            <button className="open-app-btn" onClick={onOpenWindow} title="Open this agent's window">
-              <span className="ico">◱</span>
+            <button
+              className="open-app-btn"
+              onClick={onOpenWindow}
+              disabled={openWindowBusy}
+              title="Build this agent's window and open it"
+            >
+              <span className="ico">{openWindowBusy ? '◌' : '◱'}</span>
               <span>{openWindowLabel || 'Open app'}</span>
             </button>
           )}

@@ -62,3 +62,24 @@ the reason a run failed instead of a shrug.
 
 They are references, not a mould. Take the mechanism, not the layout, and build what this agent
 actually needs.
+
+## Two files arrive already written
+
+`src/main.tsx` signs the user in before the first render, and `src/Credits.tsx` is the Credits &
+billing page. Neither is a judgement about your agent, which is why they ship — every agent with a
+window does both.
+
+**`main.tsx` needs nothing from you.** `Credits.tsx` does: give it its own view, reached from a nav
+entry beside Settings.
+
+```tsx
+import Credits from './Credits'
+...
+{view === 'credits' && <Credits />}
+```
+
+Not a section inside your settings screen — topping up is what a user comes looking for the
+moment a run stops, and settings is where you go to change how the thing works.
+
+`validate_agent` reports `UI_NO_CREDITS` until something renders it, and that error blocks
+`package_agent` and `publish_agent`. Shipping the file is not the same as having the page.

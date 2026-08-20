@@ -64,6 +64,25 @@ function commandCandidates(): string[][] {
   ]
 }
 
+/**
+ * The directory to put on PATH so `node` and `npm` resolve to the SHIPPED ones, or '' when this
+ * build carries none.
+ *
+ * The two official layouts differ and neither is a detail we get to choose: the Windows zip puts
+ * `node.exe` at the root of the tree, every other platform puts `bin/node` one level down. Probing
+ * for the executable rather than assuming a layout is also what makes this honest about an
+ * incomplete bundle — a directory that exists and holds nothing runnable returns '' and the
+ * developer's own toolchain is used, instead of a PATH entry that shadows it with nothing.
+ */
+function bundledNodeBin(root: string): string {
+  for (const candidate of [root, path.join(root, 'bin')]) {
+    for (const exe of ['node.exe', 'node']) {
+      if (fsSync.existsSync(path.join(candidate, exe))) return candidate
+    }
+  }
+  return ''
+}
+
 export class Supervisor {
   private listeners: StatusListener[] = []
   private status: SupervisorStatus = { phase: 'looking', message: 'looking for agentd…', info: null }
@@ -189,6 +208,37 @@ export class Supervisor {
       if (!env.PLAYWRIGHT_BROWSERS_PATH && fsSync.existsSync(bundled)) {
         env.PLAYWRIGHT_BROWSERS_PATH = bundled
       }
+    }
+
+    // THE BUNDLED NODE, for the same reason and by the same route.
+    //
+    // An agent's window is a React project: source in `app/`, built output in `ui/`, and the
+    // daemon serves only the second. Turning one into the other is `npm run build` — so a user
+    // who installed this product and built an agent through Agent Builder needs a toolchain they
+    // never agreed to install, to change a window they own. Shipping it removes the requirement
+    // rather than documenting it.
+    //
+    // ON THE PATH, not only in a variable. Everything that builds an agent shells out (`npm`,
+    // `npx vite`), and a path in an env var that each of those has to remember to consult is a
+    // path one of them will not consult. `AGENTD_NODE_DIR` is set as well, so a tool that wants
+    // to name the executable exactly can, without parsing PATH back apart.
+    //
+    // PREPENDED, so the shipped Node wins over whatever happens to be installed. A user's own
+    // Node may be years old, and an agent that builds here and not on their machine is the exact
+    // class of failure this bundle exists to end. Only when it is really there — a dev checkout
+    // has none, and the developer's own toolchain is the right answer in that case.
+    if (app.isPackaged) {
+      const bin = bundledNodeBin(path.join(process.resourcesPath, 'node'))
+      if (bin) {
+        env.AGENTD_NODE_DIR = bin
+        env.PATH = `${bin}${path.delimiter}${env.PATH || ''}`
+      }
+      // THE SHARED DEPENDENCY STORE. Every agent app declares the same seven packages, because
+      // they all come from the same starter — so the product carries ONE copy and each agent's
+      // build is pointed at it. Installing per agent would mean a few hundred MB from the network
+      // every time a user creates one, and nothing at all on a machine that is offline.
+      const deps = path.join(process.resourcesPath, 'app-deps', 'node_modules')
+      if (fsSync.existsSync(deps)) env.AGENTD_APP_DEPS = deps
     }
 
     let lastError = ''

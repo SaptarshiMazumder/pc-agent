@@ -48,19 +48,15 @@ is exact; the procedure is short because it is what you actually do.
 1. `agents_list` — check the id is free and learn the agents directory path.
 2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
    first; the agent is resolvable from this moment.
-3. **Give it a window** — two ways, and the choice is about how much the window has to do.
+3. **Give it a window** — `scaffold_react_app`, which is the one way.
 
-   **`scaffold_ui`** copies a complete vanilla app (`chat-app` / `dashboard-app` /
-   `workbench-app`); you then EDIT what it wrote. No build step, no Node. Right when the window
-   IS one of those three things.
+   It writes a buildable project and **only the mandatory source**: source in `app/`, compiled
+   into `ui/` by `build_app`. The toolchain ships inside the product, so the user installs
+   nothing. You write the rest of `src/` yourself, **after reading `agents/samples/`** (step 3a).
 
-   **`scaffold_react_app`** writes a buildable project and **no source at all** — for a window
-   that needs more than one view, or an artifact beside the chat, or panels driven by direct
-   tool calls. You write `src/` yourself, **after reading `agents/samples/`** (step 3a).
-
-   Either way: never hand-write `ui/` from nothing. The run-event payload is nested and streamed
-   text is `message_update/text_delta`; a page that gets either wrong connects, logs nothing, and
-   never updates the screen. And remember `[app]` in `agent.toml` — these tools write files, not
+   Never hand-write a window from nothing. The run-event payload is nested and streamed text is
+   `message_update/text_delta`; a page that gets either wrong connects, logs nothing, and never
+   updates the screen. And remember `[app]` in `agent.toml` — this tool writes files, not
    configuration.
 
 3a. **READ THE SAMPLES BEFORE YOU WRITE AN APP.** `agents/samples/` holds complete, working
@@ -202,7 +198,7 @@ These hold at every step above.
 ## Where you may write
 
 **Inside the agent you are authoring, and nowhere else.** This is enforced — `write`, `edit`,
-`create_agent`, `create_tool` and `scaffold_ui` all refuse a path outside it, so this is not a
+`create_agent` and `create_tool` all refuse a path outside it, so this is not a
 guideline you weigh against convenience.
 
 | | |
@@ -922,10 +918,10 @@ that should already be on the screen. A file-ingest agent whose window is a chat
 describe files they could have dropped. **Chat is right when the work genuinely is a conversation
 and wrong when it is a substitute for a control.**
 
-Chat, dashboard and workbench are vanilla templates (`scaffold_ui(template='dashboard-app')`) —
-copied whole, no build step. A viewer has no template, and neither does anything that mixes two
-of these: for those, `scaffold_react_app` plus the samples, which is what the next section is
-about.
+None of these shapes is a template you pick from a list. Every window is
+`scaffold_react_app` plus the samples — which is what the next section is about — because the
+shape that fits an agent is a judgement about that agent, and a menu of three answers is how
+every agent ends up being one of three things.
 
 ### A window is not limited to chatting
 
@@ -990,23 +986,26 @@ hand the agent over:
   broken everywhere else, because that path exists only inside this product's own tree. **If you
   copy a sample's `package.json`, delete that line.** The author never sees the failure; every
   recipient does.
-- **`ui/` is the build output and `ui/` is what ships.** The daemon serves it and the packer
-  takes what is on disk, so an unbuilt change is invisible however correct the source is. Run
-  `npm install && npm run build` in `app/` before you call the agent finished, and again after
-  every source change.
+- **`ui/` is the build output and `ui/` is what ships.** The daemon serves it and the packer takes
+  what is on disk, so an unbuilt change is invisible however correct the source is — the user
+  reloads the window, sees the old screen, and nothing on it explains why. **Call `build_app`
+  after every change to `app/`,** and again before `verify_app`, `package_agent` or
+  `publish_agent`: all three read `ui/`, so an unbuilt change is one that does not ship.
 
-### Or `scaffold_ui`, for a plain window. Do not write these files by hand.
+  Use `build_app` rather than `exec`ing npm yourself. It finds the Node the product ships (a user
+  who installed the app has no toolchain of their own, and no terminal to run one in), links the
+  agent to the shared copy of react and vite instead of downloading them per agent, and returns
+  vite's own error — file and line — when the build fails.
 
-```
-scaffold_ui(agent_id='<id>')                          →  chat app (default)
-scaffold_ui(agent_id='<id>', template='dashboard-app') →  dashboard
-scaffold_ui(agent_id='<id>', template='workbench-app') →  drop-zone + queue
-```
+### There is no second way. `scaffold_ui` is gone.
 
-It copies a chat app that already streams replies, shows live tool rows, takes pasted
-screenshots, remembers conversations, **signs the user in on a hosted install**, and has a
-settings page where the user pastes their own API key. Then you **edit** it — the title, the hero
-text, the suggestions, the accent colour — and add whatever surface this particular agent needs.
+It copied a complete vanilla app into `ui/` with no build step. That is no longer offered and the
+tool is not registered — **do not call it**. A window is a React project, the product ships the
+Node and the packages to build one, and `build_app` is the build.
+
+Agents in this product that still have a hand-written `ui/` keep working — the daemon serves those
+folders straight off disk — but nothing maintains them any more. Reworking one means rebuilding it
+in React. **Never write vanilla JS for an agent window.**
 
 ### EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. No exceptions.
 
@@ -1022,8 +1021,9 @@ await agentd.mountSignInGate({ client })   // vanilla: before the socket is wire
 await mountSignInGate()                    // React: in main.tsx, before the first render
 ```
 
-`scaffold_ui` writes it. `scaffold_react_app` writes `src/main.tsx` containing it — the one
-source file it ships, because this is the one part of an app that is not a judgement call.
+`scaffold_react_app` writes `src/main.tsx` containing it — one of the two source files it
+ships, because this is a part of an app that is not a judgement call. If you see `UI_NO_SIGN_IN`
+on a scaffolded agent, somebody replaced that file; put the call back.
 
 **Never write your own login form.** The gate's element ids (`gateEmail`, `gatePass`, `gateForm`)
 are a contract the packaged-build login test drives, so a hand-rolled form silently disables it —
@@ -1033,6 +1033,58 @@ custom form adds is a way to get it wrong.
 
 It renders **nothing** when a stored session still works, and nothing on a build with no accounts
 service — so it is correct to leave in an agent that will only ever run locally.
+
+### EVERY AGENT WITH A WINDOW SELLS CREDITS. No exceptions.
+
+The same rule as sign-in, one step later in the same story. `validate_agent` reports
+`UI_NO_CREDITS` as an **error** when an app never shows a balance, and that error blocks both
+`package_agent` and `publish_agent`.
+
+**Why it is mandatory and not a feature.** Running out of credits is the one failure a user can
+fix themselves. An agent that cannot take the top-up simply stops working and says nothing about
+why — the user has to already know a separate app exists, find it, and buy there. They do not.
+They uninstall.
+
+**IT IS A PAGE, NOT A SETTINGS SECTION.** Its own nav entry, beside Settings — the way agentd
+does it. Topping up is what a user comes looking for the moment a run stops; settings is where
+you go to change how the thing works. A shop buried three scrolls into a config screen is a shop
+nobody finds.
+
+One mechanism, and it is the SDK's:
+
+```js
+await agentd.mountCreditsPanel({ client, mount })   // vanilla: into #creditsBody on its own view
+```
+```tsx
+<Credits />                                          // React: src/Credits.tsx, shipped by the starter
+```
+
+`scaffold_react_app` ships `src/Credits.tsx` — render it from its own view, never inside your
+settings screen.
+
+**Shipping the file is not the same as having the page.** `Credits.tsx` arrives with every
+scaffold, so its presence proves only that the scaffolder ran — `validate_agent` reports
+`UI_NO_CREDITS` until something actually renders it:
+
+```tsx
+import Credits from './Credits'
+...
+{view === 'credits' && <Credits />}
+```
+
+The samples all do this — read them as a set and copy the shape, not one of them as a mould.
+
+**Never build your own store.** The packs, the prices and the payment disclosure all come from the
+server: what is on sale is a database row, so it changes without releasing the agent, and the
+price shown can never drift from the price charged because there is only one of them. An agent
+that hardcodes a pack shows a price it cannot honour. It is also real money — a second
+implementation is a second set of idempotency keys and refusal paths, and the failure mode is
+charging someone twice.
+
+It renders **nothing** on a build with no accounts service, and nothing when nobody is signed in —
+so it is correct to leave in an agent that will only ever run locally.
+
+Theme it from `style.css` with `--wallet-accent`, `--wallet-card`, `--wallet-fg` and friends.
 
 ### Sign-in comes with the template — never hand-write a login
 

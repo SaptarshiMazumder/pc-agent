@@ -38,15 +38,63 @@ export async function appLaunchUrl(agent: AgentRow): Promise<string> {
 }
 
 /**
+ * Build the agent's window, then open it — so the button means "show me my current source"
+ * rather than "show me whatever was last compiled".
+ *
+ * WHY THE BUILD IS PART OF THE BUTTON. `app/` is source and `ui/` is what the daemon serves, so
+ * opening without building shows the last build however new the source is. The reload itself is
+ * honest — the daemon serves `ui/` with `Cache-Control: no-store`, so you always get what is on
+ * disk — but "what is on disk" is only current if something ran vite. Leaving that to whoever
+ * remembers is how you press a button, see the old screen, and have nothing to blame.
+ *
+ * A FAILED BUILD DOES NOT OPEN A WINDOW. Showing the previous build after an error would be the
+ * worst of both: it looks like the change did nothing, when in fact it did not compile.
+ *
+ * An agent with a hand-written `ui/` has nothing to build; the caller decides that (it can see the
+ * file tree) and skips straight to opening.
+ */
+export async function buildAndOpen(
+  client: { invokeTool(name: string, params: Record<string, unknown>): Promise<unknown> },
+  agent: AgentRow,
+  build: boolean,
+): Promise<void> {
+  if (build) {
+    // Throws with the tool's own report — vite's error, naming the file and line — which the
+    // caller shows verbatim. There is nothing useful this layer could add to it.
+    await client.invokeTool('build_app', { agent_id: agent.id })
+  }
+  await openAgentWindow(agent)
+}
+
+/** The desktop bridge, when this window is running inside the desktop app. */
+type Host = {
+  openAppWindow?: (url: string, title?: string) => Promise<{ ok: boolean; error?: string }>
+}
+const host = (): Host | undefined => (globalThis as { agentdHost?: Host }).agentdHost
+
+/**
  * Open it, in a window of its own.
  *
- * A plain `window.open`, deliberately: this window is an agent app itself and has no desktop
- * bridge to ask for a native window — that privilege belongs to agentd's own renderer. A blocked
- * popup is reported by the caller rather than swallowed, because a button that silently does
- * nothing is worse than one that says the browser stopped it.
+ * ASK THE DESKTOP APP, DO NOT USE `window.open`. The two are not variations on one idea: the
+ * desktop app builds a real window with the agent-app preload — the same window its own "Open app"
+ * button produces, which keeps receiving fresh access tokens for as long as it is open — whereas
+ * `window.open` is deliberately routed to the SYSTEM BROWSER by the shell's window-open handler.
+ * That route opens the app outside the desktop app entirely, with no token pushing, which is what
+ * the first version of this did and why it "opened in Chrome and broke".
+ *
+ * The fallback is for a real browser tab, where there is no desktop app to ask and external is not
+ * a downgrade but the only meaning "open" can have.
  */
 export async function openAgentWindow(agent: AgentRow): Promise<void> {
   const url = await appLaunchUrl(agent)
+  const bridge = host()?.openAppWindow
+  if (bridge) {
+    const res = await bridge(url, agent.app?.title || agent.name || agent.id)
+    // Reported, not swallowed. The desktop app refuses this call from any window that is not this
+    // one, and a button that silently does nothing is worse than one that says why.
+    if (!res?.ok) throw new Error(res?.error || 'the desktop app would not open that window')
+    return
+  }
   const opened = window.open(url, `agent-app-${agent.id}`)
   if (!opened) throw new Error('the browser blocked the pop-up — allow pop-ups for this page')
 }

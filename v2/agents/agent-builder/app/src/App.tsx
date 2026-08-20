@@ -18,10 +18,10 @@
 import { mountSignInGate } from '@agentd/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
-import { hasWindow, openAgentWindow } from './agentd/app-window'
+import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { useChat } from './agentd/chat'
 import { useClient } from './agentd/client'
-import { useRestartDaemon, useWhoAmI } from './agentd/platform'
+import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable, type AgentRow } from './agentd/roster'
 import { useAgents } from './agentd/roster'
 import { useSessions } from './agentd/sessions'
@@ -29,6 +29,8 @@ import { Composer } from './components/Composer'
 import { Inspector } from './components/Inspector'
 import { PlanPanel } from './components/PlanPanel'
 import { Rail } from './components/Rail'
+import { CreditsModal } from './components/CreditsModal'
+import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsModal } from './components/settings/SettingsModal'
 import { StartModal, type StartMode } from './components/StartModal'
 import { Thread } from './components/Thread'
@@ -39,6 +41,11 @@ export default function App() {
   const ready = status === 'open'
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [creditsOpen, setCreditsOpen] = useState(false)
+  // WHICH SCREEN the stage is showing. Two, and only two: the conversation you are having,
+  // and the shelf of what you have built. Everything else in this window is a modal, which is
+  // the shape that does not close the thing you opened it because of (see SettingsModal).
+  const [view, setView] = useState<'chat' | 'myagents'>('chat')
   const [selected, setSelected] = useState<AgentRow | null>(null)
   const [railOpen, setRailOpen] = useState(true)
   const [panelOpen, setPanelOpen] = useState(true)
@@ -47,8 +54,15 @@ export default function App() {
   // "create" and "edit" are two questions asked by one screen and never both at once.
   const [start, setStart] = useState<{ mode: StartMode; seed?: string } | null>(null)
   const [windowError, setWindowError] = useState('')
+  const [opening, setOpening] = useState(false)
 
   const who = useWhoAmI(client, status)
+  // A SECOND instance of this hook lives in SettingsView, deliberately. Each holds its own
+  // copy of one immutable-ish fact and costs one status call; hoisting it to share would mean
+  // threading platform state through the whole tree to save a request at boot. The settings
+  // modal is mounted only while open, so it re-reads after a sign-out from here and the two
+  // cannot drift where anyone can see it.
+  const platform = usePlatform(client)
   const daemon = useRestartDaemon(client)
 
   // An agent that did not exist a moment ago was just BUILT — in this window, by this
@@ -121,16 +135,27 @@ export default function App() {
     [chat],
   )
 
+  // Does this agent COMPILE its window? `app/` at the top of its tree is the whole test: source
+  // there, build output in ui/. A hand-written ui/ has nothing to build and is live on save.
+  const compiles = files.rows.some((r) => r.name === 'app' && r.depth === 0 && r.kind === 'folder')
+
+  /** BUILD, THEN OPEN. The button means "show me my current source", not "show me the last
+   *  build" — see buildAndOpen. Failure shows vite's error and opens nothing. */
   const openWindow = useCallback(async () => {
     if (!selected) return
+    setWindowError('')
+    setOpening(true)
     try {
-      await openAgentWindow(selected)
+      await buildAndOpen(client, selected, compiles)
+      void files.refresh() // the build wrote ui/; let the tree flash what changed
     } catch (e) {
       // Surfaced, never swallowed: a button that silently does nothing is worse than one that
-      // says the pop-up was blocked.
+      // says the build failed, or that the pop-up was blocked.
       setWindowError(String((e as Error)?.message || e))
+    } finally {
+      setOpening(false)
     }
-  }, [selected])
+  }, [selected, client, compiles, files])
 
   /** Resume a saved conversation, and point the inspector at whatever that conversation was
    *  about. The transcript names it (see `subjectOf`); an unscoped chat that built nothing names
@@ -159,10 +184,28 @@ export default function App() {
         onToggle={() => setRailOpen((v) => !v)}
         chats={chats}
         openKey={chat.sessionKey}
-        onOpenChat={(key) => void openChat(key)}
+        onOpenChat={(key) => {
+          setView('chat')
+          void openChat(key)
+        }}
+        agents={openable(agents)}
+        selectedId={selected?.id || ''}
+        // Picking an agent in the sidebar IS editing it — the same call the picker makes. A
+        // sidebar row that only highlighted something would be a click that does nothing.
+        onPickAgent={(id) => {
+          setView('chat')
+          editAgent(id)
+        }}
         onCreate={() => setStart({ mode: 'create' })}
         onEdit={() => setStart({ mode: 'edit' })}
         onSettings={() => setSettingsOpen(true)}
+        onCredits={() => setCreditsOpen(true)}
+        onMyAgents={() => setView('myagents')}
+        view={view}
+        auth={platform.auth}
+        authError={platform.error}
+        onSignIn={platform.signIn}
+        onSignOut={platform.signOut}
         status={status}
         daemonVersion={daemonVersion}
       />
@@ -181,6 +224,15 @@ export default function App() {
           onTogglePanel={() => setPanelOpen((v) => !v)}
         />
 
+        {view === 'myagents' ? (
+          <MyAgentsView
+            agents={openable(agents)}
+            onEdit={(id) => {
+              setView('chat')
+              editAgent(id)
+            }}
+          />
+        ) : (
         <section className="stage">
           <Thread
             items={chat.items}
@@ -201,7 +253,8 @@ export default function App() {
             onFiles={(list) => void chat.addFiles(list)}
             onRemoveFile={chat.removeFile}
             onOpenWindow={hasWindow(selected) ? () => void openWindow() : undefined}
-            openWindowLabel={selected?.app?.title ? `Open ${selected.name || selected.id}` : undefined}
+            openWindowLabel={opening ? 'Building…' : undefined}
+            openWindowBusy={opening}
           />
           {windowError && (
             <div className="composer-error" role="alert">
@@ -212,6 +265,7 @@ export default function App() {
             </div>
           )}
         </section>
+        )}
       </main>
 
       <Inspector
@@ -236,6 +290,7 @@ export default function App() {
       )}
 
       {settingsOpen && <SettingsModal client={client} onClose={() => setSettingsOpen(false)} />}
+      {creditsOpen && <CreditsModal onClose={() => setCreditsOpen(false)} />}
     </div>
   )
 }

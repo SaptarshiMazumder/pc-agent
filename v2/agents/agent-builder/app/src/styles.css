@@ -164,78 +164,169 @@ h2 { font-size: 16px; }
 .link-btn { color: var(--faint); font-size: 12px; padding: 0; }
 .link-btn:hover { color: var(--orange); }
 
-/* ── rail ──────────────────────────────────────────────────────────────── */
-.rail { display: flex; flex-direction: column; min-height: 0; padding: 16px 12px 12px; }
+/* ── sidebar ─────────────────────────────────────────── */
+/* PORTED FROM agentd (clients/ui/src/styles.css), rule for rule, with its tokens mapped onto the
+   ones this window already has:  --bg2 -> --surface, --bg3 -> --raised, --border -> --hair,
+   --text -> --ink, --accent -> --purple.
 
-.rail-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; margin-bottom: 18px; }
-.brand { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
-.brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; white-space: nowrap; }
+   WHY A PORT AND NOT A REDESIGN. A user moves between the desktop app and this window constantly
+   while building. Two sidebars that arrange the same facts differently make that a re-orientation
+   every time, and the cost is paid on every switch, forever. */
 
-/* The dashed pill — Fluxo's "+ New Goal". An outline invites; a filled block commands, and this
-   is the one control you press dozens of times a day. */
-.new-btn {
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  width: 100%; padding: 10px 12px; margin-bottom: 20px;
-  border: 1px dashed var(--orange-line); border-radius: 999px;
-  background: var(--orange-soft); color: var(--orange);
-  font-size: 13px; font-weight: 500;
+/* LAYOUT ONLY. The shell already paints .rail as a card (rounded, bordered, --surface); adding a
+   background and a border-right here would put two treatments on one element and show as a seam.
+   agentd's sidebar is flush against its window because that window has no card grid — the CONTENT
+   is what was ported, not the chrome around it. */
+.rail { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.sidebar { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+
+.brand { display: flex; align-items: center; gap: 10px; padding: 14px 12px 12px 15px; }
+.brand-mark { font-size: 18px; color: var(--purple); flex: none; }
+.brand-name {
+  flex: 1; min-width: 0; font-weight: 600; font-size: 15px; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.new-btn:hover { background: var(--orange); border-color: var(--orange); color: #fff; }
-.plus { font-size: 15px; line-height: 1; }
+.live {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font: 10.5px var(--mono); color: var(--dim);
+  padding: 3px 8px; border-radius: 20px; background: var(--purple-soft);
+}
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 
-.rail-label {
+.nav-rows { display: flex; flex-direction: column; gap: 1px; padding: 4px 12px 2px; }
+.nav-row {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: 9px; cursor: pointer;
+  background: transparent; color: var(--ink); text-align: left; font: inherit;
+  font-size: 13.5px; font-weight: 500;
+}
+.nav-row:hover { background: var(--raised); }
+.nav-row svg { color: var(--faint); flex: none; }
+.nav-row-label {
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-search {
+  width: 100%; margin: 2px 0 4px; padding: 7px 10px;
+  border: 1px solid var(--hair-2); border-radius: 9px;
+  background: var(--card); color: var(--ink); font: inherit; font-size: 13.5px;
+}
+.nav-search:focus { outline: 1px solid var(--purple); outline-offset: 0; }
+
+/* One scroller for both lists, so a long roster and a long history share the space instead of
+   each getting a fixed slice that is wrong for somebody. */
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 4px; }
+.section-title {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 8px 8px; font-size: 12px; color: var(--faint);
+  height: 30px; margin: 6px -12px 0; padding: 0 20px;
+  position: sticky; top: 0; z-index: 1; background: var(--surface);
+  font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--faint); font-weight: 600;
 }
-.rail-label:not(:first-of-type) { margin-top: 14px; }
-.count { font-size: 11px; }
+.count { font-size: 10.5px; color: var(--faint); }
+.agents-list { display: flex; flex-direction: column; gap: 1px; padding-bottom: 4px; }
+.list-empty { padding: 6px 10px; }
 
-.chat-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; min-height: 0; }
-.rail-empty { padding: 8px; color: var(--faint); font-size: 12px; }
-
-.chat-row {
-  display: block; width: 100%; text-align: left;
-  padding: 9px 11px; margin-bottom: 3px;
-  border-radius: var(--r-sm); position: relative;
-}
-.chat-row:hover { background: var(--raised); }
-.chat-row.on { background: var(--purple-soft); }
-.chat-row.on::before {
-  content: ''; position: absolute; left: 0; top: 9px; bottom: 9px;
-  width: 2px; border-radius: 2px; background: var(--purple);
-}
-.chat-top { display: flex; align-items: baseline; gap: 8px; }
-.chat-name {
-  flex: 1; min-width: 0; font-size: 14px; color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.chat-row.on .chat-name { color: var(--purple-text); }
-.chat-when { font-size: 12px; color: var(--faint); flex: none; }
-.chat-sub {
-  display: block; font-size: 12px; color: var(--faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.rail-item {
+.agent-row, .chat-row {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 11px; border-radius: var(--r-sm);
-  color: var(--dim); font-size: 14px; text-align: left;
+  padding: 7px 10px; border: 0; border-radius: 9px; cursor: pointer;
+  background: transparent; text-align: left; font: inherit;
 }
-.rail-item:hover { background: var(--raised); color: var(--ink); }
-.ico { width: 16px; text-align: center; font-size: 13px; }
+.agent-row:hover, .chat-row:hover { background: var(--raised); }
+.agent-row.active, .chat-row.active { background: var(--purple-soft); }
+.agent-row.active .row-title, .chat-row.active .row-title { color: var(--purple-text); }
 
-/* Where Fluxo keeps its Upgrade card. */
-.conn-card {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 12px; padding: 11px 12px;
-  border-radius: var(--r-sm); background: var(--raised); border: 1px solid var(--hair);
-  font-size: 12px;
+.avatar {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex: none; border-radius: 8px;
+  color: #181712; font-weight: 700; font-size: 11px;
 }
-.dot { width: 7px; height: 7px; border-radius: 999px; background: var(--faint); flex: none; }
-.dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(70, 201, 139, 0.14); }
-.dot.down { background: var(--bad); box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.14); }
-.conn-text { flex: 1; color: var(--dim); }
-.ver { color: var(--faint); }
+.avatar.lg { width: 46px; height: 46px; border-radius: 13px; font-size: 17px; }
+.chat-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; margin: 0 9px; }
+
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row-title {
+  font-size: 13.5px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-sub {
+  font-size: 11.5px; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.footer-nav {
+  display: flex; gap: 6px; align-items: center;
+  padding: 10px 12px; border-top: 1px solid var(--hair);
+}
+.footer-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; flex: none;
+  border: 1px solid var(--hair-2); border-radius: 50%;
+  background: transparent; color: var(--dim); cursor: pointer;
+}
+.footer-icon:hover:not(:disabled) { color: var(--ink); background: var(--raised); }
+.footer-icon:disabled { opacity: 0.4; cursor: default; }
+.footer-icon.active { background: var(--purple-soft); color: var(--purple-text); border-color: transparent; }
+.footer-icon.anon { color: var(--faint); }
+.push-end { margin-left: auto; }
+
+/* The account menu, opening upward out of the footer. */
+.menu-wrap { position: relative; display: flex; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; }
+.app-menu {
+  position: absolute; bottom: calc(100% + 8px); z-index: 41; min-width: 214px;
+  background: var(--card); border: 1px solid var(--hair-2); border-radius: 12px;
+  box-shadow: var(--lift); padding: 6px;
+}
+.app-menu--left { left: 0; right: auto; }
+.pmenu-head { padding: 6px 9px 8px; max-width: 220px; }
+.pmenu-name {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pmenu-desc { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.app-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 10px; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500;
+}
+.app-menu-item:hover:not(:disabled) { background: var(--raised); }
+.app-menu-item:disabled { opacity: 0.6; cursor: default; }
+.pmenu-err { font-size: 11px; color: var(--bad); margin-top: 6px; line-height: 1.4; }
+.pmenu-sep { height: 1px; background: var(--hair); margin: 4px 6px; }
+.app-menu-item svg { color: var(--dim); flex: none; }
+
+
+/* ── My Agents ───────────────────────────────────────── */
+/* The owner's shelf. A grid of cards rather than a list, because the thing you are scanning for
+   is WHICH ONE, and an avatar plus a name reads faster in two dimensions than in one. */
+.page-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.page-inner { max-width: 940px; margin: 0 auto; padding: 26px 28px 40px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.page-head h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.page-head p { margin: 6px 0 0; font-size: 13px; color: var(--dim); }
+.page-error {
+  margin-bottom: 16px; padding: 10px 12px; border-radius: var(--r-sm);
+  background: rgba(255, 107, 107, 0.12); color: var(--bad); font-size: 13px;
+}
+.empty-card {
+  padding: 28px; border-radius: var(--r); background: var(--card);
+  border: 1px solid var(--hair); text-align: center; color: var(--dim);
+}
+.empty-card p { margin: 0 0 6px; }
+
+.cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); }
+.cards .card {
+  display: flex; flex-direction: column; gap: 10px;
+  border-radius: var(--r); background: var(--card); border: 1px solid var(--hair);
+}
+.card-top { display: flex; align-items: center; gap: 12px; }
+.card-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.card-by { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+.card-desc {
+  flex: 1; margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ── main ──────────────────────────────────────────────────────────────── */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -751,6 +842,7 @@ button.thought-head:hover { color: var(--dim); }
   background: var(--card); border: 1px solid var(--hair-2); color: var(--dim);
   max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
+.open-app-btn:disabled { opacity: 0.6; cursor: progress; }
 .open-app-btn:hover { border-color: var(--purple-line); color: var(--ink); background: var(--raised); }
 .open-app-btn .ico { font-size: 13px; }
 
@@ -764,3 +856,22 @@ button.thought-head:hover { color: var(--dim); }
 @media (max-width: 640px) {
   .choice-grid { grid-template-columns: 1fr; }
 }
+
+/* ── credits panel ──────────────────────────────────────────────────────────────────────
+   The Credits & billing panel ships inside the SDK, so Agent Builder shows the same screen as
+   agentd and as every agent it builds. These map it onto THIS app's palette, which is why it
+   looks native rather than bolted on. Change the values, keep the names. */
+:root {
+  --wallet-font:      inherit;
+  --wallet-fg:        var(--ink);
+  --wallet-muted:     var(--dim);
+  --wallet-card:      var(--raised);
+  --wallet-border:    var(--hair-2);
+  --wallet-radius:    var(--r-sm);
+  --wallet-accent:    var(--accent, #5b4fcf);
+  --wallet-on-accent: #ffffff;
+  --wallet-warn:      #f0a35e;
+  --wallet-error-bg:  rgba(255, 107, 107, 0.14);
+  --wallet-error-fg:  var(--bad);
+}
+.wallet-mount { margin-top: 12px; }

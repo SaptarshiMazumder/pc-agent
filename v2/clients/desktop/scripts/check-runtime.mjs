@@ -59,6 +59,43 @@ if (!hasChromium) {
   process.exit(1)
 }
 
+// NODE, which nothing else fetches either. An agent's window is a React project compiled from
+// app/ into ui/, and only ui/ is served — so a product without a Node cannot rebuild the window of
+// an agent its own user just built. The symptom is the worst kind: they edit the source, nothing
+// changes, and the missing piece is a toolchain the product never mentions.
+//
+// BOTH HALVES, because npm rides inside the Node tree as plain scripts and a half-extracted
+// bundle keeps node.exe. A runtime that can run javascript and cannot build anything fails on a
+// user's machine, several steps into an agent, not here.
+const nodeDir = path.join(desktopDir, 'runtime', 'node')
+const nodeBin = [nodeDir, path.join(nodeDir, 'bin')].find((dir) =>
+  ['node.exe', 'node'].some((exe) => fs.existsSync(path.join(dir, exe)))
+)
+const hasNpm =
+  !!nodeBin && fs.existsSync(path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'))
+if (!hasNpm) {
+  console.error(
+    '[check-runtime] no node+npm at runtime/node — the installer would ship a product that ' +
+      "cannot rebuild an agent's own window (app/ -> ui/).\n" +
+      '  fix: powershell -File scripts/build-runtime.ps1'
+  )
+  process.exit(1)
+}
+
+// THE SHARED APP DEPENDENCIES. Node alone is not enough to build an agent's window — vite is what
+// `npm run build` actually runs, and the product ships one copy of it for every agent to share.
+// Without it the first agent a user creates would try to reach the network, and get nothing on a
+// machine that has none.
+const vite = path.join(desktopDir, 'runtime', 'app-deps', 'node_modules', 'vite')
+if (!fs.existsSync(vite)) {
+  console.error(
+    '[check-runtime] no vite at runtime/app-deps/node_modules — the installer would ship a ' +
+      "product that cannot build an agent's window without downloading a toolchain first.\n" +
+      '  fix: powershell -File scripts/build-runtime.ps1'
+  )
+  process.exit(1)
+}
+
 // Everything the wheel embeds (scripts/hatch_build.py): the daemon source, the shared plugin
 // bundles, and the packaging inputs themselves.
 const WATCHED = [

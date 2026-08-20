@@ -90,9 +90,50 @@ def app_sources(sources: dict) -> dict:
         and "/vendor/" not in rel
         and not rel.startswith("ui/assets/")
     }
-# The component whose absence is worth warning about. Others are opt-in features; this one is the
-# difference between an agent that can be sold and one that cannot.
-_REQUIRED_COMPONENT = "sign-in"
+# The components every agent with a window MUST have. Others are opt-in features; these two are
+# the difference between an agent that can be sold and one that cannot.
+#
+#   sign-in   who is using this. Without it a hosted install fails every model call with a
+#             provider error and nothing on screen explains why.
+#   credits   what they have left, and how to buy more. Without it the answer to "out of credits"
+#             is a dead end inside the agent — the user has to know that a separate app exists,
+#             find it, and top up there before this one works again.
+#
+# A TUPLE RATHER THAN A SECOND CONSTANT. One rule reports all of them, so requiring a third is an
+# entry here and no new code — the same reason the component catalogue itself is injected.
+_REQUIRED_COMPONENTS = ("sign-in", "credits")
+
+# What to say when each is missing. Keyed by id so the message stays next to the requirement.
+_REQUIRED_MESSAGES = {
+    "sign-in": (
+        "UI_NO_SIGN_IN",
+        "this app never signs the user in. Every agent with a window must — it is how the "
+        "agent knows who is using it, and on a hosted install every model call fails without "
+        "it, with nothing on screen to explain why.",
+        "app/src/main.tsx",
+        "Call `mountSignInGate()` from @agentd/client BEFORE the first render — "
+        "`scaffold_react_app` ships a `src/main.tsx` that already does, so this normally means "
+        "somebody replaced it. Do NOT write your own login form: the gate's "
+        "element ids are what the packaged-build login test drives, and a second implementation "
+        "is a second way to get credentials wrong. The gate renders NOTHING when a stored "
+        "session still works.",
+    ),
+    "credits": (
+        "UI_NO_CREDITS",
+        "this app never shows the user their credits. Every agent with a window must — running "
+        "out of credits is the one failure a user can fix themselves, and without this panel the "
+        "agent simply stops working and says nothing about why or where to go.",
+        "app/src/App.tsx",
+        "`scaffold_react_app` already gave you `src/Credits.tsx` — SHIPPING IT IS NOT ENOUGH, "
+        "something has to render it. Import it and give it its own view, reached from a nav entry "
+        "beside Settings: `import Credits from './Credits'`, then `{view === 'credits' && "
+        "<Credits />}`. Not a section inside your settings screen — topping up is what a user "
+        "comes looking for the moment a run stops. Do NOT build your own store: the packs, the "
+        "prices and the payment disclosure all come from the server, and an agent that hardcodes "
+        "any of them shows a price it cannot honour. The panel renders NOTHING on a build with "
+        "no accounts service, so there is no branch to test.",
+    ),
+}
 
 #: Reaching the accounts service, or a credential store, WITHOUT the SDK in between.
 #:
@@ -183,7 +224,7 @@ class UiRules:
             return []
 
         code = "\n".join(_STRIPPER.strip(src) for src in own.values())
-        installed = [c for c in self._components if self._present(c, code)]
+        installed = [c for c in self._components if self._present(c, own)]
 
         # BEFORE the missing-gate check, because an app that reached for the accounts service
         # itself plainly HAS a sign-in — telling it there is none would send the author looking
@@ -192,32 +233,43 @@ class UiRules:
         if rolled:
             return rolled
 
-        if not any(c.id == _REQUIRED_COMPONENT for c in installed):
-            # MANDATORY, not advisory. Every agent with a window signs its user in: the window is
-            # the only place that knows whether anyone is there, and an agent that never asks has
-            # no identity to attribute anything to. On a hosted install it is also fatal —
-            # every model call fails with a provider error and nothing on screen says why.
-            #
-            # ONE MECHANISM. The SDK's gate, on the SDK's endpoints. An agent that grows its own
-            # login is a second front door onto the same accounts service, written once by
-            # somebody who was not thinking about credentials that day.
-            return [
-                Finding(
-                    ERROR,
-                    "UI_NO_SIGN_IN",
-                    "this app never signs the user in. Every agent with a window must — it is "
-                    "how the agent knows who is using it, and on a hosted install every model "
-                    "call fails without it, with nothing on screen to explain why.",
-                    path="ui/app.js",
-                    fix=f"add_ui_component('{{agent}}', '{_REQUIRED_COMPONENT}') — it does every "
-                    "step (SDK, script tag, theme tokens, the call itself) and is safe to re-run. "
-                    "In a React app, call `mountSignInGate()` from @agentd/client BEFORE the "
-                    "first render (see main.tsx in the React starter). Do NOT write your own "
-                    "login form: the gate's element ids are what the packaged-build login test "
-                    "drives, and a second implementation is a second way to get credentials "
-                    "wrong. The gate renders NOTHING when a stored session still works.",
+        # MANDATORY, not advisory. Every agent with a window signs its user in and shows them
+        # what they have left: the window is the only place that knows whether anyone is there,
+        # and an agent that never asks has no identity to attribute anything to. On a hosted
+        # install both are fatal in the same silent way — the app looks fine and stops working.
+        #
+        # ONE MECHANISM EACH. The SDK's gate and the SDK's credits panel, on the SDK's endpoints.
+        # An agent that grows its own login is a second front door onto the accounts service; an
+        # agent that grows its own store is a second implementation of taking money. Both get
+        # written once, by somebody who was not thinking about credentials or payments that day.
+        #
+        # ALL OF THEM AT ONCE, not the first one found: an author fixing two one-line omissions
+        # in one pass is the difference between a report and a queue of round trips.
+        missing_required = [
+            component_id
+            for component_id in _REQUIRED_COMPONENTS
+            if not any(c.id == component_id for c in installed)
+        ]
+        if missing_required:
+            out = []
+            for component_id in missing_required:
+                code, message, path, extra = _REQUIRED_MESSAGES[component_id]
+                out.append(
+                    Finding(
+                        ERROR,
+                        code,
+                        message,
+                        path=path,
+                        # THE INSTRUCTION IS THE WHOLE FIX. It used to lead with
+                        # `add_ui_component`, which does its work by adding a <script> tag,
+                        # appending to style.css and splicing into app.js — all of which are
+                        # vanilla-era mechanisms that no longer exist. Agent UIs are React;
+                        # pointing at a tool that cannot finish the job sends the model down a
+                        # path where half the steps silently do nothing.
+                        fix=extra,
+                    )
                 )
-            ]
+            return out
 
         # ONE rule for every component, driven by its declared `requires`. Adding component #2
         # needs no new rule here — which is the point of the catalogue being injected.
@@ -291,8 +343,37 @@ class UiRules:
         ]
 
     @staticmethod
-    def _present(component, code: str) -> bool:
-        return any(re.search(insertion.detect, code) for insertion in component.insert)
+    def _present(component, own: dict) -> bool:
+        """Is the component WIRED UP — not merely delivered?
+
+        THE FILES A COMPONENT SHIPS ARE NOT EVIDENCE OF THEIR OWN USE. The React starter delivers
+        `Credits.tsx`, whose entire body is a call to `mountCreditsPanel`. Searching every source
+        file for that call therefore found it inside the definition, so an agent that never
+        rendered `<Credits />` passed the check that existed to prove it had — a credits page
+        shipped, validated, and invisible.
+
+        So a component's own `provides` files are excluded from the scan, and what is left is code
+        somebody WROTE to use it: `<Credits />` in a view, or an import of it, or a direct
+        `mountCreditsPanel(`. A component with no files of its own (sign-in) is unaffected — there
+        is nowhere for its call to appear except wiring.
+        """
+        defines = {name.lower() for name in component.provides}
+        code = "\n".join(
+            _STRIPPER.strip(src)
+            for rel, src in own.items()
+            if rel.rsplit("/", 1)[-1].lower() not in defines
+        )
+        if any(re.search(insertion.detect, code) for insertion in component.insert):
+            return True
+        # A shipped file is used by NAME rather than by the SDK call inside it: rendered as an
+        # element, or imported. Derived from `provides`, so a second component needs no new rule.
+        for name in component.provides:
+            stem = re.escape(name.rsplit(".", 1)[0])
+            if re.search(r"<\s*" + stem + r"\b", code):
+                return True
+            if re.search(r"\bimport\b[^\n]*\b" + stem + r"\b", code):
+                return True
+        return False
 
     # ---------------------------------------------------------------- payload shape
     def _nested_payload(self, rel: str, src: str) -> list[Finding]:

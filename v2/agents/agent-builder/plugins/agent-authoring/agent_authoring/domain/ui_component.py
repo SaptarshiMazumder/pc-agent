@@ -52,6 +52,11 @@ COMPONENTS_ANCHOR = "AGENTD:COMPONENTS"
 # the socket. The gate speaks plain HTTP and needs no socket, so it goes BEFORE the connection.
 SIGNIN_ANCHOR = "AGENTD:SIGNIN"
 
+# Kept for components that genuinely belong on the settings page. Credits does NOT: it is a PAGE
+# of its own, reached from the nav, because topping up is what a user comes looking for and a fix
+# buried three scrolls into a config screen is a fix nobody finds.
+SETTINGS_ANCHOR = "AGENTD:SETTINGS-SECTIONS"
+
 
 @dataclass(frozen=True)
 class Insertion:
@@ -80,6 +85,19 @@ class UiComponent:
     style_marker: str = ""  # how to tell the CSS is already there
     insert: tuple[Insertion, ...] = ()
     requires: tuple[str, ...] = ()  # SDK symbols that must exist in the vendored copy
+    #: Basenames of files that merely DEFINE this component, and are therefore NOT evidence that
+    #: anything uses it.
+    #:
+    #: THE HOLE THIS CLOSES. The React starter ships `Credits.tsx`, whose whole job is to call
+    #: `mountCreditsPanel`. Scanning every source file for that call then found it inside the
+    #: definition itself, so an agent that never rendered `<Credits />` passed the check that
+    #: existed to prove it had. The file's presence was satisfying the rule the file was supposed
+    #: to prove — the same mistake, one level up, as a `detect` that matched
+    #: `function creditsSection()`.
+    #:
+    #: Empty for a component with no file of its own (sign-in lives entirely in the SDK, and the
+    #: only place its call can appear is wiring).
+    provides: tuple[str, ...] = ()
     docs: str = ""  # one paragraph the tool hands back after applying
 
     @property
@@ -122,7 +140,7 @@ SIGN_IN = UiComponent(
     scripts=("vendor/agentd-client.js",),
     style_marker="--gate-bg",
     styles="""
-/* sign-in (added by add_ui_component) — the gate reads these, so it matches this app's theme
+/* sign-in theme tokens — the gate reads these, so it matches this app's theme
    instead of looking bolted on. Change the values, keep the names. */
 :root {
   --gate-bg: rgba(12, 14, 18, 0.72);
@@ -162,6 +180,109 @@ SIGN_IN = UiComponent(
 )
 
 
+# ── credits ─────────────────────────────────────────────────────────────────────────────
+#
+# No files of its own either, for the same reason as sign-in and one more: this one handles MONEY.
+# `mountCreditsPanel` ships in the SDK (sdk-js/src/wallet.ts) over `@agentd/billing`, the same
+# client the agentd desktop app buys through. A per-agent copy would be a second implementation of
+# idempotency keys, refusal handling and "has the money actually arrived yet" — written once, by
+# somebody who was not thinking about payments that day, in an app that takes real money.
+#
+# It renders NOTHING when there is no accounts service or nobody is signed in, so it is safe
+# unconditionally — which is what makes it a component rather than a decision.
+CREDITS_SNIPPET = """// Credits & billing gets its OWN PAGE (#view-credits in index.html), not a block inside
+// Settings: running out of credits is the one failure a user can fix themselves, and a fix
+// buried three scrolls into a config screen is a fix nobody finds.
+//
+// Mounted ONCE, the first time the page is opened, and never torn down: the panel keeps its own
+// balance listener, so re-mounting on every visit stacks a listener per visit.
+let creditsMounted = false
+async function openCredits() {
+  if (creditsMounted) return
+  creditsMounted = true
+  const body = document.getElementById('creditsBody')
+  body.textContent = ''
+  const panel = await window.agentd.mountCreditsPanel({ client, mount: body })
+  if (!panel.shown) {
+    body.append(Object.assign(document.createElement('p'), {
+      className: 'ghelp',
+      textContent: 'Sign in to see your balance and buy credits.',
+    }))
+  }
+}"""
+
+CREDITS = UiComponent(
+    id="credits",
+    title="Credits & billing",
+    summary=(
+        "Lets the person using this agent see their credit balance and top it up, without "
+        "leaving the app. The same panel agentd shows, from the same SDK, so every agent's "
+        "shop behaves identically. Renders nothing on a build with no accounts service."
+    ),
+    borrowed=("vendor/agentd-client.js",),
+    scripts=("vendor/agentd-client.js",),
+    style_marker="--wallet-accent",
+    styles="""
+/* credits panel theme tokens — the panel ships in the SDK and reads these, so it
+   matches this app's palette instead of looking bolted on. Change the values, keep the names. */
+:root {
+  --wallet-font:      inherit;
+  --wallet-fg:        var(--text, #e8eaed);
+  --wallet-muted:     var(--dim, #9aa0a6);
+  --wallet-card:      var(--pane-2, #14171d);
+  --wallet-border:    var(--hair-2, rgba(255, 255, 255, 0.13));
+  --wallet-radius:    12px;
+  --wallet-accent:    var(--accent, #8ab4f8);
+  --wallet-on-accent: #0d1117;
+  --wallet-warn:      #f0a35e;
+  --wallet-error-bg:  rgba(163, 35, 43, 0.16);
+  --wallet-error-fg:  #f5a3a8;
+}
+.wallet-mount { margin-top: 12px; }
+""",
+    insert=(
+        Insertion(
+            file="app.js",
+            snippet=CREDITS_SNIPPET,
+            # THE SDK CALL, NOT THE WRAPPER'S NAME. `creditsSection` looked like the obvious
+            # thing to match and is wrong twice over: `function creditsSection()` matches its own
+            # DEFINITION, so an agent that kept the helper and lost the call reads as installed;
+            # and the name is the vanilla template's private detail, absent from every React app,
+            # which reaches for the panel directly. `mountCreditsPanel(` is the one thing both
+            # shapes must contain and neither can fake.
+            detect=r"\bmountCreditsPanel\s*\(",
+            anchor=COMPONENTS_ANCHOR,
+            indent="  ",
+            note=(
+                "put it at the top level of the boot function, beside the other view helpers. "
+                "IT NEEDS THREE PIECES OF MARKUP TOO, which a snippet cannot add for you — copy "
+                "them from the chat-app template, which is the reference implementation: (1) a "
+                "nav entry `<button class=\"nav-item\" data-view=\"credits\">Credits</button>` "
+                "next to Settings; (2) a `<section class=\"view\" id=\"view-credits\" hidden>` "
+                "holding a page heading and an empty `<div id=\"creditsBody\">`; (3) two lines "
+                "in `show()` — hide/reveal `view-credits` with the others, and "
+                "`if (next === 'credits') void openCredits()`. A page, not a settings section: "
+                "topping up is what a user comes looking for, and it must be one click away."
+            ),
+        ),
+    ),
+    requires=("mountCreditsPanel",),
+    # Shipped by scaffold_react_app. Rendering it is the author's call — where a page goes is a
+    # judgement about the window — so its presence proves the mechanism arrived and nothing more.
+    provides=("Credits.tsx",),
+    docs=(
+        "This app now has a Credits & billing PAGE, reached from the nav beside Settings — not a "
+        "block inside Settings, because topping up is what a user comes looking for. It shows a "
+        "balance only when the app is pointed at a platform AND somebody is signed in; on a local "
+        "BYOK build it renders nothing, so there is no branch to test. What is on sale comes from "
+        "the server's product catalogue, "
+        "so prices change without releasing this app, and the payment disclosure is the rail's "
+        "own sentence rather than a promise written into the agent. Style it with the "
+        "--wallet-* tokens in style.css."
+    ),
+)
+
+
 class UiComponents:
     """The catalogue. Same shape as ``UiTemplates`` on purpose.
 
@@ -170,7 +291,7 @@ class UiComponents:
     a reusable tier and a special case: sign-in got a mechanism, not a rollout.
     """
 
-    def __init__(self, components: tuple[UiComponent, ...] = (SIGN_IN,)):
+    def __init__(self, components: tuple[UiComponent, ...] = (SIGN_IN, CREDITS)):
         self._by_id = {c.id: c for c in components}
 
     def ids(self) -> tuple[str, ...]:
