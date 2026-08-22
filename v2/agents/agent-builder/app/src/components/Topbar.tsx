@@ -10,8 +10,6 @@ import type { AgentRow } from '../agentd/roster'
 export function Topbar({
   agent,
   who,
-  railOpen,
-  onToggleRail,
   canTogglePanel,
   panelOpen,
   onTogglePanel,
@@ -21,8 +19,6 @@ export function Topbar({
 }: {
   agent: AgentRow | null
   who: WhoAmI
-  railOpen: boolean
-  onToggleRail: () => void
   canTogglePanel: boolean
   panelOpen: boolean
   onTogglePanel: () => void
@@ -36,13 +32,10 @@ export function Topbar({
 }) {
   return (
     <header className="topbar">
-      {/* The collapse control lives in the rail, so collapsing it takes the way back with it.
-          This is that way back, and it appears only when there is nothing else to click. */}
-      {!railOpen && (
-        <button className="icon-btn" onClick={onToggleRail} title="Show sidebar">
-          ⟩
-        </button>
-      )}
+      {/* THE WAY BACK USED TO LIVE HERE. Collapsing the sidebar removed it entirely, taking its
+          own expand control with it, so this button existed to undo that. The sidebar now
+          collapses to agentd's 64px icon rail instead of disappearing — the expand control is
+          always on screen — and a second door to it would be a button that is never needed. */}
       <div className="head-text">
         <span className="eyebrow">{agent ? 'Building' : 'Agent Builder'}</span>
         <h1>{agent ? agent.name || agent.id : 'What should we build?'}</h1>

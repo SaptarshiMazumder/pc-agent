@@ -23,14 +23,14 @@ import { useChat } from './agentd/chat'
 import { useContextUsage } from './agentd/context-usage'
 import { useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
-import { openable, type AgentRow } from './agentd/roster'
-import { useAgents } from './agentd/roster'
-import { forkSession, useSessions } from './agentd/sessions'
+import { openable } from './agentd/roster'
+import { forkSession } from './agentd/sessions'
+import { useApp } from './state/store'
 import { Composer } from './components/Composer'
 import { ContextRing } from './components/ContextRing'
 import { Inspector } from './components/Inspector'
 import { PlanPanel } from './components/PlanPanel'
-import { Rail } from './components/Rail'
+import { Sidebar } from './components/Sidebar'
 import { CreditsModal } from './components/CreditsModal'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsModal } from './components/settings/SettingsModal'
@@ -44,14 +44,22 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [creditsOpen, setCreditsOpen] = useState(false)
-  // WHICH SCREEN the stage is showing. Two, and only two: the conversation you are having,
-  // and the shelf of what you have built. Everything else in this window is a modal, which is
-  // the shape that does not close the thing you opened it because of (see SettingsModal).
-  const [view, setView] = useState<'chat' | 'myagents'>('chat')
-  const [selected, setSelected] = useState<AgentRow | null>(null)
-  const [railOpen, setRailOpen] = useState(true)
-  const [panelOpen, setPanelOpen] = useState(true)
   const [daemonVersion, setDaemonVersion] = useState('')
+
+  /* THE SHELL'S STATE LIVES IN THE STORE, so the sidebar can read it the way agentd's does.
+   *
+   * WHICH SCREEN the stage is showing is still two and only two: the conversation you are having,
+   * and the shelf of what you have built. Everything else in this window is a modal, which is the
+   * shape that does not close the thing you opened it because of (see SettingsModal). */
+  const view = useApp((s) => s.view)
+  const setView = useApp((s) => s.setView)
+  const agents = useApp((s) => s.agents)
+  const selected = useApp((s) => s.selected)
+  const setSelected = useApp((s) => s.select)
+  const sidebarCollapsed = useApp((s) => s.sidebarCollapsed)
+  const panelOpen = useApp((s) => s.panelOpen)
+  const togglePanel = useApp((s) => s.togglePanel)
+  const connectStore = useApp((s) => s.connect)
   // Which start dialog is open, and the suggestion that opened it. One piece of state, because
   // "create" and "edit" are two questions asked by one screen and never both at once.
   const [start, setStart] = useState<{ mode: StartMode; seed?: string } | null>(null)
@@ -67,12 +75,16 @@ export default function App() {
   const platform = usePlatform(client)
   const daemon = useRestartDaemon(client)
 
-  // An agent that did not exist a moment ago was just BUILT — in this window, by this
-  // conversation. Focus it, because watching its files appear is what the inspector is for and
-  // making the user go and pick it would be asking them to find what they just asked for. Only
-  // when nothing is focused: it must never steal the panel from an agent already being worked on.
-  const { agents } = useAgents(client, ready, (born) => setSelected((prev) => prev ?? born))
-  const { chats } = useSessions(client, ready)
+  /* Attach the store to the socket once it is OPEN, and again on every later open: signing in
+   * re-dials with a new session, and both lists have to be re-read as the new identity. `connect`
+   * tears its old subscriptions down first, so calling it twice cannot stack handlers.
+   *
+   * The newborn-focus rule moved in there with the roster — an agent that did not exist a moment
+   * ago was just BUILT, in this window, by this conversation, so it takes focus, and never steals
+   * it from an agent already being worked on. */
+  useEffect(() => {
+    if (ready) connectStore(client)
+  }, [ready, client, connectStore])
 
   const files = useAgentFiles(client, selected?.id ?? null)
   // Read through a ref inside the chat callback: the subscription is opened once, and a stale
@@ -192,23 +204,18 @@ export default function App() {
 
   // NOTHING IN FOCUS -> NO PANEL. Not an empty panel with a placeholder in it: there is no
   // question for the panel to answer yet, and a column of dashes is furniture.
-  const shellClass = ['shell', railOpen ? '' : 'no-rail', selected && panelOpen ? '' : 'no-panel']
+  const shellClass = ['shell', sidebarCollapsed ? 'rail-icons' : '', selected && panelOpen ? '' : 'no-panel']
     .filter(Boolean)
     .join(' ')
 
   return (
     <div className={shellClass}>
-      <Rail
-        open={railOpen}
-        onToggle={() => setRailOpen((v) => !v)}
-        chats={chats}
+      <Sidebar
         openKey={chat.sessionKey}
         onOpenChat={(key) => {
           setView('chat')
           void openChat(key)
         }}
-        agents={openable(agents)}
-        selectedId={selected?.id || ''}
         // Picking an agent in the sidebar IS editing it — the same call the picker makes. A
         // sidebar row that only highlighted something would be a click that does nothing.
         onPickAgent={(id) => {
@@ -219,8 +226,6 @@ export default function App() {
         onEdit={() => setStart({ mode: 'edit' })}
         onSettings={() => setSettingsOpen(true)}
         onCredits={() => setCreditsOpen(true)}
-        onMyAgents={() => setView('myagents')}
-        view={view}
         auth={platform.auth}
         authError={platform.error}
         onSignIn={platform.signIn}
@@ -233,14 +238,12 @@ export default function App() {
         <Topbar
           agent={selected}
           who={who}
-          railOpen={railOpen}
-          onToggleRail={() => setRailOpen((v) => !v)}
           onRestart={() => void daemon.restart()}
           restarting={daemon.busy}
           restartNote={daemon.note}
           canTogglePanel={!!selected}
           panelOpen={panelOpen}
-          onTogglePanel={() => setPanelOpen((v) => !v)}
+          onTogglePanel={togglePanel}
         />
 
         {view === 'myagents' ? (

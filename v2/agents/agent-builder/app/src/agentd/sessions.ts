@@ -1,8 +1,12 @@
-/* The conversation list in the rail. */
+/* Conversations with Agent Builder: the row shape the rail renders, and the operations you can
+ * perform on one.
+ *
+ * THE LIST ITSELF LIVES IN THE STORE (state/store.ts), with the `sessions.changed` subscription
+ * that keeps it current. It moved there so the copied sidebar components can read it the way
+ * agentd's do; what stays here is everything that is about a session rather than about the list. */
 
 import type { AgentdClient } from '@agentd/client'
-import { useCallback, useEffect, useState } from 'react'
-import { AGENT_ID, useDaemonEvent } from './client'
+import { AGENT_ID } from './client'
 
 export interface ChatRow {
   sessionId: string
@@ -27,32 +31,32 @@ export function when(ts?: number): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
-/** Conversations with Agent Builder, kept current with no polling.
+/**
+ * Give a conversation a name of your own.
  *
- *  `sessions.changed` is the event that matters here: a new chat gets its auto-title a moment
- *  AFTER the first exchange, so a list refreshed only on send would show "Untitled" until the
- *  next reload. */
-export function useSessions(client: AgentdClient, ready: boolean) {
-  const [chats, setChats] = useState<ChatRow[]>([])
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await client.sessions(AGENT_ID)
-      setChats((res?.sessions as ChatRow[]) || [])
-    } catch {
-      // Advisory only — the chat itself works without its own history list.
-      setChats([])
-    }
-  }, [client])
-
-  useDaemonEvent(client, 'sessions.changed', () => void reload())
-
-  // Gated on the socket being OPEN — see the same note in useAgents.
-  useEffect(() => {
-    if (ready) void reload()
-  }, [ready, reload])
-
-  return { chats, reload }
+ * AN EMPTY TITLE IS NOT A NO-OP — it is how you take a manual name back off, and the daemon
+ * treats it that way: it clears the `manual` flag so auto-titling resumes from the transcript.
+ * So nothing here guards against a blank; refusing to send one would quietly remove the only way
+ * to undo a rename.
+ *
+ * The daemon broadcasts `sessions.changed`, which is what refreshes every open client's list —
+ * including this one. Writing the new title into local state as well would race that broadcast
+ * and let the row flicker between the two answers.
+ */
+export async function renameSession(
+  client: AgentdClient,
+  sessionKey: string,
+  title: string,
+): Promise<void> {
+  const res: any = await client.request('sessions.rename', {
+    agentId: AGENT_ID,
+    sessionKey,
+    title,
+  })
+  // Reported, never swallowed — same reason as the fork below.
+  if (!res?.ok) {
+    throw new Error(String(res?.error || 'the daemon would not rename this conversation'))
+  }
 }
 
 /**

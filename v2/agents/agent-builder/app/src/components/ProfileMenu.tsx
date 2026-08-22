@@ -33,6 +33,7 @@ export function ProfileMenu({
   onCredits,
   onSignIn,
   onSignOut,
+  variant = 'footer',
 }: {
   /** This client's own view of its session. Null until the first read, or after one failed. */
   auth: AuthState | null
@@ -43,6 +44,9 @@ export function ProfileMenu({
   /** Draws the SDK's gate and re-reads the account. Never a form of this window's own. */
   onSignIn: () => Promise<void> | void
   onSignOut: () => Promise<void> | void
+  /** Which footer this is sitting in: the full sidebar's, or the collapsed icon rail's. Only the
+   *  trigger's shape and the popover's anchor change — agentd switches the same two things. */
+  variant?: 'footer' | 'rail'
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState('')
@@ -79,15 +83,25 @@ export function ProfileMenu({
       {/* A backdrop rather than a document listener: it closes on any outside click without this
           menu having to reason about which clicks belong to it. */}
       {open && <div className="menu-backdrop" onClick={() => setOpen(false)} />}
-      <button
-        className={`icon-btn footer-icon ${signedIn ? '' : 'anon'}`}
-        title={signedIn ? `Signed in as ${auth?.email || 'your account'}` : 'Account'}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <User size={17} />
-      </button>
+      {variant === 'footer' ? (
+        <button
+          className={`icon-btn footer-icon ${signedIn ? '' : 'anon'} ${open ? 'menu-trigger-on' : ''}`}
+          title={signedIn ? `Signed in as ${auth?.email || 'your account'}` : 'Account'}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <User size={17} />
+        </button>
+      ) : (
+        <button
+          className={`rail-btn ${open ? 'active' : ''}`}
+          title={signedIn ? `Signed in as ${auth?.email || 'your account'}` : 'Account'}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <User size={18} />
+        </button>
+      )}
       {open && (
-        <div className="app-menu app-menu--left">
+        <div className={`app-menu ${variant === 'rail' ? 'app-menu--rail' : 'app-menu--left'}`}>
           <div className="pmenu-head">
             <div className="pmenu-name">{signedIn ? auth?.email || 'Signed in' : 'Local'}</div>
             <div className="pmenu-desc">

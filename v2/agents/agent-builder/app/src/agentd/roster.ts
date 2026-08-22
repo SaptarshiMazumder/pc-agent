@@ -1,13 +1,16 @@
 /* The agent roster — every agent on this machine, and which one this conversation is about.
  *
+ * THE ROSTER ITSELF LIVES IN THE STORE (state/store.ts), with the `agents.changed` subscription
+ * and the newborn-focus rule that used to sit in `useAgents` here. What stays is the row shape
+ * and the pure predicates over it — who may be opened, who may be published, what colour a row
+ * gets — none of which need a connection.
+ *
  * Reading other agents is a privilege the daemon grants Agent Builder alone (CROSS_AGENT_READS).
  * It covers READS only: this window can list, inspect and open any agent's files, and can never
  * chat or write as one.
  */
 
-import type { AgentdClient } from '@agentd/client'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AGENT_ID, useDaemonEvent } from './client'
+import { AGENT_ID } from './client'
 
 export interface AgentRow {
   id: string
@@ -54,51 +57,3 @@ export const publishBlockReason = (a: AgentRow | null): string =>
 const COLORS = ['#8b74ff', '#5ec8c0', '#f0a45d', '#e8749b', '#7bb4f2', '#b88bd8']
 export const agentColor = (a: AgentRow, i: number): string =>
   a.color || COLORS[i % COLORS.length] || '#8b74ff'
-
-/**
- * The roster, kept current with no polling — `agents.changed` is broadcast when an agent is
- * created, reloaded or installed.
- *
- * `onBorn` fires when exactly one agent appears that was not there before. That agent was just
- * BUILT, in this window, by this conversation — focusing it is what the inspector is for, and
- * making the user go and pick it would be asking them to find what they just asked for.
- */
-export function useAgents(client: AgentdClient, ready: boolean, onBorn: (agent: AgentRow) => void) {
-  const [agents, setAgents] = useState<AgentRow[]>([])
-  // null until the first load, so a cold start is not "everything is new"
-  const seen = useRef<Set<string> | null>(null)
-  const born = useRef(onBorn)
-  born.current = onBorn
-
-  const reload = useCallback(async () => {
-    let rows: AgentRow[] = []
-    try {
-      const res = await client.agents()
-      rows = (res?.agents as AgentRow[]) || []
-    } catch {
-      // The roster is chrome. A failure here leaves the list empty and the rest of the window
-      // working; the connection status in the rail is what reports a daemon that is not there.
-      rows = []
-    }
-    const ids = new Set(openable(rows).map((a) => a.id))
-    if (seen.current) {
-      const fresh = [...ids].filter((id) => !seen.current!.has(id))
-      if (fresh.length === 1) {
-        const agent = rows.find((a) => a.id === fresh[0])
-        if (agent) born.current(agent)
-      }
-    }
-    seen.current = ids
-    setAgents(rows)
-  }, [client])
-
-  useDaemonEvent(client, 'agents.changed', () => void reload())
-
-  // Gated on the socket being OPEN. A request fired before the connection is up fails, and this
-  // hook has no retry — the roster would sit empty until something else happened to change it.
-  useEffect(() => {
-    if (ready) void reload()
-  }, [ready, reload])
-
-  return { agents, reload }
-}
