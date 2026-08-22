@@ -1,25 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowLeft,
-  Ban,
-  BadgeCheck,
-  BarChart3,
-  Check,
-  CircleDollarSign,
-  KeyRound,
-  Package,
-  RefreshCw,
-  RotateCw,
-  Search,
-  ShieldCheck,
-  Trash2,
-  Users,
-  Wallet
-} from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, CircleDollarSign, Cpu, KeyRound, Package, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, Users, Wallet } from 'lucide-react'
 
 import * as api from '../lib/admin'
+import DeploymentDefaults from './DeploymentDefaults'
 import PageShell from './PageShell'
 
 /**
@@ -39,10 +22,14 @@ import PageShell from './PageShell'
  * code — it already explains itself better than a client can from a 409.
  */
 
-type Tab = 'overview' | 'users' | 'usage' | 'agents' | 'creators' | 'money' | 'keys'
+type Tab = 'overview' | 'defaults' | 'users' | 'usage' | 'agents' | 'creators' | 'money' | 'keys'
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <Activity size={16} /> },
+  // Second, deliberately: after "how is the platform doing", the next thing an operator wants is
+  // "what does everyone get by default". It is the only tab that writes the DAEMON rather than
+  // the accounts service.
+  { id: 'defaults', label: 'Defaults', icon: <Cpu size={16} /> },
   { id: 'users', label: 'Users', icon: <Users size={16} /> },
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={16} /> },
   { id: 'agents', label: 'Agents', icon: <Package size={16} /> },
@@ -1275,6 +1262,7 @@ export default function AdminView(): ReactNode {
     >
       {who.error && <div className="admin-error">{who.error}</div>}
       {tab === 'overview' && <OverviewPanel />}
+      {tab === 'defaults' && <DeploymentDefaults />}
       {tab === 'users' && <UsersPanel />}
       {tab === 'usage' && <UsagePanel />}
       {tab === 'agents' && <AgentsPanel />}

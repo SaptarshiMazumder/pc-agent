@@ -23,6 +23,7 @@ import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useMode } from './lib/mode'
 import { isDesktop } from './lib/platform'
+import { onRouteChange } from './lib/route'
 import { installRum } from './lib/rum'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
@@ -53,6 +54,11 @@ export default function App() {
     // the daemon (platform.connect / platform.disconnect) and refresh platform status.
     if (isDesktop && connection === 'open') void applyMode()
   }, [applyMode, mode, session, connection])
+
+  // BACK AND FORWARD. The store pushes an address on every navigation; this is the other half,
+  // so the browser's own buttons move between pages instead of leaving the app on one screen
+  // with a URL that says otherwise. A no-op on desktop, where there is no address bar to obey.
+  useEffect(() => onRouteChange((v) => useApp.setState({ view: v || 'chat' })), [])
 
   // app-wide soft scroll edges: auto-applies the fade to every scroll container (any page)
   useEffect(() => installSoftScroll(), [])

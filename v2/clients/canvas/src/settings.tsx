@@ -55,6 +55,21 @@ interface AgentConfig {
   [k: string]: unknown
 }
 
+/** One selectable model, as `config.get` publishes it (value + label + group). */
+interface ModelOption {
+  value: string
+  label?: string
+  group?: string
+}
+
+/** What `config.get` answers. `accountScoped` is the flag that decides whether this page is a
+ *  READOUT of the machine's settings or an EDITOR of the signed-in user's own. */
+interface ConfigPayload {
+  values: AgentConfig
+  catalogs?: Record<string, ModelOption[]>
+  accountScoped?: boolean
+}
+
 type Tab = 'account' | 'models' | 'tools'
 
 function Row({ k, d, value }: { k: string; d?: string; value: JSX.Element | string }): JSX.Element {
@@ -220,7 +235,22 @@ function BuyCredits({
   )
 }
 
-function ModelsTab({ config, plugins }: { config: AgentConfig | null; plugins: CatalogPlugin[] }): JSX.Element {
+function ModelsTab({
+  config,
+  plugins,
+  models,
+  editable,
+  saving,
+  onSave
+}: {
+  config: AgentConfig | null
+  plugins: CatalogPlugin[]
+  models: ModelOption[]
+  /** true when this daemon keeps a config per account — then these knobs are the user's own */
+  editable: boolean
+  saving: string
+  onSave(patch: Record<string, unknown>): Promise<void>
+}): JSX.Element {
   // Every tool that actually runs on a model, with the model it resolves to TODAY — the answer to
   // "what is this agent using", which no single config value can give: an agent's own agent.toml
   // overrides the global config per tool, and the resolver is the only thing that knows the winner.
@@ -235,8 +265,46 @@ function ModelsTab({ config, plugins }: { config: AgentConfig | null; plugins: C
     <>
       <div className="settings-section"><Cpu size={13} />The agent's brain</div>
       <div className="settings-card">
-        <Row k="Model" d="what answers you in chat and decides which tools to run" value={config?.model || '—'} />
-        <Row k="Reasoning effort" value={String(config?.reasoning_effort || 'default')} />
+        {editable ? (
+          <>
+            <Row
+              k="Model"
+              d="what answers you in chat and decides which tools to run"
+              value={
+                <select
+                  className="settings-input"
+                  value={String(config?.model || '')}
+                  onChange={(e) => void onSave({ model: e.target.value })}
+                >
+                  {models.length === 0 && <option value="">{String(config?.model || '—')}</option>}
+                  {models.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label || m.value}</option>
+                  ))}
+                </select>
+              }
+            />
+            <Row
+              k="Reasoning effort"
+              d="how much the model thinks before it answers"
+              value={
+                <select
+                  className="settings-input"
+                  value={String(config?.reasoning_effort || 'off')}
+                  onChange={(e) => void onSave({ reasoning_effort: e.target.value })}
+                >
+                  {['off', 'low', 'medium', 'high'].map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              }
+            />
+          </>
+        ) : (
+          <>
+            <Row k="Model" d="what answers you in chat and decides which tools to run" value={config?.model || '—'} />
+            <Row k="Reasoning effort" value={String(config?.reasoning_effort || 'default')} />
+          </>
+        )}
         {fallbacks.length > 0 && (
           <Row k="Fallbacks" d="tried in order when the model above cannot serve a turn" value={fallbacks.join(' → ')} />
         )}
@@ -257,9 +325,23 @@ function ModelsTab({ config, plugins }: { config: AgentConfig | null; plugins: C
         ))}
       </div>
       <p className="settings-note">
-        Read-only here. On a hosted deployment this configuration belongs to the server, not to one
-        account — changing it would change it for everyone signed in. Run the agent on your own
-        machine to edit it.
+        {editable ? (
+          <>
+            These are your settings for this agent, stored with your account. Changing the model
+            here affects only your chats — other people using this agent keep theirs, and the
+            server's defaults are untouched. Takes effect on your next message.
+            {saving === 'saving' ? ' · saving…' : saving === 'saved' ? ' · saved' : ''}
+          </>
+        ) : (
+          <>
+            Read-only here. This install keeps ONE configuration for the machine, so changing it
+            would change it for everyone who uses this daemon — edit it in the agentd settings
+            instead.
+          </>
+        )}
+      </p>
+      <p className="settings-note">
+        The tool models above come from the server's defaults and this agent's own definition.
       </p>
     </>
   )
@@ -325,7 +407,36 @@ export function SettingsPage({
   const [tab, setTab] = useState<Tab>('account')
   const [plugins, setPlugins] = useState<CatalogPlugin[]>([])
   const [config, setConfig] = useState<AgentConfig | null>(null)
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [editable, setEditable] = useState(false)
+  const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
+
+  /** Save one per-agent override into THIS ACCOUNT's config.
+   *
+   * `agents.<id>` is the per-agent layer the daemon already resolves over the daemon-wide values,
+   * and on a hosted daemon the whole document lands in the account's own overlay — so "my
+   * figure-creator runs on a different model" is true for this user and invisible to every other.
+   * The gateway forces the block to this connection's own agent, so a page cannot configure
+   * somebody else's agent even if it asks to. */
+  const saveAgent = async (patch: Record<string, unknown>): Promise<void> => {
+    if (!agentId) return
+    setSaving('saving')
+    setError('')
+    try {
+      const res = await client.request<{ saved?: boolean; error?: string }>('config.set', {
+        agentId,
+        patch: { agents: { [agentId]: patch } }
+      })
+      if (res?.saved === false) throw new Error(res.error || 'not saved')
+      setConfig((c) => ({ ...(c || {}), ...patch } as AgentConfig))
+      setSaving('saved')
+      setTimeout(() => setSaving(''), 1600)
+    } catch (e) {
+      setSaving('')
+      setError(String((e as Error)?.message || e))
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -342,8 +453,15 @@ export function SettingsPage({
         // `values` — the payload's own name for the effective value of every exposed knob
         // (gateway._config_get). Not `config`: that guess rendered an em-dash where the model
         // should be, which is exactly the sort of wrong-but-plausible a settings page must not do.
-        const cfg = await client.request<{ values: AgentConfig }>('config.get', agentId ? { agentId } : {})
-        if (alive) setConfig(cfg.values || null)
+        const cfg = await client.request<ConfigPayload>('config.get', agentId ? { agentId } : {})
+        if (alive) {
+          setConfig(cfg.values || null)
+          setModels(cfg.catalogs?.models || [])
+          // accountScoped => this daemon keeps a config PER USER, so the knobs below are this
+          // account's to change and changing them reaches nobody else. On a desktop it is absent
+          // and the page stays read-only, because there the config really is the machine's.
+          setEditable(!!cfg.accountScoped)
+        }
       } catch {
         /* an older daemon, or one that does not expose config — the other tabs still work */
       }
@@ -377,7 +495,16 @@ export function SettingsPage({
         <div className="settings-inner">
           {error && <div className="banner banner-error">{error}</div>}
           {tab === 'account' && <AccountTab account={account} />}
-          {tab === 'models' && <ModelsTab config={config} plugins={plugins} />}
+          {tab === 'models' && (
+            <ModelsTab
+              config={config}
+              plugins={plugins}
+              models={models}
+              editable={editable}
+              saving={saving}
+              onSave={saveAgent}
+            />
+          )}
           {tab === 'tools' && <ToolsTab plugins={plugins} />}
         </div>
       </div>

@@ -34,6 +34,14 @@ interface ConfigData {
   providerKeys: string[]
   /** cloud/platform mode: provider keys are server-managed → API-Keys section is read-only */
   keysLocked?: boolean
+  /** hosted: these settings are THIS ACCOUNT's — saves land in the account's own overlay, and
+   *  every other account (and the deployment's own config) is untouched by them. */
+  accountScoped?: boolean
+  /** hosted: config keys that belong to the MACHINE (ports, paths, storage, sandbox). The daemon
+   *  refuses them for an account, so they render locked rather than failing on Save. */
+  machineOnly?: string[]
+  /** false on a hosted account: the .env is the machine's, shared by every tenant. */
+  keysWritable?: boolean
   catalogs: Record<string, ModelOption[]>
   raw: string
   effectiveModel: string
@@ -83,6 +91,14 @@ function setPath(obj: Record<string, any>, path: string, value: any): Record<str
 function envVarFor(data: ConfigData | null, key: string): string {
   if (fieldScope(key) !== 'config') return ''
   return data?.envOverrides?.[key.split('.')[0]] || ''
+}
+
+/** Is this knob the MACHINE's rather than this account's? True only on a hosted connection, where
+ *  ports/paths/storage/sandbox belong to whoever deployed the daemon. Nesting maps to its
+ *  top-level config key, exactly like env pinning. */
+function machineOwned(data: ConfigData | null, key: string): boolean {
+  if (!data?.accountScoped || fieldScope(key) !== 'config') return false
+  return (data.machineOnly || []).includes(key.split('.')[0])
 }
 
 /** the shared render context passed down to GroupCard / FieldRow */
@@ -252,7 +268,14 @@ export default function SettingsView() {
   const ctx: Ctx = { draft, data, keysDraft, listBuf, setListBuf, setDraft, valueOf, setValue }
 
   const sub = data ? (
-    <>Configuring <code>{data.path}</code></>
+    data.accountScoped ? (
+      // Hosted: the file being edited is this account's own overlay. Saying so up front is what
+      // keeps "why can't I change the port" from reading as a bug — and reassures the user that
+      // what they DO change reaches nobody else.
+      <>Your settings — saved to your account, and applied only to your agents</>
+    ) : (
+      <>Configuring <code>{data.path}</code></>
+    )
   ) : loadError ? (
     <span className="danger-text">Couldn’t load config: {loadError}</span>
   ) : (
@@ -363,7 +386,11 @@ function GroupCard({ group, ctx, query = '' }: { group: GroupDef; ctx: Ctx; quer
             envSet={fieldScope(field.key) === 'env' && !!ctx.data?.env[bareKey(field.key)]}
             envTouched={fieldScope(field.key) === 'env' && (ctx.keysDraft[bareKey(field.key)] ?? '') !== (ctx.data?.envValues?.[bareKey(field.key)] ?? '')}
             pinnedBy={envVarFor(ctx.data, field.key)}
-            lockedByPlatform={fieldScope(field.key) === 'env' && !!ctx.data?.keysLocked}
+            lockedByPlatform={
+              fieldScope(field.key) === 'env' &&
+              (!!ctx.data?.keysLocked || ctx.data?.keysWritable === false)
+            }
+            machineLocked={machineOwned(ctx.data, field.key)}
             listBuf={ctx.listBuf}
             setListBuf={ctx.setListBuf}
             onChange={(v) => ctx.setValue(field, v)}
@@ -394,6 +421,7 @@ function ModelsPanel({ ctx }: { ctx: Ctx }) {
       envSet={false}
       envTouched={false}
       pinnedBy={envVarFor(ctx.data, f.key)}
+      machineLocked={machineOwned(ctx.data, f.key)}
       listBuf={ctx.listBuf}
       setListBuf={ctx.setListBuf}
       onChange={(v) => ctx.setValue(f, v)}
@@ -540,6 +568,7 @@ function FieldRow({
   envTouched,
   pinnedBy,
   lockedByPlatform,
+  machineLocked,
   listBuf,
   setListBuf,
   onChange
@@ -553,6 +582,8 @@ function FieldRow({
   pinnedBy?: string
   /** cloud/platform mode: provider keys are managed server-side → render read-only */
   lockedByPlatform?: boolean
+  /** hosted: this knob describes the MACHINE, which an account does not own → render read-only */
+  machineLocked?: boolean
   listBuf: Record<string, string>
   setListBuf: (u: (b: Record<string, string>) => Record<string, string>) => void
   onChange: (v: any) => void
@@ -681,11 +712,13 @@ function FieldRow({
   const stacked = field.type === 'list' || field.type === 'secret' || field.type === 'text' || field.type === 'modellist'
   // Read-only when an env var pins the knob OR (for provider keys) the daemon is in cloud/platform
   // mode, where keys live on the Model Proxy and a local edit would be meaningless.
-  const lockTitle = lockedByPlatform
-    ? 'Locked — provider keys are managed by the platform in cloud mode (switch to Local mode to use your own keys)'
-    : pinnedBy
-      ? `Locked — set by ${pinnedBy} in .env (remove it there to edit here)`
-      : ''
+  const lockTitle = machineLocked
+    ? 'Locked — this setting belongs to the server, not to your account. Your models, tools and per-agent settings are yours to change.'
+    : lockedByPlatform
+      ? 'Locked — provider keys are managed by the platform in cloud mode (switch to Local mode to use your own keys)'
+      : pinnedBy
+        ? `Locked — set by ${pinnedBy} in .env (remove it there to edit here)`
+        : ''
   const locked = !!lockTitle
   return (
     <div className={`settings-row ${stacked ? 'settings-row--stacked' : ''} ${locked ? 'settings-row--pinned' : ''}`}>
@@ -1128,8 +1161,8 @@ function RuntimeTab({
     ['Gateway', hello?.version || '—'],
     ['Effective model', data?.effectiveModel || hello?.model || '—'],
     ['Workspace', hello?.workspace || '—'],
-    ['Config file', data?.path || '—'],
-    ['Secrets file', data?.envPath || '—'],
+    ['Config file', data?.accountScoped ? 'your account' : data?.path || '—'],
+    ['Secrets file', data?.envPath || (data?.accountScoped ? 'managed by the server' : '—')],
     ['Registry', hello?.registryUrl || `local · ${hello?.localRegistryDir || '?'}`]
   ]
 
@@ -1171,8 +1204,18 @@ function RuntimeTab({
       <div className="settings-group">
         <div className="settings-section">Advanced — raw config</div>
         <p className="settings-help">
-          The full <code>agentd.config.json</code>. Editing here overwrites the file wholesale — a
-          safety net for knobs not surfaced above. Saving needs a daemon restart to apply.
+          {data?.accountScoped ? (
+            <>
+              Your own config, as JSON — the keys you have overridden, and nothing else. Saving
+              replaces it wholesale and takes effect on your next message. Server settings (ports,
+              paths, storage) are not editable here and are rejected if included.
+            </>
+          ) : (
+            <>
+              The full <code>agentd.config.json</code>. Editing here overwrites the file wholesale — a
+              safety net for knobs not surfaced above. Saving needs a daemon restart to apply.
+            </>
+          )}
         </p>
         <textarea
           className="settings-input settings-area settings-raw"

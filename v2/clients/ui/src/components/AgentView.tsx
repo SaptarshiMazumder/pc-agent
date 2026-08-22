@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDown, AppWindow } from 'lucide-react'
+import { SquarePen, FolderOpen, Sparkles, MessageSquare, ChevronRight, ChevronDown, AppWindow, Cpu } from 'lucide-react'
 
 import { gateway } from '../gateway/client'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
@@ -30,7 +30,112 @@ interface AgentDetail {
   app?: { title: string; url: string; mode?: 'window' | 'browser' } | null
 }
 
-type Tab = 'chats' | 'workspace' | 'skills'
+type Tab = 'chats' | 'workspace' | 'skills' | 'settings'
+
+/** One selectable model, as `config.get` publishes it. */
+interface ModelOption { value: string; label?: string; group?: string }
+
+/**
+ * PER-AGENT SETTINGS — this agent's own model, layered over the daemon's.
+ *
+ * On a hosted daemon the whole document lands in the signed-in account's own config, so this is
+ * "MY figure-creator runs on Opus" and not "everyone's does". The daemon resolves it per run
+ * (config.agents[<id>] over the daemon-wide values), so a change applies to the next message with
+ * no restart — and to nobody else's messages, ever.
+ */
+function AgentSettings({ agentId }: { agentId: string }) {
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [values, setValues] = useState<Record<string, unknown>>({})
+  const [scoped, setScoped] = useState(false)
+  const [note, setNote] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const res = (await gateway.request('config.get')) as {
+          values?: Record<string, any>
+          catalogs?: Record<string, ModelOption[]>
+          accountScoped?: boolean
+        }
+        if (!alive) return
+        setModels(res.catalogs?.models || [])
+        setValues((res.values?.agents || {})[agentId] || {})
+        setScoped(!!res.accountScoped)
+      } catch (e) {
+        if (alive) setNote(String((e as Error)?.message || e))
+      }
+    })()
+    return () => { alive = false }
+  }, [agentId])
+
+  const save = async (patch: Record<string, unknown>): Promise<void> => {
+    const next = { ...values, ...patch }
+    setValues(next)
+    setNote('Saving…')
+    try {
+      const res = (await gateway.request('config.set', {
+        patch: { agents: { [agentId]: next } }
+      })) as { saved?: boolean; error?: string }
+      setNote(res?.saved === false ? res.error || 'Not saved' : 'Saved')
+    } catch (e) {
+      setNote(String((e as Error)?.message || e))
+    }
+  }
+
+  return (
+    <div className="settings-group">
+      <div className="settings-section"><Cpu size={13} />Model for this agent</div>
+      <div className="settings-card">
+        <div className="settings-row">
+          <div className="settings-label">
+            <div className="k">Model</div>
+            <div className="d">
+              overrides the default for this agent only. “Default” follows whatever the general
+              model is set to.
+            </div>
+          </div>
+          <div className="settings-ctl">
+            <select
+              className="settings-input"
+              value={String(values.model || '')}
+              onChange={(e) => void save({ model: e.target.value })}
+            >
+              <option value="">Default</option>
+              {models.map((m) => (
+                <option key={m.value} value={m.value}>{m.label || m.value}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-label">
+            <div className="k">Reasoning effort</div>
+            <div className="d">how much this agent thinks before answering</div>
+          </div>
+          <div className="settings-ctl">
+            <select
+              className="settings-input"
+              value={String(values.reasoning_effort || '')}
+              onChange={(e) => void save({ reasoning_effort: e.target.value })}
+            >
+              <option value="">Default</option>
+              {['off', 'low', 'medium', 'high'].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+      <p className="settings-help">
+        {scoped
+          ? 'Yours alone — stored with your account, applied to your chats with this agent. Other people using it keep their own.'
+          : 'Applies to this agent on this machine.'}
+        {note ? ` · ${note}` : ''}
+      </p>
+    </div>
+  )
+}
 
 /** One agent's detail page (view:'agent', uses viewedAgentId). Fixed header + tabs; only the
  *  body scrolls. TABS: Chats (searchable table w/ preview) / Workspace (file tree) / Skills
@@ -156,6 +261,9 @@ export default function AgentView() {
               <button className={tab === 'workspace' ? 'on' : ''} onClick={() => setTab('workspace')}>
                 <FolderOpen size={13} />Workspace
               </button>
+              <button className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
+                <Cpu size={14} />Settings
+              </button>
               <button className={tab === 'skills' ? 'on' : ''} onClick={() => setTab('skills')}>
                 <Sparkles size={13} />Skills
               </button>
@@ -190,6 +298,8 @@ export default function AgentView() {
           )}
 
           {tab === 'workspace' && <WorkspaceTree agentId={agent.id} />}
+
+          {tab === 'settings' && <AgentSettings agentId={agent.id} />}
 
           {tab === 'skills' && (() => {
             // own skills show by default; inherited (default-library) ones hide behind a toggle

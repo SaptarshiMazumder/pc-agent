@@ -15,6 +15,8 @@
  * so the UI shows that rather than inventing its own message from a status code.
  */
 
+import { useEffect, useState } from 'react'
+
 import { accountsUrl, currentAccessToken, isAccountsMode } from './auth'
 
 export class AdminError extends Error {
@@ -393,3 +395,28 @@ export const setSecret = (
   value: string
 ): Promise<{ rolled: string[]; roll_errors: string[]; in_effect: boolean; note: string }> =>
   post('/admin/keys/secret', { name, value })
+
+
+/** Is the signed-in account an admin? ONE answer for the whole shell.
+ *
+ * The nav entry and the settings menu both need it, and two copies of the question drifted into
+ * two different answers the moment one of them cached. Not a security boundary — the server
+ * refuses every /admin/* call regardless of what this returns; it decides what is DRAWN. */
+export function useIsAdmin(): boolean {
+  const [admin, setAdmin] = useState(false)
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      try {
+        const me = await whoami()
+        if (live) setAdmin(!!me.is_admin)
+      } catch {
+        if (live) setAdmin(false)
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [])
+  return admin
+}

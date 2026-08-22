@@ -34,6 +34,7 @@ import { onTokens } from '../lib/tokens'
 import { getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
+import { pushView, viewFromLocation } from '../lib/route'
 import { reportReconnect, reportRun } from '../lib/rum'
 import {
   emptySession,
@@ -602,7 +603,10 @@ export const useApp = create<AppState>((set, get) => {
     supervisor: { phase: 'looking', message: 'starting…' },
     connection: 'idle',
     hello: null,
-    view: 'chat',
+    // The URL wins on a cold load, so /admin opens the control plane instead of the default page.
+    // Null everywhere the address bar is not ours to read (Electron's file://), which is what
+    // keeps the desktop app on exactly the path it had before.
+    view: viewFromLocation() || 'chat',
     settingsTarget: null,
     theme: initialTheme(),
 
@@ -701,6 +705,10 @@ export const useApp = create<AppState>((set, get) => {
 
     setView(view) {
       set({ view })
+      // Keep the address honest, so a page can be reloaded, bookmarked or sent to someone. Views
+      // that name a thing (an agent, a project) have no address yet and leave the URL alone
+      // rather than pointing at a page that would come back without its subject.
+      pushView(view)
       // My Agents joins the user's agents against the catalog for publish state, so it needs the
       // same refresh the marketplace did — stale here means a just-published agent shows "private".
       if (view === 'marketplace' || view === 'myagents') void get().refreshCatalog()

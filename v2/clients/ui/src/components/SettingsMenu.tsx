@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Settings, SlidersHorizontal, Database, User, CreditCard, ShieldCheck } from 'lucide-react'
 
-import { isAdmin } from '../lib/admin'
+import { useIsAdmin } from '../lib/admin'
 import { useAuthSession } from '../lib/auth'
 import { useBilling } from '../lib/billing'
 import { useApp, type View } from '../state/store'
@@ -35,23 +35,13 @@ export default function SettingsMenu({ variant }: { variant: 'footer' | 'rail' }
   const { billing } = useBilling()
   const session = useAuthSession()
   const [open, setOpen] = useState(false)
-  const [admin, setAdmin] = useState(false)
+  // ONE source, shared with the nav (lib/admin.useIsAdmin). This menu used to ask separately and
+  // cache separately, so the two could disagree about whether to draw the same destination.
+  const admin = useIsAdmin()
 
-  // Asked once per account, not per render. Not a security boundary — the server refuses every
-  // /admin/* call regardless; this only decides whether the entry is drawn.
-  useEffect(() => {
-    let live = true
-    if (!session) {
-      setAdmin(false)
-      return
-    }
-    void isAdmin(session.accountId).then((yes) => live && setAdmin(yes))
-    return () => {
-      live = false
-    }
-  }, [session?.accountId])
-
-  const items = admin ? [...ITEMS, ADMIN_ITEM] : ITEMS
+  // Admin also lives in the sidebar now, where a place belongs. It stays here as a shortcut for
+  // whoever already knows this menu — same destination, drawn on the same answer.
+  const items = admin && !session ? ITEMS : admin ? [...ITEMS, ADMIN_ITEM] : ITEMS
   const active = items.some((i) => i.id === view)
   const label = (it: { id: View; label: string }): string =>
     it.id === 'subscription' && billing ? 'Credits & billing' : it.label
