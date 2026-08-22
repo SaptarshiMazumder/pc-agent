@@ -8,15 +8,21 @@ import {
 
 import type { Artifact } from '../lib/artifacts'
 import { platform } from '../lib/platform'
-import { useCanvasHost } from '../canvas/host'
+import { readArtifactText, useCanvasHost, type CanvasHost } from '../canvas/host'
 
 type Tool = 'select' | 'pen' | 'marker' | 'rect' | 'ellipse' | 'arrow' | 'text' | 'crop'
 const PALETTE = ['#e5352b', '#f5a623', '#1fb854', '#2d7ff9', '#111111', '#ffffff']
 
 /** How each file kind loads into / saves out of the shared fabric canvas. */
 export interface EditorMode {
-  /** populate the canvas from the file; return the working (logical) size. */
-  load: (canvas: fabric.Canvas, artifact: Artifact) => Promise<{ width: number; height: number }>
+  /** populate the canvas from the file; return the working (logical) size. `host` travels as an
+   *  argument because a mode is a module-level object and cannot call a hook — and only the host
+   *  knows how THIS window reaches a file (Electron IPC, or an HTTP fetch from its own daemon). */
+  load: (
+    canvas: fabric.Canvas,
+    artifact: Artifact,
+    host: CanvasHost
+  ) => Promise<{ width: number; height: number }>
   /** persist the canvas back (copy=Save As). `exporters.png()` -> PNG data URL,
    *  `exporters.svg()` -> SVG markup (both flattened at logical size). */
   save: (canvas: fabric.Canvas, copy: boolean, exporters: Exporters, artifact: Artifact) => Promise<{ ok?: boolean } | undefined>
@@ -149,7 +155,7 @@ export default function FabricEditor({ a, mode }: { a: Artifact; mode: EditorMod
     const c = new fabric.Canvas(el, { backgroundColor: '#ffffff', preserveObjectStacking: true, enableRetinaScaling: true })
     fcRef.current = c
 
-    void mode.load(c, a).then(({ width, height }) => {
+    void mode.load(c, a, host).then(({ width, height }) => {
       if (disposed) return
       sizeRef.current = { w: Math.round(width) || 800, h: Math.round(height) || 600 }
       // vector crispness: fabric caches each object to a bitmap at its BASE size then
@@ -515,8 +521,8 @@ function mimeOf(name: string): string {
 export const svgMode: EditorMode = {
   enableCrop: false,
   editableText: true,
-  load: async (canvas, a) => {
-    const res = await platform.readText(a.path)
+  load: async (canvas, a, host) => {
+    const res = await readArtifactText(host, a.path)
     if (!res.ok || res.text == null) throw new Error(res.error || 'read failed')
     const parsed = await fabric.loadSVGFromString(res.text)
     const objs = (parsed.objects || []).filter(Boolean) as fabric.FabricObject[]

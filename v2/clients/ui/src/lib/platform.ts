@@ -45,11 +45,25 @@ export interface AgentdPlatform {
   broadcastAppToken?: (token: string) => Promise<unknown>
 }
 
-const bridge = (globalThis as { agentd?: AgentdPlatform }).agentd
+// WHICH `window.agentd` IS THIS? Two different things claim that name, and only one of them is
+// the Electron preload bridge:
+//
+//   * the DESKTOP preload — contextBridge.exposeInMainWorld("agentd", api) — the real bridge
+//   * the AGENT-APP SDK — tsup builds clients/sdk-js as an IIFE with globalName: 'agentd', so
+//     every page served at /apps/<id>/ has one too
+//
+// Detecting by NAME therefore mistook the SDK for the bridge on every agent-app page: `platform`
+// became the SDK, and the first call into it died with "readText is not a function" the moment
+// the window opened a file. Identify it by what it can DO instead — the bridge exposes the
+// filesystem methods this module's contract is made of, and no SDK ever will. That also makes
+// the check safe against any other page that happens to define a global by this name.
+const candidate = (globalThis as { agentd?: AgentdPlatform }).agentd
+const bridge = isDesktopHost ? candidate : undefined
 // Both live in lib/host.ts — a LEAF that imports nothing, so lib/auth.ts can use them without
 // importing this module. It could not before: this module imports auth.ts (it reads the session
 // to build a daemon URL), so the two formed a cycle. Re-exported here, unchanged for every
 // existing importer.
+import { isDesktop as isDesktopHost } from './host'
 export { hostOs, isDesktop, randomUuid } from './host'
 
 

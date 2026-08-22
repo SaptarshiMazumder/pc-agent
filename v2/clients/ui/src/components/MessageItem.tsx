@@ -4,7 +4,8 @@ import remarkGfm from 'remark-gfm'
 import { Check, Loader2, ChevronRight, ChevronDown, Sparkles, AlertTriangle, Copy, Pencil, Settings, Bot } from 'lucide-react'
 
 import { timeLabel } from '../lib/timefmt'
-import { useApp, type ChatItem } from '../state/store'
+import { useChatHost } from '../chat/host'
+import type { ChatItem } from '../chat/session'
 import ArtifactView from './ArtifactView'
 
 /** Icon-only copy button with a brief "copied" flash. Shared by user + assistant messages. */
@@ -26,7 +27,7 @@ function CopyButton({ text }: { text: string }) {
 /** A user message bubble + its hover actions (Copy / Edit) — icons sharing ONE row with the
  *  timestamp. Edit loads the text back into the composer to tweak and re-send (store.seedComposer). */
 function UserMessage({ item }: { item: Extract<ChatItem, { kind: 'user' }> }) {
-  const seedComposer = useApp((s) => s.seedComposer)
+  const { seedComposer } = useChatHost()
   const stamp = item.ts ? timeLabel(item.ts) : ''
   return (
     <div className="msg-item">
@@ -102,7 +103,7 @@ function summarizeArgs(args: Record<string, unknown>): string {
 
 function ToolBlock({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   const [expanded, setExpanded] = useState(true)
-  const openToolConfig = useApp((s) => s.openToolConfig)
+  const { openToolConfig } = useChatHost()
   const firstLine = (item.result.split('\n')[0] || '').slice(0, 160)
   // a still-running tool's incremental steps (e.g. the computer tool's "step 1: click …")
   const progress = item.progress || ''
@@ -141,8 +142,8 @@ function PlanBlock({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   const [expanded, setExpanded] = useState(true)
   // only ANIMATE the in-progress spinner while the run is live — once it's done, a step left
   // in_progress shows a static marker instead of spinning forever
-  const running = useApp((s) => s.sessions[s.currentSessionKey]?.running ?? false)
-  const openToolConfig = useApp((s) => s.openToolConfig)
+  const { running } = useChatHost()
+  const { openToolConfig } = useChatHost()
   const args = item.args as { plan?: unknown; explanation?: unknown }
   const plan = (Array.isArray(args.plan) ? args.plan : []) as Array<{ step?: string; status?: string }>
   const explanation = typeof args.explanation === 'string' ? args.explanation : ''

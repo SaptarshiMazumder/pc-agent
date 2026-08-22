@@ -4,7 +4,7 @@ import { ZoomIn, ZoomOut, Maximize2, Pencil, Save, Eye, Code2, ExternalLink, Dow
 import type { Artifact } from '../lib/artifacts'
 import { actionsFor } from '../lib/artifacts'
 import { platform } from '../lib/platform'
-import { useCanvasHost } from '../canvas/host'
+import { readArtifactText, useCanvasHost } from '../canvas/host'
 import { EDITABLE, ext, viewerKind } from '../lib/canvasFile'
 import FabricEditor, { rasterMode, svgMode } from './FabricEditor'
 import Markdown from './Markdown'
@@ -179,6 +179,7 @@ function MarkdownPreview({ text }: { text: string }): JSX.Element {
 
 // ---------------------------------------------------------------- text / code / md / html / csv
 function TextViewer({ a }: { a: Artifact }): JSX.Element {
+  const host = useCanvasHost()
   const kind = viewerKind(a)
   const inline = a.text != null          // synthetic in-memory doc (no file) — read-only
   const editable = !inline && EDITABLE.has(kind)
@@ -193,8 +194,9 @@ function TextViewer({ a }: { a: Artifact }): JSX.Element {
     if (inline) { setText(a.text!); setError(''); setDirty(false); return }
     let alive = true
     setText(null); setError(''); setDirty(false)
-    // read via IPC (main's fs) — the file is local, and a cross-origin fetch would be blocked
-    platform.readText(a.path).then((res) => {
+    // Through the HOST: the desktop shell reads over IPC (local file, no cross-origin fetch),
+    // while the web shell and an agent's app window fetch from the daemon the host is bound to.
+    readArtifactText(host, a.path).then((res: { ok: boolean; text?: string; error?: string }) => {
       if (!alive) return
       if (res.ok && res.text != null) setText(res.text)
       else setError(res.error || 'read failed')

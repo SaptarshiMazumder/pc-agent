@@ -16,6 +16,7 @@
 import { createContext, useContext } from 'react'
 
 import type { Artifact, ArtifactAction } from '../lib/artifacts'
+import { isDesktop, platform } from '../lib/platform'
 
 export interface ChatAttachment {
   name: string
@@ -52,4 +53,32 @@ export function useCanvasHost(): CanvasHost {
     throw new Error('CanvasHost missing — wrap canvas components in a <CanvasHostProvider>')
   }
   return host
+}
+
+
+/** Read one artifact's TEXT, the way this host can.
+ *
+ * Two hosts, two right answers. The desktop shell has an Electron bridge and should read through
+ * it: the file is local, and a cross-origin fetch would be blocked. Everything else — the web
+ * shell, and an agent's own app window — has to go over HTTP, and the URL must be the HOST's
+ * (`fileUrl`), because only the host knows which daemon it is talking to and what credential the
+ * request needs.
+ *
+ * It used to call `platform.readText` unconditionally, which is the module that answers "am I in
+ * Electron?" by looking for a global named `agentd`. An agent app page has one of those too (the
+ * SDK publishes itself under that name), so the viewer took the SDK for the desktop bridge and
+ * died on `readText is not a function` the moment anyone opened a file in an app window.
+ */
+export async function readArtifactText(
+  host: CanvasHost,
+  path: string
+): Promise<{ ok: boolean; text?: string; error?: string }> {
+  if (typeof platform.readText === 'function' && isDesktop) return platform.readText(path)
+  try {
+    const r = await fetch(host.fileUrl(path))
+    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` }
+    return { ok: true, text: await r.text() }
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e) }
+  }
 }

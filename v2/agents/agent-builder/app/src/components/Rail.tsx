@@ -1,8 +1,9 @@
-/* The rail: start a conversation, pick one, or open settings.
+/* The rail: start a piece of work, pick one you were doing, or open settings.
  *
- * "New chat", not "New agent" — the screen it opens offers BOTH paths: work on an existing agent,
- * or describe a new one. There used to be a second copy of this button in the topbar under the
- * other name, and two names for one action is what made the chrome unreadable.
+ * TWO BUTTONS, NAMED AFTER THE WORK, not one named after the medium. It was a single "New chat",
+ * which is what Agent Builder does rather than what it is FOR — every conversation then opened on
+ * an empty composer and began by guessing whether this was a new agent or an existing one. The
+ * guess is now a question, asked once, before the chat (see StartModal).
  *
  * Settings is a ROW HERE and a MODAL when clicked, not a second view. It was half of a two-way
  * switch, which meant opening settings closed the conversation you opened them because of.
@@ -16,7 +17,8 @@ export function Rail({
   chats,
   openKey,
   onOpenChat,
-  onNewChat,
+  onCreate,
+  onEdit,
   onSettings,
   status,
   daemonVersion,
@@ -26,7 +28,8 @@ export function Rail({
   chats: ChatRow[]
   openKey: string
   onOpenChat: (key: string) => void
-  onNewChat: () => void
+  onCreate: () => void
+  onEdit: () => void
   onSettings: () => void
   status: string
   daemonVersion: string
@@ -47,9 +50,13 @@ export function Rail({
         </button>
       </div>
 
-      <button className="new-btn" onClick={onNewChat}>
+      <button className="new-btn" onClick={onCreate}>
         <span className="plus">+</span>
-        <span>New chat</span>
+        <span>Create new agent</span>
+      </button>
+      <button className="rail-item edit-btn" onClick={onEdit}>
+        <span className="ico">✎</span>
+        <span>Edit an agent</span>
       </button>
 
       <div className="rail-label">

@@ -57,8 +57,29 @@ export interface FallbackItem {
   to: string
   reason: string
 }
+/** The one decision taken before a new agent exists: does it get a window of its own?
+ *
+ *  In the thread, and not only in the chrome, because it is an instruction the model was given —
+ *  the user needs to be able to see what it was told, in the place everything else it was told
+ *  appears. */
+export interface IntentItem {
+  kind: 'intent'
+  window: boolean
+}
 
-export type ThreadItem = ScopeItem | UserItem | BotItem | ThinkItem | ToolItem | FallbackItem
+export type ThreadItem =
+  | ScopeItem
+  | IntentItem
+  | UserItem
+  | BotItem
+  | ThinkItem
+  | ToolItem
+  | FallbackItem
+
+/** What the user chose in the start dialog, for an agent that does not exist yet. */
+export interface NewAgentIntent {
+  window: boolean
+}
 
 /* ── the plan ───────────────────────────────────────────────────────────────────────────────
  *
@@ -191,6 +212,23 @@ function preamble(agent: AgentRow): string {
   )
 }
 
+/** The window decision, as an instruction rather than a hint.
+ *
+ *  BLUNT ON PURPOSE, and blunter in the negative case. "Give it a window" is self-correcting — a
+ *  missing window is the first thing the user notices. "Do not give it a window" is not: an agent
+ *  builds one anyway, nobody sees a problem, and the user finds out when a folder they did not ask
+ *  for turns up in the inspector. So the no-window text names the specific things not to do rather
+ *  than describing a preference, and says whose decision it was. */
+function intentPreamble(intent: NewAgentIntent): string {
+  return intent.window
+    ? '[context] We are creating a NEW agent, and the user has chosen that it HAS ITS OWN APP ' +
+        'WINDOW. Declare `[app]` in its agent.toml and build the window as part of this work.'
+    : '[context] We are creating a NEW agent, and the user has chosen that it has NO APP WINDOW. ' +
+        'Do NOT declare `[app]` in its agent.toml, do NOT create a `ui/` or `app/` directory, and ' +
+        'do NOT scaffold one. It is used from the agentd window, which is what the user asked ' +
+        'for. If you believe it needs a window, say so and wait — do not build one anyway.'
+}
+
 const newSessionKey = () => `builder-${Date.now().toString(36)}`
 
 /** Stamp a still-open thinking block as finished, unless more thinking is what is arriving.
@@ -227,6 +265,19 @@ export function useChat(
   // FIRST message only; after that it is in the transcript and repeating it is noise.
   const scopeRef = useRef<AgentRow | null>(null)
   const scopeSentRef = useRef(false)
+
+  // The window decision for an agent that does not exist yet.
+  //
+  // CARRIED ON EVERY MESSAGE, unlike the scope above, until `create_agent` actually succeeds. A
+  // scope preamble names something that already exists, so the model can re-read it from disk at
+  // any point and one mention is enough. This names something that does not exist, so there is
+  // nothing to re-read — it survives only as a sentence in the transcript, and a sentence twenty
+  // messages up is a sentence a model will build straight past. "No window" is the direction that
+  // fails silently: nobody notices the UI they did not ask for until it is built.
+  //
+  // Cleared the moment the agent exists, because from then on the answer is in its agent.toml —
+  // repeating it would be both noise and a second source of truth.
+  const intentRef = useRef<NewAgentIntent | null>(null)
 
   const callbacks = useRef(opts)
   callbacks.current = opts
@@ -322,6 +373,11 @@ export function useChat(
             }
             return prev
           })
+          // THE AGENT NOW EXISTS, so the window decision has been acted on and stops riding every
+          // message — from here the answer is in its agent.toml. Keyed off SUCCESS: a create that
+          // failed has decided nothing, and dropping the instruction there would let the retry go
+          // out with no window decision at all.
+          if (String(ev.toolName || '') === 'create_agent' && !ev.isError) intentRef.current = null
           // EVERY tool, not a list of the ones that write. This used to test the name against
           // /^(write|edit|create_agent|...)$/ — and when scaffold_ui was added nobody extended it,
           // so a whole generated ui/ folder could land with the tree showing none of it. A re-read
@@ -415,11 +471,15 @@ export function useChat(
       // flag set afterwards is still false for anything that reaches send() in the same tick, and
       // the preamble goes out twice. The catch below puts the debt back.
       if (carry) scopeSentRef.current = true
+      const context = [
+        carry && scope ? preamble(scope) : '',
+        intentRef.current ? intentPreamble(intentRef.current) : '',
+      ].filter(Boolean)
       try {
         await client.send({
           sessionKey: sessionRef.current,
           // `message`, not `text` — chat.send reads params.message and rejects an empty one.
-          message: carry && scope ? `${preamble(scope)}\n\n${body}` : body,
+          message: context.length ? `${context.join('\n')}\n\n${body}` : body,
           ...(sending.length ? { attachments: sending } : {}),
         })
       } catch (e) {
@@ -448,6 +508,7 @@ export function useChat(
     sessionRef.current = key
     scopeRef.current = null // a fresh chat is about nothing until told
     scopeSentRef.current = false
+    intentRef.current = null
     setSessionKey(key)
     setItems([])
     setPlan(null)
@@ -468,6 +529,7 @@ export function useChat(
       sessionRef.current = key
       scopeRef.current = null // a resumed chat already carries its context in message 1
       scopeSentRef.current = true
+      intentRef.current = null
       setSessionKey(key)
       setItems([])
       setPlan(null)
@@ -504,8 +566,17 @@ export function useChat(
   const setScope = useCallback((agent: AgentRow | null) => {
     scopeRef.current = agent
     scopeSentRef.current = false
+    intentRef.current = null // an existing agent already answered the window question
     if (!agent) return
     setItems((prev) => [...prev, { kind: 'scope', id: agent.id, name: agent.name || agent.id }])
+  }, [])
+
+  /** Declare that this conversation is building something NEW, and whether it gets a window. */
+  const setIntent = useCallback((intent: NewAgentIntent) => {
+    scopeRef.current = null
+    scopeSentRef.current = false
+    intentRef.current = intent
+    setItems((prev) => [...prev, { kind: 'intent', window: intent.window }])
   }, [])
 
   return {
@@ -519,6 +590,7 @@ export function useChat(
     reset,
     open,
     setScope,
+    setIntent,
     addFiles,
     removeFile,
   }

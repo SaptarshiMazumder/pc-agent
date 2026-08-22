@@ -209,8 +209,15 @@ function ShelfCard({
   )
 }
 
+/** A stable empty list. `|| []` INSIDE a zustand selector builds a new array on every call, and
+ *  zustand compares selector results with Object.is — so a fresh `[]` never equals the previous
+ *  one and the component re-renders forever. It only bit once this page became a URL: reaching it
+ *  by clicking meant `hello` had already arrived, while a cold load at /agents mounts before the
+ *  daemon connects, `hello` is null, and the loop hits React's update-depth limit (error #185). */
+const NO_AGENTS: NonNullable<ReturnType<typeof useApp.getState>['hello']>['agents'] = []
+
 export default function MyAgentsView() {
-  const agents = useApp((s) => s.hello?.agents || [])
+  const agents = useApp((s) => s.hello?.agents) ?? NO_AGENTS
   const catalog = useApp((s) => s.catalog)
   const catalogError = useApp((s) => s.catalogError)
   const installBusy = useApp((s) => s.installBusy)

@@ -1008,6 +1008,32 @@ screenshots, remembers conversations, **signs the user in on a hosted install**,
 settings page where the user pastes their own API key. Then you **edit** it — the title, the hero
 text, the suggestions, the accent colour — and add whatever surface this particular agent needs.
 
+### EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. No exceptions.
+
+`validate_agent` reports `UI_NO_SIGN_IN` as an **error** when an app never calls the gate, and
+that error blocks both `package_agent` and `publish_agent`. An agent without it cannot ship.
+
+One mechanism, and it is the SDK's:
+
+```js
+await agentd.mountSignInGate({ client })   // vanilla: before the socket is wired
+```
+```tsx
+await mountSignInGate()                    // React: in main.tsx, before the first render
+```
+
+`scaffold_ui` writes it. `scaffold_react_app` writes `src/main.tsx` containing it — the one
+source file it ships, because this is the one part of an app that is not a judgement call.
+
+**Never write your own login form.** The gate's element ids (`gateEmail`, `gatePass`, `gateForm`)
+are a contract the packaged-build login test drives, so a hand-rolled form silently disables it —
+and a second login is a second implementation of credential handling, written by somebody who was
+not thinking about credentials that day. It hits the same endpoints either way; the only thing a
+custom form adds is a way to get it wrong.
+
+It renders **nothing** when a stored session still works, and nothing on a build with no accounts
+service — so it is correct to leave in an agent that will only ever run locally.
+
 ### Sign-in comes with the template — never hand-write a login
 
 An agent that runs on platform keys needs the user signed in, or every model call fails. The
@@ -1194,6 +1220,21 @@ start its own.
 accepts the provider keys and those declared names, nothing else — an undeclared name comes back
 `{saved: false, error: "not writable from here: …"}`. The template's settings page already renders
 all of it; you only declare the fields.
+
+**WHOSE settings are they? Read `accountScoped`.** On a hosted daemon one machine serves many
+people, so config is stored PER ACCOUNT: `config.get` answers with that user's own values (the
+deployment's defaults, plus whatever they have overridden), and `config.set` writes only their
+copy. Three fields tell your page what it may offer:
+
+| field | meaning |
+| --- | --- |
+| `accountScoped` | `true` => these are the signed-in user's settings; a save reaches nobody else and needs no restart. `false` => a single-user install, where the config really is the machine's. |
+| `machineOnly` | config keys the server owns (ports, paths, storage, sandbox). Render them read-only — a save that includes one is refused by name, not silently dropped. |
+| `keysWritable` | `false` => provider keys and `[[settings]]` values cannot be saved here, because the `.env` is the machine's and shared. Hide the key fields rather than offering a save that will fail. |
+
+Per-agent overrides are the useful half: `config.set {patch: {agents: {"<your-id>": {model: …}}}}`
+sets the model YOUR agent runs on for THIS user, layered over the deployment's default. The daemon
+forces the block to your own id, so you cannot configure another agent even by asking.
 
 ### Sign-in
 

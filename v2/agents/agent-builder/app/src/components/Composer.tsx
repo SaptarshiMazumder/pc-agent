@@ -21,6 +21,8 @@ export function Composer({
   onAbort,
   onFiles,
   onRemoveFile,
+  onOpenWindow,
+  openWindowLabel,
 }: {
   running: boolean
   pending: Attachment[]
@@ -28,6 +30,11 @@ export function Composer({
   onAbort: () => void
   onFiles: (files: FileList | File[]) => void
   onRemoveFile: (index: number) => void
+  /** Open the window of the agent being built. Absent when it has none — the button is then not
+   *  rendered at all, rather than rendered disabled: there is nothing the user could do to enable
+   *  it except ask for a window, which is a conversation, not a click. */
+  onOpenWindow?: () => void
+  openWindowLabel?: string
 }) {
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -145,6 +152,15 @@ export function Composer({
           >
             +
           </button>
+          {/* BESIDE THE COMPOSER, because building a window and looking at it are one loop. It
+              used to live only in the agentd window: build here, switch app, find the agent, open
+              it, come back. */}
+          {onOpenWindow && (
+            <button className="open-app-btn" onClick={onOpenWindow} title="Open this agent's window">
+              <span className="ico">◱</span>
+              <span>{openWindowLabel || 'Open app'}</span>
+            </button>
+          )}
           <span className="hint">
             {running
               ? 'running…'

@@ -67,6 +67,7 @@ class LocalPasswordProvider:
         return Assertion(
             provider=self.name,
             subject=record.account_id,
+            subject_is_account_id=True,
             email=record.email or clean,
             # Our own signup does not verify delivery, so this stays False and the address is
             # never used to auto-link anything. See PrincipalService.
@@ -87,6 +88,7 @@ class LocalPasswordProvider:
         return Assertion(
             provider=self.name,
             subject=record.account_id,
+            subject_is_account_id=True,
             email=record.email,
             email_verified=False,
             amr=("pwd",),

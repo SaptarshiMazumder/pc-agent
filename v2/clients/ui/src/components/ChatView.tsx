@@ -4,10 +4,9 @@ import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentLabel, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { fetchCredits, onCreditsChanged, useAuthSession } from '../lib/auth'
-import { dayLabel, sameDay } from '../lib/timefmt'
+import Thread from '../chat/Thread'
 import { useApp, type OutgoingAttachment } from '../state/store'
 import FileName from './FileName'
-import MessageItem from './MessageItem'
 import TabBar from './TabBar'
 
 // Fallback starters when the agent has no server-side suggestions (yet)
@@ -244,16 +243,6 @@ export default function ChatView() {
     setDraft((d) => `${d}${d && !d.endsWith(' ') ? ' ' : ''}@${name} `)
   }
 
-  // date separators between calendar days
-  const rendered: JSX.Element[] = []
-  let lastTs: number | undefined
-  items.forEach((item, i) => {
-    if (item.ts && (!lastTs || !sameDay(item.ts, lastTs))) {
-      rendered.push(<div key={`day-${i}`} className="msg-system">{dayLabel(item.ts)}</div>)
-    }
-    if (item.ts) lastTs = item.ts
-    rendered.push(<MessageItem key={i} item={item} />)
-  })
 
   const composer = (
     <form className="composer" onSubmit={submit}>
@@ -412,7 +401,7 @@ export default function ChatView() {
       ) : (
         <>
           <div className="chat-scroll" ref={scrollRef}>
-            <div className="chat-col">{rendered}</div>
+            <Thread items={items} />
           </div>
           {composer}
         </>

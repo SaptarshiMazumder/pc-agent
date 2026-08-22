@@ -1,7 +1,9 @@
 # agentd hosted image — Phase 1 (public demo): the SAME daemon the desktop ships, packaged
 # for Linux. ONE-SHAPE: no forks — hosted behavior comes from env knobs (AGENTD_HOME/HOST/
-# TOKEN) and the agents' own [app] declarations. Slim by design: no java/ffmpeg/chromium —
-# plugins that need them gate on [requires] bins and skip themselves cleanly.
+# TOKEN) and the agents' own [app] declarations. Slim by design: no java/ffmpeg — plugins
+# that need them gate on [requires] bins and skip themselves cleanly. Chromium is the ONE
+# exception (see the playwright layer below): the figure pipeline's rasterizer has no
+# [requires] gate to skip on, because a figure without its PNG is not a degraded figure.
 #
 # Build (context = v2/):  docker build -t agentd-web -f deploy/docker/Dockerfile .
 
@@ -18,6 +20,15 @@
 # into agents/ and belongs to a developer's checkout, not to an image layer.
 FROM node:20-slim AS sdk
 WORKDIR /sdk
+# @agentd/auth FIRST — the SDK declares it as `file:../auth`, so npm resolves it relative to
+# /sdk and the package has to exist at /auth before `npm ci` runs, not merely before the build.
+# It is the ONE sign-in implementation this platform has (clients/auth), and the SDK imports it
+# at three sites; without it `npx tsup` fails with "Could not resolve @agentd/auth" — a failure
+# that only appears in the image, because a developer checkout has the sibling directory.
+# package.json + src only, in the same spirit as the sdk COPY below: `main` points at the
+# TypeScript source, so that is genuinely all tsup reads.
+COPY clients/auth/package.json /auth/package.json
+COPY clients/auth/src /auth/src
 COPY clients/sdk-js/package.json clients/sdk-js/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 # ONLY what tsup reads. There is no .dockerignore on this context, so `COPY clients/sdk-js/ .`
@@ -59,7 +70,8 @@ sys.exit(0 if n in zipfile.ZipFile(w).namelist() else f'{w} is missing {n}')"
 # not an image rebuild of the daemon layer. --no-deps: everything is already in the layer above.
 RUN pip install --no-cache-dir --no-deps /dist/agentd-*.whl \
  && mkdir -p /bundles \
- && agentd bundle pack agents/weather --out /bundles
+ && agentd bundle pack agents/weather --out /bundles \
+ && agentd bundle pack agents/figure-creator --out /bundles
 
 # --- runtime stage -----------------------------------------------------------------------
 FROM python:3.11-slim
@@ -94,6 +106,24 @@ ENV UV_TOOL_DIR=/opt/uv/tools \
     PATH=/opt/uv/bin:$PATH
 RUN uv tool install workspace-mcp \
  && chown -R agentd:agentd /opt/uv
+
+# HEADLESS CHROMIUM — the figure pipeline's rasterizer. plugins/figures turns SVG into PNG
+# through Playwright (figures_common.render_svg_to_png), and that PNG is not a preview: it is
+# what `verify_figure` reads and what the agent's app window renders, so a daemon without a
+# browser produces the .svg half of a figure and nothing a person can look at. The python
+# package already arrives with the wheel's dependencies — only the BROWSER is missing, and it
+# is missing in the worst way: boot succeeds and the first rasterize dies mid-chat.
+#
+# PLAYWRIGHT_BROWSERS_PATH is the load-bearing half. The default (~/.cache/ms-playwright)
+# installs into ROOT's home, which the `agentd` user cannot read, so the download appears to
+# work and every call still fails with "Executable doesn't exist". One shared path, readable
+# by all, named here so BUILD and RUNTIME resolve to the same directory.
+#
+# ~450MB, and the reason this image is no longer strictly slim. It sits ABOVE the wheel layer
+# on purpose: rebuilt when this line changes, never on a code-only deploy.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN python -m playwright install --with-deps chromium \
+ && chmod -R a+rX /opt/ms-playwright
 
 # ── everything above caches across deploys; everything below is per-deploy and SMALL ──
 # The wheel is the one artifact that changes on every source edit, so it lands last:

@@ -29,8 +29,13 @@ COPY web/package.json web/
 # line here too, or `npm ci` fails the image build with "workspace not found".
 COPY desktop/package.json desktop/
 COPY marketplace/package.json marketplace/
+# @agentd/auth is NOT a workspace — ui depends on it as `file:../auth`, so npm needs the real
+# directory at install time, and vite needs its source at build time. Both halves here, manifest
+# first so a source-only change still reuses the install layer.
+COPY auth/package.json auth/
 RUN npm ci --include-workspace-root -w agentd-web
 
+COPY auth/src auth/src
 COPY ui/ ui/
 COPY web/ web/
 ARG VITE_AGENTD_ACCOUNTS_URL

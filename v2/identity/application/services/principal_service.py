@@ -83,6 +83,18 @@ class PrincipalService:
             # A link pointing at an account that no longer exists. Falling through to create a
             # fresh one is right: the alternative is a permanently un-loggable-in credential.
 
+        # THE ACCOUNT THE ASSERTION ALREADY NAMES. The local password provider mints our own ids,
+        # so its `subject` IS the account — and on a first signup there is no link to find yet,
+        # because `resolve` writes the link only AFTER this method returns. Without this, signup
+        # fell through to `create` a second time and died on the row `register` had just inserted
+        # ("there is already an account with that email"), rolling the whole signup back: the API
+        # answered 409 and no account existed afterwards. It also repairs the milder case of an
+        # account whose link was lost, which used to mint a duplicate account instead.
+        if assertion.subject_is_account_id and assertion.subject:
+            record = self._directory.find_by_id(assertion.subject)
+            if record is not None:
+                return record
+
         email = (assertion.email or "").strip().lower()
         if email and assertion.email_verified:
             by_email = self._directory.find_by_email(email)

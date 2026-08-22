@@ -20,6 +20,13 @@ clients/
 !clients/sdk-js/tsup.config.ts
 !clients/sdk-js/src
 
+# …and @agentd/auth, which the SDK imports as `file:../auth`. It is the ONE sign-in and
+# token-renewal implementation on this platform (clients/auth), shared with the agentd client so
+# neither owns a second one — which means the sdk stage cannot compile without it. Same rule as
+# above: the manifest and the source, nothing else.
+!clients/auth/package.json
+!clients/auth/src
+
 # delivered per-agent products (installers) — never part of the source image
 agents/*/clients/
 

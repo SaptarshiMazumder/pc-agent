@@ -11,12 +11,17 @@
 # plugins, plus read/write/render. Its art templates live in templates/ (data — add one and it's live).
 
 name = "Figure Creator"
-version = "1.1.1" # b5: SDK sign-in gate (b4's HTTP flow bound a daemon-global key that no longer exists)
+version = "1.3.4" # b11: isDesktop was true in app windows (window.agentd name collision)
 
 # Its OWN app UI (ui/), served by the daemon at /apps/figure-creator/ and opened as its own
 # window — no agentd shell. `mode = "window"` = a chromeless product window (the exe wraps this
 # same page). NOT public: figure-creator's value is the chat/generation pipeline, which is never
 # exposed tokenless — this app requires a real (signed-in) connection.
+#
+# ENFORCED IN THE APP, not here: ui/app.js calls the SDK gate with `require: true`, so the rule
+# holds on a desktop install too (where the daemon itself demands no login and would otherwise
+# let the machine token through). Identity is the platform's — the same accounts service, the
+# same account, the same balance as the agentd shell.
 [app]
 title = "Figure Creator"
 mode = "window"

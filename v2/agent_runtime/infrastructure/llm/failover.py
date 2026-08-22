@@ -21,12 +21,33 @@ log = logging.getLogger("agentd")
 
 
 def make_failover_stream(inner, fallbacks):
-    fallbacks = [f for f in (fallbacks or []) if f]
-    if not fallbacks:
-        return inner  # nothing to fail over to -> unchanged
+    """``fallbacks`` is a list, or a CALLABLE returning one.
+
+    The callable form exists because the list is per-ACCOUNT on a hosted daemon: one tenant's
+    fallback chain is not another's, and neither is the machine's. Resolved per turn, so a user's
+    Save takes effect on their next message and reaches nobody else. A callable that returns
+    nothing behaves exactly like no fallbacks at all — the turn is delegated straight to `inner`.
+    """
+    resolve = fallbacks if callable(fallbacks) else (lambda: fallbacks)
+    if not callable(fallbacks) and not [f for f in (fallbacks or []) if f]:
+        return inner  # nothing to fail over to -> unchanged (the static, single-user case)
 
     async def stream(*, model, system_prompt, messages, tools, abort):
-        candidates = [model] + [f for f in fallbacks if f != model]
+        try:
+            resolved = [f for f in (resolve() or []) if f]
+        except Exception:  # noqa: BLE001 — never fail a turn over a fallback lookup
+            resolved = []
+        if not resolved:
+            async for ev in inner(
+                model=model,
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                abort=abort,
+            ):
+                yield ev
+            return
+        candidates = [model] + [f for f in resolved if f != model]
         for i, m in enumerate(candidates):
             produced = False  # did THIS attempt stream anything yet?
             done_ev = None

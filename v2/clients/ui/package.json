@@ -2,7 +2,7 @@
   "name": "@agentd/ui",
   "private": true,
   "version": "0.1.6",
-  "description": "The shared agentd renderer — ONE React app, built by both shells (Electron desktop + hosted web). Host capabilities are reached only through src/lib/platform.ts.",
+  "description": "The shared agentd renderer \u2014 ONE React app, built by both shells (Electron desktop + hosted web). Host capabilities are reached only through src/lib/platform.ts.",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -18,7 +18,8 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "@agentd/auth": "file:../auth"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

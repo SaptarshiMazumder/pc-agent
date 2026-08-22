@@ -162,10 +162,14 @@ def sign_in(js: str, vendored: str = "function mountSignInGate(){}"):
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
 
 
-def test_an_app_agent_with_no_sign_in_is_flagged():
+def test_an_app_agent_with_no_sign_in_is_refused():
+    """MANDATORY, not advisory. It was a warning for exactly as long as it took to publish past
+    one — an agent with a window has to know who is using it, and on a hosted install every model
+    call fails without it, with nothing on screen to explain why. The rulebook also closes PACK
+    and PUBLISH on this code, so an agent that skips it cannot ship at all."""
     found = sign_in("const client = agentd.fromPage()")
     assert "UI_NO_SIGN_IN" in found
-    assert found["UI_NO_SIGN_IN"].level == "warn", "it works locally — broken only once hosted"
+    assert found["UI_NO_SIGN_IN"].level == "error"
     # The fix names the TOOL, not the line to type. Ranked by strength: a tool that does every
     # step (SDK refresh, script tag, theme tokens, the call) and is safe to re-run beats an
     # instruction to hand-write one of the four and forget the rest — which is how an agent ends
@@ -229,3 +233,58 @@ def test_a_commented_out_gate_does_not_count():
     const client = agentd.fromPage()
     """
     assert "UI_NO_SIGN_IN" in sign_in(js)
+
+
+# ── one sign-in implementation, and no agent may grow a second ──────────────
+def test_an_app_that_talks_to_the_accounts_service_itself_is_refused():
+    """THE REASON THIS RULE EXISTS. There were three copies of sign-in in this codebase and they
+    drifted: one would not renew a token that had already expired, one had no single-flight guard
+    (so two windows waking together got the whole refresh family revoked), and they posted to
+    different endpoints. Users were signed out ten minutes in, and signing back in did not help.
+    An agent that reaches past the shared implementation re-creates all of that for its own users
+    only — the hardest kind to find."""
+    found = sign_in(
+        "await agentd.mountSignInGate();\n"
+        "const r = await fetch(accounts + '/auth/refresh', {method:'POST'})"
+    )
+    assert "UI_OWN_LOGIN" in found
+    assert found["UI_OWN_LOGIN"].level == "error"
+    assert "/auth/refresh" in found["UI_OWN_LOGIN"].message
+
+
+def test_the_fix_names_the_two_calls_that_replace_it():
+    found = sign_in("fetch('/auth/login', {method:'POST'})")
+    assert "mountSignInGate" in found["UI_OWN_LOGIN"].fix
+    assert "accessToken" in found["UI_OWN_LOGIN"].fix
+
+
+def test_keeping_a_refresh_token_is_refused_however_it_was_obtained():
+    """The 30-day credential for the whole account. An agent holding one is the thing the desktop
+    app goes out of its way never to hand down."""
+    assert "UI_OWN_LOGIN" in sign_in(
+        "await agentd.mountSignInGate();\n"
+        "localStorage.setItem('mine', JSON.stringify({refresh_token: t}))"
+    )
+
+
+def test_writing_the_shared_storage_key_is_refused():
+    """Two writers over one slot. The manager keeps the session there and renews it; an agent
+    editing the same key hands the socket a credential nothing is looking after."""
+    assert "UI_OWN_LOGIN" in sign_in(
+        "await agentd.mountSignInGate(); localStorage.removeItem('agentd.session.mine')"
+    )
+
+
+def test_an_app_that_merely_HAS_a_login_page_is_left_alone():
+    """Matched on the endpoint and the storage key, never on the word. An agent is welcome to a
+    route, a button and a heading called login — a false alarm on working code is how a report
+    teaches the model to ignore it."""
+    found = sign_in(
+        "await agentd.mountSignInGate();\n"
+        "function showLogin(){ route('/login-help'); }  // login screen copy"
+    )
+    assert "UI_OWN_LOGIN" not in found
+
+
+def test_an_ordinary_agent_using_the_sdk_is_left_alone():
+    assert "UI_OWN_LOGIN" not in sign_in("await agentd.mountSignInGate()")

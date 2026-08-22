@@ -32,6 +32,12 @@ class Assertion:
     #: Only a provider that actually verifies delivery may set this. It gates account LINKING:
     #: auto-linking an unverified email to an existing account is account takeover.
     email_verified: bool = False
+    #: Does ``subject`` name an account in OUR directory? True only for a provider that mints
+    #: our own ids (the local password table, per the note on `subject` above). PrincipalService
+    #: uses it to find the account when no identity link exists yet — which is every first
+    #: signup, since the link is written AFTER the account is resolved. An OIDC `sub` belongs to
+    #: the provider's namespace, not ours, so it stays False and nothing changes for them.
+    subject_is_account_id: bool = False
     amr: tuple[str, ...] = field(default_factory=tuple)
 
 

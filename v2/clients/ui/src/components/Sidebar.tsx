@@ -1,22 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import {
-  Plus,
-  Search,
-  Users,
-  Folder,
-  History,
-  LayoutGrid,
-  PanelLeft,
-  Sun,
-  Moon,
-  SquarePen,
-  ChevronDown,
-  ChevronRight,
-  UserPlus
-} from 'lucide-react'
+import { ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
+import { useIsAdmin } from '../lib/admin'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
 import ProfileMenu from './ProfileMenu'
@@ -119,6 +106,10 @@ export default function Sidebar() {
   const sampleAgents = agents.filter((a) => a.sample)
 
   const projectsActive = view === 'projects' || view === 'project'
+  // THE CONTROL PLANE IS A PLACE, not a settings row. It governs the whole deployment — the
+  // defaults every account inherits, who may sign in, where the money went — so it belongs in
+  // the nav beside Projects rather than three clicks down inside one account's preferences.
+  const admin = useIsAdmin()
 
   // ---- collapsed icon rail --------------------------------------------------
   if (collapsed) {
@@ -144,6 +135,15 @@ export default function Sidebar() {
         <div className="rail-spacer" />
         <ProfileMenu variant="rail" />
         <button className="rail-btn" title="My Agents" onClick={() => setView('myagents')}><LayoutGrid size={18} /></button>
+        {admin && (
+          <button
+            className={`rail-btn ${view === 'admin' ? 'active' : ''}`}
+            title="Admin"
+            onClick={() => setView('admin')}
+          >
+            <ShieldCheck size={17} />
+          </button>
+        )}
         <SettingsMenu variant="rail" />
         <button className="rail-btn" title="toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
         {newAgent && <NewAgentModal onClose={() => setNewAgent(false)} />}
@@ -179,6 +179,25 @@ export default function Sidebar() {
           <NavRow icon={<Search size={17} />} label="Search" onClick={() => setSearchOpen(true)} title="Search chats" />
         )}
         <NavRow icon={<Folder size={17} />} label="Projects" active={projectsActive} onClick={() => setView('projects')} title="Projects" />
+        {/* The SHELF. It was reachable only from the footer icon and the collapsed rail, which is
+            a hard place to find a whole section of the product — and it is where agents are
+            installed from, so it is the second thing most people want after their chats. */}
+        <NavRow
+          icon={<LayoutGrid size={17} />}
+          label="My Agents"
+          active={view === 'myagents'}
+          onClick={() => setView('myagents')}
+          title="My Agents — install, publish, open"
+        />
+        {admin && (
+          <NavRow
+            icon={<ShieldCheck size={17} />}
+            label="Admin"
+            active={view === 'admin'}
+            onClick={() => setView('admin')}
+            title="Admin — deployment defaults, users, usage"
+          />
+        )}
       </div>
 
       {/* AGENTS — the listing STAYS; clicking an agent opens its detail page (not a chat) */}

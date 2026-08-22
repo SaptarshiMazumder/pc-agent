@@ -1,0 +1,13 @@
+{
+  "name": "@agentd/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The ONE sign-in and token-renewal implementation. Consumed by the agentd client and by the agent SDK, so neither owns a second one.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"]
+}

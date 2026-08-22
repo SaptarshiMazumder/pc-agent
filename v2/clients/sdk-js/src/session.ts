@@ -1,155 +1,94 @@
 /**
  * What THIS client knows about itself: who is signed in, and which keys it wants to pay with.
  *
- * A leaf — it imports nothing, so both the socket (client.ts) and the sign-in flow (auth.ts) can
- * read it without forming a cycle.
- *
  * THE CLIENT HOLDS BOTH FACTS. The daemon stores neither. That is not a stylistic choice: a
  * daemon-side session is ONE slot, and one slot cannot serve two people — the second to sign in
- * overwrites the first, signing out signs out everybody, and one window's Cloud switch moves
- * every other window's billing. Held per client and presented per connection, a hundred users on
- * one daemon is a hundred sockets with a hundred answers.
+ * overwrites the first, signing out signs out everybody, and one window's Cloud switch moves every
+ * other window's billing. Held per client and presented per connection, a hundred users on one
+ * daemon is a hundred sockets with a hundred answers.
  *
- * Keyed per agent, so two agent apps on one machine never share or clobber each other's.
+ * THE CREDENTIAL HALF NOW LIVES IN `@agentd/auth`, not here. This module used to own the storage
+ * format, the expiry rules and (next door, in auth.ts) a renewal loop — a second implementation of
+ * what the agentd client already did, which drifted from it and lost. What is left here is the
+ * part that genuinely is this client's own: WHICH KEYS PAY, which is not an identity question and
+ * has no server-side equivalent.
  */
 
+import { accessTokenExpiry } from '@agentd/auth'
+import { identity, sessionKey } from './identity'
+
+export { accessTokenAccount, accessTokenExpiry } from '@agentd/auth'
+
+/**
+ * A session as the rest of the SDK reads it.
+ *
+ * A projection of `@agentd/auth`'s `TokenPair`, kept in this shape because agent apps already
+ * destructure it. The manager is the source of truth; this is a view of it.
+ */
 export interface StoredSession {
-  /** The ACCESS token — short-lived (~10 min) and the only one that travels on a connection. */
+  /** The ACCESS token — short-lived and the only one that travels on a connection. */
   token: string
   email: string
   accountId: string
-  /**
-   * The refresh token, used ONLY to mint a new access token at <accountsUrl>/auth/refresh.
-   *
-   * Without it an app window is signed in for exactly one access-token lifetime: the credential
-   * rides the socket URL, the socket eventually reconnects, and the daemon then accepts the page
-   * ANONYMOUSLY — which reads to the user as "all my agents disappeared", because an anonymous
-   * connection sees none of the account's own agents.
-   */
+  /** Absent in a window opened BY the desktop app: it is fed tokens instead of renewing. */
   refreshToken?: string
-  /** Epoch ms when `token` expires, so renewal can happen BEFORE a request fails. */
+  /** Epoch ms when `token` expires. */
   expiresAt?: number
 }
 
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */
 export type RunMode = 'local' | 'cloud'
 
-function key(explicit = ''): string {
-  if (explicit) return explicit
-  const here = typeof location === 'undefined' ? null : new URL(location.href)
-  const scope = here?.searchParams.get('scope') || ''
-  // `?scope=` is present only when an OPENER built the url (the desktop shell, a launch link).
-  // A page reached from a marketplace card is just `/apps/<id>/`, so the path is the only thing
-  // that says which agent this is — and without that fallback every such app on one origin
-  // shares the key `agentd.session.app`, i.e. one agent's session silently becomes another's.
-  const id = /^agent:(.+)$/.exec(scope)?.[1] || pathAgentId(here)
-  return `agentd.session.${id || 'app'}`
-}
-
-function pathAgentId(here: URL | null): string {
-  const match = /\/apps\/([^/]+)/.exec(here?.pathname || '')
-  return match ? decodeURIComponent(match[1]) : ''
-}
-
 /**
- * A credential this platform can still USE.
+ * The session this client can still use, or null.
  *
- * Tokens are signed JWTs (three dot-separated parts). The opaque `sess_...` sessions that came
- * before them cannot be resolved by any current daemon, so a stored one is not a session — it is
- * a guarantee of failure. Keeping it looked harmless and was not: the page reported itself signed
- * in, presented the dead token on every connect, and the daemon refused each one, producing an
- * endless reconnect against our own server that no amount of retrying could ever fix.
+ * SYNCHRONOUS, because the socket URL is built from it and a page must be able to answer "who am
+ * I" before its first await. Renewal happens on its own schedule; this reports what is held now.
+ * Anything that needs a credential it can RELY on should await `identity().accessToken()`, which
+ * renews first.
  */
-function usable(token: string): boolean {
-  return !!token && !token.startsWith('sess_') && token.split('.').length === 3
-}
-
-/**
- * An access token's claims, decoded and NOT verified. Null when unreadable.
- *
- * Read, never trusted: nothing is authorised on the strength of what comes out of here. The daemon
- * checks the signature and would reject a token whose claims we misread in our own favour. These
- * two readers only decide what the PAGE should do with a credential it already holds — when to
- * stop pretending it works, and whether it belongs to this window at all.
- */
-function claims(token: string): Record<string, unknown> | null {
-  try {
-    const body = (token || '').split('.')[1]
-    if (!body) return null
-    // base64url -> base64. atob is the one decoder present in every browser and in Node 16+.
-    return JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
-  } catch {
-    return null // not our token shape — `usable` already refuses those
-  }
-}
-
-/** When an access token dies, in epoch ms, from its own `exp`. 0 when unreadable. */
-export function accessTokenExpiry(token: string): number {
-  const exp = Number(claims(token)?.exp || 0)
-  return exp > 0 ? exp * 1000 : 0
-}
-
-/** Which account an access token speaks for, from its `sub`. '' when unreadable. */
-export function accessTokenAccount(token: string): string {
-  return String(claims(token)?.sub || '')
-}
-
-/** Renew slightly BEFORE the cliff, so the prompt arrives ahead of the first failed request. */
-const EXPIRY_SKEW_MS = 30_000
-
 export function loadSession(storageKey = ''): StoredSession | null {
-  try {
-    const raw = localStorage.getItem(key(storageKey))
-    const parsed = raw ? (JSON.parse(raw) as StoredSession) : null
-    if (!parsed || !parsed.token) return null
-    if (!usable(parsed.token) || spent(parsed)) {
-      // EVICT, do not merely ignore. Ignoring leaves it to be re-read on the next call and by
-      // every other code path that looks at storage; removing it means the page shows a sign-in
-      // form once and is then genuinely clean.
-      localStorage.removeItem(key(storageKey))
-      return null
-    }
-    return parsed
-  } catch {
-    return null // private mode / storage disabled — sign-in still works, it just won't persist
+  const manager = identity({ storageKey })
+  if (!manager.signedIn()) return null
+  const p = manager.current()
+  if (!p) return null
+  return {
+    token: p.accessToken,
+    email: p.email,
+    accountId: p.accountId,
+    refreshToken: p.refreshToken || undefined,
+    expiresAt: p.expiresAt || undefined
   }
 }
 
 /**
- * An access token that has run out AND has no refresh token behind it.
+ * Write a session directly.
  *
- * WHY THIS COUNTS AS SIGNED OUT. An app window opened by the shell is handed its credential on the
- * launch url and holds no refresh token, so it cannot renew — see `fromPage` in client.ts. Ten
- * minutes later the token is dead, and the daemon does NOT refuse the reconnect: it accepts the
- * page ANONYMOUSLY. The page went on reporting itself signed in against a credential that had
- * expired, so the user saw their agents silently vanish with no error and no sign-in form — the
- * "logged out after ten minutes" report this exists to answer.
- *
- * Treating it as signed out turns that into one visible sign-in prompt, and signing in THERE
- * yields a real refresh token, so it does not recur for that window.
- *
- * WITH a refresh token, an expired access token is NOT spent: renewal is exactly the path that
- * fixes it (auth.ts `authRefresh`), and evicting here would sign out a session that was one HTTP
- * call from being fine.
+ * The ONE legitimate caller is `fromPage` in client.ts, adopting the access token an opener put on
+ * the launch URL. Everything else should go through sign-in or renewal — writing a credential by
+ * hand is how a page ends up holding one nothing can renew.
  */
-function spent(s: StoredSession): boolean {
-  if (s.refreshToken) return false
-  const expiresAt = s.expiresAt || accessTokenExpiry(s.token)
-  return expiresAt > 0 && Date.now() > expiresAt - EXPIRY_SKEW_MS
-}
-
 export function saveSession(value: StoredSession | null, storageKey = ''): void {
-  try {
-    if (value) localStorage.setItem(key(storageKey), JSON.stringify(value))
-    else localStorage.removeItem(key(storageKey))
-  } catch {
-    /* non-fatal */
+  const manager = identity({ storageKey })
+  if (!value) {
+    // Forgets, and does NOT revoke. Clearing local state is all this has ever meant, and it has to
+    // stay synchronous — the caller may be about to rebuild a socket. Telling the server is
+    // `authLogout`, which is a different intention with a different cost.
+    manager.replace(null)
+    return
   }
+  manager.replace({
+    accessToken: value.token,
+    refreshToken: value.refreshToken || '',
+    expiresAt: value.expiresAt || accessTokenExpiry(value.token),
+    accountId: value.accountId || '',
+    email: value.email || ''
+  })
 }
 
 export function loadMode(storageKey = ''): RunMode | null {
   try {
-    const v = localStorage.getItem(key(storageKey) + '.mode')
+    const v = localStorage.getItem(sessionKey(storageKey) + '.mode')
     return v === 'local' || v === 'cloud' ? v : null
   } catch {
     return null
@@ -159,8 +98,8 @@ export function loadMode(storageKey = ''): RunMode | null {
 /** null clears the choice, returning this client to the default (cloud when it has a session). */
 export function saveMode(value: RunMode | null, storageKey = ''): void {
   try {
-    if (value) localStorage.setItem(key(storageKey) + '.mode', value)
-    else localStorage.removeItem(key(storageKey) + '.mode')
+    if (value) localStorage.setItem(sessionKey(storageKey) + '.mode', value)
+    else localStorage.removeItem(sessionKey(storageKey) + '.mode')
   } catch {
     /* non-fatal */
   }
@@ -170,9 +109,9 @@ export function saveMode(value: RunMode | null, storageKey = ''): void {
  * The mode this client should run in: what it CHOSE, else the default.
  *
  * ONE PLACE, because two readers need the same answer and a disagreement between them is
- * invisible: the settings page renders it, and the socket sends it. If the page defaulted to
- * cloud while the connect URL sent nothing, the UI would promise platform keys while the calls
- * went out on the user's own.
+ * invisible: the settings page renders it, and the socket sends it. If the page defaulted to cloud
+ * while the connect URL sent nothing, the UI would promise platform keys while the calls went out
+ * on the user's own.
  *
  * Default is CLOUD once signed in — and only where there is a proxy to reach.
  */

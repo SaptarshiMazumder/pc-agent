@@ -3,16 +3,16 @@
  * The question itself ("What should we build?") is the page header now, so this card does not
  * repeat it — it offers the choices underneath.
  *
- * Which agent this conversation is ABOUT is decided BEFORE it starts. Inferring it from prose is
- * how three attempts at one agent produced one agent and an argument about overwriting.
+ * BOTH PATHS GO THROUGH THE START DIALOG, including the suggestions. A suggestion used to send its
+ * prose straight into an empty chat, which meant the one route most likely to be taken by somebody
+ * new was also the one route that skipped the window question — and an agent built without that
+ * answer gets whatever the model felt like. The suggestion is still what you want built; the
+ * dialog is still how it gets built.
  *
- * The picker is offered ONLY when there is something to open. On a fresh install the user has
- * nothing but Agent Builder itself, and asking "existing or new?" with one meaningless answer is
- * ceremony — so the whole block stays hidden and the chat behaves exactly as before.
+ * The "work on an existing agent" card is offered ONLY when there is something to open. On a fresh
+ * install the user has nothing but Agent Builder itself, and asking "existing or new?" with one
+ * meaningless answer is ceremony.
  */
-
-import { useState } from 'react'
-import type { AgentRow } from '../agentd/roster'
 
 // Starter prompts. NEVER name a specific agent — these are clickable, and on a machine that never
 // had one, the click asks to work on something that does not exist.
@@ -22,8 +22,8 @@ const SUGGESTIONS = [
     body: 'Build an agent that summarises my YouTube history and charts it by month',
   },
   {
-    title: 'Give an agent its own window',
-    body: 'Give one of my agents its own app window',
+    title: 'Watch a folder and file things',
+    body: 'Build an agent that watches a folder and sorts what lands in it',
   },
   {
     title: 'Check everything I have built',
@@ -32,48 +32,44 @@ const SUGGESTIONS = [
 ]
 
 export function Hero({
-  agents,
-  onOpenAgent,
+  hasAgents,
+  onCreate,
+  onEdit,
   onSuggest,
 }: {
-  agents: AgentRow[]
-  onOpenAgent: (id: string) => void
+  /** Is there anything to edit? Drives whether the second card appears at all. */
+  hasAgents: boolean
+  onCreate: () => void
+  onEdit: () => void
+  /** A starter prompt — opens the create dialog carrying this as the opening message. */
   onSuggest: (text: string) => void
 }) {
-  const [picked, setPicked] = useState('')
-  const choice = picked || agents[0]?.id || ''
-
   return (
     <div className="hero">
-      {agents.length > 0 && (
-        <div className="card">
-          <div className="card-label">
-            <span>Work on an existing agent</span>
-          </div>
-          <div className="pick-row">
-            <select value={choice} onChange={(e) => setPicked(e.target.value)}>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {/* A catalogue agent (mine === false) is still openable — chat, files, validate
-                      — it just is not the user's to publish. Said here, in the list, so the greyed
-                      Publish button is never the first time they find out. */}
-                  {(a.name || a.id) + (a.mine === false ? ' · catalogue' : '')}
-                </option>
-              ))}
-            </select>
-            <button className="ghost-btn" onClick={() => choice && onOpenAgent(choice)}>
-              Open
-            </button>
-          </div>
-          <p className="card-note">
-            Opens its files in the inspector and tells the model what it is looking at.
-          </p>
+      <div className="card">
+        <div className="card-label">
+          <span>Start</span>
         </div>
-      )}
+        <div className="hero-actions">
+          <button className="primary-btn" onClick={onCreate}>
+            Create a new agent
+          </button>
+          {hasAgents && (
+            <button className="ghost-btn" onClick={onEdit}>
+              Edit an agent
+            </button>
+          )}
+        </div>
+        <p className="card-note">
+          {hasAgents
+            ? 'Editing opens the agent’s files in the inspector and tells the model what it is looking at.'
+            : 'You will be asked one question — whether it needs a window — and then we start building.'}
+        </p>
+      </div>
 
       <div className="card">
         <div className="card-label">
-          <span>{agents.length > 0 ? 'Or start something new' : 'Start here'}</span>
+          <span>Or start from one of these</span>
         </div>
         <div className="suggests">
           {SUGGESTIONS.map((s) => (

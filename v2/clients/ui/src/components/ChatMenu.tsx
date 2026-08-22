@@ -84,10 +84,17 @@ export default function ChatMenu({
       <button className="chat-menu-item" onClick={() => run(onRename)}>
         <span className="cm-ico"><Pencil size={15} /></span>Rename
       </button>
-      <button className="chat-menu-item" onClick={() => setMovePane((v) => !v)}>
-        <span className="cm-ico"><FolderInput size={15} /></span>Move to project
-        <span className={`cm-chev ${movePane ? 'open' : ''}`}><ChevronRight size={14} /></span>
-      </button>
+      {/* NOWHERE TO MOVE TO, so not an action. With no projects the sub-pane can only ever say
+          "no projects yet", and it cannot create one — the offer is a dead end wherever that is
+          true: a fresh install, and every agent-app window (projects are host-only, so an
+          app-scoped connection always passes []). A chat that IS in a project keeps the item
+          regardless, because "No project" is how it gets back out. */}
+      {(projects.length > 0 || !!currentProjectId) && (
+        <button className="chat-menu-item" onClick={() => setMovePane((v) => !v)}>
+          <span className="cm-ico"><FolderInput size={15} /></span>Move to project
+          <span className={`cm-chev ${movePane ? 'open' : ''}`}><ChevronRight size={14} /></span>
+        </button>
+      )}
       {movePane && (
         <div className="chat-menu-sub">
           <button className="chat-menu-item" onClick={() => run(() => onMove(''))}>

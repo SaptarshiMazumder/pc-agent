@@ -27,6 +27,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+/** Are these the same file, ignoring how the platform ends its lines?
+ *
+ *  Compared as normalised TEXT rather than bytes. The alternative — writing CRLF on Windows to
+ *  match what git checks out — would make the vendored copy differ from the build it came from,
+ *  and this script exists precisely so those cannot differ.
+ */
+function sameContent(a, b) {
+  return a.toString('utf8').replace(/\r\n/g, '\n') === b.toString('utf8').replace(/\r\n/g, '\n')
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 const sdkDir = path.resolve(here, '..')
 const v2 = path.resolve(sdkDir, '..', '..')
@@ -116,7 +126,13 @@ for (const [source, target] of pairs) {
   const payload = fs.readFileSync(source)
   total += payload.length
   const before = fs.existsSync(target) ? fs.readFileSync(target) : null
-  if (before && before.equals(payload)) continue // byte-identical: leave the mtime alone
+  // SAME CONTENT, DIFFERENT LINE ENDINGS IS NOT A CHANGE.
+  //
+  // This build writes LF. On Windows `core.autocrlf=true` checks these files out as CRLF, so a
+  // byte comparison NEVER matched and every run rewrote all seventeen — reporting "17 updated"
+  // while changing nothing anybody wrote. The cost was not the writes: it was seventeen files
+  // in every changeset with an empty diff, which is how a real change gets missed.
+  if (before && sameContent(before, payload)) continue
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, payload)
   updated++

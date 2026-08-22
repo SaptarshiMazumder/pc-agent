@@ -11,6 +11,8 @@ import ProjectsView from './components/ProjectsView'
 import ProjectView from './components/ProjectView'
 import SettingsView from './components/SettingsView'
 import ShellCanvasHost from './components/ShellCanvasHost'
+import ShellChatHost from './components/ShellChatHost'
+import ShellSessionsHost from './components/ShellSessionsHost'
 import Sidebar from './components/Sidebar'
 import SignIn from './components/SignIn'
 import AppView from './components/AppView'
@@ -21,6 +23,7 @@ import SubscriptionView from './components/SubscriptionView'
 import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useMode } from './lib/mode'
 import { isDesktop } from './lib/platform'
+import { onRouteChange } from './lib/route'
 import { installRum } from './lib/rum'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
@@ -52,6 +55,11 @@ export default function App() {
     if (isDesktop && connection === 'open') void applyMode()
   }, [applyMode, mode, session, connection])
 
+  // BACK AND FORWARD. The store pushes an address on every navigation; this is the other half,
+  // so the browser's own buttons move between pages instead of leaving the app on one screen
+  // with a URL that says otherwise. A no-op on desktop, where there is no address bar to obey.
+  useEffect(() => onRouteChange((v) => useApp.setState({ view: v || 'chat' })), [])
+
   // app-wide soft scroll edges: auto-applies the fade to every scroll container (any page)
   useEffect(() => installSoftScroll(), [])
 
@@ -64,10 +72,13 @@ export default function App() {
   if (webNeedsSignIn || cloudNeedsSignIn) return <SignIn />
 
   return (
-    // ShellCanvasHost feeds the SHARED canvas components (viewers, editor, workspace tree)
-    // their capabilities from this renderer's store/gateway — see canvas/host.tsx. Once, at
-    // the root, so every surface that renders a tree or a viewer is covered.
+    // The two SEAMS, fed from this renderer's store/gateway (canvas/host.tsx, chat/host.tsx).
+    // Both components trees they serve are shared with the agent-app bundle, which supplies its
+    // own hosts over the SDK. Once, at the root, so every surface that renders a tree, a viewer
+    // or a message is covered.
     <ShellCanvasHost>
+    <ShellChatHost>
+    <ShellSessionsHost>
     <div className="app">
       <Sidebar />
       <main className="main">
@@ -98,6 +109,8 @@ export default function App() {
       </main>
       <Canvas />
     </div>
+    </ShellSessionsHost>
+    </ShellChatHost>
     </ShellCanvasHost>
   )
 }

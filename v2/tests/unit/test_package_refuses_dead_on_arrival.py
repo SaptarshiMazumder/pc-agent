@@ -153,14 +153,11 @@ def test_the_blocking_list_names_real_findings():
     """A code that no rule emits is a gate that never fires — the quiet kind of dead check."""
     domain = (Path(__file__).resolve().parents[2] / "agents" / "agent-builder" / "plugins"
               / "agent-authoring" / "agent_authoring" / "domain")
+    # EVERY rule module, found rather than listed. The hand-written list went stale the first
+    # time a UI code blocked packing: `ui_rules.py` was not on it, so the guard reported a real
+    # blocker as dead. A test that names its inputs one by one only guards what it remembers.
     src = "\n".join(
-        (domain / name).read_text(encoding="utf-8")
-        for name in (
-            "sandbox_rules.py",
-            "portability_rules.py",
-            "packageability_rules.py",
-            "declaration_rules.py",
-        )
+        path.read_text(encoding="utf-8") for path in sorted(domain.glob("*_rules.py"))
     )
     for code in _PACK_BLOCKERS:
-        assert f'code="{code}"' in src, f"{code} is blocked but nothing emits it"
+        assert f'"{code}"' in src, f"{code} is blocked but nothing emits it"

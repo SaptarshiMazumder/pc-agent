@@ -26,6 +26,15 @@ locals {
     daemon = {
       AGENTD_REGISTRY      = local.registry_index_url
       AGENTD_PUBLISHER_KEY = var.registry_publisher_key
+      # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
+      # read, now a third reader. The daemon needs it because the config every tenant inherits is
+      # ITS file (/data/config.json on EFS): `config.set {target:"master"}` is admitted only for
+      # an identity named here, and an empty list means nobody rather than everybody.
+      #
+      # It is deliberately the break-glass list and NOT the promotable roster in the accounts
+      # database: that roster governs accounts, credits and creators, while this governs the
+      # machine those accounts run on.
+      AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
       # What to tell a BROWSER when it asks where to sign in. AGENTD_ACCOUNTS_URL (above) is
       # internal service DNS — correct for this container's own calls, unresolvable from a
       # visitor's machine, and advertising it gives an agent app a login form that can never
@@ -64,7 +73,13 @@ locals {
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.
       AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
-      AGENTD_PUBLIC_WS_URL          = local.app_origin == "" ? "" : replace(local.app_origin, "http", "ws")
+      # THE DAEMON'S OWN ADDRESS, port included. This read `replace(app_origin, "http", "ws")`,
+      # and app_origin is the WEB client's origin — so the document handed every browser
+      # ws://<host> with no port, i.e. nginx on :80, which serves static files and answers no
+      # WebSocket upgrade. Same shape as publish_web_host and the model-proxy line below: one
+      # host, each service named with ITS port. wss when TLS is on, because a page loaded over
+      # https may not open a ws:// socket.
+      AGENTD_PUBLIC_WS_URL = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 
       # ── the admin control plane (accounts/admin_api.py) ──
