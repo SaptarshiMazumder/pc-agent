@@ -14,8 +14,19 @@
  * They all moved here, and platform.ts re-exports them, so no other importer changes.
  */
 
-/** The desktop preload bridge (src/preload/index.ts), absent in a plain browser. */
-const bridge = (globalThis as { agentd?: unknown }).agentd
+/** The desktop preload bridge (src/preload/index.ts), absent in a plain browser.
+ *
+ * IDENTIFIED BY WHAT IT CAN DO, not by its name. Two different things publish themselves as
+ * `window.agentd`: this preload (contextBridge.exposeInMainWorld("agentd", api)) and the
+ * agent-app SDK (clients/sdk-js builds an IIFE with globalName: 'agentd'). Testing for the name
+ * alone therefore reported `isDesktop === true` on every page served at /apps/<id>/ — so shared
+ * components took the Electron path inside a browser window: file reads went to a bridge that
+ * was really the SDK, and the URL they fell back to carried no credential, which the daemon
+ * answered with 401. The filesystem methods are the bridge's distinguishing feature and no SDK
+ * will ever have them.
+ */
+const candidate = (globalThis as { agentd?: { readText?: unknown } }).agentd
+const bridge = typeof candidate?.readText === 'function' ? candidate : undefined
 
 export const isDesktop = !!bridge
 

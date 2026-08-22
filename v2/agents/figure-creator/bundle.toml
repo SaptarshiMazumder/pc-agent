@@ -8,7 +8,7 @@
 [bundle]
 id = "figure-creator"
 name = "Figure Creator"
-version = "1.3.2" # b9: web delivery, required sign-in, shell surface, settings, real chat rows
+version = "1.3.4" # b11: isDesktop was true in app windows (window.agentd name collision)
 description = "Publication-grade scientific figures: templated artwork (Nano Banana Pro), grounded labels/leaders as an editable vector overlay, SVG/PPTX/PDF export."
 agentd_compat = ">=0.1,<1"
 entitlement = ""            # free while we build; set a SKU (e.g. "figure-creator-pro") to license-gate
