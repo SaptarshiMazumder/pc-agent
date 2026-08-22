@@ -43,14 +43,25 @@ STARTER_FILES = (
     "README.md",
     "vendor/agentd-client.js",
     "vendor/agentd-client.d.ts",
-    # THE TWO SOURCE FILES. Everything else in src/ is a judgement about the agent, which is why
-    # this starter deliberately ships none of it — but neither of these is a judgement. Every
-    # agent with a window signs its user in and shows them what they have left; validate_agent
-    # refuses an app that does neither, and a rule the author has to remember is a rule that gets
-    # forgotten. So both arrive already written.
+    # THE ONE SOURCE FILE. Everything else in src/ is a judgement about the agent, which is why
+    # this starter deliberately ships none of it — but where sign-in happens is not a judgement,
+    # and getting it wrong (rendering first, signing in later) is the mistake that has to be
+    # designed out rather than documented.
     "src/main.tsx",
-    "src/Credits.tsx",
 )
+
+#: The COMMON MODULES — accounts and money, copied verbatim into every agent's `app/src/common/`.
+#:
+#: WHY COPIED AND NOT IMPORTED. An agent is a shipped artifact: packaged, published, downloaded and
+#: run on somebody else's machine, where no workspace path resolves. A copy inside the agent's own
+#: tree is the only version that survives that trip. The real logic is still in ONE place — the
+#: SDK, vendored beside it — and these are the thin React layer over it.
+#:
+#: GLOBBED, not named, unlike STARTER_FILES: this set grows (a third module, a fourth), and a list
+#: to keep in step is a list that falls out of step. `validate_agent` compares what landed against
+#: this source, so an omission is caught there rather than by a build error naming nothing useful.
+COMMON_ROOT_NAME = "_common"
+COMMON_DEST = "src/common"
 
 
 class ReactScaffoldError(Exception):
@@ -76,9 +87,16 @@ class ScaffoldReactAppService:
         tmp_path, and because knowing where this bundle sits is the composition root's business.
     """
 
-    def __init__(self, reader, starter_root: Path):
+    def __init__(self, reader, starter_root: Path, common_root: Path | None = None):
         self._reader = reader
         self._starter_root = Path(starter_root)
+        # Defaults to `_common/` beside `_borrowed/`, which is where it lives. Injectable so a
+        # test can point at a fixture without staging the whole templates tree.
+        self._common_root = (
+            Path(common_root)
+            if common_root is not None
+            else self._starter_root.parent.parent / COMMON_ROOT_NAME
+        )
 
     def scaffold(self, agent_id: str, confirm_overwrite: bool = False) -> ReactScaffoldResult:
         agent_dir = self._reader.agent_dir(agent_id)
@@ -97,6 +115,16 @@ class ScaffoldReactAppService:
                     f"For the vendored SDK, run `npm run build` in clients/sdk-js."
                 )
             plan.append((rel, src))
+
+        # The common modules, mirrored under src/common/ with their folders intact.
+        common = sorted(f for f in self._common_root.rglob("*") if f.is_file())
+        if not common:
+            raise ReactScaffoldError(
+                f"the common modules are missing at {self._common_root} — an agent scaffolded "
+                f"without them has no sign-in and no credits page, and cannot be published."
+            )
+        for src in common:
+            plan.append((f"{COMMON_DEST}/{src.relative_to(self._common_root).as_posix()}", src))
 
         app_dir = agent_dir / "app"
         existing = self._existing(app_dir)

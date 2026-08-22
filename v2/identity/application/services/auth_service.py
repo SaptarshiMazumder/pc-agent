@@ -139,6 +139,58 @@ class AuthService:
             device_label=device_label or record.device_label,
         )
 
+    # -- a session of one's own -------------------------------------------------------------
+
+    def derive_session(
+        self, *, access_token: str, client_id: str = "", device_label: str = ""
+    ) -> TokenPair:
+        """Mint a NEW, INDEPENDENT session for the account a live access token already proves.
+
+        WHAT IT IS FOR. A window opened by the desktop app is handed an access token on its launch
+        URL and nothing else. It cannot renew — renewing needs a refresh token — so ten minutes
+        later it goes anonymous, which the daemon does not refuse: it accepts the reconnect with no
+        account, and the user watches their agents disappear. The old answer was for the shell to
+        keep pushing fresh access tokens down forever. This is the better one: the window mints its
+        OWN key, once, and then looks after itself like every other client.
+
+        A NEW FAMILY, NEVER A COPY. Refresh tokens are single-use and rotating, so two holders of
+        one token is not a shortcut — the second to spend it looks exactly like theft, and the
+        server revokes the family and signs both out. Every holder therefore needs a chain of its
+        own. That is also what makes a single window revocable on its own, and what makes it show
+        up in the account's device list as itself rather than as a second copy of the shell.
+
+        IT PROVES THE ACCOUNT, IT DOES NOT INHERIT IT. The presented token must still be valid —
+        an expired one proves nothing, and accepting it would make expiry meaningless. The
+        principal is then re-read from the directory rather than copied from the token's claims,
+        for the same reason refresh does it (step 3 in the module note): a deactivated account must
+        not be able to mint a fresh session off an assertion made before it was deactivated.
+
+        THE COST, STATED. A live access token can now buy a long-lived one, so a stolen access
+        token is worth more than it was — it is a way in for as long as the theft goes unnoticed,
+        instead of ten minutes. `ttl_s` is what bounds that: callers give a window session a
+        shorter life than a password login gets, so an unattended one dies on its own.
+        """
+        claims = self._issuer.verify(access_token)  # raises TokenInvalid when expired or forged
+
+        account = self._directory.find_by_id(claims.account_id)
+        if account is None:
+            raise TokenInvalid("the account behind this token no longer exists")
+        if not account.active:
+            raise AccountDisabled("this account is deactivated")
+
+        principal = Principal(
+            account_id=account.account_id,
+            email=account.email,
+            scopes=DEFAULT_SCOPES,
+            # How this session came to exist, kept on the token: it was derived from another
+            # session rather than from a password, and an auditor should be able to see that.
+            amr=("derived",),
+        )
+        # No family_id and no parent_row_id: this is a NEW chain, not a rotation of the caller's.
+        return self._issue_pair(
+            principal, client_id=client_id, device_label=device_label
+        )
+
     # -- sign out ---------------------------------------------------------------------------
 
     def logout(self, *, refresh_token: str) -> bool:

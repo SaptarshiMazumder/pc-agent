@@ -147,10 +147,43 @@ var TokenManager = class {
   async restore() {
     const stored = this.pair || this.readStored();
     if (!stored?.refreshToken) {
+      if (stored && !this.expired(stored)) {
+        const own = await this.derive();
+        if (own) return own;
+      }
       if (stored && this.expired(stored)) await this.set(null);
       return this.pair;
     }
     return this.refresh();
+  }
+  /**
+   * Trade a live access token for a session of this client's own. Returns null when there is
+   * nothing live to trade, or the server declined.
+   *
+   * NEVER THROWS. It runs on a boot path beside things that matter more; a window that cannot
+   * derive is no worse off than it was a moment ago — it still holds a working access token, and
+   * it degrades to exactly the old behaviour rather than failing to start.
+   */
+  async derive() {
+    const held = this.pair;
+    if (!held || this.expired(held)) return null;
+    try {
+      const data = await this.post(
+        `${await this.base()}/auth/derive`,
+        {
+          access_token: held.accessToken,
+          client_id: this.config.clientId,
+          device_label: this.deviceLabel()
+        },
+        "derive"
+      );
+      const next = this.toPair(data, held.email);
+      if (!next.refreshToken) return null;
+      await this.set(next);
+      return next;
+    } catch {
+      return null;
+    }
   }
   /**
    * Trade the refresh token for a new pair. SINGLE-FLIGHT — see the header.
@@ -496,6 +529,7 @@ function identity(opts = {}) {
   managers.set(key, manager);
   if (opts.client) bindClient(manager, key, opts.client);
   manager.start();
+  void manager.restore().catch(() => void 0);
   return manager;
 }
 var bound = /* @__PURE__ */ new Map();

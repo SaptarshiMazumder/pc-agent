@@ -53,6 +53,12 @@ APP_FACING_EVENTS = frozenset(
         "tool_progress",
         "tool_execution_end",
         "message_end",
+        # How full this conversation's context is. Emitted after every assistant message, and
+        # ALWAYS — unlike model_trace, which carries the same token counts behind a debug flag
+        # that is off by default. A window cannot warn about a wall it is not told about, and the
+        # failure at that wall is silent: the provider returns nothing, the retry re-sends, and
+        # the user sees "couldn't generate a response" twice with no cause on screen.
+        "context_usage",
         "model_trace",
         "model_fallback",
         "continuation",

@@ -33,7 +33,30 @@ log = logging.getLogger("agentd")
 AGENT_BUILDER_DIR = BundleLayout.AGENT_BUILDER_DIR
 TEMPLATE_ROOT = BundleLayout.TEMPLATE_ROOT
 BORROW_ROOT = BundleLayout.BORROW_ROOT
+COMMON_ROOT = BundleLayout.COMMON_ROOT
 
+
+
+def _common_module_sources() -> dict:
+    """The canonical text of every shared module, keyed by its path under ``common/``.
+
+    Empty when the templates did not ship with this build — a packaged runtime that carries no
+    authoring templates. The rule then has no opinion, which is right: silence beats inventing a
+    failure out of our own missing data.
+    """
+    if not COMMON_ROOT.is_dir():
+        return {}
+    out = {}
+    for path in sorted(COMMON_ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            out[path.relative_to(COMMON_ROOT).as_posix()] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # A module we cannot read is one we cannot compare. Skipping is honest; guessing is
+            # a false MODIFIED on every agent.
+            continue
+    return out
 
 def register(api, ctx):
     registry = getattr(ctx, "registry", None)
@@ -46,6 +69,7 @@ def register(api, ctx):
     from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
     from agent_authoring.domain.bundle_defaults import BundleDefaults
     from agent_authoring.domain.declaration_rules import DeclarationRules
+    from agent_authoring.domain.common_module_rules import CommonModuleRules
     from agent_authoring.domain.freshness_rules import FreshnessRules
     from agent_authoring.domain.packageability_rules import PackageabilityRules
     from agent_authoring.domain.sandbox_rules import SandboxRules
@@ -108,6 +132,10 @@ def register(api, ctx):
         # older screen. Now the easy mistake to make: building used to be part of editing, and
         # with build_app it is a separate step somebody has to remember.
         freshness_rules=FreshnessRules(),
+        # Is the agent's copy of the shared modules still the shared modules? Read once, at
+        # load, because the templates do not change while the daemon runs — and because a
+        # rule that reads its own files off disk cannot be tested without staging a tree.
+        common_rules=CommonModuleRules(_common_module_sources()),
     )
 
     # --- AUTHOR ---------------------------------------------------------------------
@@ -164,7 +192,7 @@ def register(api, ctx):
     from agent_authoring.presentation.scaffold_react_app_tool import ScaffoldReactAppTool
 
     api.register_tool(
-        ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react"))
+        ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react", COMMON_ROOT))
     )
 
     # AND THE STEP THAT MAKES IT VISIBLE. `app/` is source and `ui/` is what the daemon serves, so

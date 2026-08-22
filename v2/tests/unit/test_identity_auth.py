@@ -505,3 +505,84 @@ def test_register_then_login_resolve_to_one_account(app):
     finally:
         conn.close()
     assert len(rows) == 1, f"expected one account, found {rows}"
+
+
+# --- a session of one's own (derive) -----------------------------------------
+# A window opened by the desktop app is handed an access token and no refresh token, so it cannot
+# renew and goes anonymous ten minutes later — which the daemon does not refuse, so the user just
+# watches their agents disappear. `derive` is how such a window stops being fed and mints a chain
+# of its own instead.
+
+
+def test_a_live_access_token_buys_a_session_of_its_own(app):
+    client, _ = app
+    _signup(client)
+    first = _auth_login(client)
+
+    r = client.post(
+        "/auth/derive",
+        json={"access_token": first["access_token"], "client_id": "app", "device_label": "Agent app"},
+    )
+    assert r.status_code == 200, r.text
+    derived = r.json()
+
+    assert derived["refresh_token"], "the whole point is that the window gets a key of its own"
+    assert derived["account_id"] == first["account_id"]
+    # A NEW CHAIN, not a copy. Two holders of one refresh token is not sharing — the second to
+    # spend it looks exactly like theft, and the server kills the family and signs both out.
+    assert derived["refresh_token"] != first["refresh_token"]
+
+
+def test_the_two_sessions_rotate_independently(app):
+    """Independence tested from the side that matters: spending one must not disturb the other."""
+    client, _ = app
+    _signup(client)
+    first = _auth_login(client)
+    derived = client.post("/auth/derive", json={"access_token": first["access_token"]}).json()
+
+    assert client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]}).status_code == 200
+    again = client.post("/auth/refresh", json={"refresh_token": derived["refresh_token"]})
+    assert again.status_code == 200, "rotating the parent must not touch the derived session"
+
+
+def test_a_derived_session_is_its_own_device(app):
+    """It shows up as itself in the device list, which is what makes it revocable on its own
+    rather than as a second, indistinguishable copy of the shell."""
+    client, _ = app
+    _signup(client)
+    first = _auth_login(client)
+    client.post(
+        "/auth/derive",
+        json={"access_token": first["access_token"], "client_id": "app", "device_label": "Agent app"},
+    )
+
+    r = client.get("/auth/sessions", headers={"Authorization": f"Bearer {first['access_token']}"})
+    labels = [s.get("device_label", "") for s in r.json().get("sessions", [])]
+    assert "Agent app" in labels
+
+
+def test_logout_all_ends_derived_sessions_too(app):
+    """Otherwise "sign out everywhere" would leave every agent window signed in — the worst kind
+    of half-measure, because the user believes they are out."""
+    client, _ = app
+    _signup(client)
+    first = _auth_login(client)
+    derived = client.post("/auth/derive", json={"access_token": first["access_token"]}).json()
+
+    r = client.post(
+        "/auth/logout-all", headers={"Authorization": f"Bearer {first['access_token']}"}
+    )
+    assert r.status_code == 200
+    dead = client.post("/auth/refresh", json={"refresh_token": derived["refresh_token"]})
+    assert dead.status_code == 401
+
+
+def test_a_forged_token_buys_nothing(app):
+    client, _ = app
+    r = client.post("/auth/derive", json={"access_token": "not.a.token"})
+    assert r.status_code == 401
+
+
+def test_an_absent_token_buys_nothing(app):
+    client, _ = app
+    assert client.post("/auth/derive", json={}).status_code == 401

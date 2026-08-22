@@ -1,4 +1,7 @@
-/* Credits & billing — GIVE IT ITS OWN VIEW. THE SECOND SOURCE FILE THIS STARTER SHIPS.
+/* Credits & billing — GIVE IT ITS OWN VIEW.
+ *
+ * COPIED VERBATIM from the common modules. Do not edit; `validate_agent` compares it against the
+ * source.
  *
  * THIS FILE ARRIVING IS NOT THE JOB. Nothing renders it until you do, and validate_agent reports
  * UI_NO_CREDITS until something does — shipping it and never showing it is a credits page that
@@ -8,8 +11,8 @@
  * a user comes looking for the moment a run stops; settings is where you go to change how the
  * thing works. agentd draws the same line, and validate_agent expects to find this rendered.
  *
- * Same reasoning as `main.tsx`: every agent with a window sells credits, so it arrives already
- * written rather than as a rule to remember. Running out of credits is the ONE failure a user can
+ * Every agent with a window sells credits, so it arrives already written rather than as a rule
+ * to remember. Running out of credits is the ONE failure a user can
  * fix themselves, and an agent that cannot take the top-up just stops working and says nothing —
  * the user has to already know a separate app exists, find it, and buy there. Nobody does.
  *

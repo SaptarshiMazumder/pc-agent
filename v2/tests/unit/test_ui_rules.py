@@ -32,8 +32,10 @@ RULES = UiRules(
 )
 
 
-def check(js: str, path: str = "ui/app.js"):
-    return RULES.check(None, {}, [path], {path: js})
+# EVERY FIXTURE IS A REACT APP, because that is the only kind there is. `app_sources` reads
+# `app/src/**` and nothing else — the `ui/*.js` fallback went with the vanilla templates.
+def check(js: str, path: str = "app/src/App.tsx"):
+    return RULES.check(None, {}, ["app/package.json", path], {path: js})
 
 
 def codes(js: str) -> set[str]:
@@ -125,7 +127,7 @@ def test_dom_and_other_type_fields_are_ignored():
 def test_the_vendored_sdk_is_never_analysed():
     """It is copied verbatim and is not the agent's code."""
     js = "if (frame.type === 'res') { pending.resolve() }"
-    assert not RULES.check(None, {}, [], {"ui/vendor/agentd-client.js": js})
+    assert not RULES.check(None, {}, [], {"app/vendor/agentd-client.js": js})
 
 
 # --- calling things an app may not call -------------------------------------
@@ -152,19 +154,24 @@ def test_an_app_tier_rpc_is_fine():
 # come from it — and, as always here, for staying quiet on the ones that are fine.
 
 APP = {"app": {"width": 1100}}
-SDK = "ui/vendor/agentd-client.js"
+SDK = "app/vendor/agentd-client.js"
 
 
 # Every REQUIRED component, satisfied. A test about one of them has to satisfy the others, or the
 # missing-component check short-circuits and the test reads a finding it was not asking about.
-OTHER_REQUIRED = "await agentd.mountCreditsPanel({ client, mount })"
+OTHER_REQUIRED = "\n".join(
+    [
+        "await agentd.mountCreditsPanel({ client, mount })",
+        "import { Settings } from './common/settings/Settings'",
+    ]
+)
 
 
 FULL_SDK = "function mountSignInGate(){}\nfunction mountCreditsPanel(){}"
 
 
 def sign_in(js: str, vendored: str | None = FULL_SDK):
-    sources = {"ui/app.js": js + "\n" + OTHER_REQUIRED}
+    sources = {"app/package.json": "{}", "app/src/App.tsx": js + "\n" + OTHER_REQUIRED}
     if vendored is not None:
         sources[SDK] = vendored
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
@@ -172,7 +179,7 @@ def sign_in(js: str, vendored: str | None = FULL_SDK):
 
 def only(js: str, vendored: str | None = "function mountSignInGate(){}"):
     """The raw form: exactly the code given, nothing added. For the missing-component tests."""
-    sources = {"ui/app.js": js}
+    sources = {"app/package.json": "{}", "app/src/App.tsx": js}
     if vendored is not None:
         sources[SDK] = vendored
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
@@ -199,15 +206,17 @@ def test_calling_the_gate_is_clean():
     assert "UI_NO_SIGN_IN" not in sign_in("await agentd.mountSignInGate()")
 
 
-def test_using_the_mechanism_directly_is_also_clean():
-    """figure-creator drives its own sign-in surface with resolveAuth/signIn instead of the modal.
-    That is a legitimate choice, and forcing the drop-in gate on it would be the rule dictating
-    design rather than catching a defect."""
-    js = """
-    const auth = await agentd.resolveAuth()
-    if (auth.needsSignIn) await agentd.signIn({ email, password })
-    """
-    assert "UI_NO_SIGN_IN" not in sign_in(js)
+def test_either_of_the_two_doors_counts():
+    """TWO legitimate ways in, and no third. `signInFirst` is the common module's wrapper — what
+    every scaffolded agent uses — and `mountSignInGate` is the SDK call underneath it, for an app
+    whose layout reaches past the wrapper.
+
+    The detector used to accept `resolveAuth` and a bare `signIn` too, which blessed an agent
+    driving its own sign-in surface. That is now exactly what `UI_OWN_LOGIN` refuses: one
+    implementation of credentials on this platform, or every agent gets its own set of renewal
+    bugs."""
+    assert "UI_NO_SIGN_IN" not in sign_in("await signInFirst('My Agent')")
+    assert "UI_NO_SIGN_IN" not in sign_in("await mountSignInGate({ client })")
 
 
 def test_a_component_whose_sdk_symbol_is_missing_is_an_error():
@@ -326,11 +335,14 @@ def test_an_app_agent_with_no_credits_panel_is_refused():
     assert "add_ui_component" not in found["UI_NO_CREDITS"].fix
 
 
-def test_both_missing_components_are_reported_in_one_pass():
-    """A queue of round trips is not a report. An author fixing two one-line omissions should see
-    both the first time, not find the second after fixing the first."""
+def test_every_missing_component_is_reported_in_one_pass():
+    """A queue of round trips is not a report. An author fixing three one-line omissions should
+    see all of them the first time, not find the next after fixing the last.
+
+    The set is asserted EXACTLY, so adding a fourth required component fails here — which is the
+    reminder to check that its message is written for somebody who has never seen it."""
     found = only("const client = agentd.fromPage()")
-    assert set(found) == {"UI_NO_SIGN_IN", "UI_NO_CREDITS"}
+    assert set(found) == {"UI_NO_SIGN_IN", "UI_NO_CREDITS", "UI_NO_SETTINGS"}
 
 
 def test_an_app_that_has_both_is_quiet():
@@ -372,11 +384,17 @@ STARTER_CREDITS = (
 
 
 def react(app_tsx: str) -> dict:
-    """A React agent: source in app/src, the two starter files, and whatever App.tsx says."""
+    """A React agent: source in app/src, the starter files, and whatever App.tsx says.
+
+    Every REQUIRED component except the one under test is satisfied here. A fixture that left one
+    missing would make each test read a finding it was not asking about — and the tests below are
+    about which spellings of "used" count, not about how many components exist.
+    """
     sources = {
         "app/package.json": "{}",
         "app/src/main.tsx": "import { mountSignInGate } from '@agentd/client'\nawait mountSignInGate()",
         "app/src/Credits.tsx": STARTER_CREDITS,
+        "app/src/Config.tsx": "import { Settings } from './common/settings/Settings'",
         "app/src/App.tsx": app_tsx,
     }
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}

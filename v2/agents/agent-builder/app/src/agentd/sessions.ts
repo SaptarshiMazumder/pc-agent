@@ -54,3 +54,27 @@ export function useSessions(client: AgentdClient, ready: boolean) {
 
   return { chats, reload }
 }
+
+/**
+ * Fork a conversation: a full copy — transcript, title, project — under a new key.
+ *
+ * The daemon already does the work (`sessions.duplicate` copies the transcript and its meta and
+ * announces the new session), so this is the address of it and nothing more.
+ *
+ * WHY THE AGENT SCOPE COMES BACK FOR FREE. Opening the copy replays its transcript, and the
+ * subject is read back out of that (`subjectOf` in chat.ts): a scoped chat carries its preamble
+ * in message one, and one that BUILT something carries the `create_agent` call that named it. So
+ * the fork lands pointed at the same agent without anything here having to know which.
+ */
+export async function forkSession(client: AgentdClient, sessionKey: string): Promise<string> {
+  const res: any = await client.request('sessions.duplicate', {
+    agentId: AGENT_ID,
+    sessionKey,
+  })
+  // Reported, never swallowed: a fork button that silently does nothing leaves the user unsure
+  // whether they now have two conversations or one.
+  if (!res?.ok || !res?.sessionKey) {
+    throw new Error(String(res?.error || 'the daemon would not copy this conversation'))
+  }
+  return String(res.sessionKey)
+}

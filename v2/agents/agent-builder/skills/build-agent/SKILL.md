@@ -1007,6 +1007,37 @@ Agents in this product that still have a hand-written `ui/` keep working — the
 folders straight off disk — but nothing maintains them any more. Reworking one means rebuilding it
 in React. **Never write vanilla JS for an agent window.**
 
+### The common modules — `src/common/`
+
+Accounts, money and configuration arrive already written. `scaffold_react_app` copies
+`templates/_common/` into every new agent as `app/src/common/`:
+
+```
+common/
+  README.md               read this — it says what each module needs from you
+  auth/useAuth.ts         signedIn · email · signIn() · signOut() · run mode
+  auth/SignIn.tsx         the gate, called before the first render
+  auth/ProfileMenu.tsx    the account menu, and the way to reach Credits
+  credits/Credits.tsx     the Credits & billing page
+  settings/Settings.tsx   the settings page — the SAME one the assistant's own window has
+```
+
+**The settings page is not yours to design.** A user configures the assistant, opens your agent,
+and must meet the same page — same knobs, same names, same grouping — plus one thing: your agent's
+values win over the daemon's, key by key, and every row says which layer it came from. Render it
+with `<Settings client={client} agentId="<your-id>" onRestart={...} />`. Agent Builder runs this
+exact module itself, so it is not a page you are being asked to trust untested.
+
+**Import them. Never rewrite them.** `validate_agent` compares the agent's copy against the source
+and reports `UI_COMMON_MODIFIED` — which blocks packaging and publishing. Every agent handling
+credentials and payments the same way is the entire point; a local edit forks that into a
+published artifact, and it still builds, so nothing else would catch it.
+
+If a change is genuinely needed by every agent, make it in `templates/_common/` so they all get
+it. If it is only about this agent's look, use the CSS custom properties each module documents.
+
+**Copying is not wiring.** They arrive; you still have to render them — see the two rules below.
+
 ### EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. No exceptions.
 
 `validate_agent` reports `UI_NO_SIGN_IN` as an **error** when an app never calls the gate, and
@@ -1193,6 +1224,7 @@ tool_execution_end   {toolCallId, toolName, result, isError}
 message_end          {message}
 model_fallback       {from, to, reason}
 model_trace          {step, model, requestedModel, tokensIn, tokensOut, tokensCached}
+context_usage        {used, limit, pct, model, cached}
 continuation         {reason, attempt}
 turn_start           {}
 turn_end             {}

@@ -78,38 +78,39 @@ def test_the_build_writes_where_the_daemon_reads():
     assert "base: './'" in config
 
 
-def test_the_starter_ships_only_the_mandatory_source_files():
+COMMON = STARTER.parent.parent / "_common"
+
+
+def _same(a, b) -> bool:
+    """Compared as normalised text: git checks these out CRLF on Windows and LF elsewhere, so a
+    byte comparison would fail on the platform rather than on the content."""
+    def norm(p):
+        return p.read_text(encoding="utf-8").replace("\r\n", "\n").rstrip("\n")
+
+    return norm(a) == norm(b)
+
+
+def test_the_starter_ships_only_the_mandatory_source_file():
     """What the window should BE is a judgement about the agent, made from the samples — a copied
     src/ would be a fourth opinion competing with them.
 
-    THE TWO MANDATORY ONES ARE NOT JUDGEMENTS. Every agent with a window signs its user in and
-    shows them what they have left; validate_agent refuses an app that does neither, and a
-    mandatory step left to the author is a step that gets forgotten. So exactly these ship, and
-    the list is asserted EXACTLY — a third file appearing here means somebody started making
-    judgements on the author's behalf."""
-    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["Credits.tsx", "main.tsx"]
+    WHERE SIGN-IN HAPPENS IS NOT A JUDGEMENT, and getting it wrong (render first, sign in later)
+    is a mistake to design out rather than document. So exactly one file ships, and the list is
+    asserted EXACTLY: a second one appearing here means somebody started making judgements on the
+    author's behalf. Everything shared lives in _common/, which is a different tier."""
+    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["main.tsx"]
 
 
-def test_the_shipped_credits_panel_uses_the_sdk():
-    """Same reason as the gate: the panel exists so there is ONE store in the product. A starter
-    that shipped a hand-rolled React store would be worse than shipping none — it looks like the
-    question was answered, and it is a second implementation of taking money."""
-    credits = (STARTER / "src" / "Credits.tsx").read_text(encoding="utf-8")
-
-    assert "mountCreditsPanel" in credits
-    assert "@agentd/client" in credits
-    # Mounted into a ref'd node and torn down on unmount: StrictMode double-mounts in development,
-    # and a panel left in a detached node keeps its balance listener alive forever.
-    assert "destroy()" in credits
-
-
-def test_the_shipped_entry_actually_signs_in():
-    """The file exists for one reason. A starter that shipped a main.tsx WITHOUT the gate would
-    be worse than shipping none — it looks like the question was already handled."""
+def test_the_shipped_entry_signs_in_before_it_renders():
+    """A starter that shipped a main.tsx WITHOUT this would be worse than shipping none — it looks
+    like the question was already handled."""
     main = (STARTER / "src" / "main.tsx").read_text(encoding="utf-8")
 
-    assert "mountSignInGate" in main
-    assert main.index("mountSignInGate") < main.index("root.render"), "gate before the render"
+    assert "signInFirst" in main
+    assert main.index("signInFirst") < main.index("root.render"), "sign in before the render"
+    # THROUGH THE COMMON MODULE, not by reaching for the SDK here. One place per agent knows how
+    # signing in works, and it is the copied module every other agent has too.
+    assert "./common/auth/SignIn" in main
 
 
 # --------------------------------------------------------------------------- scaffolding
@@ -136,9 +137,34 @@ def service(tmp_path):
 def test_it_writes_a_buildable_project(service, tmp_path):
     result = service.scaffold("known")
 
-    assert set(result.written) == set(STARTER_FILES)
     for rel in STARTER_FILES:
+        assert rel in result.written
         assert (tmp_path / "known" / "app" / rel).is_file()
+
+
+def test_it_copies_every_common_module(service, tmp_path):
+    """Accounts and money arrive with the scaffold, verbatim. Copied rather than imported because
+    an agent is a shipped artifact and no workspace path survives being published."""
+    result = service.scaffold("known")
+
+    copied = [r for r in result.written if r.startswith("src/common/")]
+    assert copied, "no shared modules landed"
+    for rel in copied:
+        dest = tmp_path / "known" / "app" / rel
+        assert dest.is_file()
+        src = COMMON / rel[len("src/common/") :]
+        assert _same(dest, src), f"{rel} is not a verbatim copy"
+
+
+def test_the_common_modules_cover_accounts_and_money(service, tmp_path):
+    """The set itself, asserted — an agent scaffolded without one of these cannot be published,
+    and the failure would surface as a validator error rather than here."""
+    result = service.scaffold("known")
+    copied = {r[len("src/common/") :] for r in result.written if r.startswith("src/common/")}
+
+    assert {"auth/SignIn.tsx", "auth/useAuth.ts", "auth/ProfileMenu.tsx"} <= copied
+    assert "credits/Credits.tsx" in copied
+    assert "README.md" in copied, "the modules must arrive with the note saying not to edit them"
 
 
 def test_an_unknown_agent_says_which_ones_exist(service):

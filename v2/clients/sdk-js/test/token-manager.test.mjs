@@ -296,3 +296,68 @@ describe('TokenManager', () => {
     })
   })
 })
+
+describe('a window that was handed a token and no key', () => {
+  it('mints a session of its own, then renews itself', async () => {
+    // The state a desktop-opened agent window boots in: a live access token, nothing behind it.
+    const store = memorySessionStore()
+    store.write(
+      JSON.stringify({ accessToken: token(300), refreshToken: '', expiresAt: Date.now() + 300_000 })
+    )
+    const calls = []
+    const manager = new TokenManager({
+      accountsUrl: () => 'https://accounts.test',
+      session: store,
+      clientId: 'app',
+      fetchImpl: async (url) => {
+        calls.push(new URL(url).pathname)
+        return json({ access_token: token(600), refresh_token: 'own-key-1', expires_in: 600 })
+      }
+    })
+
+    assert.equal(manager.current()?.refreshToken, '', 'starts with no key of its own')
+    await manager.restore()
+
+    assert.deepEqual(calls, ['/auth/derive'], 'derives rather than refreshing')
+    assert.equal(manager.current()?.refreshToken, 'own-key-1', 'now holds its own key')
+    manager.stop()
+  })
+
+  it('keeps working when the server declines', async () => {
+    // Degrading matters more than deriving: a window that cannot mint a key is no worse off than
+    // it was, and must not fail to start over it.
+    const store = memorySessionStore()
+    store.write(
+      JSON.stringify({ accessToken: token(300), refreshToken: '', expiresAt: Date.now() + 300_000 })
+    )
+    const manager = new TokenManager({
+      accountsUrl: () => 'https://accounts.test',
+      session: store,
+      clientId: 'app',
+      fetchImpl: async () => json({ detail: 'nope' }, 401)
+    })
+
+    await manager.restore()
+    assert.ok(manager.current()?.accessToken, 'still holds the token it arrived with')
+    manager.stop()
+  })
+
+  it('does not trade a DEAD token — that would make expiry meaningless', async () => {
+    const store = memorySessionStore()
+    let called = false
+    const manager = new TokenManager({
+      accountsUrl: () => 'https://accounts.test',
+      session: store,
+      clientId: 'app',
+      fetchImpl: async () => {
+        called = true
+        return json({})
+      }
+    })
+    store.write(JSON.stringify({ accessToken: token(-60), refreshToken: '', expiresAt: Date.now() - 60_000 }))
+
+    await manager.restore()
+    assert.equal(called, false, 'a spent token proves nothing and must buy nothing')
+    manager.stop()
+  })
+})

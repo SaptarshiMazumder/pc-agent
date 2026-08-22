@@ -38,7 +38,7 @@ import { InspectorView, type Inspector } from './components/InspectorView'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar, type View } from './components/Sidebar'
 import { WorkflowPanel, type Workflow } from './components/WorkflowPanel'
-import Credits from './components/Credits'
+import Credits from './common/credits/Credits'
 
 const SUGGESTIONS = [
   {

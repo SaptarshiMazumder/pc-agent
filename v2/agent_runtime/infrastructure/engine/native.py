@@ -38,6 +38,7 @@ from agent_runtime.domain.messages import (
 )
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.files import resolve_artifacts
+from agent_runtime.infrastructure.llm import context_limits
 from agent_runtime.infrastructure.memory.local_store import SessionStore
 from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
 
@@ -82,6 +83,15 @@ async def _maybe_await(value):
 
 # After this many liveness halts in a run without recovery, stop (safety backstop).
 STUCK_CAP = 3
+
+#: "the caller said nothing" — as opposed to `None`, which is a caller SAYING "no router".
+#:
+#: They are different answers and the engine must not confuse them: an agent with cost-efficiency
+#: switched off resolves to None, and treating that as "unspecified" silently reinstated the
+#: daemon's router. See AgentEngine.run.
+_UNSET = object()
+
+
 
 
 def _notify_tool(observers, ev: ToolEvent) -> list[str]:
@@ -294,6 +304,38 @@ async def run_agent_loop(
             if assistant.text.strip():
                 produced_visible_text = True
             await on_event(AgentEvent("message_end", {"message": message_to_dict(assistant)}))
+            # HOW FULL THE CONTEXT IS, after every assistant message and always on.
+            #
+            # `usage["input"]` is what the provider actually BILLED for the request that produced
+            # this message — not an estimate, and better than any tokeniser we could run. The
+            # limit comes from the model's own table. Together they are the number that explains
+            # the failure nobody can currently see: a conversation that outgrows its model returns
+            # an EMPTY response, the incomplete-turn retry appends another message and re-sends,
+            # and the user watches the same shrug twice.
+            #
+            # Silent when either half is unknown. An unknown model must render no meter rather
+            # than a wrong one — a guessed denominator would show a full bar on an empty chat.
+            usage_in = int((assistant.usage or {}).get("input") or 0)
+            served_model = getattr(assistant, "model", "") or active_model
+            limit = context_limits.max_input_tokens(served_model)
+            if usage_in and limit:
+                await on_event(
+                    AgentEvent(
+                        "context_usage",
+                        {
+                            "used": usage_in,
+                            "limit": limit,
+                            # Precomputed so every client agrees on the number, rather than three
+                            # windows each rounding it their own way.
+                            "pct": round(usage_in / limit, 4),
+                            "model": served_model,
+                            # The cached subset of `used`. Not a second meter — it is why a large
+                            # context can still be cheap, and without it a user reading "180k used"
+                            # has no way to tell an expensive turn from a mostly-cached one.
+                            "cached": int((assistant.usage or {}).get("cached") or 0),
+                        },
+                    )
+                )
             # observability (default off => silent): which brain ran THIS step + its token usage, so a
             # client can show the per-step model/cost trail (e.g. deepseek -> gemini -> deepseek).
             if model_trace:
@@ -640,7 +682,7 @@ class NativeEngine:
         abort,
         session=None,
         model=None,
-        model_router=None,
+        model_router=_UNSET,
     ):
         """``model_router`` is the per-agent counterpart of ``model``, and it exists because
         without it ``model`` did not actually work.
@@ -650,8 +692,16 @@ class NativeEngine:
         had that choice silently discarded the moment cost-efficiency was on anywhere. Passing
         the agent's own router alongside its own model is what makes the pair coherent.
 
-        Both fall back to the engine's defaults, so a caller that passes neither — a sub-agent
-        run, a tool driving the engine directly — behaves exactly as before."""
+        `_UNSET`, NOT `None`, AND THAT DISTINCTION IS THE WHOLE POINT. `router_for()` answers
+        None for an agent that has cost-efficiency switched OFF — a decision, not an absence. This
+        used to read `model_router or self._model_router`, which cannot tell the two apart: an
+        agent that had explicitly turned routing off fell through to the DAEMON's router, which
+        was on. So the off switch silently re-enabled the very thing it was switched off, the
+        agent's chosen model was overwritten every turn by the daemon's cheap one, and when that
+        model had no credit every run failed with an error naming a model the user never picked.
+
+        A caller that passes nothing at all — a sub-agent run, a tool driving the engine directly
+        — still gets the engine default, which is what `_UNSET` preserves."""
         return await run_agent_loop(
             messages=messages,
             system_prompt=system_prompt,
@@ -665,6 +715,6 @@ class NativeEngine:
             observers=self._observers,
             context_policy=self._context_policy,
             execution_contract=self._execution_contract,
-            model_router=model_router or self._model_router,
+            model_router=self._model_router if model_router is _UNSET else model_router,
             model_trace=self._model_trace,
         )

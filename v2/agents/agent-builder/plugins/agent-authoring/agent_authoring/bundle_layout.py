@@ -37,3 +37,8 @@ class BundleLayout:
     #: unrelated ``npm run build``. Borrowing is a real dependency, so it has a real home now:
     #: beside the templates that borrow from it, owned by nothing else.
     BORROW_ROOT = TEMPLATE_ROOT / "_borrowed"
+    #: The shared modules copied into every agent's ``app/src/common/`` — accounts and money.
+    #: Load-bearing for the same reason BORROW_ROOT is: the scaffolder copies FROM here and the
+    #: validator compares AGAINST here, so if the two ever disagreed every agent would validate
+    #: as modified the moment it was created.
+    COMMON_ROOT = TEMPLATE_ROOT / "_common"

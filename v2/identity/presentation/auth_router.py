@@ -135,6 +135,33 @@ def build_auth_router(
             raise HTTPException(status_code=401, detail=str(e)) from e
         return pair.as_response()
 
+    @router.post("/derive")
+    def derive(request: Request, payload: dict = Body(...)) -> dict:
+        """Trade a LIVE access token for a session of this caller's own.
+
+        For a window that was handed a token rather than signing in — it mints its own chain here,
+        once, and then renews itself like any other client instead of being fed forever.
+
+        Rate-limited with the rest of `/auth/*`: it issues a long-lived credential, so it belongs
+        with the endpoints that do, not with the read-only ones.
+        """
+        _guard(request)
+        token = str(payload.get("access_token") or "")
+        try:
+            with make_service() as service:
+                pair = service.derive_session(
+                    access_token=token,
+                    client_id=str(payload.get("client_id") or "")[:64],
+                    device_label=str(payload.get("device_label") or "")[:120],
+                )
+        except AccountDisabled as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
+        except TokenInvalid as e:
+            # Expired counts as invalid, and deliberately so: a dead token proves nothing, and
+            # accepting one would make the access token's lifetime meaningless.
+            raise HTTPException(status_code=401, detail=str(e)) from e
+        return pair.as_response()
+
     @router.post("/logout")
     def logout(request: Request, payload: dict = Body(default={})) -> dict:
         _guard(request)

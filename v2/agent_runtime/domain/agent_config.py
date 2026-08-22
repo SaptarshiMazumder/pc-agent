@@ -15,15 +15,18 @@ already merges and hot-applies every writable one, so both directions came free 
 separate per-agent settings FILE would have meant a second read path and a corrupt-file case
 to get wrong.
 
-``override_default`` decides who wins, and it applies KEY BY KEY:
-
-    true (the default)   for each knob: the agent's value if it set one, else the daemon's
-    false                the agent's entry is ignored entirely — the daemon's values, whole
+THE AGENT'S OWN SETTINGS ALWAYS WIN, and they apply KEY BY KEY: for each knob, the agent's value
+if it set one, else the daemon's.
 
 Key-by-key matters. All-or-nothing would mean an agent that sets only `model` inherits nothing
 else and boots with no reasoning effort, no turn limit, no fallbacks. And it makes the default
-safe: an agent with no entry at all — which is every agent today — resolves to exactly the
-daemon's values, so turning this on changes nothing until someone sets something.
+safe: an agent with no entry at all resolves to exactly the daemon's values, so this changes
+nothing until someone sets something.
+
+THERE IS NO OVERRIDE SWITCH. There was one, and it was a trap: "off" meant "use the daemon's
+values", which combined with cost-efficiency — a knob that OVERWRITES the model every turn —
+produced an agent that named its model, watched the daemon's cheap one answer anyway, and had
+nothing on screen to explain it. One layer decides, so there is nothing to arbitrate.
 
 PROVIDER KEYS ARE ABSENT FROM ``OVERRIDABLE_KEYS`` ON PURPOSE. They live in one shared `.env`;
 per-agent copies of the same secret would have no sane precedence, and the rule that strips
@@ -71,8 +74,16 @@ def agent_entry(config, agent_id: str) -> dict:
 
 
 def overrides_daemon(config, agent_id: str) -> bool:
-    """Does this agent's own config win? Default TRUE — the flag exists to be turned OFF."""
-    return bool(agent_entry(config, agent_id).get(OVERRIDE_KEY, True))
+    """Does this agent's own config win? ALWAYS. Kept as a function because callers ask, and
+    because answering here is cheaper than deleting the question from four places.
+
+    IT USED TO BE A SETTING, and the setting was a trap. "Override JARVIS settings: off" read as
+    "use the daemon's values", which is what it did — but combined with a knob that OVERWRITES the
+    model every turn (cost efficiency), an agent could set its model, watch the daemon's cheap one
+    answer anyway, and have no way to see why. An agent's own settings decide how that agent runs;
+    there is no second answer to arbitrate, so there is no switch.
+    """
+    return True
 
 
 def resolve(config, agent_id: str) -> tuple[dict, dict]:
@@ -89,10 +100,10 @@ def resolve(config, agent_id: str) -> tuple[dict, dict]:
         values[key] = getattr(config, key, None)
         sources[key] = DAEMON
 
+    # NO GATE. An agent's own settings decide how that agent runs — see `overrides_daemon` for
+    # why the switch that used to sit here is gone. A stored `override_default` from before is
+    # simply not a knob (the whitelist below drops it), so an old config keeps working.
     entry = agent_entry(config, agent_id)
-    if not entry.get(OVERRIDE_KEY, True):
-        return values, sources
-
     for key, value in entry.items():
         # OVERRIDABLE_KEYS is a whitelist, so `override_default` and anything the user put in
         # this block by hand simply is not a knob — it never reaches the run.

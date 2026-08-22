@@ -24,6 +24,8 @@ export function Composer({
   onOpenWindow,
   openWindowLabel,
   openWindowBusy,
+  onFork,
+  meter,
 }: {
   running: boolean
   pending: Attachment[]
@@ -39,6 +41,12 @@ export function Composer({
   /** A build is running. Disabled rather than hidden: the button vanishing mid-press is worse
    *  than one that plainly says it is busy. */
   openWindowBusy?: boolean
+  /** Copy this conversation and continue in the copy. Absent on an empty chat — there is
+   *  nothing to fork, and a button that produces an empty duplicate is a button that lies. */
+  onFork?: () => void
+  /** How full the context is. Passed in rather than read here: the composer draws the chrome,
+   *  it does not decide what a token budget means. */
+  meter?: React.ReactNode
 }) {
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -168,6 +176,13 @@ export function Composer({
             >
               <span className="ico">{openWindowBusy ? '◌' : '◱'}</span>
               <span>{openWindowLabel || 'Open app'}</span>
+            </button>
+          )}
+          {meter}
+          {onFork && (
+            <button className="ghost-chip" onClick={onFork} title="Fork this conversation">
+              <span className="ico">⑂</span>
+              <span>Fork</span>
             </button>
           )}
           <span className="hint">

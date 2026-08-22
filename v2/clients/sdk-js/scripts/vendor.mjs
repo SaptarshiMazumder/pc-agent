@@ -1,5 +1,5 @@
 /**
- * vendor — push the freshly built IIFE SDK into every place an agent app loads it from.
+ * vendor — push the freshly built SDK into every place a React agent app imports it from.
  *
  *   node scripts/vendor.mjs            (runs automatically after `npm run build`)
  *
@@ -41,21 +41,21 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const sdkDir = path.resolve(here, '..')
 const v2 = path.resolve(sdkDir, '..', '..')
 
-const built = path.join(sdkDir, 'dist', 'agentd-client.js')
+// The ESM bundle is what every target takes now; the guard names it so a missing build is
+// reported as a missing build rather than as an unreadable copy further down.
+const built = path.join(sdkDir, 'dist', 'index.js')
 if (!fs.existsSync(built)) {
   console.error(`vendor: no build at ${built} — run tsup first`)
   process.exit(1)
 }
 const bytes = fs.readFileSync(built)
 
-const targets = []
 // Kept in step with BundleLayout.BORROW_ROOT on the Python side. If these two disagree, scaffolding
 // hands new agents whatever stale SDK happens to be at the path it reads.
-const canonical = path.join(
-  v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates', '_borrowed',
-  'vendor', 'agentd-client.js'
-)
-targets.push(canonical) // written even if absent: this is the copy scaffolding reads
+// NOTHING VENDORS THE IIFE ANY MORE. It was for hand-written vanilla `ui/` folders that loaded
+// the SDK with a <script> tag; those templates are deleted and nothing scaffolds one. A dozen
+// older agents still have such a folder and keep whatever SDK they shipped with — re-vendoring
+// them meant every build rewrote ten files nobody had asked to change.
 
 const agentsDir = path.join(v2, 'agents')
 
@@ -80,12 +80,18 @@ function agentDirs(root) {
   return dirs
 }
 
-// A BUILT app keeps the ESM bundle + types in `app/vendor/`; a plain one keeps the IIFE in
-// `ui/vendor/`. Collected separately because they are vendored from DIFFERENT build outputs.
+// REACT APPS ONLY — `app/vendor/`, the ESM bundle a bundler imports.
+//
+// The plain `ui/vendor/` IIFE is NOT refreshed any more. A dozen older agents still carry one and
+// are served straight off disk; they keep working on whatever SDK they shipped with, and nothing
+// maintains them. Re-vendoring them meant every `npm run build` rewrote ten files nobody had
+// asked to change, which turns an unrelated diff into ten, and none of those agents is going to
+// be rebuilt in vanilla anyway.
+//
+// What IS kept current: the borrow root that new agents are scaffolded from, and the React apps
+// under `agents/` — agent-builder and the samples, which are the blueprints.
 const esmVendorDirs = []
 for (const dir of agentDirs(agentsDir)) {
-  const iife = path.join(dir, 'ui', 'vendor', 'agentd-client.js')
-  if (iife !== canonical && fs.existsSync(iife)) targets.push(iife)
   const esm = path.join(dir, 'app', 'vendor', 'agentd-client.js')
   if (fs.existsSync(esm)) esmVendorDirs.push(path.join(dir, 'app', 'vendor'))
 }
@@ -104,10 +110,8 @@ const reactVendor = path.join(
   'react', 'vendor'
 )
 const pairs = [
-  [built, targets[0]],
   [path.join(sdkDir, 'dist', 'index.js'), path.join(reactVendor, 'agentd-client.js')],
   [path.join(sdkDir, 'dist', 'index.d.ts'), path.join(reactVendor, 'agentd-client.d.ts')],
-  ...targets.slice(1).map((t) => [built, t]),
   // Built apps that already vendor the SDK — refreshed from the SAME dist as the starter, so a
   // sample and the template it teaches from can never disagree about what the SDK is.
   ...esmVendorDirs.flatMap((dir) => [

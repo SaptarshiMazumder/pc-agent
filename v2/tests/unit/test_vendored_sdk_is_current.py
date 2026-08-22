@@ -50,8 +50,23 @@ def _source_for(copy: Path) -> Path:
 
 
 def _vendored() -> list[Path]:
-    """Every vendored SDK in the repo, wherever an agent keeps it (`ui/`, `app/`, templates)."""
-    return sorted(AGENTS.rglob("vendor/agentd-client.js"))
+    """Every vendored SDK THAT IS STILL MAINTAINED.
+
+    REACT APPS AND THE TEMPLATES ONLY — `app/vendor/` and `templates/`. The plain `ui/vendor/`
+    copies are deliberately excluded: a dozen older agents carry one, they are served straight off
+    disk and keep working on whatever SDK they shipped with, and nothing re-vendors them any more
+    (see `scripts/vendor.mjs`). Every agent window is a React project now, so none of those will be
+    rebuilt in vanilla — and re-vendoring them meant each SDK build rewrote ten files nobody had
+    asked to change, turning an unrelated diff into ten.
+
+    This test and `vendor.mjs` MUST agree about that set. If they drift, either the build rewrites
+    files this does not check, or this demands freshness the build no longer provides.
+    """
+    return sorted(
+        p
+        for p in AGENTS.rglob("vendor/agentd-client.js")
+        if p.parent.parent.name == "app" or "templates" in p.parts
+    )
 
 
 @pytest.mark.skipif(not IIFE.is_file(), reason=f"no SDK build at {DIST} - run `{BUILD_CMD}`")

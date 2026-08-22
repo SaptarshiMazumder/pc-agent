@@ -31,7 +31,7 @@ import { Artifacts } from './components/Artifacts'
 import { Settings } from './components/Settings'
 import { History } from './components/History'
 import { FolderButton } from './components/FolderButton'
-import Credits from './components/Credits'
+import Credits from './common/credits/Credits'
 
 type View = 'library' | 'links' | 'ask' | 'files' | 'credits' | 'settings'
 

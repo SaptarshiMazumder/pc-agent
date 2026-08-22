@@ -875,3 +875,34 @@ button.thought-head:hover { color: var(--dim); }
   --wallet-error-fg:  var(--bad);
 }
 .wallet-mount { margin-top: 12px; }
+
+
+/* ── context meter ───────────────────────────────────────────────────────────────────────── */
+/* A RING, because the question is "how much room is left" and that is a proportion — 47,210 says
+   nothing without its denominator. The exact figures live in the tooltip. */
+.ctx-ring { display: inline-flex; align-items: center; gap: 6px; flex: none; cursor: default; }
+.ctx-ring svg { display: block; }
+.ctx-track { fill: none; stroke: var(--hair-2); }
+.ctx-fill {
+  fill: none; stroke: var(--dim);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.35s ease, stroke 0.25s ease;
+}
+.ctx-pct { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* Colour carries the same message as the fill level, for anyone who reads one and not the other.
+   It stays neutral until there is something to act on — a meter that is always amber is a meter
+   nobody looks at. */
+.ctx-ring.tone-warn .ctx-fill { stroke: var(--orange); }
+.ctx-ring.tone-warn .ctx-pct { color: var(--orange); }
+.ctx-ring.tone-crowded .ctx-fill { stroke: var(--bad); }
+.ctx-ring.tone-crowded .ctx-pct { color: var(--bad); }
+
+/* ── a quiet action in the composer row ──────────────────────────────────────────────────── */
+.ghost-chip {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: transparent; border: 1px solid var(--hair-2); color: var(--dim);
+}
+.ghost-chip:hover { border-color: var(--purple-line); color: var(--ink); background: var(--card); }
+.ghost-chip .ico { font-size: 12px; }

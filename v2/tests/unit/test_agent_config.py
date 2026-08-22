@@ -100,21 +100,32 @@ def test_cost_efficiency_is_overridable_whole():
 
 
 # ── the flag off ────────────────────────────────────────────────────────────
-def test_off_ignores_the_agents_values_without_deleting_them():
-    cfg = FakeConfig(agents={"x": {"override_default": False, "model": "deepseek/deepseek-v4-pro"}})
+def test_an_agents_values_win_with_no_switch_to_turn_them_off():
+    """THE RULE, AND THERE IS ONLY ONE. An agent's own settings decide how that agent runs.
+
+    There used to be an `override_default` switch, and "off" meant "use the daemon's values". It
+    was a trap next to cost efficiency — a knob that OVERWRITES the model on every turn — because
+    an agent could name its model, have the daemon's cheap one answer instead, and show nothing on
+    screen that explained which layer had won. One layer decides; nothing to arbitrate."""
+    cfg = FakeConfig(agents={"x": {"model": "deepseek/deepseek-v4-pro"}})
     values, sources = resolve(cfg, "x")
-    assert values["model"] == "openai/gpt-5"
-    assert sources["model"] == DAEMON
-    # still on disk — flipping the flag back must restore them untouched
-    assert agent_entry(cfg, "x")["model"] == "deepseek/deepseek-v4-pro"
+
+    assert values["model"] == "deepseek/deepseek-v4-pro"
+    assert sources["model"] == AGENT
 
 
-def test_flipping_the_flag_back_on_restores_them():
-    entry = {"override_default": False, "model": "deepseek/deepseek-v4-pro"}
-    cfg = FakeConfig(agents={"x": entry})
-    assert resolve(cfg, "x")[0]["model"] == "openai/gpt-5"
-    entry["override_default"] = True
-    assert resolve(cfg, "x")[0]["model"] == "deepseek/deepseek-v4-pro"
+def test_a_stored_override_flag_from_before_is_ignored_rather_than_obeyed():
+    """Configs written by the old build still carry the key. It is not in OVERRIDABLE_KEYS, so it
+    is not a knob — and crucially `false` no longer suppresses the agent's own values, or every
+    config saved before this change would silently keep the old behaviour."""
+    cfg = FakeConfig(
+        agents={"x": {"override_default": False, "model": "deepseek/deepseek-v4-pro"}}
+    )
+    values, sources = resolve(cfg, "x")
+
+    assert values["model"] == "deepseek/deepseek-v4-pro"
+    assert sources["model"] == AGENT
+    assert "override_default" not in values, "the flag itself is not a setting"
 
 
 # ── the whitelist ───────────────────────────────────────────────────────────

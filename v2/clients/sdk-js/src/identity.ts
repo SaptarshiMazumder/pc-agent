@@ -87,6 +87,18 @@ export function identity(opts: IdentityOptions = {}): TokenManager {
   managers.set(key, manager)
   if (opts.client) bindClient(manager, key, opts.client)
   manager.start()
+  // SETTLE THE CREDENTIAL, ONCE, AT BOOT — and do not wait for it.
+  //
+  // Two windows need this and neither could ask for it. One that stored a session last time has a
+  // spent access token and a live refresh token, and must trade up before anything uses it. One
+  // opened by the desktop app arrives holding an access token and NO refresh token: it cannot
+  // renew, so ten minutes later it goes anonymous, which the daemon does not refuse — the account's
+  // agents just disappear from the window. `restore` covers both: it refreshes when it can, and
+  // derives a session of its own when it cannot.
+  //
+  // Fire-and-forget because every caller here is synchronous (a socket URL is being built), and
+  // because failing to settle leaves the window exactly as it was rather than stopping it.
+  void manager.restore().catch(() => undefined)
   return manager
 }
 

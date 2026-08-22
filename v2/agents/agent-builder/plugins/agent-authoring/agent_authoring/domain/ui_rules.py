@@ -72,23 +72,20 @@ def app_sources(sources: dict) -> dict:
                      it yields either vacuous passes or nonsense hits on mangled variables.
       anything else  not code these rules understand
 
-    When ``app/src/`` is present it is the real source, and it is read INSTEAD of ``ui/`` — a
-    built app has nothing readable there.
+    ``app/src/`` AND NOTHING ELSE. An agent window is a React project compiled into ``ui/``, so
+    ``ui/`` is machine output — minified, identifiers renamed — and running name-matching rules
+    over it yields either vacuous passes or nonsense hits on mangled variables.
+
+    THERE IS NO ``ui/*.js`` FALLBACK ANY MORE. It existed for hand-written vanilla apps, which are
+    gone: the templates were deleted, the scaffolder unregistered, and nothing produces one now. A
+    dozen older agents still HAVE such a folder and are served straight off disk — reading them
+    meant every rule below demanded a sign-in gate and a credits page from a dozen agents nobody
+    is going to rebuild, which is a report that teaches its reader to ignore it.
     """
-    src = {
-        rel: text
-        for rel, text in sources.items()
-        if rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx"))
-    }
-    if src:
-        return src
     return {
         rel: text
         for rel, text in sources.items()
-        if rel.startswith("ui/")
-        and rel.endswith(".js")
-        and "/vendor/" not in rel
-        and not rel.startswith("ui/assets/")
+        if rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx"))
     }
 # The components every agent with a window MUST have. Others are opt-in features; these two are
 # the difference between an agent that can be sold and one that cannot.
@@ -101,7 +98,7 @@ def app_sources(sources: dict) -> dict:
 #
 # A TUPLE RATHER THAN A SECOND CONSTANT. One rule reports all of them, so requiring a third is an
 # entry here and no new code — the same reason the component catalogue itself is injected.
-_REQUIRED_COMPONENTS = ("sign-in", "credits")
+_REQUIRED_COMPONENTS = ("sign-in", "credits", "settings")
 
 # What to say when each is missing. Keyed by id so the message stays next to the requirement.
 _REQUIRED_MESSAGES = {
@@ -117,6 +114,21 @@ _REQUIRED_MESSAGES = {
         "element ids are what the packaged-build login test drives, and a second implementation "
         "is a second way to get credentials wrong. The gate renders NOTHING when a stored "
         "session still works.",
+    ),
+    "settings": (
+        "UI_NO_SETTINGS",
+        "this app has no settings page. Every agent with a window must — it is where the person "
+        "running it changes its model, its turn limit and the keys it uses, and an agent that "
+        "cannot be configured from inside itself sends them hunting through another app for a "
+        "screen that does not know about this one.",
+        "app/src/App.tsx",
+        "`scaffold_react_app` already gave you `src/common/settings/` — SHIPPING IT IS NOT ENOUGH, "
+        "something has to render it. Import it and give it a view or a modal reached from a gear: "
+        "`import { Settings } from './common/settings/Settings'`, then `<Settings client={client} "
+        "agentId='<your-id>' onRestart={...} />`. Do NOT design your own: a user configures the "
+        "assistant, opens your agent, and must meet the same page — the only difference being that "
+        "this agent's values win over the daemon's. Pass `onRestart` if your window can restart "
+        "the daemon, because some settings only take effect on a fresh process.",
     ),
     "credits": (
         "UI_NO_CREDITS",
@@ -363,17 +375,9 @@ class UiRules:
             for rel, src in own.items()
             if rel.rsplit("/", 1)[-1].lower() not in defines
         )
-        if any(re.search(insertion.detect, code) for insertion in component.insert):
-            return True
-        # A shipped file is used by NAME rather than by the SDK call inside it: rendered as an
-        # element, or imported. Derived from `provides`, so a second component needs no new rule.
-        for name in component.provides:
-            stem = re.escape(name.rsplit(".", 1)[0])
-            if re.search(r"<\s*" + stem + r"\b", code):
-                return True
-            if re.search(r"\bimport\b[^\n]*\b" + stem + r"\b", code):
-                return True
-        return False
+        # WHAT COUNTS AS USED is the catalogue's business, not this rule's — rendered as an
+        # element, imported by name, or the SDK called directly, all declared there as `detect`.
+        return component.present_in(code)
 
     # ---------------------------------------------------------------- payload shape
     def _nested_payload(self, rel: str, src: str) -> list[Finding]:

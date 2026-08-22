@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react'
-import type { DeclaredField as Declared } from '../../agentd/settings'
+import type { DeclaredField as Declared } from './useSettings'
 
 export function DeclaredField({
   field,

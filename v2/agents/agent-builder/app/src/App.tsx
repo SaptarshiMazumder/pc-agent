@@ -20,12 +20,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
 import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { useChat } from './agentd/chat'
+import { useContextUsage } from './agentd/context-usage'
 import { useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable, type AgentRow } from './agentd/roster'
 import { useAgents } from './agentd/roster'
-import { useSessions } from './agentd/sessions'
+import { forkSession, useSessions } from './agentd/sessions'
 import { Composer } from './components/Composer'
+import { ContextRing } from './components/ContextRing'
 import { Inspector } from './components/Inspector'
 import { PlanPanel } from './components/PlanPanel'
 import { Rail } from './components/Rail'
@@ -81,6 +83,10 @@ export default function App() {
   const chat = useChat(client, {
     onToolDone: () => void refreshFiles.current(),
   })
+
+  // HOW FULL THIS CONVERSATION IS. Keyed to the OPEN session so switching chats never shows the
+  // previous one's number — the daemon reports per session and the hook filters on it.
+  const usage = useContextUsage(client, chat.sessionKey)
 
   // Boot, on the first open — the same order and the same place the vanilla window used.
   const booted = useRef(false)
@@ -141,6 +147,19 @@ export default function App() {
 
   /** BUILD, THEN OPEN. The button means "show me my current source", not "show me the last
    *  build" — see buildAndOpen. Failure shows vite's error and opens nothing. */
+  /** Fork this conversation: a full copy you can take in another direction, leaving this one
+   *  as it stands. The copy opens here, which also restores its agent scope — the subject is
+   *  read back out of the transcript, so a fork lands pointed at the same agent. */
+  const forkChat = useCallback(async () => {
+    setWindowError('')
+    try {
+      const key = await forkSession(client, chat.sessionKey)
+      await openChat(key)
+    } catch (e) {
+      setWindowError(String((e as Error)?.message || e))
+    }
+  }, [client, chat.sessionKey])
+
   const openWindow = useCallback(async () => {
     if (!selected) return
     setWindowError('')
@@ -255,6 +274,8 @@ export default function App() {
             onOpenWindow={hasWindow(selected) ? () => void openWindow() : undefined}
             openWindowLabel={opening ? 'Building…' : undefined}
             openWindowBusy={opening}
+            onFork={chat.items.length ? () => void forkChat() : undefined}
+            meter={<ContextRing usage={usage} />}
           />
           {windowError && (
             <div className="composer-error" role="alert">

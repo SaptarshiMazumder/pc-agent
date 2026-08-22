@@ -137,10 +137,53 @@ export class TokenManager {
   async restore(): Promise<TokenPair | null> {
     const stored = this.pair || this.readStored()
     if (!stored?.refreshToken) {
+      // FED, BUT ABLE TO STOP BEING FED. A window opened by the desktop app arrives holding an
+      // access token and nothing else, so it cannot renew and goes anonymous ten minutes later —
+      // which the daemon does not refuse, so the user simply watches their agents disappear.
+      // While that token is still ALIVE it is proof of the account, and proof is all `/auth/derive`
+      // wants: the window trades it for a chain of its OWN and looks after itself from then on.
+      //
+      // A NEW CHAIN, never a copy of the shell's. Refresh tokens are single-use and rotating, so
+      // two holders of one is not sharing — the second to spend it looks like theft and the server
+      // signs both out.
+      if (stored && !this.expired(stored)) {
+        const own = await this.derive()
+        if (own) return own
+      }
       if (stored && this.expired(stored)) await this.set(null)
       return this.pair
     }
     return this.refresh()
+  }
+
+  /**
+   * Trade a live access token for a session of this client's own. Returns null when there is
+   * nothing live to trade, or the server declined.
+   *
+   * NEVER THROWS. It runs on a boot path beside things that matter more; a window that cannot
+   * derive is no worse off than it was a moment ago — it still holds a working access token, and
+   * it degrades to exactly the old behaviour rather than failing to start.
+   */
+  async derive(): Promise<TokenPair | null> {
+    const held = this.pair
+    if (!held || this.expired(held)) return null
+    try {
+      const data = (await this.post(
+        `${await this.base()}/auth/derive`,
+        {
+          access_token: held.accessToken,
+          client_id: this.config.clientId,
+          device_label: this.deviceLabel()
+        },
+        'derive'
+      )) as LoginResponse
+      const next = this.toPair(data, held.email)
+      if (!next.refreshToken) return null // nothing gained; keep what we have
+      await this.set(next)
+      return next
+    } catch {
+      return null
+    }
   }
 
   /**

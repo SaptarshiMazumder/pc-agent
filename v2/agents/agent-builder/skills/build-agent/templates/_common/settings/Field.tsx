@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { CatalogOption, FieldSpec } from '../../agentd/settings'
+import type { CatalogOption, FieldSpec } from './schema'
 
 /** A text/number box that commits when you LEAVE it, not on every keystroke.
  *

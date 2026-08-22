@@ -95,6 +95,32 @@ RULEBOOK: dict[str, Rule] = {
         note="an app with no credits panel cannot be packed or published; mountCreditsPanel() "
         "is the only mechanism — never a store of the agent's own",
     ),
+    # AND EVERY AGENT WITH A WINDOW CAN BE CONFIGURED FROM INSIDE IT. Third in the same story: an
+    # agent whose model, turn limit or keys can only be changed from another application is an
+    # agent whose owner goes looking in the assistant's settings window for a page that knows
+    # nothing about it. The module is copied in by the scaffold — this catches the agent that
+    # shipped the files and never rendered them, which is the same trap the credits rule names.
+    "UI_NO_SETTINGS": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an app with no settings page cannot be packed or published; common/settings is the "
+        "only mechanism — the same page the assistant shows, plus this agent's own layer",
+    ),
+    # THE SHARED MODULES MUST STILL BE THE SHARED MODULES. `app/src/common/` is copied into every
+    # agent — accounts and money — and a copy is editable. The edits are always reasonable at the
+    # time; what ends up different is credential and payment handling, in an artifact that is then
+    # published. MODIFIED is the dangerous one of the two: it still builds, so nothing else looks
+    # wrong. Both close PACK and PUBLISH, because both are only a problem once it ships.
+    "UI_COMMON_MISSING": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="a shared module is absent — re-copy it from templates/_common/, never rewrite it",
+    ),
+    "UI_COMMON_MODIFIED": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="a shared module was edited — restore it; change the SOURCE if every agent needs it",
+    ),
     # ONE SIGN-IN IMPLEMENTATION ON THIS PLATFORM. Listed here rather than left to block on its
     # error level alone: this table is where the shipping policy is written down, and a code that
     # blocks only because of how it happens to be priced is a code somebody later re-prices to a
