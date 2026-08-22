@@ -451,3 +451,57 @@ def test_deactivated_account_cannot_sign_in_or_refresh(app, tmp_path):
     assert client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}).status_code == 403
     # A 30-day refresh token must not outlive a deactivation — the account is re-read on refresh.
     assert client.post("/auth/refresh", json={"refresh_token": body["refresh_token"]}).status_code == 403
+
+
+# --- signing UP (not just signing in) ---------------------------------------------------
+# Every test above starts from `/signup` — the provisioning endpoint — and then logs in. The
+# path a NEW WEB USER actually takes is `/auth/register`, and it was broken in production while
+# this file was green: registration created the account, then PrincipalService.resolve failed to
+# find it (no identity link exists yet — resolve writes the link only AFTER resolving) and fell
+# through to creating it a SECOND time, which died on the row just inserted. The API answered
+# 409 "there is already an account with that email" for every fresh address, the transaction
+# rolled back, and no account existed afterwards. Nobody could sign up at all.
+
+
+def test_register_creates_an_account_and_returns_a_usable_pair(app):
+    client, _ = app
+    r = client.post("/auth/register", json={"email": "newcomer@example.com", "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    pair = r.json()
+    assert pair.get("access_token") and pair.get("refresh_token")
+
+
+def test_a_registered_account_can_log_in_afterwards(app):
+    """The half that proved the 409 was spurious: registration reported a duplicate, and then
+    login reported no such account. Both must be true together or neither is."""
+    client, _ = app
+    client.post("/auth/register", json={"email": "newcomer2@example.com", "password": PASSWORD})
+    r = client.post("/auth/login", json={"email": "newcomer2@example.com", "password": PASSWORD})
+    assert r.status_code == 200, r.text
+
+
+def test_registering_the_same_email_twice_is_a_real_conflict(app):
+    """The duplicate check still has to WORK — the fix must not turn a genuine collision into a
+    second account or a silent sign-in."""
+    client, _ = app
+    first = client.post("/auth/register", json={"email": "twice@example.com", "password": PASSWORD})
+    assert first.status_code == 200, first.text
+    second = client.post("/auth/register", json={"email": "twice@example.com", "password": PASSWORD})
+    assert second.status_code == 409, second.text
+
+
+def test_register_then_login_resolve_to_one_account(app):
+    """A duplicate account minted on login would split a user's chats, files and credits across
+    two ids — silent, and unrecoverable once they have used both."""
+    client, module = app
+    reg = client.post("/auth/register", json={"email": "single@example.com", "password": PASSWORD})
+    assert reg.status_code == 200, reg.text
+    client.post("/auth/login", json={"email": "single@example.com", "password": PASSWORD})
+    conn = sqlite3.connect(module.DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM accounts WHERE email = ?", ("single@example.com",)
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1, f"expected one account, found {rows}"
