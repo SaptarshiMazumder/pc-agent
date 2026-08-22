@@ -281,3 +281,24 @@ def account_plugins_dir(state_dir, account_id: str) -> Path:
     loser would be whoever installed first.
     """
     return account_root(state_dir, account_id) / "plugins"
+
+
+def account_config_file(state_dir, account_id: str) -> Path:
+    """This account's CONFIG OVERLAY: ``<state_dir>/accounts/<acct>/config.json``.
+
+    The daemon's own ``config.json`` is the MASTER — deployment-owned, and on a hosted daemon it
+    describes a machine that thousands of accounts share. It cannot also be the file a user edits
+    when they change their model, because ``config.set`` wrote it AND hot-applied the result to
+    the live Config: one tenant's Save changed the brain for everyone, instantly.
+
+    So a user's edits land here instead, and the config a run reads is ``master ⊕ this overlay``
+    (infrastructure/account_config.py). The overlay holds ONLY the keys that account actually
+    changed, which is what makes "seeded from the latest master" stay true: raise a default in the
+    master and every user who never overrode it moves with you, while everyone who did keeps
+    theirs. A full copy taken at signup would freeze each user on the day they registered.
+
+    Inside the account root on purpose — the subtree ``tenant_scope`` already fences and
+    ``ownership.may_observe`` already guards — so the overlay inherits the isolation that is
+    already enforced instead of introducing a second notion of whose file this is.
+    """
+    return account_root(state_dir, account_id) / "config.json"

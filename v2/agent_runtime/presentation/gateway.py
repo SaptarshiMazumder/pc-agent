@@ -35,6 +35,7 @@ from agent_runtime.application.run_context import (
 )
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config, client_accounts_url
+from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     RunMode,
     agent_id_from_session_key,
@@ -44,9 +45,8 @@ from agent_runtime.domain.agent import (
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
-from agent_runtime.domain import ownership
 from agent_runtime.domain.notify import Notification
-from agent_runtime.infrastructure import accounts, telemetry, user_state
+from agent_runtime.infrastructure import account_config, accounts, telemetry, user_state
 from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.infrastructure.files import guess_mime, is_under_roots, save_upload
 from agent_runtime.infrastructure.llm import model_proxy
@@ -453,7 +453,7 @@ def _oauth_page(message: str) -> HttpResponse:
         "<body style=\"font-family:system-ui,sans-serif;display:grid;place-items:center;"
         "min-height:100vh;margin:0;background:#fafaf7;color:#1a1a1a\">"
         f"<main style=\"max-width:32rem;padding:2rem;line-height:1.5\"><p>{message}</p></main>"
-    ).encode("utf-8")
+    ).encode()
     return HttpResponse(
         200,
         "OK",
@@ -2683,7 +2683,7 @@ class Gateway:
             elif req.method == "hello":
                 payload = self._hello(req.params)
             elif req.method == "config.get":
-                payload = self._config_get(scope)
+                payload = self._config_get(scope, req.params)
             elif req.method == "config.set":
                 payload = self._config_set(req.params, scope)
             elif req.method == "sessions.list":
@@ -3189,7 +3189,8 @@ class Gateway:
                         break
             # title model: a config override (plugins.titles.tools.generate.model), else the
             # cheap cost-efficiency text model if set, else the agent's brain. Small call.
-            ce = getattr(self.config, "cost_efficiency", None) or {}
+            # the CALLER's cost-efficiency block: a title is billed to them, on their model
+            ce = getattr(account_config.effective(self.config), "cost_efficiency", None) or {}
             default_model = ce.get("text_model") or brain_model(self.config)
             model = resolve_tool_model(self.config, "titles", "generate", default=default_model)
             title = await asyncio.to_thread(generate_title, first_user, first_assistant, model)
@@ -4072,7 +4073,9 @@ class Gateway:
                     continue
                 if getattr(spec, "tagline", "") or getattr(spec, "dir", None) is None:
                     continue
-                ce = getattr(self.config, "cost_efficiency", None) or {}
+                ce = (
+                    getattr(account_config.effective(self.config), "cost_efficiency", None) or {}
+                )
                 default_model = ce.get("text_model") or brain_model(self.config)
                 model = resolve_tool_model(
                     self.config, "agents", "presentation", default=default_model
@@ -4604,11 +4607,15 @@ class Gateway:
         if client_name:
             log.info("hello from client %s (protocol %s)", client_name, client_protocol)
         distribution = getattr(self.config, "distribution", None)
+        # The three knobs below are the CALLER's, not the machine's: a hosted account that chose
+        # its own model must see that model in the header and in About, or the UI confidently
+        # reports somebody else's setting. Desktop resolves to the same object as before.
+        cfg = account_config.effective(self.config)
         return {
-            "agentName": self.config.agent_name,
+            "agentName": cfg.agent_name,
             "agentId": self.config.agent_id,
-            "model": _effective_model(self.config),
-            "reasoning": self.config.reasoning_effort,
+            "model": _effective_model(cfg),
+            "reasoning": cfg.reasoning_effort,
             "gatewayUrl": f"ws://{self.config.host}:{self.config.port}",
             "workspace": str(self.config.workspace),
             "sessions": len(list_sessions(self.config.state_dir)),
@@ -4681,7 +4688,7 @@ class Gateway:
             raise RuntimeError(f"unknown agent: {scope}") from None
         return tuple(getattr(spec, "settings", ()) or ())
 
-    def _config_get(self, scope: str | None = None) -> dict:
+    def _config_get(self, scope: str | None = None, params: dict | None = None) -> dict:
         """The editable-config surface the settings UI renders: the current effective value
         of every EXPOSED knob, provider-key presence (`env`) + values (`envValues`, so the local
         UI can reveal a saved key), the config file path, and the raw file text (Advanced editor).
@@ -4691,7 +4698,19 @@ class Gateway:
         _redact_for_installed_agent for what and why."""
         import json
 
-        cfg = self.config
+        # WHOSE settings these are. On a hosted daemon `self.config` is the MACHINE's and is
+        # never what a tenant should see: they get master + their own overlay, and every path in
+        # the payload points at THEIR file so the Advanced editor edits their overlay, not the
+        # deployment's config. No account (desktop, CLI) => the same object as before.
+        acct = account_config.current_account_id()
+        # An ADMIN asking for the deployment's own values reads the master, unlayered — otherwise
+        # the page would show their personal overrides and call them the defaults, and an admin
+        # who had customised anything would edit the wrong number.
+        admin = bool(acct) and accounts.is_admin()
+        master_view = admin and str((params or {}).get("target") or "") == "master"
+        if master_view:
+            acct = None
+        cfg = account_config.for_account(self.config, acct)
         declared = self._declared_settings(scope)
         values: dict = {}
         for key in EXPOSED_CONFIG_KEYS:
@@ -4699,7 +4718,7 @@ class Gateway:
                 values[key] = _json_safe(getattr(cfg, key))
         # MCP servers are managed via mcp.* but shown here read-only for context
         values["mcp_servers"] = [_server_dict(s) for s in (cfg.mcp_servers or [])]
-        path = _config_file_path()
+        path = account_config.overlay_path(self.config, acct) if acct else _config_file_path()
         try:
             raw = path.read_text(encoding="utf-8") if path.is_file() else ""
         except OSError:
@@ -4764,8 +4783,54 @@ class Gateway:
             # cloud/platform mode: provider keys live on the Model Proxy, so the UI must render the
             # API-Keys section read-only. Edits are also refused server-side (see _config_set (c)).
             "keysLocked": self._platform_keys_locked(),
+            # PER-ACCOUNT MODE. True => `values` is this account's own view (master ⊕ their
+            # overlay), writes land in their overlay alone, and `machineOnly` names the knobs
+            # that belong to the deployment. The UI renders those read-only for the same reason
+            # it renders env-pinned fields read-only: a save that silently does nothing is worse
+            # than a field that says it is not yours.
+            "accountScoped": bool(acct),
+            # Does this connection administer the DEPLOYMENT (AGENTD_ADMIN_IDENTITIES)? The
+            # daemon's own answer, not the accounts service's: the roster there governs accounts,
+            # while this governs the machine. The UI shows the deployment-defaults editor on it.
+            "isAdmin": admin,
+            "target": "master" if master_view else "account",
+            "machineOnly": sorted(set(EXPOSED_CONFIG_KEYS) - account_config.PER_USER_KEYS)
+            if acct
+            else [],
+            # the shared .env is the machine's; per-account secrets are not a thing yet, so a
+            # hosted page must not offer key fields it cannot save (see _config_set (c)). Admins
+            # included: on a shared daemon provider keys arrive as task secrets, never through
+            # this API, so the honest answer here is False for everyone.
+            "keysWritable": not accounts.enabled(),
         }
+        if acct:
+            # The machine's .env is not this tenant's to see the location of, and the Advanced
+            # editor must operate on their overlay — so both are replaced, not merely hidden.
+            payload.pop("envPath", None)
+            payload["raw"] = self._account_raw(path)
+        elif master_view:
+            # An admin reads the deployment's values, but `raw` is withheld ON PURPOSE: a
+            # whole-file save is refused on a shared daemon (see _config_set_master), and handing
+            # a client the document invites it to draw an editor whose Save can only fail.
+            payload.pop("raw", None)
+            payload.pop("envPath", None)
         return self._redact_for_installed_agent(payload, scope)
+
+    @staticmethod
+    def _account_raw(path) -> str:
+        """This account's overlay as text for the Advanced editor — pretty-printed, and an empty
+        object when they have never saved. Never the master file: on a shared daemon that is the
+        deployment's document, and handing it over invites an edit that will be refused."""
+        try:
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError:
+            text = ""
+        if not text.strip():
+            return "{}\n"
+        try:
+            return json.dumps(json.loads(text), indent=2) + "\n"
+        except ValueError:
+            return text
 
     @staticmethod
     def _redact_secret_fields(payload: dict) -> dict:
@@ -5039,6 +5104,177 @@ class Gateway:
                 refused.append(name)
         return writes, sorted(refused), sorted(ambiguous)
 
+    def _config_set_master(self, patch: dict, keys: dict, raw, scope: str | None) -> dict:
+        """Edit the DEPLOYMENT's own config — the defaults every account inherits.
+
+        This is the one write on a shared daemon that is SUPPOSED to reach everybody, so the
+        gate is identity, not shape: `accounts.is_admin` (the AGENTD_ADMIN_IDENTITIES list). The
+        layering does the rest — a user who has overridden a key keeps their value, and a user who
+        has not moves with the default, which is what makes editing it safe to do while people are
+        connected.
+
+        TWO THINGS AN ADMIN STILL MAY NOT DO HERE, both because the blast radius is the machine
+        rather than a preference:
+
+          * ``raw`` — a whole-file replace would carry keys no allowlist covers (the install's
+            identity, the gateway token) and could strand every connected client. Patch only.
+          * ``keys`` — provider secrets belong to the deployment's environment, not to a JSON file
+            an API can write; they arrive as task secrets and are rotated there.
+
+        The cache clear at the end is load-bearing. Every account's effective config is DERIVED
+        from this object, and those derivations are cached per account against the overlay's
+        mtime — which a master edit does not touch. Without the clear, an admin would change a
+        default and watch nothing happen for everyone who had already connected.
+        """
+        if not accounts.is_admin():
+            # Same answer whether the caller is a non-admin or the deployment named no admins:
+            # "you may not" is the true statement in both cases, and distinguishing them would
+            # tell a stranger whether the list is empty.
+            return {
+                "saved": False,
+                "error": "only an administrator of this deployment may change its defaults",
+            }
+        if scope and self._is_installed_agent(scope):
+            return {"saved": False, "error": "an agent's page cannot change deployment defaults"}
+        if keys:
+            return {
+                "saved": False,
+                "error": (
+                    "provider keys are part of the deployment's environment, not its config file "
+                    "— set them where the service reads its secrets"
+                ),
+                "refused": sorted(keys),
+            }
+        if isinstance(raw, str) and raw.strip():
+            return {
+                "saved": False,
+                "error": (
+                    "the whole config file cannot be replaced over the wire on a shared daemon — "
+                    "send the keys you want to change instead"
+                ),
+            }
+        refused = sorted(k for k in patch if k not in WRITABLE_CONFIG_KEYS)
+        if refused:
+            return {
+                "saved": False,
+                "error": f"not settable: {', '.join(refused)}",
+                "refused": refused,
+            }
+        if not patch:
+            return {"saved": True, "target": "master", "restartRecommended": False}
+        ok, path = _persist_config_patch(patch)
+        if not ok:
+            return {"saved": False, "error": f"could not write {path}"}
+        for k, v in patch.items():  # hot-apply: this one IS meant to reach everybody
+            try:
+                if k in PATH_CONFIG_KEYS and isinstance(v, str):
+                    setattr(self.config, k, Path(v).expanduser())
+                else:
+                    setattr(self.config, k, v)
+            except Exception:  # noqa: BLE001 — a bad value never breaks the save
+                pass
+        account_config.clear_cache()  # every account re-derives from the new defaults
+        log.info("admin changed deployment defaults: %s", ", ".join(sorted(patch)))
+        return {"saved": True, "target": "master", "path": path, "restartRecommended": False}
+
+    def _config_set_for_account(
+        self, acct: str, patch: dict, keys: dict, raw, scope: str | None
+    ) -> dict:
+        """Persist config edits for ONE account, into that account's own overlay.
+
+        Everything a hosted tenant is allowed to change goes through here, and the three refusals
+        are the whole security argument:
+
+          * ``keys`` — the ``.env`` beside the master config is the MACHINE's, and it is read into
+            one process environment shared by every tenant's runs. Writing a tenant's credential
+            there would hand it to everyone else's agents; per-account secrets need their own
+            store, so until that exists this refuses rather than leaks.
+          * machine-only keys — ports, paths, storage roots, the sandbox, hosted plumbing. Refused
+            BY NAME so the page can say why, instead of reporting a save that changed nothing.
+          * the master file — never opened. `raw` is bounded to this account's overlay.
+
+        No ``setattr`` on ``self.config`` anywhere in this method. That mutation is what made one
+        tenant's Save land on every other tenant's next turn, and it is not needed: models and
+        knobs are resolved per run through ``account_config.effective``, so an overlay write takes
+        effect on this account's next message and on nobody else's, ever.
+        """
+        if keys:
+            return {
+                "saved": False,
+                "error": (
+                    "provider keys and agent secrets are stored on the machine, which is shared "
+                    "in cloud mode — they cannot be set from an account. Use a local install for "
+                    "your own keys."
+                ),
+                "refused": sorted(keys),
+            }
+
+        # (a) whole-document edit (the Advanced editor) — of THEIR overlay, never the daemon's file
+        if isinstance(raw, str) and raw.strip():
+            if scope and self._is_installed_agent(scope):
+                return {
+                    "saved": False,
+                    "error": "a downloaded agent's page cannot replace the config file",
+                }
+            try:
+                parsed = json.loads(raw)
+            except ValueError as e:
+                return {"saved": False, "error": f"invalid JSON: {e}"}
+            if not isinstance(parsed, dict):
+                return {"saved": False, "error": "config must be a JSON object"}
+            refused = account_config.machine_only(parsed)
+            if refused:
+                return {
+                    "saved": False,
+                    "error": (
+                        f"these belong to the machine, not to your account: "
+                        f"{', '.join(refused)}. Your config may set models, tools and per-agent "
+                        f"overrides."
+                    ),
+                    "refused": refused,
+                }
+            ok, path = account_config.replace_overlay(self.config, acct, parsed)
+            if not ok:
+                return {"saved": False, "error": f"could not write {path}"}
+            return {"saved": True, "path": path, "restartRecommended": False}
+
+        # (b) key/value patch. A DOWNLOADED agent's page is narrowed to its own agents.<id> block
+        # first — same rule as on a desktop — and only then is the result checked against what an
+        # ACCOUNT may own. Both gates apply; neither replaces the other.
+        if scope and self._is_installed_agent(scope):
+            patch, patch_refused = self._scoped_patch(patch, scope)
+            if patch_refused:
+                return {
+                    "saved": False,
+                    "error": (
+                        f"not writable from this agent's page: {', '.join(patch_refused)}. An "
+                        f"agent may edit its own settings and a few shared preferences — not the "
+                        f"daemon's plumbing."
+                    ),
+                    "refused": patch_refused,
+                }
+        refused = sorted(
+            set(account_config.machine_only(patch))
+            | {k for k in patch if k not in WRITABLE_CONFIG_KEYS}
+        )
+        if refused:
+            return {
+                "saved": False,
+                "error": (
+                    f"these belong to the machine, not to your account: {', '.join(refused)}. "
+                    f"Your config may set models, tools and per-agent overrides."
+                ),
+                "refused": refused,
+            }
+        if not patch:
+            return {"saved": True, "restartRecommended": False}
+        ok, path = account_config.write_overlay(self.config, acct, patch)
+        if not ok:
+            return {"saved": False, "error": f"could not write {path}"}
+        # No restart, and no hot-apply: the next turn on THIS account's connection resolves the
+        # overlay from disk. Other accounts' turns never read it.
+        return {"saved": True, "path": path, "restartRecommended": False}
+
     def _config_set(self, params: dict, scope: str | None = None) -> dict:
         """Persist config edits. Three independent, composable inputs:
           * ``patch``  {key: value} for EXPOSED_CONFIG_KEYS -> merged into the JSON file
@@ -5057,6 +5293,29 @@ class Gateway:
         # scope on every write, so an app can only ever target itself; a HOST connection names the
         # agent explicitly (and must, when the name is one that several agents declare).
         target = str(params.get("agentId") or scope or "")
+
+        # WHOSE CONFIG IS THIS? With an account on the connection the daemon's own config file is
+        # off limits — it describes a machine this person shares with every other tenant — and the
+        # edit is routed to their overlay instead. The branch is total: nothing below this line
+        # runs for an account, so the single-user path is not merely equivalent to what it was,
+        # it is untouched.
+        acct = account_config.current_account_id()
+        if acct and str(params.get("target") or "") == "master":
+            # DEPLOYMENT DEFAULTS. Admins only, and never implicit: an admin editing their own
+            # Settings is still a user, so changing what everyone gets has to be asked for by
+            # name. `target` is that ask.
+            return self._config_set_master(patch, keys, raw, scope)
+        if acct:
+            return self._config_set_for_account(acct, patch, keys, raw, scope)
+        # FAIL CLOSED. Today `_handle_conn` admits no accountless connection where sign-in is
+        # required, so this cannot trigger — which is exactly why it is worth writing down. The
+        # branch above keys off "does this connection have an account", and if a future change
+        # ever admits one without, the fallback must not be "write the machine's config file".
+        if accounts.enabled():
+            return {
+                "saved": False,
+                "error": "this deployment manages the daemon configuration server-side",
+            }
 
         # (a) raw full-file overwrite — the Advanced editor, and the widest door in this method:
         # it replaces the WHOLE config file, which would walk straight past both allowlists below.

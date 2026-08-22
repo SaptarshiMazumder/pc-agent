@@ -9,7 +9,6 @@ HERE, nowhere else.
 
 from __future__ import annotations
 
-import functools
 import logging
 
 from agent_runtime.application.services.agent_service import AgentService
@@ -376,18 +375,33 @@ def build_service(
     agent_tools = _agent_private_tools()
     # the LLM service: LiteLLM with the configured thinking level + idle/request
     # timeouts pre-bound (a silent/hung stream ends the turn gracefully).
-    stream_fn = functools.partial(
-        litellm_stream,
-        reasoning_effort=config.reasoning_effort,
-        idle_timeout_sec=config.llm_idle_timeout_seconds,
-        request_timeout_sec=config.llm_request_timeout_seconds,
-    )
-    # Model failover (S11): on a clean primary error, retry the turn on the next model.
-    # No fallbacks => returns the stream unwrapped (unchanged).
-    if getattr(config, "model_fallbacks", None):
-        from agent_runtime.infrastructure.llm.failover import make_failover_stream
+    # THE LLM SERVICE — built per TURN rather than bound at boot, because on a hosted daemon
+    # `config` is the machine's and the knobs below are the USER's. `account_config.effective`
+    # returns the master object itself when there is no account (desktop, CLI), so the
+    # single-user path resolves to exactly the values this partial used to capture.
+    from agent_runtime.infrastructure import account_config
 
-        stream_fn = make_failover_stream(stream_fn, config.model_fallbacks)
+    def stream_fn(*, model, system_prompt, messages, tools, abort):
+        eff = account_config.effective(config)
+        return litellm_stream(
+            model=model,
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=tools,
+            abort=abort,
+            reasoning_effort=eff.reasoning_effort,
+            idle_timeout_sec=eff.llm_idle_timeout_seconds,
+            request_timeout_sec=eff.llm_request_timeout_seconds,
+        )
+
+    # Model failover (S11): on a clean primary error, retry the turn on the next model. The chain
+    # is resolved PER TURN from the caller's own config — a tenant may set their own, and one
+    # tenant's chain must never serve another's turn. Empty => the stream is passed through.
+    from agent_runtime.infrastructure.llm.failover import make_failover_stream
+
+    stream_fn = make_failover_stream(
+        stream_fn, lambda: getattr(account_config.effective(config), "model_fallbacks", None)
+    )
     # Decoupled liveness seam (default OFF => unchanged behavior). Answer verification
     # is the agent-invoked `verify_answer` tool (registered in build_tools), not a loop hook.
     from agent_runtime.infrastructure.liveness import build_observers
@@ -408,6 +422,14 @@ def build_service(
     model_proxy.configure(config)
     # hosted identity + per-account metering (default off => the daemon has no notion of accounts)
     accounts.configure(config)
+    # PER-ACCOUNT CONFIG. From here on, every model/knob resolution in application/tool_models —
+    # the brain, every tool's model and provider, every tool knob — reads the CALLER's config
+    # (master ⊕ their overlay) instead of the machine's. One hook, installed once: adding it at
+    # each call site instead would mean the next tool silently reads the wrong tenant's settings.
+    # With no account the resolver returns the same object, so desktop behaviour is unchanged.
+    from agent_runtime.application import tool_models as _tool_models
+
+    _tool_models.set_effective_config_resolver(account_config.effective)
 
     engine = NativeEngine(  # swap here for Claude SDK / LangGraph
         stream_fn,
@@ -632,7 +654,11 @@ def build_service(
         from agent_runtime.domain.agent_config import resolve
         from agent_runtime.infrastructure.llm.model_router import router_for
 
-        values, _ = resolve(config, agent.id)
+        # THE CALLER'S config, not the machine's: master ⊕ this account's overlay, and only then
+        # the agent's own block on top. So "user Y runs figure-creator on a different model" is
+        # the same two-layer resolution it always was, one tenant deeper — and Y's choice is
+        # invisible to X, whose turn resolves against X's overlay on X's connection.
+        values, _ = resolve(account_config.effective(config), agent.id)
         # agent.toml's `model` still wins over the config layer: it is part of the agent's
         # DEFINITION ("this agent needs a vision model to work at all"), while the config block
         # is the user's preference for it. A definition that names a model is not a default.

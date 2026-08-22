@@ -68,3 +68,42 @@ async def test_all_models_fail_yields_last_error():
 def test_no_fallbacks_returns_inner_unchanged():
     inner = _inner({"A": "ok"})
     assert make_failover_stream(inner, []) is inner  # zero overhead when off
+
+
+# ── per-account chains: the list is resolved PER TURN, not captured at boot ───────────────────
+# On a hosted daemon the fallback chain belongs to the ACCOUNT, and the wrapper is installed once
+# for the whole process — so it has to ask on every turn rather than close over a list.
+@pytest.mark.asyncio
+async def test_a_callable_chain_is_resolved_per_turn():
+    chain: list[str] = []
+    stream = make_failover_stream(_inner({"A": "error_clean", "B": "ok"}), lambda: list(chain))
+
+    # first turn: this caller has no fallbacks -> the error is theirs to see
+    evs = await _collect(stream, "A")
+    assert [e["type"] for e in evs] == ["done"]
+    assert not any(e["type"] == "fallback" for e in evs)
+
+    # second turn: a caller who HAS configured one -> it takes over
+    chain.append("B")
+    evs = await _collect(stream, "A")
+    assert any(e["type"] == "fallback" and e["to"] == "B" for e in evs)
+    assert any(e.get("delta") == "hi from B" for e in evs)
+
+
+@pytest.mark.asyncio
+async def test_a_callable_that_raises_is_treated_as_no_fallbacks():
+    """A fallback lookup reads a file. It must never be the reason a turn dies."""
+
+    def boom():
+        raise RuntimeError("overlay unreadable")
+
+    stream = make_failover_stream(_inner({"A": "ok"}), boom)
+    evs = await _collect(stream, "A")
+    assert any(e.get("delta") == "hi from A" for e in evs)
+
+
+@pytest.mark.asyncio
+async def test_a_static_empty_chain_still_returns_the_stream_unwrapped():
+    inner = _inner({"A": "ok"})
+    assert make_failover_stream(inner, []) is inner
+    assert make_failover_stream(inner, None) is inner

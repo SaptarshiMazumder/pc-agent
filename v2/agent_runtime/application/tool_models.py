@@ -24,6 +24,36 @@ from __future__ import annotations
 
 from agent_runtime.application.run_context import current_plugins
 
+# --- WHOSE config is this? (the per-account seam) --------------------------------------------
+# Every function here takes a `config` — and on a hosted daemon that object is the MACHINE's,
+# shared by every tenant. The account that owns the current connection may have overridden the
+# brain model, a tool's model, or a whole plugin block, and those overrides live in their own
+# file (infrastructure/account_config.py). Resolving them is I/O, which this layer may not do,
+# so infrastructure INJECTS the resolver at boot and this module simply asks.
+#
+# Unset (tests, the CLI, any embedder of the package) => identity => the config passed in, which
+# is the behaviour every caller had before per-account config existed. The seam is deliberately
+# one function and one hook: put the account lookup in each caller instead and the next tool
+# added would silently read the wrong tenant's model.
+_effective_config = None
+
+
+def set_effective_config_resolver(fn) -> None:
+    """Install the account-aware resolver (``account_config.effective``). Called once, from the
+    container. ``None`` restores the identity behaviour."""
+    global _effective_config
+    _effective_config = fn
+
+
+def _cfg(config):
+    """The config to actually read: the caller's own, per account, or the one handed in."""
+    if _effective_config is None or config is None:
+        return config
+    try:
+        return _effective_config(config)
+    except Exception:  # noqa: BLE001 — a resolver fault must never break a turn
+        return config
+
 
 class ConfigMissingError(RuntimeError):
     """Raised when a model is requested but no agentd.config.json was loaded. Models come ONLY from
@@ -35,6 +65,7 @@ def brain_model(config, agent_model: str | None = None) -> str:
     per-agent override (agent.toml `model`) -> config.model. Raises ConfigMissingError when no config
     file was loaded (config.config_path is empty) or config has no `model`, so a missing config is
     LOUD instead of a silent default. Decoupled: reads only `config` attributes, nothing else."""
+    config = _cfg(config)  # the CALLER's config: their overlay over the machine's
     if agent_model:
         return agent_model
     if not getattr(config, "config_path", ""):
@@ -64,6 +95,7 @@ def _resolve_field(
     agent.toml tools[tool][key] -> config tools[tool][key] -> default."""
     if per_call:
         return per_call
+    config = _cfg(config)  # per-account tool models live here too
     plugin = (plugin or "").lower()
     for src in (current_plugins(), getattr(config, "plugins", None) or {}):
         t = _tool_entry(src, plugin, tool)
@@ -88,7 +120,7 @@ def kind_default_model(config, kind: str | None) -> str | None:
     KIND_DEFAULT_MODELS seed. None for an empty/unknown kind (e.g. 'text' => inherit the brain)."""
     if not kind:
         return None
-    md = getattr(config, "model_defaults", None) or {}
+    md = getattr(_cfg(config), "model_defaults", None) or {}
     return md.get(kind) or KIND_DEFAULT_MODELS.get(kind)
 
 
@@ -124,6 +156,7 @@ def tool_config(config, plugin: str, tool: str, key: str, default=None):
     """Generic per-tool knob accessor for ANY key (voice, max_steps, headless, ...), PRESENCE-based so
     an explicit false/"" is honored: agent.toml tools[tool][key] -> config tools[tool][key] -> default.
     This is how any tool reads its own config from the one plugins block."""
+    config = _cfg(config)  # per-account tool models live here (plugins.<p>.tools.<t>.model)
     plugin = (plugin or "").lower()
     for src in (current_plugins(), getattr(config, "plugins", None) or {}):
         t = _tool_entry(src, plugin, tool)

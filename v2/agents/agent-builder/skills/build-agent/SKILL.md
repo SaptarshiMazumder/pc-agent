@@ -1221,6 +1221,21 @@ accepts the provider keys and those declared names, nothing else — an undeclar
 `{saved: false, error: "not writable from here: …"}`. The template's settings page already renders
 all of it; you only declare the fields.
 
+**WHOSE settings are they? Read `accountScoped`.** On a hosted daemon one machine serves many
+people, so config is stored PER ACCOUNT: `config.get` answers with that user's own values (the
+deployment's defaults, plus whatever they have overridden), and `config.set` writes only their
+copy. Three fields tell your page what it may offer:
+
+| field | meaning |
+| --- | --- |
+| `accountScoped` | `true` => these are the signed-in user's settings; a save reaches nobody else and needs no restart. `false` => a single-user install, where the config really is the machine's. |
+| `machineOnly` | config keys the server owns (ports, paths, storage, sandbox). Render them read-only — a save that includes one is refused by name, not silently dropped. |
+| `keysWritable` | `false` => provider keys and `[[settings]]` values cannot be saved here, because the `.env` is the machine's and shared. Hide the key fields rather than offering a save that will fail. |
+
+Per-agent overrides are the useful half: `config.set {patch: {agents: {"<your-id>": {model: …}}}}`
+sets the model YOUR agent runs on for THIS user, layered over the deployment's default. The daemon
+forces the block to your own id, so you cannot configure another agent even by asking.
+
 ### Sign-in
 
 `await agentd.mountSignInGate({ client })` is the whole thing. It draws a login only when this

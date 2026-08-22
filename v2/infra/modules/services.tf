@@ -26,6 +26,15 @@ locals {
     daemon = {
       AGENTD_REGISTRY      = local.registry_index_url
       AGENTD_PUBLISHER_KEY = var.registry_publisher_key
+      # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
+      # read, now a third reader. The daemon needs it because the config every tenant inherits is
+      # ITS file (/data/config.json on EFS): `config.set {target:"master"}` is admitted only for
+      # an identity named here, and an empty list means nobody rather than everybody.
+      #
+      # It is deliberately the break-glass list and NOT the promotable roster in the accounts
+      # database: that roster governs accounts, credits and creators, while this governs the
+      # machine those accounts run on.
+      AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
       # What to tell a BROWSER when it asks where to sign in. AGENTD_ACCOUNTS_URL (above) is
       # internal service DNS — correct for this container's own calls, unresolvable from a
       # visitor's machine, and advertising it gives an agent app a login form that can never

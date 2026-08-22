@@ -396,3 +396,34 @@ async def report_usage(
     except httpx.HTTPError as e:
         log.warning("accounts usage report failed: %s", e)
     return None
+
+
+def admin_identities() -> frozenset[str]:
+    """Who may administer THIS DEPLOYMENT — `AGENTD_ADMIN_IDENTITIES`, the same comma list the
+    accounts service and the publish service read. One list, no way for the three to disagree.
+
+    Read per call rather than captured at import: an operator who adds an identity restarts one
+    service and it takes effect, which is the same rule admin_api already follows.
+    """
+    raw = os.environ.get("AGENTD_ADMIN_IDENTITIES", "") or ""
+    return frozenset(p.strip().lower() for p in raw.split(",") if p.strip())
+
+
+def is_admin(account: dict | None = None) -> bool:
+    """Is this connection's account an administrator of the deployment?
+
+    THE BREAK-GLASS TIER ONLY — the env list, not the promotable roster in the accounts database.
+    That is deliberate: the roster governs the platform's ACCOUNTS (credits, users, creators),
+    while this answers "may you edit the machine every tenant runs on", which belongs to whoever
+    deployed it. An empty list means nobody, so a deployment that never named an admin cannot have
+    its config edited over the wire at all.
+    """
+    acc = account if account is not None else current_account.get()
+    if not acc:
+        return False
+    known = admin_identities()
+    if not known:
+        return False
+    email = str(acc.get("email") or "").strip().lower()
+    account_id = str(acc.get("account_id") or "").strip().lower()
+    return bool((email and email in known) or (account_id and account_id in known))
