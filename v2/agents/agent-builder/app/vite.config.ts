@@ -1,5 +1,32 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+
+/**
+ * Drop the legacy `.woff` copies of every bundled font.
+ *
+ * @fontsource's stylesheets list `woff2` first and `woff` second, for browsers old enough to
+ * lack woff2. This window is served to Chromium, which has supported woff2 since 2016 — so the
+ * woff files are ~520 KB of binaries that ship, get committed, and are never once requested.
+ *
+ * BOTH HALVES MATTER. Deleting the assets alone would leave the CSS pointing at files that are
+ * not there: harmless in practice, since the browser takes the woff2 and never asks, but a
+ * dangling reference is a thing someone later has to work out. So the `url(...)` is rewritten
+ * out of the stylesheet too, and what ships is self-consistent.
+ */
+function woff2Only(): Plugin {
+  return {
+    name: 'woff2-only',
+    generateBundle(_options, bundle) {
+      for (const [name, asset] of Object.entries(bundle)) {
+        if (name.endsWith('.woff')) {
+          delete bundle[name]
+        } else if (name.endsWith('.css') && asset.type === 'asset') {
+          asset.source = String(asset.source).replace(/,\s*url\([^)]+\.woff\)\s*format\(['"]woff['"]\)/g, '')
+        }
+      }
+    },
+  }
+}
 
 // Agent Builder's window is SERVED BY THE DAEMON out of `agents/agent-builder/ui/`, at
 // `/apps/agent-builder/`. Three settings follow from that and none of them are style choices:
@@ -17,11 +44,13 @@ import { defineConfig } from 'vite'
 // `skills/build-agent/templates/_borrowed/` (see BundleLayout on the Python side). Nothing that
 // another part of the product reads may live under this directory.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), woff2Only()],
   base: './',
-  // The markdown renderer is imported from the borrow root rather than copied in here, so the
-  // product keeps ONE `md.js` — the same file scaffolded agents get. Dev needs to be told it may
-  // read above the app directory; the production build resolves it without this.
+  // The SETTINGS PAGE is imported from `skills/build-agent/templates/_common/`, so the product
+  // keeps ONE of it — the same page every scaffolded agent ships. Dev needs to be told it may read
+  // above the app directory; the production build resolves it without this.
+  // (This used to say `md.js` for the same reason. That borrow is gone: the markdown renderer is
+  // react-markdown now, so `_common/settings` is the only thing reaching outside `app/`.)
   server: { fs: { allow: ['..'] } },
   build: {
     outDir: '../ui',

@@ -19,23 +19,25 @@ import { mountSignInGate } from '@agentd/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
 import { buildAndOpen, hasWindow } from './agentd/app-window'
-import { useChat } from './agentd/chat'
-import { useContextUsage } from './agentd/context-usage'
+import { MAX_FILES } from './agentd/chat'
+import { useCredits } from './agentd/credits'
 import { useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable } from './agentd/roster'
 import { forkSession } from './agentd/sessions'
-import { useApp } from './state/store'
+import { installSoftScroll } from './lib/softScroll'
+import { useApp, useSession, useSubject } from './state/store'
 import { Composer } from './components/Composer'
 import { ContextRing } from './components/ContextRing'
 import { Inspector } from './components/Inspector'
-import { PlanPanel } from './components/PlanPanel'
 import { Sidebar } from './components/Sidebar'
 import { CreditsModal } from './components/CreditsModal'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsModal } from './components/settings/SettingsModal'
 import { StartModal, type StartMode } from './components/StartModal'
+import { HeroStart, HeroSuggestions } from './components/Hero'
 import { Thread } from './components/Thread'
+import TabBar from './components/TabBar'
 import { Topbar } from './components/Topbar'
 
 export default function App() {
@@ -54,8 +56,21 @@ export default function App() {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const agents = useApp((s) => s.agents)
-  const selected = useApp((s) => s.selected)
-  const setSelected = useApp((s) => s.select)
+  /* THE ACTIVE CONVERSATION, and the agent it is about. Both come from the store now: more than
+     one conversation can be open, so a hook holding one of anything cannot answer for them. The
+     subject is a field OF the session, which is what makes the inspector follow the tab. */
+  const chat = useSession()
+  const selected = useSubject()
+  const sessionKey = useApp((s) => s.currentSessionKey)
+  const newSession = useApp((s) => s.newSession)
+  const openSession = useApp((s) => s.openSession)
+  const setScope = useApp((s) => s.setScope)
+  const setIntent = useApp((s) => s.setIntent)
+  const sendMessage = useApp((s) => s.sendMessage)
+  const abortRun = useApp((s) => s.abortRun)
+  const addFiles = useApp((s) => s.addFiles)
+  const removeFile = useApp((s) => s.removeFile)
+  const toolTick = useApp((s) => s.toolTick)
   const sidebarCollapsed = useApp((s) => s.sidebarCollapsed)
   const panelOpen = useApp((s) => s.panelOpen)
   const togglePanel = useApp((s) => s.togglePanel)
@@ -65,6 +80,8 @@ export default function App() {
   const [start, setStart] = useState<{ mode: StartMode; seed?: string } | null>(null)
   const [windowError, setWindowError] = useState('')
   const [opening, setOpening] = useState(false)
+  const [forking, setForking] = useState(false)
+  const [forked, setForked] = useState(false)
 
   const who = useWhoAmI(client, status)
   // A SECOND instance of this hook lives in SettingsView, deliberately. Each holds its own
@@ -74,6 +91,12 @@ export default function App() {
   // cannot drift where anyone can see it.
   const platform = usePlatform(client)
   const daemon = useRestartDaemon(client)
+
+  /* Soft scroll edges, app-wide and automatic: every scroll container — this one, the sidebar,
+   * the inspector, a settings pane opened later — gets a fade wherever it is actually clipping
+   * content, plus a scrollbar that only appears while it is being used. Installed once, at the
+   * root, because it finds containers itself rather than being wired per component. */
+  useEffect(() => installSoftScroll(), [])
 
   /* Attach the store to the socket once it is OPEN, and again on every later open: signing in
    * re-dials with a new session, and both lists have to be re-read as the new identity. `connect`
@@ -87,18 +110,18 @@ export default function App() {
   }, [ready, client, connectStore])
 
   const files = useAgentFiles(client, selected?.id ?? null)
-  // Read through a ref inside the chat callback: the subscription is opened once, and a stale
-  // closure would keep refreshing the tree of whichever agent was selected when it was created.
+  /* A tool finishing in the OPEN conversation may have written files; re-read the tree. The store
+     bumps a counter rather than calling back into its subscribers — a store that calls back is a
+     store that has to know who they are. */
   const refreshFiles = useRef(files.refresh)
   refreshFiles.current = files.refresh
-
-  const chat = useChat(client, {
-    onToolDone: () => void refreshFiles.current(),
-  })
+  useEffect(() => {
+    if (toolTick) void refreshFiles.current()
+  }, [toolTick])
 
   // HOW FULL THIS CONVERSATION IS. Keyed to the OPEN session so switching chats never shows the
   // previous one's number — the daemon reports per session and the hook filters on it.
-  const usage = useContextUsage(client, chat.sessionKey)
+  const credits = useCredits(client, chat.running)
 
   // Boot, on the first open — the same order and the same place the vanilla window used.
   const booted = useRef(false)
@@ -134,23 +157,23 @@ export default function App() {
       const agent = agents.find((a) => a.id === id)
       if (!agent) return
       setStart(null)
-      chat.reset()
-      setSelected(agent) // the inspector follows the conversation
-      chat.setScope(agent) // and the model is told what it is looking at
+      // A FRESH CONVERSATION, then point it: the scope IS the inspector's subject, so one call
+      // does both jobs that used to need two.
+      newSession()
+      setScope(agent)
     },
-    [agents, chat],
+    [agents, newSession, setScope],
   )
 
   /** Start building something new, having answered the one question worth asking first. */
   const createAgent = useCallback(
     (window: boolean, seed?: string) => {
       setStart(null)
-      setSelected(null) // there is nothing to inspect until it exists
-      chat.reset()
-      chat.setIntent({ window })
-      if (seed) void chat.send(seed)
+      newSession() // a fresh conversation, about nothing until something is built
+      setIntent({ window })
+      if (seed) void sendMessage(seed)
     },
-    [chat],
+    [newSession, setIntent, sendMessage],
   )
 
   // Does this agent COMPILE its window? `app/` at the top of its tree is the whole test: source
@@ -159,19 +182,6 @@ export default function App() {
 
   /** BUILD, THEN OPEN. The button means "show me my current source", not "show me the last
    *  build" — see buildAndOpen. Failure shows vite's error and opens nothing. */
-  /** Fork this conversation: a full copy you can take in another direction, leaving this one
-   *  as it stands. The copy opens here, which also restores its agent scope — the subject is
-   *  read back out of the transcript, so a fork lands pointed at the same agent. */
-  const forkChat = useCallback(async () => {
-    setWindowError('')
-    try {
-      const key = await forkSession(client, chat.sessionKey)
-      await openChat(key)
-    } catch (e) {
-      setWindowError(String((e as Error)?.message || e))
-    }
-  }, [client, chat.sessionKey])
-
   const openWindow = useCallback(async () => {
     if (!selected) return
     setWindowError('')
@@ -193,14 +203,71 @@ export default function App() {
    *  nothing, and an empty panel is then the truthful answer rather than a stale one. */
   const openChat = useCallback(
     async (key: string) => {
-      setSelected(null)
-      const id = await chat.open(key)
+      const id = await openSession(key)
       if (!id) return
       const agent = agents.find((a) => a.id === id)
-      if (agent) setSelected(agent)
+      if (agent) setScope(agent)
     },
-    [chat, agents],
+    [openSession, agents, setScope],
   )
+
+  /* Built once, rendered in one of two places: centred in an empty page, or pinned under a
+     conversation. Two copies of this JSX would be two things to keep in step. */
+  const empty = chat.items.length === 0
+  const composer = (
+    <Composer
+      running={chat.running}
+      pending={chat.pending}
+      onSend={(text) => void sendMessage(text)}
+      onAbort={() => void abortRun()}
+      onFiles={(list) => void addFiles(list)}
+      onRemoveFile={removeFile}
+      onOpenWindow={hasWindow(selected) ? () => void openWindow() : undefined}
+      openWindowLabel={opening ? 'Building…' : undefined}
+      openWindowBusy={opening}
+      onFork={chat.items.length ? () => void forkChat() : undefined}
+      forkLabel={forking ? 'Forking…' : forked ? 'Forked — you are in the copy' : undefined}
+      forkBusy={forking}
+      meter={<ContextRing usage={chat.usage} />}
+      connected={ready}
+      // The model that ACTUALLY ran the last step, which under cost-efficiency routing is not the
+      // one configured — the daemon reports it with each usage event.
+      model={chat.usage?.model || ''}
+      credits={credits}
+      onCredits={() => setCreditsOpen(true)}
+      maxFiles={MAX_FILES}
+    />
+  )
+
+  /** Fork this conversation: a full copy you can take in another direction, leaving this one as
+   *  it stands. The copy OPENS HERE, which also restores its agent scope — the subject is read
+   *  back out of the transcript, so a fork lands pointed at the same agent.
+   *
+   *  IT SAYS SO, which it did not. The copy is identical to what you were already looking at, so
+   *  landing in it changed nothing on screen: no busy state, no confirmation, nothing to tell you
+   *  the click had worked. People clicked again. And again — each one a real fork, all of them
+   *  piling up in Recents. `forking` closes the door while the request is in flight and the button
+   *  reports what happened afterwards.
+   *
+   *  GUARDED AT THE TOP as well as by the disabled button: `disabled` is a render away, and two
+   *  clicks inside one frame both get through it. */
+  const forkChat = useCallback(async () => {
+    if (forking) return
+    setWindowError('')
+    setForking(true)
+    try {
+      const key = await forkSession(client, sessionKey)
+      await openChat(key)
+      setForked(true)
+      setTimeout(() => setForked(false), 1600)
+    } catch (e) {
+      setWindowError(String((e as Error)?.message || e))
+    } finally {
+      setForking(false)
+    }
+    // `openChat` was missing here, so this closure kept the one built on the FIRST render — and
+    // with it that render's `chat`. A fork could open into a stale conversation object.
+  }, [forking, client, sessionKey, openChat])
 
   // NOTHING IN FOCUS -> NO PANEL. Not an empty panel with a placeholder in it: there is no
   // question for the panel to answer yet, and a column of dashes is furniture.
@@ -211,7 +278,7 @@ export default function App() {
   return (
     <div className={shellClass}>
       <Sidebar
-        openKey={chat.sessionKey}
+        openKey={sessionKey}
         onOpenChat={(key) => {
           setView('chat')
           void openChat(key)
@@ -235,6 +302,9 @@ export default function App() {
       />
 
       <main className="main">
+        {/* ABOVE the header, because the strip CHOOSES the conversation and the header DESCRIBES
+            the one chosen — the other order puts a title over the thing that changes it. */}
+        <TabBar />
         <Topbar
           agent={selected}
           who={who}
@@ -256,30 +326,29 @@ export default function App() {
           />
         ) : (
         <section className="stage">
-          <Thread
-            items={chat.items}
-            running={chat.running}
-            hasAgents={openable(agents).length > 0}
-            onCreate={() => setStart({ mode: 'create' })}
-            onEdit={() => setStart({ mode: 'edit' })}
-            // A suggestion says WHAT to build; the dialog is still HOW. Routing it through the
-            // same door is what stops the most-taken path being the one that skips the question.
-            onSuggest={(text) => setStart({ mode: 'create', seed: text })}
-          />
-          {chat.plan && <PlanPanel plan={chat.plan} />}
-          <Composer
-            running={chat.running}
-            pending={chat.pending}
-            onSend={(text) => void chat.send(text)}
-            onAbort={() => void chat.abort()}
-            onFiles={(list) => void chat.addFiles(list)}
-            onRemoveFile={chat.removeFile}
-            onOpenWindow={hasWindow(selected) ? () => void openWindow() : undefined}
-            openWindowLabel={opening ? 'Building…' : undefined}
-            openWindowBusy={opening}
-            onFork={chat.items.length ? () => void forkChat() : undefined}
-            meter={<ContextRing usage={usage} />}
-          />
+          {empty ? (
+            /* EMPTY: the input in the MIDDLE of the page, the way to start above it and the
+               starter prompts below — agentd's shape. The composer used to sit pinned to the
+               bottom whether or not there was anything above it, which on a fresh chat left the
+               one thing you came to use furthest from where you were looking. */
+            <div className="chat-hero">
+              <HeroStart
+                hasAgents={openable(agents).length > 0}
+                onCreate={() => setStart({ mode: 'create' })}
+                onEdit={() => setStart({ mode: 'edit' })}
+              />
+              <div className="chat-hero-composer">{composer}</div>
+              {/* A suggestion says WHAT to build; the dialog is still HOW. Routing it through the
+                  same door is what stops the most-taken path being the one that skips the
+                  question. */}
+              <HeroSuggestions onSuggest={(text) => setStart({ mode: 'create', seed: text })} />
+            </div>
+          ) : (
+            <>
+              <Thread items={chat.items} running={chat.running} />
+              {composer}
+            </>
+          )}
           {windowError && (
             <div className="composer-error" role="alert">
               {windowError}

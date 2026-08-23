@@ -4,8 +4,12 @@
  * three ways — paste, drag-drop, and a button — because people reach for all three.
  */
 
+import { ArrowUp, Paperclip, Plus, Square, Upload } from 'lucide-react'
+
 import type { Attachment } from '@agentd/client'
 import { useEffect, useRef, useState } from 'react'
+
+import { useApp } from '../state/store'
 
 /** `dragover` fires continuously while a drag is live, so "no dragover recently" reliably means
  *  it ended, however it ended. Counting dragenter/dragleave instead looks correct and is not:
@@ -25,7 +29,14 @@ export function Composer({
   openWindowLabel,
   openWindowBusy,
   onFork,
+  forkLabel,
+  forkBusy,
   meter,
+  connected,
+  model,
+  credits,
+  onCredits,
+  maxFiles,
 }: {
   running: boolean
   pending: Attachment[]
@@ -44,13 +55,39 @@ export function Composer({
   /** Copy this conversation and continue in the copy. Absent on an empty chat — there is
    *  nothing to fork, and a button that produces an empty duplicate is a button that lies. */
   onFork?: () => void
+  /** What the button says right now: mid-fork, or the confirmation afterwards. The copy is
+   *  identical to what was already on screen, so without this the click has no visible effect. */
+  forkLabel?: string
+  forkBusy?: boolean
   /** How full the context is. Passed in rather than read here: the composer draws the chrome,
    *  it does not decide what a token budget means. */
   meter?: React.ReactNode
+  /** Is the socket open? A composer that accepts a message it cannot send is a message lost. */
+  connected: boolean
+  /** The model that actually ran the last step. Empty until something has run. */
+  model: string
+  /** Platform credits left, or null for "we do not know" — see agentd/credits.ts. */
+  credits: number | null
+  onCredits: () => void
+  /** The attachment cap, so the strip can SAY it. Files past it are dropped silently otherwise. */
+  maxFiles: number
 }) {
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
+
+  /* A user message's Edit action loads its text back in here to tweak and re-send. The seed is an
+     OBJECT so editing the same message twice still re-fires — see the store. Focus moves in and
+     the caret goes to the end, because the point of Edit is to change what is already there. */
+  const seed = useApp((s) => s.composerSeed)
+  useEffect(() => {
+    if (!seed) return
+    setText(seed.text)
+    const el = areaRef.current
+    if (!el) return
+    el.focus()
+    requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length))
+  }, [seed])
   const pickRef = useRef<HTMLInputElement>(null)
   const take = useRef(onFiles)
   take.current = onFiles
@@ -95,7 +132,7 @@ export function Composer({
   }, [])
 
   const submit = () => {
-    if (running) return
+    if (running || !connected) return
     if (!text.trim() && !pending.length) return
     onSend(text)
     setText('')
@@ -105,7 +142,18 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className={`composer ${dragging ? 'drag' : ''}`}>
+      {/* AN OVERLAY ACROSS THE WHOLE STAGE, agentd's affordance. A tinted border on the composer
+          alone told you a drag was live only if you happened to be looking at the bottom of the
+          window — and the drop is accepted anywhere, so that is the wrong place to say so. */}
+      {dragging && (
+        <div className="chat-dropzone" aria-hidden>
+          <div className="chat-dropzone-inner">
+            <Upload size={28} />
+            <span>Drop files to attach</span>
+          </div>
+        </div>
+      )}
+      <div className="composer">
         {pending.length > 0 && (
           <div className="attachments">
             {pending.map((a, i) => (
@@ -119,6 +167,13 @@ export function Composer({
                 </button>
               </span>
             ))}
+            {/* SAID, not just enforced. chat.ts silently drops everything past the cap, so a user
+                who dropped fifteen files sees ten and no explanation. */}
+            {pending.length >= maxFiles && (
+              <span className="att-limit">
+                <Paperclip size={11} /> Max {maxFiles} files
+              </span>
+            )}
           </div>
         )}
 
@@ -126,7 +181,8 @@ export function Composer({
           ref={areaRef}
           rows={1}
           value={text}
-          placeholder="Describe the agent you want…"
+          disabled={!connected}
+          placeholder={connected ? 'Describe the agent you want…' : 'connecting…'}
           onChange={(e) => {
             setText(e.target.value)
             const el = e.target
@@ -156,13 +212,16 @@ export function Composer({
           }}
         />
 
+        {/* TWO ROWS, because the things they carry answer different questions. Above: what you can
+            DO with this conversation. Below: what it is running on and what it costs — agentd's
+            status strip, which had nowhere to go on a single row already full of actions. */}
         <div className="composer-foot">
           <button
-            className="icon-btn"
+            className="composer-attach"
             title="Attach files"
             onClick={() => pickRef.current?.click()}
           >
-            +
+            <Plus size={19} />
           </button>
           {/* BESIDE THE COMPOSER, because building a window and looking at it are one loop. It
               used to live only in the agentd window: build here, switch app, find the agent, open
@@ -180,25 +239,64 @@ export function Composer({
           )}
           {meter}
           {onFork && (
-            <button className="ghost-chip" onClick={onFork} title="Fork this conversation">
-              <span className="ico">⑂</span>
-              <span>Fork</span>
+            <button
+              className={`ghost-chip ${forkLabel && !forkBusy ? 'ok' : ''}`}
+              onClick={onFork}
+              disabled={forkBusy}
+              title="Copy this conversation and continue in the copy"
+            >
+              <span className="ico">{forkBusy ? '◌' : '⑂'}</span>
+              <span>{forkLabel || 'Fork'}</span>
             </button>
           )}
-          <span className="hint">
-            {running
-              ? 'running…'
-              : dragging
-                ? 'drop to attach'
-                : 'Enter to send · Shift+Enter for a new line · paste or drop images'}
+          <span className="grow" />
+          {running ? (
+            <button className="composer-send stop" title="Stop the run" onClick={onAbort}>
+              <Square size={13} fill="currentColor" strokeWidth={0} />
+            </button>
+          ) : (
+            <button
+              className={`composer-send ${text.trim() || pending.length ? 'ready' : ''}`}
+              title={connected ? 'Send' : 'Not connected'}
+              disabled={(!text.trim() && !pending.length) || !connected}
+              onClick={submit}
+            >
+              <ArrowUp size={18} />
+            </button>
+          )}
+        </div>
+
+        <div className="composer-hint">
+          <span className="hint-model">{model || 'agentd'}</span>
+          {credits !== null && (
+            <>
+              <span className="hint-sep"> · </span>
+              {/* A dead end is the worst place to learn you are out of credits, so the readout is
+                  also the way to the top-up panel. */}
+              <button
+                type="button"
+                className={`hint-credits ${credits === 0 ? 'empty' : ''}`}
+                onClick={onCredits}
+                title={
+                  credits === 0
+                    ? 'Out of credits — the next message will be refused. Click to top up.'
+                    : 'Platform credits left on this account. Updates after each message. Click to top up.'
+                }
+              >
+                {credits === 0 ? 'no credits left — top up' : `${credits.toLocaleString()} credits`}
+              </button>
+            </>
+          )}
+          <span className="hint-sep"> · </span>
+          <span className="hint-note">
+            {!connected
+              ? 'not connected'
+              : running
+                ? 'running — press Stop to interrupt'
+                : dragging
+                  ? 'drop to attach'
+                  : 'Enter to send · Shift+Enter for a new line · paste or drop images'}
           </span>
-          <button
-            className={`send ${running ? 'stop' : ''}`}
-            title={running ? 'Stop' : 'Send'}
-            onClick={() => (running ? onAbort() : submit())}
-          >
-            {running ? '■' : '↑'}
-          </button>
         </div>
 
         <input

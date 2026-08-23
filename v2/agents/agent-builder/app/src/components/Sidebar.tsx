@@ -40,7 +40,7 @@ import type { AuthState } from '@agentd/client'
 import logo from '../assets/brick.svg'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 import { openable } from '../agentd/roster'
-import { useApp } from '../state/store'
+import { useApp, useSubject } from '../state/store'
 import { ProfileMenu } from './ProfileMenu'
 import SearchBox from './SearchBox'
 import { SettingsMenu } from './SettingsMenu'
@@ -133,7 +133,7 @@ export function Sidebar({
   status,
   daemonVersion,
 }: {
-  /** Which conversation is open. Lives in `useChat`, not the store — see state/store.ts. */
+  /** Which conversation is open. */
   openKey: string
   onOpenChat: (key: string) => void
   onPickAgent: (id: string) => void
@@ -150,7 +150,7 @@ export function Sidebar({
 }) {
   const agents = useApp((s) => s.agents)
   const chats = useApp((s) => s.chats)
-  const selected = useApp((s) => s.selected)
+  const selected = useSubject()
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
   const collapsed = useApp((s) => s.sidebarCollapsed)

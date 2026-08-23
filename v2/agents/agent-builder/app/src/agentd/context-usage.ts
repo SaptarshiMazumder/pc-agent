@@ -15,8 +15,6 @@
  * — a guessed limit would show a full ring on an empty chat.
  */
 
-import type { AgentdClient } from '@agentd/client'
-import { useEffect, useRef, useState } from 'react'
 
 export interface ContextUsage {
   used: number
@@ -52,38 +50,3 @@ export function compactTokens(n: number): string {
  * Reset by the caller when the conversation changes — a new chat starts empty, and leaving the
  * previous chat's number on screen would be a lie about the one you are now in.
  */
-export function useContextUsage(client: AgentdClient, sessionKey: string) {
-  const [usage, setUsage] = useState<ContextUsage | null>(null)
-
-  // Read through a ref inside the handler: the subscription is opened ONCE, so a value captured
-  // in its closure would keep filtering against whichever conversation was open when it was
-  // created — the same stale-closure trap the file tree hit.
-  const openKey = useRef(sessionKey)
-  openKey.current = sessionKey
-
-  // A new conversation has no measurement yet. Clearing on the key change rather than waiting for
-  // the first reply means the ring empties when you press New, which is what actually happened.
-  useEffect(() => setUsage(null), [sessionKey])
-
-  useEffect(() => {
-    // `chat.event` carries every run event; `context_usage` is one of them (APP_FACING_EVENTS).
-    const off = client.on('chat.event', (frame: any) => {
-      // ONE SOCKET, EVERY CONVERSATION. Without this filter a run in another session — a
-      // background job, a second window — would repaint this ring with a number belonging to a
-      // conversation the user is not looking at.
-      if (frame?.sessionKey !== openKey.current) return
-      const ev = frame?.event
-      if (ev?.type !== 'context_usage') return
-      setUsage({
-        used: Number(ev.used || 0),
-        limit: Number(ev.limit || 0),
-        pct: Number(ev.pct || 0),
-        model: String(ev.model || ''),
-        cached: Number(ev.cached || 0),
-      })
-    })
-    return off
-  }, [client])
-
-  return usage
-}

@@ -1,7 +1,13 @@
 /* The empty state: the two ways a conversation can start.
  *
- * The question itself ("What should we build?") is the page header now, so this card does not
- * repeat it — it offers the choices underneath.
+ * SPLIT IN TWO so the composer can sit BETWEEN them. agentd centres its input in an empty page
+ * with the greeting above and the suggestions below, and this window kept its composer pinned to
+ * the bottom whether there was a conversation or not. The halves are exported separately rather
+ * than taking the composer as a child, because the layout that interleaves them belongs to the
+ * screen (App), not to either half.
+ *
+ * The question itself ("What should we build?") is the page header, so these cards do not
+ * repeat it — they offer the choices underneath.
  *
  * BOTH PATHS GO THROUGH THE START DIALOG, including the suggestions. A suggestion used to send its
  * prose straight into an empty chat, which meant the one route most likely to be taken by somebody
@@ -31,22 +37,18 @@ const SUGGESTIONS = [
   },
 ]
 
-export function Hero({
+export function HeroStart({
   hasAgents,
   onCreate,
   onEdit,
-  onSuggest,
 }: {
-  /** Is there anything to edit? Drives whether the second card appears at all. */
+  /** Is there anything to edit? Drives whether the second button appears at all. */
   hasAgents: boolean
   onCreate: () => void
   onEdit: () => void
-  /** A starter prompt — opens the create dialog carrying this as the opening message. */
-  onSuggest: (text: string) => void
 }) {
   return (
-    <div className="hero">
-      <div className="card">
+      <div className="card hero-card">
         <div className="card-label">
           <span>Start</span>
         </div>
@@ -66,8 +68,17 @@ export function Hero({
             : 'You will be asked one question — whether it needs a window — and then we start building.'}
         </p>
       </div>
+  )
+}
 
-      <div className="card">
+export function HeroSuggestions({
+  onSuggest,
+}: {
+  /** A starter prompt — opens the create dialog carrying this as the opening message. */
+  onSuggest: (text: string) => void
+}) {
+  return (
+      <div className="card hero-card">
         <div className="card-label">
           <span>Or start from one of these</span>
         </div>
@@ -83,6 +94,5 @@ export function Hero({
           ))}
         </div>
       </div>
-    </div>
   )
 }

@@ -4,7 +4,7 @@
 import type { AgentdClient } from '@agentd/client'
 import { useEffect, useState } from 'react'
 import type { TreeEntry } from '../agentd/agent-files'
-import { renderMarkdown } from '../markdown/md'
+import Markdown from './Markdown'
 
 const TEXTY = /\.(toml|md|txt|json|ya?ml|py|js|mjs|ts|tsx|css|html|sh|ps1|cfg|ini|log|env)$/i
 
@@ -72,7 +72,7 @@ export function FileViewer({
           {entry.kind === 'video' && <video src={url} controls />}
           {entry.kind === 'audio' && <audio src={url} controls />}
           {!media && body.state === 'markdown' && (
-            <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(body.text) }} />
+            <Markdown text={body.text} />
           )}
           {!media && body.state === 'text' && <pre>{body.text}</pre>}
           {!media && (body.state === 'loading' || body.state === 'note') && (

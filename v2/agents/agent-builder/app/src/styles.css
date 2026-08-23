@@ -188,7 +188,7 @@ h2 { font-size: 16px; }
 .card-note { font-size: 12px; color: var(--faint); margin-top: 10px; }
 
 /* Icon tiles and marks. */
-.tile, .mark {
+.tile {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   border-radius: 8px; background: var(--prim-bg); color: var(--prim-ink);
   width: 26px; height: 26px; font-size: 13px; font-weight: var(--fw-heavy);
@@ -382,7 +382,6 @@ h2 { font-size: 16px; }
 }
 .chat-menu-item:hover { background: var(--bg3); }
 .chat-menu-item .cm-ico { display: flex; color: var(--dim); flex: none; }
-.chat-menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
 
 .footer-nav { display: flex; gap: 6px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); }
 .footer-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; }
@@ -503,13 +502,121 @@ h2 { font-size: 16px; }
 .whoami.anon { color: var(--faint); }
 .whoami.anon .who-dot { background: var(--faint); }
 
-.stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.stage { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+
+
+/* ── tab strip ─────────────────────────────────────────────────────────── */
+/* COPIED FROM agentd, whole: drag-reorder, the overflow list, the right-click menu and the
+   custom overlay scrollbar included. */
+.tabbar { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 4px; padding: 7px 12px 0; background: var(--bg2); border-bottom: 1px solid var(--border); }
+/* the clip dips 1px over the strip's bottom border so the ACTIVE tab paints on top of it and
+   merges seamlessly with the surface below — no hairline gap between a tab and its conversation */
+.tabbar-clip { overflow: hidden; height: 38px; margin-bottom: -1px; position: relative; }
+.tabbar-scroll { display: flex; align-items: flex-start; gap: 3px; overflow-x: auto; overflow-y: hidden; height: 55px; }
+.tabbar-scroll::-webkit-scrollbar { display: none; }
+.tab {
+  display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 12px;
+  max-width: 210px; min-width: 132px; flex: none; border-radius: 14px 14px 0 0;
+  cursor: pointer; font-size: 12.5px; color: var(--dim);
+  background: transparent; border: 1px solid transparent; border-bottom: 0;
+  transition: background .15s ease; animation: ag-tab .22s var(--ease-smooth);
+}
+.tab:hover { background: var(--bg3); }
+/* the active tab takes the CONVERSATION's surface, not the strip's, which is what makes it read
+   as the front of the thing below rather than as a selected button */
+.tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+.tab-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.tab-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-medium); }
+.tab-close { display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; border-radius: 5px; border: 0; background: transparent; color: var(--faint); cursor: pointer; flex: none; }
+.tab-close:hover { background: var(--bg3); color: var(--text); }
+/* Chrome-style: the "+" rides just to the RIGHT of the last tab and scrolls with them */
+.tab-add-inline {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; height: 30px; margin: 4px 2px 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--dim); cursor: pointer;
+  transition: background .15s ease, color .15s ease, transform .12s var(--ease-smooth);
+  animation: ag-tab .22s var(--ease-smooth);
+}
+.tab-add-inline:hover { background: var(--bg3); color: var(--text); }
+.tab-add-inline:active { transform: scale(.86); }
+@keyframes ag-tab { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* the overlay scrollbar: hover-only, and only when the tabs genuinely overflow. It sits at the
+   bottom edge WITHOUT reserving layout, so the active-tab-to-conversation merge stays intact. */
+.tab-scrollbar { position: absolute; left: 0; right: 0; bottom: 1px; height: 4px; z-index: 3; opacity: 0; transition: opacity .15s ease; pointer-events: none; }
+.tabbar-clip:hover .tab-scrollbar { opacity: 1; pointer-events: auto; }
+.tab-scrollbar-thumb { position: absolute; top: 0; height: 100%; min-width: 28px; border-radius: 4px; background: var(--border2); cursor: grab; }
+.tab-scrollbar-thumb:hover { background: var(--faint); }
+.tab-scrollbar-thumb:active { background: var(--faint); cursor: grabbing; }
+
+/* exit motion: the tab collapses its width and fades as it goes. TabBar delays the store removal
+   until this finishes — drop it first and React takes the node with it, so it just vanishes. */
+.tab--closing {
+  pointer-events: none; overflow: hidden; gap: 0 !important;
+  min-width: 0 !important; max-width: 0 !important;
+  padding-left: 0 !important; padding-right: 0 !important;
+  opacity: 0; transform: scale(.92); animation: none !important;
+  transition: min-width .2s var(--ease-smooth), max-width .2s var(--ease-smooth),
+    padding .2s var(--ease-smooth), opacity .17s ease, transform .2s var(--ease-smooth);
+}
+.tab.tab--ctx { background: var(--bg3); }
+
+/* the chevron, and the list of every open conversation behind it */
+.tabbar-add { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--dim); cursor: pointer; margin: 0 0 4px; transition: background .15s ease, color .15s ease, transform .12s var(--ease-smooth); }
+.tabbar-add:hover { background: var(--bg3); color: var(--text); }
+.tabbar-add:active { transform: scale(.9); }
+.tabbar-menu-wrap { position: relative; margin: 0 0 4px; }
+.tab-menu {
+  position: absolute; top: 34px; right: 0; z-index: 62; min-width: 248px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 6px; animation: ag-tab .12s var(--ease-smooth);
+  display: flex; flex-direction: column;
+  /* grow with the list, but never past the viewport — then the list scrolls */
+  max-height: calc(100vh - 46px); overflow: hidden;
+}
+.tab-menu-label { flex: none; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); padding: 6px 9px 7px; }
+.tab-menu-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.tab-menu-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.tab-menu-item:hover { background: var(--bg3); }
+.tab-menu-item.active { background: var(--accent-soft); }
+.tab-menu-open { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 8px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; text-align: left; font-size: 12.5px; }
+.tab-menu-close { flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer; }
+.tab-menu-close:hover { background: var(--border2); color: var(--text); }
+
+/* right-click tab menu (Chrome-style close options) */
+.tab-ctx {
+  position: fixed; z-index: 61; min-width: 196px; padding: 5px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 11px;
+  box-shadow: var(--shadow); animation: ag-tab .12s var(--ease-smooth);
+}
+.tab-ctx-item {
+  display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); cursor: pointer; text-align: left; font-size: 12.5px;
+}
+.tab-ctx-item:hover:not(:disabled) { background: var(--bg3); }
+.tab-ctx-item:disabled { color: var(--faint); cursor: default; }
+.tab-ctx-item.danger { color: var(--danger); }
+.tab-ctx-item.danger:hover:not(:disabled) { background: var(--danger-soft); }
+.tab-ctx-sep { height: 1px; background: var(--border); margin: 5px 6px; }
 
 /* ── thread ────────────────────────────────────────────────────────────── */
 .thread { flex: 1; overflow-y: auto; min-height: 0; padding: 22px 26px 8px; }
 .thread-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 
-.hero { display: flex; flex-direction: column; gap: 12px; padding-top: 2vh; }
+/* EMPTY STATE — agentd's shape: the start cards, the input, and the starter prompts stacked and
+   centred in the page, with the input in the middle. It scrolls as one column, so a short window
+   still reaches the prompts.
+   `.hero-card` caps the width so the three pieces line up with each other rather than each
+   stretching to whatever its content wants. */
+.chat-hero {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 24px 24px 9vh;
+}
+.chat-hero .hero-card { width: 100%; max-width: 720px; }
+.chat-hero-composer { width: 100%; }
+/* the composer brings its own outer padding for the pinned position; centred it needs none */
+.chat-hero-composer .composer-wrap { padding: 0; }
 
 .pick-row { display: flex; align-items: center; gap: 10px; }
 .pick-row select {
@@ -539,87 +646,115 @@ h2 { font-size: 16px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* messages */
-.msg { display: flex; gap: 11px; }
-.msg.user { justify-content: flex-end; }
-.msg.user .bubble {
-  background: var(--bg3); border: 1px solid var(--border2);
-  padding: 11px 15px; border-radius: var(--radius) var(--radius) 4px var(--radius); max-width: 84%;
+/* messages — COPIED FROM agentd.
+ *
+ * The user's turn is a right-aligned bubble; the assistant's is bare prose with no bubble and no
+ * avatar, because an answer is the page rather than a thing on it. Both grow a meta row on hover
+ * carrying the copy/edit actions and the time. */
+.msg-item { animation: ag-up .28s ease; }
+.msg-user { display: flex; flex-direction: column; align-items: flex-end; margin: 10px 0; }
+.msg-user .bubble {
+  max-width: 80%; background: var(--user-bubble); border: 1px solid transparent;
+  padding: 10px 15px; border-radius: 16px 16px 5px 16px;
+  white-space: pre-wrap; font-size: 14.5px; line-height: 1.55;
+  transition: border-color .15s ease;
 }
-.msg.bot { align-items: flex-start; }
-.bot-mark { margin-top: 1px; }
-.msg.bot .bubble { min-width: 0; flex: 1; }
+.msg-user:hover .bubble { border-color: var(--user-border); }
+.msg-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.msg-time { font: 10px var(--mono); color: var(--faint); }
+/* Hidden until the message is hovered: a row of buttons under every turn is noise, and these are
+   reached for rarely and deliberately. */
+.msg-actions { display: inline-flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.msg-item:hover .msg-actions { opacity: 1; pointer-events: auto; }
+.msg-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--faint); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.msg-act:hover { background: var(--bg3); color: var(--text); }
+.msg-act.ok { color: var(--accent-text); }
+.msg-assistant { margin: 10px 0; font-size: 14.5px; line-height: 1.68; color: var(--text); }
+.msg-assistant p { margin: 0 0 10px; }
+.msg-system { text-align: center; color: var(--faint); font: 12px var(--mono); margin: 12px 0; }
+.msg-system.error { color: var(--danger); }
+
 .bubble { white-space: pre-wrap; word-break: break-word; }
-.bubble.md { white-space: normal; }
+.bubble .markdown { white-space: normal; }
 
 .msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .msg-files img { max-height: 130px; max-width: 100%; border-radius: var(--radius); display: block; }
 
-.caret {
-  display: inline-block; width: 7px; height: 15px; margin-left: 3px;
-  vertical-align: -3px; background: var(--accent); border-radius: 2px;
-  animation: blink 1.1s steps(2, start) infinite;
-}
-@keyframes blink { to { opacity: 0; } }
+.caret { display: inline-block; width: 7px; height: 15px; background: var(--accent); vertical-align: text-bottom; margin-left: 2px; animation: ag-blink 1s steps(1) infinite; }
+@keyframes ag-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+@keyframes ag-spin { to { transform: rotate(360deg); } }
+@keyframes ag-pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
 
-/* Reasoning: a box while it runs, one line once it is done. Never the loudest thing on screen. */
-.thought {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.015); align-self: stretch;
-}
-.thought.live { border-color: var(--border2); }
-.thought-head {
+/* tool calls — COPIED FROM agentd.
+ *
+ * THIS WAS AN INLINE PILL: a dot, a name and a one-line argument summary, and nothing else it
+ * could ever show. It is a full-width head over an expandable body now, because the result is
+ * stored at last (see chat.ts) and "what did that tool actually return" was the single thing you
+ * could not find out in this window. */
+.tool { margin: 10px 0; }
+.tool-head {
   display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 9px 13px; text-align: left;
-  font-size: 12px; color: var(--faint);
+  background: transparent; border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 12px; color: var(--text); cursor: pointer; text-align: left; font: inherit;
+  transition: background .15s ease, border-color .15s ease;
 }
-button.thought-head:hover { color: var(--dim); }
-.thought-head .spin { color: var(--accent-text); }
-.thought-caret { margin-left: auto; font-size: 11px; }
-.thought-body {
-  /* THE FIXED HEIGHT IS THE FEATURE. Reasoning that runs for minutes must not push the answer
-     off the screen — it scrolls inside this window instead. */
-  max-height: 120px; overflow-y: auto;
-  padding: 0 13px 11px; margin-top: -2px;
-  color: var(--faint); font-size: 12.5px; line-height: 1.5;
-  white-space: pre-wrap; word-break: break-word;
-}
-.thought-body.tall { max-height: 320px; }
+.tool-head:hover { background: var(--bg3); border-color: var(--border2); }
+.tool-status { display: flex; flex: none; color: var(--accent); }
+.tool-status.spin svg { animation: ag-spin 1s linear infinite; }
+.tool-status.err { color: var(--danger); }
+.tool-name { font: 600 12.5px var(--mono); color: var(--accent-text); }
+.tool.error .tool-name { color: var(--danger); }
+.tool.error .tool-head:hover { background: var(--danger-soft); border-color: var(--danger-soft); }
+.tool-args { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-caret { color: var(--faint); display: flex; flex: none; }
+/* collapsed: one line of the result, or the newest progress step while it is still running */
+.tool-first { font: 12px var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-first.live { color: var(--accent-text); animation: ag-pulse 1.2s ease infinite; }
+.tool-running { font: 12px var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
+/* expanded: the whole thing, capped and scrollable so one enormous result cannot own the thread */
+.tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: 9px; max-height: 280px; overflow: auto; font: 12px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
 
-/* Tool rows as Fluxo's category pills. */
-.tool {
-  display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; max-width: 100%;
-  padding: 7px 14px 7px 11px; border-radius: 999px;
-  background: var(--bg3); border: 1px solid var(--border);
-  font-size: 12px; color: var(--dim);
-}
-.tool .mark {
-  width: 17px; height: 17px; border-radius: 999px; font-size: 10px;
-  background: rgba(70, 201, 139, 0.16); color: var(--accent-text);
-}
-.tool.run .mark { background: var(--accent-soft); color: var(--accent-text); }
-.tool.err { border-color: rgba(255, 107, 107, 0.34); }
-.tool.err .mark { background: rgba(255, 107, 107, 0.16); color: var(--danger); }
-.tname { font-family: var(--mono); font-size: 12px; color: var(--text); }
-.tool.err .tname { color: var(--danger); }
-.targs { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the update_plan checklist, and a subagent's step list — one shape, two readers */
+.todo-list { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.todo-step { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.todo-check { flex: none; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--dim); }
+.todo-dot { width: 11px; height: 11px; border: 1.5px solid var(--border2); border-radius: 50%; }
+.todo-dot.active { background: var(--accent); border-color: var(--accent); }
+.todo-step.completed .todo-check { color: var(--accent-text); }
+.todo-step.completed .todo-text { color: var(--faint); text-decoration: line-through; }
+.todo-step.in_progress .todo-check { color: var(--accent-text); }
+.todo-step.in_progress .todo-text { color: var(--text); font-weight: var(--fw-medium); }
+.todo-step .spin { animation: ag-spin 1s linear infinite; }
 
-.spin {
-  display: inline-block; width: 9px; height: 9px;
-  border: 1.5px solid currentColor; border-top-color: transparent;
-  border-radius: 999px; animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+/* Reasoning — COPIED FROM agentd: a quiet accent-ruled aside, always visible, uncapped.
+ *
+ * THIS WINDOW USED TO CONTAIN IT: a fixed-height box that scrolled itself while streaming and
+ * folded to "Thought for 34s" when it finished, so that minutes of reasoning could not push the
+ * answer off screen. That was dropped for agentd's on purpose. The consequence is agentd's too —
+ * a long reasoning pass now grows the thread for as long as it runs. */
+.msg-thinking { margin: 12px 0; border-left: 2px solid var(--accent-soft); padding-left: 13px; }
+.thinking-label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--accent-text); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 3px; }
+.thinking-text { color: var(--dim); font-size: 13px; font-style: italic; line-height: 1.55; white-space: pre-wrap; }
 
+/* WHAT THIS CONVERSATION IS ABOUT, and what the model was told before you typed. Neither is a
+   message, so neither is drawn as one — they are facts about the run, which is the job agentd
+   gives `.msg-system`: centred, quiet, mono, in the flow but not competing with it. Date
+   separators use the same shape for the same reason.
+   THIS WAS A FILLED ACCENT PILL, left-aligned and bordered — louder than the answers around it,
+   which is backwards for a note nobody needs to read twice. */
 .scope-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border-radius: 999px; align-self: flex-start; max-width: 100%;
-  background: var(--accent-soft); border: 1px solid var(--accent);
-  font-size: 13px; color: var(--dim);
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;
+  margin: 12px 0; font: 12px var(--mono); color: var(--faint);
 }
-.scope-row b { color: var(--accent-text); font-weight: var(--fw-medium); }
+/* the agent's name keeps the accent: it is the one word here worth finding at a glance */
+.scope-row b { color: var(--accent-text); font-weight: var(--fw-semi); }
 .scope-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); flex: none; }
-.scope-path { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+.scope-path { color: var(--faint); opacity: .8; }
 
 /* the loading reel */
 .thinking { display: flex; align-items: center; padding: 2px 0; }
@@ -627,82 +762,69 @@ button.thought-head:hover { color: var(--dim); }
 .thinking-art { width: 58px; height: 58px; }
 .thinking-art svg { display: block; width: 100% !important; height: 100% !important; }
 
+/* ── artifacts: what a turn produced ──────────────────────────────────── */
+/* Media renders itself — an agent that drew a chart should show the chart, because seeing it is
+   how you know whether it is right. Anything else is a card that opens in a new tab. */
+.artifacts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+.artifact-media { display: block; max-width: 100%; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+.artifact-media img, .artifact-media video { display: block; max-width: 100%; max-height: 340px; }
+.artifact-audio { width: 100%; max-width: 420px; }
+.artifact-card {
+  display: flex; align-items: center; gap: 10px; min-width: 220px; max-width: 320px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg2); color: var(--text); text-decoration: none;
+  transition: border-color .15s ease, background .15s ease;
+}
+.artifact-card:hover { border-color: var(--accent); background: var(--bg3); }
+.artifact-icon { display: flex; flex: none; color: var(--accent-text); }
+.artifact-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.artifact-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-sub { font: 11px var(--mono); color: var(--faint); }
+.artifact-open { display: flex; flex: none; color: var(--faint); }
+
 /* ── markdown ──────────────────────────────────────────────────────────── */
-.md > *:first-child { margin-top: 0; }
-.md > *:last-child { margin-bottom: 0; }
-.md p { margin: 0 0 11px; }
-.md h1, .md h2, .md h3, .md h4 { margin: 20px 0 9px; line-height: 1.3; }
-.md h1 { font-size: 18px; }
-.md h2 { font-size: 16px; }
-.md h3, .md h4 { font-size: 14px; }
-.md ul, .md ol { margin: 0 0 11px; padding-left: 20px; }
-.md li { margin: 3px 0; }
-.md a { color: var(--accent-text); }
-.md code {
+.markdown > *:first-child { margin-top: 0; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 11px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 20px 0 9px; line-height: 1.3; }
+.markdown h1 { font-size: 18px; }
+.markdown h2 { font-size: 16px; }
+.markdown h3, .markdown h4 { font-size: 14px; }
+.markdown ul, .markdown ol { margin: 0 0 11px; padding-left: 20px; }
+.markdown li { margin: 3px 0; }
+.markdown a { color: var(--accent-text); }
+.markdown code {
   font-family: var(--mono); font-size: 12px;
   background: var(--bg3); border: 1px solid var(--border);
   border-radius: 6px; padding: 1px 6px;
 }
-.md pre {
+.markdown pre {
   background: var(--bg3); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 13px; overflow-x: auto; margin: 0 0 11px;
 }
-.md pre code { background: none; border: none; padding: 0; line-height: 1.55; }
-.md blockquote {
+.markdown pre code { background: none; border: none; padding: 0; line-height: 1.55; }
+.markdown blockquote {
   margin: 0 0 11px; padding-left: 13px;
   border-left: 2px solid var(--border2); color: var(--dim);
 }
-.md table { border-collapse: collapse; width: 100%; margin: 0 0 11px; font-size: 13px; }
-.md th, .md td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
-.md th { background: var(--bg3); font-weight: var(--fw-heavy); }
-.md hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
-.md img { max-width: 100%; border-radius: var(--radius); }
+.markdown table { border-collapse: collapse; width: 100%; margin: 0 0 11px; font-size: 13px; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
+.markdown th { background: var(--bg3); font-weight: var(--fw-heavy); }
+.markdown hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.markdown img { max-width: 100%; border-radius: var(--radius); }
 
-/* ── plan ──────────────────────────────────────────────────────────────── */
-/* Pinned above the composer: the state of the work, not a message. Collapsed it costs one line. */
-/* THE WRAPPER owns the width and the centring — not the children.
-   Putting `margin: 0 auto` on `.plan-head, .plan-steps` looked equivalent and was not: the
-   `.plan-steps` rule further down sets `margin: 0` for the list reset, which wins on source order
-   and left-aligned the list while the head stayed centred. One owner, no collision.
-   772 = the composer's 720 plus this padding, so the two line up exactly. */
-.plan { flex: none; width: 100%; max-width: 772px; margin: 0 auto; padding: 0 26px; }
-.plan-head {
-  display: flex; align-items: center; gap: 11px; width: 100%;
-  padding: 10px 14px; text-align: left;
-  border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
-  background-color: var(--bg2); font-size: 13px; color: var(--dim);
-}
-.plan.open .plan-head { border-bottom-color: transparent; }
-.plan-head:hover { color: var(--text); }
-.plan-count {
-  flex: none; padding: 2px 9px; border-radius: 999px;
-  background: var(--accent-soft); color: var(--accent-text);
-  font-size: 12px; font-variant-numeric: tabular-nums;
-}
-.plan-now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-caret { flex: none; font-size: 11px; color: var(--dim); }
-
-.plan-steps {
-  list-style: none; margin: 0; padding: 4px 14px 12px;
-  border: 1px solid var(--border); border-top: none;
-  border-radius: 0 0 var(--radius) var(--radius);
-  background: var(--bg2);
-  max-height: 220px; overflow-y: auto;
-}
-/* flex-start, not baseline: a step that wraps to two lines would otherwise drag its checkbox down
-   to sit against the last line. */
-.plan-step { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; font-size: 13px; }
-.plan-box {
-  display: flex; align-items: center; justify-content: center; flex: none;
-  width: 17px; height: 17px; border-radius: 5px; margin-top: 2px;
-  border: 1px solid var(--border2); font-size: 10px; color: transparent;
-}
-.plan-step.completed .plan-box { background: var(--accent-text); border-color: var(--accent-text); color: #06110b; }
-.plan-step.completed .plan-text { color: var(--faint); text-decoration: line-through; }
-.plan-step.in_progress .plan-box { border-color: var(--accent); color: var(--accent); }
-.plan-step.in_progress .plan-text { color: var(--text); }
-.plan-text { flex: 1; min-width: 0; color: var(--dim); }
-.plan-tool { font-family: var(--mono); font-size: 11px; color: var(--faint); flex: none; }
+/* agentd's own markdown rules, verbatim and last so they win where the two disagree: inline code
+   reads in the accent, and a code block sits on the darkest surface.
+   THE RULES ABOVE ARE KEPT because agentd has no opinion on them — it carries no global reset for
+   headings, paragraphs or lists, so its markdown inherits the browser's. This window DOES reset
+   h1-h3 globally, so deleting these would leave headings unstyled and paragraphs unspaced: a
+   visible regression bought for no extra fidelity. */
+.markdown pre { background: var(--bg4); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; font: 12.5px var(--mono); }
+.markdown code { font: 12.5px var(--mono); color: var(--accent-text); }
+.markdown pre code { color: var(--text); }
+.markdown a { color: var(--accent-text); }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 5px 10px; }
 
 /* ── composer ──────────────────────────────────────────────────────────── */
 .composer-wrap { flex: none; padding: 10px 26px 20px; }
@@ -717,22 +839,53 @@ button.thought-head:hover { color: var(--dim); }
   box-shadow: var(--shadow-sm); transition: border-color 0.15s;
 }
 .composer:focus-within { border-color: var(--accent); }
-.composer.drag { border-color: var(--accent-text); background-color: var(--accent-soft); }
+/* the drop affordance is the stage-wide overlay below, not a tint on this box */
+.chat-dropzone {
+  position: absolute; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+}
+.chat-dropzone-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  color: var(--accent-text); font-weight: var(--fw-semi); font-size: 14px;
+}
 .composer textarea {
   display: block; width: 100%; max-height: 40vh;
   background: none; border: none; outline: none; resize: none;
   padding: 4px 4px 8px; color: var(--text);
 }
 .composer textarea::placeholder { color: var(--faint); }
+/* THE ACTION ROW: what you can do with this conversation. */
 .composer-foot { display: flex; align-items: center; gap: 10px; }
-.hint { flex: 1; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.send {
-  display: flex; align-items: center; justify-content: center; flex: none;
-  width: 34px; height: 34px; border-radius: 999px;
-  background: var(--prim-bg); color: var(--prim-ink); font-size: 14px;
+
+/* THE STATUS ROW, copied from agentd: what it is running on, and what it costs. It used to be a
+   keyboard hint sharing the action row — so the model actually answering you, and the balance
+   paying for it, were nowhere on this screen. */
+.composer-hint { margin: 8px auto 0; text-align: center; font: 11px var(--mono); color: var(--faint); }
+.composer-hint .hint-model { color: var(--accent-text); font-weight: var(--fw-semi); }
+.composer-hint .hint-sep,
+.composer-hint .hint-note { color: var(--faint); }
+/* a readout that is ALSO the route to the top-up panel, so it is styled to sit inline with the
+   rest of the strip rather than to look like a button */
+.composer-hint .hint-credits {
+  background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--dim); text-underline-offset: 2px;
 }
-.send:hover:not(:disabled) { filter: brightness(1.1); }
-.send.stop { background: var(--danger); }
+.composer-hint .hint-credits:hover { color: var(--text); text-decoration: underline; }
+.composer-hint .hint-credits.empty { color: var(--danger); font-weight: var(--fw-medium); }
+
+/* round attach + send, agentd's sizes — 36px, matching the single-line height of the textarea */
+.composer-attach { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--dim); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.composer-attach:hover { background: var(--bg3); color: var(--text); }
+.composer-send { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--border2); color: var(--faint); }
+.composer-send.ready { background: var(--prim-bg); color: var(--prim-ink); }
+.composer-send.ready:hover { background: var(--prim-bg-h); }
+.composer-send.stop { background: var(--prim-bg); color: var(--prim-ink); }
+.composer-send.stop:hover { background: var(--prim-bg-h); }
+
+.att-limit { align-self: center; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); }
 
 .attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .chip-file {
@@ -886,12 +1039,32 @@ button.thought-head:hover { color: var(--dim); }
 .set-msg.ok { color: var(--accent-text); }
 .set-msg.bad { color: var(--danger); }
 
-/* ── scrollbars ────────────────────────────────────────────────────────── */
-* { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: content-box; }
-::-webkit-scrollbar-track { background: transparent; }
+/* ── scrollbars & soft scroll edges ─────────────────────────────────────── */
+/* COPIED FROM agentd, and the two halves belong together: lib/softScroll.ts tags every scroll
+   container — current or future, anywhere in the app — with [data-scrolling] while it is being
+   scrolled and [data-soft-scroll] while its content is actually clipped, and these rules are what
+   those attributes mean.
+
+   This window drew a permanent 10px grey bar down the side of every scroller instead. */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+/* a 2px hairline pill (1px transparent inset via padding-box), invisible until scrolled; the
+   gutter stays reserved by the transparent thumb so nothing shifts when it appears */
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 1px solid transparent; background-clip: padding-box; transition: background .2s ease; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* visible while actively scrolling, OR while the pointer is inside a container whose content is
+   genuinely cut off — so you can tell a div scrolls, and roughly how much is below */
+[data-scrolling]::-webkit-scrollbar-thumb,
+[data-soft-scroll]:hover::-webkit-scrollbar-thumb { background: var(--border2); }
+[data-scrolling]::-webkit-scrollbar-thumb:hover,
+[data-soft-scroll]:hover::-webkit-scrollbar-thumb:hover { background: var(--faint); border-width: 0; }
+::selection { background: var(--accent-soft); }
+
+/* The fade itself. One mask gradient, computed per scroller, fading ONLY the edges currently
+   clipping content — so nothing is dimmed at rest. */
+[data-soft-scroll] {
+  -webkit-mask-image: var(--soft-mask, none);
+          mask-image: var(--soft-mask, none);
+}
 
 /* ── narrow ────────────────────────────────────────────────────────────── */
 /* The inspector goes first: a 360px panel squeezed to 140px shows nothing, and a chat you cannot
@@ -1053,5 +1226,9 @@ button.thought-head:hover { color: var(--dim); }
   padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
   background: transparent; border: 1px solid var(--border2); color: var(--dim);
 }
+/* the brief confirmation after a fork lands — the same accent flash the copy-message button uses,
+   because it answers the same question: did that click do anything? */
+.ghost-chip.ok { color: var(--accent-text); border-color: var(--accent); }
+.ghost-chip:disabled { opacity: .6; cursor: default; }
 .ghost-chip:hover { border-color: var(--accent); color: var(--text); background: var(--bg2); }
 .ghost-chip .ico { font-size: 12px; }

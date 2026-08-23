@@ -1,4 +1,9 @@
-/* The conversation with Agent Builder.
+/* The conversation PROTOCOL: the item shapes, the preambles, and how a stored transcript is read
+ * back. The conversations themselves — what is in them, which one is open, what is streaming —
+ * live in state/store.ts, because more than one can be open at a time now and a hook holding one
+ * of anything cannot answer for several.
+ *
+ * The conversation with Agent Builder.
  *
  * A turn is an ORDERED LIST OF ITEMS — prose, reasoning, tool rows — appended in the order the
  * events arrive. The vanilla window got this right by construction, because it appended DOM
@@ -10,9 +15,8 @@
  * re-reads the tree and the new file appears (and flashes).
  */
 
-import type { AgentdClient, Attachment } from '@agentd/client'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AGENT_ID } from './client'
+import type { Attachment } from '@agentd/client'
+import { readArtifacts, type Artifact } from './artifacts'
 import type { AgentRow } from './roster'
 
 export interface ScopeItem {
@@ -30,26 +34,56 @@ export interface BotItem {
   text: string
   /** Still being written into — draws the caret, and the next delta appends here. */
   streaming: boolean
+  /** Files this turn produced. Attached when the run ends rather than as they are declared: a
+   *  tool announces a file the moment it writes one, which is usually before the assistant has
+   *  said anything for them to hang under. */
+  artifacts?: Artifact[]
 }
 /** Reasoning. Kept in the ordered list like everything else — it happened at a point in time and
- *  moving it out would lose that — but rendered in a box of its own rather than as transcript.
+ *  moving it out would lose that.
  *
- *  `streaming` is what tells the view to keep the box open and following; `seconds` is measured
- *  when it closes, so a finished block can collapse to "Thought for 34s". */
+ *  `streaming` is the only state it carries. It used to time itself as well, so a finished block
+ *  could fold to "Thought for 34s"; agentd renders reasoning plainly and never folds it, so there
+ *  is nothing left that could read a duration. */
 export interface ThinkItem {
   kind: 'think'
   text: string
   streaming: boolean
-  startedAt: number
-  seconds: number
 }
+/** A tool call, and what it returned.
+ *
+ *  ARGS ARE STORED RAW. They used to be flattened to a one-line string the moment the event
+ *  arrived, which threw away everything the summary did not pick — so a row could never later be
+ *  expanded to show what the tool was actually called with. Summarising is a rendering decision
+ *  and now happens at render time.
+ *
+ *  THE RESULT IS STORED AT ALL, which it was not. `tool_execution_end` carries what the tool
+ *  returned and this hook dropped it on the floor, so the window could tell you a tool had run
+ *  and never what came back — the single biggest thing you could not see in this chat.
+ *
+ *  `progress` is the incremental step log from `tool_progress` (app-facing, and previously
+ *  unhandled here): what a long-running tool is doing WHILE it does it, rather than a spinner. */
 export interface ToolItem {
   kind: 'tool'
   id: string
   name: string
-  args: string
+  args: Record<string, unknown>
+  result: string
+  progress?: string
   done: boolean
-  error: boolean
+  isError: boolean
+}
+/** A delegated sub-agent run, collapsed into ONE item rather than a scatter of lines.
+ *
+ *  The daemon synthesises `subagent_event` for the parent's view (start / tool / done / error) so
+ *  a child's whole run reads as a single block here with its steps underneath. This window
+ *  ignored those events entirely, so delegating simply looked like a pause. */
+export interface SubagentItem {
+  kind: 'subagent'
+  agent: string
+  steps: string[]
+  status: 'running' | 'done' | 'error'
+  detail?: string
 }
 export interface FallbackItem {
   kind: 'fallback'
@@ -67,73 +101,51 @@ export interface IntentItem {
   window: boolean
 }
 
-export type ThreadItem =
+/** Epoch ms, stamped on arrival. Carried by every item so the thread can group by calendar day
+ *  and show a per-message time — neither of which it could do before. */
+export interface Stamped {
+  ts?: number
+}
+
+export type ThreadItem = (
   | ScopeItem
   | IntentItem
   | UserItem
   | BotItem
   | ThinkItem
   | ToolItem
+  | SubagentItem
   | FallbackItem
+) &
+  Stamped
 
 /** What the user chose in the start dialog, for an agent that does not exist yet. */
 export interface NewAgentIntent {
   window: boolean
 }
 
-/* ── the plan ───────────────────────────────────────────────────────────────────────────────
+/** The full text of a tool result — a message dict of content blocks, a `{text}`, or a bare
+ *  string, depending on the tool. COPIED FROM agentd's gateway/protocol.ts, because a tool result
+ *  has exactly one correct reading and two of them would drift.
  *
- * `update_plan` carries the WHOLE plan every time it is called, not a delta. So the panel keeps
- * the LATEST call and replaces — appending would leave four copies of a growing list on screen
- * after a build that re-planned four times.
- *
- * It is deliberately not a thread item. A plan is the current state of the work, not something
- * that was said at a point in time, and the fourth copy of it scrolled past is worse than useless.
- */
-
-export type PlanStatus = 'pending' | 'in_progress' | 'completed'
-
-export interface PlanStep {
-  step: string
-  status: PlanStatus
-  tool?: string
-}
-
-export interface Plan {
-  explanation: string
-  steps: PlanStep[]
-}
-
-export const PLAN_TOOL = 'update_plan'
-
-/** The plan out of an `update_plan` argument object, or null if it is not one.
- *
- *  Every field is checked rather than trusted: these arguments are model output, and a malformed
- *  plan should render nothing rather than a panel full of `undefined`. */
-function planFrom(args: unknown): Plan | null {
-  if (!args || typeof args !== 'object') return null
-  const raw = (args as Record<string, unknown>).plan
-  if (!Array.isArray(raw)) return null
-  const steps: PlanStep[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const step = String((item as Record<string, unknown>).step || '').trim()
-    if (!step) continue
-    const status = String((item as Record<string, unknown>).status || 'pending')
-    steps.push({
-      step,
-      status: status === 'completed' || status === 'in_progress' ? status : 'pending',
-      tool: String((item as Record<string, unknown>).tool || '') || undefined,
-    })
+ *  Never `String(result)`: a content-block array coerces to "[object Object]", which is what a
+ *  user would then be shown as the answer their tool returned. */
+export function resultText(result: any): string {
+  if (result && typeof result === 'object') {
+    const content = result.content
+    if (Array.isArray(content)) {
+      return content
+        .map((block: any) => (block && typeof block === 'object' ? block.text || '' : ''))
+        .join('')
+        .trim()
+    }
+    return String(result.text || '').trim()
   }
-  if (!steps.length) return null
-  return {
-    explanation: String((args as Record<string, unknown>).explanation || '').trim(),
-    steps,
-  }
+  return String(result ?? '').trim()
 }
 
-const MAX_FILES = 10
+/** The attachment cap. Exported so the composer can SAY it rather than only obey it. */
+export const MAX_FILES = 10
 
 /** A clipboard image usually has no usable filename ('' or no extension). The daemon then stores
  *  it as literally "attachment" — which, having no extension, is not classified as an image, so a
@@ -145,7 +157,7 @@ function attachmentName(f: File): string {
   return `${f.name || 'pasted'}-${stamp}.${ext}`
 }
 
-function readFile(f: File): Promise<Attachment> {
+export function readFile(f: File): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
     r.onload = () =>
@@ -203,7 +215,7 @@ export function summarize(args: unknown): string {
  *  because a client that silently prepends instructions to your words leaves you unable to
  *  explain the model's behaviour later. The last line is load-bearing: without it, "add pagination
  *  to the job finder" has previously been answered by building a second job finder. */
-function preamble(agent: AgentRow): string {
+export function preamble(agent: AgentRow): string {
   return (
     `[context] We are working on the EXISTING agent \`${agent.id}\`, which lives at ` +
     `\`agents/${agent.id}/\`. Read its agent.toml, IDENTITY.md, AGENTS.md and any ` +
@@ -219,7 +231,7 @@ function preamble(agent: AgentRow): string {
  *  builds one anyway, nobody sees a problem, and the user finds out when a folder they did not ask
  *  for turns up in the inspector. So the no-window text names the specific things not to do rather
  *  than describing a preference, and says whose decision it was. */
-function intentPreamble(intent: NewAgentIntent): string {
+export function intentPreamble(intent: NewAgentIntent): string {
   return intent.window
     ? '[context] We are creating a NEW agent, and the user has chosen that it HAS ITS OWN APP ' +
         'WINDOW. Declare `[app]` in its agent.toml and build the window as part of this work.'
@@ -229,384 +241,23 @@ function intentPreamble(intent: NewAgentIntent): string {
         'for. If you believe it needs a window, say so and wait — do not build one anyway.'
 }
 
-const newSessionKey = () => `builder-${Date.now().toString(36)}`
+export const newSessionKey = () =>
+  `builder-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 
 /** Stamp a still-open thinking block as finished, unless more thinking is what is arriving.
  *
  *  Reasoning ends the moment ANYTHING else does — a token of the answer, a tool call, the end of
  *  the turn. Without this the box would keep growing and following for the rest of the run, which
  *  is the wall of text this whole treatment exists to end. */
-function closeThinking(items: ThreadItem[], stillThinking: boolean): ThreadItem[] {
+export function closeThinking(items: ThreadItem[], stillThinking: boolean): ThreadItem[] {
   const next = [...items]
   const last = next[next.length - 1]
   if (stillThinking || last?.kind !== 'think' || !last.streaming) return next
-  next[next.length - 1] = {
-    ...last,
-    streaming: false,
-    seconds: Math.max(1, Math.round((Date.now() - last.startedAt) / 1000)),
-  }
+  next[next.length - 1] = { ...last, streaming: false }
   return next
 }
 
-export function useChat(
-  client: AgentdClient,
-  opts: { onToolDone?: () => void; onSession?: (key: string) => void } = {},
-) {
-  const [items, setItems] = useState<ThreadItem[]>([])
-  const [plan, setPlan] = useState<Plan | null>(null)
-  const [running, setRunning] = useState(false)
-  const [pending, setPending] = useState<Attachment[]>([])
-  const [sessionKey, setSessionKey] = useState(newSessionKey)
-
-  const sessionRef = useRef(sessionKey)
-  sessionRef.current = sessionKey
-
-  // The agent this conversation is ABOUT (null = we are creating something new). Carried into the
-  // FIRST message only; after that it is in the transcript and repeating it is noise.
-  const scopeRef = useRef<AgentRow | null>(null)
-  const scopeSentRef = useRef(false)
-
-  // The window decision for an agent that does not exist yet.
-  //
-  // CARRIED ON EVERY MESSAGE, unlike the scope above, until `create_agent` actually succeeds. A
-  // scope preamble names something that already exists, so the model can re-read it from disk at
-  // any point and one mention is enough. This names something that does not exist, so there is
-  // nothing to re-read — it survives only as a sentence in the transcript, and a sentence twenty
-  // messages up is a sentence a model will build straight past. "No window" is the direction that
-  // fails silently: nobody notices the UI they did not ask for until it is built.
-  //
-  // Cleared the moment the agent exists, because from then on the answer is in its agent.toml —
-  // repeating it would be both noise and a second source of truth.
-  const intentRef = useRef<NewAgentIntent | null>(null)
-
-  const callbacks = useRef(opts)
-  callbacks.current = opts
-
-  // ── the event stream ──────────────────────────────────────────────────────
-  useEffect(() => {
-    /** Append to the bubble being streamed into, or start a new one.
-     *
-     *  A tool row (or anything else) landing in between ends the run of deltas, so the next one
-     *  opens a fresh bubble BELOW it. That is the whole ordering rule. */
-    const appendTo = (kind: 'bot' | 'think', delta: string) =>
-      setItems((prev) => {
-        const next = closeThinking(prev, kind === 'think')
-        const last = next[next.length - 1]
-        if (kind === 'bot') {
-          if (last?.kind === 'bot' && last.streaming) {
-            next[next.length - 1] = { ...last, text: last.text + delta }
-          } else {
-            next.push({ kind: 'bot', text: delta, streaming: true })
-          }
-        } else if (last?.kind === 'think' && last.streaming) {
-          next[next.length - 1] = { ...last, text: last.text + delta }
-        } else {
-          next.push({ kind: 'think', text: delta, streaming: true, startedAt: Date.now(), seconds: 0 })
-        }
-        return next
-      })
-
-    /** Commit whatever is streaming and drop the caret. Called whenever the assistant STOPS
-     *  writing prose — a tool starting counts, and forgetting it left a blinking caret stranded
-     *  on every bubble that was interrupted by a tool call.
-     *
-     *  It closes an open THINKING block too, which is what stamps its duration and lets the box
-     *  fold down to one line. */
-    const settle = () =>
-      setItems((prev) =>
-        closeThinking(prev, false).map((it, i, all) =>
-          i === all.length - 1 && it.kind === 'bot' && it.streaming
-            ? { ...it, streaming: false }
-            : it,
-        ),
-      )
-
-    return client.on('chat.event', (payload: any) => {
-      if (payload?.sessionKey !== sessionRef.current) return
-      const ev = payload?.event
-      if (!ev) return
-
-      switch (ev.type) {
-        case 'message_update': {
-          if (ev.kind === 'thinking_delta') appendTo('think', String(ev.delta || ''))
-          else if (ev.kind === 'text_delta') appendTo('bot', String(ev.delta || ''))
-          return
-        }
-        case 'tool_execution_start': {
-          // The assistant stopped writing to start a tool. Settle the bubble (and lose the caret)
-          // — the next delta opens a fresh one below the tool row.
-          settle()
-          const name = String(ev.toolName || '?')
-          // THE PLAN IS NOT A MESSAGE. It goes to the pinned panel and REPLACES what is there;
-          // it never becomes a row, because every re-plan would leave another stale copy of a
-          // growing list scrolled up the thread.
-          if (name === PLAN_TOOL) {
-            const next = planFrom(ev.args)
-            if (next) setPlan(next)
-            return
-          }
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: 'tool',
-              id: String(ev.toolCallId || ev.toolName || Math.random()),
-              name,
-              args: summarize(ev.args),
-              done: false,
-              error: false,
-            },
-          ])
-          return
-        }
-        case 'tool_execution_end': {
-          const id = String(ev.toolCallId || ev.toolName || '')
-          setItems((prev) => {
-            const next = [...prev]
-            // Last match wins: a tool called twice in one turn has two rows with the same name,
-            // and the running one is always the later.
-            for (let i = next.length - 1; i >= 0; i--) {
-              const it = next[i]
-              if (it.kind === 'tool' && it.id === id && !it.done) {
-                next[i] = { ...it, done: true, error: !!ev.isError }
-                return next
-              }
-            }
-            return prev
-          })
-          // THE AGENT NOW EXISTS, so the window decision has been acted on and stops riding every
-          // message — from here the answer is in its agent.toml. Keyed off SUCCESS: a create that
-          // failed has decided nothing, and dropping the instruction there would let the retry go
-          // out with no window decision at all.
-          if (String(ev.toolName || '') === 'create_agent' && !ev.isError) intentRef.current = null
-          // EVERY tool, not a list of the ones that write. This used to test the name against
-          // /^(write|edit|create_agent|...)$/ — and when scaffold_ui was added nobody extended it,
-          // so a whole generated ui/ folder could land with the tree showing none of it. A re-read
-          // is a handful of small directory listings; a list you must remember to extend is a bug
-          // waiting for the next tool.
-          callbacks.current.onToolDone?.()
-          return
-        }
-        // A run is MANY turns — the model answers, calls a tool, answers again. `turn_end` fires
-        // after each one, so it must only settle the current bubble; treating it as the end would
-        // flip the composer back to idle while the run is still going.
-        case 'message_end':
-        case 'turn_end': {
-          settle()
-          return
-        }
-        // The configured model could not answer and another one took over. Never silent: "the
-        // model you chose is not the one replying" is the fact that turns an unpaid API key from
-        // a mystery into a one-line fix.
-        case 'model_fallback': {
-          settle()
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: 'fallback',
-              from: String(ev.from || '?'),
-              to: String(ev.to || '?'),
-              reason: String(ev.reason || '').slice(0, 120),
-            },
-          ])
-          return
-        }
-        // `agent_end` is the run terminal (stopReason, and `error` when it failed).
-        case 'agent_end': {
-          setRunning(false)
-          settle()
-          if (ev.error) {
-            setItems((prev) => [
-              ...prev,
-              { kind: 'bot', text: `**Run failed.** ${ev.error}`, streaming: false },
-            ])
-          }
-          return
-        }
-        case 'error': {
-          setRunning(false)
-          setItems((prev) => [
-            ...prev,
-            {
-              kind: 'bot',
-              text: `**Error.** ${ev.message || 'the run failed'}`,
-              streaming: false,
-            },
-          ])
-          return
-        }
-      }
-    })
-  }, [client])
-
-  // ── attachments ───────────────────────────────────────────────────────────
-  // Screenshots are how you show an agent what is wrong with an agent, so this window needs them.
-  // Three routes, because people reach for all three: paste, drag-drop, and a button.
-  const addFiles = useCallback(async (list: FileList | File[] | null) => {
-    const files = Array.from(list || [])
-    if (!files.length) return
-    const read = await Promise.all(files.map(readFile))
-    setPending((prev) => [...prev, ...read].slice(0, MAX_FILES))
-  }, [])
-
-  const removeFile = useCallback(
-    (index: number) => setPending((prev) => prev.filter((_, i) => i !== index)),
-    [],
-  )
-
-  // ── sending ───────────────────────────────────────────────────────────────
-  const send = useCallback(
-    async (text: string) => {
-      const body = text.trim()
-      // a message may be attachments-only — the daemon accepts that, so don't require text
-      if ((!body && !pending.length) || running) return
-
-      const sending = pending
-      setPending([])
-      setItems((prev) => [...prev, { kind: 'user', text: body, files: sending }])
-      setRunning(true)
-
-      const scope = scopeRef.current
-      const carry = scope && !scopeSentRef.current
-      // Marked BEFORE the await, not after: everything up to the await runs synchronously, so a
-      // flag set afterwards is still false for anything that reaches send() in the same tick, and
-      // the preamble goes out twice. The catch below puts the debt back.
-      if (carry) scopeSentRef.current = true
-      const context = [
-        carry && scope ? preamble(scope) : '',
-        intentRef.current ? intentPreamble(intentRef.current) : '',
-      ].filter(Boolean)
-      try {
-        await client.send({
-          sessionKey: sessionRef.current,
-          // `message`, not `text` — chat.send reads params.message and rejects an empty one.
-          message: context.length ? `${context.join('\n')}\n\n${body}` : body,
-          ...(sending.length ? { attachments: sending } : {}),
-        })
-      } catch (e) {
-        if (carry) scopeSentRef.current = false // it never reached the daemon; the retry carries it
-        setRunning(false)
-        setItems((prev) => [
-          ...prev,
-          { kind: 'bot', text: `**Could not send.** ${String((e as Error)?.message || e)}`, streaming: false },
-        ])
-      }
-    },
-    [client, pending, running],
-  )
-
-  const abort = useCallback(async () => {
-    try {
-      await client.abort(sessionRef.current)
-    } catch {
-      // the run may have just ended on its own — there is nothing to report to the user here
-    }
-  }, [client])
-
-  // ── which conversation ────────────────────────────────────────────────────
-  const reset = useCallback(() => {
-    const key = newSessionKey()
-    sessionRef.current = key
-    scopeRef.current = null // a fresh chat is about nothing until told
-    scopeSentRef.current = false
-    intentRef.current = null
-    setSessionKey(key)
-    setItems([])
-    setPlan(null)
-    setRunning(false)
-    setPending([])
-    callbacks.current.onSession?.(key)
-  }, [])
-
-  /** Open a saved conversation: render its transcript, then keep talking INTO it — the same
-   *  sessionKey goes back out on the next send, so the thread continues rather than forking.
-   *
-   *  Returns the agent this conversation was ABOUT, if the transcript says. Reopening a chat used
-   *  to blank the inspector: focus was cleared for every session change, and only a NEW chat has
-   *  no subject. A resumed one does — it is written down in its own first message — so it is read
-   *  back rather than thrown away. */
-  const open = useCallback(
-    async (key: string): Promise<string> => {
-      sessionRef.current = key
-      scopeRef.current = null // a resumed chat already carries its context in message 1
-      scopeSentRef.current = true
-      intentRef.current = null
-      setSessionKey(key)
-      setItems([])
-      setPlan(null)
-      setRunning(false)
-      setPending([])
-      callbacks.current.onSession?.(key)
-      try {
-        const res = await client.history(key, AGENT_ID)
-        const messages = res?.messages || []
-        const replayed = messages.flatMap(replay)
-        if (sessionRef.current !== key) return ''
-        setItems(replayed)
-        // The plan a reopened conversation was left at — the LAST update_plan in the transcript,
-        // for the same reason the live one replaces: every call carried the whole list.
-        setPlan(lastPlanIn(messages))
-        return subjectOf(messages)
-      } catch (e) {
-        if (sessionRef.current !== key) return ''
-        setItems([
-          {
-            kind: 'bot',
-            text: `**Could not load this chat.** ${String((e as Error)?.message || e)}`,
-            streaming: false,
-          },
-        ])
-        return ''
-      }
-    },
-    [client],
-  )
-
-  /** Point this conversation at an existing agent. The row is appended to the thread so the
-   *  subject of the conversation is visible in it, not just in the chrome. */
-  const setScope = useCallback((agent: AgentRow | null) => {
-    scopeRef.current = agent
-    scopeSentRef.current = false
-    intentRef.current = null // an existing agent already answered the window question
-    if (!agent) return
-    setItems((prev) => [...prev, { kind: 'scope', id: agent.id, name: agent.name || agent.id }])
-  }, [])
-
-  /** Declare that this conversation is building something NEW, and whether it gets a window. */
-  const setIntent = useCallback((intent: NewAgentIntent) => {
-    scopeRef.current = null
-    scopeSentRef.current = false
-    intentRef.current = intent
-    setItems((prev) => [...prev, { kind: 'intent', window: intent.window }])
-  }, [])
-
-  return {
-    items,
-    plan,
-    running,
-    pending,
-    sessionKey,
-    send,
-    abort,
-    reset,
-    open,
-    setScope,
-    setIntent,
-    addFiles,
-    removeFile,
-  }
-}
-
-/** Which agent a saved conversation was about, read back out of the transcript.
- *
- *  Two witnesses, both written by this app itself and both durable:
- *
- *    the scope preamble  `We are working on the EXISTING agent \`x\`` — what `preamble()` sends
- *                        on the first message of a scoped chat, in plain sight in the transcript
- *    create_agent        the tool call that MADE it, whose `agent_id` argument names it
- *
- *  Nothing is inferred from prose. An unscoped chat that built nothing returns '' and the
- *  inspector stays empty, which is the honest answer. */
-function subjectOf(messages: any[]): string {
+export function subjectOf(messages: any[]): string {
   for (const m of messages) {
     const blocks = Array.isArray(m?.content) ? m.content : []
     if (m?.role === 'user') {
@@ -631,59 +282,106 @@ function subjectOf(messages: any[]): string {
  *  reopened chat can look exactly like the live one did. The vanilla window rendered every
  *  tool_use first and the prose after, which regrouped a conversation on reload — the same text
  *  under a different story. */
+/** A saved conversation, rebuilt.
+ *
+ *  WHY THIS IS NOT `messages.flatMap(replay)` ANY MORE. A tool's OUTPUT is stored as its own
+ *  message — role `toolResult`, carrying the `toolCallId` of the call it answers — so a per-message
+ *  map can never attach it to anything: by the time the result is seen, the call is already a
+ *  finished item somewhere behind it. That is why reopening a chat used to show every tool as a
+ *  bare name with nothing under it, while the same tool in a live run showed its output. The
+ *  results were on disk the whole time; nothing read them.
+ *
+ *  So this walks the messages keeping an index of call id -> position, and patches the result back
+ *  onto its call. A result whose call is missing from the transcript is shown on its own rather
+ *  than dropped — an orphan is still something that happened. */
+export function restore(messages: any[]): ThreadItem[] {
+  const out: ThreadItem[] = []
+  const toolAt = new Map<string, number>()
+  /** Artifacts declared since the last assistant message, waiting for one to hang under. */
+  const carried: Artifact[] = []
+
+  for (const m of messages) {
+    if (m?.role === 'toolResult') {
+      const parsed = Date.parse(String(m?.ts || ''))
+      const ts = Number.isFinite(parsed) ? parsed : undefined
+      const text = (Array.isArray(m.content) ? m.content : [])
+        .map((b: any) => b?.text || '')
+        .join('')
+        .trim()
+      // A stored tool result declares what it produced. Buffered exactly as a live one is, and
+      // flushed onto the next assistant message below.
+      carried.push(...readArtifacts(m.artifacts))
+      const at = toolAt.get(String(m.toolCallId))
+      const call = at === undefined ? undefined : out[at]
+      if (at !== undefined && call && call.kind === 'tool') {
+        out[at] = { ...call, result: text, isError: !!m.isError, done: true }
+      } else {
+        out.push({
+          kind: 'tool',
+          id: String(m.toolCallId || ''),
+          name: String(m.toolName || '?'),
+          args: {},
+          result: text,
+          isError: !!m.isError,
+          done: true,
+          ts,
+        })
+      }
+      continue
+    }
+    for (const item of replay(m)) {
+      if (item.kind === 'tool') toolAt.set(item.id, out.length)
+      // The first answer after a tool declared files carries them, matching what a live run does
+      // at `agent_end`.
+      if (item.kind === 'bot' && carried.length) {
+        out.push({ ...item, artifacts: [...carried] })
+        carried.length = 0
+        continue
+      }
+      out.push(item)
+    }
+  }
+  return out
+}
+
 function replay(m: any): ThreadItem[] {
+  // The daemon stamps each stored message with an ISO timestamp (local_store.load_session). A
+  // resumed conversation therefore keeps its real times and day breaks rather than collapsing to
+  // "all of it, just now" — which is what an unparsed or missing stamp would look like. Invalid
+  // or absent leaves `ts` undefined, and the thread simply shows no time for that item.
+  const at = Date.parse(String(m?.ts || ''))
+  const ts = Number.isFinite(at) ? at : undefined
+
   if (m?.role === 'user') {
     const text =
       typeof m.content === 'string'
         ? m.content
         : (m.content || []).map((c: any) => c?.text || '').join('')
-    return text.trim() ? [{ kind: 'user', text, files: [] }] : []
+    return text.trim() ? [{ kind: 'user', text, files: [], ts }] : []
   }
   if (m?.role !== 'assistant') return []
 
   const out: ThreadItem[] = []
   for (const [i, c] of (Array.isArray(m.content) ? m.content : []).entries()) {
     if (c?.type === 'text' && String(c.text || '').trim()) {
-      out.push({ kind: 'bot', text: String(c.text), streaming: false })
+      out.push({ kind: 'bot', text: String(c.text), streaming: false, ts })
     } else if (c?.type === 'thinking' && String(c.thinking || c.text || '').trim()) {
-      // Restored folded. The transcript does not record how long it took, so `seconds` stays 0
-      // and the label says "Thought process" rather than inventing a duration.
-      out.push({
-        kind: 'think',
-        text: String(c.thinking || c.text),
-        streaming: false,
-        startedAt: 0,
-        seconds: 0,
-      })
+      out.push({ kind: 'think', text: String(c.thinking || c.text), streaming: false, ts })
     } else if (c?.type === 'tool_use' || c?.type === 'toolcall') {
-      // The plan belongs to the panel, live or restored — never to the thread.
-      if (String(c.name || '') === PLAN_TOOL) continue
       out.push({
         kind: 'tool',
         id: String(c.id ?? `${i}`),
         name: String(c.name || 'tool'),
-        args: summarize(c.input || c.arguments),
+        args: (c.input || c.arguments || {}) as Record<string, unknown>,
+        // Filled in by `restore` when the matching `toolResult` message comes past.
+        result: '',
         done: true,
+        ts,
         // The transcript does not record whether a past call failed, so it is shown as completed
         // rather than as a failure it may not have been.
-        error: false,
+        isError: false,
       })
     }
   }
   return out
-}
-
-/** The plan a saved conversation was left at: the LAST `update_plan` anywhere in its transcript. */
-function lastPlanIn(messages: any[]): Plan | null {
-  let found: Plan | null = null
-  for (const m of messages) {
-    if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue
-    for (const c of m.content) {
-      if ((c?.type !== 'tool_use' && c?.type !== 'toolcall') || String(c.name || '') !== PLAN_TOOL) {
-        continue
-      }
-      found = planFrom(c.input || c.arguments) ?? found
-    }
-  }
-  return found
 }
