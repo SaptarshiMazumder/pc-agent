@@ -48,6 +48,13 @@ STARTER_FILES = (
     # and getting it wrong (rendering first, signing in later) is the mistake that has to be
     # designed out rather than documented.
     "src/main.tsx",
+    # THE PALETTE, for the same reason. The shared modules under `src/common/` define no colours
+    # and no fonts — every visual property is a `var()`, so layout travels with the module and
+    # appearance belongs to the agent. That makes the token NAMES a contract, and a contract that
+    # lives only in a document is one a generated `styles.css` silently breaks: the pages then
+    # render structurally perfect and visually blank. Shipping the values as a real file the agent
+    # owns is what makes copying a module enough to make it work.
+    "src/tokens.css",
 )
 
 #: The COMMON MODULES — accounts and money, copied verbatim into every agent's `app/src/common/`.

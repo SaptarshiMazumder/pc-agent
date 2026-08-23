@@ -43,7 +43,7 @@ import { openable, type AgentRow } from '../agentd/roster'
 import { forkSession, renameSession as rename, type ChatRow } from '../agentd/sessions'
 import type { Attachment } from '@agentd/client'
 
-export type View = 'chat' | 'myagents'
+export type View = 'chat' | 'myagents' | 'settings' | 'credits'
 
 /** One conversation, keyed by session.
  *
@@ -426,13 +426,18 @@ function handleRunEvent(
       return
     }
 
-    // `agent_end` is the run terminal (stopReason, and `error` when it failed).
+    /* `agent_end` is the run terminal (stopReason, and `error` when it failed).
+     *
+     * A FAILURE IS A SYSTEM NOTE, not an answer — the same shape agentd gives it. This used to
+     * push a `bot` item reading "**Run failed.** …", which drew the failure as though the agent
+     * had said it: a bubble, with a copy button, in the transcript's own voice. It is a fact
+     * about the run, so it reads like the other facts about the run. */
     case 'agent_end': {
       on((s) => {
         const items = ev.error
           ? [
               ...settle(s.items),
-              { kind: 'bot' as const, text: `**Run failed.** ${ev.error}`, streaming: false, ts },
+              { kind: 'system' as const, tone: 'error' as const, text: String(ev.error), ts },
             ]
           : settle(s.items)
         return {
@@ -449,12 +454,7 @@ function handleRunEvent(
         running: false,
         items: [
           ...s.items,
-          {
-            kind: 'bot',
-            text: `**Error.** ${ev.message || 'the run failed'}`,
-            streaming: false,
-            ts,
-          },
+          { kind: 'system', tone: 'error', text: String(ev.message || 'the run failed'), ts },
         ],
       }))
       return

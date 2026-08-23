@@ -20,6 +20,8 @@ from pathlib import Path
 # Never walk into these — they are noise (caches, VCS) or excluded from packing anyway.
 SKIP_DIRS = frozenset({"__pycache__", ".git", ".pytest_cache", "node_modules", ".agentd"})
 MAX_SOURCE_BYTES = 256 * 1024  # a plugin module larger than this is not worth scanning
+#: Where the copied shared modules live inside an agent. Read WHOLE — see `sources`.
+COMMON_SRC_DIR = "app/src/common/"
 
 
 class AgentDirReader:
@@ -81,6 +83,16 @@ class AgentDirReader:
             ui/**/*.js              the app checks (event shapes, callable methods)
             app/src/**/*.ts(x)      the SAME checks for an app that is BUILT rather than
                                     hand-written — see below
+            app/src/**/*.css        the token contract: the shared modules define no colours or
+                                    fonts, so an agent that never defines the names they read
+                                    ships pages that render transparent
+            app/src/common/**       EVERYTHING under it, whatever the extension. The shared-module
+                                    comparison holds the canonical text of every file in
+                                    `templates/_common/`, and a file it cannot read is one it
+                                    reports as MISSING. Filtering by extension here meant the
+                                    three module stylesheets and the README came back absent from
+                                    every agent that had them — four errors that block packaging
+                                    and publishing, on files sitting right there on disk.
 
         The vendored SDK under ui/vendor/ is included — the UI rules skip it themselves, and
         reading it is how a check could later confirm which methods really exist.
@@ -97,7 +109,10 @@ class AgentDirReader:
             wanted = (
                 (rel.startswith("plugins/") and (rel.endswith(".py") or rel.endswith("plugin.toml")))
                 or (rel.startswith("ui/") and rel.endswith(".js"))
-                or (rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx")))
+                or (rel.startswith("app/src/") and rel.endswith((".ts", ".tsx", ".js", ".jsx", ".css")))
+                # NOT filtered by extension. What the shared modules consist of is their business,
+                # and anything here that cannot be read is reported as a missing module.
+                or rel.startswith(COMMON_SRC_DIR)
             )
             if not wanted:
                 continue

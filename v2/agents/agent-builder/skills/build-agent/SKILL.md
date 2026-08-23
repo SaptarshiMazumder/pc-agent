@@ -91,8 +91,9 @@ is exact; the procedure is short because it is what you actually do.
    - **attachments**: drop, paste and pick. A pasted screenshot has no filename — name it from
      its mime type or it is stored with no extension and never reaches a vision model as an image.
    - **persist the session key**, restore history on load, and offer fork/rename/delete.
-   - **a settings page generated from `[[settings]]`**, secrets write-only, and a test button that
-     saves first.
+   - **the shared settings page rendered** — `common/settings`, which already draws whatever
+     `[[settings]]` declared. You do not build a form. If a field needs proving (a URL, a folder),
+     add a Test button through `extras` — see "Custom settings and the shared page".
    - **direct `invokeTool` panels** for anything that is a lookup rather than a question.
 4. `write` — everything else: `AGENTS.md`, `skills/`, `plugins/`, data files.
    For a private tool prefer `create_tool` with `agent="<id>"` — it compile-checks the code
@@ -417,6 +418,12 @@ why a field that does not work is almost always a field you forgot to declare.
 **`kind = "secret"` is write-only in the UI.** The user sees "•••• saved" and can replace it, never
 read it back — the same rule the provider keys already follow inside an installed agent, for the
 same reason. `text` and `url` values ARE shown, so a typo is fixable.
+
+**You do not build the form.** The shared settings page (`common/settings`, copied into every
+agent) renders whatever is declared here, on its API Keys tab, with the write-only rule above
+already applied. Adding a field is this block and nothing else. If the value needs PROVING — a URL
+that must answer, a folder that must exist — add a Test button through `extras`; see "Custom
+settings and the shared page".
 
 Reading the value in a private tool: it is an ordinary environment variable, so
 `[sandbox] secrets = ["COINBASE_API_KEY"]` in that plugin's `plugin.toml` and the
@@ -1014,19 +1021,61 @@ Accounts, money and configuration arrive already written. `scaffold_react_app` c
 
 ```
 common/
-  README.md               read this — it says what each module needs from you
-  auth/useAuth.ts         signedIn · email · signIn() · signOut() · run mode
-  auth/SignIn.tsx         the gate, called before the first render
-  auth/ProfileMenu.tsx    the account menu, and the way to reach Credits
-  credits/Credits.tsx     the Credits & billing page
-  settings/Settings.tsx   the settings page — the SAME one the assistant's own window has
+  README.md                    read this — it says what each module needs from you
+  auth/Gate.tsx                wraps your app; shows the card only when an account is required
+  auth/SignIn.tsx              the sign-in card — the assistant's own
+  auth/useAuth.ts              signedIn · email · signIn() · signOut() · run mode
+  auth/ProfileMenu.tsx         the account menu, and the way to reach Credits
+  credits/Credits.tsx          the Credits & billing page
+  settings/Settings.tsx        the settings page — the SAME one the assistant's window has
+  settings/SettingsActions.tsx `useSettingsActions()`, for an `extras` control that must save first
 ```
+
+Each folder also carries its own `.css`, which defines **no colours and no fonts** — every visual
+property is a `var()`. The names come from `src/tokens.css`, which the scaffold ships and your
+agent owns. Restyle by editing the values there; every shared page follows.
 
 **The settings page is not yours to design.** A user configures the assistant, opens your agent,
 and must meet the same page — same knobs, same names, same grouping — plus one thing: your agent's
 values win over the daemon's, key by key, and every row says which layer it came from. Render it
 with `<Settings client={client} agentId="<your-id>" onRestart={...} />`. Agent Builder runs this
 exact module itself, so it is not a page you are being asked to trust untested.
+
+#### Custom settings and the shared page
+
+`[[settings]]` in `agent.toml` is all it takes to get a field: the daemon sends the declaration,
+the shared page renders it, and what the user types lands in the `.env` on their machine. Nothing
+in your app writes that form.
+
+What the shared schema cannot know is anything else your window has — a run-mode switch, the MCP
+servers it connects to, a **Test button** proving the URL somebody just pasted actually answers.
+Those go in `extras`, keyed by the tab each belongs to:
+
+```tsx
+<Settings
+  client={client}
+  agentId="my-agent"
+  onSaved={() => void reloadWhateverElseShowsThatValue()}
+  extras={{ keys: <ServerTest onTest={() => invokeTool('probe_server')} /> }}
+/>
+```
+
+**A Test button must save before it probes.** The tool it calls reads the agent's ENVIRONMENT, not
+the form — so testing without saving reports on the value the user just replaced. The page owns the
+edit buffer, so ask it:
+
+```tsx
+import { useSettingsActions } from '../common/settings/SettingsActions'
+
+const page = useSettingsActions()
+if (page.dirty) await page.commit()       // then probe
+// and label the button `page.dirty ? 'Save & test' : 'Test connection'`
+```
+
+`onSaved` fires after every save, from the page's own button and from an `extras` control alike.
+Use it if a declared value is shown anywhere ELSE in your window — a server URL in the top bar, a
+"not configured" badge in the nav — or it will still be showing what was there when the window
+connected. **A sample does all of this** — read the samples as a set rather than re-deriving it.
 
 **Import them. Never rewrite them.** `validate_agent` compares the agent's copy against the source
 and reports `UI_COMMON_MODIFIED` — which blocks packaging and publishing. Every agent handling
@@ -1043,24 +1092,29 @@ it. If it is only about this agent's look, use the CSS custom properties each mo
 `validate_agent` reports `UI_NO_SIGN_IN` as an **error** when an app never calls the gate, and
 that error blocks both `package_agent` and `publish_agent`. An agent without it cannot ship.
 
-One mechanism, and it is the SDK's:
+One mechanism, and it is the shared module — the assistant's own sign-in card, copied into
+every agent:
 
-```js
-await agentd.mountSignInGate({ client })   // vanilla: before the socket is wired
-```
 ```tsx
-await mountSignInGate()                    // React: in main.tsx, before the first render
+import Gate from './common/auth/Gate'
+
+<Gate product="Recipe Box"><App /></Gate>       // in main.tsx, wrapping the whole app
 ```
 
-`scaffold_react_app` writes `src/main.tsx` containing it — one of the two source files it
-ships, because this is a part of an app that is not a judgement call. If you see `UI_NO_SIGN_IN`
-on a scaffolded agent, somebody replaced that file; put the call back.
+`scaffold_react_app` writes `src/main.tsx` containing exactly that, because this is a part of an
+app that is not a judgement call. If you see `UI_NO_SIGN_IN` on a scaffolded agent, somebody
+replaced that file; put the wrapper back.
 
-**Never write your own login form.** The gate's element ids (`gateEmail`, `gatePass`, `gateForm`)
-are a contract the packaged-build login test drives, so a hand-rolled form silently disables it —
-and a second login is a second implementation of credential handling, written by somebody who was
-not thinking about credentials that day. It hits the same endpoints either way; the only thing a
-custom form adds is a way to get it wrong.
+`Gate` asks the daemon whether an account is **required** and shows `<SignIn>` if one is and
+nobody is signed in. It renders your app straight through otherwise — including while it is still
+asking, because a blank screen during a status probe is indistinguishable from a broken window.
+An app that lays out its own gating can render `<SignIn>` from `common/auth/SignIn` directly; what
+it may not do is write a third one.
+
+**Never write your own login form.** A user signs in to the assistant, opens your agent, and must
+meet the SAME card — a second form is a second implementation of credential handling, written by
+somebody who was not thinking about credentials that day. It hits the same endpoints either way;
+the only thing a custom form adds is a way to get it wrong.
 
 It renders **nothing** when a stored session still works, and nothing on a build with no accounts
 service — so it is correct to leave in an agent that will only ever run locally.
@@ -1081,27 +1135,29 @@ does it. Topping up is what a user comes looking for the moment a run stops; set
 you go to change how the thing works. A shop buried three scrolls into a config screen is a shop
 nobody finds.
 
-One mechanism, and it is the SDK's:
+One mechanism, and it is the shared module — the assistant's own credits page, copied into
+every agent:
 
-```js
-await agentd.mountCreditsPanel({ client, mount })   // vanilla: into #creditsBody on its own view
-```
 ```tsx
-<Credits />                                          // React: src/Credits.tsx, shipped by the starter
+import Credits from './common/credits/Credits'
 ```
 
-`scaffold_react_app` ships `src/Credits.tsx` — render it from its own view, never inside your
+`scaffold_react_app` ships `src/common/credits/` — render it from its own view, never inside your
 settings screen.
 
-**Shipping the file is not the same as having the page.** `Credits.tsx` arrives with every
-scaffold, so its presence proves only that the scaffolder ran — `validate_agent` reports
-`UI_NO_CREDITS` until something actually renders it:
+**Shipping the files is not the same as having the page.** The module arrives with every scaffold,
+so its presence proves only that the scaffolder ran — `validate_agent` reports `UI_NO_CREDITS`
+until something actually renders it:
 
 ```tsx
-import Credits from './Credits'
+import Credits from './common/credits/Credits'
 ...
 {view === 'credits' && <Credits />}
 ```
+
+**It has to be THAT module.** A page of your own called Credits does not satisfy the rule and is
+not meant to: somebody who tops up in the assistant and then inside an agent must not meet two
+different shops with two sets of prices.
 
 The samples all do this — read them as a set and copy the shape, not one of them as a mould.
 
@@ -1115,23 +1171,24 @@ charging someone twice.
 It renders **nothing** on a build with no accounts service, and nothing when nobody is signed in —
 so it is correct to leave in an agent that will only ever run locally.
 
-Theme it from `style.css` with `--wallet-accent`, `--wallet-card`, `--wallet-fg` and friends.
+Theme it from your own stylesheet. The module defines **no colours and no fonts** — it reads
+the tokens in `src/tokens.css` (`--bg`, `--fg`, `--accent`, `--border` and friends), which your
+agent owns. Redefine those and the page follows; there is nothing to fork.
 
 ### Sign-in comes with the template — never hand-write a login
 
 An agent that runs on platform keys needs the user signed in, or every model call fails. The
-scaffolded `app.js` already calls `agentd.mountSignInGate({ client })` — BEFORE it wires the
-connection, which is the one placement that also works for a web-delivered agent (see Sign-in
-below) — and that is all a login takes. It lives in the SDK, so it is one implementation for
-every agent.
+scaffolded `main.tsx` already wraps your app in `<Gate>` from `common/auth`, and that is all a
+login takes. It is a copied module rather than something each agent writes, so it is one
+implementation for every agent — and the same one the assistant itself shows.
 
-It **shows nothing** unless a sign-in is genuinely needed — no `accountsUrl` (a BYOK install), keys
-already live, or a stored session that still works. So it is correct to leave in place for an agent
-that will only ever run locally; it costs one status call and renders nothing.
+It **shows nothing** unless a sign-in is genuinely needed — the daemon says an account is not
+required (a BYOK or desktop install), or somebody is already signed in. So it is correct to leave
+in place for an agent that will only ever run locally; it costs one status call and renders your
+app.
 
-Theme it from `style.css` with `--gate-accent`, `--gate-card`, `--gate-fg` and friends. Never fork
-its markup, and never rename `gateEmail` / `gatePass` / `gateForm` — the packaged-build login test
-drives those ids.
+Theme it from your own stylesheet: like every module in `common/`, it defines no colours and no
+fonts, reading the tokens in `src/tokens.css` instead. Never fork its markup.
 
 For an agent that wants sign-in somewhere other than a modal, the mechanism is exposed directly:
 `agentd.resolveAuth()`, `agentd.signIn({email, password, signup})`, `agentd.signOut()`.
@@ -1322,16 +1379,19 @@ forces the block to your own id, so you cannot configure another agent even by a
 
 ### Sign-in
 
-`await agentd.mountSignInGate({ client })` is the whole thing. It draws a login only when this
-daemon has an accounts service AND nobody is signed in; otherwise it returns immediately, so it is
-safe to call unconditionally in every agent you build.
+`<Gate>` from `common/auth` is the whole thing. It draws a login only when this daemon says an
+account is REQUIRED and nobody is signed in; otherwise it renders its children, so it is safe to
+wrap every agent you build in it unconditionally.
 
-**Call it BEFORE the connection is wired, never inside a `status === 'open'` branch.** On a hosted
-daemon the session token IS the socket credential, so a page opened from a marketplace link
-(`/apps/<id>/`, no token in the url) cannot connect until somebody has signed in — a gate that
-waits for the socket therefore never runs, and the page retries forever with nothing on screen.
-The gate uses plain HTTP, so it needs no socket; passing `client` lets it rebuild the connection
-once a session exists. The scaffolded `app.js` places it correctly (`AGENTD:SIGNIN`).
+**It must not wait for the socket.** On a hosted daemon the session token IS the socket
+credential, so a page opened from a marketplace link (`/apps/<id>/`, no token in the url) cannot
+connect until somebody has signed in — gating on `status === 'open'` therefore never runs, and the
+page retries forever with nothing on screen. `Gate` asks over plain HTTP (`authStatus`), so it
+needs no socket, and the scaffolded `main.tsx` puts it outside everything that does.
+
+**`required`, not `available`.** An accounts service existing is not the same question as this
+daemon demanding an account — a desktop daemon takes the machine token and needs none. Conflating
+the two once put a login form in front of every window on a local install.
 
 **There are no `auth.*` daemon methods.** The client signs in itself: it reads `accountsUrl` from
 `platform.status` (also served over HTTP at `/platform/status`), POSTs to that service, keeps the

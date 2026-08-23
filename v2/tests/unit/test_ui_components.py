@@ -27,11 +27,9 @@ def test_each_detector_matches_the_code_it_describes():
     like?" cannot disagree. These are the exact shapes the common modules and the skill tell an
     author to write; a detector that missed one would make the validator demand a thing and then
     fail to see it once written."""
-    assert SIGN_IN.present_in("await signInFirst('My Agent')")
-    assert SIGN_IN.present_in("await mountSignInGate({ client })")
-    assert CREDITS.present_in("{view === 'credits' && <Credits />}")
+    assert SIGN_IN.present_in("import Gate from './common/auth/Gate'")
+    assert SIGN_IN.present_in("import SignIn from './common/auth/SignIn'")
     assert CREDITS.present_in("import Credits from './common/credits/Credits'")
-    assert CREDITS.present_in("await mountCreditsPanel({ mount })")
     assert SETTINGS.present_in("import { Settings } from './common/settings/Settings'")
 
 
@@ -39,7 +37,17 @@ def test_a_detector_does_not_fire_on_unrelated_code():
     """Conservative by design: a false alarm on working code teaches the model to ignore the
     report, which costs more than a missed defect."""
     assert not SIGN_IN.present_in("function signInLater() {}")
+    # The deleted vanilla gate. An agent still calling it is one built before the port, and it
+    # does not have the login screen this platform knows.
+    assert not SIGN_IN.present_in("await mountSignInGate({ client })")
+    assert not SIGN_IN.present_in("await signInFirst('My Agent')")
+    # A login card of the agent's own — the same refusal credits gets, for the same reason.
+    assert not SIGN_IN.present_in("import SignIn from './components/SignIn'")
     assert not CREDITS.present_in("const creditsRemaining = 4")
+    # A billing page of the agent's own is the case this rule refuses: the shop has to be THE
+    # shop, or somebody meets two stores with two sets of prices.
+    assert not CREDITS.present_in("import Credits from './components/Credits'")
+    assert not CREDITS.present_in("await mountCreditsPanel({ mount })")
     # Using the HOOK is not showing the PAGE. An agent may read a setting for its own purposes
     # without ever giving the user somewhere to change one, and that is the case this rule exists
     # to catch — so the hook must not satisfy it.
@@ -66,27 +74,34 @@ def test_every_component_declares_how_to_detect_it():
         assert component.detect, f"{component.id} declares no detector"
 
 
-def test_a_component_backed_by_an_sdk_call_names_the_symbol_it_needs():
-    """`requires` is what catches an agent calling a panel its vendored SDK predates — the
-    'not a function' dead window.
+def test_no_required_component_names_an_sdk_symbol():
+    """`requires` is what catches an agent whose vendored SDK predates a component's SDK call —
+    the 'not a function' dead window. NONE OF THE THREE NEEDS IT.
 
-    NOT EVERY COMPONENT HAS ONE. `settings` reaches the daemon through `client.request(...)`, which
-    every SDK build has ever had, so there is no version-sensitive export to check and naming one
-    would be a check that can never fire. Asserting `requires` on all three would have forced an
-    invented symbol — a check that always passes is worse than no check, because it reads like
-    coverage."""
+    Each reaches the daemon through a call that has existed in every SDK build there has ever
+    been: `authLogin` for sign-in, BillingClient for credits, `client.request(...)` for settings.
+    Naming a symbol for any of them would be a check that can never fire, and a check that always
+    passes is worse than no check because it reads like coverage.
+
+    This is pinned rather than left unsaid because it changed: sign-in declared `mountSignInGate`
+    until that vanilla gate was deleted in favour of the assistant's React card. The mechanism is
+    still live and still tested — see `test_a_component_whose_sdk_symbol_is_missing_is_an_error`
+    in test_ui_rules.py, which introduces a component the catalogue has never heard of."""
     for component in UiComponents().all():
-        if component.id == "settings":
-            assert component.requires == (), "settings needs no SDK symbol — see the docstring"
-            continue
-        assert component.requires, f"{component.id} declares no required SDK symbols"
+        assert component.requires == (), (
+            f"{component.id} names an SDK symbol. If that is deliberate, this test is the thing "
+            f"to change — but check first that the symbol is genuinely newer than some agent's "
+            f"vendored bundle, because otherwise it is a check that can never fire."
+        )
 
 
 def test_a_component_that_ships_a_file_marks_it_as_its_own():
     """`provides` marks files that merely DEFINE a component, so they are not counted as evidence
-    that anything uses it. Credits and Settings both arrive with every React scaffold and would
-    otherwise satisfy their own checks by existing; sign-in lives entirely in the SDK, so there is
-    nowhere for its call to hide and marking anything would only weaken the check."""
+    that anything uses it. All three arrive with every React scaffold and would otherwise satisfy
+    their own checks by existing.
+
+    Sign-in declared nothing until recently, when it lived entirely in the SDK and had no file of
+    its own for a call to hide in. It is a copied module like the other two now."""
     assert CREDITS.provides == ("Credits.tsx",)
     assert SETTINGS.provides == ("Settings.tsx",)
-    assert SIGN_IN.provides == ()
+    assert SIGN_IN.provides == ("SignIn.tsx", "Gate.tsx")

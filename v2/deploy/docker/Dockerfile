@@ -19,16 +19,20 @@
 # deploy does. `npx tsup` only — `npm run build` would also run the vendor script, which writes
 # into agents/ and belongs to a developer's checkout, not to an image layer.
 FROM node:20-slim AS sdk
-WORKDIR /sdk
-# @agentd/auth FIRST — the SDK declares it as `file:../auth`, so npm resolves it relative to
-# /sdk and the package has to exist at /auth before `npm ci` runs, not merely before the build.
-# It is the ONE sign-in implementation this platform has (clients/auth), and the SDK imports it
-# at three sites; without it `npx tsup` fails with "Could not resolve @agentd/auth" — a failure
-# that only appears in the image, because a developer checkout has the sibling directory.
-# package.json + src only, in the same spirit as the sdk COPY below: `main` points at the
-# TypeScript source, so that is genuinely all tsup reads.
-COPY clients/auth/package.json /auth/package.json
-COPY clients/auth/src /auth/src
+# THE LAYOUT IS MIRRORED, NOT FLATTENED. The SDK's code lives in three folders, and it reaches the
+# other two by RELATIVE PATH: `"@agentd/auth": "file:../auth"`, likewise `@agentd/billing`. npm
+# resolves those at `../` from the package it is installing, so building in a bare /sdk left both
+# unreachable — and the failure landed late and misleadingly: `npm ci` succeeded, then tsup died
+# five errors deep with "Could not resolve @agentd/auth", which reads like a broken import rather
+# than a folder that was never copied.
+#
+# Both are source-only and dependency-free, so copying them whole is cheap and cannot drag a
+# host-built native binary over the Linux one `npm ci` installs.
+WORKDIR /clients
+COPY clients/auth ./auth
+COPY clients/billing ./billing
+
+WORKDIR /clients/sdk-js
 COPY clients/sdk-js/package.json clients/sdk-js/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 # ONLY what tsup reads. There is no .dockerignore on this context, so `COPY clients/sdk-js/ .`
@@ -56,7 +60,7 @@ COPY . .
 # BEFORE the wheel is built: hatch_build.py stages this into `_data/sdk/agentd-client.js`, and it
 # stages only what exists at that moment. Copied over the gitignored path the build already looks
 # in, so there is one answer to "where is the SDK" in a checkout and in an image alike.
-COPY --from=sdk /sdk/dist/agentd-client.js clients/sdk-js/dist/agentd-client.js
+COPY --from=sdk /clients/sdk-js/dist/agentd-client.js clients/sdk-js/dist/agentd-client.js
 # the wheel embeds plugins/ + starter data (scripts/hatch_build.py) => packaged mode
 RUN python -m build --wheel -o /dist
 # LOUD, because the failure it guards is silent: hatch_build stages the SDK only `if

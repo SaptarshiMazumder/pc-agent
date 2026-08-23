@@ -85,6 +85,14 @@ export interface SubagentItem {
   status: 'running' | 'done' | 'error'
   detail?: string
 }
+/** A fact about the RUN rather than something anyone said — a failure, a refusal, a terminal
+ *  condition. Rendered as a quiet centred note, the same shape agentd gives it and the same shape
+ *  the scope rows and date separators use. */
+export interface SystemItem {
+  kind: 'system'
+  text: string
+  tone: 'info' | 'error'
+}
 export interface FallbackItem {
   kind: 'fallback'
   from: string
@@ -115,6 +123,7 @@ export type ThreadItem = (
   | ThinkItem
   | ToolItem
   | SubagentItem
+  | SystemItem
   | FallbackItem
 ) &
   Stamped
@@ -249,6 +258,20 @@ export const newSessionKey = () =>
  *  Reasoning ends the moment ANYTHING else does — a token of the answer, a tool call, the end of
  *  the turn. Without this the box would keep growing and following for the rest of the run, which
  *  is the wall of text this whole treatment exists to end. */
+/** Is this content block a tool call?
+ *
+ *  THE STORED TYPE IS `toolCall`, camel-cased — see `messages.py`, which writes it. Both readers
+ *  here matched the lower-cased `'toolcall'` instead, so neither ever fired on a real transcript:
+ *  every tool call in a reopened conversation was dropped, its result rendered as an orphan with
+ *  no call above it, and the subject of the chat became unfindable. `tool_use` is the
+ *  Anthropic-shaped name, kept because older transcripts carry it.
+ *
+ *  One predicate, so the two readers cannot disagree again. */
+function isToolCall(c: any): boolean {
+  const t = String(c?.type || '')
+  return t === 'toolCall' || t === 'toolcall' || t === 'tool_use'
+}
+
 export function closeThinking(items: ThreadItem[], stillThinking: boolean): ThreadItem[] {
   const next = [...items]
   const last = next[next.length - 1]
@@ -267,7 +290,10 @@ export function subjectOf(messages: any[]): string {
       if (found) return found[1]
     }
     for (const c of blocks) {
-      if ((c?.type === 'tool_use' || c?.type === 'toolcall') && c?.name === 'create_agent') {
+      // `toolCall` — CAMEL CASE, which is what messages.py writes. This read 'toolcall' and so
+      // matched nothing: a resumed conversation could never find the create_agent that named its
+      // subject, so reopening a chat left the inspector pointing at nothing.
+      if (isToolCall(c) && c?.name === 'create_agent') {
         const id = (c.input || c.arguments || {})?.agent_id
         if (id) return String(id)
       }
@@ -367,7 +393,7 @@ function replay(m: any): ThreadItem[] {
       out.push({ kind: 'bot', text: String(c.text), streaming: false, ts })
     } else if (c?.type === 'thinking' && String(c.thinking || c.text || '').trim()) {
       out.push({ kind: 'think', text: String(c.thinking || c.text), streaming: false, ts })
-    } else if (c?.type === 'tool_use' || c?.type === 'toolcall') {
+    } else if (isToolCall(c)) {
       out.push({
         kind: 'tool',
         id: String(c.id ?? `${i}`),

@@ -1,59 +1,161 @@
-/* Credits & billing — GIVE IT ITS OWN VIEW.
+/* Credits & billing — agentd's page, copied.
  *
- * COPIED VERBATIM from the common modules. Do not edit; `validate_agent` compares it against the
- * source.
+ * COPIED FROM clients/ui/src/components/SubscriptionView.tsx. Same balance card, same
+ * catalogue-driven packs, same receipt, same disclosure. An agent's shop and the assistant's are
+ * one screen, because they are one product.
  *
- * THIS FILE ARRIVING IS NOT THE JOB. Nothing renders it until you do, and validate_agent reports
- * UI_NO_CREDITS until something does — shipping it and never showing it is a credits page that
- * exists, validates, and is invisible to the person who ran out of credits.
+ * WHAT THIS REPLACED. Agents used to mount `mountCreditsPanel` — a 287-line vanilla-DOM panel in
+ * the SDK, written for the vanilla templates that no longer exist. agentd never used it; it has
+ * always had this React page. So there were two credit screens: the one the user sees in the
+ * assistant, and a different one every generated agent shipped. One of them had to go, and it was
+ * never going to be the one agentd uses.
  *
- * Render it from a nav entry beside Settings, not inside your settings screen. Topping up is what
- * a user comes looking for the moment a run stops; settings is where you go to change how the
- * thing works. agentd draws the same line, and validate_agent expects to find this rendered.
+ * THE PACKS ARE NOT IN THIS FILE. They come from the accounts service's product catalogue, so
+ * changing what is for sale is a row in a database, never a release of this agent — and the price
+ * shown cannot drift from the price charged, because there is only one of them.
  *
- * Every agent with a window sells credits, so it arrives already written rather than as a rule
- * to remember. Running out of credits is the ONE failure a user can
- * fix themselves, and an agent that cannot take the top-up just stops working and says nothing —
- * the user has to already know a separate app exists, find it, and buy there. Nobody does.
- *
- * WHY IT IS A WRAPPER AND NOT A REACT COMPONENT TREE. The panel itself lives in the SDK, so this
- * agent shows the same screen as agentd and as every other agent, down to the byte. One shop, one
- * set of rules about money. A React re-implementation would be a second store — a second set of
- * idempotency keys, refusal messages and "has the money actually arrived yet" — in an app that
- * takes real money. What is on sale comes from the server's catalogue, so prices change without
- * releasing this app, and the payment disclosure is the rail's own sentence rather than a promise
- * hardcoded here.
- *
- * IT RENDERS NOTHING when this build has no accounts service or nobody is signed in, so it is safe
- * to mount unconditionally. Theme it with the `--wallet-*` CSS custom properties.
+ * THE MONEY LOGIC IS NOT IN THIS FILE EITHER. `BillingClient` (@agentd/billing) owns idempotency
+ * keys, refusals and "has the money actually arrived yet", and the assistant uses the SAME client.
+ * This is a view over it. That is what makes copying it safe: nothing about a purchase is
+ * reimplemented here.
  */
 
-import { mountCreditsPanel } from '@agentd/client'
-import { useEffect, useRef } from 'react'
+import { billing as shop, onCreditsChanged } from '@agentd/client'
+import type { Catalog, CreditPack, Credits as Balance } from '@agentd/client'
+import { useCallback, useEffect, useState } from 'react'
 
-export default function Credits() {
-  const host = useRef<HTMLDivElement>(null)
+import './credits.css'
+
+export default function Credits({ agentId = '' }: { agentId?: string }) {
+  const [balance, setBalance] = useState<Balance | null>(null)
+  const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+  const [receipt, setReceipt] = useState('')
+
+  const refresh = useCallback(async (): Promise<void> => {
+    setBalance(await shop().credits(agentId))
+  }, [agentId])
 
   useEffect(() => {
-    const el = host.current
-    if (!el) return
-    let panel: { destroy(): void } | null = null
-    let live = true
+    void refresh()
+    void shop().catalog().then(setCatalog)
+    // A purchase made anywhere — another window, the assistant — moves this balance too.
+    return onCreditsChanged(() => void refresh())
+  }, [refresh])
 
-    void mountCreditsPanel({ mount: el })
-      .then((p) => {
-        // StrictMode mounts, unmounts and remounts in development. Without this the first panel
-        // is orphaned inside a detached node and its balance listener never unsubscribes.
-        if (live) panel = p
-        else p.destroy()
-      })
-      .catch((e) => console.error('credits panel failed', e))
-
-    return () => {
-      live = false
-      panel?.destroy()
+  async function buy(pack: CreditPack): Promise<void> {
+    setBusy(pack.id)
+    setError('')
+    setReceipt('')
+    try {
+      const r = await shop().buy(pack.id, location.href.split('#')[0])
+      // A card rail answers with somewhere to go rather than a completed purchase.
+      if (r.checkoutUrl) {
+        location.href = r.checkoutUrl
+        return
+      }
+      setBalance((c) => (c ? { ...c, creditsRemaining: r.creditsRemaining } : c))
+      setReceipt(
+        r.replayed
+          ? `Already bought — you have ${r.creditsRemaining.toLocaleString()} credits.`
+          : `Added ${r.credits.toLocaleString()} credits. Balance: ${r.creditsRemaining.toLocaleString()}. ${r.paymentDetail}`,
+      )
+      // The authoritative balance, in case a concurrent run spent some mid-purchase.
+      void refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
     }
-  }, [])
+  }
 
-  return <div ref={host} />
+  return (
+    <div className="credits-page">
+      <div className="credits-head">
+        <div className="credits-title">Credits &amp; billing</div>
+        <div className="credits-sub">
+          Credits pay for model calls on your account. Buy more at any time.
+        </div>
+      </div>
+
+      <div className="credits-body">
+        <div className="credits-group">
+          <div className="credits-section">Balance</div>
+          <div className="plan-card">
+            <div className="plan-top">
+              <span className="plan-name">
+                {balance ? `${balance.creditsRemaining.toLocaleString()} credits` : 'checking…'}
+              </span>
+              <button
+                className="cbtn"
+                type="button"
+                onClick={() => void refresh()}
+                title="Re-read your balance from the platform"
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="plan-price">
+              {balance?.fundingSource === 'agent_subscription'
+                ? 'Funded by an agent subscription'
+                : 'Your platform balance'}
+              {balance?.creditClass === 'promotional' ? <span> · promotional</span> : null}
+              {balance?.modelTierMax ? <span> · up to the “{balance.modelTierMax}” tier</span> : null}
+            </div>
+            {balance?.creditsRemaining === 0 && (
+              <ul className="plan-feats">
+                <li>Out of credits — messages are refused until you top up.</li>
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="credits-group">
+          <div className="credits-section">Buy credits</div>
+          {catalog === null ? (
+            <div className="credits-note">Loading the store…</div>
+          ) : catalog.packs.length === 0 ? (
+            <div className="credits-note">
+              No credit packs are configured on this environment. They come from the accounts
+              service’s product catalogue.
+            </div>
+          ) : (
+            <>
+              <div className="pack-grid">
+                {catalog.packs.map((p) => (
+                  <div className="pack" key={p.id}>
+                    <div className="pack-name">{p.credits.toLocaleString()} credits</div>
+                    <div className="pack-by">
+                      ${p.priceUsd.toFixed(2)}
+                      {p.periodDays > 0 ? ` · expires after ${p.periodDays} days` : ''}
+                    </div>
+                    <p className="pack-desc">
+                      {p.title || `${p.credits.toLocaleString()} credits`}
+                      {p.modelTierMax ? ` · up to the “${p.modelTierMax}” tier` : ''}
+                    </p>
+                    <button
+                      className="cbtn primary"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => void buy(p)}
+                      title={`Add ${p.credits.toLocaleString()} credits for $${p.priceUsd.toFixed(2)}`}
+                    >
+                      {busy === p.id ? 'Adding…' : `Buy · $${p.priceUsd.toFixed(2)}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {/* The rail's own disclosure, verbatim. Not this file's opinion — wiring up a real
+                  card rail rewrites this sentence instead of leaving a stale "nothing is charged"
+                  note on a page that now charges. */}
+              {catalog.paymentNote && <div className="credits-note">{catalog.paymentNote}</div>}
+            </>
+          )}
+          {receipt && <div className="credits-note">{receipt}</div>}
+          {error && <div className="credits-note error">{error}</div>}
+        </div>
+      </div>
+    </div>
+  )
 }

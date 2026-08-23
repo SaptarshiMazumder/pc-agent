@@ -24,6 +24,7 @@ from agent_authoring.application.scaffold_react_app_service import (
     ScaffoldReactAppService,
 )
 from agent_authoring.bundle_layout import BundleLayout
+from agent_authoring.domain.js_comment_stripper import JsCommentStripper
 
 ROOT = Path(__file__).resolve().parents[2]
 STARTER = BundleLayout.BORROW_ROOT / "react"
@@ -90,27 +91,58 @@ def _same(a, b) -> bool:
     return norm(a) == norm(b)
 
 
-def test_the_starter_ships_only_the_mandatory_source_file():
+def test_the_starter_ships_only_what_is_not_a_judgement():
     """What the window should BE is a judgement about the agent, made from the samples — a copied
     src/ would be a fourth opinion competing with them.
 
-    WHERE SIGN-IN HAPPENS IS NOT A JUDGEMENT, and getting it wrong (render first, sign in later)
-    is a mistake to design out rather than document. So exactly one file ships, and the list is
-    asserted EXACTLY: a second one appearing here means somebody started making judgements on the
-    author's behalf. Everything shared lives in _common/, which is a different tier."""
-    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["main.tsx"]
+    TWO FILES ARE NOT JUDGEMENTS, and the list is asserted EXACTLY so that a third one appearing
+    means somebody started making them on the author's behalf.
+
+      main.tsx    WHERE SIGN-IN HAPPENS. Getting it wrong (render first, sign in later) is a
+                  mistake to design out rather than document.
+      tokens.css  THE TOKEN NAMES the copied `_common/` modules read. Those modules define no
+                  colour and no font — every visual property is a `var()` — so the names are a
+                  contract, and an unresolved custom property does not error: the property is
+                  dropped and the page renders structurally perfect and visually blank. Shipping
+                  the contract as a file the agent OWNS is what makes copying a module sufficient.
+                  Its VALUES are a judgement, which is why the agent is expected to edit them;
+                  its NAMES are not.
+
+    Everything shared lives in _common/, which is a different tier."""
+    assert sorted(p.name for p in (STARTER / "src").iterdir()) == ["main.tsx", "tokens.css"]
 
 
-def test_the_shipped_entry_signs_in_before_it_renders():
+def test_the_shipped_entry_gates_the_whole_app():
     """A starter that shipped a main.tsx WITHOUT this would be worse than shipping none — it looks
-    like the question was already handled."""
-    main = (STARTER / "src" / "main.tsx").read_text(encoding="utf-8")
+    like the question was already handled.
 
-    assert "signInFirst" in main
-    assert main.index("signInFirst") < main.index("root.render"), "sign in before the render"
+    IT WRAPS RATHER THAN BLOCKS. This used to assert that `signInFirst()` was awaited BEFORE
+    `root.render` — the gate was a vanilla-DOM panel that painted itself over the page, so the
+    entry point had to be an async IIFE that rendered nothing until it resolved. It is the
+    assistant's React card now, so the requirement moved: the app renders immediately and `<Gate>`
+    swaps in the card only if the daemon says an account is required. A blank window while a status
+    probe runs is indistinguishable from a broken one.
+    """
+    main = (STARTER / "src" / "main.tsx").read_text(encoding="utf-8")
+    # COMMENTS ARE NOT CODE. This file explains at the top what it replaced and names the calls it
+    # replaced, so the "must not come back" assertions below read the STRIPPED text — the same
+    # stripper the validator uses, and for the same reason: a check that cannot tell an explanation
+    # from the mistake it describes fires on the most careful file it will ever see.
+    code = JsCommentStripper().strip(main)
+
     # THROUGH THE COMMON MODULE, not by reaching for the SDK here. One place per agent knows how
     # signing in works, and it is the copied module every other agent has too.
-    assert "./common/auth/SignIn" in main
+    assert "./common/auth/Gate" in main
+    assert "<Gate>" in main
+
+    # It has to be OUTSIDE the app, not a branch somewhere inside it: on a hosted daemon the
+    # session token IS the socket credential, so an app that gates after connecting never gets to.
+    assert main.index("<Gate>") < main.index("<App />"), "the gate wraps the app"
+
+    # And the deleted vanilla gate must not come back. Both spellings: the SDK call and the
+    # common module's old wrapper around it.
+    assert "mountSignInGate" not in code
+    assert "signInFirst" not in code
 
 
 # --------------------------------------------------------------------------- scaffolding

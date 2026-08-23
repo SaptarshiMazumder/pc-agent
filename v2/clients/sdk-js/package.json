@@ -22,11 +22,9 @@
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@agentd/auth": "file:../auth",
+    "@agentd/billing": "file:../billing",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"
-  },
-  "dependencies": {
-    "@agentd/auth": "file:../auth",
-    "@agentd/billing": "file:../billing"
   }
 }

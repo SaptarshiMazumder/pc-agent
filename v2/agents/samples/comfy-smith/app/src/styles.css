@@ -42,15 +42,6 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
 
-  /* The SDK's sign-in gate reads these. Themed here so the login screen is part of the app
-     rather than a grey box that appears in front of it. */
-  --gate-accent: var(--accent);
-  --gate-bg: var(--bg);
-  --gate-panel: var(--raised);
-  --gate-ink: var(--ink);
-  --gate-dim: var(--faint);
-  --gate-line: var(--hair);
-  --gate-radius: var(--r-lg);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -457,23 +448,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .seg button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .seg button.on span { color: var(--accent); opacity: 0.75; }
 
-.field { display: block; margin: var(--s4) 0; }
-.field-label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 6px; }
 .req, .set-note {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
 }
-.req { color: var(--warn); }
-.set-note { color: var(--ok); }
-.field input, .inspector-search input {
-  width: 100%; font: inherit; padding: 9px 12px;
-  border: 1px solid var(--hair); border-radius: var(--r);
-  background: var(--raised); color: var(--ink); outline: none;
-}
-.field input:focus, .inspector-search input:focus { border-color: var(--accent-line); }
-.field-help { display: block; color: var(--faint); font-size: 12px; margin-top: 5px; }
 
 .actions { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s4); }
-.ok-note { color: var(--ok); font-size: 13px; }
 .mcp-row { display: flex; gap: var(--s3); align-items: baseline; padding: var(--s1) 0; }
 
 .inspector-search { display: flex; gap: var(--s2); margin-bottom: var(--s4); }

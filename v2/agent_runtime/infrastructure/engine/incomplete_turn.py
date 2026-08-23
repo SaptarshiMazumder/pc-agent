@@ -52,15 +52,29 @@ _EMPTY_RUN_CAUSE = {
 }
 
 
-def describe_empty_run(kind: str | None, served_by: tuple[str, str] | None) -> str:
+def describe_empty_run(
+    kind: str | None,
+    served_by: tuple[str, str] | None,
+    provider_error: str | None = None,
+) -> str:
     """One honest paragraph about why a run ended with nothing to show.
 
     ``kind`` is the last incomplete-turn classification; ``served_by`` is ``(from, to)`` when
     model failover put a different model in charge. The pair is what makes the failure
     diagnosable: "reasoning only" alone reads as a model quirk, but "reasoning only, and your
     configured model was swapped out because it errored" names the actual thing to fix.
+
+    ``provider_error`` LEADS when there is one, and outranks everything else here. The classifiers
+    describe what the MODEL did; a provider error describes why it never got the chance. Printing
+    "the model returned an entirely empty response" over an exhausted balance or a dead key blames
+    the model for something upstream of it, and sends the user off re-sending a message that
+    cannot succeed.
     """
     parts = []
+    if provider_error:
+        parts.append(provider_error.rstrip("."))
+        parts.append("Re-sending the same message will most likely fail the same way.")
+        return " ".join(p if p.endswith(".") else f"{p}." for p in parts)
     if kind:
         parts.append(_EMPTY_RUN_CAUSE.get(kind, f"The run ended incomplete ({kind})."))
     if served_by:

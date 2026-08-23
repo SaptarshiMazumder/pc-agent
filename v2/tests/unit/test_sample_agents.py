@@ -36,6 +36,7 @@ from agent_runtime.presentation.gateway import APP_SCOPED_METHODS, PROVIDER_ENV_
 
 from agent_authoring.application.validate_agent_service import ValidateAgentService
 from agent_authoring.domain.agent_layout_rules import AgentLayoutRules
+from agent_authoring.domain.common_module_rules import CommonModuleRules
 from agent_authoring.domain.declaration_rules import DeclarationRules
 from agent_authoring.domain.packageability_rules import PackageabilityRules
 from agent_authoring.domain.sandbox_rules import SandboxRules
@@ -45,6 +46,20 @@ from agent_authoring.infrastructure.agent_dir_reader import AgentDirReader
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLES = ROOT / "agents" / "samples"
+
+
+def _common_module_sources() -> dict:
+    """The canonical text of every shared module, exactly as the plugin's composition root reads
+    it — whole directory, whatever the extension, because what those modules consist of is their
+    business."""
+    from agent_authoring.bundle_layout import BundleLayout
+
+    root = BundleLayout.COMMON_ROOT
+    return {
+        f.relative_to(root).as_posix(): f.read_text(encoding="utf-8")
+        for f in sorted(root.rglob("*"))
+        if f.is_file()
+    }
 
 SAMPLE_IDS = sorted(p.name for p in SAMPLES.iterdir() if (p / "agent.toml").is_file()) if SAMPLES.is_dir() else []
 
@@ -73,6 +88,13 @@ def _validator():
             components=components.all(),
         ),
         declaration_rules=DeclarationRules(provider_keys=PROVIDER_ENV_KEYS),
+        # THE SAME CATALOGUE THE PLUGIN PASSES, not a stand-in. Leaving this out was not a smaller
+        # test — it was no test: every shared-module check silently sat out, and a real bug lived
+        # behind it. The reader filtered `app/src/` by extension, so the three module stylesheets
+        # and the README came back unreadable and were reported MISSING on every agent — four
+        # errors that block packaging and publishing, on files present on disk. Samples are the
+        # thing most likely to catch that, and they were not looking.
+        common_rules=CommonModuleRules(_common_module_sources()),
     )
 
 

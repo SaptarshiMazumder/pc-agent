@@ -477,7 +477,7 @@ async def run_agent_loop(
         # undo. `stop` is the only value that actively claims success it did not achieve.
         if stop_reason == "stop":
             stop_reason = "no_output"
-        detail = describe_empty_run(incomplete_kind, served_by)
+        detail = describe_empty_run(incomplete_kind, served_by, error_text)
         persist_text = f"{INCOMPLETE_TURN_FALLBACK_TEXT}\n\n{detail}" if detail else (
             INCOMPLETE_TURN_FALLBACK_TEXT
         )
@@ -497,6 +497,15 @@ async def run_agent_loop(
         logging.getLogger("agentd").warning(
             "run produced no visible output — %s", detail or "no diagnosis available"
         )
+        # SAID ONCE. The message just streamed already CONTAINS `error_text` (it leads the
+        # detail — see describe_empty_run), and `agent_end` carries `error` separately for
+        # clients to render as a failure banner. Leaving both set printed the same paragraph
+        # twice, in two different styles, one under the other.
+        #
+        # The streamed one is the copy that survives: it is persisted to the transcript, so
+        # reopening the conversation still explains why it ended. The banner is the duplicate,
+        # and it is the one that goes.
+        error_text = None
 
     end_payload = {"stopReason": stop_reason}
     if error_text:

@@ -26,6 +26,7 @@ import {
   useMcpStatus,
   useSessions,
   useSettings,
+  AGENT_ID,
   useTool,
   useWhenOpen,
   useWorkflows,
@@ -35,10 +36,11 @@ import { ArtifactsView } from './components/ArtifactsView'
 import { ChatPane } from './components/ChatPane'
 import { HistoryPanel } from './components/HistoryPanel'
 import { InspectorView, type Inspector } from './components/InspectorView'
-import { SettingsView } from './components/SettingsView'
+import { AccountSection, ServerTest, ServicesSection } from './components/SettingsExtras'
 import { Sidebar, type View } from './components/Sidebar'
 import { WorkflowPanel, type Workflow } from './components/WorkflowPanel'
 import Credits from './common/credits/Credits'
+import { Settings } from './common/settings/Settings'
 
 const SUGGESTIONS = [
   {
@@ -230,18 +232,28 @@ export default function App() {
           )}
 
           {view === 'credits' && <Credits />}
+          {/* THE SHARED PAGE, not one of this agent's own. Same knobs, same names, same
+              grouping as the assistant's — plus this agent's declared [[settings]], which it
+              renders from what the daemon sends. What is left here is the handful of things the
+              shared schema cannot know about, slotted into the tab each belongs to. */}
           {view === 'settings' && (
-            <SettingsView
-              data={settings.data}
-              error={settings.error}
-              onSave={settings.save}
-              onTest={() => invoke('comfy_server')}
-              mcp={mcp}
-              auth={account.auth}
-              authBusy={account.busy}
-              authError={account.error}
-              onSignOut={account.signOut}
-              onMode={account.chooseMode}
+            <Settings
+              client={client}
+              agentId={AGENT_ID}
+              onSaved={() => void settings.reload()}
+              extras={{
+                general: (
+                  <AccountSection
+                    auth={account.auth}
+                    busy={account.busy}
+                    error={account.error}
+                    onSignOut={account.signOut}
+                    onMode={account.chooseMode}
+                  />
+                ),
+                keys: <ServerTest onTest={() => invoke('comfy_server')} />,
+                tools: <ServicesSection mcp={mcp} />,
+              }}
             />
           )}
         </main>

@@ -15,11 +15,15 @@
     "paths": {
       "@agentd/auth": [
         "../auth/src/index.ts"
+      ],
+      "@agentd/billing": [
+        "../billing/src/index.ts"
       ]
     }
   },
   "include": [
     "src",
-    "../auth/src"
+    "../auth/src",
+    "../billing/src"
   ]
 }

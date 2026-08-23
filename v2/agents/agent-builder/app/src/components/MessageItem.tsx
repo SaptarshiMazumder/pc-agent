@@ -360,6 +360,9 @@ export default function MessageItem({ item, running }: { item: ThreadItem; runni
         </div>
       )
 
+    case 'system':
+      return <div className={`msg-system ${item.tone === 'error' ? 'error' : ''}`}>{item.text}</div>
+
     /* ---- this window's own items ------------------------------------------------------- */
     case 'intent':
       // Shown for the same reason the scope row is: this is an instruction the model was given,

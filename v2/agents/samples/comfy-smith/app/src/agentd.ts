@@ -17,7 +17,6 @@ import {
   authStatus,
   authLogout,
   fromPage,
-  mountSignInGate,
   resultText,
   setRunMode,
   type AgentdClient,
@@ -608,6 +607,12 @@ export interface SettingField {
   help: string
 }
 
+/** THIS AGENT'S ID, and it must match the folder `agent.toml` sits in — the daemon derives it
+ *  from there. The settings page needs it because the two layers are keyed by it: `agents.<id>.model`
+ *  overrides the daemon's `model`, and a page that guessed wrong would silently edit another
+ *  agent's layer while showing this one's values. */
+export const AGENT_ID = 'comfy-smith'
+
 export interface SettingsSurface {
   settings: SettingField[]
   settingsValues: Record<string, string>
@@ -637,23 +642,11 @@ export function useSettings(client: AgentdClient) {
 
   useWhenOpen(client, load)
 
-  /** Write env values by their DECLARED names. Returns the server's refusal, if any — it is the
-   *  only thing that explains why a save did nothing. */
-  const save = useCallback(
-    async (keys: Record<string, string>): Promise<string> => {
-      try {
-        const res: any = await client.request('config.set', { keys })
-        await load()
-        if (res?.error) return String(res.error)
-        return res?.saved ? '' : 'nothing was saved'
-      } catch (e) {
-        return String(e)
-      }
-    },
-    [client, load],
-  )
-
-  return { data, error, reload: load, save }
+  // NO `save` HERE. Writing belongs to the shared settings page (`common/settings`), which owns
+  // the edit buffer and the refusal messages. This hook is what the REST of the window reads:
+  // the server URL in the top bar, and whether a required field is still empty. `reload` is
+  // exported so the page can say when it saved — see `onSaved` in App.tsx.
+  return { data, error, reload: load }
 }
 
 // ---------------------------------------------------------------------------
@@ -702,21 +695,21 @@ export function useAuth(client: AgentdClient) {
     }
   }, [])
 
-  const signIn = useCallback(
-    () => run(() => mountSignInGate({
-      client,
-      product: 'Comfy Smith',
-      blurb: 'Sign in to use your account in this window.',
-    })),
-    [run, client],
-  )
+  /* Sign-in is a CARD the app renders (common/auth/SignIn), not a gate that paints itself over
+     the page. This only raises the flag; App shows `<SignIn onDone={signedIn}>` while it is up. */
+  const [wantsSignIn, setWantsSignIn] = useState(false)
+  const signIn = useCallback(() => setWantsSignIn(true), [])
+  const signedIn = useCallback(() => {
+    setWantsSignIn(false)
+    void load()
+  }, [load])
   const signOut = useCallback(() => run(() => authLogout({ client })), [run, client])
   const chooseMode = useCallback(
     (mode: RunMode) => run(() => setRunMode(mode, { client })),
     [run, client],
   )
 
-  return { auth, busy, error, signIn, signOut, chooseMode, reload: load }
+  return { auth, busy, error, signIn, wantsSignIn, signedIn, signOut, chooseMode, reload: load }
 }
 
 /** Declared MCP servers and why any of them is not usable.

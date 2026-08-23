@@ -13,7 +13,6 @@ import {
   authLogout,
   authStatus,
   loadMode,
-  mountSignInGate,
   setRunMode,
   type AgentdClient,
   type AuthState,
@@ -86,6 +85,8 @@ export interface PlatformState {
 /** Identity and run mode for the Settings page, and the three actions that change them. */
 export function usePlatform(client: AgentdClient) {
   const [state, setState] = useState<PlatformState>({ auth: null, chosen: '', error: '' })
+  // Sign-in is a card the app renders, not a gate that paints itself over the page.
+  const [wantsSignIn, setWantsSignIn] = useState(false)
 
   const reload = useCallback(async () => {
     try {
@@ -110,12 +111,15 @@ export function usePlatform(client: AgentdClient) {
     void reload()
   }, [reload])
 
-  /** The SDK's gate: the daemon performs the exchange and keeps the token, so nothing here ever
-   *  holds a credential. Resolves once somebody is signed in, or at once if they already are. */
-  const signIn = useCallback(async () => {
-    await mountSignInGate({ client })
-    await reload()
-  }, [client, reload])
+  /** Ask for the sign-in card. A COMPONENT now — agentd's, copied into _common/auth — so this
+   *  only raises a flag and App renders `<SignIn>` while it is up. It used to await a vanilla-DOM
+   *  gate that painted itself over the window. */
+  const signIn = useCallback(() => setWantsSignIn(true), [])
+  /** Called from the card once the credential is stored. */
+  const signedIn = useCallback(() => {
+    setWantsSignIn(false)
+    void reload()
+  }, [reload])
 
   /** The DAEMON's sign-out, not a local flag. It drops the identity token AND re-applies the run
    *  mode, so platform billing stops in the same step — "signed out but still metering your
@@ -136,7 +140,7 @@ export function usePlatform(client: AgentdClient) {
     [client, reload],
   )
 
-  return { ...state, reload, signIn, signOut, switchMode }
+  return { ...state, reload, signIn, wantsSignIn, signedIn, signOut, switchMode }
 }
 
 /** Restart the daemon: `POST /restart`, the same endpoint every other client uses.

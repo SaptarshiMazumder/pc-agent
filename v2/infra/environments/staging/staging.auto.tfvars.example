@@ -1,0 +1,59 @@
+# Copy to `staging.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
+# automatically, so no -var flag on any command.
+#
+# WHY A FILE AND NOT `-var`. Several of these default to "" or [], and the resources they
+# drive are conditional on being non-empty. Passing one with -var on a Monday and forgetting
+# it on Tuesday does not leave that resource alone — it DESTROYS it. The alarm subscription
+# and the publish Lambda both work exactly that way. An auto-loaded file is what makes it
+# stick; the variables are behaving correctly, the flag is just too easy to forget.
+
+# Where every staging alarm goes. Empty = the SNS topic is created and nobody is subscribed,
+# so all 13 alarms fire into nothing.
+#
+# AWS emails a confirmation link the recipient must click. Until they do, the subscription
+# exists but is PendingConfirmation — which is still silent. `monitoring/alarm_check.ps1`
+# reports both states.
+alert_email = "you@example.com"
+
+# THE PUBLISH SERVICE — leave this EMPTY on the first apply.
+#
+# The image does not exist yet: ECR is created by that same apply. `publish_enabled` is
+# `var.publish_image_tag != ""`, so an empty tag is not an error — it simply builds no publish
+# Lambda, no creator table and no KMS key, and `publish_url` comes back empty. Push the image
+# to the repository named by the `publish_ecr_repository` output, then set the tag and apply
+# again. See deploy/PUBLISH-SERVICE.md.
+publish_image_tag = ""
+
+# Who may call the publish service's admin endpoints (`agentd bundle roster pending/admit/
+# revoke`): account ids and/or the emails those accounts sign in with. EMPTY = admin door
+# closed, so nobody can admit a creator and nothing can be published.
+publish_admin_identities = ["you@example.com"]
+
+# ── the engine a published product's installer downloads ─────────────────────
+# All three or none. A stub refuses a download it cannot verify, so a URL without its
+# sha256 is a product that installs nothing. Empty = read the registry index instead.
+# publish_engine_url     = "https://.../agentd-setup-0.1.11.exe"
+# publish_engine_sha256  = "…"
+# publish_engine_version = "0.1.11"
+
+# ── cost control ─────────────────────────────────────────────────────────────
+# Staging does not need to be up between test runs. `paused` scales every task to 0 and
+# stops the scheduled jobs while KEEPING the ALB — so the URL survives and no client needs
+# re-syncing. `hibernate` also removes the ALB, which is cheaper and CHANGES THE URL.
+# paused    = true
+# hibernate = false
+
+# ── alarms ───────────────────────────────────────────────────────────────────
+# The defaults here are PRODUCTION's values, not dev's loose ones — the point of staging is
+# to find out whether a threshold is right before production has to answer that. Override
+# only to reproduce something specific.
+# cost_per_hour_alarm_usd = 5
+# proxy_5xx_threshold     = 1
+
+# ── the public marketplace ───────────────────────────────────────────────────
+# Both empty = CloudFront's own https address, which is enough for staging and needs no DNS
+# and no certificate. Set both together or neither: CloudFront rejects an alias without a
+# certificate that covers it, and the certificate MUST live in us-east-1 whatever region
+# this deployment runs in.
+# marketplace_domain_name     = "agents-staging.example.com"
+# marketplace_certificate_arn = "arn:aws:acm:us-east-1:…"

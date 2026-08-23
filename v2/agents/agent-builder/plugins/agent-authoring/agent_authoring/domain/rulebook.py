@@ -92,8 +92,8 @@ RULEBOOK: dict[str, Rule] = {
     "UI_NO_CREDITS": Rule(
         level=ERROR,
         blocks=(PACK, PUBLISH),
-        note="an app with no credits panel cannot be packed or published; mountCreditsPanel() "
-        "is the only mechanism — never a store of the agent's own",
+        note="an app with no credits panel cannot be packed or published; the copied "
+        "common/credits module is the only mechanism — never a store of the agent's own",
     ),
     # AND EVERY AGENT WITH A WINDOW CAN BE CONFIGURED FROM INSIDE IT. Third in the same story: an
     # agent whose model, turn limit or keys can only be changed from another application is an
@@ -121,6 +121,16 @@ RULEBOOK: dict[str, Rule] = {
         blocks=(PACK, PUBLISH),
         note="a shared module was edited — restore it; change the SOURCE if every agent needs it",
     ),
+    # THE OTHER HALF OF THE SAME BARGAIN. The shared modules carry no colours and no fonts so that
+    # each agent can look like itself; an agent that does not hold up its end ships pages that
+    # render transparent. It BLOCKS for the same reason MODIFIED does — it still builds, so
+    # nothing downstream would ever catch it.
+    "UI_TOKENS_MISSING": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="the shared modules read CSS custom properties this app never defines — its "
+        "settings, credits and sign-in pages render with no background and no accent",
+    ),
     # ONE SIGN-IN IMPLEMENTATION ON THIS PLATFORM. Listed here rather than left to block on its
     # error level alone: this table is where the shipping policy is written down, and a code that
     # blocks only because of how it happens to be priced is a code somebody later re-prices to a
@@ -134,7 +144,8 @@ RULEBOOK: dict[str, Rule] = {
         level=ERROR,
         blocks=(PACK, PUBLISH),
         note="an agent that mints or stores credentials itself cannot be packed or published — "
-        "mountSignInGate() draws the form, identity().accessToken() hands over a credential",
+        "<Gate> from common/auth draws the form, identity().accessToken() hands over a "
+        "credential",
     ),
     # A WINDOW BUILT FROM SOURCE THAT NO LONGER EXISTS. `app/` is compiled into `ui/`, and only
     # `ui/` is served, packed and published — so an agent whose source has moved on from its build

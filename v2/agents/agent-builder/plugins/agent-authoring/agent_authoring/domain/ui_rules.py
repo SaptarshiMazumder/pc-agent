@@ -108,11 +108,13 @@ _REQUIRED_MESSAGES = {
         "agent knows who is using it, and on a hosted install every model call fails without "
         "it, with nothing on screen to explain why.",
         "app/src/main.tsx",
-        "Call `mountSignInGate()` from @agentd/client BEFORE the first render — "
-        "`scaffold_react_app` ships a `src/main.tsx` that already does, so this normally means "
-        "somebody replaced it. Do NOT write your own login form: the gate's "
-        "element ids are what the packaged-build login test drives, and a second implementation "
-        "is a second way to get credentials wrong. The gate renders NOTHING when a stored "
+"`scaffold_react_app` already gave you `src/common/auth/` — SHIPPING IT IS NOT ENOUGH, "
+        "something has to render it. Wrap your app in the gate: `import Gate from "
+        "'./common/auth/Gate'`, then `<Gate product='<your name>'><App /></Gate>` in main.tsx, "
+        "which is exactly what the scaffolded main.tsx does — so this normally means somebody "
+        "replaced it. Do NOT write your own login form: a user signs in to the assistant and then "
+        "to your agent and must meet the SAME card, and a second form is a second way to get "
+        "credentials wrong. Gate renders NOTHING when the daemon wants no account or a stored "
         "session still works.",
     ),
     "settings": (
@@ -136,10 +138,10 @@ _REQUIRED_MESSAGES = {
         "out of credits is the one failure a user can fix themselves, and without this panel the "
         "agent simply stops working and says nothing about why or where to go.",
         "app/src/App.tsx",
-        "`scaffold_react_app` already gave you `src/Credits.tsx` — SHIPPING IT IS NOT ENOUGH, "
-        "something has to render it. Import it and give it its own view, reached from a nav entry "
-        "beside Settings: `import Credits from './Credits'`, then `{view === 'credits' && "
-        "<Credits />}`. Not a section inside your settings screen — topping up is what a user "
+        "`scaffold_react_app` already gave you `src/common/credits/` — SHIPPING IT IS NOT "
+        "ENOUGH, something has to render it. Import it and give it its own view, reached from a "
+        "nav entry beside Settings: `import Credits from './common/credits/Credits'`, then "
+        "`{view === 'credits' && <Credits />}`. Not a section inside your settings screen — topping up is what a user "
         "comes looking for the moment a run stops. Do NOT build your own store: the packs, the "
         "prices and the payment disclosure all come from the server, and an agent that hardcodes "
         "any of them shows a price it cannot honour. The panel renders NOTHING on a build with "
@@ -320,9 +322,9 @@ class UiRules:
         signing back in did not help. All three are now one implementation, and an agent that
         reaches past it re-creates the problem for its own users only — the hardest kind to find.
 
-        WHAT AN AGENT SHOULD DO INSTEAD is never write a credential path at all: `mountSignInGate()`
-        for the form, and `identity().accessToken()` when it needs a credential, which renews first
-        if what it holds is spent.
+        WHAT AN AGENT SHOULD DO INSTEAD is never write a credential path at all: `<Gate>` from
+        `common/auth` for the form, and `identity().accessToken()` when it needs a credential,
+        which renews first if what it holds is spent.
 
         Matched on the ENDPOINT and the storage key, not on the word "login" — an agent is welcome
         to have a page, a button and a route by that name. What it may not do is mint or keep a
@@ -347,10 +349,10 @@ class UiRules:
                 "sign-in implementation; a second one is a second set of renewal bugs, and the "
                 "last set signed users out ten minutes after they signed in.",
                 path="ui/app.js",
-                fix="delete it and use the SDK: `await agentd.mountSignInGate()` draws the form, "
-                "and `agentd.identity().accessToken()` hands you a credential — renewing first "
-                "when the one it holds has expired. Neither needs an endpoint or a storage key "
-                "from you.",
+                fix="delete it and use what you were given: `<Gate>` from `common/auth` draws "
+                "the form, and `agentd.identity().accessToken()` hands you a credential — renewing "
+                "first when the one it holds has expired. Neither needs an endpoint or a storage "
+                "key from you.",
             )
         ]
 
@@ -358,16 +360,18 @@ class UiRules:
     def _present(component, own: dict) -> bool:
         """Is the component WIRED UP — not merely delivered?
 
-        THE FILES A COMPONENT SHIPS ARE NOT EVIDENCE OF THEIR OWN USE. The React starter delivers
-        `Credits.tsx`, whose entire body is a call to `mountCreditsPanel`. Searching every source
+        THE FILES A COMPONENT SHIPS ARE NOT EVIDENCE OF THEIR OWN USE. The React starter delivered
+        `Credits.tsx`, whose entire body was a call to `mountCreditsPanel`. Searching every source
         file for that call therefore found it inside the definition, so an agent that never
         rendered `<Credits />` passed the check that existed to prove it had — a credits page
         shipped, validated, and invisible.
 
         So a component's own `provides` files are excluded from the scan, and what is left is code
-        somebody WROTE to use it: `<Credits />` in a view, or an import of it, or a direct
-        `mountCreditsPanel(`. A component with no files of its own (sign-in) is unaffected — there
-        is nowhere for its call to appear except wiring.
+        somebody WROTE to use it: an import of the shared module from a file that is not the shared
+        module. All three components ship files now — the detectors match an import PATH, and no
+        copied module names its own path (they import each other relatively), so today the
+        exclusion is belt as well as braces. It stays because the hole above was opened by one
+        edit to a shipped file, not by a design decision.
         """
         defines = {name.lower() for name in component.provides}
         code = "\n".join(

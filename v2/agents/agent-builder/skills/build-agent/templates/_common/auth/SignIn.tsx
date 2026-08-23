@@ -1,40 +1,107 @@
-/* signInFirst — sign the user in, THEN render the app.
+/* The sign-in card — agentd's, copied.
  *
- * COPIED VERBATIM from the common modules. Do not edit; `validate_agent` compares it against the
- * source.
+ * COPIED FROM clients/ui/src/components/SignIn.tsx: same two-field card, same sign-in/create
+ * toggle, same error handling. An agent's login screen and the assistant's are one screen.
  *
- * Call it from `main.tsx` and await it before the first render:
+ * WHAT THIS REPLACED. Agents used to call `mountSignInGate` — a vanilla-DOM gate in the SDK,
+ * written for the vanilla templates that no longer exist. agentd never used it; it has always had
+ * this React card. So there were two login screens, and only one of them was the product's.
  *
- *     await signInFirst('My Agent')
- *     root.render(<App />)
- *
- * WHY BLOCKING. An app that renders its composer first and signs in later has to answer "signed in
- * yet?" at every send site, and gets it wrong at one of them. Past this line somebody is signed in
- * — or this build has no accounts service, in which case nothing was ever asked.
- *
- * WHY THE SDK'S GATE AND NEVER YOUR OWN FORM. Its element ids (`gateEmail`, `gatePass`, `gateForm`)
- * are a contract the packaged-build login test drives, so a hand-written login silently disables
- * that test. It hits the same endpoints either way; the only thing a custom form adds is a way to
- * get credentials wrong. Theme it with the `--gate-*` CSS custom properties.
- *
- * IT RENDERS NOTHING when this build has no accounts service, when the window already carries a
- * credential, or when a stored session still works — so it is safe to call unconditionally, and
- * there is no branch for you to test.
+ * IT IS A COMPONENT, NOT A MOUNT. The old gate built its own DOM and had to run BEFORE the app
+ * rendered, which is why the scaffold's entry point awaited it. A component renders inside the
+ * app like everything else — see `signedOut` in useAuth and the `<Gate>` below.
  */
 
-import { mountSignInGate } from '@agentd/client'
+import { authLogin } from '@agentd/client'
+import { useState, type FormEvent } from 'react'
 
-export async function signInFirst(product = ''): Promise<void> {
-  try {
-    await mountSignInGate({
-      // Falls back to the page title, so an agent that passes nothing still names itself.
-      product: product || undefined,
-      blurb: 'Sign in to continue.',
-    })
-  } catch (e) {
-    // The accounts service being unreachable must NOT leave a blank window. Render the app —
-    // everything that does not need an account still works, and the account controls report the
-    // real state — rather than trapping the user behind a form that cannot succeed.
-    console.error('[sign-in]', e)
+import './auth.css'
+
+export default function SignIn({
+  product = '',
+  onDone,
+}: {
+  /** What the user is signing in TO. Shown as the card's title. */
+  product?: string
+  /** Called once the credential is stored, so the caller can re-read its auth state. */
+  onDone?: () => void
+}) {
+  const [mode, setMode] = useState<'in' | 'up'>('in')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function onSubmit(e: FormEvent): Promise<void> {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await authLogin({ email, password, signup: mode === 'up' })
+      onDone?.()
+    } catch (err) {
+      // The full object, not just .message: a rejected call and a CORS failure both stringify to
+      // something useless, and this is the one place the cause is still in hand.
+      console.error('[auth] sign-in failed', err)
+      setError(String((err as Error)?.message || err))
+    } finally {
+      setBusy(false)
+    }
   }
+
+  return (
+    <div className="signin-wrap">
+      <form className="signin-card" onSubmit={onSubmit}>
+        <div className="signin-brand">{product || 'Sign in'}</div>
+        <div className="signin-sub">
+          {mode === 'in' ? 'Sign in to continue' : 'Create your account'}
+        </div>
+
+        <label className="signin-label" htmlFor="signin-email">
+          Email
+        </label>
+        <input
+          id="signin-email"
+          className="signin-input"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          required
+        />
+
+        <label className="signin-label" htmlFor="signin-password">
+          Password
+        </label>
+        <input
+          id="signin-password"
+          className="signin-input"
+          type="password"
+          autoComplete={mode === 'up' ? 'new-password' : 'current-password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={mode === 'up' ? 'at least 8 characters' : '••••••••'}
+          required
+        />
+
+        {error && <div className="signin-error">{error}</div>}
+
+        <button className="signin-btn" type="submit" disabled={busy}>
+          {busy ? 'Please wait…' : mode === 'in' ? 'Sign in' : 'Create account'}
+        </button>
+
+        <button
+          className="signin-toggle"
+          type="button"
+          onClick={() => {
+            setError('')
+            setMode((m) => (m === 'in' ? 'up' : 'in'))
+          }}
+        >
+          {mode === 'in' ? 'Create an account' : 'Have an account? Sign in'}
+        </button>
+      </form>
+    </div>
+  )
 }

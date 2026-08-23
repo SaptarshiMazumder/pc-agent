@@ -15,13 +15,13 @@
  * something, and come back to exactly what you left.
  */
 
-import { mountSignInGate } from '@agentd/client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentFiles } from './agentd/agent-files'
 import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { MAX_FILES } from './agentd/chat'
 import { useCredits } from './agentd/credits'
-import { useClient } from './agentd/client'
+import SignIn from '../../skills/build-agent/templates/_common/auth/SignIn'
+import { AGENT_ID, useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable } from './agentd/roster'
 import { forkSession } from './agentd/sessions'
@@ -31,9 +31,9 @@ import { Composer } from './components/Composer'
 import { ContextRing } from './components/ContextRing'
 import { Inspector } from './components/Inspector'
 import { Sidebar } from './components/Sidebar'
-import { CreditsModal } from './components/CreditsModal'
+import Credits from '../../skills/build-agent/templates/_common/credits/Credits'
 import { MyAgentsView } from './components/MyAgentsView'
-import { SettingsModal } from './components/settings/SettingsModal'
+import { SettingsView } from './components/settings/SettingsView'
 import { StartModal, type StartMode } from './components/StartModal'
 import { HeroStart, HeroSuggestions } from './components/Hero'
 import { Thread } from './components/Thread'
@@ -44,8 +44,6 @@ export default function App() {
   const { client, status } = useClient()
   const ready = status === 'open'
 
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [creditsOpen, setCreditsOpen] = useState(false)
   const [daemonVersion, setDaemonVersion] = useState('')
 
   /* THE SHELL'S STATE LIVES IN THE STORE, so the sidebar can read it the way agentd's does.
@@ -130,15 +128,6 @@ export default function App() {
     booted.current = true
     void (async () => {
       try {
-        // Renders NOTHING on a BYOK build, when this device is already connected, or when a
-        // stored session still works — so it is safe to call unconditionally.
-        await mountSignInGate({ client })
-      } catch (e) {
-        // The daemon itself is unreachable. Not fatal: the chat surface reports that too, and
-        // blocking the whole window on a status probe would hide the better message.
-        console.warn('[sign-in]', (e as Error)?.message || e)
-      }
-      try {
         const hello = await client.hello()
         setDaemonVersion(hello?.version ? `v${hello.version}` : '')
       } catch {
@@ -214,6 +203,14 @@ export default function App() {
   /* Built once, rendered in one of two places: centred in an empty page, or pinned under a
      conversation. Two copies of this JSX would be two things to keep in step. */
   const empty = chat.items.length === 0
+  /* HAS THIS CONVERSATION BEEN STARTED? Not "does it have messages" — a chat you just created or
+     picked an agent for has none yet, and it is emphatically not untouched.
+     
+     This is the bug that made every screen look like the same screen: the empty state WAS the
+     Start card, so answering "create a new agent" in the dialog dropped you on a page offering to
+     create a new agent. You could not tell it had worked. Only a genuinely fresh chat — no
+     messages, no subject, no window decision — asks how to begin. */
+  const fresh = empty && !chat.scope && !chat.intent
   const composer = (
     <Composer
       running={chat.running}
@@ -234,7 +231,7 @@ export default function App() {
       // one configured — the daemon reports it with each usage event.
       model={chat.usage?.model || ''}
       credits={credits}
-      onCredits={() => setCreditsOpen(true)}
+      onCredits={() => setView('credits')}
       maxFiles={MAX_FILES}
     />
   )
@@ -271,9 +268,19 @@ export default function App() {
 
   // NOTHING IN FOCUS -> NO PANEL. Not an empty panel with a placeholder in it: there is no
   // question for the panel to answer yet, and a column of dashes is furniture.
-  const shellClass = ['shell', sidebarCollapsed ? 'rail-icons' : '', selected && panelOpen ? '' : 'no-panel']
+  /* THE INSPECTOR BELONGS TO THE CONVERSATION, so it goes with it. It shows what the open chat is
+     ABOUT — and beside a settings page or the agent shelf it is answering a question nobody on
+     that screen asked, while taking 360px from one that needs the width. */
+  const showPanel = view === 'chat' && !!selected && panelOpen
+  const shellClass = ['shell', sidebarCollapsed ? 'rail-icons' : '', showPanel ? '' : 'no-panel']
     .filter(Boolean)
     .join(' ')
+
+  /* THE SIGN-IN CARD, over everything. agentd's own, copied into _common/auth — this window used
+     to call the SDK's vanilla gate, which built its own DOM on top of the page. Raised from the
+     account menu; it takes the whole window because signing in is not something to do alongside
+     something else. */
+  if (platform.wantsSignIn) return <SignIn product="Agent Builder" onDone={platform.signedIn} />
 
   return (
     <div className={shellClass}>
@@ -291,8 +298,8 @@ export default function App() {
         }}
         onCreate={() => setStart({ mode: 'create' })}
         onEdit={() => setStart({ mode: 'edit' })}
-        onSettings={() => setSettingsOpen(true)}
-        onCredits={() => setCreditsOpen(true)}
+        onSettings={() => setView('settings')}
+        onCredits={() => setView('credits')}
         auth={platform.auth}
         authError={platform.error}
         onSignIn={platform.signIn}
@@ -301,22 +308,24 @@ export default function App() {
         daemonVersion={daemonVersion}
       />
 
+      {/* A VIEW REPLACES THE WHOLE MAIN AREA, the way agentd's do — its TabBar lives inside its
+          ChatView, not above the router. Both used to render here, so opening Settings left the
+          chat's tab strip and its "What should we build?" header sitting on top of a settings
+          page: two screens at once, and a strip of conversations above a thing that is not one.
+          Each branch below now brings whatever header it needs. */}
       <main className="main">
-        {/* ABOVE the header, because the strip CHOOSES the conversation and the header DESCRIBES
-            the one chosen — the other order puts a title over the thing that changes it. */}
-        <TabBar />
-        <Topbar
-          agent={selected}
-          who={who}
-          onRestart={() => void daemon.restart()}
-          restarting={daemon.busy}
-          restartNote={daemon.note}
-          canTogglePanel={!!selected}
-          panelOpen={panelOpen}
-          onTogglePanel={togglePanel}
-        />
-
-        {view === 'myagents' ? (
+        {view === 'credits' ? (
+          /* THE SAME PAGE THE ASSISTANT SHOWS, copied into _common/ and rendered here. Running out
+             of credits is the one failure a user can fix themselves, so it is a place you can go
+             rather than a dialog over the thing that just stopped. */
+          <Credits agentId={AGENT_ID} />
+        ) : view === 'settings' ? (
+          /* A PAGE, not a modal. It was a modal so that configuring the thing did not close the
+             conversation you opened it because of — but it is tabbed now, and a tab strip inside
+             a floating card is a page pretending not to be one. The conversation is one click
+             away in the rail and its tab is still open. */
+          <SettingsView client={client} />
+        ) : view === 'myagents' ? (
           <MyAgentsView
             agents={openable(agents)}
             onEdit={(id) => {
@@ -325,23 +334,41 @@ export default function App() {
             }}
           />
         ) : (
+          <>
+            {/* The strip CHOOSES the conversation and the header DESCRIBES the one chosen — so the
+                strip goes above. Both belong to the chat and to nothing else. */}
+            <TabBar />
+            <Topbar
+              agent={selected}
+              who={who}
+              onRestart={() => void daemon.restart()}
+              restarting={daemon.busy}
+              restartNote={daemon.note}
+              canTogglePanel={!!selected}
+              panelOpen={panelOpen}
+              onTogglePanel={togglePanel}
+            />
         <section className="stage">
           {empty ? (
-            /* EMPTY: the input in the MIDDLE of the page, the way to start above it and the
-               starter prompts below — agentd's shape. The composer used to sit pinned to the
-               bottom whether or not there was anything above it, which on a fresh chat left the
-               one thing you came to use furthest from where you were looking. */
+            /* NOTHING SAID YET: the input in the MIDDLE of the page rather than pinned to the
+               bottom, which on an empty chat left the one thing you came to use furthest from
+               where you were looking. The cards around it appear only on a chat that has not been
+               started — see `fresh`. */
             <div className="chat-hero">
-              <HeroStart
-                hasAgents={openable(agents).length > 0}
-                onCreate={() => setStart({ mode: 'create' })}
-                onEdit={() => setStart({ mode: 'edit' })}
-              />
+              {fresh && (
+                <HeroStart
+                  hasAgents={openable(agents).length > 0}
+                  onCreate={() => setStart({ mode: 'create' })}
+                  onEdit={() => setStart({ mode: 'edit' })}
+                />
+              )}
               <div className="chat-hero-composer">{composer}</div>
               {/* A suggestion says WHAT to build; the dialog is still HOW. Routing it through the
                   same door is what stops the most-taken path being the one that skips the
                   question. */}
-              <HeroSuggestions onSuggest={(text) => setStart({ mode: 'create', seed: text })} />
+              {fresh && (
+                <HeroSuggestions onSuggest={(text) => setStart({ mode: 'create', seed: text })} />
+              )}
             </div>
           ) : (
             <>
@@ -358,15 +385,18 @@ export default function App() {
             </div>
           )}
         </section>
+          </>
         )}
       </main>
 
-      <Inspector
-        agent={selected}
-        client={client}
-        files={files}
-        onChanged={() => void files.refresh()}
-      />
+      {showPanel && (
+        <Inspector
+          agent={selected}
+          client={client}
+          files={files}
+          onChanged={() => void files.refresh()}
+        />
+      )}
 
       {/* Mounted only while open, which is what loads it: the vanilla window called
           Settings.load() on every switch to that view, and mounting does the same thing without a
@@ -382,8 +412,6 @@ export default function App() {
         />
       )}
 
-      {settingsOpen && <SettingsModal client={client} onClose={() => setSettingsOpen(false)} />}
-      {creditsOpen && <CreditsModal onClose={() => setCreditsOpen(false)} />}
     </div>
   )
 }

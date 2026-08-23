@@ -1,29 +1,35 @@
-/* Sign in FIRST, then render.
+/* The entry point.
  *
- * THROUGH THE COMMON MODULE (`src/common/auth/SignIn.tsx`), not by reaching for the SDK here. That
- * folder is copied verbatim into every agent and `validate_agent` compares it against the source,
- * so accounts and money work the same way everywhere — and this file stays about THIS agent's
- * boot rather than about how signing in works.
+ * SIGN-IN IS A COMPONENT, NOT A STEP. `<Gate>` asks the daemon whether an account is REQUIRED and
+ * shows the sign-in card if one is and nobody is signed in; otherwise it renders straight through.
  *
- * Blocking on purpose: an app that renders its composer and signs in later has to answer "signed
- * in yet?" at every send site, and gets it wrong at one of them. Past this line somebody is signed
- * in — or this build has no accounts service, in which case nothing was ever asked.
+ * THROUGH THE COMMON MODULE (`src/common/auth/`), not by reaching for the SDK here. That folder is
+ * copied verbatim into every agent and `validate_agent` compares it against the source, so accounts
+ * and money work the same way everywhere — and this file stays about THIS agent's boot rather than
+ * about how signing in works.
+ *
+ * This used to be an async IIFE that awaited `signInFirst()` before rendering anything, because the
+ * gate was a vanilla-DOM panel that painted itself over the page and had to run first. It is the
+ * assistant's React card now, so it lives inside the tree like everything else and the window
+ * paints immediately — a blank screen while a status probe runs is indistinguishable from a broken
+ * app.
  */
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { signInFirst } from './common/auth/SignIn'
+import Gate from './common/auth/Gate'
 import './styles.css'
 
-const root = createRoot(document.getElementById('root')!)
+const host = document.getElementById('root')
+// Not a fallback — a hard stop. A missing mount point means index.html and this file disagree, and
+// a page that silently renders nothing is the hardest kind of build error to find.
+if (!host) throw new Error('#root is missing from index.html')
 
-void (async () => {
-  // Never throws: an unreachable accounts service leaves you with an app, not a blank window.
-  await signInFirst()
-  root.render(
-    <StrictMode>
+createRoot(host).render(
+  <StrictMode>
+    <Gate product="Paper Pile">
       <App />
-    </StrictMode>,
-  )
-})()
+    </Gate>
+  </StrictMode>,
+)

@@ -18,8 +18,8 @@ THE THREE FACTS EACH COMPONENT CARRIES:
     requires   SDK symbols the vendored bundle must export, or the app dies on load
     provides   files the component SHIPS, which are therefore not evidence of their own use
 
-`provides` is the subtle one and it closed a real hole. The React scaffold delivers
-`Credits.tsx`, whose whole body calls `mountCreditsPanel`. Scanning every source file for that
+`provides` is the subtle one and it closed a real hole. The React scaffold delivered
+`Credits.tsx`, whose whole body called `mountCreditsPanel`. Scanning every source file for that
 call found it inside the definition, so an agent that never rendered `<Credits />` passed the
 check that existed to prove it had — a credits page shipped, validated, and invisible.
 """
@@ -41,6 +41,14 @@ class UiComponent:
     detect: tuple[str, ...] = ()
     #: SDK symbols the vendored bundle must export. Absent means a guaranteed "not a function" on
     #: load — a dead window, every time — which is why it is an error rather than a warning.
+    #:
+    #: NOTHING DECLARES ONE TODAY, and that is not a sign the field is dead. Every mandatory
+    #: component now reaches the daemon through a call that has existed in every SDK build there
+    #: has ever been — `authLogin`, `BillingClient`, `client.request` — so there is no
+    #: version-sensitive export to name, and inventing one would be a check that can never fail.
+    #: The field earns its keep the day a component is added that needs a NEW SDK symbol: agents
+    #: vendor a SNAPSHOT of the SDK, so a catalogue that has moved on from the bundle an agent
+    #: shipped with is the recurring failure here, and this is the one thing that catches it.
     requires: tuple[str, ...] = ()
     #: Basenames of files that merely DEFINE this component. Excluded when looking for evidence
     #: that anything USES it; see the module note. Empty for a component that lives entirely in
@@ -60,11 +68,24 @@ SIGN_IN = UiComponent(
         "Without it, an agent installed from the marketplace fails every model call with a "
         "provider error and nothing on screen explains why."
     ),
-    # `signInFirst` is the common module's wrapper; `mountSignInGate` is the SDK call underneath.
-    # Either counts — an agent with its own layout may reach past the wrapper, and what is
-    # mandatory is that somebody is signed in, not which of our two doors it went through.
-    detect=(r"\b(?:signInFirst|mountSignInGate)\s*\(",),
-    requires=("mountSignInGate",),
+    # THE SHARED MODULE, BY PATH — the same rule credits and settings use. What is mandatory is
+    # that the login screen is THE login screen: somebody who signs in to the assistant and then
+    # to an agent must not meet two different forms.
+    #
+    # This used to match `signInFirst(` or `mountSignInGate(`. The first was the common module's
+    # wrapper around the second, and the second was a vanilla-DOM gate in the SDK that painted
+    # itself over the page — written for the vanilla templates, never used by agentd, and now
+    # deleted. `_common/auth/` carries agentd's React card and the `<Gate>` that decides when to
+    # show it, so an agent satisfies this by rendering either.
+    detect=(r"\bcommon/auth\b",),
+    # NO SDK SYMBOL. The card signs in through `authLogin`, present in every SDK build there has
+    # ever been. The symbol this named — `mountSignInGate` — no longer exists.
+    requires=(),
+    # The module's own two files. Neither mentions its own path (Gate imports ./SignIn, and
+    # SignIn imports ./auth.css), so shipping them cannot satisfy the detector today — but
+    # sign-in used to live entirely in the SDK with nothing to declare, and leaving that empty
+    # now would be one edit away from the hole `provides` exists to close.
+    provides=("SignIn.tsx", "Gate.tsx"),
 )
 
 
@@ -76,14 +97,19 @@ CREDITS = UiComponent(
         "leaving the app. The same panel agentd shows, from the same SDK, so every agent's shop "
         "behaves identically. Renders nothing on a build with no accounts service."
     ),
-    # Rendered as an element, imported by name, or the SDK called directly. All three are somebody
-    # deliberately using it; the shipped file existing is not.
-    detect=(
-        r"<\s*Credits\b",
-        r"\bimport\b[^\n]*\bCredits\b",
-        r"\bmountCreditsPanel\s*\(",
-    ),
-    requires=("mountCreditsPanel",),
+    # THE SHARED MODULE, BY PATH — the same rule settings uses, and for the same reason: what is
+    # mandatory is not that a page called Credits exists, but that it is THE page. Somebody who
+    # tops up in the assistant and then inside an agent must not meet two different shops.
+    #
+    # `mountCreditsPanel` used to satisfy this. That was a vanilla-DOM panel in the SDK, written
+    # for the vanilla templates and never used by agentd — which has always had the React page now
+    # copied into `_common/credits/`. It is deleted, so naming it here would only ever match an
+    # agent built before the port.
+    detect=(r"\bcommon/credits\b",),
+    # NO SDK SYMBOL. The page reaches the accounts service through `@agentd/billing`'s
+    # BillingClient — the same client the assistant buys through — and there is no
+    # version-sensitive export to check.
+    requires=(),
     provides=("Credits.tsx",),
 )
 

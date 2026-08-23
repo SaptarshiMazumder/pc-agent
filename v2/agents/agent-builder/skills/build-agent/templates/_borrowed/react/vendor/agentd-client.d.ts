@@ -1,8 +1,3 @@
-import { BillingClient, BillingHost } from '@agentd/billing';
-export { BillingClient, BillingHost, Catalog, CreditPack, Credits, Purchase, notifyCreditsChanged, onCreditsChanged } from '@agentd/billing';
-import { TokenManager } from '@agentd/auth';
-export { AuthConfig, SecretStore, SessionStore, TokenManager, TokenPair, accessTokenAccount, accessTokenExpiry, localSessionStore, memorySessionStore } from '@agentd/auth';
-
 /**
  * Wire protocol types — the TS mirror of agent_runtime/presentation/protocol.py and the payloads in
  * docs/PROTOCOL.md. Additive server fields are always allowed; clients ignore what they don't know.
@@ -240,6 +235,246 @@ declare class AgentdClient {
 declare function fromPage(options?: AgentdClientOptions): AgentdClient;
 
 /**
+ * The contract between this package and whoever hosts it. A leaf: imports nothing.
+ *
+ * Everything host-specific is a parameter. The agentd client resolves its accounts URL from
+ * discovery and keeps secrets in the OS keychain; an agent window asks the daemon and has only
+ * localStorage. Neither fact belongs in the renewal logic, and hard-coding either is what forced
+ * a second implementation last time.
+ */
+/** The credential pair, plus who it belongs to. */
+interface TokenPair {
+    /** Short-lived (~10 min). The ONLY half that ever travels on a connection. */
+    accessToken: string;
+    /**
+     * Long-lived (30 days), single-use, and rotating. Exchanged ONLY at `<accounts>/auth/refresh`.
+     *
+     * Empty is a legitimate state, not a broken one: a window opened by the desktop app is handed
+     * an access token on its launch URL and deliberately never receives this one — it runs
+     * third-party code, and this is a 30-day credential for the whole account. Such a window cannot
+     * renew itself and is fed instead (`adopt`).
+     */
+    refreshToken: string;
+    /** Absolute epoch ms when `accessToken` dies. */
+    expiresAt: number;
+    accountId: string;
+    email: string;
+}
+/**
+ * Where the refresh token is kept.
+ *
+ * Async because the desktop's answer is an IPC call to the OS keychain. The access token is NOT
+ * stored here — see `SessionStore`.
+ */
+interface SecretStore {
+    read(): Promise<string | null>;
+    write(token: string | null): Promise<void>;
+}
+/**
+ * Where the non-secret half of the session is kept, synchronously.
+ *
+ * SYNCHRONOUS ON PURPOSE. An agent window is handed its credential on the launch URL, holds no
+ * refresh token, and must survive a reload — so the access token has to be readable before the
+ * first await. localStorage is the only store that shape works with.
+ */
+interface SessionStore {
+    read(): string | null;
+    write(value: string | null): void;
+}
+interface AuthConfig {
+    /**
+     * The accounts service base URL, no trailing slash. A RESOLVER, never a snapshot.
+     *
+     * It held a copied string once, set by whichever caller ran first — and one of them did not:
+     * signing in fresh never configured it, so every later refresh returned null before making a
+     * request. The symptom would have been a user signed out ten minutes after logging in, only if
+     * they had signed in rather than resumed. A function cannot go stale and cannot be read too
+     * early, and it picks up discovery resolving later for free.
+     */
+    accountsUrl: () => string | Promise<string>;
+    /** Sync store for the session. Required — every host has one. */
+    session: SessionStore;
+    /** OS-encrypted store for the refresh token. Omit and it rides in `session` instead. */
+    secrets?: SecretStore;
+    /** Names this client to the server, so `/me/devices` can tell them apart. */
+    clientId: string;
+    /** A human-readable device name for the same list. Best-effort; never blocks sign-in. */
+    deviceLabel?: () => string;
+    /**
+     * Called on every change to the pair, including renewal and sign-out.
+     *
+     * This is how a host applies a new credential without this package knowing what a socket is.
+     * The agentd client reconnects its gateway; an agent window swaps the token on the live socket
+     * with `auth.update`, which is what lets a renewal happen mid-run without dropping it.
+     */
+    onChange?: (pair: TokenPair | null) => void;
+    /** Injected for tests. Defaults to global fetch. */
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+}
+
+/** When an access token dies, in epoch ms, from its own `exp`. 0 when unreadable. */
+declare function accessTokenExpiry(token: string): number;
+/** Which account an access token speaks for, from its `sub`. '' when unreadable. */
+declare function accessTokenAccount(token: string): string;
+
+/**
+ * localStorage-backed stores, and the KEY each host reads.
+ *
+ * The key is a parameter rather than a constant for one reason: two agent windows served from the
+ * same origin that shared a key would silently become one session — one agent's credential
+ * quietly becoming another's.
+ */
+
+/** A `SessionStore` over localStorage, inert where storage is unavailable. */
+declare function localSessionStore(key: string): SessionStore;
+/** An in-memory store — for tests, and for a host that must not persist at all. */
+declare function memorySessionStore(): SessionStore;
+
+/**
+ * TokenManager — the ONE place that mints, keeps and renews a credential.
+ *
+ * There were two of these and they disagreed. This is the one that was right, generalised so the
+ * agent SDK can use it too, with the three defects the other copy had fixed rather than carried:
+ *
+ *  1. RENEW A TOKEN THAT HAS ALREADY EXPIRED. The old SDK guarded renewal with
+ *     `life > 0 && life < 10min`, so the moment a token actually died — a sleeping laptop, a
+ *     throttled background tab, a long agent run — renewal declined to act, and never acted
+ *     again. Expiry is the reason to refresh, not a reason to stop.
+ *
+ *  2. SINGLE-FLIGHT. Refresh tokens are single-use and rotating, and the server treats a second
+ *     use as theft: it revokes the whole family, which signs the user out EVERYWHERE. Two windows
+ *     waking together, or one firing two ticks, was enough to trigger it. Every caller here shares
+ *     one promise.
+ *
+ *  3. A REFUSED REFRESH IS TERMINAL; A FAILED ONE IS NOT. 401/403 means the family is gone — clear
+ *     it and let the host show a form. Anything else is a network or a bad afternoon, and must NOT
+ *     sign anyone out.
+ *
+ * WHAT IT DELIBERATELY DOES NOT KNOW: what a socket is, where the accounts service lives, or how
+ * this host keeps a secret. All three arrive through `AuthConfig` — which is what lets one
+ * implementation serve a desktop app with an OS keychain and an agent window with localStorage.
+ */
+
+declare class TokenManager {
+    private readonly config;
+    private pair;
+    private inflight;
+    private timer;
+    private readonly listeners;
+    private wake;
+    constructor(config: AuthConfig);
+    /** What is held right now, WITHOUT renewing. Synchronous, for a socket URL or a rendered email. */
+    current(): TokenPair | null;
+    /** Is there a credential this client can still use, or still renew? */
+    signedIn(): boolean;
+    /**
+     * A USABLE access token, renewing first when the one we hold is spent.
+     *
+     * The only way anything should ever obtain a credential, so that no caller anywhere has to
+     * reason about expiry — which is exactly the reasoning every caller previously got wrong.
+     */
+    accessToken(): Promise<string>;
+    subscribe(cb: (p: TokenPair | null) => void): () => void;
+    /**
+     * Sign in, creating the account first when `signup`.
+     *
+     * THROWS on a rejected credential, carrying the service's own message ("incorrect password") so
+     * a form has something to show. A failed attempt must never resolve to a signed-out state: the
+     * caller cannot tell that apart from having signed out, and the user is left looking at a form
+     * that cleared itself.
+     */
+    login(args: {
+        email: string;
+        password: string;
+        signup?: boolean;
+    }): Promise<TokenPair>;
+    /**
+     * Re-establish a session at start-up.
+     *
+     * This is what makes "stay signed in" work with a ten-minute access token: nothing durable is
+     * kept but the refresh token, and one exchange at boot turns it into a usable pair. A window
+     * holding no refresh token (opened by the desktop app, and fed rather than renewing) keeps
+     * whatever it was handed — unless that has died, in which case it is dropped, because a page
+     * presenting a dead token is not refused, it is accepted ANONYMOUSLY.
+     */
+    restore(): Promise<TokenPair | null>;
+    /**
+     * Trade a live access token for a session of this client's own. Returns null when there is
+     * nothing live to trade, or the server declined.
+     *
+     * NEVER THROWS. It runs on a boot path beside things that matter more; a window that cannot
+     * derive is no worse off than it was a moment ago — it still holds a working access token, and
+     * it degrades to exactly the old behaviour rather than failing to start.
+     */
+    derive(): Promise<TokenPair | null>;
+    /**
+     * Trade the refresh token for a new pair. SINGLE-FLIGHT — see the header.
+     *
+     * Returns null when the session is over, having cleared it; and null WITHOUT clearing when the
+     * attempt merely failed. The difference is the whole point.
+     */
+    refresh(): Promise<TokenPair | null>;
+    private exchange;
+    /**
+     * Write a credential directly, with NO account check. The unguarded door.
+     *
+     * There is exactly one honest use: a host adopting a credential an opener handed it, such as the
+     * `?session=` on an agent window's launch URL. Everything else — sign-in, renewal, a token
+     * pushed by the desktop app — has a guarded path above, and using this instead skips the check
+     * that path exists for.
+     *
+     * Synchronous in effect: the pair is live the moment this returns, because a caller that writes
+     * a session and immediately builds a socket URL from it cannot wait for a keychain round trip.
+     */
+    replace(pair: TokenPair | null): void;
+    /**
+     * Adopt an access token minted elsewhere — the desktop app pushing one into an agent window.
+     *
+     * WHOSE TOKEN IS THIS? The push reaches EVERY open window at once and cannot know that one of
+     * them signed in as somebody else. Adopting it there would leave this account's email and
+     * refresh token stored beside another account's access token, and land the window on the wrong
+     * account while still displaying this one's address. An unreadable token fails CLOSED.
+     *
+     * Holding no accountId is the ordinary case, not an exception: a window opened BY the desktop
+     * app took its credential from the launch URL and recorded no account, so it has nothing to
+     * disagree with and accepts every push.
+     */
+    adopt(accessToken: string): Promise<boolean>;
+    /**
+     * Forget this client's session, and tell the server so.
+     *
+     * A sign-out that only forgets locally leaves a 30-day credential alive on a machine the user
+     * may have just decided they do not trust. Best-effort: being offline must not block signing out.
+     */
+    logout(): Promise<void>;
+    /**
+     * Keep the credential fresh for as long as the host lives. Returns a stop function.
+     *
+     * TWO TRIGGERS, because a timer alone is provably not enough. Timers do not fire while a machine
+     * sleeps and are throttled in background tabs, so a window that was away comes back holding a
+     * token that died hours ago — the single most common way this used to break, and the one a
+     * schedule can never cover. Coming back is therefore its own trigger.
+     */
+    start(): () => void;
+    stop(): void;
+    private tick;
+    private schedule;
+    private expired;
+    /** Close enough to the end to be worth renewing now — or already past it. */
+    private expiringSoon;
+    private set;
+    private writeStored;
+    private readStored;
+    private readSecret;
+    private toPair;
+    private base;
+    private deviceLabel;
+    private send;
+    private post;
+}
+
+/**
  * What THIS client knows about itself: who is signed in, and which keys it wants to pay with.
  *
  * THE CLIENT HOLDS BOTH FACTS. The daemon stores neither. That is not a stylistic choice: a
@@ -432,74 +667,133 @@ declare function authLogout(opts?: AuthOptions): Promise<AuthState>;
 declare function setRunMode(mode: RunMode, opts?: AuthOptions): Promise<AuthState>;
 
 /**
- * The sign-in GATE — the UI half of sign-in (mechanism lives in auth.ts).
+ * The shapes money arrives in. Field-for-field what the accounts service returns, renamed to
+ * camelCase once, here — so no consumer parses `credits_remaining` a second time and no consumer
+ * gets to disagree about what a pack is.
+ */
+type Credits = {
+    creditsRemaining: number;
+    fundingSource: string;
+    creditClass: string;
+    modelTierMax: string;
+    entitlementRequired: boolean;
+    entitled: boolean;
+    expiresAt: number;
+};
+type CreditPack = {
+    id: string;
+    kind: string;
+    title: string;
+    priceUsd: number;
+    credits: number;
+    modelTierMax: string;
+    periodDays: number;
+};
+type Catalog = {
+    packs: CreditPack[];
+    /** Which payment rail is configured. For display only — never branch behaviour on it. */
+    provider: string;
+    /** The rail's own sentence about what confirming will do ("no card is charged", or later the
+     *  real thing). Rendered verbatim so swapping the rail rewrites the disclosure itself. */
+    paymentNote: string;
+};
+type Purchase = {
+    ok: boolean;
+    replayed: boolean;
+    credits: number;
+    priceUsd: number;
+    creditsRemaining: number;
+    /** The rail's own account of what it did — shown as-is on the receipt line. */
+    paymentDetail: string;
+    /**
+     * Set ONLY when the rail could not finish in one request and the customer must go and pay.
+     * Empty means the purchase is already done and the credits are already granted.
+     *
+     * A caller that follows this when present and shows the balance otherwise is correct on every
+     * rail, without ever asking which one is configured — which is the rule the whole payments
+     * module is built on.
+     */
+    checkoutUrl: string;
+};
+/** What the host has to answer before any of this can run. */
+type BillingHost = {
+    /** Base URL of the accounts service, no trailing slash. */
+    accountsUrl(): Promise<string> | string;
+    /** A CURRENT access token. Implementations refresh as needed; this must not return a stale one. */
+    accessToken(): Promise<string> | string;
+    /** Idempotency keys. Injected because `crypto.randomUUID` is unavailable on some hosts. */
+    newKey(): string;
+};
+
+/**
+ * "The balance probably changed" — one tiny bus, so nothing polls a money endpoint on a timer.
  *
- *   await agentd.mountSignInGate()
- *   // past this line somebody is signed in, or this install has no accounts to sign in to
+ * A balance moves without the thing showing it doing anything that would re-render: a purchase on
+ * the credits panel has to move the chip in the composer, and a message that spends credits has to
+ * move both. The alternative is every consumer polling, which is a cost paid forever for an event
+ * that is rare.
  *
- * No arguments needed: the heading comes from the page's own <title>, which is already this
- * agent's name. Naming a product here would be a second copy of it to keep in sync.
+ * Module-level on purpose. There is one balance per signed-in account per window, so a per-client
+ * bus would just be the same set with more wiring.
+ */
+/** Subscribe to "the balance probably changed"; returns an unsubscribe. */
+declare function onCreditsChanged(cb: () => void): () => void;
+/** Announce a balance change. Called after any purchase; safe to call after any known debit. */
+declare function notifyCreditsChanged(): void;
+
+/**
+ * BillingClient — read a balance, read the shelf, buy from it. The only code that talks money to
+ * the accounts service.
  *
- * ONE LINE, and it is deliberately a blocking await: an app that renders its composer first and
- * signs in later has to handle "signed in yet?" at every send site.
+ * WHY IT IS A CLASS TAKING A HOST rather than four free functions. Three very different callers
+ * need this: the agentd renderer (its own TokenManager, its own configured accounts URL), an agent
+ * window (the SDK's `identity()` and a URL discovered from the daemon), and Agent Builder (both,
+ * via the SDK). Every one of them answers "where is accounts" and "what is my token" differently,
+ * and NONE of them differs in what a purchase is. Injecting those two answers is what lets the
+ * third caller be free rather than a third implementation — the same argument that produced
+ * `@agentd/auth`.
  *
- * IT RENDERS NOTHING in exactly two cases:
- *   - this daemon has no accounts service configured, so there is nothing to sign in to
- *   - somebody is already signed in
+ * IT BUYS THROUGH /me/checkout, NOT /me/purchase. `/me/checkout` is a strict superset: on a rail
+ * that settles in place it returns the completed purchase, and on a card rail it returns a link to
+ * go and pay. Building on it means an agent shipped today keeps working the day a real rail is
+ * switched on, with no change to the agent.
  *
- * `require: true` removes the FIRST of those. A product that cannot run as nobody says so, and
- * then a daemon with no accounts service gets an explanation in the window instead of an app
- * running signed out. Its caller reads `signedIn` on the result rather than assuming one.
+ * THE ONLY THING A CLIENT MAY SEND IS A product_id. Price and credit count are read server-side
+ * from the products row — otherwise a user posts their own numbers and mints a fortune. That rule
+ * is enforced by the server; it is repeated here so nobody "helpfully" adds an amount parameter.
  *
- * THAT LIST USED TO BE LONGER, AND WRONG. It also skipped the gate whenever the platform's keys
- * were already paying for model calls — because this was never a login, it was a checkout screen
- * ("Runs on our servers — no API keys to set up"). On a BYOK install nobody is paying, so the
- * gate concluded there was nothing to ask and rendered nothing, forever. Signing in and paying
- * are now separate questions; this one only asks who you are.
- *
- * ELEMENT IDS ARE PART OF THE CONTRACT. `gate`, `gateForm`, `gateEmail`, `gatePass` match what
- * figure-creator's hand-written gate used, because the desktop shell's AGENTD_E2E_LOGIN hook
- * drives those ids to test a packaged build with no human at the keyboard. Renaming them would
- * silently disable that test — it would fill nothing and still report success.
- *
- * STYLING is injected once and driven by CSS custom properties, so an agent themes it from its
- * own stylesheet (`--gate-accent`, `--gate-bg`, …) instead of forking the markup. Values fall
- * back to the surrounding page's, so an unthemed agent still looks like itself.
+ * READS FAIL SOFT, THE PURCHASE FAILS LOUD. A balance that cannot be fetched renders as "unknown",
+ * which is honest and harmless. A purchase that fails must reach the user with the server's own
+ * words — silently resolving it would leave someone believing they had bought credits.
  */
 
-interface SignInGateOptions extends AuthOptions {
-    /** Product name in the heading. Defaults to the document title, then the agent id. */
-    product?: string;
-    /** One line under the heading explaining WHY a sign-in is being asked for. */
-    blurb?: string;
-    /** Where to attach. Defaults to document.body. */
-    mount?: HTMLElement;
-    /** Allow account creation from the gate (default true). Set false for invite-only products. */
-    allowSignup?: boolean;
+declare class BillingClient {
+    private readonly host;
+    constructor(host: BillingHost);
+    private base;
+    private authed;
     /**
-     * THIS PRODUCT demands an identity, whatever the deployment would settle for.
-     *
-     * `AuthState.required` is the DAEMON's answer to "must anyone sign in here", and it is false on
-     * every desktop install — the machine token already authorises that window, so the gate steps
-     * aside. An agent whose every run costs somebody money, or writes into somebody's workspace,
-     * cannot let the deployment decide that: the same package has to behave identically on a laptop
-     * and on the hosted daemon, and "who is this?" is the agent's question, not the host's.
-     *
-     * Set here rather than inferred from `[app] mode` or from being hosted, because an agent that
-     * needs an account needs it for reasons only the agent knows.
-     *
-     * Callers must then read `signedIn` on the result: with this set, a resolved promise means the
-     * gate is finished, NOT that somebody is behind it (see the no-accounts-service case below).
+     * The balance, or null when there is nothing to show — not signed in, no accounts service, or
+     * the request failed. Null is rendered as "unavailable" rather than as zero, because showing a
+     * confident 0 to someone with credits is worse than admitting we do not know.
      */
-    require?: boolean;
+    credits(agentId?: string): Promise<Credits | null>;
+    /**
+     * What is for sale. NOT signed-in-only and NOT hardcoded: the packs come from the `products`
+     * table, whose prices derive from the markup dial, so changing what is on sale is a row in a
+     * database and never a release of a client — and the price shown cannot drift from the price
+     * charged, because there is only one of them.
+     */
+    catalog(kind?: string): Promise<Catalog | null>;
+    /**
+     * Buy a pack. THROWS with the server's own message on refusal.
+     *
+     * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
+     * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
+     * card payment comes back where it started.
+     */
+    buy(productId: string, returnUrl?: string): Promise<Purchase>;
 }
-interface GateResult extends AuthState {
-    /** true when a gate was actually displayed and the user completed it. */
-    signedInHere: boolean;
-}
-declare function mountSignInGate(options?: SignInGateOptions): Promise<GateResult>;
-/** Sign out and show the gate again. Convenience for an app with a Sign-out control. */
-declare function signOutAndGate(options?: SignInGateOptions): Promise<GateResult>;
 
 /**
  * Credits, for an agent window — the data half. The UI half is `wallet.ts`.
@@ -520,56 +814,6 @@ interface CreditsOptions extends DaemonOptions {
 declare function creditsHost(opts?: CreditsOptions): BillingHost;
 /** A ready-to-use billing client for this window. */
 declare function billing(opts?: CreditsOptions): BillingClient;
-
-/**
- * Credits & billing, as a panel any agent window can mount.
- *
- *   await agentd.mountCreditsPanel({ client, mount: someElement })
- *
- * THE SAME SCREEN EVERY AGENT SHOWS, because it is the same code every agent runs. It ships inside
- * the SDK — like the sign-in gate in `gate.ts` — and `npm run build` re-vendors it into every
- * agent's `ui/vendor/agentd-client.js`. A copy under templates/ would put a second version of the
- * shop in one product, and the copy could then disagree with the accounts service it buys from.
- * That is the whole reason this is not a snippet the model writes per agent.
- *
- * LAID OUT TO MATCH the agentd renderer's Credits & billing page (SubscriptionView.tsx): balance
- * card, buy-credits grid, the rail's own disclosure, then the receipt. Same information in the
- * same order, so a user who tops up in the desktop app and then inside an agent sees one product.
- *
- * WHAT IT DOES NOT DECIDE. Not the packs (GET /products — a database row, so what is on sale
- * changes without releasing a client), not the prices (same), and not the disclosure sentence
- * (`paymentNote`, the rail's own words — so wiring up a real rail rewrites this panel's promises
- * instead of leaving a stale "no card is charged" note on a screen that now charges).
- *
- * IT RENDERS NOTHING WHEN THERE IS NOTHING TO SELL: no accounts service (a BYOK build), or nobody
- * signed in. Safe to call unconditionally, which is what makes it a component and not a decision.
- */
-
-interface CreditsPanelOptions extends CreditsOptions {
-    /** Where to render. Defaults to `#agentd-credits` if present, else appended to <body>. */
-    mount?: HTMLElement;
-    /** Scope the balance to one agent's subscription pocket. Defaults to the platform balance. */
-    agentId?: string;
-    /** Where a card rail should return the customer. Defaults to this page. */
-    returnUrl?: string;
-}
-interface CreditsPanelHandle {
-    /** Re-read the balance from the server. */
-    refresh(): Promise<void>;
-    /** Remove the panel and stop listening. */
-    destroy(): void;
-    /** Did it render anything? False on a BYOK build or when nobody is signed in. */
-    shown: boolean;
-}
-/**
- * Mount the panel. Resolves once it has drawn, or decided not to.
- *
- * Never rejects for an ordinary refusal — a failed purchase is reported INSIDE the panel, where
- * the user can read it and try again. A daemon that cannot be reached resolves to a panel that
- * drew nothing, because the app's own status chip already reports that and a second alarm for one
- * fault is noise.
- */
-declare function mountCreditsPanel(options?: CreditsPanelOptions): Promise<CreditsPanelHandle>;
 
 /**
  * The agent window's TokenManager — ONE per storage key, shared by everything in the page.
@@ -616,4 +860,4 @@ declare function identity(opts?: IdentityOptions): TokenManager;
 /** Drop the memoised managers. Tests only — a page has exactly one lifetime. */
 declare function resetIdentity(): void;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, type CapabilityDescriptor, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditsOptions, type CreditsPanelHandle, type CreditsPanelOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type GateResult, type Hello, type IdentityOptions, type InvokeResult, PROTOCOL_VERSION, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type SignInGateOptions, type StoredSession, acceptHostTokens, accountsUrl, authLogin, authLogout, authRefresh, authStatus, billing, creditsHost, daemonOrigin, daemonToken, effectiveMode, fromPage, identity, loadMode, loadSession, mountCreditsPanel, mountSignInGate, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, signOutAndGate, startAuthRenewal, withTimeout };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthConfig, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SecretStore, type SendResult, type SessionRow, type SessionStore, type StoredSession, TokenManager, type TokenPair, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authRefresh, authStatus, billing, creditsHost, daemonOrigin, daemonToken, effectiveMode, fromPage, identity, loadMode, loadSession, localSessionStore, memorySessionStore, notifyCreditsChanged, onCreditsChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, withTimeout };

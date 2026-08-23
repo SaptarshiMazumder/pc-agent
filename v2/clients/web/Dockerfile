@@ -29,13 +29,20 @@ COPY web/package.json web/
 # line here too, or `npm ci` fails the image build with "workspace not found".
 COPY desktop/package.json desktop/
 COPY marketplace/package.json marketplace/
-# @agentd/auth is NOT a workspace — ui depends on it as `file:../auth`, so npm needs the real
-# directory at install time, and vite needs its source at build time. Both halves here, manifest
-# first so a source-only change still reuses the install layer.
+# NOT workspaces — `ui` reaches these by RELATIVE PATH ("@agentd/auth": "file:../auth",
+# likewise @agentd/billing), so npm needs the real directories at install time and vite needs
+# their source at build time. Absent from the image the failure lands LATE and misleadingly:
+# `npm ci` succeeds, then vite dies with "Rollup failed to resolve import @agentd/billing",
+# which reads like a bad import rather than a folder that was never copied.
+#
+# Manifests first, source after `npm ci` below, so a source-only change still reuses the
+# install layer.
 COPY auth/package.json auth/
+COPY billing/package.json billing/
 RUN npm ci --include-workspace-root -w agentd-web
 
 COPY auth/src auth/src
+COPY billing/src billing/src
 COPY ui/ ui/
 COPY web/ web/
 ARG VITE_AGENTD_ACCOUNTS_URL

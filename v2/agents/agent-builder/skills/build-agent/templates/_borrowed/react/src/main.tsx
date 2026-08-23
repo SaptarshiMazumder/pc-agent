@@ -1,34 +1,33 @@
-/* Sign in FIRST, then render. THE ONE SOURCE FILE THIS STARTER SHIPS.
+/* The entry point.
  *
- * Everything else about the window is a judgement about your agent, which is why `src/` is
- * otherwise yours to write. This file is not a judgement: every agent with a window signs its
- * user in, so it arrives already done rather than as a rule to remember.
+ * SIGN-IN IS A COMPONENT, NOT A STEP. `<Gate>` asks the daemon whether an account is REQUIRED and
+ * shows the sign-in card if one is and nobody is signed in; otherwise it renders straight through.
  *
- * WHY BLOCKING. An app that renders its composer first and signs in later has to answer "signed
- * in yet?" at every send site, and gets it wrong at one of them. Past this line somebody is
- * signed in — or this build has no accounts service, in which case nothing was ever asked.
+ * This used to be an async IIFE that awaited `signInFirst()` before rendering anything, because the
+ * gate was a vanilla-DOM panel that painted itself over the page and had to run first. It is
+ * agentd's React card now, so it lives inside the tree like everything else and the window paints
+ * immediately — a blank screen while a status probe runs is indistinguishable from a broken app.
  *
- * THE MECHANISM IS IN `common/`, NOT HERE. `src/common/` arrives with every scaffold and holds
- * accounts and money — copied verbatim, shared by every agent, and compared against its source by
- * `validate_agent`. Read `src/common/README.md`: it says what is in there and what you still have
- * to wire up (this file is one of the two things, and the Credits page is the other).
+ * The palette first, so anything this agent redefines in styles.css wins.
  */
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+
 import App from './App'
-import { signInFirst } from './common/auth/SignIn'
+import Gate from './common/auth/Gate'
+import './tokens.css'
 import './styles.css'
 
-const root = createRoot(document.getElementById('root')!)
+const host = document.getElementById('root')
+// Not a fallback — a hard stop. A missing mount point means index.html and this file disagree, and
+// a page that silently renders nothing is the hardest kind of build error to find.
+if (!host) throw new Error('#root is missing from index.html')
 
-void (async () => {
-  // Renders nothing on a build with no accounts service, or when a stored session still works —
-  // and never throws, so an unreachable service leaves you with an app rather than a blank window.
-  await signInFirst()
-  root.render(
-    <StrictMode>
+createRoot(host).render(
+  <StrictMode>
+    <Gate>
       <App />
-    </StrictMode>,
-  )
-})()
+    </Gate>
+  </StrictMode>,
+)

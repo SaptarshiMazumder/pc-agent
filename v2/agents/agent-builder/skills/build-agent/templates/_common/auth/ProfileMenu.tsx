@@ -82,7 +82,10 @@ export function ProfileMenu({
               type="button"
               disabled={busy}
               onClick={() => {
-                void (signedIn ? signOut() : signIn()).then(() => setOpen(false))
+                // signOut is a round trip; signIn only raises the card. Close either way.
+                if (signedIn) void signOut()
+                else signIn()
+                setOpen(false)
               }}
             >
               {busy ? 'Working…' : signedIn ? 'Sign out' : 'Sign in'}

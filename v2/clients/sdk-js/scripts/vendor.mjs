@@ -9,7 +9,7 @@
  * one source was itself a hand-updated file. It had already fallen behind dist/ by 12 KB.
  *
  * The drift is quiet and nasty: an agent app keeps whatever SDK it was scaffolded with, so a
- * method added to the SDK is simply absent on window.agentd — `agentd.mountSignInGate is not a
+ * method added to the SDK is simply absent on window.agentd — `agentd.somethingNew is not a
  * function` in one agent and fine in the next, with no version anywhere to compare.
  *
  * TARGETS: the borrow root under agent-builder's templates (the canonical copy new agents are

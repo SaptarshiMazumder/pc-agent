@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -46,6 +48,20 @@ function woff2Only(): Plugin {
 export default defineConfig({
   plugins: [react(), woff2Only()],
   base: './',
+  /* `@agentd/client`, from anywhere.
+   *
+   * The shared modules under `templates/_common/` live OUTSIDE this app's directory, so node's
+   * "walk up looking for node_modules" never reaches the copy installed here. That went unnoticed
+   * while the only shared module imported TYPES from the SDK — those erase before the bundler sees
+   * them. The credits page imports real values, and without this it fails to resolve.
+   *
+   * A scaffolded agent has no such problem: `_common/` is copied INTO its src/, beside its own
+   * node_modules. This alias exists because Agent Builder alone reads the templates in place. */
+  resolve: {
+    alias: {
+      '@agentd/client': path.resolve(__dirname, 'node_modules/@agentd/client'),
+    },
+  },
   // The SETTINGS PAGE is imported from `skills/build-agent/templates/_common/`, so the product
   // keeps ONE of it — the same page every scaffolded agent ships. Dev needs to be told it may read
   // above the app directory; the production build resolves it without this.

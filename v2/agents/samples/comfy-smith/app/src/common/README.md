@@ -31,6 +31,11 @@ auth/
   ProfileMenu.tsx   the account menu — sign in/out, and a way to reach Credits
 credits/
   Credits.tsx       the Credits & billing page
+settings/
+  schema.ts         every knob the page shows — the same set the assistant's own window has
+  useSettings.ts    the two layers: this agent's value wins, else the daemon's
+  Settings.tsx      the page. Brings its own Save, which restarts the daemon when it must
+  Field.tsx · SecretField.tsx · DeclaredField.tsx    the controls
 ```
 
 ## What you still have to do
@@ -42,6 +47,19 @@ credits/
 - `Credits` gets **its own view**, reached from a nav entry beside Settings. Not a section inside
   your settings screen: topping up is what a user comes looking for the moment a run stops.
 - `ProfileMenu` goes wherever your window shows who is signed in — usually the bottom of a sidebar.
+- `Settings` goes in a modal or a view of its own, reached from a gear. Pass it `agentId` (your
+  own) and, if your window can restart the daemon, `onRestart` — some settings only take effect on
+  a fresh process, and a Save that says so without doing it is a Save that lies.
+
+## Why settings is here too
+
+A user configures the assistant, opens your agent, and meets the same page. Not a smaller one with
+different names for the same things — the SAME one, plus a layer: your agent's values win over the
+daemon's, key by key, and every row says which layer it came from.
+
+That mattered more than it sounds. Agent Builder used to keep its own settings page of 31 knobs
+beside the assistant's 43, and nothing compared them; `tests/unit/test_settings_parity.py` now
+fails if the two ever drift apart again.
 
 ## What they need from the rest of the system
 

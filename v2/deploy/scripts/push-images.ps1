@@ -1,5 +1,5 @@
 # =============================================================================
-# push-images.ps1 - build the 4 Docker images, push them to ECR, and roll the ECS
+# push-images.ps1 - build the 5 Docker images, push them to ECR, and roll the ECS
 # services so they pull the fresh images. (Local alternative to the CI Deploy pipeline.)
 #
 #   PREREQUISITES:
@@ -8,13 +8,13 @@
 #     - The environment is provisioned (terraform apply) + real keys set (./set-keys.ps1)
 #
 #   USAGE:
-#     ./push-images.ps1                              # dev, all 4 images
+#     ./push-images.ps1                              # dev, all 5 images
 #     ./push-images.ps1 -Environment staging         # another environment
 #     ./push-images.ps1 -Only web                    # just one image (fast UI re-push)
 # =============================================================================
 param(
   [string]$Environment = "dev",
-  [string]$Only        = ""   # optional: model-proxy | accounts | daemon | web
+  [string]$Only        = ""   # optional: model-proxy | accounts | daemon | web | ingest
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,12 +74,15 @@ $images = @{
       VITE_AGENTD_ACCOUNTS_URL = "http://$albHost`:4100"
       VITE_AGENTD_URL          = "ws://$albHost`:8787"
   } }
+  # Same v2/ context and for the same reason: the image carries v2/monitoring/, which is what
+  # turns a received event into the EMF line the dashboards read.
+  ingest   = @{ context = $v2;                   dockerfile = "$v2/ingest/Dockerfile";                 args = @{} }
 }
 
-$targets = if ($Only) { @($Only) } else { "model-proxy", "accounts", "daemon", "web" }
+$targets = if ($Only) { @($Only) } else { "model-proxy", "accounts", "daemon", "web", "ingest" }
 foreach ($name in $targets) {
   if (-not $images.ContainsKey($name)) {
-    throw "Unknown image '$name'. Choose: model-proxy, accounts, daemon, web."
+    throw "Unknown image '$name'. Choose: model-proxy, accounts, daemon, web, ingest."
   }
 }
 foreach ($name in $targets) {

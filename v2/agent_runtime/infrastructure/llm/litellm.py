@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -48,6 +49,8 @@ from agent_runtime.domain.messages import (
 )
 from agent_runtime.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
 from agent_runtime.infrastructure.files import image_data_url
+
+log = logging.getLogger("agentd")
 
 # Map a provider's "why did you stop" reason -> our internal stop_reason vocabulary.
 FINISH_REASON_MAP = {
@@ -269,6 +272,26 @@ def _cache_read_tokens(chunk_usage) -> int:
     return int(cached or 0)
 
 
+def _describe_chunk(chunk) -> str:
+    """One line for one streamed chunk, for the log: what it finished with, and what it carried.
+
+    `content=None, tool_calls=None` on a chunk that ALSO says `finish_reason='stop'` is the whole
+    story of a completion that ended before it began — and that is invisible inside a repr.
+    """
+    choices = getattr(chunk, "choices", None) or []
+    if not choices:
+        usage = getattr(chunk, "usage", None)
+        return f"usage-only ({usage})" if usage else "empty (no choices, no usage)"
+    choice = choices[0]
+    carried = [
+        name
+        for name in ("content", "reasoning_content", "tool_calls", "role")
+        if getattr(getattr(choice, "delta", None), name, None)
+    ]
+    finish = getattr(choice, "finish_reason", None)
+    return f"finish_reason={finish!r}, carried {'+'.join(carried) if carried else 'NOTHING'}"
+
+
 async def litellm_stream(
     *,
     model: str,
@@ -296,6 +319,18 @@ async def litellm_stream(
     finish_reason: str | None = None
     error_message: str | None = None
     aborted = False
+    # Did the provider send a single `choices` entry? A stream that carries usage and nothing
+    # else answers "yes it was billed" and "no it never spoke" at the same time — and until this
+    # flag existed those two were indistinguishable from a clean, deliberate empty completion.
+    saw_choice = False
+    # WHAT ACTUALLY CAME BACK, kept only to explain a turn that produced nothing, and written
+    # only to the LOG. A summary rather than a repr: `logprobs=None, audio=None,
+    # system_fingerprint=None` and forty more dead fields bury the two that matter — did the chunk
+    # finish, and did its delta carry anything.
+    #
+    # Bounded on purpose: a normal turn streams thousands of chunks and none are worth holding.
+    chunk_count = 0
+    chunk_notes: list[str] = []
 
     try:
         # --- Build the provider request ---
@@ -344,6 +379,10 @@ async def litellm_stream(
                 error_message = f"LLM idle timeout after {effective_idle}s (no response)"
                 break
 
+            chunk_count += 1
+            if len(chunk_notes) < 6:
+                chunk_notes.append(_describe_chunk(chunk))
+
             # token usage usually arrives in a final chunk (because include_usage=True)
             chunk_usage = getattr(chunk, "usage", None)
             if chunk_usage:
@@ -359,6 +398,7 @@ async def litellm_stream(
             choices = getattr(chunk, "choices", None) or []
             if not choices:
                 continue  # the usage-only final chunk has no choices
+            saw_choice = True
             choice = choices[0]
             if getattr(choice, "finish_reason", None):
                 finish_reason = choice.finish_reason
@@ -411,6 +451,51 @@ async def litellm_stream(
             "type": "toolcall_end",
             "toolCall": {"id": tc.id, "name": tc.name, "arguments": tc.arguments},
         }
+
+    # NOTHING GENERATED IS NOT A SUCCESSFUL ANSWER.
+    #
+    # A turn that produced no text, no reasoning and no tool calls, on a request the provider
+    # BILLED for, is a failed generation however the provider labelled it. Two shapes reach here:
+    #
+    #   * the stream carried a usage chunk and no `choices` at all — `finish_reason` is then never
+    #     set, and the mapping below reads `finish_reason or "stop"`;
+    #   * a `choices` entry arrived with an empty delta and `finish_reason: "stop"`, and usage
+    #     reports zero completion tokens.
+    #
+    # BOTH used to be recorded as a clean stop, and the run then told the user "the model returned
+    # an entirely empty response" — blaming the model for what is nearly always an upstream
+    # refusal: an exhausted balance, a dead or unfunded key, a gateway declining this model.
+    #
+    # The second shape was originally left alone here, on the theory that a model may legitimately
+    # choose to say nothing. It cannot: choosing to say nothing still costs completion tokens, and
+    # an agent turn with no text AND no tool call has not answered by any definition. `output == 0`
+    # is the honest discriminator, not the label the provider attached.
+    produced_nothing = not text_parts and not thinking_parts and not tool_calls
+    generated_nothing = bool(usage) and not usage.get("output")
+    if error_message is None and not aborted and produced_nothing and (generated_nothing or not saw_choice):
+        # TWO AUDIENCES, TWO MESSAGES — and conflating them is how a chat window ended up
+        # showing `finish_reason='stop', 2 chunks` and a raw ModelResponseStream dump to somebody
+        # who just typed "hi".
+        #
+        # The chat gets ONE plain sentence: what happened, whose fault it is, and what to do. No
+        # token counts, no field names, no provider internals. Someone reading their own
+        # conversation is not debugging our stream parser.
+        #
+        # The log gets everything, because that is where a developer looks and where the detail
+        # is worth its noise.
+        error_message = (
+            "The model returned an empty response - nothing at all, not even an error. "
+            "That is a fault on the provider's side, not something wrong with your message "
+            "or your settings. Try a different model."
+        )
+        log.warning(
+            "empty completion from %s: %d chunk(s), usage=%s, finish_reason=%r; chunks: %s",
+            model,
+            chunk_count,
+            usage or {},
+            finish_reason,
+            " | ".join(chunk_notes) or "(none received)",
+        )
 
     # decide why this turn ended (priority: error > aborted > tool use > provider reason)
     if error_message is not None:

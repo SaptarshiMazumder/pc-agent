@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_authoring.domain.ui_component import UiComponents
+from agent_authoring.domain.ui_component import UiComponent, UiComponents
 from agent_authoring.domain.ui_rules import UiRules
 
 from agent_runtime.domain.events import APP_FACING_EVENTS, MESSAGE_UPDATE_KINDS
@@ -161,13 +161,22 @@ SDK = "app/vendor/agentd-client.js"
 # missing-component check short-circuits and the test reads a finding it was not asking about.
 OTHER_REQUIRED = "\n".join(
     [
-        "await agentd.mountCreditsPanel({ client, mount })",
+        "import Credits from './common/credits/Credits'",
         "import { Settings } from './common/settings/Settings'",
     ]
 )
 
 
-FULL_SDK = "function mountSignInGate(){}\nfunction mountCreditsPanel(){}"
+# NO REAL COMPONENT DECLARES A `requires` ANY MORE. All three reach the daemon through calls
+# every SDK build has ever had — `authLogin`, `BillingClient`, `client.request` — so the vendored
+# bundle's contents cannot make any of them fail, and these fixtures need nothing in particular
+# inside it. The `requires` MECHANISM is still tested, with a component made up for the purpose;
+# see `test_a_component_the_vendored_sdk_cannot_run_is_an_error`.
+FULL_SDK = "function fromPage(){}"
+
+# What a wired-up sign-in looks like: the shared module, rendered. The same shape as credits and
+# settings, because it is now the same kind of thing — a copied React module, not an SDK call.
+GATE = "import Gate from './common/auth/Gate'"
 
 
 def sign_in(js: str, vendored: str | None = FULL_SDK):
@@ -177,7 +186,7 @@ def sign_in(js: str, vendored: str | None = FULL_SDK):
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
 
 
-def only(js: str, vendored: str | None = "function mountSignInGate(){}"):
+def only(js: str, vendored: str | None = FULL_SDK):
     """The raw form: exactly the code given, nothing added. For the missing-component tests."""
     sources = {"app/package.json": "{}", "app/src/App.tsx": js}
     if vendored is not None:
@@ -197,47 +206,87 @@ def test_an_app_agent_with_no_sign_in_is_refused():
     # its work through <script> tags, style.css appends and app.js splicing — vanilla-era
     # mechanisms that no longer exist now every agent UI is React. Pointing at a tool that cannot
     # finish the job sends the model down a path where half the steps silently do nothing.
-    assert "mountSignInGate" in found["UI_NO_SIGN_IN"].fix
+    assert "common/auth" in found["UI_NO_SIGN_IN"].fix
     assert "main.tsx" in found["UI_NO_SIGN_IN"].fix
     assert "add_ui_component" not in found["UI_NO_SIGN_IN"].fix
 
 
-def test_calling_the_gate_is_clean():
-    assert "UI_NO_SIGN_IN" not in sign_in("await agentd.mountSignInGate()")
+def test_rendering_the_gate_is_clean():
+    assert "UI_NO_SIGN_IN" not in sign_in(GATE)
 
 
-def test_either_of_the_two_doors_counts():
-    """TWO legitimate ways in, and no third. `signInFirst` is the common module's wrapper — what
-    every scaffolded agent uses — and `mountSignInGate` is the SDK call underneath it, for an app
-    whose layout reaches past the wrapper.
+def test_the_shared_module_is_the_only_way_to_satisfy_sign_in():
+    """ONE DOOR NOW, where there were two. `signInFirst` was the common module's wrapper and
+    `mountSignInGate` the SDK call underneath it — a vanilla-DOM gate that painted itself over the
+    page, written for the vanilla templates and never used by the assistant, which has always had
+    the React card now copied into `_common/auth/`. Both are deleted, so an agent still calling
+    either is an agent built before the port and does not have a login screen this platform knows.
 
-    The detector used to accept `resolveAuth` and a bare `signIn` too, which blessed an agent
+    The detector once accepted `resolveAuth` and a bare `signIn` too, which blessed an agent
     driving its own sign-in surface. That is now exactly what `UI_OWN_LOGIN` refuses: one
     implementation of credentials on this platform, or every agent gets its own set of renewal
     bugs."""
-    assert "UI_NO_SIGN_IN" not in sign_in("await signInFirst('My Agent')")
-    assert "UI_NO_SIGN_IN" not in sign_in("await mountSignInGate({ client })")
+    assert "UI_NO_SIGN_IN" in only("await signInFirst('My Agent')")
+    assert "UI_NO_SIGN_IN" in only("await mountSignInGate({ client })")
+    # And the card itself counts, for an app that lays out its own gating.
+    assert "UI_NO_SIGN_IN" not in sign_in("import SignIn from './common/auth/SignIn'")
+
+
+# --- the vendored SDK predating the catalogue -------------------------------------------
+# A MADE-UP COMPONENT, because no real one declares a `requires` any more: sign-in, credits and
+# settings all reach the daemon through calls every SDK build has ever had. That is a fact about
+# today's three components, not about the mechanism — agents vendor a SNAPSHOT of the SDK, so the
+# day a fourth component needs a NEW symbol, this is the only thing standing between it and a
+# window that dies on load. Testing it through a fixture keeps the check honest instead of
+# deleting it and finding out later.
+LATER = UiComponent(
+    id="later",
+    title="A component added after some agent vendored its SDK",
+    summary="stands in for the real one that will need a new SDK symbol",
+    detect=(r"\bmountSomethingNew\s*\(",),
+    requires=("mountSomethingNew",),
+)
+DRIFTED = UiRules(
+    events=APP_FACING_EVENTS,
+    kinds=MESSAGE_UPDATE_KINDS,
+    methods=frozenset(APP_SCOPED_METHODS),
+    sdk_methods=frozenset(),
+    components=UiComponents().all() + (LATER,),
+)
+
+
+def drifted(js: str, vendored: str | None):
+    """Every REQUIRED component satisfied, plus the made-up one — so the only thing the rule can
+    have to say is about the vendored bundle."""
+    sources = {"app/package.json": "{}", "app/src/App.tsx": js + "\n" + GATE + "\n" + OTHER_REQUIRED}
+    if vendored is not None:
+        sources[SDK] = vendored
+    return {f.code: f for f in DRIFTED.check(None, APP, list(sources), sources)}
 
 
 def test_a_component_whose_sdk_symbol_is_missing_is_an_error():
-    """The drift case: app.js was updated, ui/vendor/agentd-client.js was not. Guaranteed
-    'agentd.mountSignInGate is not a function' on load — a dead window, every launch.
+    """The drift case: the app was updated, ui/vendor/agentd-client.js was not. Guaranteed
+    'agentd.mountSomethingNew is not a function' on load — a dead window, every launch.
 
-    ONE rule for every component now, driven by each component's declared `requires`. Adding a
-    second component needs no second rule, which is why the catalogue is injected rather than
-    copied into this module.
+    ONE rule for every component, driven by each component's declared `requires`. Adding a
+    component needs no second rule, which is why the catalogue is injected rather than copied
+    into this module — and why this test can introduce one the catalogue has never heard of.
     """
-    found = sign_in("await agentd.mountSignInGate()", vendored="function fromPage(){}")
+    found = drifted("await agentd.mountSomethingNew()", vendored="function fromPage(){}")
     assert found["UI_SDK_PREDATES_COMPONENT"].level == "error"
-    assert "sign-in" in found["UI_SDK_PREDATES_COMPONENT"].message
-    assert "mountSignInGate" in found["UI_SDK_PREDATES_COMPONENT"].message
+    assert "later" in found["UI_SDK_PREDATES_COMPONENT"].message
+    assert "mountSomethingNew" in found["UI_SDK_PREDATES_COMPONENT"].message
     assert "re-vendor" in found["UI_SDK_PREDATES_COMPONENT"].fix
+
+
+def test_the_symbol_being_present_is_quiet():
+    """The other half: the rule reads the bundle, it does not merely notice that one exists."""
+    assert not drifted("await agentd.mountSomethingNew()", "function mountSomethingNew(){}")
 
 
 def test_no_vendored_sdk_present_is_not_an_error():
     """An agent may load the SDK from somewhere else. Absence is unknown, not wrong."""
-    found = sign_in("await agentd.mountSignInGate()", vendored=None)
-    assert not found
+    assert not drifted("await agentd.mountSomethingNew()", vendored=None)
 
 
 def test_an_agent_with_no_app_window_is_never_asked_to_sign_in():
@@ -278,9 +327,9 @@ def test_an_app_that_talks_to_the_accounts_service_itself_is_refused():
     assert "/auth/refresh" in found["UI_OWN_LOGIN"].message
 
 
-def test_the_fix_names_the_two_calls_that_replace_it():
+def test_the_fix_names_what_replaces_it():
     found = sign_in("fetch('/auth/login', {method:'POST'})")
-    assert "mountSignInGate" in found["UI_OWN_LOGIN"].fix
+    assert "common/auth" in found["UI_OWN_LOGIN"].fix
     assert "accessToken" in found["UI_OWN_LOGIN"].fix
 
 
@@ -347,28 +396,27 @@ def test_every_missing_component_is_reported_in_one_pass():
 
 def test_an_app_that_has_both_is_quiet():
     """The whole point: the templates ship both, so a freshly scaffolded agent passes untouched."""
-    found = sign_in("await agentd.mountSignInGate()")
+    found = sign_in(GATE)
     assert not found
 
 
-def test_the_credits_panel_may_be_mounted_directly():
-    """`creditsSection()` is the template's wrapper; an app that calls the SDK itself — a React
-    agent, or one with its own settings layout — is equally installed and must not be nagged."""
-    sources = {
-        "ui/app.js": "await agentd.mountSignInGate()\nawait agentd.mountCreditsPanel({ client })",
-        SDK: FULL_SDK,
-    }
-    found = {f.code: f for f in RULES.check(None, APP, list(sources), sources)}
-    assert not found
+def test_the_shared_module_is_the_only_way_to_satisfy_credits():
+    """`mountCreditsPanel` was the SDK's vanilla panel and is deleted — agentd never used it, and
+    the React page it always had is what `_common/credits/` now carries. An agent still calling it
+    is an agent built before the port, and it no longer counts as having a credits page."""
+    assert "UI_NO_CREDITS" in only("await agentd.mountCreditsPanel({ mount: el })")
 
 
-def test_a_credits_panel_the_vendored_sdk_cannot_run_is_an_error():
-    """An SDK vendored before the panel existed gives 'agentd.mountCreditsPanel is not a function'
-    on the settings page — the same dead-window failure the sign-in check already catches, which
-    is why it is ONE rule driven by each component's declared `requires`."""
-    found = sign_in("await agentd.mountSignInGate()", vendored="function mountSignInGate(){}")
-    assert found["UI_SDK_PREDATES_COMPONENT"].level == "error"
-    assert "mountCreditsPanel" in found["UI_SDK_PREDATES_COMPONENT"].message
+def test_none_of_the_required_components_can_outrun_a_vendored_sdk():
+    """THE REAL CATALOGUE, against a bundle with nothing in it. All three required components
+    reach the daemon through calls that have existed in every SDK build there has ever been —
+    `authLogin`, `BillingClient`, `client.request` — so none of them declares a `requires`, and a
+    stale bundle cannot break them. Naming a symbol for any of them would be a check that can
+    never fire, which reads like coverage and is worse than none.
+
+    The mechanism that WOULD catch a component with a new symbol is tested above, on one made up
+    for the purpose."""
+    assert not sign_in(GATE, vendored="function nothingUseful(){}")
 
 
 # --- shipped is not the same as wired ---------------------------------------
@@ -376,6 +424,10 @@ def test_a_credits_panel_the_vendored_sdk_cannot_run_is_an_error():
 # A scan of every source file found that call inside the definition, so an agent that never
 # rendered `<Credits />` passed the check that existed to prove it had: a credits page shipped,
 # validated, and invisible. These pin the distinction from both sides.
+
+# What the scaffolded entry point looks like: the gate wrapping the app.
+SIGN_IN_MAIN = "import Gate from './common/auth/Gate'"
+
 
 STARTER_CREDITS = (
     "import { mountCreditsPanel } from '@agentd/client'\n"
@@ -392,7 +444,7 @@ def react(app_tsx: str) -> dict:
     """
     sources = {
         "app/package.json": "{}",
-        "app/src/main.tsx": "import { mountSignInGate } from '@agentd/client'\nawait mountSignInGate()",
+        "app/src/main.tsx": SIGN_IN_MAIN,
         "app/src/Credits.tsx": STARTER_CREDITS,
         "app/src/Config.tsx": "import { Settings } from './common/settings/Settings'",
         "app/src/App.tsx": app_tsx,
@@ -409,23 +461,17 @@ def test_a_shipped_credits_file_nobody_renders_is_still_missing():
     assert found["UI_NO_CREDITS"].level == "error"
 
 
-def test_rendering_it_counts():
-    assert not react("export default function App() { return <Credits /> }")
+def test_importing_the_shared_module_counts():
+    assert not react("import Credits from './common/credits/Credits'")
 
 
-def test_importing_it_counts():
-    """A component imported into a router or a tab bar may be rendered somewhere this rule cannot
-    see. An import is a deliberate act and enough — the rule stays conservative rather than
-    demanding one spelling of 'used'."""
-    assert not react("import Credits from './Credits'\nconst routes = { credits: Credits }")
-
-
-def test_calling_the_sdk_directly_counts():
-    """An agent with its own layout may skip the shipped wrapper entirely. What is mandatory is
-    that the user can see a balance, not that they got there through our file."""
-    assert not react(
-        "import { mountCreditsPanel } from '@agentd/client'\nmountCreditsPanel({ mount: el })"
-    )
+def test_a_page_of_its_own_called_credits_does_not_count():
+    """THE POINT IS THAT IT IS THE SAME SHOP. This used to accept `<Credits />`, an import of any
+    file named Credits, or a direct `mountCreditsPanel` call — so an agent satisfied the rule with
+    a hand-written billing page of its own, which is the outcome the rule exists to refuse.
+    Somebody who tops up in the assistant and then inside an agent must not meet two different
+    stores with two sets of prices."""
+    assert "UI_NO_CREDITS" in react("import Credits from './components/Credits'")
 
 
 def test_sign_in_is_unaffected_by_the_provides_rule():

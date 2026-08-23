@@ -14,6 +14,8 @@
  */
 
 import type { AgentdClient } from '@agentd/client'
+import { Boxes, Cpu, KeyRound, Server, Sparkles, Wrench } from 'lucide-react'
+
 import { Settings } from '../../../../skills/build-agent/templates/_common/settings/Settings'
 import { AGENT_ID } from '../../agentd/client'
 import { usePlatform, useRestartDaemon } from '../../agentd/platform'
@@ -22,45 +24,71 @@ import { ModeSection } from './ModeSection'
 import { RestartSection } from './RestartSection'
 import { ServicesSection } from './ServicesSection'
 
+/* The six tab icons. Passed IN rather than imported by the shared module: a scaffolded agent's
+   package.json has react and react-dom and nothing else, so the module cannot depend on an icon
+   set without adding one to every agent ever built. This window already has lucide. */
+const ICONS = {
+  general: <Sparkles size={16} />,
+  models: <Cpu size={16} />,
+  keys: <KeyRound size={16} />,
+  tools: <Wrench size={16} />,
+  capabilities: <Boxes size={16} />,
+  runtime: <Server size={16} />,
+}
+
 export function SettingsView({ client }: { client: AgentdClient }) {
   const platform = usePlatform(client)
   const services = useServices(client)
   const daemon = useRestartDaemon(client)
 
   return (
-    <div className="settings-scroll">
-      <div className="settings-inner">
-        {/* SIGNING IN MOVED OUT, to the account menu at the bottom of the sidebar. It is the first
-            thing a new user needs and it was three scrolls into a config screen; it also belongs
-            next to the identity it changes, not next to reasoning effort. Run mode stays because
-            it is a property of the MACHINE — it applies to every agent on it. */}
-        <ModeSection
-          auth={platform.auth}
-          chosen={platform.chosen}
-          error={platform.error}
-          onSwitch={(next) => void platform.switchMode(next)}
-        />
-        <ServicesSection
-          servers={services.servers}
-          connections={services.connections}
-          onApprove={services.approve}
-          onConnect={services.connect}
-          onDisconnect={services.disconnect}
-        />
+    /* ONE PAGE. These three used to sit in a column ABOVE the shared settings page, so the window
+       had two stacked settings surfaces with two scrollbars and no relationship between them.
+       They are slotted into the tab each one belongs to instead:
 
-        {/* Last, and after the fields on purpose: it is the thing you reach for once everything
-            else is set and the daemon is still serving what it loaded at boot. Save restarts on
-            its own when the daemon asks for it — this is the manual door. */}
-        <RestartSection
-          onRestart={() => void daemon.restart()}
-          busy={daemon.busy}
-          note={daemon.note}
-        />
-      </div>
+         Run mode   -> General, because it is the first thing about how this machine runs
+         Services   -> Tools & plugins, beside the tools they provide
+         Restart    -> Runtime, with the other daemon-lifecycle controls
 
-      {/* The shared page. It brings its own save bar, its own scroll container and the two-layer
-          rule — this agent's values win over the daemon's, key by key. */}
-      <Settings client={client} agentId={AGENT_ID} onRestart={daemon.restart} />
-    </div>
+       Everything else on the page comes from the shared schema, which is why they arrive as
+       `extras` rather than as more groups: the schema describes CONFIG, and none of these three
+       is a config key. */
+    <Settings
+      client={client}
+      agentId={AGENT_ID}
+      onRestart={daemon.restart}
+      icons={ICONS}
+      extras={{
+        general: (
+          /* SIGNING IN IS NOT HERE — it is the account menu at the bottom of the sidebar, next to
+             the identity it changes. Run mode stays because it is a property of the MACHINE: it
+             applies to every agent on it, not to this one. */
+          <ModeSection
+            auth={platform.auth}
+            chosen={platform.chosen}
+            error={platform.error}
+            onSwitch={(next) => void platform.switchMode(next)}
+          />
+        ),
+        tools: (
+          <ServicesSection
+            servers={services.servers}
+            connections={services.connections}
+            onApprove={services.approve}
+            onConnect={services.connect}
+            onDisconnect={services.disconnect}
+          />
+        ),
+        runtime: (
+          /* The manual door. Save restarts on its own when the daemon says its running copy is
+             stale; this is for the times you know it is and it does not. */
+          <RestartSection
+            onRestart={() => void daemon.restart()}
+            busy={daemon.busy}
+            note={daemon.note}
+          />
+        ),
+      }}
+    />
   )
 }

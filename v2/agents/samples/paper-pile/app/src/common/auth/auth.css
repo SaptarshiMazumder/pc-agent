@@ -1,0 +1,50 @@
+/* The sign-in card's styling - SHIPPED WITH THE CARD, copied from agentd's.
+ *
+ * IT USES THE HOST'S TOKENS and defines none of its own, like the settings and credits modules:
+ * --bg2, --border, --accent and the rest come from the agent's own tokens.css. Layout travels
+ * with the module; appearance belongs to the agent.
+ */
+
+.signin-wrap {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); padding: 24px;
+}
+.signin-card {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 340px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px 26px; box-shadow: var(--shadow);
+}
+.signin-brand {
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.signin-sub { color: var(--dim); font-size: 13.5px; margin-bottom: 8px; }
+.signin-label {
+  font-size: 12px; font-weight: var(--fw-semi); color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px;
+}
+.signin-input {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg4); border: 1px solid var(--border2); border-radius: 9px;
+  padding: 10px 12px; outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.signin-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.signin-error {
+  font-size: 12.5px; color: var(--danger);
+  background: var(--danger-soft); border-radius: 8px; padding: 8px 11px;
+}
+.signin-btn {
+  margin-top: 8px; font: inherit; font-weight: var(--fw-on-accent); font-size: 14px;
+  color: var(--prim-ink); background: var(--prim-bg); border: none; border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: background .12s;
+}
+.signin-btn:hover:not(:disabled) { background: var(--prim-bg-h); }
+.signin-btn:disabled { opacity: .6; cursor: default; }
+.signin-toggle {
+  font: inherit; font-size: 13px; color: var(--accent-text);
+  background: none; border: none; cursor: pointer; padding: 4px; align-self: center;
+}
+.signin-toggle:hover { text-decoration: underline; }
+
+/* signed-in account chip (top-right, accounts mode) */

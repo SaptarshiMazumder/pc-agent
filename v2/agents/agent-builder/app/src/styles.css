@@ -975,69 +975,10 @@ h2 { font-size: 16px; }
   color: var(--dim); white-space: pre-wrap; word-break: break-word;
 }
 
-/* ── settings (inside the modal) ───────────────────────────────────────── */
-.settings-scroll { padding: 6px 22px 20px; }
-.settings-inner { display: flex; flex-direction: column; }
-.loading { padding: 22px 0; color: var(--faint); font-size: 13px; }
-
-.set-group { padding: 20px 0; border-bottom: 1px solid var(--border); }
-.set-group:last-of-type { border-bottom: none; }
-.set-group h2 { font-size: 16px; margin-bottom: 5px; }
-.ghelp { font-size: 12px; color: var(--faint); margin-bottom: 8px; }
-
-.field {
-  display: flex; align-items: center; gap: 16px;
-  padding: 13px 0; border-top: 1px solid var(--border);
-}
-.field > div:first-child { flex: 1; min-width: 0; }
-/* The master switch of its group — it moves every row below it between the two layers, so it
-   reads as a header rather than as one more knob in the list. */
-.field.override {
-  border-top: none; margin-bottom: 6px; padding: 13px 14px;
-  border-radius: var(--radius); background: var(--bg3); border: 1px solid var(--border);
-}
-.field label { display: block; font-size: 14px; }
-.fhelp { display: block; font-size: 12px; color: var(--faint); margin-top: 2px; }
-.fhelp.mono { font-family: var(--mono); word-break: break-all; }
-.fhelp.missing, .fhelp.pinned { color: var(--warn); }
-/* Which layer a value came from. Not decoration: a value with no provenance is how "Model: GPT-5"
-   stayed on screen while every turn was answered by something else. */
-.fhelp.src { display: inline-block; margin-top: 5px; padding: 2px 9px; border-radius: 999px; }
-.fhelp.from-daemon { background: var(--bg3); color: var(--faint); }
-.fhelp.from-agent { background: var(--accent-soft); color: var(--accent-text); }
-.req { color: var(--danger); }
-
-.field input, .field select {
-  flex: none; width: 210px; padding: 9px 12px;
-  background: var(--bg3); border: 1px solid var(--border2);
-  border-radius: 999px; outline: none; font-size: 13px;
-}
-.field input:focus, .field select:focus { border-color: var(--accent); }
-.field input:disabled { opacity: 0.5; }
-.field button { flex: none; }
-
-.toggle {
-  position: relative; width: 42px; height: 24px; flex: none;
-  border-radius: 999px; background: var(--bg3); border: 1px solid var(--border2);
-  transition: background 0.15s, border-color 0.15s;
-}
-.toggle::after {
-  content: ''; position: absolute; top: 2px; left: 2px;
-  width: 18px; height: 18px; border-radius: 999px;
-  background: var(--faint); transition: transform 0.15s, background 0.15s;
-}
-.toggle.on { background: var(--accent-soft); border-color: var(--accent); }
-.toggle.on::after { transform: translateX(18px); background: var(--accent); }
-
-.set-bar {
-  position: sticky; bottom: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px 0 6px; margin-top: 6px;
-  border-top: 1px solid var(--border); background: var(--bg);
-}
-.set-msg { flex: 1; font-size: 12px; color: var(--faint); }
-.set-msg.ok { color: var(--accent-text); }
-.set-msg.bad { color: var(--danger); }
+/* ── settings ──────────────────────────────────────────────────────────── */
+/* MOVED. The settings page's styling ships with the page itself, in
+   skills/build-agent/templates/_common/settings/settings.css, which Settings.tsx imports. It was
+   here, which meant the shared module only rendered correctly in THIS window. */
 
 /* ── scrollbars & soft scroll edges ─────────────────────────────────────── */
 /* COPIED FROM agentd, and the two halves belong together: lib/softScroll.ts tags every scroll

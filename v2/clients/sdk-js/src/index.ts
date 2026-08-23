@@ -4,18 +4,14 @@ export * from './client'
 //
 //   session.ts  what this client stores: its token, and which keys it wants to pay with
 //   auth.ts     ordinary HTTP sign-in against the accounts service, then reconnect
-//   gate.ts     the one-line drop-in form over auth.ts
 //   credits.ts  the balance and the shop, wired to identity() + the daemon's accounts url
-//   wallet.ts   the one-line drop-in Credits & billing panel over credits.ts
 //
 // The daemon stores neither fact. It says where to sign in, and reads both off each connection —
 // which is what lets one daemon serve many people, and one machine run two windows on two
 // different accounts and two different billing modes at once.
 export * from './session'
 export * from './auth'
-export * from './gate'
 export * from './credits'
-export * from './wallet'
 // The sign-in machinery itself, so an app that wants a credential can ask for one rather than
 // reach into storage: `identity().accessToken()` renews first when what is held is spent.
 export * from './identity'

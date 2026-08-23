@@ -20,7 +20,6 @@
 import {
   authLogout,
   authStatus,
-  mountSignInGate,
   setRunMode,
   type AgentdClient,
   type AuthState,
@@ -37,7 +36,14 @@ export interface Auth {
   /** Why the account could not be read. Shown, never swallowed: an account control that quietly
    *  does nothing is indistinguishable from a build that has no accounts service at all. */
   error: string
-  signIn: () => Promise<void>
+  /** Ask for the sign-in card. It is a COMPONENT now, so this only raises the flag below —
+   *  the app renders `<SignIn>` while it is set. The old gate built its own DOM over the page,
+   *  which is why this used to be something you awaited. */
+  signIn: () => void
+  /** Is the card being asked for? Render `<SignIn onDone={signedIn}>` while true. */
+  wantsSignIn: boolean
+  /** Call from the card's `onDone`: lowers the flag and re-reads the account. */
+  signedIn: () => void
   signOut: () => Promise<void>
   chooseMode: (mode: RunMode) => Promise<void>
   reload: () => void
@@ -76,18 +82,12 @@ export function useAuth(client: AgentdClient, product = ''): Auth {
     }
   }, [])
 
-  const signIn = useCallback(
-    () =>
-      run(() =>
-        mountSignInGate({
-          client,
-          // Falls back to the page title, so an agent that passes nothing still names itself.
-          product: product || undefined,
-          blurb: 'Sign in to use your account in this window.',
-        }),
-      ),
-    [run, client, product],
-  )
+  const [wantsSignIn, setWantsSignIn] = useState(false)
+  const signIn = useCallback(() => setWantsSignIn(true), [])
+  const signedIn = useCallback(() => {
+    setWantsSignIn(false)
+    void load()
+  }, [load])
 
   const signOut = useCallback(() => run(() => authLogout({ client })), [run, client])
 
@@ -99,5 +99,5 @@ export function useAuth(client: AgentdClient, product = ''): Auth {
     [run, client],
   )
 
-  return { auth, busy, error, signIn, signOut, chooseMode, reload: load }
+  return { auth, busy, error, signIn, wantsSignIn, signedIn, signOut, chooseMode, reload: load }
 }
