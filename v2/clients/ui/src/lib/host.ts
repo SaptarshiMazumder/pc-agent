@@ -30,6 +30,15 @@ const bridge = typeof candidate?.readText === 'function' ? candidate : undefined
 
 export const isDesktop = !!bridge
 
+/** Push a freshly-minted access token down to every open agent app window. A no-op in a browser
+ *  and on preloads too old to carry the channel. Here rather than in platform.ts because the
+ *  caller is lib/auth.ts, and going through the adapter would close the auth -> platform -> auth
+ *  cycle this leaf exists to break. */
+export function hostBroadcastAppToken(token: string): void {
+  const b = bridge as { broadcastAppToken?: (t: string) => Promise<unknown> } | undefined
+  if (typeof b?.broadcastAppToken === 'function') void b.broadcastAppToken(token)
+}
+
 /** OS-encrypted storage for the refresh token, when the desktop shell provides it.
  *
  * Reached from HERE rather than through lib/platform.ts on purpose. lib/tokens.ts needs it, and

@@ -1247,3 +1247,111 @@ h2 { font-size: 16px; }
 .tpl-full-title { font-size: 13px; font-weight: var(--fw-semi); color: var(--text); }
 .tpl-full-actions { display: flex; align-items: center; gap: 8px; }
 .tpl-full-frame { flex: 1; width: 100%; border: 0; }
+
+/* ── agentd's org/admin vocabulary, copied so the byte-identical OrgView renders the
+   byte-identical way. Sourced from clients/ui/src/styles.css; keep in step with it. ── */
+.settings-group { margin-bottom: 18px; }
+.tp-head .settings-section { margin-bottom: 0; }
+.admin-panel-head .settings-section { margin-bottom: 9px; }
+.admin-table-wrap {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+  overflow-x: auto; margin-bottom: 4px;
+}
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th {
+  text-align: left; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--faint); font-weight: var(--fw-semi); padding: 11px 14px;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.admin-table td {
+  padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--dim);
+  vertical-align: top; font-variant-numeric: tabular-nums;
+}
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table tr:hover td { background: var(--bg3); }
+.admin-table .btn { padding: 5px 12px; font-size: 12.5px; }
+.admin-table td > .admin-chip:first-child { margin-left: 0; }
+.admin-table td > .admin-chip:first-child { margin-left: 0; }
+.shelf-head .admin-chip { margin-left: 0; flex: none; }
+.admin-empty { color: var(--dim); font-size: 13px; padding: 18px 2px; }
+.admin-select {
+  font: inherit; font-size: 12.5px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 11px; cursor: pointer;
+}
+.admin-select:focus { outline: none; border-color: var(--accent); }
+.org-join-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 2px; border-bottom: 1px solid var(--border); color: var(--text);
+}
+.org-join-row:last-of-type { border-bottom: 0; }
+.org-join-row svg { vertical-align: -2px; margin-right: 5px; color: var(--dim); }
+.org-inline-form { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.org-inline-form .input { flex: 1; max-width: 340px; }
+.org-pool-line { display: flex; align-items: center; gap: 8px; }
+.org-cap-input { width: 92px; }
+.banner { padding: 8px 16px; font-size: 13px; background: var(--accent-soft); color: var(--accent-text); }
+.banner-error { background: var(--danger-soft); color: var(--danger); }
+.banner-error { background: var(--danger-soft); color: var(--danger); }
+.btn-back, .btn-back.ghost {
+  align-self: flex-start; margin: 0 0 6px -8px; padding: 4px 9px;
+  border: 0; background: transparent; box-shadow: none; color: var(--faint);
+  border-radius: 8px;
+}
+.entity-head .btn-back { margin-bottom: 2px; }
+.admin-panel-actions .btn { padding: 6px 12px; font-size: 12.5px; }
+.admin-table .btn { padding: 5px 12px; font-size: 12.5px; }
+.shelf-actions .btn { padding: 6px 13px; font-size: 12.5px; text-decoration: none; }
+.org-inline-form .input { flex: 1; max-width: 340px; }
+
+/* PageShell's own vocabulary, same source and same reason as the block above. */
+.page-bar { flex: none; padding: 44px 34px 12px; }
+.page-bar .settings-head { padding: 0; }
+.page-search { flex: none; padding: 2px 34px 12px; }
+.page-search--col { padding: 2px 0 12px; }
+.page-search .search-box { width: 100%; max-width: 440px; }
+.page-sub { color: var(--dim); font-size: 14px; margin-top: 2px; }
+.settings-head-titles .page-sub { margin-top: 3px; }
+.page-title { font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px; letter-spacing: -.02em; }
+.settings-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 34px 40px; }
+.app-embed .settings-body { overflow: hidden; display: flex; padding: 0 18px 18px; }
+.app-embed .settings-body > .settings-inner { max-width: none; display: flex; min-height: 0; }
+.settings-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+   max-width row that fills the height left under the pinned header. Only .settings-content
+   scrolls (no sticky child → it keeps its soft edges); the rail is pinned by being flex:none. */
+.settings-layout {
+  flex: 1; min-height: 0; width: 100%; max-width: 1060px; margin: 0 auto;
+  display: flex; gap: 28px; padding: 2px 34px 0;
+}
+.settings-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: 40px; animation: ag-up .22s ease; }
+.entity-head .settings-head { padding: 12px 0 0; }
+.page-bar .settings-head { padding: 0; }
+.settings-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 16px 0 12px;
+}
+.settings-head-titles { min-width: 0; }
+.settings-head-titles .page-sub { margin-top: 3px; }
+.settings-head-actions { display: flex; align-items: center; gap: 10px; flex: none; padding-top: 3px; }
+.settings-head-actions { display: flex; align-items: center; gap: 10px; flex: none; padding-top: 3px; }
+.settings-head-titles { min-width: 0; }
+.settings-head-titles .page-sub { margin-top: 3px; }
+.settings-layout {
+  flex: 1; min-height: 0; width: 100%; max-width: 1060px; margin: 0 auto;
+  display: flex; gap: 28px; padding: 2px 34px 0;
+}
+.settings-nav { flex: none; width: 194px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-bottom: 16px; }
+.settings-nav-item {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 9px 12px; border: 0; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--dim); font-size: 13.5px; font-weight: var(--fw-medium);
+  transition: background .15s ease, color .15s ease;
+}
+.settings-nav-item:hover { background: var(--bg3); color: var(--text); }
+.settings-nav-item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: var(--fw-semi); }
+.settings-nav-item svg { flex: none; }
+
+/* An org shortcut under the Organizations entry — the same row, stepped in, the way agentd
+   lists the user's orgs inside its account menu. */
+.app-menu-item--sub { padding-left: 30px; font-size: 12.5px; color: var(--dim); }
+.app-menu-item--sub:hover { color: var(--text); }

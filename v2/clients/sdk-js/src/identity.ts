@@ -64,6 +64,26 @@ export function sessionKey(explicit = ''): string {
  */
 const managers = new Map<string, TokenManager>()
 
+/**
+ * Subscribe a manager to the desktop shell's token pushes. Returns an unsubscribe.
+ *
+ * The shell holds the only refresh token and re-broadcasts every rotation
+ * (`agentdHost.onAccessToken` — see the desktop's src/preload/app.ts); a window that arrived with
+ * a bare launch token stays signed in by adopting what comes down. A no-op in a browser tab,
+ * where there is no bridge. Whether a push is TAKEN is the manager's decision (`adopt`): the push
+ * reaches every open window at once, and a window signed in as somebody else must not silently
+ * become the pusher's account.
+ */
+export function feedFromHost(manager: TokenManager): () => void {
+  const host = (
+    globalThis as { agentdHost?: { onAccessToken(cb: (t: string) => void): () => void } }
+  ).agentdHost
+  if (!host?.onAccessToken) return () => undefined
+  return host.onAccessToken((token) => {
+    if (token) void manager.adopt(token)
+  })
+}
+
 export function identity(opts: IdentityOptions = {}): TokenManager {
   const key = sessionKey(opts.storageKey)
   const held = managers.get(key)
@@ -87,6 +107,10 @@ export function identity(opts: IdentityOptions = {}): TokenManager {
   managers.set(key, manager)
   if (opts.client) bindClient(manager, key, opts.client)
   manager.start()
+  // FED WITHOUT ASKING, like renewal above: subscribing to the shell's pushes happens with the
+  // manager, so an author who never heard of the push chain still gets fed. (A second explicit
+  // acceptHostTokens() is harmless — adopting the same token twice is idempotent.)
+  feedFromHost(manager)
   // SETTLE THE CREDENTIAL, ONCE, AT BOOT — and do not wait for it.
   //
   // Two windows need this and neither could ask for it. One that stored a session last time has a
@@ -120,11 +144,21 @@ function bindClient(manager: TokenManager, key: string, client: AgentdClient): v
       return
     }
     // Swap the credential on the OPEN socket rather than reconnecting: a reconnect drops an
-    // in-flight run, which is exactly what a background renewal must not do. Falling back to a
-    // reconnect covers a daemon too old to know `auth.update`.
+    // in-flight run, which is exactly what a background renewal must not do.
+    //
+    // AND ON FAILURE, MOSTLY DO NOTHING. This used to reconnect on ANY rejection — and a
+    // renewal lands every ~8 minutes, so a daemon that was merely busy for one of them (a
+    // build, a hiccup at the accounts service, a timeout) got its socket torn down, which
+    // dropped every in-flight run and printed "the daemon restarted mid-run" at a user whose
+    // daemon had done nothing of the sort. The socket's identity was pinned at connect and
+    // still works; the next renewal retries in minutes. Only the daemon's TYPED refusals mean
+    // the credential itself can never work — those reconnect, so the gate can take over.
     void target
       .request('auth.update', { accessToken: pair.accessToken })
-      .catch(() => target.reconnect())
+      .catch((e: unknown) => {
+        const code = (e as { code?: string } | null)?.code
+        if (code === 'auth_invalid' || code === 'auth_account_mismatch') target.reconnect()
+      })
   })
 }
 

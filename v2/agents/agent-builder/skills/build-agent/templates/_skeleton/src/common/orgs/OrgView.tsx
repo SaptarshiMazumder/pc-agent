@@ -27,7 +27,8 @@
  *      credits own theirs.
  */
 
-import { authStatus, createOrg, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, joinOrg, mintInvite, updateDomain, updateMember } from '@agentd/client'
+import { authStatus, billing, createOrg, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, joinOrg, mintInvite, onCreditsChanged, updateDomain, updateMember } from '@agentd/client'
+import type { Catalog, CreditPack } from '@agentd/client'
 import type { AgentdClient, MyOrgs, OrgDetail, OrgUsageRow } from '@agentd/client'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -324,6 +325,10 @@ function Detail({
           </section>
         )}
 
+        {/* Money, where the seats are counted. Admin-only like the sections around it —
+            presence of the admin payload is the permission; see the module note. */}
+        {isAdmin && <OrgShop client={client} orgId={orgId} onBought={reload} />}
+
         {/* `org.members` ARRIVES ONLY FOR AN ADMIN — see the module note. */}
         {isAdmin && org.members && (
           <section className="orgs-group">
@@ -491,5 +496,110 @@ function Detail({
         )}
       </div>
     </div>
+  )
+}
+
+
+/* The organization's shop: seats and pool top-ups, bought BY an admin FOR the org.
+
+   HERE AND NOT ON THE CREDITS PAGE, because the credits page is the individual's view and an org
+   member's reads "your organization funds your usage". Seats and the pool are org facts, so they
+   are bought where the seats are counted and the pool is shown.
+
+   THE SAME RULES AS THE PERSONAL SHOP: only a product_id ever goes up (prices live in the
+   products table), one idempotency key per press, and `checkoutUrl` in the answer IS the
+   question "does the rail need the customer to go somewhere" — followed when present, balance
+   shown otherwise, correct on the test rail and on Stripe without asking which is configured. */
+function OrgShop({
+  client,
+  orgId,
+  onBought,
+}: {
+  client?: AgentdClient
+  orgId: string
+  /** Re-read the org: seats moved, or the pool did. */
+  onBought: () => void
+}) {
+  const [seatCatalog, setSeatCatalog] = useState<Catalog | null>(null)
+  const [packCatalog, setPackCatalog] = useState<Catalog | null>(null)
+  const [busy, setBusy] = useState('')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const shop = billing({ client })
+    void shop.catalog('seat_subscription').then(setSeatCatalog)
+    void shop.catalog('credit_pack').then(setPackCatalog)
+    // A purchase that finished on a card rail lands back here via the return URL; the balance
+    // event is what tells this page the pool moved without anyone pressing Refresh.
+    return onCreditsChanged(onBought)
+  }, [client, onBought])
+
+  async function buy(p: CreditPack): Promise<void> {
+    setBusy(p.id)
+    setNote('')
+    setError('')
+    try {
+      const r = await billing({ client }).buy(p.id, location.href.split('#')[0], orgId)
+      if (r.checkoutUrl) {
+        location.href = r.checkoutUrl
+        return
+      }
+      setNote(
+        p.seats > 0
+          ? `Added ${p.seats} seat${p.seats === 1 ? '' : 's'}. ${r.paymentDetail}`
+          : `Added ${r.credits.toLocaleString()} credits to the pool. ${r.paymentDetail}`,
+      )
+      onBought()
+    } catch (e) {
+      setError(String((e as Error)?.message || e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const shelf = (catalog: Catalog | null, empty: string) =>
+    catalog === null ? (
+      <div className="orgs-empty">Loading…</div>
+    ) : catalog.packs.length === 0 ? (
+      <div className="orgs-empty">{empty}</div>
+    ) : (
+      <>
+        {catalog.packs.map((p) => (
+          <div key={p.id} className="orgs-row">
+            <span>
+              <b>{p.seats > 0 ? `${p.seats} seat${p.seats === 1 ? '' : 's'}` : `${p.credits.toLocaleString()} credits`}</b>
+              {p.title ? ` — ${p.title}` : ''}
+              {p.periodDays > 0 && p.seats > 0 ? ` · renews every ${p.periodDays} days` : ''}
+            </span>
+            <button className="prime-btn" disabled={!!busy} onClick={() => void buy(p)}>
+              {busy === p.id ? 'Buying…' : `Buy · $${p.priceUsd.toFixed(2)}`}
+            </button>
+          </div>
+        ))}
+        {catalog.paymentNote && <div className="orgs-help">{catalog.paymentNote}</div>}
+      </>
+    )
+
+  return (
+    <>
+      <section className="orgs-group">
+        <div className="orgs-section">Seats</div>
+        <p className="orgs-help">
+          Each seat lets one more person join. Bought as a subscription — it renews until
+          cancelled.
+        </p>
+        <div className="orgs-card">{shelf(seatCatalog, 'No seat products are configured on this environment.')}</div>
+      </section>
+      <section className="orgs-group">
+        <div className="orgs-section">Top up the pool</div>
+        <p className="orgs-help">
+          The pool is what every member spends, each bounded by their seat’s monthly allowance.
+        </p>
+        <div className="orgs-card">{shelf(packCatalog, 'No credit packs are configured on this environment.')}</div>
+      </section>
+      {note && <div className="orgs-banner">{note}</div>}
+      {error && <div className="orgs-banner orgs-banner-error">{error}</div>}
+    </>
   )
 }

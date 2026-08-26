@@ -21,7 +21,7 @@ import type { Catalog, CreditPack, Credits, Purchase } from '@agentd/billing'
 
 import { gateway } from '../gateway/client'
 import { platformDoc } from './discovery'
-import { randomUuid } from './host'
+import { hostBroadcastAppToken, randomUuid } from './host'
 import {
   clearTokens,
   configureTokens,
@@ -125,6 +125,12 @@ configureTokens(() => accountsUrl())
 // Every change to the credential — sign-in, renewal, sign-out — re-renders whoever is showing it.
 // Subscribing HERE rather than in each caller is what makes the projection above trustworthy.
 onTokens(announce)
+// THE PUSH CHAIN'S SEND SIDE. This shell holds the only refresh token; agent app windows run on
+// ten-minute access tokens they cannot renew. Main and both preloads have carried the pipe for a
+// while (app:broadcastToken -> agentdHost.onAccessToken) — but nothing ever put a token INTO it,
+// so every app window went anonymous at its first expiry. Every rotation goes down the pipe now;
+// each window's manager decides for itself whether to adopt what arrives.
+onTokens((p) => hostBroadcastAppToken(p?.accessToken || ''))
 cached = project()
 
 export function getSession(): Session | null {
@@ -282,9 +288,14 @@ export async function fetchCatalog(kind = 'credit_pack'): Promise<Catalog | null
  * returns a link to go and pay. `checkoutUrl` is empty in the first case, which is the only thing
  * a caller has to look at — never at which rail is configured.
  */
-export async function purchase(productId: string): Promise<Purchase> {
+export async function purchase(productId: string, orgId = ''): Promise<Purchase> {
   if (!getSession() || !isAccountsMode()) throw new Error('sign in to buy credits')
-  return shop.buy(productId, typeof location === 'undefined' ? '' : location.href.split('#')[0])
+  // Our own address goes along ONLY when it is a web URL. In the installed shell the page loads
+  // from disk (file://...), and telling a checkout "return the customer to a file on my C: drive"
+  // is a value the accounts service rightly refuses — so there, the field stays empty, which the
+  // current settle-in-place rail ignores anyway. A card rail on desktop will need a deep link.
+  const page = typeof location === 'undefined' ? '' : location.href.split('#')[0]
+  return shop.buy(productId, /^https?:\/\//.test(page) ? page : '', orgId)
 }
 
 /** React hook: the current session (re-renders on sign-in/out). */

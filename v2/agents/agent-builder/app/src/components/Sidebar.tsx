@@ -151,6 +151,7 @@ export function Sidebar({
   daemonVersion: string
 }) {
   const agents = useApp((s) => s.agents)
+  const viewOrg = useApp((s) => s.viewOrg)
   const chats = useApp((s) => s.chats)
   const selected = useSubject()
   const view = useApp((s) => s.view)
@@ -215,6 +216,8 @@ export function Sidebar({
         </div>
         <div className="rail-spacer" />
         <ProfileMenu
+          onOrgs={() => viewOrg('')}
+          onOrg={viewOrg}
           variant="rail"
           auth={auth}
           error={authError}
@@ -398,6 +401,8 @@ export function Sidebar({
 
       <div className="footer-nav">
         <ProfileMenu
+          onOrgs={() => viewOrg('')}
+          onOrg={viewOrg}
           auth={auth}
           error={authError}
           onCredits={onCredits}

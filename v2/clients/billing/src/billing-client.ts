@@ -34,6 +34,7 @@ function toPack(d: Record<string, unknown>): CreditPack {
     title: String(d.title || ''),
     priceUsd: Number(d.price_usd || 0),
     credits: Number(d.credits || 0),
+    seats: Number(d.seats || 0),
     modelTierMax: String(d.model_tier_max || ''),
     periodDays: Number(d.period_days || 0)
   }
@@ -68,6 +69,8 @@ export class BillingClient {
       return {
         creditsRemaining: Number(d.credits_remaining || 0),
         fundingSource: String(d.funding_source || ''),
+        orgId: String(d.org_id || ''),
+        memberCapped: Boolean(d.member_capped),
         creditClass: String(d.credit_class || ''),
         modelTierMax: String(d.model_tier_max || ''),
         entitlementRequired: Boolean(d.entitlement_required),
@@ -111,11 +114,14 @@ export class BillingClient {
    * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
    * card payment comes back where it started.
    */
-  async buy(productId: string, returnUrl = ''): Promise<Purchase> {
+  async buy(productId: string, returnUrl = '', orgId = ''): Promise<Purchase> {
     const body: Record<string, unknown> = {
       product_id: productId,
       idempotency_key: this.host.newKey()
     }
+    // Buying FOR an organization — seats, or a pool top-up. The server checks the buyer is an
+    // owner/admin of it; this only names which purchase it is.
+    if (orgId) body.org_id = orgId
     if (returnUrl) {
       body.success_url = returnUrl
       body.cancel_url = returnUrl

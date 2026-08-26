@@ -22,6 +22,7 @@ step before real enterprises.
 
 from __future__ import annotations
 
+import os
 import hashlib
 import secrets
 import sqlite3
@@ -49,7 +50,10 @@ INVITE_TTL_DAYS_DEFAULT = 7.0
 INVITE_TTL_DAYS_MAX = 30.0
 #: New orgs start small on purpose: seats are the membership gate, and an unbounded default
 #: would make the gate decorative until an admin remembered to set it.
-SEATS_DEFAULT = 5
+#: Seats an org is born with, BEFORE any are bought. Env-driven so dev stays friendly while
+#: production prices honestly: AGENTD_ORG_FREE_SEATS=1 there means the owner's own seat is free
+#: and every other one is a seat_subscription purchase.
+SEATS_DEFAULT = max(1, int(os.environ.get("AGENTD_ORG_FREE_SEATS", "5")))
 SEATS_MAX = 10_000
 
 
@@ -169,6 +173,20 @@ def _add_member(
     ).fetchone()
     if existing is not None and existing["active"]:
         raise HTTPException(status_code=409, detail="already a member")
+    # ONE ORG PER ACCOUNT. Not a simplification — the funding rule depends on it: a member's
+    # every turn draws THEIR org's pool, and with two orgs there is no honest answer to which.
+    # Enforced at the one writer every join path uses, so no new path can forget it.
+    elsewhere = c.execute(
+        "SELECT o.name FROM org_members m JOIN orgs o ON o.id = m.org_id "
+        "WHERE m.account_id = ? AND m.active = 1 AND o.active = 1 AND m.org_id <> ? LIMIT 1",
+        (account_id, str(org["id"])),
+    ).fetchone()
+    if elsewhere is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"this account already belongs to '{elsewhere['name']}' — an account can be "
+            f"in one organization; leave it first",
+        )
     _seat_available(c, org)
     c.execute(
         "INSERT INTO org_members (org_id, account_id, role, monthly_credit_cap, added_by, "

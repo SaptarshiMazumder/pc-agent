@@ -529,7 +529,9 @@ def test_kind_filters_the_shelf(accounts):
     client, account_id = accounts
     _subscribe(client, account_id)
     all_kinds = {p["kind"] for p in client.get("/products").json()["products"]}
-    assert all_kinds == {"credit_pack", "agent_subscription"}
+    # seat_subscription joined the catalogue when orgs learned to buy seats — seeded at
+    # startup exactly like the credit packs, so the org page's shelf is never empty.
+    assert all_kinds == {"credit_pack", "agent_subscription", "seat_subscription"}
     only = {p["kind"] for p in client.get("/products", params={"kind": "credit_pack"}).json()["products"]}
     assert only == {"credit_pack"}
 

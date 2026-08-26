@@ -300,7 +300,13 @@ def _grant(client, body) -> dict:
     return r.json()
 
 
-def test_org_and_personal_pockets_never_cross(stack):
+def test_membership_decides_the_pocket(stack):
+    """THE ENTERPRISE RULE, which REVERSED this test's original claim. It used to assert that a
+    member's un-attributed turns drew their personal credits. The product decision is the
+    opposite: an account in an organization HAS no personal wallet — every turn draws the org's
+    pool whether or not the daemon stamped an org on it, because "whose money paid for this" must
+    not depend on which agent happened to answer. Personal grants become reachable again only by
+    leaving the org."""
     client, _m, org_id, owner = stack
     member_token = _join_by_invite(client, org_id, owner, "member@kajima.co.jp")
     acct = client.get("/resolve", headers=_auth(member_token)).json()["account_id"]
@@ -308,17 +314,20 @@ def test_org_and_personal_pockets_never_cross(stack):
     _grant(client, {"account_id": acct, "credits": 70})
 
     org_view = client.get("/funding", params={"account_id": acct, "org_id": org_id}).json()
-    personal = client.get("/funding", params={"account_id": acct}).json()
+    unattributed = client.get("/funding", params={"account_id": acct}).json()
     assert org_view["credits_remaining"] == 1000
     assert org_view["funding_source"] == "org_pool"
-    assert personal["credits_remaining"] == 70  # the org's 1000 is invisible here
+    # The un-attributed view resolves to the SAME pool — membership decided, not the stamp.
+    assert unattributed["credits_remaining"] == 1000
+    assert unattributed["funding_source"] == "org_pool"
+    # ...and the personal 70 are invisible everywhere while the membership lasts.
 
     # an org-attributed debit drains the ORG pool and only the org pool
     d = client.post(
         "/debit", json={"account_id": acct, "org_id": org_id, "credits": 400}
     )
     assert d.status_code == 200 and d.json()["credits_remaining"] == 600
-    assert client.get("/funding", params={"account_id": acct}).json()["credits_remaining"] == 70
+    assert client.get("/funding", params={"account_id": acct}).json()["credits_remaining"] == 600
 
 
 def test_an_unfunded_org_turn_is_402_even_on_the_free_tier(stack):

@@ -23,7 +23,7 @@
  */
 
 import type { AgentdClient } from './client'
-import { identity } from './identity'
+import { feedFromHost, identity } from './identity'
 import { type DaemonOptions, platformStatus } from './platform-status'
 import { type RunMode, effectiveMode, loadMode, saveMode } from './session'
 
@@ -131,14 +131,7 @@ export function startAuthRenewal(opts: AuthOptions = {}): () => void {
  * account.
  */
 export function acceptHostTokens(opts: AuthOptions = {}): () => void {
-  const host = (
-    globalThis as { agentdHost?: { onAccessToken(cb: (t: string) => void): () => void } }
-  ).agentdHost
-  if (!host?.onAccessToken) return () => undefined
-  const manager = identity(opts)
-  return host.onAccessToken((token) => {
-    if (token) void manager.adopt(token)
-  })
+  return feedFromHost(identity(opts))
 }
 
 /** Forget this client's session. Other windows keep theirs — each holds its own. */

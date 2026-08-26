@@ -30,6 +30,7 @@ import {
   saveSession,
   type RunMode
 } from './session'
+import { identity } from './identity'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 type EventHandler = (payload: Record<string, any>) => void
@@ -253,7 +254,16 @@ export class AgentdClient {
       if (!pending) return
       this.pending.delete(frame.id)
       if (frame.ok) pending.resolve(frame.payload || {})
-      else pending.reject(new Error(String(frame.payload?.error || 'gateway error')))
+      else {
+        // The MESSAGE is for a human; the CODE is for code. auth.update's caller has to tell "this
+        // token can never work" (reconnect and re-gate) from "the daemon hiccuped" (do nothing) —
+        // and matching on prose strings is how that distinction silently breaks on a reword.
+        const err = new Error(String(frame.payload?.error || 'gateway error')) as Error & {
+          code?: string
+        }
+        if (typeof frame.payload?.code === 'string') err.code = frame.payload.code
+        pending.reject(err)
+      }
     } else if (frame.type === 'event') {
       for (const handler of this.eventHandlers.get(frame.event) || []) {
         handler(frame.payload || {})
@@ -406,6 +416,13 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
     history.replaceState(null, '', here.toString())
   }
   const client = new AgentdClient(options)
+  // THE LAST INCH OF THE PUSH CHAIN. The identity manager is created here, BOUND to this client:
+  // binding is what carries a new credential onto the OPEN socket (`auth.update`), and creating
+  // it at boot is what subscribes the window to the shell's token pushes at all. Without this
+  // line both halves ran and nothing moved: the shell pushed, the manager adopted — and the
+  // socket kept presenting its launch token until the daemon refused it ten minutes in
+  // (`auth_expired` mid-chat, live). Every window built by this helper is looked after now.
+  identity({ client })
   // The RESOLVER form, not a static target: the stored session and mode are re-read on every
   // (re)connect, so a sign-in or a mode change is carried by the next socket without the app
   // doing anything. A fixed object would pin whatever was stored at page load.

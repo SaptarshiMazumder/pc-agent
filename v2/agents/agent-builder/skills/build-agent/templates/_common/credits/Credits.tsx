@@ -97,20 +97,47 @@ export default function Credits({ agentId = '' }: { agentId?: string }) {
               </button>
             </div>
             <div className="plan-price">
-              {balance?.fundingSource === 'agent_subscription'
-                ? 'Funded by an agent subscription'
-                : 'Your platform balance'}
+              {balance?.fundingSource === 'org_pool'
+                ? 'Your organization’s shared pool'
+                : balance?.fundingSource === 'agent_subscription'
+                  ? 'Funded by an agent subscription'
+                  : 'Your platform balance'}
               {balance?.creditClass === 'promotional' ? <span> · promotional</span> : null}
               {balance?.modelTierMax ? <span> · up to the “{balance.modelTierMax}” tier</span> : null}
             </div>
-            {balance?.creditsRemaining === 0 && (
+            {balance?.memberCapped && (
               <ul className="plan-feats">
-                <li>Out of credits — messages are refused until you top up.</li>
+                <li>
+                  Your seat’s monthly allowance is spent. The pool may still hold credits — an
+                  organization admin can raise your allowance.
+                </li>
+              </ul>
+            )}
+            {balance?.creditsRemaining === 0 && !balance?.memberCapped && (
+              <ul className="plan-feats">
+                <li>
+                  {balance?.fundingSource === 'org_pool'
+                    ? 'The organization’s pool is empty — an admin can top it up from the Organizations page.'
+                    : 'Out of credits — messages are refused until you top up.'}
+                </li>
               </ul>
             )}
           </div>
         </div>
 
+        {/* NO STORE FOR AN ORG MEMBER. Their turns can only spend the organization's pool, and
+            the server refuses a personal purchase with exactly that explanation — so offering the
+            packs here would sell a thing the buyer could never use. Admins buy for the org from
+            the Organizations page, which is where the seats live too. */}
+        {balance?.orgId ? (
+          <div className="credits-group">
+            <div className="credits-section">Buying credits</div>
+            <div className="credits-note">
+              Your organization funds your usage. An organization owner or admin can top up the
+              pool and buy seats from the Organizations page.
+            </div>
+          </div>
+        ) : (
         <div className="credits-group">
           <div className="credits-section">Buy credits</div>
           {catalog === null ? (
@@ -155,6 +182,7 @@ export default function Credits({ agentId = '' }: { agentId?: string }) {
           {receipt && <div className="credits-note">{receipt}</div>}
           {error && <div className="credits-note error">{error}</div>}
         </div>
+        )}
       </div>
     </div>
   )

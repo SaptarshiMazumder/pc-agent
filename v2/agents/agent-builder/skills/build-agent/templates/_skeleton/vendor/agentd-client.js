@@ -514,6 +514,13 @@ function sessionKey(explicit = "") {
   return `agentd.session.${id || "app"}`;
 }
 var managers = /* @__PURE__ */ new Map();
+function feedFromHost(manager) {
+  const host = globalThis.agentdHost;
+  if (!host?.onAccessToken) return () => void 0;
+  return host.onAccessToken((token) => {
+    if (token) void manager.adopt(token);
+  });
+}
 function identity(opts = {}) {
   const key = sessionKey(opts.storageKey);
   const held = managers.get(key);
@@ -534,6 +541,7 @@ function identity(opts = {}) {
   managers.set(key, manager);
   if (opts.client) bindClient(manager, key, opts.client);
   manager.start();
+  feedFromHost(manager);
   void manager.restore().catch(() => void 0);
   return manager;
 }
@@ -550,7 +558,10 @@ function bindClient(manager, key, client) {
       target.reconnect();
       return;
     }
-    void target.request("auth.update", { accessToken: pair.accessToken }).catch(() => target.reconnect());
+    void target.request("auth.update", { accessToken: pair.accessToken }).catch((e) => {
+      const code = e?.code;
+      if (code === "auth_invalid" || code === "auth_account_mismatch") target.reconnect();
+    });
   });
 }
 function documentTitle() {
@@ -771,7 +782,11 @@ var _AgentdClient = class _AgentdClient {
       if (!pending) return;
       this.pending.delete(frame.id);
       if (frame.ok) pending.resolve(frame.payload || {});
-      else pending.reject(new Error(String(frame.payload?.error || "gateway error")));
+      else {
+        const err = new Error(String(frame.payload?.error || "gateway error"));
+        if (typeof frame.payload?.code === "string") err.code = frame.payload.code;
+        pending.reject(err);
+      }
     } else if (frame.type === "event") {
       for (const handler of this.eventHandlers.get(frame.event) || []) {
         handler(frame.payload || {});
@@ -871,6 +886,7 @@ function fromPage(options = {}) {
     history.replaceState(null, "", here.toString());
   }
   const client = new AgentdClient(options);
+  identity({ client });
   client.connect(async () => {
     const stored = loadSession()?.token;
     return {
@@ -916,12 +932,7 @@ function startAuthRenewal(opts = {}) {
   return identity(opts).start();
 }
 function acceptHostTokens(opts = {}) {
-  const host = globalThis.agentdHost;
-  if (!host?.onAccessToken) return () => void 0;
-  const manager = identity(opts);
-  return host.onAccessToken((token) => {
-    if (token) void manager.adopt(token);
-  });
+  return feedFromHost(identity(opts));
 }
 async function authLogout(opts = {}) {
   await identity(opts).logout();
@@ -957,6 +968,7 @@ function toPack(d) {
     title: String(d.title || ""),
     priceUsd: Number(d.price_usd || 0),
     credits: Number(d.credits || 0),
+    seats: Number(d.seats || 0),
     modelTierMax: String(d.model_tier_max || ""),
     periodDays: Number(d.period_days || 0)
   };
@@ -989,6 +1001,8 @@ var BillingClient = class {
       return {
         creditsRemaining: Number(d.credits_remaining || 0),
         fundingSource: String(d.funding_source || ""),
+        orgId: String(d.org_id || ""),
+        memberCapped: Boolean(d.member_capped),
         creditClass: String(d.credit_class || ""),
         modelTierMax: String(d.model_tier_max || ""),
         entitlementRequired: Boolean(d.entitlement_required),
@@ -1026,11 +1040,12 @@ var BillingClient = class {
    * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
    * card payment comes back where it started.
    */
-  async buy(productId, returnUrl = "") {
+  async buy(productId, returnUrl = "", orgId = "") {
     const body = {
       product_id: productId,
       idempotency_key: this.host.newKey()
     };
+    if (orgId) body.org_id = orgId;
     if (returnUrl) {
       body.success_url = returnUrl;
       body.cancel_url = returnUrl;
@@ -1226,6 +1241,7 @@ export {
   daemonOrigin,
   daemonToken,
   effectiveMode,
+  feedFromHost,
   fetchMyOrgs,
   fetchOrgDetail,
   fetchOrgUsage,

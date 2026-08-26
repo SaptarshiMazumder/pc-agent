@@ -129,3 +129,7 @@ cd v2
 ./deploy/scripts/redeploy.sh staging --no-build  # just restart what's in ECR
 ./deploy/scripts/redeploy.sh staging --only web  # one image
 ./deploy/scripts/redeploy.sh staging --skip-tf   # skip terraform
+
+
+cd v2/clients/desktop
+./scripts/build-exe.sh

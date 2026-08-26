@@ -256,7 +256,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--service", default="", help="publish service url (default: this install's publish_url)"
     )
     roster_admit.add_argument(
-        "--id", default="", action="append", help="admit only this creator id (repeatable)"
+        "--id", default=None, action="append", help="admit only this creator id (repeatable)"
     )
     roster_admit.add_argument("--file", default="registry-roster.json", help="the roster file (local flow)")
     roster_admit.add_argument("--creators-table", default="", help="DynamoDB table name (local flow)")

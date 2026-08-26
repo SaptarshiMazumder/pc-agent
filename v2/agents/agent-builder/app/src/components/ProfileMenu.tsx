@@ -17,13 +17,16 @@
  * "Sign in" to somebody who had just signed in, with no way ever to sign out. `auth` is this
  * client's own answer about its own session, which is the question the menu is asking.
  *
- * WHAT IS STILL ABSENT is not an oversight: Account and Organizations are pages this window has no
+ * ORGANIZATIONS LIVES HERE NOW, exactly as it does in agentd's menu — the entry, and the
+ * user's own orgs listed under it, each a shortcut straight to that org's page. What is still
+ * absent is not an oversight: Account is a page this window has no
  * route to and no permission to serve. Run mode stays in Settings because it is a property of the
  * MACHINE — it applies to every agent on it, not to this account.
  */
 
 import { CreditCard, LogIn, LogOut, User } from 'lucide-react'
-import { useState } from 'react'
+import { fetchMyOrgs, type MyOrgs } from '@agentd/client'
+import { useEffect, useState } from 'react'
 
 import type { AuthState } from '@agentd/client'
 
@@ -31,6 +34,8 @@ export function ProfileMenu({
   auth,
   error,
   onCredits,
+  onOrgs,
+  onOrg,
   onSignIn,
   onSignOut,
   variant = 'footer',
@@ -41,6 +46,10 @@ export function ProfileMenu({
    *  quietly does nothing is indistinguishable from a build that has no Cloud. */
   error: string
   onCredits: () => void
+  /** Open the Organizations overview. */
+  onOrgs: () => void
+  /** Open ONE organization's page — the shortcut rows under the entry. */
+  onOrg: (id: string) => void
   /** Draws the SDK's gate and re-reads the account. Never a form of this window's own. */
   onSignIn: () => Promise<void> | void
   onSignOut: () => Promise<void> | void
@@ -49,6 +58,11 @@ export function ProfileMenu({
   variant?: 'footer' | 'rail'
 }) {
   const [open, setOpen] = useState(false)
+  const [orgs, setOrgs] = useState<MyOrgs | null>(null)
+  useEffect(() => {
+    if (!open) return
+    void fetchMyOrgs({}).then(setOrgs).catch(() => setOrgs(null))
+  }, [open])
   const [busy, setBusy] = useState('')
   const [failed, setFailed] = useState('')
 
@@ -125,6 +139,31 @@ export function ProfileMenu({
             <CreditCard size={16} />
             <span>Credits &amp; billing</span>
           </button>
+
+          <button
+            className="app-menu-item"
+            type="button"
+            onClick={() => {
+              onOrgs()
+              setOpen(false)
+            }}
+          >
+            <span>Organizations</span>
+          </button>
+          {(orgs?.orgs || []).map((o) => (
+            <button
+              key={o.id}
+              className="app-menu-item app-menu-item--sub"
+              type="button"
+              title={`Open ${o.name}`}
+              onClick={() => {
+                onOrg(o.id)
+                setOpen(false)
+              }}
+            >
+              <span>{o.name}</span>
+            </button>
+          ))}
 
           {canSignIn && (
             <>

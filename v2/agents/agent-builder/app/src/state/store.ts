@@ -100,6 +100,10 @@ interface AppState {
 
   // ---- view state ---------------------------------------------------------
   view: View
+  /** Which organization the orgs view is looking at — '' is the overview. Named exactly as
+   *  agentd's store names these, because OrgView is agentd's file unchanged and reads both. */
+  viewedOrgId: string
+  viewOrg(orgId: string): void
   /** agentd's name for it, and agentd's meaning: collapsed to the icon rail, never gone. */
   sidebarCollapsed: boolean
   panelOpen: boolean
@@ -458,6 +462,7 @@ export const useApp = create<AppState>()((set, get) => ({
   currentSessionKey: FIRST_KEY,
   openTabs: [FIRST_KEY],
   view: 'chat',
+  viewedOrgId: '',
   sidebarCollapsed: false,
   panelOpen: true,
   composerSeed: null,
@@ -596,6 +601,7 @@ export const useApp = create<AppState>()((set, get) => ({
   },
 
   setView: (view) => set({ view }),
+  viewOrg: (viewedOrgId) => set({ view: 'orgs', viewedOrgId }),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   seedComposer: (text) => set({ composerSeed: { text } }),

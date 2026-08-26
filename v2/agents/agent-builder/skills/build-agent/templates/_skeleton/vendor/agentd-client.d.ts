@@ -674,6 +674,11 @@ declare function setRunMode(mode: RunMode, opts?: AuthOptions): Promise<AuthStat
 type Credits = {
     creditsRemaining: number;
     fundingSource: string;
+    /** The organization whose pool this balance IS, when fundingSource is 'org_pool'. An account
+     *  in an org has no personal wallet — the server decides the pocket from membership. */
+    orgId: string;
+    /** This member's seat allowance is spent for the month. The pool may hold plenty. */
+    memberCapped: boolean;
     creditClass: string;
     modelTierMax: string;
     entitlementRequired: boolean;
@@ -686,6 +691,8 @@ type CreditPack = {
     title: string;
     priceUsd: number;
     credits: number;
+    /** Seats one purchase adds — set on `seat_subscription` products, 0 on credit packs. */
+    seats: number;
     modelTierMax: string;
     periodDays: number;
 };
@@ -792,7 +799,7 @@ declare class BillingClient {
      * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
      * card payment comes back where it started.
      */
-    buy(productId: string, returnUrl?: string): Promise<Purchase>;
+    buy(productId: string, returnUrl?: string, orgId?: string): Promise<Purchase>;
 }
 
 /**
@@ -955,8 +962,19 @@ interface IdentityOptions extends DaemonOptions {
  * `agentd.session.app`, i.e. one agent's session silently becomes another's.
  */
 declare function sessionKey(explicit?: string): string;
+/**
+ * Subscribe a manager to the desktop shell's token pushes. Returns an unsubscribe.
+ *
+ * The shell holds the only refresh token and re-broadcasts every rotation
+ * (`agentdHost.onAccessToken` — see the desktop's src/preload/app.ts); a window that arrived with
+ * a bare launch token stays signed in by adopting what comes down. A no-op in a browser tab,
+ * where there is no bridge. Whether a push is TAKEN is the manager's decision (`adopt`): the push
+ * reaches every open window at once, and a window signed in as somebody else must not silently
+ * become the pusher's account.
+ */
+declare function feedFromHost(manager: TokenManager): () => void;
 declare function identity(opts?: IdentityOptions): TokenManager;
 /** Drop the memoised managers. Tests only — a page has exactly one lifetime. */
 declare function resetIdentity(): void;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthConfig, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SecretStore, type SendResult, type SessionRow, type SessionStore, type StoredSession, TokenManager, type TokenPair, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authRefresh, authStatus, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fromPage, identity, joinOrg, loadMode, loadSession, localSessionStore, memorySessionStore, mintInvite, notifyCreditsChanged, onCreditsChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthConfig, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SecretStore, type SendResult, type SessionRow, type SessionStore, type StoredSession, TokenManager, type TokenPair, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authRefresh, authStatus, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, feedFromHost, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fromPage, identity, joinOrg, loadMode, loadSession, localSessionStore, memorySessionStore, mintInvite, notifyCreditsChanged, onCreditsChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };

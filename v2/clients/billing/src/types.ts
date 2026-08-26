@@ -7,6 +7,11 @@
 export type Credits = {
   creditsRemaining: number
   fundingSource: string
+  /** The organization whose pool this balance IS, when fundingSource is 'org_pool'. An account
+   *  in an org has no personal wallet — the server decides the pocket from membership. */
+  orgId: string
+  /** This member's seat allowance is spent for the month. The pool may hold plenty. */
+  memberCapped: boolean
   creditClass: string
   modelTierMax: string
   entitlementRequired: boolean
@@ -20,6 +25,8 @@ export type CreditPack = {
   title: string
   priceUsd: number
   credits: number
+  /** Seats one purchase adds — set on `seat_subscription` products, 0 on credit packs. */
+  seats: number
   modelTierMax: string
   periodDays: number
 }

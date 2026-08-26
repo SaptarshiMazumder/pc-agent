@@ -284,6 +284,15 @@ def _init_db() -> None:
         have_grants = {r["name"] for r in c.execute("PRAGMA table_info(credit_grants)")}
         if "org_id" not in have_grants:
             c.execute("ALTER TABLE credit_grants ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
+        # Seat products / org subscriptions. GUARDED ON THE TABLE EXISTING: this migration block
+        # runs before the CREATE TABLEs below, so on a fresh database there is nothing to alter —
+        # the CREATE TABLE statements carry these columns themselves.
+        have_products = {r["name"] for r in c.execute("PRAGMA table_info(products)").fetchall()}
+        if have_products and "seats" not in have_products:
+            c.execute("ALTER TABLE products ADD COLUMN seats INTEGER NOT NULL DEFAULT 0")
+        have_subs = {r["name"] for r in c.execute("PRAGMA table_info(subscriptions)").fetchall()}
+        if have_subs and "org_id" not in have_subs:
+            c.execute("ALTER TABLE subscriptions ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
 
         # Indexes over migrated columns come LAST, and unconditionally.
         #
@@ -324,7 +333,8 @@ def _init_db() -> None:
                 model_tier_max TEXT NOT NULL DEFAULT '',
                 period_days    INTEGER NOT NULL DEFAULT 30,
                 active         INTEGER NOT NULL DEFAULT 1,
-                created_at     REAL NOT NULL DEFAULT 0
+                created_at     REAL NOT NULL DEFAULT 0,
+                seats          INTEGER NOT NULL DEFAULT 0  -- seat products only
             );
 
             -- A recurring intent to buy. Renewal is NOT automatic yet: this records what should
@@ -335,7 +345,8 @@ def _init_db() -> None:
                 product_id   TEXT NOT NULL,
                 status       TEXT NOT NULL DEFAULT 'active',   -- active | cancelled
                 renews_at    REAL NOT NULL DEFAULT 0,
-                created_at   REAL NOT NULL
+                created_at   REAL NOT NULL,
+                org_id       TEXT NOT NULL DEFAULT ''  -- the org a seat/pool subscription funds
             );
             CREATE INDEX IF NOT EXISTS ix_subs_acct ON subscriptions(account_id, status);
             -- One subscription per (account, product): renewing must UPDATE the existing row,
@@ -554,10 +565,55 @@ def _seed_credit_packs() -> None:
             )
 
 
+#: Seat products, seeded like the credit packs and for the same reason: an org admin opening
+#: their org page must find seats FOR SALE, not an empty shelf with a note about environment
+#: configuration. AGENTD_SEAT_PACKS (a JSON list: [{"id","seats","price_usd","title"?}]) replaces
+#: this list outright; prices here are stated rather than derived because a seat is admission,
+#: not a quantity of service the markup dial knows about.
+_SEAT_PACK_SEED: list[dict] = [
+    {"id": "seats-5", "seats": 5, "price_usd": 25.0, "title": "5 seats"},
+    {"id": "seats-10", "seats": 10, "price_usd": 45.0, "title": "10 seats"},
+    {"id": "seats-20", "seats": 20, "price_usd": 80.0, "title": "20 seats"},
+]
+
+
+def _seat_packs() -> list[dict]:
+    raw = os.environ.get("AGENTD_SEAT_PACKS", "").strip()
+    if not raw:
+        return [dict(p) for p in _SEAT_PACK_SEED]
+    try:
+        packs = [dict(p) for p in json.loads(raw) if isinstance(p, dict)]
+        if not packs:
+            raise ValueError("no usable entries")
+        return packs
+    except (ValueError, TypeError) as e:
+        count("config_invalid_total", _props={"setting": "AGENTD_SEAT_PACKS", "error": str(e)[:120]})
+        return [dict(p) for p in _SEAT_PACK_SEED]
+
+
+def _seed_seat_packs() -> None:
+    """Same contract as the credit-pack seed: absent rows are created, existing rows are LEFT
+    ALONE, so an operator's price edit survives the next deploy."""
+    with _db() as c:
+        for p in _seat_packs():
+            seats = int(p.get("seats") or 0)
+            price = float(p.get("price_usd") or 0)
+            if seats <= 0 or price <= 0:
+                continue
+            c.execute(
+                "INSERT INTO products (id, kind, title, creator_id, agent_id, price_usd, "
+                "credits, scope, model_tier_max, period_days, active, created_at, seats) "
+                "VALUES (?, 'seat_subscription', ?, '', '', ?, 0, 'platform', '', 30, 1, ?, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                (str(p["id"]), str(p.get("title") or f"{seats} seats"), price, _now(), seats),
+            )
+
+
 @app.on_event("startup")
 def _startup() -> None:
     _init_db()
     _seed_credit_packs()
+    _seed_seat_packs()
 
 
 @app.get("/health")
@@ -955,9 +1011,26 @@ def _entitlement_state(c: sqlite3.Connection, account_id: str, agent_id: str) ->
     return True, held
 
 
+def _member_org(c: sqlite3.Connection, account_id: str) -> str:
+    """The ONE org this account belongs to, or ''.
+
+    One, by rule: joins refuse a second membership (orgs_api._ensure_member), so this is a
+    lookup rather than a choice. The rule exists for exactly this call site — with two orgs
+    there would be no honest answer to "whose pool pays for this turn"."""
+    rows = orgs_api.org_memberships(c, account_id)
+    return str(rows[0][0]) if rows else ""
+
+
 def _funding_view(
     c: sqlite3.Connection, account_id: str, agent_id: str, org_id: str = ""
 ) -> dict:
+    # MEMBERSHIP DECIDES THE POCKET (enterprise rule). An account that belongs to an org has no
+    # personal wallet: every turn draws the org's pool, bounded by their seat allowance —
+    # whatever agent is running, and whether or not the daemon stamped an org on the turn. The
+    # explicit org_id (stamped for org-owned agents) still wins when present, because it also
+    # carries attribution.
+    if not org_id:
+        org_id = _member_org(c, account_id)
     grants = _live_grants(c, account_id, agent_id, org_id)
     remaining = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
     # The tier ceiling comes from the grant we would spend FIRST, so a cheap-models-only
@@ -1286,17 +1359,25 @@ def upsert_product(payload: dict = Body(...), x_internal_key: str | None = Heade
         raise HTTPException(status_code=400, detail="id and positive price_usd required")
     # credits omitted => derive from price and the markup, which is the normal case. Stating
     # them explicitly is for a promotional bundle that deliberately breaks the usual ratio.
-    credits = int(payload.get("credits") or 0) or ledger.credits_for_usd(price)
+    _kind = (payload.get("kind") or "credit_pack").strip()
+    # Credits derive from price only for credit products — a seat product that names none
+    # SELLS none, rather than being handed a derived pool top-up nobody priced.
+    credits = int(payload.get("credits") or 0) or (
+        ledger.credits_for_usd(price) if _kind != "seat_subscription" else 0
+    )
+    seats = max(0, int(payload.get("seats") or 0))
+    if _kind == "seat_subscription" and seats <= 0:
+        raise HTTPException(status_code=400, detail="a seat product needs seats >= 1")
     with _db() as c:
         c.execute(
             "INSERT INTO products (id, kind, title, creator_id, agent_id, price_usd, credits, "
-            "scope, model_tier_max, period_days, active, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "scope, model_tier_max, period_days, active, created_at, seats) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, title=excluded.title, "
             "creator_id=excluded.creator_id, agent_id=excluded.agent_id, "
             "price_usd=excluded.price_usd, credits=excluded.credits, scope=excluded.scope, "
             "model_tier_max=excluded.model_tier_max, period_days=excluded.period_days, "
-            "active=excluded.active",
+            "active=excluded.active, seats=excluded.seats",
             (
                 pid,
                 (payload.get("kind") or "credit_pack").strip(),
@@ -1310,9 +1391,10 @@ def upsert_product(payload: dict = Body(...), x_internal_key: str | None = Heade
                 int(payload.get("period_days") or 30),
                 1 if payload.get("active", True) else 0,
                 _now(),
+                seats,
             ),
         )
-    return {"ok": True, "id": pid, "credits": credits}
+    return {"ok": True, "id": pid, "credits": credits, "seats": seats}
 
 
 @app.get("/products")
@@ -1356,6 +1438,8 @@ def _apply_purchase(
     product_id: str,
     idem: str,
     off_session: bool = False,
+    org_id: str = "",
+    seats: int = 0,
 ) -> tuple[str, bool, dict, PaymentIntent, float]:
     """Charge, post the books, mint the grant, extend access. Shared by /purchase and renewal.
 
@@ -1377,7 +1461,7 @@ def _apply_purchase(
     order = PurchaseOrder(
         account_id=account_id, price_usd=price, credits=credits, scope=scope, tier_max=tier_max,
         period_days=period_days, creator_id=creator_id, agent_id=agent_id, product_id=product_id,
-        idempotency_key=idem,
+        idempotency_key=idem, org_id=org_id, seats=seats,
     )
     checkout = CheckoutService(
         build_payment_gateway(),
@@ -1481,6 +1565,41 @@ def purchase(payload: dict = Body(...), x_internal_key: str | None = Header(defa
             **view}
 
 
+def _org_purchase_gate(
+    c: sqlite3.Connection, account_id: str, org_id: str, kind: str
+) -> None:
+    """May THIS account make THIS purchase? Raises; returns nothing.
+
+    TWO RULES, both enterprise-shaped:
+      * buying FOR an org needs an owner/admin seat in it — a member funding the pool from
+        their own card is a support nightmare (whose money was that?), and a stranger doing it
+        is worse.
+      * an org member has NO personal wallet (see _funding_view), so a personal credit pack
+        would buy something their turns can never spend. Refused with the fix in the message
+        rather than sold and silently useless.
+    """
+    memberships = {str(o): str(role) for o, role in orgs_api.org_memberships(c, account_id)}
+    if org_id:
+        role = memberships.get(org_id)
+        if role not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="only an owner or admin of this organization may buy for it",
+            )
+        return
+    if kind == "seat_subscription":
+        raise HTTPException(
+            status_code=400,
+            detail="seat products are bought FOR an organization — pass org_id",
+        )
+    if memberships:
+        raise HTTPException(
+            status_code=403,
+            detail="your organization funds your usage — an org owner or admin can top up "
+            "the pool from the Organizations page",
+        )
+
+
 @app.post("/me/purchase")
 def my_purchase(
     request: Request,
@@ -1506,6 +1625,8 @@ def my_purchase(
     product_id = str(payload.get("product_id") or "").strip()
     if not product_id:
         raise HTTPException(status_code=400, detail="product_id required")
+    # Buying FOR the caller's organization; authorization is _org_purchase_gate's.
+    org_id = str(payload.get("org_id") or "").strip()
     client_key = str(payload.get("idempotency_key") or "").strip()[:80]
 
     with _db() as c:
@@ -1520,7 +1641,14 @@ def my_purchase(
             raise HTTPException(status_code=404, detail=f"unknown product {product_id}")
 
         price = float(p["price_usd"])
-        credits = int(p["credits"]) or ledger.credits_for_usd(price)
+        kind = str(p["kind"] or "credit_pack")
+        seats = int(p["seats"] or 0) if "seats" in p.keys() else 0
+        # DERIVE CREDITS FROM PRICE ONLY FOR CREDIT PRODUCTS. The fallback exists so a pack row
+        # can say "worth whatever $N buys today" — applied to a seat product it would quietly
+        # mint a pool top-up nobody priced, on every seat purchase.
+        credits = int(p["credits"]) or (
+            ledger.credits_for_usd(price) if kind != "seat_subscription" else 0
+        )
         idem = f"me:{account_id}:{client_key}" if client_key else ""
 
         if idem:
@@ -1533,12 +1661,13 @@ def my_purchase(
                 return {"ok": True, "replayed": True, "txn_id": str(prior["txn_id"]),
                         "product_id": product_id, "credits": credits, "price_usd": price, **view}
 
+        _org_purchase_gate(c, account_id, org_id, kind)
         txn_id, _created, split, charge, expires_at = _apply_purchase(
             c, account_id=account_id, price=price, credits=credits,
             scope=str(p["scope"]) or "platform", tier_max=str(p["model_tier_max"] or ""),
             period_days=int(p["period_days"] or _credit_pack_days()),
             creator_id=str(p["creator_id"]), agent_id=str(p["agent_id"]),
-            product_id=product_id, idem=idem,
+            product_id=product_id, idem=idem, org_id=org_id, seats=seats,
         )
         view = _funding_view(c, account_id, str(p["agent_id"]))
 
@@ -1626,6 +1755,8 @@ def my_checkout(
     # Only a rail with a callback sends the customer away and needs somewhere to send
     # them back to. `has_webhook()` is that same question, already answered in one place.
     success_url, cancel_url = _checkout_return_urls(payload, required=has_webhook())
+    # Same org semantics as /me/purchase; authorization is _org_purchase_gate's.
+    org_id = str(payload.get("org_id") or "").strip()
     client_key = str(payload.get("idempotency_key") or "").strip()[:80]
     ts = _now()
 
@@ -1642,14 +1773,23 @@ def my_checkout(
             raise HTTPException(status_code=404, detail=f"unknown product {product_id}")
 
         price = float(p["price_usd"])
-        credits = int(p["credits"]) or ledger.credits_for_usd(price)
+        kind = str(p["kind"] or "credit_pack")
+        seats = int(p["seats"] or 0) if "seats" in p.keys() else 0
+        # DERIVE CREDITS FROM PRICE ONLY FOR CREDIT PRODUCTS. The fallback exists so a pack row
+        # can say "worth whatever $N buys today" — applied to a seat product it would quietly
+        # mint a pool top-up nobody priced, on every seat purchase.
+        credits = int(p["credits"]) or (
+            ledger.credits_for_usd(price) if kind != "seat_subscription" else 0
+        )
         idem = f"me:{account_id}:{client_key}" if client_key else ""
+        _org_purchase_gate(c, account_id, org_id, kind)
         order = PurchaseOrder(
             account_id=account_id, price_usd=price, credits=credits,
             scope=str(p["scope"]) or "platform", tier_max=str(p["model_tier_max"] or ""),
             period_days=int(p["period_days"] or _credit_pack_days()),
             creator_id=str(p["creator_id"]), agent_id=str(p["agent_id"]),
-            product_id=product_id, idempotency_key=idem,
+            product_id=product_id, idempotency_key=idem, org_id=org_id,
+            seats=seats,
         )
 
         if idem:
@@ -1744,14 +1884,22 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
     # rows stay usable after the connection closes.
     with _db() as c:
         due = c.execute(
-            "SELECT s.id, s.account_id, s.product_id, s.renews_at, p.* FROM subscriptions s "
+            "SELECT s.id, s.account_id, s.product_id, s.renews_at, s.org_id AS sub_org, p.* "
+            "FROM subscriptions s "
             "JOIN products p ON p.id = s.product_id "
             "WHERE s.status = 'active' AND s.renews_at <> 0 AND s.renews_at <= ? AND p.active = 1",
             (now,),
         ).fetchall()
     for s in due:
         price = float(s["price_usd"])
-        credits = int(s["credits"]) or ledger.credits_for_usd(price)
+        sub_org = str(s["sub_org"] or "")
+        # Same derivation rule as the storefront: a seat product's credits are whatever its row
+        # says and NOTHING when it says nothing — deriving from price would top up the pool by
+        # accident on every renewal.
+        _kind = str(s["kind"] or "credit_pack")
+        credits = int(s["credits"]) or (
+            ledger.credits_for_usd(price) if _kind != "seat_subscription" else 0
+        )
         # The period being renewed INTO identifies this charge. Reusing the OLD renews_at
         # would re-charge forever once a period is missed; using `now` would let two calls a
         # second apart both charge.
@@ -1771,6 +1919,10 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
                     scope=str(s["scope"]) or "platform", tier_max=str(s["model_tier_max"] or ""),
                     period_days=period_days, creator_id=str(s["creator_id"]),
                     agent_id=str(s["agent_id"]), product_id=str(s["product_id"]), idem=idem,
+                    # seats=0 ON EVERY RENEWAL: a renewal re-charges the seats it already added,
+                    # it does not add more. The org still rides along so a pool-funding
+                    # subscription keeps granting into the right pocket.
+                    org_id=sub_org, seats=0,
                     # Nobody is at a keyboard: this is a scheduler, and a rail that wants the
                     # customer to authenticate has to be told there is no customer to ask.
                     off_session=True,

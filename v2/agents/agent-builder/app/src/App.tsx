@@ -21,6 +21,7 @@ import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { MAX_FILES } from './agentd/chat'
 import { useCredits } from './agentd/credits'
 import SignIn from '../../skills/build-agent/templates/_common/auth/SignIn'
+import { identity } from '@agentd/client'
 import { AGENT_ID, useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable } from './agentd/roster'
@@ -33,7 +34,10 @@ import { Inspector } from './components/Inspector'
 import { Sidebar } from './components/Sidebar'
 import Credits from '../../skills/build-agent/templates/_common/credits/Credits'
 import LiveReload from '../../skills/build-agent/templates/_common/dev/LiveReload'
-import OrgView from '../../skills/build-agent/templates/_common/orgs/OrgView'
+// AGENTD'S OWN OrgView, byte-identical (components/OrgView.tsx), NOT the shared module —
+// the requirement is carbon-copy behavior with the assistant, checkable by diffing the two
+// files. Agents still get `common/orgs`; this window matches its parent instead.
+import OrgView from './components/OrgView'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsView } from './components/settings/SettingsView'
 import { StartModal, type StartMode } from './components/StartModal'
@@ -414,9 +418,7 @@ export default function App() {
              rather than a dialog over the thing that just stopped. */
           <Credits agentId={AGENT_ID} />
         ) : view === 'orgs' ? (
-          /* THE SAME PAGE AGAIN, from _common/orgs. Seats, invites and member caps are bought
-             once by an organization and have to look identical wherever somebody meets them. */
-          <OrgView client={client} />
+          <OrgView />
         ) : view === 'settings' ? (
           /* A PAGE, not a modal. It was a modal so that configuring the thing did not close the
              conversation you opened it because of — but it is tabbed now, and a tab strip inside
@@ -436,6 +438,23 @@ export default function App() {
             {/* The strip CHOOSES the conversation and the header DESCRIBES the one chosen — so the
                 strip goes above. Both belong to the chat and to nothing else. */}
             <TabBar />
+            {/* TEMPORARY — a diagnosis control, not a feature. Fires the exact renewal the
+                background timer runs every ~8 minutes (TokenManager.refresh -> subscribe ->
+                auth.update on the open socket), so the reconnect-on-renewal bug can be provoked
+                on demand instead of waited for. DELETE once the renewal path is trusted. */}
+            <button
+              className="ghost-btn"
+              style={{ position: 'absolute', top: 8, right: 220, zIndex: 30 }}
+              title="TEMPORARY: run the 8-minute token renewal right now"
+              onClick={() => {
+                void identity({ client: client ?? undefined })
+                  .refresh()
+                  .then((pair) => console.info('[refresh-auth] renewed:', !!pair))
+                  .catch((e) => console.error('[refresh-auth] failed:', e))
+              }}
+            >
+              Refresh auth
+            </button>
             <Topbar
               agent={selected}
               who={who}

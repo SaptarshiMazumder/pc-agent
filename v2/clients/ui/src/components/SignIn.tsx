@@ -17,6 +17,17 @@ export default function SignIn(): JSX.Element {
   async function onSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
     setError('')
+    // OUR validation, not the browser's. The form says noValidate because Chromium's native
+    // check BLOCKS the submit with only a transient tooltip -- to a user that reads as the
+    // button doing nothing. Every failure goes through the same red line instead.
+    if (!email.trim() || !email.includes('@')) {
+      setError('enter a valid email address')
+      return
+    }
+    if (mode === 'up' && password.length < 8) {
+      setError('password must be at least 8 characters')
+      return
+    }
     setBusy(true)
     try {
       if (mode === 'up') await signup(email, password)
@@ -34,7 +45,7 @@ export default function SignIn(): JSX.Element {
 
   return (
     <div className="signin-wrap">
-      <form className="signin-card" onSubmit={onSubmit}>
+      <form className="signin-card" onSubmit={onSubmit} noValidate>
         <div className="signin-brand">agentd</div>
         <div className="signin-sub">
           {mode === 'in' ? 'Sign in to continue' : 'Create your account'}
