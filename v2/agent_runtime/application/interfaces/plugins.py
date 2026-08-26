@@ -39,6 +39,12 @@ class PluginContext:
     registry: object = None  # AgentRegistry — list/author agents at runtime (create_agent)
     register_plugin_live: object = None  # callable() -> hot-load NEWLY-written plugins into the
     #                                      live catalog without a restart (used by create_tool)
+    broadcast_app_rebuilt: object = None  # callable(agent_id) -> tell THAT agent's own windows
+    #                                        its ui/ was rebuilt, so they reload themselves. For
+    #                                        the authoring plugin's build_app: the daemon serves
+    #                                        built output, so a window shows the last compile
+    #                                        until something says otherwise. Late-bound like the
+    #                                        one below.
     broadcast_agents_changed: object = None  # callable() -> fan an `agents.changed` event out to
     #                                          every connected client, so a plugin that alters the
     #                                          agent ROSTER (reload_agent) can refresh their

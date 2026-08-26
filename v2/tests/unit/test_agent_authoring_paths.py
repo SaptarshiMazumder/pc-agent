@@ -323,7 +323,10 @@ def _tool(world):
 
 def test_tool_creates_into_the_overlay_stamped_and_live(world):
     """END-TO-END of the deadlock scenario, minus the stale scope: a signed-in caller's
-    create_agent lands in THEIR layer, stamped to THEM, resolvable immediately."""
+    create_agent lands in THEIR layer, stamped to THEM, resolvable immediately.
+
+    (Briefly reversed to shared placement in 2026-08 and reversed back the same day — the
+    overlay IS the intended home for a signed-in author's agents.)"""
     world.current["acct"] = "acct_a"
     tool = _tool(world)
     res = asyncio.run(

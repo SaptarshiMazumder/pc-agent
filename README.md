@@ -122,3 +122,10 @@ python -m venv .venv
 
 cd v2/client/desktop
 npx electron-vite dev
+
+
+cd v2
+./deploy/scripts/redeploy.sh staging            # full: terraform, build all 5, push, roll, verify
+./deploy/scripts/redeploy.sh staging --no-build  # just restart what's in ECR
+./deploy/scripts/redeploy.sh staging --only web  # one image
+./deploy/scripts/redeploy.sh staging --skip-tf   # skip terraform

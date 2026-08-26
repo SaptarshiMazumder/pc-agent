@@ -32,6 +32,8 @@ import { ContextRing } from './components/ContextRing'
 import { Inspector } from './components/Inspector'
 import { Sidebar } from './components/Sidebar'
 import Credits from '../../skills/build-agent/templates/_common/credits/Credits'
+import LiveReload from '../../skills/build-agent/templates/_common/dev/LiveReload'
+import OrgView from '../../skills/build-agent/templates/_common/orgs/OrgView'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsView } from './components/settings/SettingsView'
 import { StartModal, type StartMode } from './components/StartModal'
@@ -39,6 +41,13 @@ import { HeroStart, HeroSuggestions } from './components/Hero'
 import { Thread } from './components/Thread'
 import TabBar from './components/TabBar'
 import { Topbar } from './components/Topbar'
+
+/** A display name -> the kebab-case id the daemon files it under. Mirrors `_slug` in
+ *  create_agent_tool.py; the tool re-derives it anyway, so a disagreement is cosmetic rather than
+ *  a second source of truth. */
+function slugOf(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
 
 export default function App() {
   const { client, status } = useClient()
@@ -63,7 +72,12 @@ export default function App() {
   const newSession = useApp((s) => s.newSession)
   const openSession = useApp((s) => s.openSession)
   const setScope = useApp((s) => s.setScope)
-  const setIntent = useApp((s) => s.setIntent)
+  /** The agent being created right now, so the shell can say so rather than looking frozen. */
+  const [creating, setCreating] = useState('')
+  const [createError, setCreateError] = useState('')
+  /** An agent created but not yet on the roster — see the effect below. Carries the directory
+   *  create_agent reported, because nothing else knows it. */
+  const [pendingScope, setPendingScope] = useState<{ id: string; dir: string } | null>(null)
   const sendMessage = useApp((s) => s.sendMessage)
   const abortRun = useApp((s) => s.abortRun)
   const addFiles = useApp((s) => s.addFiles)
@@ -154,16 +168,75 @@ export default function App() {
     [agents, newSession, setScope],
   )
 
-  /** Start building something new, having answered the one question worth asking first. */
+  /** Start building something new — by BUILDING IT, then talking about it.
+   *
+   *  WHAT THIS REPLACED. It used to open a blank conversation and set an `intent` that rode every
+   *  message ("we are creating a NEW agent, and it HAS ITS OWN APP WINDOW") until the model got
+   *  around to calling create_agent. Two things were wrong with that. The agent did not exist, so
+   *  there was nothing to look at and nothing to validate; and whether it ended up with a window
+   *  depended on the model reading an instruction, which is a hope rather than a mechanism.
+   *
+   *  Now the agent is real before the first message. A windowed one already has a complete,
+   *  working window — sign-in, credits, settings, organizations — so the conversation starts by
+   *  CHANGING something instead of by assembling it.
+   */
   const createAgent = useCallback(
-    (window: boolean, seed?: string) => {
+    async (name: string, window: boolean, template: string, seed?: string) => {
+      if (!client) return
       setStart(null)
-      newSession() // a fresh conversation, about nothing until something is built
-      setIntent({ window })
-      if (seed) void sendMessage(seed)
+      setCreating(name)
+      setCreateError('')
+      try {
+        // The id is derived here rather than asked for: two boxes to fill in for one decision,
+        // and the second one has exactly one sensible answer.
+        const id = slugOf(name)
+        const made = await client.invokeTool('create_agent', {
+          id,
+          name,
+          window,
+          template,
+          // A PLACEHOLDER, and it says so. `identity` is required — an agent with no sense of who
+          // it is answers as nobody — but the whole point of creating first is that the user has
+          // not described it yet. The conversation rewrites this, and until it does the text is
+          // honest about being unwritten rather than inventing a personality.
+          identity:
+            `${name} is a new agent. Its purpose has not been written yet — the conversation ` +
+            `that follows defines what it does, how it speaks, and what it refuses.`,
+        })
+        // WHERE IT LANDED, kept for the preamble. A signed-in caller's agents go into their own
+        // account overlay, so this is the only thing that knows the real path — and without it
+        // the model is told a relative one that resolves against its workspace and fails.
+        const dir = String((made as any)?.details?.dir || '')
+        // The roster arrives by `agents.changed`, which create_agent broadcasts. Scope the new
+        // conversation to it once it lands, so the inspector points at what was just made.
+        newSession()
+        setPendingScope({ id, dir })
+        if (seed) void sendMessage(seed)
+      } catch (e) {
+        // SURFACED. A creation that failed silently leaves the user looking at an empty chat,
+        // believing they are building something that does not exist.
+        setCreateError(String((e as Error)?.message || e))
+      } finally {
+        setCreating('')
+      }
     },
-    [newSession, setIntent, sendMessage],
+    [client, newSession, sendMessage],
   )
+
+  /* POINT THE CONVERSATION AT THE NEW AGENT once the roster has it.
+   *
+   *  Not done inline above: `setScope` takes the roster ROW — the agent's colour, tagline and app
+   *  table, none of which the tool's result carries — and the roster arrives asynchronously on
+   *  `agents.changed`. Scoping to a row that does not exist yet would leave the inspector aimed at
+   *  nothing, which is exactly what it looks like when creation has failed. */
+  useEffect(() => {
+    if (!pendingScope) return
+    const row = agents.find((a) => a.id === pendingScope.id)
+    if (!row) return
+    // The roster row plus the one fact the roster cannot carry.
+    setScope(pendingScope.dir ? { ...row, dir: pendingScope.dir } : row)
+    setPendingScope(null)
+  }, [pendingScope, agents, setScope])
 
   // Does this agent COMPILE its window? `app/` at the top of its tree is the whole test: source
   // there, build output in ui/. A hand-written ui/ has nothing to build and is live on save.
@@ -210,7 +283,7 @@ export default function App() {
      Start card, so answering "create a new agent" in the dialog dropped you on a page offering to
      create a new agent. You could not tell it had worked. Only a genuinely fresh chat — no
      messages, no subject, no window decision — asks how to begin. */
-  const fresh = empty && !chat.scope && !chat.intent
+  const fresh = empty && !chat.scope
   const composer = (
     <Composer
       running={chat.running}
@@ -300,6 +373,7 @@ export default function App() {
         onEdit={() => setStart({ mode: 'edit' })}
         onSettings={() => setView('settings')}
         onCredits={() => setView('credits')}
+        onOrgs={() => setView('orgs')}
         auth={platform.auth}
         authError={platform.error}
         onSignIn={platform.signIn}
@@ -313,12 +387,36 @@ export default function App() {
           chat's tab strip and its "What should we build?" header sitting on top of a settings
           page: two screens at once, and a strip of conversations above a thing that is not one.
           Each branch below now brings whatever header it needs. */}
+      {/* RELOADS THIS WINDOW when Agent Builder itself is rebuilt, so working on the builder
+          stops meaning "close it and reopen it".
+
+          IT NAMES ITSELF, and it has to. This is a HOST connection: `_scoped_event_allowed`
+          filters `app.rebuilt` for agent-scoped windows, but a host one bypasses that policy and
+          receives every agent's rebuild. Without the id, building any agent would reload the
+          window you were building it in, mid-conversation. */}
+      <LiveReload client={client ?? undefined} agentId={AGENT_ID} />
+
       <main className="main">
+        {/* CREATION IS A REAL OPERATION NOW — files are written and a window is assembled — so it
+            takes a moment and has to say so. A shell that simply does not respond for a second is
+            a shell the user clicks again. */}
+        {creating && (
+          <div className="create-note">Creating {creating} and building its window…</div>
+        )}
+        {createError && (
+          <div className="create-note bad">
+            Could not create the agent: {createError}
+          </div>
+        )}
         {view === 'credits' ? (
           /* THE SAME PAGE THE ASSISTANT SHOWS, copied into _common/ and rendered here. Running out
              of credits is the one failure a user can fix themselves, so it is a place you can go
              rather than a dialog over the thing that just stopped. */
           <Credits agentId={AGENT_ID} />
+        ) : view === 'orgs' ? (
+          /* THE SAME PAGE AGAIN, from _common/orgs. Seats, invites and member caps are bought
+             once by an organization and have to look identical wherever somebody meets them. */
+          <OrgView client={client} />
         ) : view === 'settings' ? (
           /* A PAGE, not a modal. It was a modal so that configuring the thing did not close the
              conversation you opened it because of — but it is tabbed now, and a tab strip inside

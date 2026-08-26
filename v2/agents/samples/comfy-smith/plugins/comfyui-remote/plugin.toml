@@ -1,5 +1,0 @@
-id = "comfyui-remote"
-name = "ComfyUI Remote"
-kind = "native"
-entry = "comfyui_remote:register"
-description = "Talk to a remote ComfyUI: read its capabilities, validate against them, queue workflows and fetch the results."

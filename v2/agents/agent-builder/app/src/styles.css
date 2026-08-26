@@ -382,6 +382,10 @@ h2 { font-size: 16px; }
 }
 .chat-menu-item:hover { background: var(--bg3); }
 .chat-menu-item .cm-ico { display: flex; color: var(--dim); flex: none; }
+/* COPIED FROM agentd (styles.css), rule for rule — the Delete entry and the separator above it. */
+.chat-menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
+.chat-menu-item.danger { color: var(--danger); }
+.chat-menu-item.danger:hover { background: var(--danger-soft); }
 
 .footer-nav { display: flex; gap: 6px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); }
 .footer-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; }
@@ -1039,7 +1043,7 @@ h2 { font-size: 16px; }
 /* ── the start dialog ────────────────────────────────────────────────────────────────────── */
 /* Reuses .modal-back and .modal. Only what is new to this screen lives here — a second backdrop
    with its own blur radius is how two dialogs in one app come to look like two apps. */
-.start-modal { max-width: 640px; }
+.start-modal { max-width: 760px; }
 .start-modal .modal-head { align-items: center; justify-content: space-between; }
 .start-modal .modal-head h2 { font-size: 16px; }
 .modal-note { padding: 18px 22px 0; color: var(--dim); font-size: 13px; }
@@ -1173,3 +1177,73 @@ h2 { font-size: 16px; }
 .ghost-chip:disabled { opacity: .6; cursor: default; }
 .ghost-chip:hover { border-color: var(--accent); color: var(--text); background: var(--bg2); }
 .ghost-chip .ico { font-size: 12px; }
+
+/* ── creating an agent ───────────────────────────────────────────────────────────────────────
+   The dialog creates the agent for real — files on disk, and a whole window assembled — so there
+   is a beat where nothing has appeared yet. This is what fills it. */
+.create-note {
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  color: var(--dim);
+  font-size: 13px;
+}
+.create-note.bad { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+
+/* The name box in the start dialog. */
+.start-name { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+.start-name input {
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.start-name input:focus { outline: none; border-color: var(--accent); }
+.choice:disabled { opacity: .45; cursor: default; }
+
+/* ── the create wizard's template screen ─────────────────────────────────────────────────────
+   Gallery left, preview right. The preview is a stylised WIREFRAME, not a screenshot: it says
+   which SHAPE you are choosing at a glance, and cannot go stale when the template's pixels do. */
+/* ── the template gallery (Wix-shaped: thumbnail cards, hover actions, fullscreen preview) ──
+   Every thumbnail is the REAL compiled template served at /template-previews/<id>/, rendered at
+   desktop size and scaled down — imagery that cannot drift from what ships. */
+.tpl-gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 0 16px; }
+.tpl-tile { display: flex; flex-direction: column; gap: 8px; }
+.tpl-thumb {
+  position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.tpl-tile.is-picked .tpl-thumb { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tpl-thumb-frame {
+  width: 1280px; height: 800px; border: 0; pointer-events: none;
+  position: absolute; top: 0; left: 0;
+  transform-origin: top left;
+  /* card is ~330px wide in a 760px modal: 330/1280 */
+  transform: scale(0.26);
+}
+.tpl-hover {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  gap: 10px; opacity: 0; transition: opacity .12s ease; background: rgba(0, 0, 0, 0.45);
+}
+.tpl-thumb:hover .tpl-hover { opacity: 1; }
+.tpl-caption { display: flex; flex-direction: column; gap: 2px; }
+.tpl-name { font-size: 14px; font-weight: var(--fw-semi); color: var(--text); }
+.tpl-desc { font-size: 12px; color: var(--faint); line-height: 1.5; }
+
+.tpl-full {
+  position: fixed; inset: 16px; z-index: 120; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.tpl-full-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg2);
+}
+.tpl-full-title { font-size: 13px; font-weight: var(--fw-semi); color: var(--text); }
+.tpl-full-actions { display: flex; align-items: center; gap: 8px; }
+.tpl-full-frame { flex: 1; width: 100%; border: 0; }

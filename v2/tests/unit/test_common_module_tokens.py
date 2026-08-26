@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2] / "agents/agent-builder/skills/build-agent/templates"
 COMMON = ROOT / "_common"
-TOKENS = ROOT / "_borrowed/react/src/tokens.css"
+TOKENS = ROOT / "_skeleton/src/tokens.css"
 
 #: Set by the shared modules themselves rather than read from the palette — a component may
 #: define a token for its own children (none do today; the tuple exists so adding one is a
@@ -62,11 +62,13 @@ def test_the_shared_modules_hardcode_no_colours_or_fonts():
 
 
 def test_the_scaffold_actually_ships_the_palette():
-    """A contract file nobody copies is a document. `STARTER_FILES` is the list that decides."""
-    service = (
-        Path(__file__).resolve().parents[2]
-        / "agents/agent-builder/plugins/agent-authoring/agent_authoring/application"
-        / "scaffold_react_app_service.py"
-    )
-    assert '"src/tokens.css"' in service.read_text(encoding="utf-8")
-    assert TOKENS.is_file()
+    """A contract file nobody copies is a document.
+
+    THE MECHANISM CHANGED and the check had to follow it. The scaffolder used to name every file
+    it copied in a `STARTER_FILES` tuple, so this asserted `"src/tokens.css"` appeared in that
+    list. It copies the whole skeleton now, which means the question is no longer "is it named?"
+    but "is it THERE?" — a glob cannot forget a file, it can only fail to find one.
+    """
+    assert TOKENS.is_file(), "the skeleton ships no palette, so every shared page renders blank"
+    body = TOKENS.read_text(encoding="utf-8")
+    assert ":root" in body and "--bg" in body, "tokens.css defines nothing"

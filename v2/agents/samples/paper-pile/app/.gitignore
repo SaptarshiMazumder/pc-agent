@@ -1,3 +1,0 @@
-# The BUILT output (../ui) is committed on purpose — it is what ships and what the daemon
-# serves. These are not.
-node_modules/

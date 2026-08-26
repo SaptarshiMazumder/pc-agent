@@ -163,11 +163,12 @@ OTHER_REQUIRED = "\n".join(
     [
         "import Credits from './common/credits/Credits'",
         "import { Settings } from './common/settings/Settings'",
+        "import OrgView from './common/orgs/OrgView'",
     ]
 )
 
 
-# NO REAL COMPONENT DECLARES A `requires` ANY MORE. All three reach the daemon through calls
+# NO REAL COMPONENT DECLARES A `requires` ANY MORE. All four reach the daemon through calls
 # every SDK build has ever had — `authLogin`, `BillingClient`, `client.request` — so the vendored
 # bundle's contents cannot make any of them fail, and these fixtures need nothing in particular
 # inside it. The `requires` MECHANISM is still tested, with a component made up for the purpose;
@@ -388,10 +389,11 @@ def test_every_missing_component_is_reported_in_one_pass():
     """A queue of round trips is not a report. An author fixing three one-line omissions should
     see all of them the first time, not find the next after fixing the last.
 
-    The set is asserted EXACTLY, so adding a fourth required component fails here — which is the
-    reminder to check that its message is written for somebody who has never seen it."""
+    The set is asserted EXACTLY, so adding another required component fails here — which is the
+    reminder to check that its message is written for somebody who has never seen it. It has
+    already earned that once: `orgs` was added and this test is where it was noticed."""
     found = only("const client = agentd.fromPage()")
-    assert set(found) == {"UI_NO_SIGN_IN", "UI_NO_CREDITS", "UI_NO_SETTINGS"}
+    assert set(found) == {"UI_NO_SIGN_IN", "UI_NO_CREDITS", "UI_NO_SETTINGS", "UI_NO_ORGS"}
 
 
 def test_an_app_that_has_both_is_quiet():
@@ -447,6 +449,7 @@ def react(app_tsx: str) -> dict:
         "app/src/main.tsx": SIGN_IN_MAIN,
         "app/src/Credits.tsx": STARTER_CREDITS,
         "app/src/Config.tsx": "import { Settings } from './common/settings/Settings'",
+        "app/src/Team.tsx": "import OrgView from './common/orgs/OrgView'",
         "app/src/App.tsx": app_tsx,
     }
     return {f.code: f for f in RULES.check(None, APP, list(sources), sources)}

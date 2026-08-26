@@ -95,6 +95,20 @@ for (const dir of agentDirs(agentsDir)) {
   const esm = path.join(dir, 'app', 'vendor', 'agentd-client.js')
   if (fs.existsSync(esm)) esmVendorDirs.push(path.join(dir, 'app', 'vendor'))
 }
+// ACCOUNT OVERLAYS TOO. A signed-in author's agents live under .agentd/accounts/<acct>/agents/,
+// each carrying its own vendored SDK — exactly the copies-that-get-missed this script exists to
+// prevent, and the ones missed first, because they are the agents somebody is actively building.
+const accountsRoot = path.join(v2, '.agentd', 'accounts')
+if (fs.existsSync(accountsRoot)) {
+  for (const acct of fs.readdirSync(accountsRoot)) {
+    const overlay = path.join(accountsRoot, acct, 'agents')
+    if (!fs.existsSync(overlay)) continue
+    for (const dir of agentDirs(overlay)) {
+      const esm = path.join(dir, 'app', 'vendor', 'agentd-client.js')
+      if (fs.existsSync(esm)) esmVendorDirs.push(path.join(dir, 'app', 'vendor'))
+    }
+  }
+}
 
 // THE OTHER SHAPE OF APP. The IIFE above is for a plain ui/ that loads the SDK with a <script>
 // tag. A BUILT app (React/Vite) imports `@agentd/client` instead, and resolves it from
@@ -105,9 +119,12 @@ for (const dir of agentDirs(agentsDir)) {
 // So the React starter carries the ESM bundle and its types INSIDE itself, aliased in
 // vite.config.ts, with no dependency on this repo or on a published package. Vendored from the
 // same build as the IIFE, in the same run, so the two can never disagree about what the SDK is.
+// `_skeleton/` — the complete window every new agent starts as. This pointed at
+// `_borrowed/react` after the skeleton replaced it, so a rebuild refreshed a directory nothing
+// scaffolds from (recreating it after it was deleted) while the copy every agent actually
+// receives went stale.
 const reactVendor = path.join(
-  v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates', '_borrowed',
-  'react', 'vendor'
+  v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates', '_skeleton', 'vendor'
 )
 const pairs = [
   [path.join(sdkDir, 'dist', 'index.js'), path.join(reactVendor, 'agentd-client.js')],

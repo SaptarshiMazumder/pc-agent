@@ -126,6 +126,7 @@ export function Sidebar({
   onEdit,
   onSettings,
   onCredits,
+  onOrgs,
   auth,
   authError,
   onSignIn,
@@ -141,6 +142,7 @@ export function Sidebar({
   onEdit: () => void
   onSettings: () => void
   onCredits: () => void
+  onOrgs: () => void
   auth: AuthState | null
   authError: string
   onSignIn: () => Promise<void> | void
@@ -158,7 +160,7 @@ export function Sidebar({
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState({ agents: true, recents: true })
+  const [sectionOpen, setSectionOpen] = useState({ mine: true, agents: true, recents: true })
   const toggleSection = (k: keyof typeof sectionOpen): void =>
     setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
 
@@ -170,6 +172,11 @@ export function Sidebar({
   const shown = openable(agents).filter(
     (a) => !q || `${a.name || ''} ${a.id} ${a.tagline || ''}`.toLowerCase().includes(q),
   )
+  // The account's own layer vs everything else — same rule as agentd's sidebar, and for the
+  // same reason: `mine` is presumed true for the whole shared catalogue, so only the LAYER can
+  // say which agents are actually this account's. Empty when signed out, so the section hides.
+  const mineShown = shown.filter((a) => a.layer === 'account')
+  const otherShown = shown.filter((a) => a.layer !== 'account')
   const shownChats = chats.filter(
     (c) => !q || `${c.title || ''} ${c.snippet || ''}`.toLowerCase().includes(q),
   )
@@ -222,7 +229,7 @@ export function Sidebar({
         >
           <LayoutGrid size={18} />
         </button>
-        <SettingsMenu variant="rail" onSettings={onSettings} onCredits={onCredits} />
+        <SettingsMenu variant="rail" onSettings={onSettings} onCredits={onCredits} onOrgs={onOrgs} />
         <button className="rail-btn" title="Light mode — not available yet" disabled>
           <Sun size={17} />
         </button>
@@ -293,6 +300,39 @@ export function Sidebar({
         )}
       </div>
 
+      {/* MY AGENTS — the signed-in account's own layer. Above the catalogue because these are
+          the ones being built here, and absent when signed out rather than empty. */}
+      {mineShown.length > 0 && (
+        <>
+          <SectionHead
+            icon={<Users size={14} />}
+            label="My agents"
+            open={sectionOpen.mine}
+            onToggle={() => toggleSection('mine')}
+          />
+          {sectionOpen.mine && (
+            <div className="agents-list">
+              {mineShown.map((a) => (
+                <button
+                  key={a.id}
+                  className={`row ${a.id === selected?.id ? 'active' : ''}`}
+                  title={a.description || a.tagline || a.id}
+                  onClick={() => onPickAgent(a.id)}
+                >
+                  <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
+                    {agentInitials(a.name, a.id)}
+                  </span>
+                  <span className="row-main">
+                    <span className="row-title">{a.name || a.id}</span>
+                    <span className="row-sub">{a.tagline || a.id}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       {/* AGENTS — clicking one opens it in a conversation of its own (see App's editAgent). */}
       <SectionHead
         icon={<Users size={14} />}
@@ -304,12 +344,12 @@ export function Sidebar({
       />
       {sectionOpen.agents && (
         <div className="agents-list">
-          {shown.length === 0 && (
+          {otherShown.length === 0 && (
             <div className="row-sub list-empty">
               {q ? 'nothing matches' : 'no agents yet — use +'}
             </div>
           )}
-          {shown.map((a) => (
+          {otherShown.map((a) => (
             <button
               key={a.id}
               className={`row ${a.id === selected?.id ? 'active' : ''}`}
@@ -371,7 +411,7 @@ export function Sidebar({
         >
           <LayoutGrid size={17} />
         </button>
-        <SettingsMenu onSettings={onSettings} onCredits={onCredits} />
+        <SettingsMenu onSettings={onSettings} onCredits={onCredits} onOrgs={onOrgs} />
         {/* PLACEHOLDER, and deliberately inert — this window is pinned dark (see styles.css). The
             button holds the position agentd's theme toggle occupies so the two footers do not
             drift apart before the feature lands. */}

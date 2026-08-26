@@ -351,6 +351,18 @@ def test_scoped_event_policy():
     assert not _scoped_event_allowed("projects.changed", {}, "demo")
 
 
+def test_a_window_hears_only_its_own_rebuild():
+    """`app.rebuilt` tells an agent's window its ui/ was recompiled, so it can reload itself.
+
+    SCOPED, and the scoping is the point: a window that reloaded because a DIFFERENT agent was
+    rebuilt would refresh at random while somebody was using it. This is also the ONLY place the
+    rule lives -- the window deliberately does not re-check the id."""
+    assert _scoped_event_allowed("app.rebuilt", {"agentId": "demo"}, "demo")
+    assert not _scoped_event_allowed("app.rebuilt", {"agentId": "other"}, "demo")
+    # No agentId at all is not "for everyone" -- this whitelist fails closed.
+    assert not _scoped_event_allowed("app.rebuilt", {}, "demo")
+
+
 def test_send_all_filters_scoped_connections(tmp_path):
     gw = _gw(tmp_path)
     host_ws, app_ws = _CapturingWs(), _CapturingWs()

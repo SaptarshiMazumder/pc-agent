@@ -23,7 +23,7 @@
  * implementation serve a desktop app with an OS keychain and an agent window with localStorage.
  */
 
-import { accessTokenAccount, accessTokenExpiry, usable } from './claims'
+import { accessTokenAccount, accessTokenEmail, accessTokenExpiry, usable } from './claims'
 import type { AuthConfig, LoginResponse, TokenPair } from './types'
 
 /** Treat a token as spent slightly BEFORE the cliff, so renewal beats the first failed request. */
@@ -271,7 +271,9 @@ export class TokenManager {
       refreshToken: held?.refreshToken || '',
       expiresAt: accessTokenExpiry(accessToken),
       accountId: held?.accountId || '',
-      email: held?.email || ''
+      // The token names its own account; a window that adopted one with nothing held has no
+      // other source, and '' here is what rendered every agent's account menu as "Account".
+      email: held?.email || accessTokenEmail(accessToken)
     })
     return true
   }

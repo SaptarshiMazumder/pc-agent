@@ -364,19 +364,6 @@ export default function MessageItem({ item, running }: { item: ThreadItem; runni
       return <div className={`msg-system ${item.tone === 'error' ? 'error' : ''}`}>{item.text}</div>
 
     /* ---- this window's own items ------------------------------------------------------- */
-    case 'intent':
-      // Shown for the same reason the scope row is: this is an instruction the model was given,
-      // and a client that quietly prepends instructions to your words leaves you unable to tell
-      // what it was actually asked.
-      return (
-        <div className="scope-row">
-          <span className="scope-dot" />
-          <span>
-            Building a new agent <b>{item.window ? 'with its own window' : 'with no window'}</b>
-          </span>
-          <span className="scope-path">{item.window ? 'declares [app]' : 'runs in agentd'}</span>
-        </div>
-      )
     case 'scope':
       return (
         <div className="scope-row">

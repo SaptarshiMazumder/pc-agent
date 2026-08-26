@@ -90,7 +90,7 @@ export default function Sidebar() {
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState({ agents: true, samples: false, recents: true })
+  const [sectionOpen, setSectionOpen] = useState({ mine: true, agents: true, samples: false, recents: true })
   const toggleSection = (k: keyof typeof sectionOpen): void =>
     setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
   const [newAgent, setNewAgent] = useState(false)
@@ -102,7 +102,14 @@ export default function Sidebar() {
   // SAMPLES ARE NOT THE USER'S AGENTS. They are reference implementations we ship, runnable
   // so they cannot rot, but listing them beside the agents someone actually built is the
   // conflation the `sample` flag exists to prevent — so they get their own collapsed section.
-  const namedAgents = agents.filter((a) => a.id !== MAIN_AGENT_ID && !a.sample)
+  // MY AGENTS = the account overlay's layer, not `mine`: ownership is presumed for the whole
+  // shared catalogue, so `mine` is true for agents this account never made. The layer is the
+  // account's own directory, which is exactly what "my agents" means — and it is empty when
+  // nobody is signed in, so the section simply does not render then.
+  const myAgents = agents.filter((a) => a.layer === 'account' && a.id !== MAIN_AGENT_ID && !a.sample)
+  const namedAgents = agents.filter(
+    (a) => a.id !== MAIN_AGENT_ID && !a.sample && a.layer !== 'account',
+  )
   const sampleAgents = agents.filter((a) => a.sample)
 
   const projectsActive = view === 'projects' || view === 'project'
@@ -199,6 +206,38 @@ export default function Sidebar() {
           />
         )}
       </div>
+
+      {/* MY AGENTS — what the signed-in account created or installed into its own layer.
+          Above the catalogue because they are the ones this person comes back for, and absent
+          entirely when signed out — an empty "My agents" would read as everything being lost. */}
+      {myAgents.length > 0 && (
+        <>
+          <SectionHead
+            icon={<Users size={14} />}
+            label="My agents"
+            open={sectionOpen.mine}
+            onToggle={() => toggleSection('mine')}
+          />
+          {sectionOpen.mine && (
+            <div className="agents-list">
+              {myAgents.map((a) => (
+                <button
+                  key={a.id}
+                  className={`row ${a.id === viewedAgentId && view === 'agent' ? 'active' : ''}`}
+                  title={a.name || a.id}
+                  onClick={() => viewAgent(a.id)}
+                >
+                  <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
+                  <span className="row-main">
+                    <span className="row-title">{a.name || a.id}</span>
+                    <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {/* AGENTS — the listing STAYS; clicking an agent opens its detail page (not a chat) */}
       <SectionHead

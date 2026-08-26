@@ -40,3 +40,13 @@ export function accessTokenExpiry(token: string): number {
 export function accessTokenAccount(token: string): string {
   return String(claims(token)?.sub || '')
 }
+
+/** Who that account is, from its `email` claim. '' when unreadable or absent.
+ *
+ *  The issuer has always written this claim; nothing ever read it. The cost of that was every
+ *  agent window showing "Account" instead of a name: a pushed or adopted token arrives WITHOUT
+ *  the login response that normally carries the email, and the token itself was the only other
+ *  place the fact existed. */
+export function accessTokenEmail(token: string): string {
+  return String(claims(token)?.email || '')
+}

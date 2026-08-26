@@ -1,34 +1,39 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Pencil } from 'lucide-react'
+import { Copy, Pencil, Trash2 } from 'lucide-react'
 
 /**
  * The per-chat "⋯" action menu. Rendered through a portal + fixed positioning so it escapes the
  * sidebar's overflow/scroll-mask, and clamped into the viewport. Because a portal still bubbles
  * React events to its parent, the container stops propagation so clicks never reach the row.
  *
- * COPIED FROM agentd, minus three of its five items:
+ * COPIED FROM agentd, minus two of its five items:
  *
  *   Move to project     this window has no projects — `projects.list` is host-only and the daemon
  *                       refuses it on an app connection, so the row could only ever be empty
  *   Export as Markdown  would be the first thing in this window that writes a file to disk
- *   Delete              destructive, and agentd offers no confirmation step on it
  *
- * The last two are absences by CHOICE rather than by capability: both RPCs are on the app-scoped
- * allowlist and either could be added here in a few lines. Neither is missing by accident.
+ * Delete is agentd's, verbatim: the same two-step arm (first click reads "Click again to
+ * delete"), the same danger styling, the same separator above it. An earlier copy left it out
+ * with a note claiming agentd had no confirmation step — it does, the arming IS the
+ * confirmation, and a Recents list that can only grow is how it became a wall of
+ * indistinguishable "[context] We are working…" rows.
  */
 export default function ChatMenu({
   anchor,
   onClose,
   onRename,
   onDuplicate,
+  onDelete,
 }: {
   anchor: DOMRect
   onClose: () => void
   onRename: () => void
   onDuplicate: () => void
+  onDelete: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const [armed, setArmed] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number }>({
     left: anchor.left,
     top: anchor.bottom + 4,
@@ -90,6 +95,16 @@ export default function ChatMenu({
           <Copy size={15} />
         </span>
         Duplicate
+      </button>
+      <div className="chat-menu-sep" />
+      <button
+        className="chat-menu-item danger"
+        onClick={() => (armed ? run(onDelete) : setArmed(true))}
+      >
+        <span className="cm-ico">
+          <Trash2 size={15} />
+        </span>
+        {armed ? 'Click again to delete' : 'Delete'}
       </button>
     </div>,
     document.body,

@@ -28,6 +28,7 @@ export default function SessionItem({
 }) {
   const renameSession = useApp((s) => s.renameSession)
   const duplicateSession = useApp((s) => s.duplicateSession)
+  const deleteSession = useApp((s) => s.deleteSession)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [menu, setMenu] = useState<DOMRect | null>(null) // ⋯ menu anchor (open when set)
@@ -113,6 +114,7 @@ export default function SessionItem({
             setEditing(true)
           }}
           onDuplicate={() => void duplicateSession(session.sessionId)}
+          onDelete={() => void deleteSession(session.sessionId)}
         />
       )}
     </button>

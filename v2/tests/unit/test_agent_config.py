@@ -17,11 +17,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_runtime.domain.agent_config import (
     AGENT,
+    AUTHOR,
     DAEMON,
     OVERRIDABLE_KEYS,
     agent_entry,
+    authored_values,
     overrides_daemon,
     resolve,
+    user_may_edit,
 )
 
 
@@ -225,3 +228,74 @@ def test_an_agent_with_no_entry_still_gets_the_daemons_router():
     )
     values, _ = resolve(cfg, "untouched-agent")
     assert router_for(values["cost_efficiency"]) is not None
+
+
+# ── the author's layer ──────────────────────────────────────────────────────
+# THE MISSING LAYER. Before this an agent could describe what it was but not how it had to run,
+# so it arrived on a stranger's machine configured by a stranger. An author who needs a vision
+# model for their agent to work at all says so once, in `agent.config.json`, and it ships.
+
+
+def test_an_authored_value_beats_the_daemon():
+    cfg = FakeConfig(agents={})
+    values, sources = resolve(cfg, "vision-bot", authored={"model": "gemini/gemini-3.1-pro"})
+    assert values["model"] == "gemini/gemini-3.1-pro"
+    assert sources["model"] == AUTHOR
+    # ...and only that key moved. Key by key, exactly like the installer's layer.
+    assert values["max_turns"] == 100
+    assert sources["max_turns"] == DAEMON
+
+
+def test_no_authored_config_resolves_exactly_as_before():
+    """Every agent built before this feature ships none. If they resolved differently, adding the
+    layer would silently change how all of them run."""
+    cfg = FakeConfig(agents={"a": {"model": "x"}})
+    assert resolve(cfg, "a") == resolve(cfg, "a", authored=None)
+    assert resolve(cfg, "a", authored={})[1]["model"] == AGENT
+
+
+def test_the_author_cannot_move_the_daemons_port():
+    """The whitelist, from the other side. `agent.config.json` arrives from whoever wrote the
+    agent — so an author who puts `port` in it must not be able to reconfigure the machine of
+    everyone who installs it."""
+    assert authored_values({"port": 9999, "model": "m", "user_editable": True}) == {"model": "m"}
+
+
+# ── locked by default ───────────────────────────────────────────────────────
+
+
+def test_the_installer_cannot_override_a_locked_authored_value():
+    """The default. An agent behaves the same everywhere unless its author opted out."""
+    cfg = FakeConfig(agents={"vision-bot": {"model": "openai/gpt-4"}})
+    values, sources = resolve(cfg, "vision-bot", authored={"model": "gemini/gemini-3.1-pro"})
+    assert values["model"] == "gemini/gemini-3.1-pro"
+    assert sources["model"] == AUTHOR
+
+
+def test_user_editable_hands_the_decision_back():
+    cfg = FakeConfig(agents={"vision-bot": {"model": "openai/gpt-4"}})
+    values, sources = resolve(
+        cfg, "vision-bot", authored={"user_editable": True, "model": "gemini/gemini-3.1-pro"}
+    )
+    assert values["model"] == "openai/gpt-4"
+    assert sources["model"] == AGENT
+
+
+def test_locking_covers_only_what_the_author_actually_set():
+    """THE DISTINCTION THAT MATTERS. "My agent needs Gemini for vision" must not also mean "and
+    you may not change the turn limit." A knob the author never touched is not locked, because
+    there is nothing there to protect."""
+    cfg = FakeConfig(agents={"vision-bot": {"model": "openai/gpt-4", "max_turns": 12}})
+    values, sources = resolve(cfg, "vision-bot", authored={"model": "gemini/gemini-3.1-pro"})
+
+    assert values["model"] == "gemini/gemini-3.1-pro" and sources["model"] == AUTHOR
+    assert values["max_turns"] == 12 and sources["max_turns"] == AGENT
+
+
+def test_user_editable_defaults_to_false():
+    """Stated as its own test because it is a POLICY, not an implementation detail: the author's
+    choices are the author's unless they say otherwise."""
+    assert user_may_edit(None) is False
+    assert user_may_edit({}) is False
+    assert user_may_edit({"model": "m"}) is False
+    assert user_may_edit({"user_editable": True}) is True

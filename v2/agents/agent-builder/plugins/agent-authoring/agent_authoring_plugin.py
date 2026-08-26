@@ -32,7 +32,7 @@ log = logging.getLogger("agentd")
 # services still take both roots as arguments, so a test can point them at a tmp dir.
 AGENT_BUILDER_DIR = BundleLayout.AGENT_BUILDER_DIR
 TEMPLATE_ROOT = BundleLayout.TEMPLATE_ROOT
-BORROW_ROOT = BundleLayout.BORROW_ROOT
+SKELETON_ROOT = BundleLayout.SKELETON_ROOT
 COMMON_ROOT = BundleLayout.COMMON_ROOT
 
 
@@ -145,7 +145,49 @@ def register(api, ctx):
     broadcast = getattr(ctx, "broadcast_agents_changed", None)
     # The validator rides along so a fresh skeleton is checked IN THE SAME RESULT — the
     # builder sees problems without spending a turn deciding to call validate_agent.
-    api.register_tool(CreateAgentTool(registry, validator=validator, announce=broadcast))
+    # THE SCAFFOLDER, BUILT HERE so `create_agent(window=true)` can hand a new agent a complete
+    # window in the same call. It used to be constructed further down, next to its own tool, and
+    # creating an agent with a window was therefore two steps the model had to remember to take in
+    # order. The second one is the entire structural guarantee, so it is no longer optional.
+    from agent_authoring.application.scaffold_react_app_service import ScaffoldReactAppService
+
+    scaffolder = ScaffoldReactAppService(reader, SKELETON_ROOT, COMMON_ROOT)
+
+    # THE BUILDER, built here for the same reason the scaffolder is: `create_agent(window=true)`
+    # has to hand back something that can actually be OPENED, and `app/` is source. Constructed
+    # once and shared with `build_app` below, so creating an agent and rebuilding it later cannot
+    # disagree about the toolchain.
+    from agent_authoring.application.build_app_service import BuildAppService
+    from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
+    from agent_authoring.infrastructure.node_toolchain import NodeToolchain
+
+    toolchain = NodeToolchain()
+    app_builder = BuildAppService(reader, toolchain, AppDependencyStore(toolchain))
+
+    # EVERY WRITE TO AN app/ IS A BUILD, automatically — the mechanism that closes the loop the
+    # hot-reload work opened: edit -> auto-build -> the open window reloads itself. Without this,
+    # "run build_app after every change" was an instruction, and instructions get skipped on the
+    # one edit that mattered. Optional seam: a runtime too old to expose it just keeps the manual
+    # loop.
+    add_observer = getattr(ctx, "add_run_observer", None)
+    if callable(add_observer):
+        from agent_authoring.application.app_auto_build_observer import AppAutoBuildObserver
+
+        add_observer(
+            AppAutoBuildObserver(
+                registry, app_builder, announce=getattr(ctx, "broadcast_app_rebuilt", None)
+            )
+        )
+
+    api.register_tool(
+        CreateAgentTool(
+            registry,
+            validator=validator,
+            announce=broadcast,
+            scaffolder=scaffolder,
+            builder=app_builder,
+        )
+    )
 
     # create_tool hot-loads the Python it writes, so it needs the live-reload handle: without it
     # the tool would write a file that never becomes callable. Register nothing rather than that.
@@ -186,14 +228,13 @@ def register(api, ctx):
     # which is right when a chat window IS the product: no build step, no Node, and a model
     # writing one from scratch reliably gets the event wiring wrong. `scaffold_react_app` copies
     # only a buildable project and deliberately no source — for a window that needs more than a
-    # conversation, where there is no single right shape and the working agents under
-    # agents/samples/ are the material to judge from.
-    from agent_authoring.application.scaffold_react_app_service import ScaffoldReactAppService
+    # conversation. There IS a single right shape now — the skeleton — so this tool is for the
+    # agent that was created without a window and is getting one later.
     from agent_authoring.presentation.scaffold_react_app_tool import ScaffoldReactAppTool
 
-    api.register_tool(
-        ScaffoldReactAppTool(ScaffoldReactAppService(reader, BORROW_ROOT / "react", COMMON_ROOT))
-    )
+    # The SAME instance create_agent uses — adding a window to an agent that was made without one
+    # must produce exactly what creating it with one would have.
+    api.register_tool(ScaffoldReactAppTool(scaffolder))
 
     # AND THE STEP THAT MAKES IT VISIBLE. `app/` is source and `ui/` is what the daemon serves, so
     # an edit that is never built is an edit the user cannot see — they reload the window, get the
@@ -203,14 +244,18 @@ def register(api, ctx):
     # The toolchain and the dependency store are separate objects on purpose: one finds and runs
     # Node, the other decides how an app gets its packages (a link to the product's shared copy, or
     # a real install in a source checkout). Both read the environment the supervisor prepared.
-    from agent_authoring.application.build_app_service import BuildAppService
-    from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
-    from agent_authoring.infrastructure.node_toolchain import NodeToolchain
     from agent_authoring.presentation.build_app_tool import BuildAppTool
 
-    toolchain = NodeToolchain()
+    # A BUILT WINDOW THAT NOBODY IS TOLD ABOUT is the old loop: the daemon serves `ui/`, so a page
+    # keeps showing the last compile until somebody reopens it by hand, once per change. This hands
+    # the tool the daemon's announcer so a rebuild reaches the window that is already open.
+    # Late-bound and optional for the same reason `announce` is on create_agent: the gateway does
+    # not exist when plugins are discovered, and a build must not fail because nothing is listening.
     api.register_tool(
-        BuildAppTool(BuildAppService(reader, toolchain, AppDependencyStore(toolchain)))
+        BuildAppTool(
+            app_builder,
+            announce=getattr(ctx, "broadcast_app_rebuilt", None),
+        )
     )
 
     # VERIFY THE WINDOW. validate_agent proves an agent is well-formed and `agentd ask` proves

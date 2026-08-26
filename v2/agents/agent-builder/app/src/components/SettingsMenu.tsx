@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { CreditCard, Settings, SlidersHorizontal } from 'lucide-react'
+import { Building2, CreditCard, Settings, SlidersHorizontal } from 'lucide-react'
 
 /**
  * The sidebar's "gear" menu: a popover of app-level destinations rather than a button that opens
@@ -13,26 +13,35 @@ import { CreditCard, Settings, SlidersHorizontal } from 'lucide-react'
  * looking for when a run stops, and making them guess which menu it is under is the failure this
  * is guarding against.
  */
-const ITEMS: { id: 'settings' | 'credits'; label: string; icon: ReactNode }[] = [
+const ITEMS: { id: 'settings' | 'credits' | 'orgs'; label: string; icon: ReactNode }[] = [
   { id: 'settings', label: 'Settings', icon: <SlidersHorizontal size={16} /> },
   { id: 'credits', label: 'Credits & billing', icon: <CreditCard size={16} /> },
+  // SEATS ARE BOUGHT ONCE AND MET EVERYWHERE. An enterprise that buys seats meets them in the
+  // assistant, here, and inside every agent this window builds — one page, copied, not three
+  // ideas of what a seat is.
+  { id: 'orgs', label: 'Organizations', icon: <Building2 size={16} /> },
 ]
 
 export function SettingsMenu({
   variant = 'footer',
   onSettings,
   onCredits,
+  onOrgs,
 }: {
   variant?: 'footer' | 'rail'
   onSettings: () => void
   onCredits: () => void
+  onOrgs: () => void
 }) {
   const [open, setOpen] = useState(false)
 
+  // A LOOKUP, not a chain. This was `if settings ... else credits`, so adding a third entry to
+  // ITEMS above would silently have opened Credits — the menu and its handler have to be one
+  // list, or the next entry is a bug rather than a line.
   const run = (id: (typeof ITEMS)[number]['id']) => () => {
     setOpen(false)
-    if (id === 'settings') onSettings()
-    else onCredits()
+    const go = { settings: onSettings, credits: onCredits, orgs: onOrgs }
+    go[id]()
   }
 
   return (

@@ -46,30 +46,29 @@ is exact; the procedure is short because it is what you actually do.
      `web_search` the service first rather than guessing what its API or MCP server offers.
    - What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
 1. `agents_list` — check the id is free and learn the agents directory path.
-2. `create_agent` — scaffold `agent.toml` + `IDENTITY.md` and register it LIVE. Do this
-   first; the agent is resolvable from this moment.
-3. **Give it a window** — `scaffold_react_app`, which is the one way.
+2. `create_agent` — writes `agent.toml` + `IDENTITY.md` and registers it LIVE. Do this first;
+   the agent is resolvable from this moment.
 
-   It writes a buildable project and **only the mandatory source**: source in `app/`, compiled
-   into `ui/` by `build_app`. The toolchain ships inside the product, so the user installs
-   nothing. You write the rest of `src/` yourself, **after reading `agents/samples/`** (step 3a).
+   **Pass `window=true` if it needs one.** That declares `[app]` AND gives the agent a complete,
+   working window in the same call — shell, chat, and the four shared screens already wired. It
+   is not a step you can do afterwards and forget.
 
-   Never hand-write a window from nothing. The run-event payload is nested and streamed text is
-   `message_update/text_delta`; a page that gets either wrong connects, logs nothing, and never
-   updates the screen. And remember `[app]` in `agent.toml` — this tool writes files, not
-   configuration.
+3. **Open what you were given, and change it.** The window exists; the job is editing it.
 
-3a. **READ THE SAMPLES BEFORE YOU WRITE AN APP.** `agents/samples/` holds complete, working
-   agents. Read **more than one**, always.
+   Source in `app/src/`, compiled into `ui/` by `build_app`. The toolchain ships inside the
+   product, so the user installs nothing.
 
-   They overlap where the platform has a right answer and differ where the product does, and the
-   differences are the part worth thinking about — one may keep an artifact beside the
-   conversation, another may put a queue in front of it. Neither is "the way". Say which you took
-   from and why, in one line.
+   Read `app/src/App.tsx` first — it is the shell, and every screen hangs off one branch in it.
+   Then change the chat view into whatever this agent actually needs. Do NOT rewrite the window
+   from nothing: the run-event payload is nested and streamed text is
+   `message_update/text_delta`, and a page that gets either wrong connects, logs nothing, and
+   never updates the screen. What you were handed already gets both right.
 
-   **They are references, not a mould.** Take the mechanism, not the layout. Build what THIS
-   agent needs, including things no sample has — that is the job, and a window that is a
-   recoloured copy of a sample is a failure of it, not adherence to it.
+3a. **The four screens under `src/common/`: the `.tsx` is not yours to edit; the `.css` is.** Sign-in, credits, settings
+   and organizations arrived working, and `validate_agent` compares your copies against the
+   source. Move them, route to them, restyle them through `src/tokens.css` — but do not rewrite
+   them, and do not delete one to make the window simpler. Each failure is invisible to you and
+   total for whoever installs the agent.
 
    What to look for, because each of these is invisible until a user hits it:
 
@@ -381,7 +380,8 @@ naming in `[tools] allow`.
 
 An API key, a database URL, an endpoint. Anything that differs per person and that **you must not
 know**. Declare it and the daemon does the rest: the agent's settings page grows a field for it,
-and whatever the user types lands in the `.env` on **their** machine.
+and whatever the user types is stored in **that agent's own** `agent.config.json`, on their
+machine.
 
 ```toml
 [[settings]]
@@ -401,15 +401,28 @@ kind  = "url"
 installer sees the field. `.env` is excluded from packaging and always was. A downloader opens the
 settings page, sees empty fields, and fills in their own.
 
-**Each agent's values are its own.** On disk they are stored as `<agent-id>__<KEY>`, so two agents
-that both declare `AWS_ACCESS_KEY_ID` hold two different accounts instead of overwriting each
-other. You never write the prefix and never read it: you declare `AWS_ACCESS_KEY_ID`, your code
-reads `${AWS_ACCESS_KEY_ID}`, and the daemon maps between them. It is only worth knowing so the
-line in `.env` doesn't surprise you. Provider keys (`ANTHROPIC_API_KEY` and friends) are NOT
-prefixed — those are one machine-wide credential shared by every agent, by design.
+**Each agent's values are its own,** and they live in the agent's own file — one more reason two
+agents that both declare `AWS_ACCESS_KEY_ID` hold two different accounts rather than overwriting
+each other. You declare `AWS_ACCESS_KEY_ID`, your code reads `${AWS_ACCESS_KEY_ID}`, and the
+daemon does the rest.
+
+They USED to be lines in the machine's shared `.env`, under a prefixed name
+(`<agent-id>__AWS_ACCESS_KEY_ID`) invented precisely because one file was being shared. You may
+still see that prefix in a process environment — it is how the value reaches a sandboxed tool or
+an `[[mcp]]` child, which can only read an environment variable — but it is transport, not
+storage, and nothing asks you to type it.
+
+Provider keys (`ANTHROPIC_API_KEY` and friends) DO still live in `.env`: those are one
+machine-wide credential shared by every agent, by design.
 
 So: **never put a key IN `agent.toml`.** That file is the packaged one. Writing
 `api_key = "sk-live-…"` there ships your credential to everyone who installs the agent.
+
+**And you may not need to ask at all.** `agent.config.json` is yours to write as the AUTHOR — a
+default server URL, a model your agent needs to work — and it SHIPS with the agent, so whoever
+installs it gets your choices instead of their daemon's defaults. Secret-kind values are stripped
+when the package is built, so your own key cannot travel even if you filled the field in while
+building. See "Config that ships with your agent" below.
 
 **A declaration is also a permission.** `config.set` will write the provider keys and the names
 this agent declared — nothing else. An undeclared name is refused with an error naming it. That is
@@ -429,10 +442,54 @@ Reading the value in a private tool: it is an ordinary environment variable, so
 `[sandbox] secrets = ["COINBASE_API_KEY"]` in that plugin's `plugin.toml` and the
 `${COINBASE_API_KEY}` placeholder — see "Calling an external API from a private tool".
 
-**Custom settings make an agent local-only for now.** The values live in the daemon's `.env`, and a
-hosted daemon has one `.env` shared by every account — one user's key would become everyone's.
-Until per-account secrets exist, an agent with `[[settings]]` is for a local install. Say so when
-you build one.
+**Custom settings still make an agent local-only for now.** The values are per-agent rather than
+per-account, and a hosted daemon runs one copy of an agent for everybody — so one user's key would
+still become everyone's. Moving them out of the shared `.env` fixed the collision BETWEEN agents,
+not the one between accounts. Until per-account secrets exist, an agent with `[[settings]]` is for
+a local install. Say so when you build one.
+
+### `agent.config.json` — the config that ships WITH your agent
+
+`[[settings]]` is what you ask the INSTALLER for. This is what you decide FOR them.
+
+```json
+{
+  "user_editable": false,
+  "model": "anthropic/claude-opus-5",
+  "vision_model": "gemini/gemini-3.1-pro-preview",
+  "max_turns": 40,
+  "settings": { "COMFY_URL": "https://a-sensible-default" }
+}
+```
+
+Written beside `agent.toml`, packaged with the agent, and it beats the daemon's own values key by
+key. An agent that needs a vision model to be any use at all can say so once, instead of arriving
+on a stranger's machine configured by that stranger.
+
+**Three layers, and each belongs to somebody different:**
+
+```
+agents.<id>.*        the INSTALLER's, in their own agentd.config.json
+agent.config.json    YOURS, shipped in the package
+the daemon           everything neither of you decided
+```
+
+**`user_editable` is false by default,** which means the settings page shows your keys read-only
+and the daemon refuses to write them. Set it true and the installer can change everything. Either
+way they can ALWAYS fill in `[[settings]]` fields — their URL, their API key, their tokens. Those
+are theirs by definition; only your run knobs are yours.
+
+Locking covers only what you actually SET. "My agent needs Gemini for vision" must not also mean
+"and you may not change the turn limit", so a knob you never touched stays theirs.
+
+**Your secrets cannot travel.** The same file holds the values YOU typed into your own settings
+page while building. On `package_agent` every value whose declared kind is `secret` is stripped,
+and then the finished package is read back and the pack FAILS if any survived. You do not have to
+remember anything.
+
+**Only run knobs are honoured** — `model`, `vision_model`, `max_turns`, `reasoning_effort`,
+`cost_efficiency`, `model_fallbacks`, `verify_tool`, `memory_enabled`. Anything else in the file is
+a key nobody reads: an agent may not reconfigure the machine it lands on.
 
 ### `[[mcp]]` — servers the agent brings with it
 
@@ -925,10 +982,10 @@ that should already be on the screen. A file-ingest agent whose window is a chat
 describe files they could have dropped. **Chat is right when the work genuinely is a conversation
 and wrong when it is a substitute for a control.**
 
-None of these shapes is a template you pick from a list. Every window is
-`scaffold_react_app` plus the samples — which is what the next section is about — because the
-shape that fits an agent is a judgement about that agent, and a menu of three answers is how
-every agent ends up being one of three things.
+None of these shapes is a template you pick from a list. Every window starts as the same
+working chat app and is EDITED into the shape that fits — because the shape that fits an agent is
+a judgement about that agent, and a menu of answers is how every agent ends up being one of four
+things. The next section is what you are starting from.
 
 ### A window is not limited to chatting
 
@@ -973,26 +1030,40 @@ Two rules that go with it:
 - **A failed lookup is not an empty result.** `catch` around the call must not render "nothing
   here"; those are different answers and only one of them is about the workspace.
 
-### A built app, when one of the three shapes is not enough
+### The window you start with
+
+An agent created with a window already HAS one — a complete, working app, copied in at creation:
 
 ```
-scaffold_react_app(agent_id='<id>')   →  app/ with package.json, vite.config.ts,
-                                         tsconfig.json, index.html, vendor/ — and NO src/
+agents/<id>/app/
+  src/App.tsx          the shell: a rail, and a view for each screen
+  src/components/      chat, composer, message rendering
+  src/agentd/          the client, the run-event folding, sessions
+  src/common/          sign-in · credits · settings · organizations   ← not yours to edit
+  src/tokens.css       the palette every one of those reads
+  vendor/              the SDK, carried inside the app
 ```
 
-The missing `src/` is the design. There is no single right shape for a window that does several
-things, so instead of a fourth opinion you get the working agents under `agents/samples/` to
-judge from. Read more than one, decide, then write it.
+**So you edit a running window rather than assembling one**, which is a different and much smaller
+job — and one where a mistake shows up when you build, not when somebody else installs the agent.
+`build_app`, reload, look at it.
 
-Two things about that project that only fail on somebody ELSE's machine, so check them before you
-hand the agent over:
+It is the shape the user PICKED at creation — `chat` (a thread and a composer) or `dashboard`
+(a panel grid over the agent's own tools, chat still in the rail). Templates live in
+`templates/_variants/`, each holding only the files that differ from the one base skeleton. Reshaping it into a dashboard or a workbench is
+ordinary work: the chat view is one branch in `App.tsx` and one component tree under
+`components/`. Read the shape table above, then change that branch. What you must not do is
+delete the four shared screens along with it — see below.
+
+`scaffold_react_app` exists for the agent that was created WITHOUT a window and is getting one
+later. It writes the same thing.
+
+Two things about that project that only fail on somebody ELSE's machine:
 
 - **The SDK is vendored, not depended on.** `vendor/agentd-client.js` with an alias in
-  `vite.config.ts` and a `paths` entry in `tsconfig.json`. The samples in this repo instead
-  declare `"@agentd/client": "file:../../../../clients/sdk-js"` — correct where they live and
-  broken everywhere else, because that path exists only inside this product's own tree. **If you
-  copy a sample's `package.json`, delete that line.** The author never sees the failure; every
-  recipient does.
+  `vite.config.ts` and a `paths` entry in `tsconfig.json`. Never replace that with
+  `"@agentd/client": "file:..."` — a relative path into this product's own tree exists nowhere
+  else, so `npm install` fails for every recipient and never for you.
 - **`ui/` is the build output and `ui/` is what ships.** The daemon serves it and the packer takes
   what is on disk, so an unbuilt change is invisible however correct the source is — the user
   reloads the window, sees the old screen, and nothing on it explains why. **Call `build_app`
@@ -1027,8 +1098,10 @@ common/
   auth/useAuth.ts              signedIn · email · signIn() · signOut() · run mode
   auth/ProfileMenu.tsx         the account menu, and the way to reach Credits
   credits/Credits.tsx          the Credits & billing page
+  orgs/OrgView.tsx             organizations and seats — create, join, invite, manage members
   settings/Settings.tsx        the settings page — the SAME one the assistant's window has
   settings/SettingsActions.tsx `useSettingsActions()`, for an `extras` control that must save first
+  dev/LiveReload.tsx           reloads this window when you rebuild it; inert once published
 ```
 
 Each folder also carries its own `.css`, which defines **no colours and no fonts** — every visual
@@ -1075,7 +1148,7 @@ if (page.dirty) await page.commit()       // then probe
 `onSaved` fires after every save, from the page's own button and from an `extras` control alike.
 Use it if a declared value is shown anywhere ELSE in your window — a server URL in the top bar, a
 "not configured" badge in the nav — or it will still be showing what was there when the window
-connected. **A sample does all of this** — read the samples as a set rather than re-deriving it.
+connected.
 
 **Import them. Never rewrite them.** `validate_agent` compares the agent's copy against the source
 and reports `UI_COMMON_MODIFIED` — which blocks packaging and publishing. Every agent handling
@@ -1087,157 +1160,63 @@ it. If it is only about this agent's look, use the CSS custom properties each mo
 
 **Copying is not wiring.** They arrive; you still have to render them — see the two rules below.
 
-### EVERY AGENT WITH A WINDOW SIGNS ITS USER IN. No exceptions.
+### The four screens you did NOT have to build
 
-`validate_agent` reports `UI_NO_SIGN_IN` as an **error** when an app never calls the gate, and
-that error blocks both `package_agent` and `publish_agent`. An agent without it cannot ship.
+Sign-in, credits, settings and organizations arrived working. This section is about not breaking
+them, because there is nothing here left to write.
 
-One mechanism, and it is the shared module — the assistant's own sign-in card, copied into
-every agent:
+`validate_agent` reports `UI_NO_SIGN_IN`, `UI_NO_CREDITS`, `UI_NO_SETTINGS` and `UI_NO_ORGS` as
+**errors**, and each blocks `package_agent` and `publish_agent`. They fire when something stops
+RENDERING one of these — which, now that the skeleton ships them wired, means somebody deleted a
+view or replaced a file.
 
-```tsx
-import Gate from './common/auth/Gate'
+**Why each is mandatory, since deleting one always looks like a saving:**
 
-<Gate product="Recipe Box"><App /></Gate>       // in main.tsx, wrapping the whole app
-```
+| screen | what breaks without it |
+|---|---|
+| sign-in | on a hosted install every model call fails with a provider error and nothing on screen explains why |
+| credits | running out is the one failure a user can fix themselves; without it the agent just stops |
+| settings | they cannot change its model, its turn limit, or the keys it uses from inside it |
+| organizations | an agent a company bought can only ever be used by whoever installed it |
 
-`scaffold_react_app` writes `src/main.tsx` containing exactly that, because this is a part of an
-app that is not a judgement call. If you see `UI_NO_SIGN_IN` on a scaffolded agent, somebody
-replaced that file; put the wrapper back.
+Every one of those is silent for you and total for whoever installed the agent. That is the whole
+reason they are copied in rather than described.
 
-`Gate` asks the daemon whether an account is **required** and shows `<SignIn>` if one is and
-nobody is signed in. It renders your app straight through otherwise — including while it is still
-asking, because a blank screen during a status probe is indistinguishable from a broken window.
-An app that lays out its own gating can render `<SignIn>` from `common/auth/SignIn` directly; what
-it may not do is write a third one.
+**`src/common/` — the `.tsx` IS NOT YOURS TO EDIT; the `.css` IS.** Every stylesheet in there
+(`auth.css`, `credits.css`, `settings.css`, `orgs.css`) is the agent's own: restyle the login
+card, the credit packs, the settings rows however this agent's look demands. What stays locked is
+the behaviour — the `.tsx`. `validate_agent` compares your copy against the source and
+reports `UI_COMMON_MODIFIED`, which blocks packaging — and it still BUILDS, which is what makes a
+local edit dangerous. A user signs in to the assistant, opens your agent, and must meet the same
+card, the same shop and the same seats page. If a change is genuinely needed by every agent, make
+it in `templates/_common/`. If it is only about how this agent LOOKS, edit `src/tokens.css`: the
+shared modules define no colours and no fonts at all, so every one of them follows.
 
-**Never write your own login form.** A user signs in to the assistant, opens your agent, and must
-meet the SAME card — a second form is a second implementation of credential handling, written by
-somebody who was not thinking about credentials that day. It hits the same endpoints either way;
-the only thing a custom form adds is a way to get it wrong.
+**What you may do** is move them: a view in your own nav, a route, a modal reached from a gear.
+The skeleton puts all four in the rail; where they live is yours, that they exist is not.
 
-It renders **nothing** when a stored session still works, and nothing on a build with no accounts
-service — so it is correct to leave in an agent that will only ever run locally.
+### Organizations and seats — what "an agent a company bought" means
 
-### EVERY AGENT WITH A WINDOW SELLS CREDITS. No exceptions.
+`common/orgs` is one of the four screens that arrived working, and the one whose absence is
+hardest to spot: everything works perfectly for whoever installed the agent, and nobody else can
+get in.
 
-The same rule as sign-in, one step later in the same story. `validate_agent` reports
-`UI_NO_CREDITS` as an **error** when an app never shows a balance, and that error blocks both
-`package_agent` and `publish_agent`.
+It is the assistant's own page, so the vocabulary is the platform's rather than yours:
 
-**Why it is mandatory and not a feature.** Running out of credits is the one failure a user can
-fix themselves. An agent that cannot take the top-up simply stops working and says nothing about
-why — the user has to already know a separate app exists, find it, and buy there. They do not.
-They uninstall.
+- **an organization** owns seats and a shared credit pool
+- **a seat** is a membership. Joining takes one; every join path goes through the same gate, so an
+  org with five seats admits five people whichever way they arrived
+- **an invite** is a single-use code, minted by an admin, good for seven days
+- **a domain** can be allowed, which OFFERS the org to anyone signing in with a matching email —
+  it never adds them silently
+- **a member cap** limits how much of the pool one person may spend in a month
 
-**IT IS A PAGE, NOT A SETTINGS SECTION.** Its own nav entry, beside Settings — the way agentd
-does it. Topping up is what a user comes looking for the moment a run stops; settings is where
-you go to change how the thing works. A shop buried three scrolls into a config screen is a shop
-nobody finds.
+Every one of those is enforced by the accounts service, not by the page. That is why you must not
+build your own: a second client's idea of who may invite whom is a second way to get access wrong,
+and access bugs are found by the people they let in.
 
-One mechanism, and it is the shared module — the assistant's own credits page, copied into
-every agent:
-
-```tsx
-import Credits from './common/credits/Credits'
-```
-
-`scaffold_react_app` ships `src/common/credits/` — render it from its own view, never inside your
-settings screen.
-
-**Shipping the files is not the same as having the page.** The module arrives with every scaffold,
-so its presence proves only that the scaffolder ran — `validate_agent` reports `UI_NO_CREDITS`
-until something actually renders it:
-
-```tsx
-import Credits from './common/credits/Credits'
-...
-{view === 'credits' && <Credits />}
-```
-
-**It has to be THAT module.** A page of your own called Credits does not satisfy the rule and is
-not meant to: somebody who tops up in the assistant and then inside an agent must not meet two
-different shops with two sets of prices.
-
-The samples all do this — read them as a set and copy the shape, not one of them as a mould.
-
-**Never build your own store.** The packs, the prices and the payment disclosure all come from the
-server: what is on sale is a database row, so it changes without releasing the agent, and the
-price shown can never drift from the price charged because there is only one of them. An agent
-that hardcodes a pack shows a price it cannot honour. It is also real money — a second
-implementation is a second set of idempotency keys and refusal paths, and the failure mode is
-charging someone twice.
-
-It renders **nothing** on a build with no accounts service, and nothing when nobody is signed in —
-so it is correct to leave in an agent that will only ever run locally.
-
-Theme it from your own stylesheet. The module defines **no colours and no fonts** — it reads
-the tokens in `src/tokens.css` (`--bg`, `--fg`, `--accent`, `--border` and friends), which your
-agent owns. Redefine those and the page follows; there is nothing to fork.
-
-### Sign-in comes with the template — never hand-write a login
-
-An agent that runs on platform keys needs the user signed in, or every model call fails. The
-scaffolded `main.tsx` already wraps your app in `<Gate>` from `common/auth`, and that is all a
-login takes. It is a copied module rather than something each agent writes, so it is one
-implementation for every agent — and the same one the assistant itself shows.
-
-It **shows nothing** unless a sign-in is genuinely needed — the daemon says an account is not
-required (a BYOK or desktop install), or somebody is already signed in. So it is correct to leave
-in place for an agent that will only ever run locally; it costs one status call and renders your
-app.
-
-Theme it from your own stylesheet: like every module in `common/`, it defines no colours and no
-fonts, reading the tokens in `src/tokens.css` instead. Never fork its markup.
-
-For an agent that wants sign-in somewhere other than a modal, the mechanism is exposed directly:
-`agentd.resolveAuth()`, `agentd.signIn({email, password, signup})`, `agentd.signOut()`.
-
-Read the `ui/README.md` it writes before changing anything. It marks every spot to edit.
-
-The rest of this section is what that app is built from — read it to modify the app, not to
-retype it. Writing `ui/app.js` from scratch is the single most reliable way to ship an agent
-that looks finished and does nothing: the two mistakes below are invisible at runtime, and
-every hand-written app so far has made at least one of them.
-
-```
-ui/
-├── index.html                  the entry (default "ui/index.html")
-├── app.js
-├── chat.js
-├── settings.js
-├── md.js
-├── style.css
-└── vendor/agentd-client.js     the SDK, verbatim — never edit or rewrite it
-```
-
-`index.html` loads the SDK as a plain script (it is an IIFE exposing a global `agentd`,
-**not** an ES module):
-
-```html
-<script src="vendor/agentd-client.js"></script>
-<script src="app.js"></script>
-```
-
-`app.js` connects with one line — the opener already put `token` and `scope` in the page URL:
-
-```js
-const client = agentd.fromPage({ clientName: "my-app/1" });
-
-client.onStatus((s) => {
-  /* 'connecting' | 'open' | 'closed' */
-});
-await client.send({ message, sessionKey });
-await client.abort(sessionKey);
-const { sessions } = await client.sessions();
-const { messages } = await client.history(sessionKey);
-const res = await client.invokeTool("my_tool", { arg: 1 });
-const url = client.fileUrl(artifactPath); // authenticated URL for an artifact
-```
-
-**Pass no agent id.** The window is opened with `?scope=<agent-id>` and the daemon forces that
-agent onto every request the page makes, so these calls are already about this agent. Writing
-the id in the page just creates a second copy to keep in sync with `agent.toml`.
+Nothing in it needs configuring. It renders an empty state on a build with no accounts service, so
+an agent that will only ever run on one laptop still passes and still costs nothing.
 
 ### Reading run events — THE PAYLOAD IS NESTED
 

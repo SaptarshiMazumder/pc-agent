@@ -261,6 +261,22 @@ class Config:
     llm_request_timeout_seconds: float = (
         600.0  # hard ceiling per model call (AGENTD_LLM_REQUEST_TIMEOUT)
     )
+    # HOW LONG A RUN MAY GO SILENT. The two above guard the streaming call and nothing else, so
+    # a run that wedges anywhere outside it — between a tool result and the next request, in a
+    # tool that never returns — was never going to end, and the window that started it stayed
+    # locked on "running" forever with a Stop button that had nothing to stop.
+    #
+    # SILENCE, NOT WALL TIME. This was briefly a ceiling on the whole run, and that was wrong: a
+    # complex build that is genuinely working — streaming, calling tools, making progress — would
+    # be killed for taking too long, which is the one thing a timeout must never do. What actually
+    # distinguishes a wedged run is that NOTHING HAPPENS, so that is what is measured. Any event
+    # resets it, so a run hammering away for three hours never trips it.
+    #
+    # Generous by default: a slow tool can legitimately be quiet for minutes, and the cost of
+    # waiting a little longer is far lower than the cost of cutting off real work.
+    run_idle_timeout_seconds: float = (
+        600.0  # 10 min of SILENCE ends a run (AGENTD_RUN_IDLE_TIMEOUT)
+    )
 
     # --- quality + liveness (decoupled seams; all default OFF => unchanged behavior) ---
     # Liveness observers that detect a stuck/looping run, comma-separated.
@@ -910,6 +926,8 @@ def load_config(path: Path | None = None) -> Config:
         cfg.tool_retries_default = int(os.environ["AGENTD_TOOL_RETRIES"])
     if os.environ.get("AGENTD_LLM_IDLE_TIMEOUT"):
         cfg.llm_idle_timeout_seconds = float(os.environ["AGENTD_LLM_IDLE_TIMEOUT"])
+    if os.environ.get("AGENTD_RUN_IDLE_TIMEOUT"):
+        cfg.run_idle_timeout_seconds = float(os.environ["AGENTD_RUN_IDLE_TIMEOUT"])
     if os.environ.get("AGENTD_LLM_REQUEST_TIMEOUT"):
         cfg.llm_request_timeout_seconds = float(os.environ["AGENTD_LLM_REQUEST_TIMEOUT"])
     if os.environ.get("AGENTD_LIVENESS"):

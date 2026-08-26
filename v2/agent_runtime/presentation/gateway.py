@@ -205,6 +205,12 @@ def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
         return payload.get("agentId") == agent_id
     if name == "agents.changed":
         return True
+    # ITS OWN REBUILD, AND NOBODY ELSE'S. This comparison is not a nicety -- an agent window
+    # reloading itself because a DIFFERENT agent was rebuilt would be a page that refreshes at
+    # random while somebody is using it. It is also why the window itself does not re-check the
+    # id: this is the check, and a second one somewhere else is a second one to keep in step.
+    if name == "app.rebuilt":
+        return payload.get("agentId") == agent_id
     if name == "notification":
         return payload.get("agentId") in (agent_id, "", None)
     return False
@@ -363,6 +369,9 @@ class RunHandle:
     #                        Most runs do NOT start at a chat box, and unattended ones (cron)
     #                        carry the highest cost risk — so they need their own dimension.
     task: asyncio.Task | None = None
+    #: When this run last produced an event, on the monotonic clock. The silence watchdog reads
+    #: it; `on_event` writes it. 0.0 until the run starts.
+    last_event_at: float = 0.0
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
     cron_failure_alert: int = 0  # auto-pause + alert after N consecutive failures (0=off)
@@ -584,6 +593,7 @@ EXPOSED_CONFIG_KEYS = (
     "model_catalog",
     "model_defaults",
     "llm_idle_timeout_seconds",
+    "run_idle_timeout_seconds",
     "llm_request_timeout_seconds",
     "host",
     "port",
@@ -650,6 +660,7 @@ EXPOSED_KEY_ENV = {
     "max_turns": "AGENTD_MAX_TURNS",
     "model_fallbacks": "AGENTD_MODEL_FALLBACKS",
     "llm_idle_timeout_seconds": "AGENTD_LLM_IDLE_TIMEOUT",
+    "run_idle_timeout_seconds": "AGENTD_RUN_IDLE_TIMEOUT",
     "llm_request_timeout_seconds": "AGENTD_LLM_REQUEST_TIMEOUT",
     "host": "AGENTD_HOST",
     "port": "AGENTD_PORT",
@@ -1911,6 +1922,8 @@ class Gateway:
                 return await self._serve_oauth_callback(split)
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return await self._serve_app(split, getattr(request, "headers", {}))
+            if split.path.startswith("/template-previews/"):
+                return self._serve_template_preview(split)
             # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
             # short-circuit a WebSocket upgrade, or no WS could ever connect on the alias.
             headers = getattr(request, "headers", {})
@@ -1926,6 +1939,58 @@ class Gateway:
         except Exception:  # noqa: BLE001 — a file error must never crash the handshake path
             log.exception("http %s failed", getattr(request, "path", ""))
             return HttpResponse(500, "Internal Server Error", Headers({"Content-Length": "0"}), b"")
+
+    def _serve_template_preview(self, split) -> HttpResponse:
+        """Serve a compiled TEMPLATE preview: `/template-previews/<name>/<path>`.
+
+        These are the create dialog's "show me the actual app" panes — each is the template
+        assembled and vite-built exactly as a new agent would receive it, shipped under
+        `templates/_previews/<name>/`. Static product pixels with nobody's data in them, so no
+        token is required, same as an app's own shipped files.
+
+        Resolved through Agent Builder's own directory rather than a hardcoded path, because that
+        is where the templates live and the registry already knows where Agent Builder is."""
+
+        def deny(code: int, reason: str) -> HttpResponse:
+            return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
+
+        if self.registry is None:
+            return deny(404, "Not Found")
+        builder_dir = self.registry.resolve_dir("agent-builder")
+        if builder_dir is None:
+            return deny(404, "Not Found")
+        parts = [p for p in split.path.split("/") if p]  # ["template-previews", "<name>", ...]
+        if len(parts) < 2:
+            return deny(404, "Not Found")
+        name = unquote(parts[1])
+        root = (
+            Path(builder_dir) / "skills" / "build-agent" / "templates" / "_previews" / name
+        ).resolve()
+        previews_root = (Path(builder_dir) / "skills" / "build-agent" / "templates" / "_previews").resolve()
+        if not is_under_roots(root, [previews_root]) or not root.is_dir():
+            return deny(404, "Not Found")
+        # same redirect rule as /apps: relative assets must resolve under the trailing slash
+        if len(parts) == 2 and not split.path.endswith("/"):
+            return HttpResponse(
+                307,
+                "Temporary Redirect",
+                Headers({"Location": f"/template-previews/{parts[1]}/", "Content-Length": "0"}),
+                b"",
+            )
+        rest = "/".join(unquote(p) for p in parts[2:])
+        target = (root / rest).resolve() if rest else (root / "index.html").resolve()
+        if not is_under_roots(target, [root]):
+            return deny(404, "Not Found")
+        if not target.is_file():
+            if target.suffix:
+                return deny(404, "Not Found")
+            target = root / "index.html"
+        body = target.read_bytes()
+        hdrs = Headers()
+        hdrs["Content-Type"] = guess_mime(target)
+        hdrs["Content-Length"] = str(len(body))
+        hdrs["Cache-Control"] = "no-store"
+        return HttpResponse(200, "OK", hdrs, body)
 
     async def _serve_app(self, split, headers=None) -> HttpResponse:
         """Serve one file of an app agent's UI: `/apps/<agentId>/<path>` maps to the agent's
@@ -2502,6 +2567,18 @@ class Gateway:
                 "connection presented a session that did not resolve — anonymous from here "
                 "(expired/unknown token, or the accounts service is unreachable)"
             )
+        # ACT-AS, machine token only. The daemon's own tools (run_agent) dial back in on a fresh
+        # socket to run a child agent — and a fresh machine-token socket has NO account, so the
+        # child resolves against the shared catalogue alone and every account-layer agent is
+        # "unknown". `?act_as=` lets that internal caller keep the identity of the run that
+        # invoked it. NOT an authentication bypass: it is honoured only when the connection
+        # already holds the MACHINE token — the operator, who can read every account's files
+        # anyway — and never where sign-in is required, because there the machine token itself
+        # does not authorise.
+        if account is None and not accounts.enabled() and self._authorized(ws):
+            act_as = (self._query(ws, "act_as") or "").strip()
+            if act_as:
+                account = {"account_id": act_as}
         authed = account is not None or (not accounts.enabled() and self._authorized(ws))
         if not authed:
             if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
@@ -2713,7 +2790,8 @@ class Gateway:
             elif req.method == "projects.removeMember":
                 payload = await self._projects_member(req.params, add=False)
             elif req.method == "agents.list":
-                payload = self._agents_list()
+                # `host=` — see _agents_list: the definition path rides only to HOST windows.
+                payload = self._agents_list(host=not scope)
             elif req.method == "agents.detail":
                 payload = self._agents_detail(req.params)
             elif req.method == "workspace.list":
@@ -3695,7 +3773,7 @@ class Gateway:
             "mode": app.get("mode") or "browser",
         }
 
-    def _agents_list(self) -> dict:
+    def _agents_list(self, host: bool = False) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
         registry is the single source of truth; the session-key format stays internal.
         Includes each agent's display presentation (tagline + starter suggestions) so
@@ -3714,6 +3792,9 @@ class Gateway:
         # `listed` is the registry's sidebar rule (web-app copies are resolvable, not listed);
         # asked per row so this surface can never grow its own variant of the policy.
         listed = getattr(self.registry, "listed", None)
+        # Which layer answered for each id — the fact a "My agents" section needs, since
+        # ownership is presumed for the whole shared catalogue and cannot draw that line.
+        layer_of = getattr(self.registry, "layer_of", None)
         agents = []
         for aid in self.registry.list_ids():
             if callable(listed) and not listed(aid):
@@ -3731,6 +3812,7 @@ class Gateway:
                     "color": getattr(spec, "color", ""),
                     "app": self._agent_app(aid, spec),
                     "mine": bool(owns(aid)) if callable(owns) else True,
+                    "layer": str(layer_of(aid)) if callable(layer_of) else "shared",
                     "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
                     # A reference implementation we ship (agents/samples/). Runnable like any
                     # agent — an exemplar nobody executes rots — but a client keeps these in
@@ -3741,6 +3823,13 @@ class Gateway:
                     # /me/orgs fetch. Personal/curated rows carry 'personal', unchanged.
                     "scope": "org" if _is_org else "personal",
                     **({"orgId": _owner} if _is_org else {}),
+                    # WHERE THE DEFINITION LIVES — host connections only. Agent Builder puts it in
+                    # the conversation's preamble, because the alternative was telling the model a
+                    # RELATIVE path that resolves against its workspace: it went hunting through
+                    # the agents directory for its own agent, every session. Withheld from
+                    # app-scoped connections: an agent's window is code somebody else wrote, and a
+                    # hosted daemon's filesystem layout is not its business.
+                    **({"dir": str(getattr(spec, "dir", "") or "")} if host else {}),
                 }
             )
         return {
@@ -4251,6 +4340,34 @@ class Gateway:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""
         await self._send_all(dump_frame(Event(event="agents.changed", payload=self._agents_list())))
 
+    async def _broadcast_app_rebuilt(self, agent_id: str) -> None:
+        """Tell an agent's own windows that its UI was rebuilt, so they can reload themselves.
+
+        WHY A WINDOW CANNOT WORK THIS OUT ALONE. `app/` is source and `ui/` is what this daemon
+        serves, so a page is showing whatever was last compiled -- and nothing about that changes
+        under it. Editing an agent therefore meant reopening its window by hand, once per change,
+        to see whether the change was any good.
+
+        SCOPED BY `_scoped_event_allowed`, which compares this agentId to the connection's own.
+        Broadcasting to everyone and filtering in each window would work too, and would mean
+        every client learning what every other agent is doing.
+        """
+        await self._send_all(
+            dump_frame(Event(event="app.rebuilt", payload={"agentId": agent_id}))
+        )
+
+    def broadcast_app_rebuilt(self, agent_id: str) -> None:
+        """SYNC, fire-and-forget wrapper handed to PLUGINS -- see broadcast_agents_changed below
+        for why the thunk shape. Best-effort by design: a notification nobody waits on, and
+        outside a running loop (unit tests) a no-op."""
+        if not agent_id:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self._broadcast_app_rebuilt(agent_id))
+
     def broadcast_agents_changed(self) -> None:
         """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
 
@@ -4698,6 +4815,9 @@ class Gateway:
         _redact_for_installed_agent for what and why."""
         import json
 
+        from agent_runtime.domain.agent_config import authored_values, user_may_edit
+
+
         # WHOSE settings these are. On a hosted daemon `self.config` is the MACHINE's and is
         # never what a tenant should see: they get master + their own overlay, and every path in
         # the payload points at THEIR file so the Advanced editor edits their overlay, not the
@@ -4712,6 +4832,8 @@ class Gateway:
             acct = None
         cfg = account_config.for_account(self.config, acct)
         declared = self._declared_settings(scope)
+        # The author's own block, read once for the two payload fields below.
+        _authored_cfg = self._authored(scope or "")
         values: dict = {}
         for key in EXPOSED_CONFIG_KEYS:
             if hasattr(cfg, key):
@@ -4767,6 +4889,15 @@ class Gateway:
                 for f in declared
                 if not f.secret
             },
+            # WHAT THIS AGENT'S AUTHOR SHIPPED, and whether the person running it may change it.
+            #
+            # The settings page needs both: a value it renders without saying where it came from
+            # is the same page that showed "GPT-5" while another model answered every turn — and
+            # with three layers there are now two ways to be surprised by a value you did not set.
+            # `authoredLocked` false means the author made their choices a starting point rather
+            # than a rule; it is false by default, so the usual case is read-only rows.
+            "authored": _json_safe(authored_values(_authored_cfg)),
+            "authoredLocked": not user_may_edit(_authored_cfg),
             # {config_key: AGENTD_VAR} for knobs an env var currently PINS — the UI marks these
             # read-only so a save never silently reverts on the next daemon boot.
             "envOverrides": {
@@ -5068,10 +5199,18 @@ class Gateway:
         ok = self.mcp_connector.approve(agent_id, decl)
         return {"approved": ok, "agentId": agent_id, "name": name}
 
-    def _env_write_plan(self, keys: dict, target: str) -> tuple[dict, list[str], list[str]]:
-        """Turn ``{name: value}`` as the PAGE wrote it into ``{env_name: value}`` for the .env.
+    def _env_write_plan(self, keys: dict, target: str) -> tuple[dict, dict, list[str], list[str]]:
+        """Turn ``{name: value}`` as the PAGE wrote it into the two places a value can now go.
 
-        Returns (writes, refused, ambiguous):
+        TWO DESTINATIONS, and which one is not a preference:
+
+          * a PROVIDER KEY (`ANTHROPIC_API_KEY` and friends) is ONE machine-wide credential shared
+            by every agent, so it stays in the machine's `.env`.
+          * a DECLARED SETTING belongs to one agent, so it goes into that agent's own
+            `agent.config.json` — which is what travels with it, and what stops the machine's
+            single `.env` from being a shared bucket with prefixed names in it.
+
+        Returns (env_writes, setting_writes, refused, ambiguous):
 
           writes     provider keys under their own name; ``target``'s declared keys under their
                      private prefixed name
@@ -5091,18 +5230,22 @@ class Gateway:
                 everyones |= {f.key for f in self._declared_settings(agent_id)}
 
         writes: dict = {}
+        settings: dict = {}
         refused: list[str] = []
         ambiguous: list[str] = []
         for name, value in keys.items():
             if name in PROVIDER_ENV_KEYS:
                 writes[name] = str(value)
             elif name in declared:
-                writes[setting_env_name(target, name)] = str(value)
+                # BY ITS BARE NAME. The `<agent-id>__` prefix existed only because one `.env` was
+                # shared by every agent on the machine; inside the agent's own file there is
+                # nothing to collide with, so the key is just the key.
+                settings[name] = str(value)
             elif name in everyones:
                 ambiguous.append(name)
             else:
                 refused.append(name)
-        return writes, sorted(refused), sorted(ambiguous)
+        return writes, settings, sorted(refused), sorted(ambiguous)
 
     def _config_set_master(self, patch: dict, keys: dict, raw, scope: str | None) -> dict:
         """Edit the DEPLOYMENT's own config — the defaults every account inherits.
@@ -5275,6 +5418,49 @@ class Gateway:
         # overlay from disk. Other accounts' turns never read it.
         return {"saved": True, "path": path, "restartRecommended": False}
 
+    def _authored(self, agent_id: str) -> dict:
+        """The `agent.config.json` an agent shipped, or `{}`. Built per call rather than held:
+        an agent can be reinstalled while the daemon runs, and a handle captured at boot would
+        answer for the version that was replaced."""
+        from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
+
+        if not agent_id:
+            return {}
+        return AgentAuthoredConfig(self.registry.resolve_dir).read(agent_id)
+
+    def _drop_locked(self, patch: dict, agent_id: str) -> tuple[dict, list[str]]:
+        """Remove writes that would override what this agent's AUTHOR locked.
+
+        WHY IT IS DROPPED RATHER THAN REFUSED. A save carries the whole page: one locked knob
+        would otherwise fail the save that also changed four editable ones, and the person would
+        be told nothing was saved when almost everything could have been. The names come back so
+        the answer can say which were left alone.
+
+        BEFORE THE ACCOUNT / MASTER BRANCH, so all three write paths are covered by one rule.
+        Enforced here and not only in the UI because the UI is not the security boundary: an app
+        window is code somebody else wrote, and `config.set` is reachable from it.
+        """
+        from agent_runtime.domain.agent_config import authored_values, user_may_edit
+
+        block = patch.get("agents")
+        if not agent_id or not isinstance(block, dict):
+            return patch, []
+        entry = block.get(agent_id)
+        if not isinstance(entry, dict):
+            return patch, []
+
+        authored = self._authored(agent_id)
+        if user_may_edit(authored):
+            return patch, []
+        locked = [k for k in entry if k in authored_values(authored)]
+        if not locked:
+            return patch, []
+
+        kept = {k: v for k, v in entry.items() if k not in locked}
+        patch = dict(patch)
+        patch["agents"] = {**block, agent_id: kept}
+        return patch, sorted(locked)
+
     def _config_set(self, params: dict, scope: str | None = None) -> dict:
         """Persist config edits. Three independent, composable inputs:
           * ``patch``  {key: value} for EXPOSED_CONFIG_KEYS -> merged into the JSON file
@@ -5294,19 +5480,42 @@ class Gateway:
         # agent explicitly (and must, when the name is one that several agents declare).
         target = str(params.get("agentId") or scope or "")
 
+        # WHAT THE AGENT'S AUTHOR DECIDED AND LOCKED is not the installer's to change. Applied to
+        # `patch` before any of the three branches below, so there is one rule rather than three
+        # copies of it that can drift.
+        patch, locked = self._drop_locked(patch, target)
+        if locked:
+            log.info(
+                "config.set on '%s': ignoring %s — locked by the agent's own config",
+                target,
+                ", ".join(locked),
+            )
+
         # WHOSE CONFIG IS THIS? With an account on the connection the daemon's own config file is
         # off limits — it describes a machine this person shares with every other tenant — and the
         # edit is routed to their overlay instead. The branch is total: nothing below this line
         # runs for an account, so the single-user path is not merely equivalent to what it was,
         # it is untouched.
         acct = account_config.current_account_id()
+        def _with_locked(result: dict) -> dict:
+            """Tell the caller what was left alone. A save that silently ignores half of what it
+            was given is the same as a save that lied about succeeding."""
+            if locked:
+                result = dict(result)
+                result["ignored"] = locked
+                result["ignoredReason"] = (
+                    "locked by this agent's own configuration — its author did not make these "
+                    "editable"
+                )
+            return result
+
         if acct and str(params.get("target") or "") == "master":
             # DEPLOYMENT DEFAULTS. Admins only, and never implicit: an admin editing their own
             # Settings is still a user, so changing what everyone gets has to be asked for by
             # name. `target` is that ask.
-            return self._config_set_master(patch, keys, raw, scope)
+            return _with_locked(self._config_set_master(patch, keys, raw, scope))
         if acct:
-            return self._config_set_for_account(acct, patch, keys, raw, scope)
+            return _with_locked(self._config_set_for_account(acct, patch, keys, raw, scope))
         # FAIL CLOSED. Today `_handle_conn` admits no accountless connection where sign-in is
         # required, so this cannot trigger — which is exactly why it is worth writing down. The
         # branch above keys off "does this connection have an account", and if a future change
@@ -5403,7 +5612,7 @@ class Gateway:
                     ),
                     "refused": locked,
                 }
-            writes, refused, ambiguous = self._env_write_plan(keys, target)
+            writes, setting_writes, refused, ambiguous = self._env_write_plan(keys, target)
             if refused:
                 return {
                     "saved": False,
@@ -5424,15 +5633,41 @@ class Gateway:
                     "ambiguous": ambiguous,
                 }
             env_file = _user_env_file()
-            wrote = env_file.update(writes)
+            # BOOL, not a list: EnvFile.update reports whether the file was written.
+            wrote = bool(env_file.update(writes)) if writes else False
             result["envPath"] = str(env_file.path)
-            result["keysApplied"] = wrote
-            if wrote:
+
+            # THE AGENT'S OWN SETTINGS, into the agent's own file.
+            #
+            # AND INTO THIS PROCESS, immediately. Everything that consumes one of these reads an
+            # environment variable — a sandboxed tool is a child process, an [[mcp]] command is
+            # spawned with ${VAR} substituted — so writing only the file would mean the value took
+            # effect on the next daemon start. Somebody who pastes a URL and presses Test expects
+            # the test to use it.
+            applied_settings: list[str] = []
+            if setting_writes and target:
+                from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
+
+                store = AgentAuthoredConfig(self.registry.resolve_dir)
+                applied_settings = store.write_settings(target, setting_writes)
+                for name, value in setting_writes.items():
+                    var = setting_env_name(target, name)
+                    if str(value):
+                        os.environ[var] = str(value)
+                    else:
+                        os.environ.pop(var, None)
+
+            # The NAMES the caller asked for, in the caller's own terms — a settings page that
+            # sent COMFY_URL should not be answered with `comfy-smith__COMFY_URL`.
+            result["keysApplied"] = sorted(
+                [*(writes if wrote else {}), *applied_settings]
+            )
+            if wrote or applied_settings:
                 # A running MCP child holds the environment it was LAUNCHED with, so a new key
                 # changes nothing until the process is replaced. Forget the affected agents and
                 # the next run re-dials with what was just saved.
                 self._redial_mcp(set(keys))
-            result["saved"] = result["saved"] or wrote
+            result["saved"] = result["saved"] or bool(wrote or applied_settings)
 
         if not clean and not keys:
             result["saved"] = True  # nothing to change is not a failure
@@ -5634,12 +5869,81 @@ class Gateway:
                     handle.session_key,
                 )
 
+    async def _run_watched(self, handle: RunHandle, coro) -> None:
+        """Run `coro`, cancelling it if it goes silent for too long.
+
+        NOT A SUPERVISOR. There is no timer over every run and nothing scanning handles — this is
+        one coroutine created with the run and cancelled with it, which is why it cannot itself
+        become a thing that gets stuck or leaks.
+
+        WHY SILENCE AND NOT DURATION. A ceiling on how long a run may take kills the run that is
+        working hardest, which is the one failure mode a timeout must not have. What actually
+        distinguishes a wedged run is that nothing is happening at all, so that is what is
+        measured: `handle.last_event_at` is stamped by `on_event` on every event, and any event —
+        a token, a tool starting, a tool finishing — resets the clock.
+
+        THE POLL IS COARSE on purpose. Waking every few seconds to compare two floats costs
+        nothing, and the thing being detected is measured in minutes.
+        """
+        limit = max(1.0, float(getattr(self.config, "run_idle_timeout_seconds", 600.0)))
+        task = asyncio.ensure_future(coro)
+        handle.last_event_at = time.monotonic()
+        try:
+            while True:
+                # Wake at the limit, or sooner if the run finishes first.
+                done, _ = await asyncio.wait({task}, timeout=min(5.0, limit))
+                if done:
+                    await task  # re-raise whatever it raised
+                    return
+                quiet = time.monotonic() - handle.last_event_at
+                if quiet < limit:
+                    continue
+                log.warning(
+                    "run %s (session %s) produced no events for %.0fs — cancelling it so the "
+                    "window is released",
+                    handle.run_id,
+                    handle.session_key,
+                    quiet,
+                )
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                raise TimeoutError(f"no events for {quiet:.0f}s")
+        finally:
+            if not task.done():
+                task.cancel()
+
     async def _chat_abort(self, params: dict) -> dict:
+        """Stop a run — and release the window either way.
+
+        WHY THE SECOND HALF EXISTS. This used to return `{"aborted": False}` and do nothing else
+        when there was no handle, which reads as "there was nothing to stop, so nothing needed
+        doing". That is only true on the daemon's side. A window shows `running` until it receives
+        `agent_end`, so a run the daemon has already lost leaves the composer locked forever — and
+        Stop, the one control for exactly that situation, was the no-op.
+
+        So a missing handle now broadcasts `agent_end(aborted)` for that session anyway. It costs
+        one event on a session that is already idle, and it is the difference between a button that
+        works and a window somebody has to reload.
+        """
         session_key = params.get("sessionKey") or "default"
         handle = self.runs.get(session_key)
-        if handle is None or not self._abort_handle(handle):
-            return {"aborted": False, "reason": "no active run"}
-        return {"aborted": True, "runId": handle.run_id}
+        if handle is not None and self._abort_handle(handle):
+            return {"aborted": True, "runId": handle.run_id}
+
+        # Nothing live to cancel. Tell whoever is watching that this session is not running, so a
+        # window still showing "running" stops.
+        released = AgentEvent("agent_end", {"stopReason": "aborted"})
+        run_id = handle.run_id if handle is not None else ""
+        await self._broadcast(session_key, run_id, released)
+        self.runs.pop(session_key, None)
+        log.info(
+            "chat.abort on %s with no live run — broadcast agent_end so the window releases",
+            session_key,
+        )
+        return {"aborted": False, "reason": "no active run", "released": True}
 
     # -------------------------------------------------------------------- run
 
@@ -5679,6 +5983,11 @@ class Gateway:
         set_trace_ids(handle.run_id, "")
         _run_started = time.perf_counter()
         async def on_event(event: AgentEvent) -> None:
+            # PROOF OF LIFE, for the silence watchdog in `_run_watched`. Stamped on EVERY event
+            # rather than on a chosen few: what matters is that the run is doing something, and a
+            # list of "events that count" is a list that eventually omits the one a slow tool
+            # emits.
+            handle.last_event_at = time.monotonic()
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
             self._enrich_artifacts(event)
@@ -5697,15 +6006,38 @@ class Gateway:
         status = "ok"
         err_msg = ""
         try:
-            await self.service.handle_message(
-                handle.session_key,
-                message,
-                on_event,
-                handle.abort,
-                mode=mode,
-                agent_id=agent_id,
-                attachments=attachments,
+            # A SILENCE WATCHDOG. The idle and request timeouts inside litellm guard the streaming
+            # call; nothing guarded everything around it. A run that wedged between a tool result
+            # and the next request never ended, never emitted `agent_end`, and left the window
+            # locked on "running" with a Stop button that found no run to stop.
+            #
+            # IT MEASURES SILENCE, NOT LENGTH. `on_event` above stamps `handle.last_event_at` on
+            # every event, so a run that is working — streaming, calling tools — keeps resetting
+            # it and can take as long as it needs. Only a run where NOTHING happens for
+            # `run_idle_timeout_seconds` is cancelled.
+            #
+            # Cancelling is all it does: `run_agent_loop` already handles that by emitting
+            # agent_end(aborted) and re-raising, so the window is released through the path that
+            # already existed.
+            await self._run_watched(
+                handle,
+                self.service.handle_message(
+                    handle.session_key,
+                    message,
+                    on_event,
+                    handle.abort,
+                    mode=mode,
+                    agent_id=agent_id,
+                    attachments=attachments,
+                ),
             )
+        except TimeoutError:
+            # CAUGHT SEPARATELY AND NOT RE-BROADCAST. The cancellation already sent
+            # agent_end(aborted) from inside the loop; letting this fall through to the generic
+            # handler below would send a SECOND agent_end, so a run that already ended would then
+            # show an error on top of it.
+            status = "aborted"
+            err_msg = "run went silent"
         except asyncio.CancelledError:
             status = "aborted"  # abort already broadcast agent_end(aborted) from the loop
         except Exception as e:

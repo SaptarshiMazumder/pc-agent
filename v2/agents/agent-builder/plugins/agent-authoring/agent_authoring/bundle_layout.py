@@ -5,10 +5,10 @@ loads it) and ``presentation/mcp_server`` (a user's own Claude Code connects to 
 the same two paths, and both used to compute them from their own ``parents[n]``, which is two
 copies of one fact about the product's layout.
 
-That is fine until one of them moves. ``BORROW_ROOT`` in particular is load-bearing: it is the
-single source of ``md.js`` and the vendored SDK that every scaffolded agent is built from, and a
-scaffold that reads the wrong directory fails with "cannot borrow" — or worse, borrows a stale
-SDK that talks a protocol the daemon no longer speaks.
+That is fine until one of them moves. ``SKELETON_ROOT`` in particular is load-bearing: it is the
+app every scaffolded agent IS, and a scaffold that reads the wrong directory produces an agent
+with no window at all — or worse, one carrying a stale SDK that talks a protocol the daemon no
+longer speaks.
 
 Not in ``domain/``: this is knowledge of where files sit on disk in a shipped product, which is a
 composition concern. It lives at the bundle root so both roots import it as a peer.
@@ -28,15 +28,19 @@ class BundleLayout:
     #: The whole-app templates and the component catalogue's own files.
     TEMPLATE_ROOT = AGENT_BUILDER_DIR / "skills" / "build-agent" / "templates"
 
-    #: The single copy of the files templates and components BORROW — ``md.js`` and the
-    #: vendored SDK.
+    #: THE SKELETON: a complete, working agent window, copied wholesale into every agent that gets
+    #: one. Load-bearing in the same way BORROW_ROOT is, and more so — it is not a place files are
+    #: borrowed FROM, it is the artifact an agent starts as. A scaffold that reads the wrong
+    #: directory produces an agent with no window at all.
     #:
-    #: This was Agent Builder's own live ``ui/`` while that folder was hand-written vanilla JS.
-    #: ``ui/`` is now the BUILD OUTPUT of ``app/`` (React + Vite), and a build empties its output
-    #: directory — so the one copy every scaffolded agent is built from would be destroyed by an
-    #: unrelated ``npm run build``. Borrowing is a real dependency, so it has a real home now:
-    #: beside the templates that borrow from it, owned by nothing else.
-    BORROW_ROOT = TEMPLATE_ROOT / "_borrowed"
+    #: It replaced `agents/samples/` as the thing that carries structure. Samples had to be read to
+    #: help; this is copied whether or not anybody reads it.
+    SKELETON_ROOT = TEMPLATE_ROOT / "_skeleton"
+
+    #: The template VARIANTS: one folder per window shape, holding ONLY the files that differ
+    #: from the skeleton. Assembly is base + variant overlay + _common, in that order — so the
+    #: base is written once and a variant is as small as one App.tsx.
+    VARIANTS_ROOT = TEMPLATE_ROOT / "_variants"
     #: The shared modules copied into every agent's ``app/src/common/`` — accounts and money.
     #: Load-bearing for the same reason BORROW_ROOT is: the scaffolder copies FROM here and the
     #: validator compares AGAINST here, so if the two ever disagreed every agent would validate

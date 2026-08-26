@@ -47,6 +47,7 @@ async def run_once(
     agent: str | None = None,
     session: str | None = None,
     url: str | None = None,
+    act_as: str | None = None,
     timeout: float = 300.0,
 ) -> RunOutcome:
     """Send one message over the daemon's socket and collect the result.
@@ -67,6 +68,11 @@ async def run_once(
             out.transport_error = f"could not start the daemon: {e}"
             return out
         url = info.connect_url()
+    # THE CALLER'S TENANCY, carried onto this fresh socket. Without it a child run resolves
+    # against the shared catalogue only, and every account-layer agent is "unknown" — see the
+    # act_as note in the gateway's connection handler.
+    if act_as:
+        url += ("&" if "?" in url else "?") + "act_as=" + act_as
 
     session_key = session or f"ask-{uuid.uuid4().hex[:8]}"
     reply: list[str] = []

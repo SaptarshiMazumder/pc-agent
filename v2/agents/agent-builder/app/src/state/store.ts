@@ -25,7 +25,6 @@ import { create } from 'zustand'
 import { AGENT_ID } from '../agentd/client'
 import {
   closeThinking,
-  intentPreamble,
   MAX_FILES,
   newSessionKey,
   preamble,
@@ -33,7 +32,6 @@ import {
   restore,
   resultText,
   subjectOf,
-  type NewAgentIntent,
   type SubagentItem,
   type ThreadItem,
 } from '../agentd/chat'
@@ -43,7 +41,7 @@ import { openable, type AgentRow } from '../agentd/roster'
 import { forkSession, renameSession as rename, type ChatRow } from '../agentd/sessions'
 import type { Attachment } from '@agentd/client'
 
-export type View = 'chat' | 'myagents' | 'settings' | 'credits'
+export type View = 'chat' | 'myagents' | 'settings' | 'credits' | 'orgs'
 
 /** One conversation, keyed by session.
  *
@@ -64,10 +62,6 @@ export interface ChatSession {
   /** Has the scope preamble gone out? Carried into the FIRST message only — after that it is in
    *  the transcript and repeating it is noise. */
   scopeSent: boolean
-  /** The window decision for an agent that does not exist yet. Carried on EVERY message until
-   *  `create_agent` succeeds: it names something that cannot be re-read from disk, so it survives
-   *  only as a sentence, and a sentence twenty messages up is one a model builds straight past. */
-  intent: NewAgentIntent | null
   /** How full this conversation's context is, from the daemon's own measurement.
    *
    *  PER SESSION for the same reason everything else here is: a hook keyed to the open chat had
@@ -88,7 +82,6 @@ const blankSession = (): ChatSession => ({
   pending: [],
   scope: null,
   scopeSent: false,
-  intent: null,
   usage: null,
   pendingArtifacts: [],
 })
@@ -124,6 +117,8 @@ interface AppState {
   reloadChats: () => Promise<void>
   renameSession: (sessionKey: string, title: string) => Promise<void>
   duplicateSession: (sessionKey: string) => Promise<string>
+  /** Delete a saved conversation — the row, its tab if open, and the transcript on the daemon. */
+  deleteSession: (sessionKey: string) => Promise<void>
   setView: (view: View) => void
   toggleSidebar: () => void
   togglePanel: () => void
@@ -151,7 +146,6 @@ interface AppState {
   removeFile: (index: number) => void
   /** Point the current conversation at an agent, and tell the model so on the next message. */
   setScope: (agent: AgentRow | null) => void
-  setIntent: (intent: NewAgentIntent | null) => void
   /** Bumped whenever a tool finishes in the CURRENT conversation — the inspector's file tree
    *  watches it. A counter rather than a callback: a store that calls back into its subscribers
    *  is a store that has to know who they are. */
@@ -386,11 +380,6 @@ function handleRunEvent(
           pendingArtifacts: [...s.pendingArtifacts, ...freshArtifacts(s.pendingArtifacts, made)],
         }))
       }
-      /* THE AGENT NOW EXISTS, so the window decision has been acted on and stops riding every
-         message — from here the answer is in its agent.toml. Keyed off SUCCESS: a create that
-         failed has decided nothing, and dropping the instruction there would let the retry go out
-         with no window decision at all. */
-      if (String(ev.toolName || '') === 'create_agent' && !ev.isError) on(() => ({ intent: null }))
       /* EVERY tool, not a list of the ones that write — a list you must remember to extend is a
          bug waiting for the next tool. Only for the conversation ON SCREEN: the file tree shows
          the active subject, so a background tab's tool has nothing to refresh here. */
@@ -485,6 +474,33 @@ export const useApp = create<AppState>()((set, get) => ({
   connect: (next) => {
     get().disconnect()
     client = next
+    /* A RECONNECT MEANS EVERY IN-FLIGHT RUN IS DEAD. `running` is only ever cleared by an
+       `agent_end` event, and a daemon that restarted mid-run never sends one — so without this,
+       each of those conversations shows "running — press Stop" forever, for a run that no longer
+       exists anywhere. Cleared here, with a line saying WHY, so a stuck chat becomes a resendable
+       one instead of a mystery. */
+    set((s) => {
+      const sessions = { ...s.sessions }
+      let touched = false
+      for (const key of Object.keys(sessions)) {
+        if (!sessions[key].running) continue
+        touched = true
+        sessions[key] = {
+          ...sessions[key],
+          running: false,
+          items: [
+            ...sessions[key].items,
+            {
+              kind: 'system' as const,
+              tone: 'error' as const,
+              text: 'The daemon restarted mid-run, so this run is gone. Resend your last message to continue — the conversation up to here is saved.',
+              ts: Date.now(),
+            },
+          ],
+        }
+      }
+      return touched ? { sessions } : {}
+    })
     unsubscribe = [
       next.on('agents.changed', () => void get().reloadAgents()),
       next.on('sessions.changed', () => void get().reloadChats()),
@@ -562,6 +578,21 @@ export const useApp = create<AppState>()((set, get) => ({
   duplicateSession: async (sessionKey) => {
     if (!client) throw new Error('not connected')
     return forkSession(client, sessionKey)
+  },
+
+  /* AGENTD'S SHAPE, kept: optimistic removal first, the RPC second, and on failure reload the
+     truth rather than guessing at repair. The row disappears the moment you click because that
+     is what you asked for; `sessions.changed` from the daemon is the confirmation, and a delete
+     the daemon refused (an active run) comes back on the reload with nothing lost. */
+  deleteSession: async (sessionKey) => {
+    if (!client) throw new Error('not connected')
+    set((s) => ({ chats: s.chats.filter((row) => row.sessionId !== sessionKey) }))
+    if (get().openTabs.includes(sessionKey)) get().closeTab(sessionKey)
+    try {
+      await client.request('sessions.delete', { sessionKey })
+    } catch {
+      void get().reloadChats() // failed (e.g. active run) — reload the truth
+    }
   },
 
   setView: (view) => set({ view }),
@@ -707,10 +738,10 @@ export const useApp = create<AppState>()((set, get) => ({
       items: [...s.items, { kind: 'user', text: body, files: sending, ts: Date.now() }],
     }))
 
-    const context = [
-      carry && scope ? preamble(scope) : '',
-      session.intent ? intentPreamble(session.intent) : '',
-    ].filter(Boolean)
+    // THE SCOPE, ONCE. The other half of this used to be a new-agent instruction that rode
+    // every message until create_agent ran; the agent is created from the start dialog now, so
+    // there is never a message about an agent that does not exist.
+    const context = [carry && scope ? preamble(scope) : ''].filter(Boolean)
 
     try {
       await client.send({
@@ -760,7 +791,6 @@ export const useApp = create<AppState>()((set, get) => ({
   setScope: (agent) =>
     patch(set, get().currentSessionKey, () => ({ scope: agent, scopeSent: false })),
 
-  setIntent: (intent) => patch(set, get().currentSessionKey, () => ({ intent })),
 
   toolTick: 0,
 }))

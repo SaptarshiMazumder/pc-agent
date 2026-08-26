@@ -1,7 +1,7 @@
 """AppDependencyStore — giving an agent's app its dependencies without downloading them again.
 
-EVERY AGENT APP DECLARES THE SAME SEVEN PACKAGES, because they all come from the same starter
-(templates/_borrowed/react). Installing them per agent would mean tens of megabytes from the
+EVERY AGENT APP DECLARES THE SAME PACKAGES, because every one of them is a copy of the same
+skeleton (templates/_skeleton). Installing them per agent would mean tens of megabytes from the
 network every time a user creates one, a wait each time, that much disk per agent, and nothing at
 all on a machine with no internet — none of which buys anything, since the dependency list is ours
 rather than the agent author's.

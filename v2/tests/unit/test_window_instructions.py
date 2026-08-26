@@ -57,14 +57,26 @@ def test_the_retired_templates_are_not_on_disk():
     templates = BUILDER / "skills" / "build-agent" / "templates"
     for retired in ("chat-app", "dashboard-app", "workbench-app"):
         assert not (templates / retired).exists(), f"{retired} is back"
-    # `_borrowed/` STAYS: it holds the React starter and the one shared md.js that scaffolded
-    # agents and Agent Builder's own window both import.
-    assert (templates / "_borrowed" / "react").is_dir()
+    # `_borrowed/` WENT WITH THEM, later and for the same reason. It held the two-file React
+    # starter — superseded by `_skeleton/`, a whole working app — and a shared `md.js` that
+    # nothing imported: Agent Builder renders with react-markdown, and the legacy agents that
+    # still load `md.js` each carry their own copy in their own `ui/`.
+    assert not (templates / "_borrowed").exists(), "the starter is back"
+    # And the thing that replaced it is there. A test that only checks for absence passes just as
+    # happily when BOTH are gone.
+    assert (templates / "_skeleton" / "src" / "App.tsx").is_file()
 
 
-def test_the_skill_sends_you_to_the_tool_before_the_reference():
+def test_the_skill_says_the_window_already_exists_before_it_says_anything_else():
+    """THE FIRST THING TO KNOW, because it changes what the rest of the section means.
+
+    This used to assert that `scaffold_react_app` was named before the file-by-file reference, so
+    the reference would not get retyped from scratch. There is no reference to retype now — the
+    window arrives complete — and the failure it guards against moved with it: a model that reads
+    the mechanics first starts BUILDING a window instead of editing the one it already has."""
     skill = SKILL.read_text(encoding="utf-8")
-    ui_section = skill.index("## ui/ — the agent's own app")
-    assert skill.index("scaffold_react_app", ui_section) < skill.index("index.html`", ui_section), (
-        "the tool must come before the file-by-file reference, or the reference gets retyped"
-    )
+    ui = skill.index("## ui/ — the agent's own app")
+
+    starts_with = skill.index("already HAS one", ui)
+    for later in ("`build_app`", "vendor/agentd-client.js"):
+        assert starts_with < skill.index(later, ui), f"{later} is explained before the window is"

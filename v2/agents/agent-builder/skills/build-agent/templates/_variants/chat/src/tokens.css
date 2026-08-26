@@ -1,0 +1,69 @@
+/* THE CHAT TEMPLATE'S PALETTE — light, soft, indigo. A messenger, not a console.
+ *
+ * A TEMPLATE OVERLAY of the base `tokens.css`: same contract, different world. Every shared
+ * screen and every base component reads only these names, so this one file is the whole
+ * difference between this template's look and the dashboard's. Yours to change — restyling the
+ * agent means editing the values here.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces, brightest page to nested steps down --- */
+  --bg4: #eef0f4;   /* the window frame */
+  --bg:  #ffffff;   /* a full-height region */
+  --bg2: #f7f8fa;   /* a card, a menu */
+  --bg3: #eef1f5;   /* an input, a hovered row */
+  --border: #e3e6eb;
+  --border2: #cbd2dc;
+  --row-line: transparent;
+
+  /* --- text --- */
+  --text: #1a1d23;
+  --dim: #4b5563;
+  --faint: #8a94a3;
+
+  /* --- one accent, three jobs --- */
+  --accent: #4f46e5;
+  --accent-text: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --prim-bg: #4f46e5;
+  --prim-bg-h: #6366f1;
+  --prim-ink: #ffffff;
+
+  /* --- semantic --- */
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.08);
+  --warn: #b45309;
+
+  /* --- elevation and shape: generous rounding, soft shadows — a friendly surface --- */
+  --shadow: 0 1px 2px rgba(26, 29, 35, 0.05), 0 12px 32px -12px rgba(26, 29, 35, 0.18);
+  --shadow-sm: 0 1px 2px rgba(26, 29, 35, 0.06);
+  --radius: 14px;
+
+  /* --- type: humanist sans everywhere; mono only where code is code --- */
+  --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --display: var(--sans);
+
+  /* weights for a LIGHT surface — dark-on-white renders lighter, so tiers sit higher */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 550;
+  --fw-semi: 600;
+  --fw-heavy: 650;
+  --fw-bold: 700;
+  --fw-on-accent: 600;
+}
+
+/* The floor the shared pages assume. */
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 var(--sans);
+  font-weight: var(--fw-normal);
+  -webkit-font-smoothing: antialiased;
+  accent-color: var(--accent);
+}
+* { box-sizing: border-box; }

@@ -79,11 +79,17 @@ class RunAgentTool(Tool):
             # as a hang, which is when someone kills it.
             on_update(f"running {agent_id}…")
 
+        # WHOSE agents the child may be one of. This tool dials back into the daemon on a fresh
+        # socket, and a fresh socket has no account — so without carrying the caller's, an agent
+        # in their account layer is "unknown" to the very tool built to test it.
+        from agent_runtime.infrastructure import accounts
+
         outcome = await run_once(
             message=message,
             agent=agent_id,
             session=str(params.get("session") or "") or None,
             timeout=float(params.get("timeout_s") or DEFAULT_TIMEOUT_S),
+            act_as=accounts.account_id() or None,
         )
 
         if outcome.transport_error:

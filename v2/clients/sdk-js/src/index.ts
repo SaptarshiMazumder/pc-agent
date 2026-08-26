@@ -12,6 +12,10 @@ export * from './client'
 export * from './session'
 export * from './auth'
 export * from './credits'
+// Organizations and seats. An enterprise buys seats once and its people meet them in the
+// assistant AND in every agent, so this is the assistant's own client rather than a second idea
+// of what a seat is. Every answer is scoped server-side by membership.
+export * from './orgs'
 // The sign-in machinery itself, so an app that wants a credential can ask for one rather than
 // reach into storage: `identity().accessToken()` renews first when what is held is spent.
 export * from './identity'

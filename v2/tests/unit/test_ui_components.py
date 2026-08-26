@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_authoring.domain.ui_component import CREDITS, SETTINGS, SIGN_IN, UiComponents
+from agent_authoring.domain.ui_component import CREDITS, ORGS, SETTINGS, SIGN_IN, UiComponents
 
 
 def test_each_detector_matches_the_code_it_describes():
@@ -31,6 +31,7 @@ def test_each_detector_matches_the_code_it_describes():
     assert SIGN_IN.present_in("import SignIn from './common/auth/SignIn'")
     assert CREDITS.present_in("import Credits from './common/credits/Credits'")
     assert SETTINGS.present_in("import { Settings } from './common/settings/Settings'")
+    assert ORGS.present_in("import OrgView from './common/orgs/OrgView'")
 
 
 def test_a_detector_does_not_fire_on_unrelated_code():
@@ -47,6 +48,10 @@ def test_a_detector_does_not_fire_on_unrelated_code():
     # A billing page of the agent's own is the case this rule refuses: the shop has to be THE
     # shop, or somebody meets two stores with two sets of prices.
     assert not CREDITS.present_in("import Credits from './components/Credits'")
+    # A team page of the agent's own — the same refusal, and for a sharper reason: seats and
+    # invites are an ACCESS rule, and a second client's idea of who may invite whom is a second
+    # way to get it wrong.
+    assert not ORGS.present_in("import OrgView from './components/OrgView'")
     assert not CREDITS.present_in("await mountCreditsPanel({ mount })")
     # Using the HOOK is not showing the PAGE. An agent may read a setting for its own purposes
     # without ever giving the user somewhere to change one, and that is the case this rule exists
@@ -60,10 +65,11 @@ def test_a_detector_does_not_fire_on_unrelated_code():
 
 def test_the_catalogue_describes_itself():
     components = UiComponents()
-    assert components.ids() == ("sign-in", "credits", "settings")
+    assert components.ids() == ("sign-in", "credits", "settings", "orgs")
     assert "sign-in —" in components.describe()
     assert "credits —" in components.describe()
     assert "settings —" in components.describe()
+    assert "orgs —" in components.describe()
     assert components.get("nope") is None
 
 
@@ -105,3 +111,4 @@ def test_a_component_that_ships_a_file_marks_it_as_its_own():
     assert CREDITS.provides == ("Credits.tsx",)
     assert SETTINGS.provides == ("Settings.tsx",)
     assert SIGN_IN.provides == ("SignIn.tsx", "Gate.tsx")
+    assert ORGS.provides == ("OrgView.tsx",)

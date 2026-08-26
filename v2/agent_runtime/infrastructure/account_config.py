@@ -70,6 +70,7 @@ PER_USER_KEYS = frozenset(
         "model_defaults",
         "model_catalog",
         "llm_idle_timeout_seconds",
+        "run_idle_timeout_seconds",
         "llm_request_timeout_seconds",
         "execution_contract",
         "context_max_messages",

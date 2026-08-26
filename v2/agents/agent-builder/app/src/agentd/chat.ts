@@ -99,15 +99,6 @@ export interface FallbackItem {
   to: string
   reason: string
 }
-/** The one decision taken before a new agent exists: does it get a window of its own?
- *
- *  In the thread, and not only in the chrome, because it is an instruction the model was given —
- *  the user needs to be able to see what it was told, in the place everything else it was told
- *  appears. */
-export interface IntentItem {
-  kind: 'intent'
-  window: boolean
-}
 
 /** Epoch ms, stamped on arrival. Carried by every item so the thread can group by calendar day
  *  and show a per-message time — neither of which it could do before. */
@@ -117,7 +108,6 @@ export interface Stamped {
 
 export type ThreadItem = (
   | ScopeItem
-  | IntentItem
   | UserItem
   | BotItem
   | ThinkItem
@@ -127,11 +117,6 @@ export type ThreadItem = (
   | FallbackItem
 ) &
   Stamped
-
-/** What the user chose in the start dialog, for an agent that does not exist yet. */
-export interface NewAgentIntent {
-  window: boolean
-}
 
 /** The full text of a tool result — a message dict of content blocks, a `{text}`, or a bare
  *  string, depending on the tool. COPIED FROM agentd's gateway/protocol.ts, because a tool result
@@ -225,29 +210,27 @@ export function summarize(args: unknown): string {
  *  explain the model's behaviour later. The last line is load-bearing: without it, "add pagination
  *  to the job finder" has previously been answered by building a second job finder. */
 export function preamble(agent: AgentRow): string {
+  /* THE ABSOLUTE PATH, whenever we know it.
+   *
+   * This used to say the agent "lives at `agents/<id>/`" — relative, and wrong. File tools
+   * resolve a relative path against the agent's WORKSPACE, so it became
+   * `<workspace>/agents/<id>`, which does not exist. The model then went hunting: `find`, then
+   * `ls` over the whole agents directory — a tour of the user's other agents, and a directory
+   * that would not have contained it anyway, because a signed-in caller's agents are placed in
+   * their own account overlay rather than the shared catalogue.
+   *
+   * `create_agent` reports the real path; the window keeps it. Falling back to the relative form
+   * is for a conversation resumed from before this was recorded — still a guess, but now the
+   * only case that guesses. */
+  const where = agent.dir || `agents/${agent.id}/`
   return (
     `[context] We are working on the EXISTING agent \`${agent.id}\`, which lives at ` +
-    `\`agents/${agent.id}/\`. Read its agent.toml, IDENTITY.md, AGENTS.md and any ` +
-    `skills/, plugins/ and ui/ before proposing changes, so you are working from what is ` +
-    `actually there. Do NOT create a new agent unless I explicitly ask for one.`
+    `\`${where}\`. Read its agent.toml, IDENTITY.md, AGENTS.md and any skills/, plugins/ ` +
+    `and ui/ before proposing changes, so you are working from what is actually there. ` +
+    `Use that exact path — it is absolute, and this agent is NOT under your workspace. ` +
+    `Do NOT go looking through the agents directory, and do NOT create a new agent unless I ` +
+    `explicitly ask for one.`
   )
-}
-
-/** The window decision, as an instruction rather than a hint.
- *
- *  BLUNT ON PURPOSE, and blunter in the negative case. "Give it a window" is self-correcting — a
- *  missing window is the first thing the user notices. "Do not give it a window" is not: an agent
- *  builds one anyway, nobody sees a problem, and the user finds out when a folder they did not ask
- *  for turns up in the inspector. So the no-window text names the specific things not to do rather
- *  than describing a preference, and says whose decision it was. */
-export function intentPreamble(intent: NewAgentIntent): string {
-  return intent.window
-    ? '[context] We are creating a NEW agent, and the user has chosen that it HAS ITS OWN APP ' +
-        'WINDOW. Declare `[app]` in its agent.toml and build the window as part of this work.'
-    : '[context] We are creating a NEW agent, and the user has chosen that it has NO APP WINDOW. ' +
-        'Do NOT declare `[app]` in its agent.toml, do NOT create a `ui/` or `app/` directory, and ' +
-        'do NOT scaffold one. It is used from the agentd window, which is what the user asked ' +
-        'for. If you believe it needs a window, say so and wait — do not build one anyway.'
 }
 
 export const newSessionKey = () =>

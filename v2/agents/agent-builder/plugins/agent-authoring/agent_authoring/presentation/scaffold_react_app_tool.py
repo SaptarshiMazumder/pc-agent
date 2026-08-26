@@ -8,6 +8,8 @@ agents sitting in this product".
 
 from __future__ import annotations
 
+import asyncio
+
 from agent_authoring.application.scaffold_react_app_service import ReactScaffoldError
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
@@ -56,7 +58,17 @@ class ScaffoldReactAppTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
-            result = self._service.scaffold(
+            # OFF THE EVENT LOOP. The daemon is single-threaded — one thread carries every
+            # websocket, every model stream, every agent's run and every tool. Copying a whole app template is a second or two of disk I/O, and a
+            # plain call here stopped the ENTIRE daemon for that long: no events, no replies,
+            # not even an answer to the client's keepalive. Windows concluded the connection
+            # was dead, reconnected, and told people "the daemon restarted mid-run" when it
+            # had done nothing of the sort.
+            #
+            # A thread is the whole fix, and `verify_app` already does this for the same
+            # reason: one blocking operation with nothing to interleave.
+            result = await asyncio.to_thread(
+                self._service.scaffold,
                 agent_id=str(params.get("agent_id") or "").strip(),
                 confirm_overwrite=bool(params.get("confirm_overwrite")),
             )

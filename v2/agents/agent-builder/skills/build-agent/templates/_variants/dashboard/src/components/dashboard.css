@@ -1,0 +1,152 @@
+/* The dashboard's own rules. Tokens only, like everything else — the palette is the agent's
+   `tokens.css`, so restyling the agent restyles these panels with it. */
+
+.dashboard {
+  height: 100%;
+  overflow-y: auto;
+  padding: 32px 40px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+  max-width: 1100px;
+}
+
+.dash-tile {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  min-height: 140px;
+}
+
+.dash-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 0;
+}
+
+.dash-tile-title {
+  font-size: 11px;
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.dash-refresh {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.dash-refresh:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
+.dash-refresh:disabled { opacity: 0.5; cursor: default; }
+
+.dash-tile-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 12px 20px 20px;
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* The one number a tile exists for. */
+.dash-big {
+  font-family: var(--display);
+  font-size: 34px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+.dash-dim { color: var(--faint); font-size: 13px; }
+.dash-error { color: var(--danger); font-size: 13px; }
+
+/* ── the workbench shell: rail | content | agent ─────────────────────────────────────────────
+   The base shell is two columns; this template adds the third. The agent panel is a fixed-width
+   column, not a drawer — the mock this shape comes from keeps the agent permanently beside the
+   work, and a drawer that closes is a conversation that stops being ambient. */
+.shell.shell--workbench {
+  grid-template-areas: 'rail main agent';
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) 340px;
+}
+
+/* The mock's headline: the section name set big, in the serif, over a rule. */
+.workbench-crumbs {
+  display: flex; align-items: baseline; gap: 6px;
+  margin: 0 40px; padding: 30px 0 16px;
+  border-bottom: 1px solid var(--border2);
+}
+.workbench-crumbs .crumb {
+  font-family: var(--display); font-size: 26px; font-weight: var(--fw-medium);
+  color: var(--text); letter-spacing: 0.01em;
+}
+
+.agent-panel {
+  grid-area: agent;
+  display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--border2); background: var(--bg2);
+}
+.agent-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+}
+.agent-panel-title {
+  font-size: 11px; font-weight: var(--fw-semi);
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-text);
+}
+.agent-panel-thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* the base Thread fills whatever holds it; the panel just narrows the bubbles */
+.agent-panel-thread .thread { padding: 18px 16px; }
+
+.agent-panel-composer {
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 14px 16px 16px; border-top: 1px solid var(--border);
+}
+.agent-panel-input {
+  flex: 1; resize: none; min-height: 36px; max-height: 120px;
+  padding: 8px 11px; font: inherit; font-size: 13px; line-height: 1.45;
+  color: var(--text); background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 9px;
+}
+.agent-panel-input:focus { outline: none; border-color: var(--accent); }
+.agent-panel-input:disabled { opacity: 0.6; }
+/* outlined, like the mock's — the panel's send is quiet, the plan's Approve is the loud one */
+.agent-panel-send {
+  flex: none; width: 34px; height: 34px; display: grid; place-items: center;
+  border: 1px solid var(--border2); border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--text); font-size: 14px;
+}
+.agent-panel-send:hover:not(:disabled) { background: var(--bg3); }
+.agent-panel-send:disabled { opacity: 0.4; cursor: default; }
+
+
+/* THE `dash-` PREFIX IS LOAD-BEARING. The base stylesheet defines `.panel` as a GRID AREA (the
+   old inspector column), so a tile named `panel` inherits `grid-area: panel` and gets flung into
+   a phantom column outside the layout — which is exactly what it looked like. A template's own
+   classes stay out of the base's namespace.
+
+   And no "New chat" in the rail here: the agent panel owns conversations in this template, and
+   two buttons that both mean "new conversation" in two places is one too many. */
+.shell--workbench .sidebar .brand + .nav-rows { display: none; }
+
+/* the brand set in the display serif — the rail reads like the mock's masthead */
+.shell--workbench .brand-name { font-family: var(--display); font-size: 19px; }

@@ -41,7 +41,9 @@ class _Registry:
         d = Path(self.agents_dir) / agent_id
         return d if d.is_dir() else None
 
-    def create_from(self, agent_id, write_files):
+    def create_from(self, agent_id, write_files, shared=False):
+        #  routes a real registry to the shared catalogue; this fake has one root, so the
+        # flag only has to be ACCEPTED - the placement decision is the real registry's test.
         from types import SimpleNamespace
 
         d = Path(self.agents_dir) / agent_id
@@ -186,3 +188,104 @@ def test_creating_a_different_agent_never_touches_the_first(tmp_path):
     assert not res.is_error
     assert (tmp_path / "victim" / "agent.toml").read_text(encoding="utf-8") == AUTHORED
     assert (tmp_path / "tinder-clone" / "agent.toml").is_file()
+
+
+# --- the window arrives WITH the agent --------------------------------------
+# THE GUARANTEE THIS PINS. Creating an agent with a window used to be two steps: create it, then
+# call `scaffold_react_app`. The second was a hope — the skill asked for it and nothing enforced
+# it — and what it produces is the entire structural guarantee, because an agent whose window was
+# never scaffolded has no sign-in, no credits page, no settings and no organizations. Every one of
+# those is invisible to the author and total for whoever installs the agent.
+
+
+class _Scaffolder:
+    """Stands in for ScaffoldReactAppService. Records that it was asked, and can refuse."""
+
+    def __init__(self, fail: bool = False):
+        self.asked: list[str] = []
+        self._fail = fail
+
+    def scaffold(self, agent_id: str, template: str = "chat"):
+        from types import SimpleNamespace
+
+        if self._fail:
+            raise RuntimeError("the skeleton is missing")
+        self.asked.append(agent_id)
+        return SimpleNamespace(written=["package.json", "src/App.tsx"])
+
+
+def _said(result) -> str:
+    """A ToolResult carries content BLOCKS, not a string."""
+    return chr(10).join(getattr(b, "text", "") for b in result.content)
+
+
+async def _create(tool, **args):
+    params = validate_args(tool, {"id": "note-taker", "identity": "I take notes.", **args})
+    return await tool.execute("call-1", params, abort=None)
+
+
+@pytest.mark.asyncio
+async def test_a_windowed_agent_is_born_with_its_window(tmp_path):
+    scaffolder = _Scaffolder()
+    tool = CreateAgentTool(_Registry(tmp_path), scaffolder=scaffolder)
+
+    result = await _create(tool, window=True)
+
+    assert scaffolder.asked == ["note-taker"], "the window was never assembled"
+    # ...and agent.toml declares it, or the daemon serves nothing. The two facts are decided
+    # together on purpose: a window on disk that agent.toml never mentions cannot be opened.
+    toml = (tmp_path / "note-taker" / "agent.toml").read_text(encoding="utf-8")
+    assert "[app]" in toml
+    assert 'entry = "ui/index.html"' in toml
+    said = _said(result).lower()
+    assert "do not rebuild it" in said and "src/common/" in said
+
+
+@pytest.mark.asyncio
+async def test_an_agent_with_no_window_gets_neither_app_nor_scaffold(tmp_path):
+    """`window` is a decision, not a default. An agent that quietly grew a window nobody asked for
+    is the failure the start dialog exists to prevent."""
+    scaffolder = _Scaffolder()
+    tool = CreateAgentTool(_Registry(tmp_path), scaffolder=scaffolder)
+
+    await _create(tool)
+
+    assert scaffolder.asked == []
+    assert "[app]" not in (tmp_path / "note-taker" / "agent.toml").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_a_window_that_cannot_be_assembled_is_reported_not_swallowed(tmp_path):
+    """The agent is already created and registered by then, so failing the whole call would tell
+    the caller nothing was made when something was. It says what is missing and how to fix it —
+    silence here would ship an agent that cannot be published and nobody would know why."""
+    tool = CreateAgentTool(_Registry(tmp_path), scaffolder=_Scaffolder(fail=True))
+
+    result = await _create(tool, window=True)
+
+    assert (tmp_path / "note-taker" / "agent.toml").is_file(), "the agent should still exist"
+    said = _said(result)
+    assert "scaffold_react_app" in said
+    assert "the skeleton is missing" in said
+
+
+@pytest.mark.asyncio
+async def test_the_result_says_where_the_agent_actually_is(tmp_path):
+    """WHO NEEDS THIS, and why prose was not enough.
+
+    The result text has always ended "… at <path>", which was sufficient while the MODEL made this
+    call and read the answer. Creating from the start dialog moved the call into the window, so the
+    model now sees only the scope preamble — and a UI cannot parse a path out of a sentence.
+
+    Without it the preamble named `agents/<id>/`, which file tools resolve against the agent's
+    WORKSPACE. It resolved to somewhere that does not exist, and the model went hunting through the
+    agents directory — where a signed-in caller's agents are not, because those are placed in that
+    caller's own account overlay.
+    """
+    tool = CreateAgentTool(_Registry(tmp_path), scaffolder=_Scaffolder())
+
+    result = await _create(tool, window=True)
+
+    where = result.details["dir"]
+    assert Path(where).is_absolute(), "a relative path is what caused the hunt"
+    assert (Path(where) / "agent.toml").is_file(), "it must point at the agent, not near it"

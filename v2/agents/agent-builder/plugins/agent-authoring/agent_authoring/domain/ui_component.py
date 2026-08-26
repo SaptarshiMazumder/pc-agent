@@ -145,14 +145,37 @@ SETTINGS = UiComponent(
 )
 
 
+ORGS = UiComponent(
+    id="orgs",
+    title="Organizations & seats",
+    summary=(
+        "Lets whoever runs this agent create or join an organization and take a seat in it. The "
+        "same two pages the assistant shows, on the same accounts service, so an enterprise that "
+        "buys seats once meets one idea of what a seat is everywhere. Renders nothing useful on a "
+        "build with no accounts service, which is the local-install case."
+    ),
+    # THE SHARED MODULE, BY PATH — the same rule credits, settings and sign-in use, for the same
+    # reason: what is mandatory is not that a page about teams exists, but that it is THE page.
+    # Seats, invites, roles and per-member caps are enforced server-side, and a second client with
+    # its own idea of who may mint an invite is a second thing to get wrong about access.
+    detect=(r"\bcommon/orgs\b",),
+    # NO SDK SYMBOL. It reaches the accounts service through the SDK's own org calls, which arrived
+    # with this component — an agent whose bundle predates them predates the component too, so
+    # there is nothing a stale bundle could be missing that the path check does not already catch.
+    requires=(),
+    provides=("OrgView.tsx",),
+)
+
+
 class UiComponents:
     """The catalogue.
 
-    Adding a third mandatory piece is an entry here plus a line in `_REQUIRED_MESSAGES` — that is
-    the difference between a mechanism and a special case.
+    Adding another mandatory piece is an entry here plus a line in `_REQUIRED_MESSAGES` — that is
+    the difference between a mechanism and a special case. Orgs was added that way and needed no
+    new rule, which is the mechanism proving itself.
     """
 
-    def __init__(self, components: tuple[UiComponent, ...] = (SIGN_IN, CREDITS, SETTINGS)):
+    def __init__(self, components: tuple[UiComponent, ...] = (SIGN_IN, CREDITS, SETTINGS, ORGS)):
         self._by_id = {c.id: c for c in components}
 
     def ids(self) -> tuple[str, ...]:

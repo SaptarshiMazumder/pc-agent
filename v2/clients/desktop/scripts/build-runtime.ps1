@@ -130,29 +130,35 @@ if ($LASTEXITCODE -ne 0 -or -not $nodeReported) {
 # 3d. THE SHARED APP DEPENDENCIES -- react, vite and the rest, installed ONCE for the product
 #     instead of once per agent.
 #
-#     WHY NOT `npm install` PER AGENT. Every agent app is scaffolded from the same starter and so
-#     declares the same seven packages. Installing them per agent would download a few hundred MB
+#     WHY NOT `npm install` PER AGENT. Every agent app is a copy of the same SKELETON and so
+#     declares the same packages. Installing them per agent would download a few hundred MB
 #     from the network EVERY TIME a user creates an agent, take a minute each, cost that much disk
 #     per agent, and fail outright on a machine with no internet. None of that buys anything: the
 #     dependency list is ours, not the agent author's.
 #
-#     THE LIST IS COPIED FROM THE STARTER, never retyped here. A second hand-maintained copy of a
-#     dependency list is the same drift this build script already got bitten by once (the `mcp`
-#     extra, above) -- so the starter's package.json IS the input, and adding a dependency there
+#     THE LIST IS COPIED FROM THE SKELETON, never retyped here. A second hand-maintained copy of
+#     a dependency list is the same drift this build script already got bitten by once (the `mcp`
+#     extra, above) -- so the skeleton's package.json IS the input, and adding a dependency there
 #     is the whole change.
+#
+#     IT USED TO READ `_borrowed/react`, the two-file starter the skeleton replaced. That starter
+#     declared react and vite and nothing else; the skeleton is a working window, so it also needs
+#     zustand, lucide-react and the markdown renderer. Pointing this at the old path would have
+#     built a store missing four packages -- and the failure lands on whoever scaffolds an agent,
+#     as a vite build that cannot resolve an import nobody wrote.
 #
 #     Installed with the bundled node so the store is built by the same toolchain that will read
 #     it, rather than by whatever happened to be on the build agent's PATH.
 $AppDepsDir = Join-Path $RuntimeDir "app-deps"
-$StarterPkg = Join-Path $V2 "agents\agent-builder\skills\build-agent\templates\_borrowed\react\package.json"
-if (-not (Test-Path $StarterPkg)) {
-    throw "no React starter package.json at $StarterPkg - cannot work out what an agent app needs."
+$SkeletonPkg = Join-Path $V2 "agents\agent-builder\skills\build-agent\templates\_skeleton\package.json"
+if (-not (Test-Path $SkeletonPkg)) {
+    throw "no skeleton package.json at $SkeletonPkg - cannot work out what an agent app needs."
 }
 New-Item -ItemType Directory -Force $AppDepsDir | Out-Null
-Copy-Item $StarterPkg (Join-Path $AppDepsDir "package.json") -Force
+Copy-Item $SkeletonPkg (Join-Path $AppDepsDir "package.json") -Force
 Write-Host "installing the shared agent-app dependencies into $AppDepsDir ..."
 Push-Location $AppDepsDir
-# ALWAYS, not only when the folder is missing. The starter's dependency list changes over time and
+# ALWAYS, not only when the folder is missing. The skeleton's dependency list changes over time and
 # npm reconciles an existing tree cheaply, so re-running is what keeps a cached runtime honest.
 & $NodeExe $NpmCli install --no-audit --no-fund --loglevel=error
 $npmExit = $LASTEXITCODE

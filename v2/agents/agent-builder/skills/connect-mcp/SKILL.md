@@ -112,5 +112,6 @@ A `url` server never needs approval — nothing runs locally.
 - which server, and whether it launches a process or calls a URL
 - the tools it actually exposed, by name
 - which fields they still have to fill in, and where
-- that an agent with `[[settings]]` or `[[mcp]]` is **local-only** for now: the values live in
-  their machine's `.env`, and a hosted daemon has one `.env` shared by every account
+- that an agent with `[[settings]]` or `[[mcp]]` is **local-only** for now: the values are stored
+  per AGENT rather than per ACCOUNT, and a hosted daemon runs one copy of an agent for everybody,
+  so one user's key would become everyone's

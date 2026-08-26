@@ -1,0 +1,73 @@
+/* THE WORKBENCH TEMPLATE'S PALETTE — warm paper, burnt orange, an old-style serif for display.
+ * A ledger, not a chat bubble.
+ *
+ * A TEMPLATE OVERLAY of the base `tokens.css`: same contract, different world. Every shared
+ * screen and every base component reads only these names, so this one file is most of the
+ * difference between this template's look and the chat template's. Yours to change.
+ *
+ * THE DISPLAY FACE IS A SERIF. Headings, the big panel numbers and the brand set in an old-style
+ * serif on cream is the whole editorial identity — the UI chrome stays in the sans.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces: cream paper, stepping DARKER as things nest --- */
+  --bg4: #efe9db;   /* the window frame */
+  --bg:  #faf6ee;   /* the page */
+  --bg2: #f4eee1;   /* the rail, a card, a menu */
+  --bg3: #ece4d2;   /* an input, a hovered row */
+  --border: #e2d9c6;
+  --border2: #c9bc9f;
+  /* visible hairlines between rows — a ledger tabulates */
+  --row-line: #e8e0cd;
+
+  /* --- text: warm near-black ink on paper --- */
+  --text: #2b241a;
+  --dim: #6d6250;
+  --faint: #9c8f78;
+
+  /* --- one accent, three jobs: burnt orange --- */
+  --accent: #b45309;
+  --accent-text: #9a4708;
+  --accent-soft: rgba(180, 83, 9, 0.1);
+  --prim-bg: #b45309;
+  --prim-bg-h: #cf6212;
+  --prim-ink: #fff8ec;
+
+  /* --- semantic --- */
+  --danger: #b3261e;
+  --danger-soft: rgba(179, 38, 30, 0.08);
+  --warn: #92400e;
+
+  /* --- elevation and shape: hairlines do the work; shadows stay faint, corners tight --- */
+  --shadow: 0 1px 2px rgba(43, 36, 26, 0.06), 0 10px 26px -14px rgba(43, 36, 26, 0.2);
+  --shadow-sm: 0 1px 2px rgba(43, 36, 26, 0.07);
+  --radius: 7px;
+
+  /* --- type: sans for chrome, SERIF for display — see the header note --- */
+  --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
+
+  /* weights for a LIGHT surface — dark-on-cream renders lighter, so tiers sit higher */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 550;
+  --fw-semi: 600;
+  --fw-heavy: 650;
+  --fw-bold: 700;
+  --fw-on-accent: 600;
+}
+
+/* The floor the shared pages assume. */
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 var(--sans);
+  font-weight: var(--fw-normal);
+  -webkit-font-smoothing: antialiased;
+  accent-color: var(--accent);
+}
+* { box-sizing: border-box; }

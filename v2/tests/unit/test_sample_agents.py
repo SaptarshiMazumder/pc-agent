@@ -98,10 +98,25 @@ def _validator():
     )
 
 
-def test_there_is_at_least_one_sample():
-    """If this fails, the samples were moved or deleted and every test below silently passed
-    by iterating over nothing."""
-    assert SAMPLE_IDS, f"no sample agents found under {SAMPLES}"
+def test_the_skeleton_is_validated_even_though_the_samples_are_gone():
+    """WHAT THIS REPLACED, and why the replacement is stronger.
+
+    This used to be `test_there_is_at_least_one_sample`, guarding against the samples being moved
+    or deleted and every test below silently passing by iterating over nothing. They HAVE now been
+    deleted — deliberately. The skeleton took their job, and it is a better subject than they
+    were: a sample only helped somebody who read it, while the skeleton is copied into every agent
+    whether or not anybody does.
+
+    So the guard moves rather than disappearing. If the skeleton stops being a complete window,
+    something must fail — and the tests that say so live in `test_skeleton.py`, which this points
+    at so the connection is not lost the next time somebody goes looking for the sample tests.
+    """
+    from agent_authoring.bundle_layout import BundleLayout
+
+    assert (BundleLayout.SKELETON_ROOT / "src" / "App.tsx").is_file(), (
+        "the skeleton is gone or incomplete; see tests/unit/test_skeleton.py"
+    )
+
 
 
 @pytest.mark.parametrize("agent_id", SAMPLE_IDS)

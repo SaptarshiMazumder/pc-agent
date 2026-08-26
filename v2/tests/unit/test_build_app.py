@@ -197,3 +197,79 @@ def test_the_message_for_no_node_tells_the_user_what_to_do():
     with pytest.raises(NodeMissing) as e:
         NodeToolchain(env={"PATH": ""}).require()
     assert "Node 18+" in str(e.value)
+
+
+# --- telling the window ------------------------------------------------------
+# `ui/` is what the daemon serves, so a window shows whatever was last compiled and nothing about
+# that changes underneath it. Building an agent therefore meant reopening its window by hand after
+# every change. The tool now announces a successful build and the window reloads itself.
+#
+# The announce handle is the daemon's `broadcast_app_rebuilt`, late-bound and OPTIONAL: the gateway
+# does not exist when plugins are discovered, and a build must not fail because nothing is
+# listening.
+
+from agent_authoring.presentation.build_app_tool import BuildAppTool  # noqa: E402
+
+
+class Recorder:
+    def __init__(self):
+        self.announced: list[str] = []
+
+    def __call__(self, agent_id: str) -> None:
+        self.announced.append(agent_id)
+
+
+class Boom:
+    """A service whose build always fails, the way vite failing reaches the tool."""
+
+    def build(self, agent_id: str):
+        raise BuildAppError("vite: App.tsx(3,1): error TS1005")
+
+
+class Fine:
+    def __init__(self, agent_id="demo"):
+        self._agent_id = agent_id
+
+    def build(self, agent_id: str):
+        from agent_authoring.application.build_app_service import BuildAppResult
+
+        return BuildAppResult(
+            agent_id=self._agent_id, ok=True, dependencies="linked", output="built", written=["a.js"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_successful_build_tells_the_window():
+    seen = Recorder()
+    tool = BuildAppTool(Fine(), announce=seen)
+    result = await tool.execute("c1", {"agent_id": "demo"})
+    assert not result.is_error
+    assert seen.announced == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_a_FAILED_build_tells_nobody():
+    """THE ONE THAT MATTERS. A failed build leaves ui/ exactly as it was, so reloading would
+    repaint the same screen — which reads as "my change did nothing" when what actually happened
+    is that it did not compile. The old screen after an error is the worst of both."""
+    seen = Recorder()
+    tool = BuildAppTool(Boom(), announce=seen)
+    result = await tool.execute("c1", {"agent_id": "demo"})
+    assert result.is_error
+    assert seen.announced == []
+
+
+@pytest.mark.asyncio
+async def test_a_build_with_nobody_listening_still_succeeds():
+    """The handle is absent in unit tests and before the gateway is up. A build that failed for
+    want of an audience would be a worse outcome than a window that did not refresh."""
+    result = await BuildAppTool(Fine()).execute("c1", {"agent_id": "demo"})
+    assert not result.is_error
+
+
+@pytest.mark.asyncio
+async def test_a_missing_agent_id_tells_nobody():
+    seen = Recorder()
+    result = await BuildAppTool(Fine(), announce=seen).execute("c1", {"agent_id": "  "})
+    assert result.is_error
+    assert seen.announced == []

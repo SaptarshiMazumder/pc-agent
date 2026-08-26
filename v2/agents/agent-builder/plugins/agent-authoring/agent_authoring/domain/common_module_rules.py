@@ -85,6 +85,13 @@ class CommonModuleRules:
 
         out: list[Finding] = []
         for rel, canonical in sorted(self._canonical.items()):
+            # CSS IS NOT LOCKED — a product decision (2026-08). What must be identical in every
+            # agent is the BEHAVIOUR of these screens: who handles a password, how a payment is
+            # taken, who may mint an invite. How they LOOK is the agent's, entirely — the token
+            # palette was the coarse knob, and this hands over the fine one. A deleted stylesheet
+            # is still caught, loudly, by the build: the .tsx imports it.
+            if rel.endswith(".css"):
+                continue
             path = f"{COMMON_DIR}{rel}"
             text = sources.get(path)
             if text is None:

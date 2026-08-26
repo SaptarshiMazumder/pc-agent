@@ -54,6 +54,9 @@ export interface AgentInfo {
   sample?: boolean
   /** is this agent the caller's to CHANGE (share/unshare/edit)? server-resolved ownership */
   mine?: boolean
+  /** which layer the caller's copy came from. `mine` cannot draw this line — record-less shared
+   *  dirs are presumed the caller's — so the "My agents" section keys off this instead. */
+  layer?: 'account' | 'org' | 'shared'
   /** whose shelf it belongs on: 'org' rows render in the Organization section (tenancy E5);
    *  absent/'personal' is every agent that existed before orgs did */
   scope?: 'personal' | 'org'

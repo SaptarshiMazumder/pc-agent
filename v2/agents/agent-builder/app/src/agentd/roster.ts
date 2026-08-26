@@ -23,6 +23,20 @@ export interface AgentRow {
   mine?: boolean
   /** authored | installed | curated. Absent on an older daemon. */
   origin?: string
+  /** 'account' | 'org' | 'shared' — which layer the caller's copy came from. The My-agents
+   *  section keys off this, because `mine` is presumed true for the whole shared catalogue. */
+  layer?: string
+  /**
+   * WHERE THIS AGENT'S DEFINITION IS, absolutely.
+   *
+   * NOT from `agents.list` — that surface is app-scoped, so putting a filesystem path in it would
+   * hand every agent's window the server's paths on a hosted daemon. It comes from
+   * `create_agent`'s own result, which goes only to whoever made the call.
+   *
+   * So it is known for an agent created in this window and absent for one merely opened from the
+   * sidebar. The preamble treats it that way.
+   */
+  dir?: string
   /**
    * This agent's own window, when it has one that WORKS.
    *

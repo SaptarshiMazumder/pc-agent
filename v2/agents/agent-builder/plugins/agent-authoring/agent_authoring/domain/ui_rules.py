@@ -98,7 +98,7 @@ def app_sources(sources: dict) -> dict:
 #
 # A TUPLE RATHER THAN A SECOND CONSTANT. One rule reports all of them, so requiring a third is an
 # entry here and no new code — the same reason the component catalogue itself is injected.
-_REQUIRED_COMPONENTS = ("sign-in", "credits", "settings")
+_REQUIRED_COMPONENTS = ("sign-in", "credits", "settings", "orgs")
 
 # What to say when each is missing. Keyed by id so the message stays next to the requirement.
 _REQUIRED_MESSAGES = {
@@ -108,7 +108,7 @@ _REQUIRED_MESSAGES = {
         "agent knows who is using it, and on a hosted install every model call fails without "
         "it, with nothing on screen to explain why.",
         "app/src/main.tsx",
-"`scaffold_react_app` already gave you `src/common/auth/` — SHIPPING IT IS NOT ENOUGH, "
+"your agent was created with `src/common/auth/` — SHIPPING IT IS NOT ENOUGH, "
         "something has to render it. Wrap your app in the gate: `import Gate from "
         "'./common/auth/Gate'`, then `<Gate product='<your name>'><App /></Gate>` in main.tsx, "
         "which is exactly what the scaffolded main.tsx does — so this normally means somebody "
@@ -124,7 +124,7 @@ _REQUIRED_MESSAGES = {
         "cannot be configured from inside itself sends them hunting through another app for a "
         "screen that does not know about this one.",
         "app/src/App.tsx",
-        "`scaffold_react_app` already gave you `src/common/settings/` — SHIPPING IT IS NOT ENOUGH, "
+        "your agent was created with `src/common/settings/` — SHIPPING IT IS NOT ENOUGH, "
         "something has to render it. Import it and give it a view or a modal reached from a gear: "
         "`import { Settings } from './common/settings/Settings'`, then `<Settings client={client} "
         "agentId='<your-id>' onRestart={...} />`. Do NOT design your own: a user configures the "
@@ -132,13 +132,28 @@ _REQUIRED_MESSAGES = {
         "this agent's values win over the daemon's. Pass `onRestart` if your window can restart "
         "the daemon, because some settings only take effect on a fresh process.",
     ),
+    "orgs": (
+        "UI_NO_ORGS",
+        "this app has no organizations page. Every agent with a window must — it is how somebody "
+        "creates or joins a team, takes one of its seats, and spends its shared credits instead "
+        "of their own. Without it an agent bought by a company can only ever be used by whoever "
+        "installed it, and nothing on screen explains why a colleague cannot get in.",
+        "app/src/App.tsx",
+        "your agent was created with `src/common/orgs/` — SHIPPING IT IS NOT ENOUGH, "
+        "something has to render it. Give it its own view beside Credits: `import OrgView from "
+        "'./common/orgs/OrgView'`, then `{view === 'orgs' && <OrgView client={client} />}`. Do NOT "
+        "design your own: seats, invite tokens, roles and per-member caps are enforced by the "
+        "accounts service, and a second client with its own idea of who may invite whom is a "
+        "second way to get access wrong. If this agent is genuinely single-user, the page still "
+        "costs nothing — it renders an empty state on a build with no accounts service.",
+    ),
     "credits": (
         "UI_NO_CREDITS",
         "this app never shows the user their credits. Every agent with a window must — running "
         "out of credits is the one failure a user can fix themselves, and without this panel the "
         "agent simply stops working and says nothing about why or where to go.",
         "app/src/App.tsx",
-        "`scaffold_react_app` already gave you `src/common/credits/` — SHIPPING IT IS NOT "
+        "your agent was created with `src/common/credits/` — SHIPPING IT IS NOT "
         "ENOUGH, something has to render it. Import it and give it its own view, reached from a "
         "nav entry beside Settings: `import Credits from './common/credits/Credits'`, then "
         "`{view === 'credits' && <Credits />}`. Not a section inside your settings screen — topping up is what a user "

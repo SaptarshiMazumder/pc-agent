@@ -10,6 +10,8 @@ potentially large tree for no reason.
 
 from __future__ import annotations
 
+import asyncio
+
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
@@ -48,7 +50,17 @@ class PackageAgentTool(Tool):
         self._service = service
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        result = self._service.package(
+        # OFF THE EVENT LOOP. The daemon is single-threaded — one thread carries every
+        # websocket, every model stream, every agent's run and every tool. Zipping an agent takes seconds, and longer for a big one, and a
+        # plain call here stopped the ENTIRE daemon for that long: no events, no replies,
+        # not even an answer to the client's keepalive. Windows concluded the connection
+        # was dead, reconnected, and told people "the daemon restarted mid-run" when it
+        # had done nothing of the sort.
+        #
+        # A thread is the whole fix, and `verify_app` already does this for the same
+        # reason: one blocking operation with nothing to interleave.
+        result = await asyncio.to_thread(
+            self._service.package,
             params.get("agent_id", ""),
             params.get("out_dir", ""),
             params.get("version", ""),

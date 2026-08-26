@@ -125,6 +125,15 @@ RULEBOOK: dict[str, Rule] = {
     # each agent can look like itself; an agent that does not hold up its end ships pages that
     # render transparent. It BLOCKS for the same reason MODIFIED does — it still builds, so
     # nothing downstream would ever catch it.
+    # THE FOURTH MANDATORY PIECE. Blocks for the same reason the other three do: an agent that
+    # cannot be shared with a colleague is not an agent a company can buy, and the failure is
+    # silent — the window works perfectly for whoever installed it.
+    "UI_NO_ORGS": Rule(
+        level=ERROR,
+        blocks=(PACK, PUBLISH),
+        note="an app with no organizations page cannot be packed or published; the copied "
+        "common/orgs module is the only mechanism — never a team page of the agent's own",
+    ),
     "UI_TOKENS_MISSING": Rule(
         level=ERROR,
         blocks=(PACK, PUBLISH),

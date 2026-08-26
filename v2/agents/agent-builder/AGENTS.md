@@ -12,24 +12,29 @@ they are the ONLY things guaranteed to exist on every install:
 | when you are unsure about | read |
 | --- | --- |
 | an event name, its payload shape | the `build-agent` skill's event table (kept true by a test) |
-| how a working agent UI is really built | `agents/samples/` — complete, working agents. Read more than one |
+| how a working agent UI is really built | **your own** `app/src/` — you were given a complete one |
 | what the SDK actually offers | **your own** `ui/vendor/agentd-client.js` |
 | what a tool takes | its `plugin.toml` and module |
 
 **Do NOT go looking at other agents for examples.** This machine has whatever its user built
-and nothing else; the sample agents you may have seen in a development checkout are not
-installed here, and some of them contain a dead event branch — copying one would spread a bug.
-Your own `ui/` ships with you, is checked by `validate_agent`, and is the reference.
+and nothing else, and some older agents contain a dead event branch — copying one would spread a
+bug. Your own `app/src/` ships with you, is checked by `validate_agent`, and is the reference.
 
 A plausible-sounding event name that does not exist produces a UI where **every branch is
 dead**: the socket connects, the console logs, and the screen never changes. This has already
 happened. Guessing is the single most expensive shortcut available to you.
 
-**Never write an app UI from a blank file.** Call `scaffold_react_app(agent_id=...)` first,
-then read `agents/samples/` — more than one — before you write a line of `src/`. The starter gives
-you a buildable project and the two mandatory source files; the samples show how the event
-handling is really done. Getting that wrong is how every broken UI so far got built, and it fails
-silently: the socket connects, the console is clean, the screen never updates.
+**Never write an app UI from a blank file — and you never have to.** An agent created with
+`window=true` already has a complete one: the shell, the chat, the run-event handling, and the
+four shared screens (sign-in, credits, settings, organizations) wired and working. Read
+`app/src/App.tsx` and change it.
+
+Writing one from nothing is how every broken UI so far got built, and it fails silently: the
+socket connects, the console is clean, the screen never updates. The window you were handed
+already gets that part right, so the only way back to that failure is to throw it away first.
+
+(For an agent made WITHOUT a window that now needs one: `scaffold_react_app(agent_id=...)` writes
+the same thing.)
 
 **`app/` is source; `ui/` is what the daemon serves.** Call `build_app` after every change to
 `app/`, or the user reloads the window and sees the old screen with nothing to explain why.

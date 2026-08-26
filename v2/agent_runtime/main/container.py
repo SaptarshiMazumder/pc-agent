@@ -14,6 +14,7 @@ import logging
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config
 from agent_runtime.infrastructure import tool_catalog_file
+from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
 from agent_runtime.infrastructure.engine.native import NativeEngine
 from agent_runtime.infrastructure.llm.litellm import litellm_stream
 from agent_runtime.infrastructure.memory.local_store import SessionStore
@@ -186,6 +187,13 @@ def build_service(
         account_id=_current_account_id,
         org_layers=_org_agent_layers(config),
     )
+    # THE AUTHOR'S OWN CONFIG, shipped inside each agent. Given the REGISTRY's resolver rather
+    # than an agents root: an account overlay puts an agent somewhere the shared catalogue does
+    # not, and a second opinion about where an agent lives would read the wrong file for exactly
+    # the agents that are hardest to debug.
+    authored_config = AgentAuthoredConfig(registry.resolve_dir)
+
+
     # ENTITLEMENT seam (4th load gate): the ONE composition-root decision. Open default =
     # entitle every compatible plugin; a distribution profile with a pinned publisher key
     # (a commercial build) switches on license-file enforcement (M7) — no core changes.
@@ -338,6 +346,13 @@ def build_service(
             "sections": len(new_sections),
         }
 
+    def broadcast_app_rebuilt(agent_id: str) -> None:
+        """Tell an agent's windows its ui/ was rebuilt. Same late-bound thunk shape as the one
+        below, and for the same reason: plugins are discovered before the Gateway exists."""
+        gateway = _late.get("gateway")
+        if gateway is not None:
+            gateway.broadcast_app_rebuilt(agent_id)
+
     def broadcast_agents_changed() -> None:
         """Fan `agents.changed` out to every client. A THUNK because plugins are discovered
         before the Gateway is constructed — it resolves through _late at call time, exactly
@@ -348,6 +363,12 @@ def build_service(
 
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
+    # RUN OBSERVERS FROM PLUGINS. The engine has always taken observers; plugins could not
+    # reach the list. Appended to here during discovery, read once when the engine is built
+    # below — discovery runs first, so everything a plugin adds is in. The authoring plugin uses
+    # it to compile an agent's window automatically after every write to its app/.
+    plugin_run_observers: list = []
+
     plugin_deps = {
         "browser": browser_manager,
         "computer": computer_provider,
@@ -359,6 +380,8 @@ def build_service(
         "registry": registry,
         "register_plugin_live": register_plugin_live,
         "broadcast_agents_changed": broadcast_agents_changed,
+        "broadcast_app_rebuilt": broadcast_app_rebuilt,
+        "add_run_observer": plugin_run_observers.append,
     }
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)
@@ -435,7 +458,7 @@ def build_service(
         stream_fn,
         brain_model(config),
         max_iterations=config.max_turns,  # brain model: CONFIG-ONLY
-        observers=build_observers(config),
+        observers=[*build_observers(config), *plugin_run_observers],
         context_policy=context_policy,
         execution_contract=getattr(config, "execution_contract", ""),
         model_router=build_model_router(config),  # cost-efficiency brain routing (default off)
@@ -655,10 +678,17 @@ def build_service(
         from agent_runtime.infrastructure.llm.model_router import router_for
 
         # THE CALLER'S config, not the machine's: master ⊕ this account's overlay, and only then
-        # the agent's own block on top. So "user Y runs figure-creator on a different model" is
-        # the same two-layer resolution it always was, one tenant deeper — and Y's choice is
-        # invisible to X, whose turn resolves against X's overlay on X's connection.
-        values, _ = resolve(account_config.effective(config), agent.id)
+        # the AUTHOR's shipped block, and only then the agent's own block on top. So "user Y runs
+        # figure-creator on a different model" is the same resolution it always was, one tenant
+        # deeper — and Y's choice is invisible to X, whose turn resolves against X's overlay on
+        # X's connection.
+        #
+        # THE AUTHOR'S LAYER IS READ PER RUN, like everything else here. An agent that is
+        # reinstalled mid-session ships a new file, and a value captured at boot would keep
+        # running the version that was replaced.
+        values, _ = resolve(
+            account_config.effective(config), agent.id, authored_config.read(agent.id)
+        )
         # agent.toml's `model` still wins over the config layer: it is part of the agent's
         # DEFINITION ("this agent needs a vision model to work at all"), while the config block
         # is the user's preference for it. A definition that names a model is not a default.

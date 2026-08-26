@@ -14,7 +14,7 @@
  * has no server-side equivalent.
  */
 
-import { accessTokenExpiry } from '@agentd/auth'
+import { accessTokenAccount, accessTokenEmail, accessTokenExpiry } from '@agentd/auth'
 import { identity, sessionKey } from './identity'
 
 export { accessTokenAccount, accessTokenExpiry } from '@agentd/auth'
@@ -81,8 +81,11 @@ export function saveSession(value: StoredSession | null, storageKey = ''): void 
     accessToken: value.token,
     refreshToken: value.refreshToken || '',
     expiresAt: value.expiresAt || accessTokenExpiry(value.token),
-    accountId: value.accountId || '',
-    email: value.email || ''
+    // The token's own claims fill what the opener did not say. A launch URL carries the token
+    // and nothing else, and these two blanks are what made every opened window render its account
+    // menu as "Account" with no name.
+    accountId: value.accountId || accessTokenAccount(value.token),
+    email: value.email || accessTokenEmail(value.token)
   })
 }
 

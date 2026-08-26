@@ -232,11 +232,67 @@ def _capture_env(monkeypatch, tmp_path) -> dict:
     return written
 
 
-def test_an_agent_may_write_the_key_it_declared_and_it_lands_prefixed(tmp_path, monkeypatch):
+def _stored(tmp_path, agent_id: str) -> dict:
+    """What landed in the agent's own config file."""
+    import json
+
+    f = tmp_path / "agents" / agent_id / "agent.config.json"
+    return json.loads(f.read_text(encoding="utf-8")).get("settings", {}) if f.is_file() else {}
+
+
+def test_a_declared_setting_lands_in_the_agents_own_config(tmp_path, monkeypatch):
+    """WHERE A SETTING LIVES, and it moved.
+
+    It used to be a line in the machine's shared `.env`, under a prefixed name
+    (`trader__COINBASE_API_KEY`) invented precisely because one file was being shared by every
+    agent on the machine. It is the agent's own `agent.config.json` now — so it travels with the
+    agent, and inside its own file there is nothing to collide with, which is why the prefix is
+    gone from the stored key.
+
+    The `.env` is left alone entirely: a declared setting is one agent's, and the machine's file
+    is for the credential every agent shares."""
     written = _capture_env(monkeypatch, tmp_path)
     gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))
+
     res = gw._config_set({"keys": {"COINBASE_API_KEY": "sk-user-own"}}, "trader")
-    assert res["saved"] is True and written == {"trader__COINBASE_API_KEY": "sk-user-own"}
+
+    assert res["saved"] is True
+    assert _stored(tmp_path, "trader") == {"COINBASE_API_KEY": "sk-user-own"}
+    assert written == {}, "a declared setting must not reach the machine's .env"
+
+
+def test_the_value_is_live_in_this_process_immediately(tmp_path, monkeypatch):
+    """WRITING THE FILE IS NOT ENOUGH. Everything that consumes one of these reads an environment
+    variable — a sandboxed tool is a child process, an [[mcp]] command is spawned with ${VAR}
+    substituted — so a save that only wrote the file would take effect on the next daemon start.
+    Somebody who pastes a URL and presses Test expects the test to use it.
+
+    PREFIXED HERE, unprefixed in the file: one process environment cannot hold two agents'
+    `AWS_ACCESS_KEY_ID`, and their two config files can."""
+    import os
+
+    _capture_env(monkeypatch, tmp_path)
+    gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))
+    monkeypatch.delenv("trader__COINBASE_API_KEY", raising=False)
+
+    gw._config_set({"keys": {"COINBASE_API_KEY": "sk-user-own"}}, "trader")
+
+    assert os.environ["trader__COINBASE_API_KEY"] == "sk-user-own"
+
+
+def test_clearing_a_setting_removes_it_from_both(tmp_path, monkeypatch):
+    """An empty value has always meant "unset" on this page, and in `.env` it deleted the line.
+    Storing "" would be a third state — set, to nothing — that nothing in the UI can express."""
+    import os
+
+    _capture_env(monkeypatch, tmp_path)
+    gw = _gateway(tmp_path, _registry(tmp_path, trader=DECLARING))
+    gw._config_set({"keys": {"COINBASE_API_KEY": "sk-user-own"}}, "trader")
+
+    gw._config_set({"keys": {"COINBASE_API_KEY": ""}}, "trader")
+
+    assert _stored(tmp_path, "trader") == {}
+    assert "trader__COINBASE_API_KEY" not in os.environ
 
 
 def test_provider_keys_stay_writable_because_byok_is_the_point(tmp_path, monkeypatch):
@@ -283,7 +339,10 @@ def test_a_host_write_must_name_the_agent(tmp_path, monkeypatch):
     assert written == {}
 
     res = gw._config_set({"keys": {"TRADING_DB_URL": "postgres://x"}, "agentId": "trader"}, None)
-    assert res["saved"] is True and written == {"trader__TRADING_DB_URL": "postgres://x"}
+    # Named, so it is no longer ambiguous — and it lands in THAT agent's own config, which is
+    # also why naming matters: two agents' files are two places, and picking the wrong one writes
+    # a credential into the wrong agent's slot.
+    assert res["saved"] is True and _stored(tmp_path, "trader") == {"TRADING_DB_URL": "postgres://x"}
 
 
 def test_cloud_mode_locks_provider_keys_but_not_an_agents_own_settings(tmp_path, monkeypatch):
@@ -296,7 +355,9 @@ def test_cloud_mode_locks_provider_keys_but_not_an_agents_own_settings(tmp_path,
     monkeypatch.setattr(gw, "_platform_keys_locked", lambda: True)
 
     res = gw._config_set({"keys": {"COINBASE_API_KEY": "sk-mine"}}, "trader")
-    assert res["saved"] is True and written == {"trader__COINBASE_API_KEY": "sk-mine"}
+    # It lands in the AGENT's own config now, not the machine's .env — see
+    # test_a_declared_setting_lands_in_the_agents_own_config.
+    assert res["saved"] is True and _stored(tmp_path, "trader") == {"COINBASE_API_KEY": "sk-mine"}
 
     res = gw._config_set({"keys": {PROVIDER_ENV_KEYS[0]: "sk-nope"}}, "trader")
     assert res["saved"] is False and res["refused"] == [PROVIDER_ENV_KEYS[0]]

@@ -37,6 +37,8 @@ the next step is obvious.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import re
 from pathlib import Path
@@ -177,11 +179,40 @@ class CreateAgentTool(Tool):
                 "type": "object",
                 "description": 'per-agent toggles, e.g. {"autonomy": true, "notify": true}',
             },
+            "template": {
+                "type": "string",
+                "description": "which window shape a windowed agent starts as: 'chat' (a thread "
+                "and a composer — the default) or 'dashboard' (a panel grid over the agent's own "
+                "tools, with the chat still in the rail). Both carry the four shared screens. "
+                "Only meaningful with window=true; an unknown name falls back to 'chat'",
+            },
+            "window": {
+                "type": "boolean",
+                "description": "does this agent get its own app window? true declares [app] AND "
+                "assembles a complete, working window — shell, chat, sign-in, credits, settings "
+                "and organizations, all already wired. You then EDIT that window; never build one "
+                "from scratch and never scaffold it separately. Ask the user if you do not know; "
+                "adding a window later is a scaffold_react_app call, removing one is deleting a "
+                "directory",
+            },
         },
     }
 
-    def __init__(self, registry, validator=None, announce=None):
+    def __init__(self, registry, validator=None, announce=None, scaffolder=None, builder=None):
         self._registry = registry
+        # ScaffoldReactAppService. Injected so `window=true` can hand the new agent a complete
+        # window in the same call that creates it, rather than depending on a follow-up nobody is
+        # obliged to make. Optional: a caller without one (minimal tests) simply gets no window,
+        # and is told so.
+        self._scaffolder = scaffolder
+        # BuildAppService. `app/` is source and `ui/` is what the daemon serves, so an agent whose
+        # window was copied but never compiled has nothing to open — `_agent_app` refuses to
+        # advertise an app whose entry file is missing, which is correct and which made a
+        # freshly created agent look like it had no window at all.
+        #
+        # Optional, like the scaffolder: a caller without one gets the source and is told the
+        # window still needs building.
+        self._builder = builder
         # Injected so a fresh skeleton is validated IN THE SAME RESULT — the model sees
         # problems without spending a turn deciding to call validate_agent. Optional: a
         # caller without one (minimal tests) just gets no auto-check.
@@ -278,6 +309,9 @@ class CreateAgentTool(Tool):
                     is_error=True,
                 )
 
+        window = bool(params.get("window"))
+        template = str(params.get("template") or "chat").strip().lower() or "chat"
+
         d = existing if action == "update" else Path(reg.agents_dir) / agent_id
         # This tool writes files directly, so it carries the same scope `write` does.
         try:
@@ -306,6 +340,19 @@ class CreateAgentTool(Tool):
                 tables += ["", "[capabilities]"] + cap_lines
             if allow:
                 tables += ["", "[subagents]", f"allow = {_toml_arr(allow)}"]
+            # [app] IS WRITTEN HERE, not left to `write`, because the skeleton is copied in the
+            # same breath below — and a window on disk that agent.toml never declares is a window
+            # the daemon does not serve. The two facts have to be decided together or an agent
+            # ships an app nobody can open.
+            if window:
+                tables += [
+                    "",
+                    "[app]",
+                    f"title = {_toml_str(name)}",
+                    'mode = "window"',
+                    'entry = "ui/index.html"',
+                    "public = false",
+                ]
             (dest / "agent.toml").write_text("\n".join(top + tables) + "\n", encoding="utf-8")
             (dest / "IDENTITY.md").write_text(identity + "\n", encoding="utf-8")
             if rules:
@@ -331,6 +378,60 @@ class CreateAgentTool(Tool):
                     f"wrote agents/{agent_id}/ but could not register it live "
                     f"({type(e).__name__}: {e}) — a restart will pick it up",
                     is_error=True,
+                )
+
+        # THE WINDOW, ASSEMBLED NOW rather than left for a later tool call.
+        #
+        # WHY IT IS NOT A SEPARATE STEP. It was: the model created the agent, and was told by the
+        # skill to call `scaffold_react_app` afterwards. That is a hope, not a mechanism — and the
+        # thing hoped for is the entire structural guarantee, because an agent whose window was
+        # never scaffolded has no sign-in, no credits page and no settings, and every one of those
+        # failures is invisible until somebody else installs it.
+        #
+        # Best-effort on the SCAFFOLD, not on the agent: the agent is already created and
+        # registered by this point, and failing the whole call over a window would leave a
+        # registered agent that the caller was told did not get made. Reported instead, with the
+        # one command that fixes it.
+        scaffold_note = ""
+        if window and action == "create" and self._scaffolder is not None:
+            try:
+                # Threaded for the same reason scaffold_react_app is: copying a whole app
+                # template blocks, and it runs while somebody watches an empty chat.
+                built = await asyncio.to_thread(
+                    self._scaffolder.scaffold, agent_id, template=template
+                )
+                scaffold_note = (
+                    f"\n\nIts window is already there — {len(built.written)} files in app/, "
+                    f"including sign-in, credits, settings and organizations, all wired and "
+                    f"working. EDIT it; do not rebuild it, and do not scaffold it again. "
+                    f"`src/common/` is shared and must not be changed at all."
+                )
+                # AND COMPILED, because source alone cannot be opened. Without this the agent has
+                # a complete window and no `ui/`, so the daemon advertises no app and the button
+                # to open it never appears — which reads as "creating an agent with a window did
+                # not give it one".
+                if self._builder is not None:
+                    try:
+                        self._builder.build(agent_id)
+                        scaffold_note += (
+                            " It is compiled and openable right now; run `build_app` again after "
+                            "every change to `app/`, because `ui/` is what the daemon serves."
+                        )
+                    except Exception as e:  # noqa: BLE001 — the agent and its source both exist
+                        # NOT FATAL. The source is on disk and one `build_app` fixes it; failing
+                        # the creation would leave a registered agent the caller was told did not
+                        # get made.
+                        scaffold_note += (
+                            f" Its window could NOT be compiled yet ({type(e).__name__}: {e}) — "
+                            f"run `build_app` for '{agent_id}' before anything else, or there is "
+                            f"nothing to open."
+                        )
+            except Exception as e:  # noqa: BLE001 — the agent exists; only its window did not
+                scaffold_note = (
+                    f"\n\nWARNING: the agent was created but its window could not be assembled "
+                    f"({type(e).__name__}: {e}). Run `scaffold_react_app` for '{agent_id}' before "
+                    f"doing anything else — without it this agent has no sign-in, no credits page "
+                    f"and no settings, and cannot be published."
                 )
 
         # Tell the open windows. `create_from` above owns placement, collision, the ownership
@@ -400,12 +501,23 @@ class CreateAgentTool(Tool):
             except Exception:  # noqa: BLE001 — the create succeeded; the check is a bonus
                 pass
         return ToolResult.text(
-            "\n".join(lines),
+            "\n".join(lines) + scaffold_note,
             details={
                 "id": agent_id,
                 "version": version,
                 "written": written,
                 "destroyed": destroyed,
                 "scope": "skeleton",
+                "window": window,
+                # WHERE IT ACTUALLY IS, as data. The prose above has always said it, which was
+                # enough while the MODEL made this call and read the answer. The window creates
+                # agents now, so the caller is a UI — and a UI cannot parse "… v1.0.0 at C:\…"
+                # out of a sentence. It needs the path to tell the model, because the model no
+                # longer sees this message at all.
+                #
+                # ABSOLUTE, and that matters: a signed-in caller's agents are placed in their own
+                # account overlay, not the shared catalogue, so no relative path and no guess at
+                # "the agents directory" can find one.
+                "dir": str(d),
             },
         )

@@ -105,6 +105,21 @@ def _resolve_agent_description(agent_dir: Path, toml_data: dict, tagline: str) -
     return tagline or ""
 
 
+def _export_agent_settings(agent_dir, agent_id: str, settings) -> None:
+    """This agent's stored setting values -> os.environ, under their prefixed names.
+
+    Best-effort and never fatal: an agent whose values cannot be read is an agent with unset
+    settings, which its own settings page already reports honestly. Failing the LOAD here would
+    take the agent off the roster entirely for a bad config file — a much worse outcome than a
+    field that reads as empty."""
+    try:
+        from agent_runtime.infrastructure.agent_authored_config import export_settings
+
+        export_settings(agent_dir, agent_id, [f.key for f in settings])
+    except Exception as e:  # noqa: BLE001 — see the docstring: never fatal to a load
+        log.warning("agent %s: could not apply its stored settings (%s)", agent_id, e)
+
+
 def _settings_fields(raw, agent_id: str = "") -> tuple:
     """``[[settings]]`` -> ``SettingField``s. What this agent needs from whoever runs it.
 
@@ -615,6 +630,18 @@ class FileAgentRegistry:
         # [[settings]] — what this agent needs from whoever RUNS it (an API key, a URL). The
         # declaration ships inside the package; the values stay in the installer's own .env.
         settings = _settings_fields(data.get("settings"), agent_id=agent_id)
+        # THE VALUES FOR THOSE FIELDS, into this process's environment.
+        #
+        # They live in the agent's OWN `agent.config.json` now, not in the machine's shared
+        # `.env`. But everything that consumes one can still only read an environment variable —
+        # a sandboxed tool is a child process, an `[[mcp]]` command is spawned with `${VAR}`
+        # substituted, a plugin reads os.environ. So the file is the store and the environment is
+        # the transport, which is the shape it always actually had.
+        #
+        # HERE, because this is the one place that knows both the agent's directory and what it
+        # declared — and it runs again on every reload, so a value saved from the settings page is
+        # in force for the next message rather than the next restart.
+        _export_agent_settings(d, agent_id, settings)
         # [[mcp]] — MCP servers this agent brings with it, so they survive publish + install.
         mcp = _mcp_servers(data.get("mcp"), agent_id=agent_id)
         # [[oauth]] — sign-ins this agent needs. The declaration ships; the tokens never do.
@@ -859,6 +886,21 @@ class FileAgentRegistry:
         if info is None:
             return False
         return info[1] != ownership.WEB_APP or self.owns(agent_id)
+
+    def layer_of(self, agent_id: str) -> str:
+        """'account' | 'org' | 'shared' — which LAYER the caller's copy of this agent came from.
+
+        NOT the same fact as ownership. Record-less shared dirs are PRESUMED the caller's (owns()
+        says True, origin_of() says authored — legacy must keep publishing), so ownership cannot
+        tell "the agents this account created" apart from the whole shared catalogue. The layer
+        can: an account's own agents live in its overlay, and that is the list a "My agents"
+        section means. Resolved per call, like everything overlay-shaped, because the answer
+        depends on whose socket is asking."""
+        if agent_id in self._overlay():
+            return "account"
+        if agent_id in self._org_specs():
+            return "org"
+        return "shared"
 
     def origin_of(self, agent_id: str) -> str:
         """ "authored" | "installed" | "curated" — how this agent got here. Record-less dirs are

@@ -131,8 +131,16 @@ export default function ChatView() {
     [currentAgentId]
   )
 
+  /* STICKY, NOT UNCONDITIONAL: follow the bottom only while the user is AT the bottom. A ref,
+     not state — nothing renders from it, and a programmatic pin lands at distance ~0 so only a
+     human scrolling up un-sticks it. Sending a message re-pins: your own message is the one
+     thing you always want to see land. */
+  const stickRef = useRef(true)
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el) return
+    if (items[items.length - 1]?.kind === 'user') stickRef.current = true
+    if (stickRef.current) el.scrollTop = el.scrollHeight
   }, [items])
 
   // a user message's Edit action loads its text into the composer for tweaking + re-send
@@ -400,7 +408,14 @@ export default function ChatView() {
         </div>
       ) : (
         <>
-          <div className="chat-scroll" ref={scrollRef}>
+          <div
+            className="chat-scroll"
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget
+              stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+            }}
+          >
             <Thread items={items} />
           </div>
           {composer}
