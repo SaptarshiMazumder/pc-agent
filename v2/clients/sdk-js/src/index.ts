@@ -1,14 +1,13 @@
 export * from './protocol'
 export * from './client'
-// SIGN-IN AND BILLING, both owned by the CLIENT.
+// SIGN-IN AND BILLING — the RUNTIME owns the credential now, windows just ask.
 //
-//   session.ts  what this client stores: its token, and which keys it wants to pay with
-//   auth.ts     ordinary HTTP sign-in against the accounts service, then reconnect
+//   session.ts  what this client stores: its run-mode choice (and a hosted page's borrowed token)
+//   auth.ts     sign-in/out as requests to the runtime's local /auth/* endpoints
 //   credits.ts  the balance and the shop, wired to identity() + the daemon's accounts url
 //
-// The daemon stores neither fact. It says where to sign in, and reads both off each connection —
-// which is what lets one daemon serve many people, and one machine run two windows on two
-// different accounts and two different billing modes at once.
+// One machine, one account: the runtime keeps the single refresh token and renews it
+// single-flight (platform_session.py); every window reads the same fact over local HTTP.
 export * from './session'
 export * from './auth'
 export * from './credits'
@@ -20,8 +19,3 @@ export * from './orgs'
 // reach into storage: `identity().accessToken()` renews first when what is held is spent.
 export * from './identity'
 export * from './platform-status'
-// The token manager itself. Exported because it IS the sign-in surface now: an app that wants a
-// credential asks it for one, and a test can drive it without a browser. Re-exported from here
-// rather than imported from '@agentd/auth' by callers — an agent has only this one bundle.
-export { TokenManager, localSessionStore, memorySessionStore } from '@agentd/auth'
-export type { AuthConfig, SecretStore, SessionStore, TokenPair } from '@agentd/auth'

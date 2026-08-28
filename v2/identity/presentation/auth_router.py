@@ -15,7 +15,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from typing import Callable
 
-from fastapi import APIRouter, Body, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Request, Response
 
 from identity.application.services.auth_service import AuthService
 from identity.application.services.oauth_flow import OAuthFlowStore
@@ -27,6 +27,68 @@ from identity.domain.errors import (
     TokenExpired,
     TokenInvalid,
 )
+
+#: The refresh token's home in COOKIE MODE — the browser client's whole session story.
+#:
+#: A web page must never hold the 30-day credential where its own JavaScript (or anyone's, via an
+#: injected script) can read it, so a browser client sends ``{"cookie": true}`` and the token
+#: lives in an HttpOnly cookie instead of the response body. Scoped to ``/auth`` so it travels to
+#: exactly the endpoints that spend it and nowhere else; ``SameSite=None`` because the web client
+#: and the accounts service are different origins. The DESKTOP RUNTIME never asks for this — it
+#: keeps the token in its own state dir (platform_session.py) and cookie mode changes nothing
+#: for it.
+COOKIE_NAME = "agentd_refresh"
+COOKIE_PATH = "/auth"
+COOKIE_MAX_AGE_S = 30 * 86_400  # the refresh store's own sliding TTL (sqlite_refresh_store.py)
+
+
+def _request_is_https(request: Request) -> bool:
+    """What the BROWSER thinks the scheme is — the fact the cookie flags must follow.
+
+    Behind the ALB the app itself always speaks plain HTTP; `X-Forwarded-Proto` (first hop) is
+    the original scheme. Directly served (local dev), the request's own scheme answers.
+    """
+    proto = str(request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return (proto or request.url.scheme) == "https"
+
+
+def _cookie_flags(request: Request) -> dict:
+    """`Secure + SameSite=None` on HTTPS; `SameSite=Lax` without `Secure` on plain HTTP.
+
+    NOT a security downgrade toggle — it is what browsers enforce. A `Secure` cookie sent over
+    http is silently dropped, and `SameSite=None` REQUIRES `Secure`, so on an http deployment
+    the "correct" flags produce a cookie that never exists and a web sign-in that never sticks.
+    Lax works there because the web client and the accounts service share the ALB hostname
+    (ports are not part of a cookie's site), which is same-site by definition. An https
+    deployment gets the full cross-site pair.
+    """
+    https = _request_is_https(request)
+    return {"secure": https, "samesite": "none" if https else "lax"}
+
+
+def _set_refresh_cookie(request: Request, response: Response, token: str) -> None:
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        max_age=COOKIE_MAX_AGE_S,
+        path=COOKIE_PATH,
+        httponly=True,
+        **_cookie_flags(request),
+    )
+
+
+def _clear_refresh_cookie(request: Request, response: Response) -> None:
+    response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH, httponly=True, **_cookie_flags(request))
+
+
+def _cookie_answer(request: Request, response: Response, pair) -> dict:
+    """The body a cookie-mode client gets: the pair WITHOUT its secret half, which just became
+    a Set-Cookie header instead."""
+    _set_refresh_cookie(request, response, pair.refresh_token)
+    out = pair.as_response()
+    out.pop("refresh_token", None)
+    return out
+
 
 #: () -> context manager yielding an AuthService bound to a live connection.
 ServiceFactory = Callable[[], AbstractContextManager[AuthService]]
@@ -74,7 +136,7 @@ def build_auth_router(
     # that IS the response to a theft. Detected, reported, and silently undone.
 
     @router.post("/login")
-    def login(request: Request, payload: dict = Body(...)) -> dict:
+    def login(request: Request, response: Response, payload: dict = Body(...)) -> dict:
         _guard(request)
         try:
             with make_service() as service:
@@ -88,10 +150,12 @@ def build_auth_router(
             raise HTTPException(status_code=401, detail=str(e)) from e
         except AccountDisabled as e:
             raise HTTPException(status_code=403, detail=str(e)) from e
+        if payload.get("cookie"):
+            return _cookie_answer(request, response, pair)
         return pair.as_response()
 
     @router.post("/register")
-    def register(request: Request, payload: dict = Body(...)) -> dict:
+    def register(request: Request, response: Response, payload: dict = Body(...)) -> dict:
         _guard(request)
         try:
             with make_service() as service:
@@ -109,12 +173,19 @@ def build_auth_router(
             raise HTTPException(status_code=code, detail=detail) from e
         except AccountDisabled as e:
             raise HTTPException(status_code=403, detail=str(e)) from e
+        if payload.get("cookie"):
+            return _cookie_answer(request, response, pair)
         return pair.as_response()
 
     @router.post("/refresh")
-    def refresh(request: Request, payload: dict = Body(...)) -> dict:
+    def refresh(request: Request, response: Response, payload: dict = Body(...)) -> dict:
         _guard(request)
         token = str(payload.get("refresh_token") or "")
+        # Cookie mode: the body carries no token because the browser was never allowed to see
+        # one. The cookie IS the session; rotation re-sets it below.
+        cookie_mode = bool(payload.get("cookie")) or (not token and COOKIE_NAME in request.cookies)
+        if not token:
+            token = str(request.cookies.get(COOKIE_NAME) or "")
         try:
             with make_service() as service:
                 pair = service.refresh_tokens(
@@ -133,6 +204,8 @@ def build_auth_router(
             raise HTTPException(status_code=403, detail=str(e)) from e
         except TokenInvalid as e:
             raise HTTPException(status_code=401, detail=str(e)) from e
+        if cookie_mode:
+            return _cookie_answer(request, response, pair)
         return pair.as_response()
 
     @router.post("/derive")
@@ -163,10 +236,15 @@ def build_auth_router(
         return pair.as_response()
 
     @router.post("/logout")
-    def logout(request: Request, payload: dict = Body(default={})) -> dict:
+    def logout(request: Request, response: Response, payload: dict = Body(default={})) -> dict:
         _guard(request)
+        token = str((payload or {}).get("refresh_token") or "") or str(
+            request.cookies.get(COOKIE_NAME) or ""
+        )
         with make_service() as service:
-            ended = service.logout(refresh_token=str((payload or {}).get("refresh_token") or ""))
+            ended = service.logout(refresh_token=token)
+        # Unconditionally: a logout that leaves the cookie behind leaves the browser signed in.
+        _clear_refresh_cookie(request, response)
         return {"ok": True, "ended": ended}
 
     @router.post("/logout-all")

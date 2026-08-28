@@ -1,24 +1,21 @@
 /**
- * This client's TokenManager, and the three facts `@agentd/auth` cannot know about it.
+ * The WEB client's TokenManager — the browser deployment's whole session machinery.
  *
- * THE IMPLEMENTATION MOVED, THE BEHAVIOUR DID NOT. Single-flight refresh, renewing at 80% of a
- * token's life rather than after a 401, and never sending the refresh token anywhere but
- * `/auth/refresh` — all of it still holds, and all of it now lives in `@agentd/auth` so that the
- * agent SDK runs the same code instead of its own worse copy of it. What is left here is what is
- * genuinely local: where the accounts service is, where a secret goes on THIS host, and what to do
- * when the credential changes.
- *
- * THE ACCESS TOKEN IS NOT KEPT IN THE OS KEYCHAIN — only the refresh token is. It is re-derivable
- * from that one, so a second copy on disk adds a place to steal it from and buys nothing.
+ * THE DESKTOP DOES NOT RUN THIS. There the runtime holds the machine's one session
+ * (agent_runtime/infrastructure/platform_session.py) and lib/auth.ts asks it over local HTTP;
+ * `configureTokens` is never called, so nothing in this file executes. On the WEB there is no
+ * runtime to ask, so the manager remains — in COOKIE MODE: the refresh token lives in an
+ * HttpOnly cookie at the accounts service, nothing durable is stored in the page, and the
+ * single-flight refresh (@agentd/auth) keeps the ten-minute access token alive in memory.
  */
 
 // lib/host.ts, NOT lib/platform.ts. platform.ts imports lib/auth.ts, which imports this module —
 // so importing the adapter here would close a cycle (auth -> tokens -> platform -> auth) on the
 // exact code path that runs first at boot. host.ts is the leaf that exists to prevent that; its
 // header explains the trap in full.
-import { TokenManager, localSessionStore } from '@agentd/auth'
+import { TokenManager, memorySessionStore } from '@agentd/auth'
 import type { TokenPair } from '@agentd/auth'
-import { hostOs, hostSecrets, isDesktop } from './host'
+import { hostOs } from './host'
 
 export type { TokenPair } from '@agentd/auth'
 
@@ -39,7 +36,17 @@ const LS_SESSION = 'agentd.auth'
 
 const LS_REFRESH = 'agentd.refresh'
 
-const localStorageRefresh: RefreshStorage = {
+
+/**
+ * WEB ONLY, and transitional: the refresh token this browser stored BEFORE cookie mode existed.
+ *
+ * Read once so the first boot-time refresh can spend it — the server rotates it straight into
+ * the HttpOnly cookie, signing the user in with no visible seam — and cleared on every write,
+ * because the web never stores a credential again. A browser with nothing stored reads null and
+ * the cookie (or a sign-in form) answers instead. Delete this store once deployed installs have
+ * all rotated.
+ */
+const legacyWebRefresh: RefreshStorage = {
   async read() {
     try {
       return localStorage.getItem(LS_REFRESH)
@@ -47,23 +54,14 @@ const localStorageRefresh: RefreshStorage = {
       return null
     }
   },
-  async write(token) {
+  async write() {
     try {
-      if (token) localStorage.setItem(LS_REFRESH, token)
-      else localStorage.removeItem(LS_REFRESH)
+      localStorage.removeItem(LS_REFRESH)
+      localStorage.removeItem(LS_SESSION)
     } catch {
-      /* private mode — the in-memory copy still serves this session */
+      /* nothing stored, nothing to clear */
     }
   }
-}
-
-/**
- * Desktop: the OS-encrypted store, via the preload bridge. Falls back to localStorage when the
- * bridge is missing (an older shell) rather than losing sign-in entirely — a degraded store is
- * better than an app that cannot stay signed in.
- */
-function pickStorage(): RefreshStorage {
-  return hostSecrets() || localStorageRefresh
 }
 
 /**
@@ -91,12 +89,17 @@ export function configureTokens(accountsUrl: string | (() => string)): void {
   // Rebuilt rather than mutated, so a host that reconfigures gets a manager whose storage matches
   // what it just asked for. Any prior renewal timer is stopped with it.
   manager?.stop()
+  // THE WEB HOLDS NOTHING. Its session is an HttpOnly cookie at the accounts service
+  // (identity/presentation/auth_router.py): the session store is memory, the secrets store
+  // exists only to retire a pre-cookie refresh token, and `cookies` makes every auth request
+  // carry the jar. The desktop keeps its stores until it converges on the runtime (phase 4).
   manager = new TokenManager({
     accountsUrl: () => (resolveAuthBase() || '').replace(/\/$/, ''),
-    session: localSessionStore(LS_SESSION),
-    secrets: pickStorage(),
-    clientId: isDesktop ? 'desktop' : 'web',
-    deviceLabel: () => `${isDesktop ? 'Desktop' : 'Web'} · ${hostOs() || 'unknown'}`,
+    session: memorySessionStore(),
+    secrets: legacyWebRefresh,
+    cookies: true,
+    clientId: 'web',
+    deviceLabel: () => `Web · ${hostOs() || 'unknown'}`,
     onChange: (pair) => listeners.forEach((l) => l(pair))
   })
   manager.start()

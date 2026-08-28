@@ -12,9 +12,6 @@ function resultText(result) {
 }
 
 // ../auth/src/claims.ts
-function usable(token) {
-  return !!token && !token.startsWith("sess_") && token.split(".").length === 3;
-}
 function claims(token) {
   try {
     const body = (token || "").split(".")[1];
@@ -34,431 +31,6 @@ function accessTokenAccount(token) {
 function accessTokenEmail(token) {
   return String(claims(token)?.email || "");
 }
-
-// ../auth/src/storage.ts
-function localSessionStore(key) {
-  return {
-    read() {
-      try {
-        return localStorage.getItem(key);
-      } catch {
-        return null;
-      }
-    },
-    write(value) {
-      try {
-        if (value === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
-      } catch {
-      }
-    }
-  };
-}
-function memorySessionStore() {
-  let held = null;
-  return {
-    read: () => held,
-    write: (value) => {
-      held = value;
-    }
-  };
-}
-
-// ../auth/src/token-manager.ts
-var EXPIRY_SKEW_MS = 3e4;
-var MIN_DELAY_MS = 5e3;
-var BLIND_POLL_MS = 3e5;
-var DEFAULT_TIMEOUT_MS = 45e3;
-var TokenManager = class {
-  constructor(config) {
-    this.config = config;
-    this.pair = null;
-    this.inflight = null;
-    this.timer = null;
-    this.listeners = /* @__PURE__ */ new Set();
-    this.wake = null;
-    this.pair = this.readStored();
-  }
-  // ------------------------------------------------------------------- reading
-  /** What is held right now, WITHOUT renewing. Synchronous, for a socket URL or a rendered email. */
-  current() {
-    return this.pair;
-  }
-  /** Is there a credential this client can still use, or still renew? */
-  signedIn() {
-    const p = this.pair;
-    if (!p || !usable(p.accessToken)) return false;
-    if (p.refreshToken || !this.expired(p)) return true;
-    this.replace(null);
-    return false;
-  }
-  /**
-   * A USABLE access token, renewing first when the one we hold is spent.
-   *
-   * The only way anything should ever obtain a credential, so that no caller anywhere has to
-   * reason about expiry — which is exactly the reasoning every caller previously got wrong.
-   */
-  async accessToken() {
-    const p = this.pair;
-    if (p && !this.expired(p)) return p.accessToken;
-    const next = await this.refresh();
-    return next?.accessToken || "";
-  }
-  subscribe(cb) {
-    this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
-  }
-  // ------------------------------------------------------------------- writing
-  /**
-   * Sign in, creating the account first when `signup`.
-   *
-   * THROWS on a rejected credential, carrying the service's own message ("incorrect password") so
-   * a form has something to show. A failed attempt must never resolve to a signed-out state: the
-   * caller cannot tell that apart from having signed out, and the user is left looking at a form
-   * that cleared itself.
-   */
-  async login(args) {
-    const base = await this.base();
-    const email = args.email.trim().toLowerCase();
-    if (args.signup) {
-      await this.post(`${base}/signup`, { email, password: args.password }, "signup");
-    }
-    const data = await this.post(
-      `${base}/auth/login`,
-      {
-        email,
-        password: args.password,
-        client_id: this.config.clientId,
-        device_label: this.deviceLabel()
-      },
-      "login"
-    );
-    const next = this.toPair(data, email);
-    if (!next.accessToken) throw new Error("the accounts server returned no access token");
-    await this.set(next);
-    return next;
-  }
-  /**
-   * Re-establish a session at start-up.
-   *
-   * This is what makes "stay signed in" work with a ten-minute access token: nothing durable is
-   * kept but the refresh token, and one exchange at boot turns it into a usable pair. A window
-   * holding no refresh token (opened by the desktop app, and fed rather than renewing) keeps
-   * whatever it was handed — unless that has died, in which case it is dropped, because a page
-   * presenting a dead token is not refused, it is accepted ANONYMOUSLY.
-   */
-  async restore() {
-    const stored = this.pair || this.readStored();
-    if (!stored?.refreshToken) {
-      if (stored && !this.expired(stored)) {
-        const own = await this.derive();
-        if (own) return own;
-      }
-      if (stored && this.expired(stored)) await this.set(null);
-      return this.pair;
-    }
-    return this.refresh();
-  }
-  /**
-   * Trade a live access token for a session of this client's own. Returns null when there is
-   * nothing live to trade, or the server declined.
-   *
-   * NEVER THROWS. It runs on a boot path beside things that matter more; a window that cannot
-   * derive is no worse off than it was a moment ago — it still holds a working access token, and
-   * it degrades to exactly the old behaviour rather than failing to start.
-   */
-  async derive() {
-    const held = this.pair;
-    if (!held || this.expired(held)) return null;
-    try {
-      const data = await this.post(
-        `${await this.base()}/auth/derive`,
-        {
-          access_token: held.accessToken,
-          client_id: this.config.clientId,
-          device_label: this.deviceLabel()
-        },
-        "derive"
-      );
-      const next = this.toPair(data, held.email);
-      if (!next.refreshToken) return null;
-      await this.set(next);
-      return next;
-    } catch {
-      return null;
-    }
-  }
-  /**
-   * Trade the refresh token for a new pair. SINGLE-FLIGHT — see the header.
-   *
-   * Returns null when the session is over, having cleared it; and null WITHOUT clearing when the
-   * attempt merely failed. The difference is the whole point.
-   */
-  refresh() {
-    if (this.inflight) return this.inflight;
-    this.inflight = this.exchange().finally(() => {
-      this.inflight = null;
-    });
-    return this.inflight;
-  }
-  async exchange() {
-    const token = this.pair?.refreshToken || await this.readSecret();
-    if (!token) return null;
-    let base = "";
-    try {
-      base = await this.base();
-    } catch {
-      return null;
-    }
-    let res;
-    try {
-      res = await this.send(`${base}/auth/refresh`, {
-        refresh_token: token,
-        client_id: this.config.clientId
-      });
-    } catch {
-      return null;
-    }
-    if (!res.ok) {
-      if (res.status === 401 || res.status === 403) await this.set(null);
-      return null;
-    }
-    const data = await res.json().catch(() => ({}));
-    const next = this.toPair(data, this.pair?.email || "");
-    if (!next.accessToken) return null;
-    if (!next.refreshToken) next.refreshToken = token;
-    if (!next.accountId && this.pair?.accountId) next.accountId = this.pair.accountId;
-    await this.set(next);
-    return next;
-  }
-  /**
-   * Write a credential directly, with NO account check. The unguarded door.
-   *
-   * There is exactly one honest use: a host adopting a credential an opener handed it, such as the
-   * `?session=` on an agent window's launch URL. Everything else — sign-in, renewal, a token
-   * pushed by the desktop app — has a guarded path above, and using this instead skips the check
-   * that path exists for.
-   *
-   * Synchronous in effect: the pair is live the moment this returns, because a caller that writes
-   * a session and immediately builds a socket URL from it cannot wait for a keychain round trip.
-   */
-  replace(pair) {
-    void this.set(pair);
-  }
-  /**
-   * Adopt an access token minted elsewhere — the desktop app pushing one into an agent window.
-   *
-   * WHOSE TOKEN IS THIS? The push reaches EVERY open window at once and cannot know that one of
-   * them signed in as somebody else. Adopting it there would leave this account's email and
-   * refresh token stored beside another account's access token, and land the window on the wrong
-   * account while still displaying this one's address. An unreadable token fails CLOSED.
-   *
-   * Holding no accountId is the ordinary case, not an exception: a window opened BY the desktop
-   * app took its credential from the launch URL and recorded no account, so it has nothing to
-   * disagree with and accepts every push.
-   */
-  async adopt(accessToken) {
-    if (!usable(accessToken)) return false;
-    const held = this.pair;
-    if (held?.accountId && accessTokenAccount(accessToken) !== held.accountId) return false;
-    await this.set({
-      accessToken,
-      refreshToken: held?.refreshToken || "",
-      expiresAt: accessTokenExpiry(accessToken),
-      accountId: held?.accountId || "",
-      // The token names its own account; a window that adopted one with nothing held has no
-      // other source, and '' here is what rendered every agent's account menu as "Account".
-      email: held?.email || accessTokenEmail(accessToken)
-    });
-    return true;
-  }
-  /**
-   * Forget this client's session, and tell the server so.
-   *
-   * A sign-out that only forgets locally leaves a 30-day credential alive on a machine the user
-   * may have just decided they do not trust. Best-effort: being offline must not block signing out.
-   */
-  async logout() {
-    const token = this.pair?.refreshToken || await this.readSecret();
-    await this.set(null);
-    if (!token) return;
-    try {
-      const base = await this.base();
-      await this.send(`${base}/auth/logout`, { refresh_token: token });
-    } catch {
-    }
-  }
-  // ------------------------------------------------------------------- renewal
-  /**
-   * Keep the credential fresh for as long as the host lives. Returns a stop function.
-   *
-   * TWO TRIGGERS, because a timer alone is provably not enough. Timers do not fire while a machine
-   * sleeps and are throttled in background tabs, so a window that was away comes back holding a
-   * token that died hours ago — the single most common way this used to break, and the one a
-   * schedule can never cover. Coming back is therefore its own trigger.
-   */
-  start() {
-    this.schedule();
-    if (typeof document !== "undefined" && !this.wake) {
-      this.wake = () => {
-        if (document.visibilityState === "visible") void this.tick();
-      };
-      document.addEventListener("visibilitychange", this.wake);
-      if (typeof addEventListener === "function") addEventListener("focus", this.wake);
-    }
-    return () => this.stop();
-  }
-  stop() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    if (!this.wake) return;
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", this.wake);
-    }
-    if (typeof removeEventListener === "function") removeEventListener("focus", this.wake);
-    this.wake = null;
-  }
-  async tick() {
-    const p = this.pair;
-    if (p?.refreshToken && this.expiringSoon(p)) await this.refresh();
-    this.schedule();
-  }
-  schedule() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    const p = this.pair;
-    if (!p?.refreshToken) return;
-    if (!p.expiresAt) {
-      this.timer = setTimeout(() => void this.tick(), BLIND_POLL_MS);
-      return;
-    }
-    const life = p.expiresAt - Date.now();
-    this.timer = setTimeout(() => void this.tick(), Math.max(MIN_DELAY_MS, Math.floor(life * 0.8)));
-  }
-  expired(p) {
-    return p.expiresAt > 0 && Date.now() > p.expiresAt - EXPIRY_SKEW_MS;
-  }
-  /** Close enough to the end to be worth renewing now — or already past it. */
-  expiringSoon(p) {
-    if (!p.expiresAt) return true;
-    return Date.now() > p.expiresAt - Math.max(EXPIRY_SKEW_MS, 12e4);
-  }
-  // ------------------------------------------------------------------- storage
-  async set(next) {
-    this.pair = next;
-    try {
-      this.writeStored(next);
-    } catch (e) {
-      console.warn("[auth] could not persist the session; signed in for this run only", e);
-    }
-    this.schedule();
-    this.listeners.forEach((l) => l(next));
-    this.config.onChange?.(next);
-  }
-  writeStored(next) {
-    if (!next) {
-      this.config.session.write(null);
-      void this.config.secrets?.write(null);
-      return;
-    }
-    const encrypted = !!this.config.secrets;
-    this.config.session.write(
-      JSON.stringify({
-        accessToken: next.accessToken,
-        // Kept here ONLY when there is no encrypted store to put it in. On the desktop it goes to
-        // the keychain instead, so the plain store never holds a 30-day credential.
-        refreshToken: encrypted ? "" : next.refreshToken,
-        expiresAt: next.expiresAt,
-        accountId: next.accountId,
-        email: next.email
-      })
-    );
-    if (encrypted) void this.config.secrets?.write(next.refreshToken || null);
-  }
-  readStored() {
-    try {
-      const raw = this.config.session.read();
-      if (!raw) return null;
-      const p = JSON.parse(raw);
-      const held = {
-        accessToken: p.accessToken || "",
-        refreshToken: p.refreshToken || "",
-        expiresAt: p.expiresAt || accessTokenExpiry(p.accessToken || ""),
-        accountId: p.accountId || "",
-        email: p.email || ""
-      };
-      if (!usable(held.accessToken) || !held.refreshToken && this.expired(held)) {
-        this.config.session.write(null);
-        return null;
-      }
-      return held;
-    } catch {
-      return null;
-    }
-  }
-  async readSecret() {
-    try {
-      return await this.config.secrets?.read() || "";
-    } catch {
-      return "";
-    }
-  }
-  // ------------------------------------------------------------------ plumbing
-  toPair(d, fallbackEmail) {
-    const accessToken = String(d.access_token || d.token || d.session || "");
-    return {
-      accessToken,
-      refreshToken: String(d.refresh_token || ""),
-      // `expires_in` is RELATIVE on purpose (identity/domain/token.py): our clock and the server's
-      // may disagree, and a relative lifetime is correct under skew where an absolute deadline is
-      // not. The token's own `exp` covers a server that sends neither.
-      expiresAt: d.expires_in ? Date.now() + Number(d.expires_in) * 1e3 : accessTokenExpiry(accessToken),
-      accountId: String(d.account_id || ""),
-      email: String(d.email || fallbackEmail)
-    };
-  }
-  async base() {
-    const clean = (await this.config.accountsUrl() || "").replace(/\/$/, "");
-    if (!clean) throw new Error("no accounts service is configured");
-    return clean;
-  }
-  deviceLabel() {
-    try {
-      return this.config.deviceLabel?.() || this.config.clientId;
-    } catch {
-      return this.config.clientId;
-    }
-  }
-  async send(url, body) {
-    const call2 = this.config.fetchImpl || fetch;
-    const ms = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const ctl = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = setTimeout(() => ctl?.abort(), ms);
-    try {
-      return await call2(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: ctl?.signal
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  async post(url, body, what) {
-    const r = await this.send(url, body);
-    const text = await r.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-    }
-    if (!r.ok) {
-      throw new Error(String(data?.detail || data?.error || `${what} failed (HTTP ${r.status})`));
-    }
-    return data;
-  }
-};
 
 // src/platform-status.ts
 var DEFAULT_TIMEOUT = 45e3;
@@ -505,108 +77,103 @@ async function accountsUrl(opts) {
 }
 
 // src/identity.ts
-function sessionKey(explicit = "") {
-  if (explicit) return explicit;
-  const here = typeof location === "undefined" ? null : new URL(location.href);
-  const scope = here?.searchParams.get("scope") || "";
-  const fromPath = /\/apps\/([^/]+)/.exec(here?.pathname || "");
-  const id = /^agent:(.+)$/.exec(scope)?.[1] || (fromPath ? decodeURIComponent(fromPath[1]) : "");
-  return `agentd.session.${id || "app"}`;
+function authUrl(path, opts = {}) {
+  const u = new URL(path, `${daemonOrigin(opts)}/`);
+  const token = daemonToken(opts);
+  if (token) u.searchParams.set("token", token);
+  return u;
 }
-var managers = /* @__PURE__ */ new Map();
-function feedFromHost(manager) {
-  const host = globalThis.agentdHost;
-  if (!host?.onAccessToken) return () => void 0;
-  return host.onAccessToken((token) => {
-    if (token) void manager.adopt(token);
-  });
-}
-function identity(opts = {}) {
-  const key = sessionKey(opts.storageKey);
-  const held = managers.get(key);
-  if (held) {
-    if (opts.client) bindClient(held, key, opts.client);
-    return held;
-  }
-  const manager = new TokenManager({
-    accountsUrl: () => accountsUrl(opts),
-    session: localSessionStore(key),
-    // No `secrets`: a browser page has no OS keychain, so the refresh token — when this window
-    // has one at all — rides in the same store. The desktop's answer to that is not to encrypt it
-    // here but to never send one (see the header).
-    clientId: "app",
-    deviceLabel: () => documentTitle() || "Agent app",
-    timeoutMs: opts.timeoutMs
-  });
-  managers.set(key, manager);
-  if (opts.client) bindClient(manager, key, opts.client);
-  manager.start();
-  feedFromHost(manager);
-  void manager.restore().catch(() => void 0);
-  return manager;
-}
-var bound = /* @__PURE__ */ new Map();
-function bindClient(manager, key, client) {
-  const already = bound.get(key);
-  bound.set(key, client);
-  if (already === client) return;
-  if (already) return;
-  manager.subscribe((pair) => {
-    const target = bound.get(key);
-    if (!target) return;
-    if (!pair) {
-      target.reconnect();
-      return;
-    }
-    void target.request("auth.update", { accessToken: pair.accessToken }).catch((e) => {
-      const code = e?.code;
-      if (code === "auth_invalid" || code === "auth_account_mismatch") target.reconnect();
-    });
-  });
-}
-function documentTitle() {
+async function fetchToken(opts = {}) {
   try {
-    return typeof document === "undefined" ? "" : document.title;
+    const r = await fetch(authUrl("/auth/token", opts), {
+      cache: "no-store"
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d && typeof d.state === "string") return d;
+    return { state: r.ok ? "ok" : "signed_out" };
   } catch {
-    return "";
+    return { state: "accounts_unreachable", retryAfterSec: 15 };
   }
+}
+var TokenFetcher = class {
+  constructor(opts) {
+    this.opts = opts;
+    this.answer = null;
+    this.inflight = null;
+  }
+  /** A current access token, or '' when the machine is signed out / unreachable. Callers that
+   *  need to know WHY ask `state()`. */
+  async accessToken() {
+    const a = await this.state();
+    return a.state === "ok" ? a.accessToken || "" : "";
+  }
+  async state() {
+    const held = this.answer;
+    if (held?.state === "ok" && (held.expiresAt || 0) * 1e3 - Date.now() > 15e4) return held;
+    if (held?.state === "ok" && (held.expiresAt || 0) - Date.now() / 1e3 > 150) return held;
+    if (!this.inflight) {
+      this.inflight = fetchToken(this.opts).finally(() => {
+        this.inflight = null;
+      });
+      this.inflight.then((a) => {
+        this.answer = a;
+      });
+    }
+    return this.inflight;
+  }
+  signedIn() {
+    return this.answer?.state === "ok";
+  }
+  /** Compatibility shape for callers that read `current()?.email`. */
+  current() {
+    const a = this.answer;
+    return a?.state === "ok" ? { email: a.email || "", accountId: a.accountId || "" } : null;
+  }
+};
+var fetchers = /* @__PURE__ */ new Map();
+function identity(opts = {}) {
+  const key = daemonOrigin(opts);
+  let f = fetchers.get(key);
+  if (!f) {
+    f = new TokenFetcher(opts);
+    fetchers.set(key, f);
+  }
+  return f;
 }
 function resetIdentity() {
-  managers.forEach((m) => m.stop());
-  managers.clear();
-  bound.clear();
+  fetchers.clear();
+}
+function sessionKey(explicit = "") {
+  return explicit || "agentd.session.machine";
+}
+function acceptHostTokens() {
+  return () => void 0;
+}
+function startAuthRenewal() {
+  return () => void 0;
 }
 
 // src/session.ts
-function loadSession(storageKey = "") {
-  const manager = identity({ storageKey });
-  if (!manager.signedIn()) return null;
-  const p = manager.current();
-  if (!p) return null;
-  return {
-    token: p.accessToken,
-    email: p.email,
-    accountId: p.accountId,
-    refreshToken: p.refreshToken || void 0,
-    expiresAt: p.expiresAt || void 0
-  };
+var pageSession = null;
+function loadSession(_storageKey = "") {
+  const s = pageSession;
+  if (!s) return null;
+  if (s.expiresAt && s.expiresAt <= Date.now()) return null;
+  return s;
 }
-function saveSession(value, storageKey = "") {
-  const manager = identity({ storageKey });
+function saveSession(value, _storageKey = "") {
   if (!value) {
-    manager.replace(null);
+    pageSession = null;
     return;
   }
-  manager.replace({
-    accessToken: value.token,
-    refreshToken: value.refreshToken || "",
-    expiresAt: value.expiresAt || accessTokenExpiry(value.token),
-    // The token's own claims fill what the opener did not say. A launch URL carries the token
-    // and nothing else, and these two blanks are what made every opened window render its account
-    // menu as "Account" with no name.
+  pageSession = {
+    token: value.token,
+    // The token's own claims fill what the opener did not say — a launch URL carries the token
+    // and nothing else, and these blanks are what made opened windows render "Account" unnamed.
+    email: value.email || accessTokenEmail(value.token),
     accountId: value.accountId || accessTokenAccount(value.token),
-    email: value.email || accessTokenEmail(value.token)
-  });
+    expiresAt: value.expiresAt || accessTokenExpiry(value.token) || void 0
+  };
 }
 function loadMode(storageKey = "") {
   try {
@@ -886,14 +453,14 @@ function fromPage(options = {}) {
     history.replaceState(null, "", here.toString());
   }
   const client = new AgentdClient(options);
-  identity({ client });
   client.connect(async () => {
     const stored = loadSession()?.token;
+    const signedIn = !!stored || (await identity({ origin: here.origin }).state()).state === "ok";
     return {
       url: here.origin,
       token: token || void 0,
       session: stored || void 0,
-      mode: effectiveMode("", !!stored),
+      mode: effectiveMode("", signedIn),
       scope: scope || void 0
     };
   });
@@ -903,44 +470,45 @@ function fromPage(options = {}) {
 // src/auth.ts
 async function authStatus(opts = {}) {
   const status = await platformStatus(opts);
-  const manager = identity(opts);
-  const signedIn = manager.signedIn();
-  const held = manager.current();
   const canUseCloud = !!status.canUseCloud;
+  const tok = await fetchToken(opts);
+  const signedIn = tok.state === "ok";
   return {
     available: !!String(status.accountsUrl || ""),
     signedIn,
-    email: signedIn && held?.email || "",
-    accountId: signedIn && held?.accountId || "",
+    email: signedIn && tok.email || "",
+    accountId: signedIn && tok.accountId || "",
     mode: effectiveMode(opts.storageKey, signedIn, canUseCloud),
     canUseCloud,
     // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there — a
-    // client that guessed "not required" against a daemon that requires it would show no login and
-    // then fail every call with no explanation.
+    // client that guessed "not required" against a daemon that requires it would show no login
+    // and then fail every call with no explanation.
     required: status.signInRequired !== false
   };
 }
 async function authLogin(args, opts = {}) {
-  await identity(opts).login(args);
+  const r = await fetch(authUrl("/auth/login", opts), {
+    cache: "no-store",
+    headers: {
+      "X-Auth-Email": args.email,
+      "X-Auth-Password": args.password,
+      ...args.signup ? { "X-Auth-Signup": "1" } : {}
+    }
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.state !== "ok") {
+    throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
+  }
   return authStatus(opts);
 }
-async function authRefresh(opts = {}) {
-  const next = await identity(opts).refresh();
-  return next?.accessToken || "";
-}
-function startAuthRenewal(opts = {}) {
-  return identity(opts).start();
-}
-function acceptHostTokens(opts = {}) {
-  return feedFromHost(identity(opts));
-}
 async function authLogout(opts = {}) {
-  await identity(opts).logout();
+  await fetch(authUrl("/auth/logout", opts), { cache: "no-store" }).catch(() => {
+  });
   saveMode(null, opts.storageKey);
   return authStatus(opts);
 }
 async function setRunMode(mode, opts = {}) {
-  if (mode === "cloud" && !identity(opts).signedIn()) {
+  if (mode === "cloud" && !await identity(opts).accessToken()) {
     throw new Error("sign in first \u2014 Cloud mode meters model calls to your account");
   }
   saveMode(mode, opts.storageKey);
@@ -1226,32 +794,29 @@ export {
   BillingClient,
   DEFAULT_TIMEOUT,
   PROTOCOL_VERSION,
-  TokenManager,
   acceptHostTokens,
   accessTokenAccount,
   accessTokenExpiry,
   accountsUrl,
   authLogin,
   authLogout,
-  authRefresh,
   authStatus,
+  authUrl,
   billing,
   createOrg,
   creditsHost,
   daemonOrigin,
   daemonToken,
   effectiveMode,
-  feedFromHost,
   fetchMyOrgs,
   fetchOrgDetail,
   fetchOrgUsage,
+  fetchToken,
   fromPage,
   identity,
   joinOrg,
   loadMode,
   loadSession,
-  localSessionStore,
-  memorySessionStore,
   mintInvite,
   notifyCreditsChanged,
   onCreditsChanged,

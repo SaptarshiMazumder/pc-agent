@@ -1,0 +1,21 @@
+# Cloud Agent Authoring — cabbie's tools, which ARE agent-builder's tools.
+#
+# This bundle ships NO tool code. Its entry (cloud_authoring_plugin) imports agent-builder's
+# `agent_authoring` package and hands off to its register — so create_agent, validate_agent,
+# build_app and the rest have ONE definition, shared between the two agents. A fix there reaches
+# both; there is no second copy to keep in step.
+#
+# Ownership is still STRUCTURAL and still cabbie's: discovery tags every registered tool with the
+# folder it loaded from (this one, cloud-agent-builder/), not with where the code was written. So
+# these are cabbie's private tools, invisible to every other agent — exactly as agent-builder's
+# are its own.
+#
+# The id and entry-module names are DELIBERATELY DISTINCT from agent-builder's. The loader imports
+# an entry module by bare name and Python caches it, so two bundles both shipping
+# `agent_authoring_plugin` would collide — the second would silently get the first. Cabbie's entry
+# is `cloud_authoring_plugin`; only the shared PACKAGE keeps its name, imported once.
+id = "cloud-agent-authoring"
+name = "Cloud Agent Authoring"
+kind = "native"
+entry = "cloud_authoring_plugin:register"
+description = "Author, validate and build CLOUD agents — agent-builder's authoring tools, imported and fenced (no create_tool/exec/package/publish). create_agent, validate_agent, build_app, verify_app, reload_agent."

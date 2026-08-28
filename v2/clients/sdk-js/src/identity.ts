@@ -1,178 +1,158 @@
-/**
- * The agent window's TokenManager — ONE per storage key, shared by everything in the page.
+/* Identity, for a window: ASK THE RUNTIME. Nothing else.
  *
- * The SDK used to carry its own sign-in and its own renewal loop, a second implementation of what
- * `clients/ui` already did. They drifted, as two copies of one job do: this one refused to renew a
- * token that had already expired, had no single-flight guard, and posted to a different endpoint.
- * A user signed into an agent window was quietly signed out ten minutes later.
+ * WHAT THIS FILE USED TO BE — and why almost all of it is gone. Every window ran its own
+ * TokenManager: its own copy of the refresh token, its own 8-minute renewal timer, its own
+ * storage key, machinery for adopting tokens pushed down by an opener, and a fallback that tore
+ * the websocket down when a renewal push failed. N windows meant N clocks racing single-use
+ * refresh-token rotation; the losers tripped the server's reuse detector and signed everybody
+ * out, and one transient failure printed "the daemon restarted mid-run" at users whose daemon
+ * was fine.
  *
- * So there is no implementation here at all — only the three facts `@agentd/auth` cannot know
- * about an agent window:
+ * THE RUNTIME IS THE ONLY SESSION HOLDER NOW (agent_runtime/infrastructure/platform_session.py).
+ * It keeps the machine's one refresh token on disk and renews it single-flight, lazily. A window
+ * calls `GET /auth/token` on its own origin and gets a typed answer:
  *
- *   * WHERE THE ACCOUNTS SERVICE IS. The window asks its own daemon (`/platform/status`) rather
- *     than reading a build-time env, because an agent is served by whichever daemon happens to be
- *     running it.
- *   * WHERE THE SESSION LIVES. Keyed per agent, so two agent windows on one origin never share or
- *     clobber each other's — see `sessionKey`.
- *   * WHAT TO DO WHEN THE CREDENTIAL CHANGES. Swapped onto the OPEN socket with `auth.update`, so
- *     a renewal never interrupts a run in flight. Reconnecting instead would drop it, which is the
- *     one thing a silent background renewal must never do.
+ *   200 ok                    -> {accessToken, expiresAt, email, accountId}
+ *   401 signed_out            -> nobody is signed in on this machine
+ *   401 session_expired       -> the credential is dead; sign in again
+ *   503 accounts_unreachable  -> network trouble; the session is intact — keep working, retry
  *
- * NO REFRESH TOKEN IS A NORMAL STATE. A window opened by the desktop app is handed an access token
- * on its launch URL and never receives a refresh token — deliberately, since an agent is
- * third-party code and that is a 30-day credential for the whole account. Such a window cannot
- * renew and is fed instead (`adopt`, driven by `acceptHostTokens`).
+ * "Re-auth" in a window is therefore re-reading a local value. It cannot race anything, cannot
+ * be torn down by a timeout, and ten windows asking at once ride ONE refresh in the runtime.
+ *
+ * THE EXPORTED SURFACE KEPT ITS SHAPE. `identity(opts).accessToken()` still answers a current
+ * token — credits, orgs and every caller compile unchanged — but the object behind it is a thin
+ * fetcher, not a manager. The dead machinery (`acceptHostTokens`, `startAuthRenewal`,
+ * `sessionKey` storage scoping) survives as inert stubs for one release so nothing breaks at
+ * import time; they do nothing, which is the point.
  */
 
-import { TokenManager, localSessionStore } from '@agentd/auth'
 import type { AgentdClient } from './client'
-import { type DaemonOptions, accountsUrl } from './platform-status'
+import { daemonOrigin, daemonToken, type DaemonOptions } from './platform-status'
 
 export interface IdentityOptions extends DaemonOptions {
-  /** The connected client, so a new credential can reach the daemon at once. */
+  /** Accepted for compatibility; the fetcher needs no client. */
   client?: AgentdClient
-  /** Storage key override; defaults to one derived from the agent id in the page URL. */
+  /** Accepted for compatibility; windows no longer have per-window sessions to key. */
   storageKey?: string
 }
 
-/**
- * The storage key for THIS window.
- *
- * `?scope=` is present only when an OPENER built the url (the desktop app, a launch link). A page
- * reached from a marketplace card is just `/apps/<id>/`, so the path is the only thing that says
- * which agent this is — and without that fallback every such app on one origin shares the key
- * `agentd.session.app`, i.e. one agent's session silently becomes another's.
- */
-export function sessionKey(explicit = ''): string {
-  if (explicit) return explicit
-  const here = typeof location === 'undefined' ? null : new URL(location.href)
-  const scope = here?.searchParams.get('scope') || ''
-  const fromPath = /\/apps\/([^/]+)/.exec(here?.pathname || '')
-  const id =
-    /^agent:(.+)$/.exec(scope)?.[1] || (fromPath ? decodeURIComponent(fromPath[1]) : '')
-  return `agentd.session.${id || 'app'}`
+/** The typed answer from the runtime — see the module note for the four states. */
+export interface TokenAnswer {
+  state: 'ok' | 'signed_out' | 'session_expired' | 'accounts_unreachable'
+  accessToken?: string
+  expiresAt?: number
+  email?: string
+  accountId?: string
+  retryAfterSec?: number
 }
 
-/**
- * One manager per key, for the life of the page.
- *
- * MEMOISED BECAUSE A SECOND INSTANCE IS A SECOND REFRESH. Refresh tokens are single-use and
- * rotating, and the server reads a reuse as theft — it revokes the whole family and signs the user
- * out everywhere. Two managers over one key would race exactly like two windows do, except
- * entirely within one page, and the single-flight guard inside a manager cannot see across
- * instances. So callers get the same object or none.
- */
-const managers = new Map<string, TokenManager>()
-
-/**
- * Subscribe a manager to the desktop shell's token pushes. Returns an unsubscribe.
- *
- * The shell holds the only refresh token and re-broadcasts every rotation
- * (`agentdHost.onAccessToken` — see the desktop's src/preload/app.ts); a window that arrived with
- * a bare launch token stays signed in by adopting what comes down. A no-op in a browser tab,
- * where there is no bridge. Whether a push is TAKEN is the manager's decision (`adopt`): the push
- * reaches every open window at once, and a window signed in as somebody else must not silently
- * become the pusher's account.
- */
-export function feedFromHost(manager: TokenManager): () => void {
-  const host = (
-    globalThis as { agentdHost?: { onAccessToken(cb: (t: string) => void): () => void } }
-  ).agentdHost
-  if (!host?.onAccessToken) return () => undefined
-  return host.onAccessToken((token) => {
-    if (token) void manager.adopt(token)
-  })
+/** Build a runtime /auth/* URL. The MACHINE TOKEN rides along (`?token=`, same slot every
+ *  other daemon HTTP call uses) because the runtime requires it where one is configured — it is
+ *  what keeps a hostile web page from driving these endpoints blind. Every window has it on its
+ *  own launch URL. */
+export function authUrl(path: string, opts: DaemonOptions = {}): URL {
+  const u = new URL(path, `${daemonOrigin(opts)}/`)
+  const token = daemonToken(opts)
+  if (token) u.searchParams.set('token', token)
+  return u
 }
 
-export function identity(opts: IdentityOptions = {}): TokenManager {
-  const key = sessionKey(opts.storageKey)
-  const held = managers.get(key)
-  if (held) {
-    // The client arrives later than the first call in practice: `fromPage` reads the stored
-    // session while building the socket, before anything has a client to hand over. Rebinding
-    // keeps the ONE manager while letting the credential reach the socket once there is one.
-    if (opts.client) bindClient(held, key, opts.client)
-    return held
-  }
-  const manager = new TokenManager({
-    accountsUrl: () => accountsUrl(opts),
-    session: localSessionStore(key),
-    // No `secrets`: a browser page has no OS keychain, so the refresh token — when this window
-    // has one at all — rides in the same store. The desktop's answer to that is not to encrypt it
-    // here but to never send one (see the header).
-    clientId: 'app',
-    deviceLabel: () => documentTitle() || 'Agent app',
-    timeoutMs: opts.timeoutMs
-  })
-  managers.set(key, manager)
-  if (opts.client) bindClient(manager, key, opts.client)
-  manager.start()
-  // FED WITHOUT ASKING, like renewal above: subscribing to the shell's pushes happens with the
-  // manager, so an author who never heard of the push chain still gets fed. (A second explicit
-  // acceptHostTokens() is harmless — adopting the same token twice is idempotent.)
-  feedFromHost(manager)
-  // SETTLE THE CREDENTIAL, ONCE, AT BOOT — and do not wait for it.
-  //
-  // Two windows need this and neither could ask for it. One that stored a session last time has a
-  // spent access token and a live refresh token, and must trade up before anything uses it. One
-  // opened by the desktop app arrives holding an access token and NO refresh token: it cannot
-  // renew, so ten minutes later it goes anonymous, which the daemon does not refuse — the account's
-  // agents just disappear from the window. `restore` covers both: it refreshes when it can, and
-  // derives a session of its own when it cannot.
-  //
-  // Fire-and-forget because every caller here is synchronous (a socket URL is being built), and
-  // because failing to settle leaves the window exactly as it was rather than stopping it.
-  void manager.restore().catch(() => undefined)
-  return manager
-}
-
-/** Which client a manager should push credentials at. One per key; the last caller wins. */
-const bound = new Map<string, AgentdClient>()
-
-function bindClient(manager: TokenManager, key: string, client: AgentdClient): void {
-  const already = bound.get(key)
-  bound.set(key, client)
-  if (already === client) return
-  if (already) return // subscribed once already; the map above redirects where it lands
-  manager.subscribe((pair) => {
-    const target = bound.get(key)
-    if (!target) return
-    if (!pair) {
-      // Signed out. The daemon reads identity when the socket OPENS, so it keeps treating this
-      // connection as the old account until the socket is rebuilt without the credential.
-      target.reconnect()
-      return
-    }
-    // Swap the credential on the OPEN socket rather than reconnecting: a reconnect drops an
-    // in-flight run, which is exactly what a background renewal must not do.
-    //
-    // AND ON FAILURE, MOSTLY DO NOTHING. This used to reconnect on ANY rejection — and a
-    // renewal lands every ~8 minutes, so a daemon that was merely busy for one of them (a
-    // build, a hiccup at the accounts service, a timeout) got its socket torn down, which
-    // dropped every in-flight run and printed "the daemon restarted mid-run" at a user whose
-    // daemon had done nothing of the sort. The socket's identity was pinned at connect and
-    // still works; the next renewal retries in minutes. Only the daemon's TYPED refusals mean
-    // the credential itself can never work — those reconnect, so the gate can take over.
-    void target
-      .request('auth.update', { accessToken: pair.accessToken })
-      .catch((e: unknown) => {
-        const code = (e as { code?: string } | null)?.code
-        if (code === 'auth_invalid' || code === 'auth_account_mismatch') target.reconnect()
-      })
-  })
-}
-
-function documentTitle(): string {
+/** Ask the runtime for the machine's token state. The ONE identity read everything builds on. */
+export async function fetchToken(opts: DaemonOptions = {}): Promise<TokenAnswer> {
   try {
-    return typeof document === 'undefined' ? '' : document.title
+    const r = await fetch(authUrl('/auth/token', opts), {
+      cache: 'no-store',
+    })
+    const d = (await r.json().catch(() => ({}))) as TokenAnswer
+    if (d && typeof d.state === 'string') return d
+    return { state: r.ok ? 'ok' : 'signed_out' }
   } catch {
-    return ''
+    // The RUNTIME itself is unreachable — indistinguishable, for a caller, from the accounts
+    // service being away: keep working, retry later. Never "signed out": that answer makes a
+    // window drop a working session over a hiccup, which is the bug family this file replaced.
+    return { state: 'accounts_unreachable', retryAfterSec: 15 }
   }
 }
 
-/** Drop the memoised managers. Tests only — a page has exactly one lifetime. */
+/** The thin per-window fetcher behind `identity()`. Caches the token in memory only, and only
+ *  until near expiry — the runtime does all real work, so "cache" here just saves HTTP chatter
+ *  between keystrokes. */
+class TokenFetcher {
+  private answer: TokenAnswer | null = null
+  private inflight: Promise<TokenAnswer> | null = null
+
+  constructor(private readonly opts: DaemonOptions) {}
+
+  /** A current access token, or '' when the machine is signed out / unreachable. Callers that
+   *  need to know WHY ask `state()`. */
+  async accessToken(): Promise<string> {
+    const a = await this.state()
+    return a.state === 'ok' ? a.accessToken || '' : ''
+  }
+
+  async state(): Promise<TokenAnswer> {
+    const held = this.answer
+    // 30s of margin under the runtime's own 120s: a token this window hands out is still alive
+    // for the request it authorises.
+    if (held?.state === 'ok' && (held.expiresAt || 0) * 1000 - Date.now() > 150_000) return held
+    if (held?.state === 'ok' && (held.expiresAt || 0) - Date.now() / 1000 > 150) return held
+    if (!this.inflight) {
+      this.inflight = fetchToken(this.opts).finally(() => {
+        this.inflight = null
+      })
+      this.inflight.then((a) => {
+        this.answer = a
+      })
+    }
+    return this.inflight
+  }
+
+  signedIn(): boolean {
+    return this.answer?.state === 'ok'
+  }
+
+  /** Compatibility shape for callers that read `current()?.email`. */
+  current(): { email: string; accountId: string } | null {
+    const a = this.answer
+    return a?.state === 'ok'
+      ? { email: a.email || '', accountId: a.accountId || '' }
+      : null
+  }
+}
+
+const fetchers = new Map<string, TokenFetcher>()
+
+/** The window's identity handle. One per daemon origin; all state lives in the runtime. */
+export function identity(opts: IdentityOptions = {}): TokenFetcher {
+  const key = daemonOrigin(opts)
+  let f = fetchers.get(key)
+  if (!f) {
+    f = new TokenFetcher(opts)
+    fetchers.set(key, f)
+  }
+  return f
+}
+
+/** TEST SEAM: forget cached answers (a signed-out test must not see the last test's token). */
 export function resetIdentity(): void {
-  managers.forEach((m) => m.stop())
-  managers.clear()
-  bound.clear()
+  fetchers.clear()
+}
+
+/* ── inert stubs — the deleted machinery's names, kept one release so imports resolve ──────── */
+
+/** DEAD: windows have no per-window sessions to key any more. Returns a stable string for any
+ *  caller still using it as a cache key. */
+export function sessionKey(explicit = ''): string {
+  return explicit || 'agentd.session.machine'
+}
+
+/** DEAD: openers no longer push tokens down — every window asks the runtime itself. */
+export function acceptHostTokens(): () => void {
+  return () => undefined
+}
+
+/** DEAD: there is nothing to renew in a window. The runtime renews, lazily, when asked. */
+export function startAuthRenewal(): () => void {
+  return () => undefined
 }

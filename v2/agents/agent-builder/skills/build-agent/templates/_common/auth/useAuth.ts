@@ -8,9 +8,10 @@
  * That split is why there is one implementation of credentials in the product instead of one per
  * agent — and credentials are the thing you least want written twice.
  *
- * IDENTITY IS PER WINDOW. Each window keeps its own session, so two windows can be two different
- * people at once, and signing out here signs out nothing else. That is deliberate: one machine,
- * many accounts.
+ * IDENTITY IS THE MACHINE'S. The runtime holds the one session and every window reads the same
+ * fact, so signing in or out ANYWHERE moves every window at once — this hook hears about it on
+ * the socket (`auth.changed`) and re-reads. One account per machine; the web deployment is where
+ * simultaneous accounts live.
  *
  * IT READS OVER HTTP, NOT THE SOCKET. Sign-in state is answerable before the socket is up — and it
  * is frequently the EXPLANATION for why the socket is not up. A hook that waited for a connection
@@ -67,7 +68,13 @@ export function useAuth(client: AgentdClient): Auth {
     })()
   }, [client])
 
-  useEffect(() => load(), [load])
+  useEffect(() => {
+    load()
+    // Sign-in state is MACHINE state: the runtime broadcasts `auth.changed` to every window
+    // when any of them signs in or out. Without this, a second window renders the old account
+    // until something makes it ask again.
+    return client.on('auth.changed', () => load())
+  }, [load, client])
 
   /** One runner for every action, so none of them can forget to clear `busy` or to REPORT.
    *  A rejected sign-in that resolves silently leaves a button that does nothing and says

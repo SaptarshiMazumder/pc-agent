@@ -958,6 +958,8 @@ def build_gateway(config: Config) -> Gateway:
     )
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
+    from agent_runtime.config import accounts_api_base
+    from agent_runtime.infrastructure.platform_session import PlatformSession
 
     # LOCAL vs CLOUD, asserted at boot. AFTER build_service, which runs model_proxy.configure —
     # this reads that seam to decide whether Cloud is reachable at all. Default is Cloud: a
@@ -980,6 +982,15 @@ def build_gateway(config: Config) -> Gateway:
         safe_to_send_gate=build_safe_to_send_gate(
             config
         ),  # egress privacy gate (None unless enabled)
+        # THE MACHINE'S ONE SIGNED-IN ACCOUNT — desktop only, and that is a construction-time
+        # decision rather than a runtime branch: a hosted daemon never gets one, so its /auth/*
+        # HTTP endpoints answer 404 and a machine-wide credential cannot exist on a process that
+        # serves many people. See platform_session.py for the architecture this replaces.
+        platform_session=(
+            None
+            if getattr(config, "hosted", False)
+            else PlatformSession(config.state_dir, accounts_api_base(config))
+        ),
     )
     # LATE-BIND the roster broadcast (same pattern as late["service"] inside build_service):
     # plugins are discovered long before the Gateway exists, so the handle passed to them is a

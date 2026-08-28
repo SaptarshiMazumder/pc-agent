@@ -162,6 +162,36 @@ function registerIpc(): void {
   // The shell renderer calls this on every token rotation; app windows have no other way to
   // learn about it, and without it they run until their launch token expires and then go
   // anonymous (which reads to the user as "all my agents disappeared").
+  // --- machine sign-in: the renderer's ONLY path to the daemon's /auth/*. The renderer
+  //     page is file:// — cross-origin to the daemon, whose HTTP surface (the websockets
+  //     handshake hook) speaks no CORS — so a fetch from the page can never read the answer.
+  //     Main is a native caller with the same trust as the daemon's own state dir. Paths are
+  //     whitelisted and only X-Auth-* headers pass, so this cannot become a generic proxy.
+  ipcMain.handle(
+    'auth:request',
+    async (_e, authPath: string, headers?: Record<string, string>) => {
+      if (!/^\/auth\/(token|status|login|logout|adopt)$/.test(String(authPath || ''))) {
+        return { status: 400, body: { error: 'not an auth path' } }
+      }
+      const safe: Record<string, string> = {}
+      for (const [k, v] of Object.entries(headers || {})) {
+        if (/^X-Auth-[A-Za-z-]+$/.test(k)) safe[k] = String(v)
+      }
+      try {
+        const info = await supervisor.ensure()
+        const u = new URL(`http://${info.host}:${info.port}${authPath}`)
+        if (info.token) u.searchParams.set('token', info.token)
+        const r = await fetch(u, { headers: safe, cache: 'no-store' })
+        const body = (await r.json().catch(() => ({}))) as Record<string, unknown>
+        return { status: r.status, body }
+      } catch (e) {
+        // The DAEMON is unreachable — same answer shape as the runtime's own "accounts away":
+        // keep working, retry. Never "signed out" over a hiccup.
+        return { status: 0, body: { state: 'accounts_unreachable', error: String(e) } }
+      }
+    }
+  )
+
   ipcMain.handle('app:broadcastToken', (_e, token: string) => {
     broadcastAccessToken(String(token || ''))
     return { ok: true, windows: appWindows.size }

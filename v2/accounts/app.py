@@ -449,9 +449,16 @@ app = FastAPI(title="agentd accounts", version="0.1.0")
 # Browsers (the web client, a different origin) sign in via fetch. Local dev default is open;
 # the hosted deploy sets ACCOUNTS_CORS_ORIGINS to the real web origin(s).
 _cors = [o.strip() for o in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",") if o.strip()]
+# Credentials are ON because the web client's session is an HttpOnly cookie now (auth_router.py).
+# A wildcard origin cannot legally accompany credentials, so the dev default becomes an
+# echo-everything regex — same openness, spelled the way browsers accept it. Hosted deploys keep
+# setting ACCOUNTS_CORS_ORIGINS to the real origin(s), which is the configuration that matters.
+_wildcard = not _cors or _cors == ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors or ["*"],
+    allow_origins=[] if _wildcard else _cors,
+    allow_origin_regex=".*" if _wildcard else None,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,36 +1,36 @@
 /**
- * What THIS client knows about itself: who is signed in, and which keys it wants to pay with.
+ * What THIS client knows about itself: which keys it wants to pay with, and (hosted only) the
+ * borrowed token an opener handed it on the launch URL.
  *
- * THE CLIENT HOLDS BOTH FACTS. The daemon stores neither. That is not a stylistic choice: a
- * daemon-side session is ONE slot, and one slot cannot serve two people — the second to sign in
- * overwrites the first, signing out signs out everybody, and one window's Cloud switch moves every
- * other window's billing. Held per client and presented per connection, a hundred users on one
- * daemon is a hundred sockets with a hundred answers.
+ * THE CREDENTIAL STORY LEFT THIS FILE. On desktop the runtime is the only session holder
+ * (platform_session.py); a window asks `GET /auth/token` and stores NOTHING — see identity.ts.
+ * What remains here is genuinely per-window:
  *
- * THE CREDENTIAL HALF NOW LIVES IN `@agentd/auth`, not here. This module used to own the storage
- * format, the expiry rules and (next door, in auth.ts) a renewal loop — a second implementation of
- * what the agentd client already did, which drifted from it and lost. What is left here is the
- * part that genuinely is this client's own: WHICH KEYS PAY, which is not an identity question and
- * has no server-side equivalent.
+ *   * RUN MODE — which keys pay for this client's model calls. A preference, not a credential,
+ *     so localStorage is exactly right for it.
+ *   * THE PAGE SESSION — on a HOSTED daemon there is no machine session to inherit, so a window
+ *     opened by another app still adopts the access token from its launch URL. It now lives in
+ *     module memory for the life of the page, never in storage: this window runs third-party
+ *     code and must not persist a credential, and there is nothing that could renew it anyway.
  */
 
 import { accessTokenAccount, accessTokenEmail, accessTokenExpiry } from '@agentd/auth'
-import { identity, sessionKey } from './identity'
+import { sessionKey } from './identity'
 
 export { accessTokenAccount, accessTokenExpiry } from '@agentd/auth'
 
 /**
  * A session as the rest of the SDK reads it.
  *
- * A projection of `@agentd/auth`'s `TokenPair`, kept in this shape because agent apps already
- * destructure it. The manager is the source of truth; this is a view of it.
+ * Kept in this shape because agent apps already destructure it. Only the hosted launch-URL path
+ * produces one now; on desktop `loadSession` answers null and identity comes from the runtime.
  */
 export interface StoredSession {
   /** The ACCESS token — short-lived and the only one that travels on a connection. */
   token: string
   email: string
   accountId: string
-  /** Absent in a window opened BY the desktop app: it is fed tokens instead of renewing. */
+  /** Never present any more — windows do not hold refresh tokens. Kept for destructurers. */
   refreshToken?: string
   /** Epoch ms when `token` expires. */
   expiresAt?: number
@@ -39,54 +39,45 @@ export interface StoredSession {
 /** 'local' = my own provider keys. 'cloud' = platform keys, metered to my account. */
 export type RunMode = 'local' | 'cloud'
 
+/** The page's borrowed session, if an opener supplied one. MEMORY, not storage — gone on
+ *  reload, which is correct: the opener re-stamps the URL on every launch. */
+let pageSession: StoredSession | null = null
+
 /**
- * The session this client can still use, or null.
+ * The session this page was HANDED, or null.
  *
- * SYNCHRONOUS, because the socket URL is built from it and a page must be able to answer "who am
- * I" before its first await. Renewal happens on its own schedule; this reports what is held now.
- * Anything that needs a credential it can RELY on should await `identity().accessToken()`, which
- * renews first.
+ * SYNCHRONOUS, because the socket URL is built from it. Null on every desktop window — there
+ * the daemon inherits the machine's identity for the connection and nothing travels at all.
+ * Anything that needs a credential it can RELY on should await `identity().accessToken()`.
  */
-export function loadSession(storageKey = ''): StoredSession | null {
-  const manager = identity({ storageKey })
-  if (!manager.signedIn()) return null
-  const p = manager.current()
-  if (!p) return null
-  return {
-    token: p.accessToken,
-    email: p.email,
-    accountId: p.accountId,
-    refreshToken: p.refreshToken || undefined,
-    expiresAt: p.expiresAt || undefined
-  }
+export function loadSession(_storageKey = ''): StoredSession | null {
+  const s = pageSession
+  if (!s) return null
+  // A dead borrowed token is worse than none: presenting it makes the daemon accept the
+  // reconnect ANONYMOUSLY, signed in by its own account, invisible to the user.
+  if (s.expiresAt && s.expiresAt <= Date.now()) return null
+  return s
 }
 
 /**
- * Write a session directly.
+ * Adopt a launch-URL session (or clear it with null).
  *
- * The ONE legitimate caller is `fromPage` in client.ts, adopting the access token an opener put on
- * the launch URL. Everything else should go through sign-in or renewal — writing a credential by
- * hand is how a page ends up holding one nothing can renew.
+ * The ONE legitimate caller is `fromPage` in client.ts. Everything else signs in through the
+ * runtime (`authLogin`) and stores nothing here.
  */
-export function saveSession(value: StoredSession | null, storageKey = ''): void {
-  const manager = identity({ storageKey })
+export function saveSession(value: StoredSession | null, _storageKey = ''): void {
   if (!value) {
-    // Forgets, and does NOT revoke. Clearing local state is all this has ever meant, and it has to
-    // stay synchronous — the caller may be about to rebuild a socket. Telling the server is
-    // `authLogout`, which is a different intention with a different cost.
-    manager.replace(null)
+    pageSession = null
     return
   }
-  manager.replace({
-    accessToken: value.token,
-    refreshToken: value.refreshToken || '',
-    expiresAt: value.expiresAt || accessTokenExpiry(value.token),
-    // The token's own claims fill what the opener did not say. A launch URL carries the token
-    // and nothing else, and these two blanks are what made every opened window render its account
-    // menu as "Account" with no name.
+  pageSession = {
+    token: value.token,
+    // The token's own claims fill what the opener did not say — a launch URL carries the token
+    // and nothing else, and these blanks are what made opened windows render "Account" unnamed.
+    email: value.email || accessTokenEmail(value.token),
     accountId: value.accountId || accessTokenAccount(value.token),
-    email: value.email || accessTokenEmail(value.token)
-  })
+    expiresAt: value.expiresAt || accessTokenExpiry(value.token) || undefined
+  }
 }
 
 export function loadMode(storageKey = ''): RunMode | null {

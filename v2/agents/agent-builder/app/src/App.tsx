@@ -21,7 +21,6 @@ import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { MAX_FILES } from './agentd/chat'
 import { useCredits } from './agentd/credits'
 import SignIn from '../../skills/build-agent/templates/_common/auth/SignIn'
-import { identity } from '@agentd/client'
 import { AGENT_ID, useClient } from './agentd/client'
 import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable } from './agentd/roster'
@@ -438,23 +437,6 @@ export default function App() {
             {/* The strip CHOOSES the conversation and the header DESCRIBES the one chosen — so the
                 strip goes above. Both belong to the chat and to nothing else. */}
             <TabBar />
-            {/* TEMPORARY — a diagnosis control, not a feature. Fires the exact renewal the
-                background timer runs every ~8 minutes (TokenManager.refresh -> subscribe ->
-                auth.update on the open socket), so the reconnect-on-renewal bug can be provoked
-                on demand instead of waited for. DELETE once the renewal path is trusted. */}
-            <button
-              className="ghost-btn"
-              style={{ position: 'absolute', top: 8, right: 220, zIndex: 30 }}
-              title="TEMPORARY: run the 8-minute token renewal right now"
-              onClick={() => {
-                void identity({ client: client ?? undefined })
-                  .refresh()
-                  .then((pair) => console.info('[refresh-auth] renewed:', !!pair))
-                  .catch((e) => console.error('[refresh-auth] failed:', e))
-              }}
-            >
-              Refresh auth
-            </button>
             <Topbar
               agent={selected}
               who={who}

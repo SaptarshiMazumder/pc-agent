@@ -169,6 +169,19 @@ CROSS_AGENT_READS: dict[str, frozenset[str]] = {
             "capabilities.list",
         }
     ),
+    # Cloud Agent Builder gets the STRUCTURAL reads it needs to build and inspect an agent — its
+    # files, its tools, its capabilities — but DELIBERATELY NOT `sessions.list`/`sessions.history`.
+    # It is a fenced web surface on a shared daemon, and reading another agent's transcripts is a
+    # privilege authoring does not need. (agent-builder keeps them because it is desktop-only, where
+    # the caller is the machine's owner reading their own machine.)
+    "cloud-agent-builder": frozenset(
+        {
+            "agents.detail",
+            "workspace.list",
+            "tools.list",
+            "capabilities.list",
+        }
+    ),
 }
 
 # The PUBLIC tier (hosted deployments): what an UNAUTHENTICATED connection scoped to an
@@ -195,6 +208,16 @@ PUBLIC_INVOKE_CONCURRENCY = 8  # global in-flight cap for public tools.invoke
 # the install trigger. Both throttles bound what a stranger's URL bar can make the daemon do:
 WEB_SYNC_RETRY_SECONDS = 60  # a failed visitor-triggered sync answers with its error this long
 WEB_SYNC_REFRESH_SECONDS = 300  # how often an entry-page open re-checks the registry for updates
+
+# The path-scoped cookie that lets a hosted ACCOUNT-LAYER app serve its ASSETS, not just its entry
+# page. `/apps/<id>/?session=<tok>` names the account for the entry, but the page's relative asset
+# urls (index-*.js, the css) carry no query — so every chunk after the entry resolved to nobody and
+# 404'd. The entry serve now writes this cookie (scoped to `/apps/<id>/`, so it travels to that
+# app's requests and no other), and `_http_identities` reads it back for the asset requests. It
+# carries the same short-lived access token the URL already did.
+# NOT `Secure` yet: the deployment is HTTP-only pre-TLS, and a Secure cookie is dropped over http.
+# Add `; Secure` in the same breath as TLS (search this constant).
+APP_SESSION_COOKIE = "agentd_app_session"
 
 
 def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
@@ -418,6 +441,22 @@ def _subagent_depth(session_key: str) -> int:
 #: Where an agent app loads the client SDK from, relative to its own `ui/` root. Kept in step
 #: with bundle_io.VENDORED_SDK and clients/sdk-js/scripts/vendor.mjs — the same one path.
 VENDORED_SDK_REL = "vendor/agentd-client.js"
+
+
+def _cookie_value(headers, name: str) -> str:
+    """One cookie's value out of a request's `Cookie` header, or "" — no cookielib, no exceptions.
+
+    Used to recover the app-session cookie for asset requests (see APP_SESSION_COOKIE). Tolerant of
+    the header being absent or malformed: a bad Cookie header is not a reason to fail a fetch."""
+    try:
+        raw = headers.get("Cookie") or headers.get("cookie") or ""
+    except Exception:  # noqa: BLE001 — a header store that raises is just an absent cookie
+        return ""
+    for part in raw.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == name:
+            return v.strip()
+    return ""
 
 
 def _app_asset_bytes(target: Path, ui_root: Path) -> bytes:
@@ -1017,6 +1056,10 @@ class Gateway:
     task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
     event_log: object | None = None  # injected; durable per-run event stream, or None
+    platform_session: object | None = None  # injected; the machine's ONE signed-in account
+    #                                         (PlatformSession). None on hosted daemons, where
+    #                                         identity is per connection — the /auth/* HTTP
+    #                                         endpoints answer 404 exactly then.
     credential_store: object | None = None  # injected; login vault (/connect form writes here)
     connect_tokens: object | None = None  # injected; one-time /connect-link tokens
     safe_to_send_gate: object | None = None  # injected; out-of-band privacy gate on channel replies
@@ -1551,6 +1594,11 @@ class Gateway:
                 org_ids=accounts.org_ids(),
             )
             _spec_owner = str(getattr(spec, "owner", "") or "")
+            # THE AGENT-DECLARED WRITE FENCE — the same three fields a full turn carries, from the
+            # same AgentService method so they cannot drift. Without them a direct tools.invoke had
+            # only the tenant clamp: an agent's own `deny` (an agent-builder-class window rewriting
+            # its own agent.toml) and the installed-agent `protected_paths` were both absent.
+            _wroots, _wdenies, _protected = self.service.resolve_write_fence(spec)
             run_ctx = RunContext(
                 agent_id=scope,
                 session_key=f"agent:{scope}:app",
@@ -1559,6 +1607,11 @@ class Gateway:
                 plugins=getattr(spec, "plugins", None),
                 read_roots=read_roots,
                 write_clamp=write_clamp,
+                write_roots=_wroots,
+                write_denies=_wdenies,
+                protected_paths=_protected,
+                # NAMES only — what this agent declared it needs (same as a full turn).
+                settings=tuple(f.key for f in (getattr(spec, "settings", ()) or ())),
                 # same attribution rule as a full turn: an org's agent bills the org's pool
                 org_id=_spec_owner if ownership.is_org(_spec_owner) else "",
             )
@@ -1914,6 +1967,14 @@ class Gateway:
                 )
             if split.path == "/restart":
                 return await self._serve_restart(split, getattr(request, "headers", {}))
+            if split.path in (
+                "/auth/token",
+                "/auth/login",
+                "/auth/logout",
+                "/auth/status",
+                "/auth/adopt",
+            ):
+                return await self._serve_auth(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
@@ -2060,6 +2121,19 @@ class Gateway:
         hdrs["Content-Type"] = guess_mime(target)
         hdrs["Content-Length"] = str(len(body))
         hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
+        # THE ENTRY PAGE HANDS ITS ASSETS AN IDENTITY. `/apps/<id>/?session=<tok>` names the
+        # account for THIS request only; the page's relative asset urls carry no query, so a hosted
+        # account-layer app would 404 every chunk after this one. Writing the session into a cookie
+        # scoped to `/apps/<id>/` lets the asset requests present the same account (read back in
+        # _http_identities). Only on the entry, only when a session was actually presented; a
+        # shared-layer or public app never needs it and never sets it.
+        if target == entry:
+            sess = (parse_qs(split.query or "").get("session") or [""])[0].strip()
+            if sess:
+                hdrs["Set-Cookie"] = (
+                    f"{APP_SESSION_COOKIE}={sess}; Path=/apps/{parts[1]}/; "
+                    "HttpOnly; SameSite=Lax; Max-Age=900"
+                )
         return HttpResponse(200, "OK", hdrs, body)
 
     async def _app_spec_for_caller(self, agent_id: str, split, headers):
@@ -2213,7 +2287,15 @@ class Gateway:
                 auth = ""
             if auth.startswith("Bearer "):
                 token = auth[len("Bearer ") :].strip()
-        account = await accounts.resolve(_param("session") or token)
+        session = _param("session")
+        if not session:
+            # An ASSET request (index-*.js, the css) carries no ?session= — the page's relative
+            # urls drop it — so without this a hosted account-layer app would resolve to nobody and
+            # 404 every chunk after the entry page. The entry serve set a path-scoped cookie with
+            # the same session (see _serve_app + APP_SESSION_COOKIE); read it so assets identify the
+            # same account. Harmless on /file (the cookie is scoped to /apps/<id>/, never sent there).
+            session = _cookie_value(headers, APP_SESSION_COOKIE)
+        account = await accounts.resolve(session or token)
         if account is not None:
             return ownership.callers(
                 account.get("account_id"), self._hosted(), accounts.org_ids_from(account)
@@ -2557,6 +2639,20 @@ class Gateway:
         # The machine token must NOT authorise where sign-in is required, or it would be a bypass
         # on a hosted deployment. That is the one thing `enabled` still gates.
         account: dict | None = await accounts.resolve(self._presented_session(ws))
+        # THE MACHINE'S OWN ACCOUNT, when a desktop window presented nothing. Windows no longer
+        # hold or pass tokens (see platform_session.py) — the runtime IS the session holder, so
+        # a local connection inherits the machine's sign-in the way any desktop app's windows
+        # inherit the app's. Never on hosted (platform_session is None there by construction),
+        # and never overriding a session a client actually presented.
+        if account is None and self.platform_session is not None and not self._query(ws, "session"):
+            tok = await self.platform_session.token()
+            if tok.get("state") == "ok":
+                account = await accounts.resolve(tok["accessToken"])
+                if account is not None:
+                    # Marked so run-start can re-pin a FRESH machine token: this dict outlives
+                    # the ten-minute access token inside it, and nothing pushes auth.update on
+                    # an inherited connection — the runtime IS the refresher here.
+                    account = {**account, "machine_session": True}
         # LOUD when a client SAID who it was and the answer didn't hold (`?session=` exactly —
         # the machine-token fallback is not a claim of identity). On a desktop the connection
         # still gets in on the machine token, so without this line the failure is invisible:
@@ -3981,6 +4077,61 @@ class Gateway:
             return None
         return p
 
+    def _definition_write_refusal(self, agent_id: str, target: Path) -> str:
+        """"" if the caller may write `target` inside an agent's DEFINITION dir, else the refusal.
+
+        The file-browser's mkdir/upload/delete resolve straight through `_ws_resolve` (a traversal
+        guard, nothing more), so with `root="definition"` they reach an agent's own agent.toml,
+        skills/ and plugins/ with NONE of the write fence a `write`/`edit` TOOL carries — a page
+        could plant a plugin.toml + Python that loads on the next reload. This runs the SAME fence
+        (tenant clamp + the agent's declared roots/denies + installed-agent protection) those tools
+        get, in an ISOLATED context copy so nothing leaks into later requests. An agent-builder
+        class agent denies its own dir, so it refuses here; a shared agent's dir sits outside the
+        caller's tenant clamp, so that refuses too — which is exactly right."""
+        import contextvars
+
+        from agent_runtime.application.run_context import RunContext, set_run_context
+        from agent_runtime.application.write_scope import WriteRefused, check_write
+
+        if self.registry is None:
+            return ""
+        try:
+            spec = self.registry.get(agent_id)
+        except KeyError:
+            return f"unknown agent: {agent_id}"
+        acct = accounts.account_id() or ""
+        workspace = (
+            str(user_state.account_workspace(self.config.state_dir, acct, agent_id))
+            if acct
+            else str(getattr(spec, "workspace", "") or "")
+        )
+        read_roots, write_clamp = user_state.tenant_scope(
+            self.config, acct, getattr(spec, "dir", None), workspace, org_ids=accounts.org_ids()
+        )
+        wroots, wdenies, protected = self.service.resolve_write_fence(spec)
+        ctx = RunContext(
+            agent_id=agent_id,
+            session_key=f"agent:{agent_id}:app",
+            mode=RunMode.INTERACTIVE,
+            workspace=workspace,
+            read_roots=read_roots,
+            write_clamp=write_clamp,
+            write_roots=wroots,
+            write_denies=wdenies,
+            protected_paths=protected,
+        )
+        out = {"err": ""}
+
+        def _check():
+            set_run_context(ctx)
+            try:
+                check_write(target)
+            except WriteRefused as e:
+                out["err"] = str(e)
+
+        contextvars.copy_context().run(_check)
+        return out["err"]
+
     # Never shown when browsing an agent's DEFINITION: `workspace/` is the other root and has
     # its own listing, and the caches are noise nobody authored.
     DEFINITION_HIDDEN = frozenset({"workspace", "__pycache__", ".git", ".pytest_cache"})
@@ -4052,6 +4203,10 @@ class Gateway:
         p = self._ws_resolve(root, rel)
         if p is None:
             return {"ok": False, "error": "invalid path"}
+        if (params.get("root") or "").strip() == "definition":
+            refusal = self._definition_write_refusal((params.get("agentId") or "main").strip(), p)
+            if refusal:
+                return {"ok": False, "error": refusal}
         try:
             p.mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -4076,6 +4231,10 @@ class Gateway:
         d = self._ws_resolve(root, (params.get("path") or "").strip())
         if d is None:
             return {"ok": False, "error": "invalid path"}
+        if (params.get("root") or "").strip() == "definition":
+            refusal = self._definition_write_refusal((params.get("agentId") or "main").strip(), d)
+            if refusal:
+                return {"ok": False, "error": refusal}
         try:
             d.mkdir(parents=True, exist_ok=True)
             raw = base64.b64decode(b64, validate=True)
@@ -4104,6 +4263,10 @@ class Gateway:
         p = self._ws_resolve(root, rel)
         if p is None or p == Path(root).resolve():
             return {"ok": False, "error": "invalid path"}
+        if (params.get("root") or "").strip() == "definition":
+            refusal = self._definition_write_refusal((params.get("agentId") or "main").strip(), p)
+            if refusal:
+                return {"ok": False, "error": refusal}
         try:
             if p.is_dir():
                 shutil.rmtree(p)
@@ -4543,6 +4706,111 @@ class Gateway:
         store.update(tid, next_due=time.time(), enabled=1)  # fires on the next scheduler poll
         return {"ok": True, "id": tid}
 
+    async def _serve_auth(self, split, headers) -> HttpResponse:
+        """The machine's sign-in, over plain local HTTP — no socket involved, on purpose.
+
+        THIS IS THE WHOLE CLIENT CONTRACT. A window never refreshes and never holds a refresh
+        token; it asks here and gets a typed answer (see platform_session.py for the states and
+        why they are typed). Ten windows asking at once ride one refresh, so the races that came
+        from every window running its own renewal clock cannot exist.
+
+        CREDENTIALS RIDE IN HEADERS (`X-Auth-Email` / `X-Auth-Password`), not the body and not
+        the query. This HTTP surface is the websockets handshake hook, which never receives a
+        request body — and a password in a query string lands in logs and history. Headers do
+        neither, and this traffic is loopback (or TLS on a remote desktop daemon).
+
+        HOSTED DAEMONS ANSWER 404 for all of it: there identity belongs to each connection, and
+        a machine-wide token on a multi-tenant process would be one user's credential served to
+        everybody. The 404 is the composition root's decision (no PlatformSession is built), not
+        a runtime branch that could be got wrong.
+
+        EVERYTHING IS GET. The HTTP surface is the websockets handshake hook, and the library
+        refuses any other method at the request line (http11.py: "expected GET") — a POST never
+        reaches this code. Operations ride request HEADERS, which is where the credentials were
+        going anyway.
+
+        THE MACHINE TOKEN IS REQUIRED (when one is configured), same as /file: every legitimate
+        caller has it — app windows carry `?token=` on their launch URL, and the desktop shell
+        asks through its main process. It is what stops a hostile web page from driving a
+        sign-out (a bare GET crosses origins even though its answer is unreadable).
+
+        NO CORS HEADERS, deliberately: only pages this daemon itself serves may read the answers.
+        A native local process could call this — the same trust as the session file on disk.
+        """
+        if self.platform_session is None or not self.platform_session.enabled:
+            return HttpResponse(404, "Not Found", Headers({"Content-Length": "0"}), b"")
+        if self.auth_token:
+            q = parse_qs(split.query)
+            presented = (q.get("token") or [""])[0]
+            if not presented:
+                bearer = str(headers.get("Authorization") or "")
+                if bearer.startswith("Bearer "):
+                    presented = bearer[len("Bearer ") :].strip()
+            if not hmac.compare_digest(presented, self.auth_token):
+                return HttpResponse(401, "Unauthorized", Headers({"Content-Length": "0"}), b"")
+
+        def answer(payload: dict, code: int = 200) -> HttpResponse:
+            body = json.dumps(payload).encode("utf-8")
+            return HttpResponse(
+                code,
+                "OK" if code == 200 else "Unauthorized" if code == 401 else "Service Unavailable",
+                Headers(
+                    {
+                        "Content-Type": "application/json",
+                        "Content-Length": str(len(body)),
+                        "Cache-Control": "no-store",
+                    }
+                ),
+                body,
+            )
+
+        try:
+            if split.path == "/auth/status":
+                return answer(self.platform_session.status())
+            if split.path == "/auth/token":
+                out = self.platform_session.token()
+                out = await out
+                if out.get("state") == "ok":
+                    return answer(out)
+                if out.get("state") == "accounts_unreachable":
+                    return answer(out, 503)
+                return answer(out, 401)
+            if split.path == "/auth/login":
+                email = str(headers.get("X-Auth-Email") or "").strip()
+                password = str(headers.get("X-Auth-Password") or "")
+                signup = str(headers.get("X-Auth-Signup") or "") == "1"
+                if not email or not password:
+                    return answer({"state": "signed_out", "error": "email and password required"}, 401)
+                out = await self.platform_session.login(email, password, signup=signup)
+                if out.get("state") == "ok":
+                    # Every open window learns NOW rather than on its next ask.
+                    self._broadcast_all("auth.changed", self.platform_session.status())
+                    return answer(out)
+                return answer(out, 503 if out.get("state") == "accounts_unreachable" else 401)
+            if split.path == "/auth/adopt":
+                out = await self.platform_session.adopt(str(headers.get("X-Auth-Refresh") or ""))
+                if out.get("state") == "ok":
+                    self._broadcast_all("auth.changed", self.platform_session.status())
+                    return answer(out)
+                return answer(out, 503 if out.get("state") == "accounts_unreachable" else 401)
+            # /auth/logout
+            out = await self.platform_session.logout()
+            self._broadcast_all("auth.changed", {"state": "signed_out"})
+            return answer(out)
+        except Exception:  # noqa: BLE001 — an auth error must never crash the handshake path
+            log.exception("auth http %s failed", split.path)
+            return answer({"state": "accounts_unreachable", "error": "internal error"}, 503)
+
+    def _broadcast_all(self, event_name: str, payload: dict) -> None:
+        """Fan one daemon-level event to every connected client, best-effort. Sign-in state is
+        machine state, so every window hears the same fact at the same moment."""
+        try:
+            for ws in list(getattr(self, "clients", []) or []):
+                frame = {"type": "event", "event": event_name, "payload": payload}
+                asyncio.ensure_future(ws.send(json.dumps(frame)))
+        except Exception:  # noqa: BLE001 — a dead socket must not stop the announcement
+            log.exception("auth broadcast failed")
+
     async def _serve_restart(self, split, headers) -> HttpResponse:
         """``GET /restart`` — kill this daemon and bring a fresh one up.
 
@@ -4782,10 +5050,24 @@ class Gateway:
 
         from agent_runtime.infrastructure.marketplace.installed_store import JsonInstalledStore
 
-        ids = JsonInstalledStore(
-            Path(self.config.state_dir) / "installed_bundles.json"
-        ).installed_ids()
-        return True if ids is None else agent_id in ids
+        # BOTH LEDGERS. A hosted install writes into the ACCOUNT's own state
+        # (account_root/installed_bundles.json), not the machine one — so checking only the machine
+        # ledger reported every per-account install as "not installed", and its window was handed
+        # the daemon's raw provider keys (config.get envValues) instead of the redacted view. Any
+        # ledger listing the id, OR any ledger unreadable, means redact.
+        ledgers = [Path(self.config.state_dir) / "installed_bundles.json"]
+        acct = accounts.account_id()
+        if acct:
+            ledgers.append(
+                Path(user_state.account_root(self.config.state_dir, acct)) / "installed_bundles.json"
+            )
+        for ledger in ledgers:
+            ids = JsonInstalledStore(ledger).installed_ids()
+            if ids is None:
+                return True  # unreadable -> fail closed (redact rather than leak)
+            if agent_id in ids:
+                return True
+        return False
 
     def _declared_settings(self, scope: str | None) -> tuple:
         """What ``agent.toml [[settings]]`` says this agent needs — the fields, never the values.
@@ -5697,6 +5979,17 @@ class Gateway:
         # HOSTED metering gate: an account with a budget that has already reached this month's cap
         # cannot start a new turn. A fresh check (not the cached connect-time view) so spend that
         # accrued this session counts. No budget / accounts off => never blocks.
+        # MACHINE-INHERITED connections re-pin a FRESH token FIRST — before the expiry gate
+        # below, or the gate refuses them. The connection's dict was captured at socket open, its
+        # access token lives ten minutes, and no window pushes auth.update any more: the runtime
+        # is the refresher (platform_session is single-flight and free while the cached token is
+        # alive), so "expired" is a state this connection should never be seen in.
+        if account is not None and account.get("machine_session") and self.platform_session is not None:
+            tok = await self.platform_session.token()
+            if tok.get("state") == "ok":
+                fresh = await accounts.resolve(tok["accessToken"])
+                if fresh is not None:
+                    account = {**fresh, "machine_session": True}
         # AN EXPIRED CREDENTIAL CANNOT START NEW WORK. The socket stays open and its identity
         # stands — the client is who it said it was — but the token it would pay with is dead, so
         # letting the turn begin just moves the failure to the first model call, where it surfaces

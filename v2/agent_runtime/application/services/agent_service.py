@@ -274,6 +274,22 @@ class AgentService:
                 protected += definition_entries(agent_dir)
         return tuple(protected)
 
+    def resolve_write_fence(self, agent) -> tuple[tuple, tuple, tuple]:
+        """The agent-DECLARED write fence — ``(write_roots, write_denies, protected_paths)``,
+        expanded and clamped. ONE definition, used by a full turn AND by a direct ``tools.invoke``
+        from an app window, so a tool called from the browser is fenced EXACTLY like the same tool
+        inside a turn. Without this the gateway built its own RunContext and silently dropped all
+        three — so an agent-builder-class window could rewrite its own agent.toml (its `deny` never
+        applied) and reach installed agents (`protected_paths` gone). getattr throughout: a
+        stand-in spec that declared nothing means unrestricted, never a crash."""
+        return (
+            self._installed_write_clamp(
+                agent, self._expand_paths(agent, getattr(agent, "write_roots", ()))
+            ),
+            self._expand_paths(agent, getattr(agent, "write_denies", ())),
+            self._protected_paths(agent),
+        )
+
     def _models_for(self, agent) -> tuple:
         """``(model, model_router)`` for one run of ``agent``.
 
@@ -587,6 +603,9 @@ class AgentService:
         # agent for that org's members in the first place, so owner-is-an-org implies the
         # caller belongs to it. Everything else (personal agents, curated, desktop) carries "".
         _owner = str(getattr(agent, "owner", "") or "")
+        # The agent-declared write fence — the SAME method a direct tools.invoke uses, so the two
+        # can never disagree about what an agent may write.
+        _write_roots, _write_denies, _protected = self.resolve_write_fence(agent)
         set_run_context(
             RunContext(
                 agent_id=agent.id,
@@ -597,14 +616,9 @@ class AgentService:
                 run_id=_run_id,
                 turn_id=_turn_id,
                 org_id=_owner if _ownership.is_org(_owner) else "",
-                # getattr, like `plugins` above: an AgentSpec always has these, but the service
-                # is handed stand-in agent objects too (tests, and any caller that builds a
-                # minimal spec). A missing field means "declared nothing" — unrestricted.
-                write_roots=self._installed_write_clamp(
-                    agent, self._expand_paths(agent, getattr(agent, "write_roots", ()))
-                ),
-                write_denies=self._expand_paths(agent, getattr(agent, "write_denies", ())),
-                protected_paths=self._protected_paths(agent),
+                write_roots=_write_roots,
+                write_denies=_write_denies,
+                protected_paths=_protected,
                 read_roots=tuple(read_roots),
                 write_clamp=tuple(write_clamp),
                 # NAMES only — what this agent declared it needs. The values stay in the .env

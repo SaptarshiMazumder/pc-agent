@@ -105,10 +105,10 @@ BUNDLED_APPS = {"agent-builder": AGENTS / "agent-builder" / "ui" / "assets"}
 
 @pytest.mark.parametrize("agent_id", sorted(BUNDLED_APPS))
 def test_a_bundled_app_carries_a_post_token_auth_sdk(agent_id: str):
-    """The built bundle must read `access_token`, the field a current server actually returns.
+    """The built bundle must ask the RUNTIME for its token (`/auth/token`), not refresh its own.
 
-    A field name is a crude thing to assert on, and it is deliberate: it is the exact fact that was
-    wrong, it is invisible from the source tree (the source imports `@agentd/client` and looks
+    A string is a crude thing to assert on, and it is deliberate: the endpoint is the exact fact
+    that separates the one-refresher world from the every-window-renews world, it is invisible from the source tree (the source imports `@agentd/client` and looks
     perfectly current), and only a REBUILD of the app can fix it. Nothing else in the repo notices
     that this bundle is older than the SDK sitting beside it.
     """
@@ -116,7 +116,7 @@ def test_a_bundled_app_carries_a_post_token_auth_sdk(agent_id: str):
     bundles = sorted(assets.glob("*.js"))
     assert bundles, f"{agent_id} ships no built bundle at {assets.relative_to(V2).as_posix()}"
     joined = "\n".join(b.read_text(encoding="utf-8", errors="ignore") for b in bundles)
-    assert "access_token" in joined, (
-        f"{agent_id}'s bundle predates token auth - sign-in will fail against a current accounts "
-        f"service while it answers 200. Rebuild it: cd v2/agents/{agent_id}/app && npm run build"
+    assert "/auth/token" in joined, (
+        f"{agent_id}'s bundle predates runtime-held auth - sign-in will misbehave against a "
+        f"current daemon. Rebuild it: cd v2/agents/{agent_id}/app && npm run build"
     )

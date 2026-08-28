@@ -129,7 +129,7 @@ class _ExecPrivTool:
 
     async def execute(self, _id, params, _abort):
         return SimpleNamespace(
-            content=[SimpleNamespace(text="private ran")], is_error=False, artifacts=[]
+            content=[SimpleNamespace(text="private ran")], is_error=False, artifacts=[], details=None
         )
 
 

@@ -30,13 +30,24 @@ const bridge = typeof candidate?.readText === 'function' ? candidate : undefined
 
 export const isDesktop = !!bridge
 
-/** Push a freshly-minted access token down to every open agent app window. A no-op in a browser
- *  and on preloads too old to carry the channel. Here rather than in platform.ts because the
- *  caller is lib/auth.ts, and going through the adapter would close the auth -> platform -> auth
- *  cycle this leaf exists to break. */
-export function hostBroadcastAppToken(token: string): void {
-  const b = bridge as { broadcastAppToken?: (t: string) => Promise<unknown> } | undefined
-  if (typeof b?.broadcastAppToken === 'function') void b.broadcastAppToken(token)
+/** The machine's sign-in, asked through the desktop shell's main process — the renderer page
+ *  is file://, cross-origin to the daemon, and the daemon's HTTP surface answers no CORS, so a
+ *  page fetch can never read /auth/*. Null in a browser, where the web sign-in path serves.
+ *  Here rather than in platform.ts because the caller is lib/auth.ts, and going through the
+ *  adapter would close the auth -> platform -> auth cycle this leaf exists to break. */
+export interface HostAuthAnswer {
+  status: number
+  body: Record<string, unknown>
+}
+
+export function hostAuthRequest(
+  path: string,
+  headers?: Record<string, string>
+): Promise<HostAuthAnswer> | null {
+  const b = bridge as
+    | { authRequest?: (p: string, h?: Record<string, string>) => Promise<HostAuthAnswer> }
+    | undefined
+  return typeof b?.authRequest === 'function' ? b.authRequest(path, headers) : null
 }
 
 /** OS-encrypted storage for the refresh token, when the desktop shell provides it.

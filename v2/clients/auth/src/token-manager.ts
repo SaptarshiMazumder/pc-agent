@@ -61,8 +61,9 @@ export class TokenManager {
     if (!p || !usable(p.accessToken)) return false
     // An expired access token with a refresh token behind it is NOT signed out: renewal is one
     // HTTP call away, and reporting it as signed out puts a login form in front of somebody who
-    // never left.
-    if (p.refreshToken || !this.expired(p)) return true
+    // never left. In cookie mode the refresh token is the server's cookie — unreadable here,
+    // but exactly as renewable.
+    if (p.refreshToken || this.config.cookies || !this.expired(p)) return true
     // Spent AND unrenewable — the state a window opened by the desktop app reaches when nothing
     // has fed it for ten minutes. EVICT rather than merely answer false: leaving it in storage
     // means every other path that looks there finds it again, and the daemon does not refuse a
@@ -115,7 +116,8 @@ export class TokenManager {
         email,
         password: args.password,
         client_id: this.config.clientId,
-        device_label: this.deviceLabel()
+        device_label: this.deviceLabel(),
+        ...(this.config.cookies ? { cookie: true } : {})
       },
       'login'
     )) as LoginResponse
@@ -135,6 +137,11 @@ export class TokenManager {
    * presenting a dead token is not refused, it is accepted ANONYMOUSLY.
    */
   async restore(): Promise<TokenPair | null> {
+    // COOKIE MODE: there is nothing stored to consult — the session, if one exists, is an
+    // HttpOnly cookie only the server can read. One refresh answers signed-in or not. (A legacy
+    // refresh token still in this browser's storage rides along via readSecret and is retired
+    // by the exchange: the server rotates it into the cookie.)
+    if (this.config.cookies) return this.refresh()
     const stored = this.pair || this.readStored()
     if (!stored?.refreshToken) {
       // FED, BUT ABLE TO STOP BEING FED. A window opened by the desktop app arrives holding an
@@ -202,7 +209,7 @@ export class TokenManager {
 
   private async exchange(): Promise<TokenPair | null> {
     const token = this.pair?.refreshToken || (await this.readSecret())
-    if (!token) return null
+    if (!token && !this.config.cookies) return null
     let base = ''
     try {
       base = await this.base()
@@ -213,7 +220,8 @@ export class TokenManager {
     try {
       res = await this.send(`${base}/auth/refresh`, {
         refresh_token: token,
-        client_id: this.config.clientId
+        client_id: this.config.clientId,
+        ...(this.config.cookies ? { cookie: true } : {})
       })
     } catch {
       return null // offline. KEEP the credential: a flaky network is not a sign-out.
@@ -228,8 +236,12 @@ export class TokenManager {
     const next = this.toPair(data, this.pair?.email || '')
     if (!next.accessToken) return null
     // A server that rotates without returning a new refresh token leaves the old one valid. Keep
-    // it rather than dropping to a session that can never renew again.
-    if (!next.refreshToken) next.refreshToken = token
+    // it rather than dropping to a session that can never renew again. NOT in cookie mode: there
+    // the absence is deliberate (the rotated token became a Set-Cookie), and keeping the spent
+    // body token would hand the server a reused credential on the next refresh — which it treats
+    // as theft and answers by revoking the family.
+    if (!next.refreshToken && !this.config.cookies) next.refreshToken = token
+    if (this.config.cookies) next.refreshToken = ''
     if (!next.accountId && this.pair?.accountId) next.accountId = this.pair.accountId
     await this.set(next)
     return next
@@ -287,10 +299,13 @@ export class TokenManager {
   async logout(): Promise<void> {
     const token = this.pair?.refreshToken || (await this.readSecret())
     await this.set(null)
-    if (!token) return
+    if (!token && !this.config.cookies) return
     try {
       const base = await this.base()
-      await this.send(`${base}/auth/logout`, { refresh_token: token })
+      await this.send(`${base}/auth/logout`, {
+        refresh_token: token,
+        ...(this.config.cookies ? { cookie: true } : {})
+      })
     } catch {
       /* offline — the token still expires on its own */
     }
@@ -333,7 +348,7 @@ export class TokenManager {
     const p = this.pair
     // NO `life > 0` GUARD HERE. That was the bug: it made an already-dead token the one case
     // renewal refused to handle, which is the only case that actually matters.
-    if (p?.refreshToken && this.expiringSoon(p)) await this.refresh()
+    if (p && (p.refreshToken || this.config.cookies) && this.expiringSoon(p)) await this.refresh()
     this.schedule()
   }
 
@@ -341,7 +356,7 @@ export class TokenManager {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     const p = this.pair
-    if (!p?.refreshToken) return
+    if (!p?.refreshToken && !(this.config.cookies && p)) return
     // Read from the CURRENT pair, AFTER any refresh. Computing this from the pre-refresh value
     // scheduled the next attempt against a lifetime that no longer existed.
     if (!p.expiresAt) {
@@ -483,6 +498,9 @@ export class TokenManager {
       return await call(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        // 'include', because in cookie mode the accounts service is another origin and the
+        // session IS the cookie. Everywhere else this is inert.
+        credentials: this.config.cookies ? 'include' : 'same-origin',
         body: JSON.stringify(body),
         signal: ctl?.signal
       })

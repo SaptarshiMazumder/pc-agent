@@ -413,6 +413,7 @@ class _FakeTool:
         return SimpleNamespace(
             content=[SimpleNamespace(text=f"ran-as:{ctx.agent_id if ctx else 'none'}")],
             is_error=False,
+            details=None,
             artifacts=[],
         )
 

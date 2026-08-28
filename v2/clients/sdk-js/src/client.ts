@@ -416,23 +416,22 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
     history.replaceState(null, '', here.toString())
   }
   const client = new AgentdClient(options)
-  // THE LAST INCH OF THE PUSH CHAIN. The identity manager is created here, BOUND to this client:
-  // binding is what carries a new credential onto the OPEN socket (`auth.update`), and creating
-  // it at boot is what subscribes the window to the shell's token pushes at all. Without this
-  // line both halves ran and nothing moved: the shell pushed, the manager adopted — and the
-  // socket kept presenting its launch token until the daemon refused it ten minutes in
-  // (`auth_expired` mid-chat, live). Every window built by this helper is looked after now.
-  identity({ client })
-  // The RESOLVER form, not a static target: the stored session and mode are re-read on every
-  // (re)connect, so a sign-in or a mode change is carried by the next socket without the app
-  // doing anything. A fixed object would pin whatever was stored at page load.
+  // The RESOLVER form, not a static target: identity and mode are re-read on every (re)connect,
+  // so a sign-in or a mode change is carried by the next socket without the app doing anything.
+  //
+  // On DESKTOP nothing travels: the daemon inherits the machine's identity for a connection that
+  // presents no session (gateway.py). The one thing the window must still know is WHETHER the
+  // machine is signed in, because the default run mode hangs on it — so it asks the runtime,
+  // whose answer is cached and shared with everything else via `identity()`. On HOSTED that ask
+  // is a 404 (answered as signed-out) and the borrowed launch-URL session travels instead.
   client.connect(async () => {
     const stored = loadSession()?.token
+    const signedIn = !!stored || (await identity({ origin: here.origin }).state()).state === 'ok'
     return {
       url: here.origin,
       token: token || undefined,
       session: stored || undefined,
-      mode: effectiveMode('', !!stored),
+      mode: effectiveMode('', signedIn),
       scope: scope || undefined
     }
   })

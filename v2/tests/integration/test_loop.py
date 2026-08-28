@@ -357,7 +357,13 @@ async def test_stream_error_ends_run():
     ]
     events, new, msgs = await collect_run(script, [])
     assert events[-1].payload["stopReason"] == "error"
-    assert events[-1].payload.get("error") == "provider down"  # exact reason surfaced
+    # The reason is SAID ONCE now: streamed as the run's visible fallback message (persisted to
+    # the transcript), not duplicated into an `error` banner on agent_end (native.py).
+    assert events[-1].payload.get("error") is None
+    streamed = "".join(
+        e.payload.get("delta", "") for e in events if e.type == "message_update"
+    )
+    assert "provider down" in streamed  # exact reason surfaced, in the message that survives
 
 
 class ProgressTool(Tool):

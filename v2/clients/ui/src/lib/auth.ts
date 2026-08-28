@@ -21,7 +21,7 @@ import type { Catalog, CreditPack, Credits, Purchase } from '@agentd/billing'
 
 import { gateway } from '../gateway/client'
 import { platformDoc } from './discovery'
-import { hostBroadcastAppToken, randomUuid } from './host'
+import { hostAuthRequest, hostSecrets, isDesktop, randomUuid } from './host'
 import {
   clearTokens,
   configureTokens,
@@ -52,11 +52,85 @@ const listeners = new Set<() => void>()
  */
 let cached: Session | null = null
 
+/** DESKTOP: the machine's session as the runtime last answered it. The runtime is the only
+ *  holder (agent_runtime/infrastructure/platform_session.py); this is a mirror for rendering. */
+let machine: Session | null = null
+
 function project(): Session | null {
+  if (isDesktop) return machine
   const p = currentPair()
   return p && p.accessToken
     ? { token: p.accessToken, accountId: p.accountId, email: p.email }
     : null
+}
+
+/** One /auth/* ask through the shell's main process. Status 0 = the daemon itself is away. */
+async function askRuntime(
+  path: string,
+  headers?: Record<string, string>
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const call = hostAuthRequest(path, headers)
+  if (!call) return { status: 0, body: {} }
+  return call
+}
+
+/** Re-read the machine's sign-in state from the runtime and re-render whoever shows it. */
+async function refreshMachine(): Promise<void> {
+  const r = await askRuntime('/auth/token')
+  const b = r.body as { state?: string; accessToken?: string; accountId?: string; email?: string }
+  machine =
+    b?.state === 'ok' && b.accessToken
+      ? {
+          token: String(b.accessToken),
+          accountId: String(b.accountId || ''),
+          email: String(b.email || '')
+        }
+      : r.status === 0 || b?.state === 'accounts_unreachable'
+        ? machine // the network, not the credential — keep rendering the session we know
+        : null
+  announce()
+}
+
+/**
+ * ONE-TIME MIGRATION from the per-window world: the refresh token this desktop stored before
+ * the runtime became the holder (OS-encrypted via the preload bridge, or localStorage on
+ * installs older than that). Handed to the runtime, which validates it by USING it — one
+ * refresh rotates it into platform-session.json — and then cleared here so no second holder
+ * survives. A DEAD legacy token is cleared too (retrying it every boot buys nothing); an
+ * unreachable service keeps it for the next boot.
+ */
+async function migrateLegacySession(): Promise<void> {
+  const secrets = hostSecrets()
+  let legacy = ''
+  try {
+    legacy = (await secrets?.read()) || ''
+  } catch {
+    legacy = ''
+  }
+  if (!legacy) {
+    try {
+      legacy = localStorage.getItem('agentd.refresh') || ''
+    } catch {
+      legacy = ''
+    }
+  }
+  if (!legacy) return
+  const r = await askRuntime('/auth/adopt', { 'X-Auth-Refresh': legacy })
+  const state = String((r.body as { state?: string })?.state || '')
+  if (state === 'ok' || state === 'session_expired' || state === 'signed_out') {
+    try {
+      await secrets?.write(null)
+    } catch {
+      /* the bridge failing to clear is survivable — adopt already rotated the token */
+    }
+    try {
+      localStorage.removeItem('agentd.refresh')
+      localStorage.removeItem('agentd.auth')
+    } catch {
+      /* nothing stored */
+    }
+  }
+  if (state === 'ok') await refreshMachine()
 }
 
 function announce(): void {
@@ -121,16 +195,20 @@ export function isAccountsMode(): boolean {
 // signing in fresh skipped it, so the renewal timer had nowhere to send its request and every
 // refresh silently returned null.) Reading it lazily also means discovery resolving after this
 // module loads is picked up with no re-configuration.
-configureTokens(() => accountsUrl())
-// Every change to the credential — sign-in, renewal, sign-out — re-renders whoever is showing it.
-// Subscribing HERE rather than in each caller is what makes the projection above trustworthy.
-onTokens(announce)
-// THE PUSH CHAIN'S SEND SIDE. This shell holds the only refresh token; agent app windows run on
-// ten-minute access tokens they cannot renew. Main and both preloads have carried the pipe for a
-// while (app:broadcastToken -> agentdHost.onAccessToken) — but nothing ever put a token INTO it,
-// so every app window went anonymous at its first expiry. Every rotation goes down the pipe now;
-// each window's manager decides for itself whether to adopt what arrives.
-onTokens((p) => hostBroadcastAppToken(p?.accessToken || ''))
+// ON DESKTOP, NONE OF THE MANAGER RUNS. The runtime holds the one refresh token and renews it
+// (platform_session.py); this renderer asks over local HTTP like every other window on the
+// machine, and the push chain that fed app windows is gone because nothing needs feeding.
+// The manager — and its cookie mode — is the WEB's machinery, where there is no runtime to ask.
+if (!isDesktop) {
+  configureTokens(() => accountsUrl())
+  // Every change to the credential — sign-in, renewal, sign-out — re-renders whoever is showing
+  // it. Subscribing HERE rather than in each caller is what makes the projection trustworthy.
+  onTokens(announce)
+} else {
+  // Sign-in state is MACHINE state: when any window signs in or out, the runtime broadcasts
+  // `auth.changed` to every connection, and this one re-reads and re-renders.
+  gateway.on('auth.changed', () => void refreshMachine())
+}
 cached = project()
 
 export function getSession(): Session | null {
@@ -138,6 +216,18 @@ export function getSession(): Session | null {
 }
 
 export function signOut(): void {
+  if (isDesktop) {
+    // The RUNTIME forgets and revokes (every window on this machine signs out together —
+    // identity is a fact about the machine now); the socket rebuild drops this connection's
+    // inherited account.
+    void (async () => {
+      await askRuntime('/auth/logout')
+      machine = null
+      announce()
+      gateway.reconnect()
+    })()
+    return
+  }
   // Revokes server-side too, not just locally. Forgetting a 30-day refresh token without telling
   // the server leaves a live credential on a machine the user may have just stopped trusting.
   void clearTokens()
@@ -184,6 +274,27 @@ async function enter(args: {
   password: string
   signup?: boolean
 }): Promise<Session> {
+  if (isDesktop) {
+    // The RUNTIME does the exchanging and becomes the holder; the answer here is only "ok or
+    // why not". Credentials ride headers for the same reason the runtime's own do — its HTTP
+    // surface takes no body, and a query string lands in logs.
+    const r = await askRuntime('/auth/login', {
+      'X-Auth-Email': args.email.trim().toLowerCase(),
+      'X-Auth-Password': args.password,
+      ...(args.signup ? { 'X-Auth-Signup': '1' } : {})
+    })
+    const b = r.body as { state?: string; error?: string }
+    if (b?.state !== 'ok') {
+      // REJECTS with the server's own message so the form has something to show — a failed
+      // attempt must never resolve to "signed out".
+      throw new Error(String(b?.error || `sign-in failed (HTTP ${r.status || 'daemon away'})`))
+    }
+    await refreshMachine()
+    const s = getSession()
+    if (!s) throw new Error('signed in, but the runtime returned no session — try again')
+    gateway.reconnect()
+    return s
+  }
   const p = await tokens().login(args)
   const s: Session = {
     token: p.accessToken,
@@ -205,6 +316,14 @@ async function enter(args: {
  */
 export async function restoreSession(): Promise<Session | null> {
   if (!isAccountsMode()) return null
+  if (isDesktop) {
+    // The runtime already holds (and lazily renews) the machine's session; this is a read. The
+    // one write is the legacy migration: a pre-runtime refresh token still on this machine is
+    // handed over once and cleared.
+    await refreshMachine()
+    if (!machine) await migrateLegacySession()
+    return getSession()
+  }
   await restoreTokens()
   return getSession()
 }
@@ -217,6 +336,14 @@ export async function restoreSession(): Promise<Session | null> {
  */
 export async function currentAccessToken(): Promise<string> {
   if (!isAccountsMode()) return ''
+  if (isDesktop) {
+    // Asked fresh every time: the runtime caches and single-flights the real work, so this is
+    // one local HTTP hop, and the token that comes back is never near death (RENEW_MARGIN).
+    const r = await askRuntime('/auth/token')
+    const b = r.body as { state?: string; accessToken?: string }
+    const live = b?.state === 'ok' ? String(b.accessToken || '') : ''
+    return live || cached?.token || ''
+  }
   return (await getAccessToken()) || cached?.token || ''
 }
 
@@ -229,6 +356,15 @@ export async function currentAccessToken(): Promise<string> {
 export async function resolveSession(): Promise<'valid' | 'invalid' | 'unknown'> {
   const s = getSession()
   if (!s || !isAccountsMode()) return 'invalid'
+  if (isDesktop) {
+    // The runtime's typed answer maps one-to-one: it already distinguishes "the credential is
+    // dead" from "the service is away", which is the whole point of this function's contract.
+    const r = await askRuntime('/auth/token')
+    const state = String((r.body as { state?: string })?.state || '')
+    if (state === 'ok') return 'valid'
+    if (state === 'signed_out' || state === 'session_expired') return 'invalid'
+    return 'unknown'
+  }
   try {
     const r = await fetch(accountsUrl() + '/resolve', {
       headers: { Authorization: `Bearer ${s.token}` }

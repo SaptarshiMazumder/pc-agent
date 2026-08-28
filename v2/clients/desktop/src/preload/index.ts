@@ -18,6 +18,12 @@ const api = {
   },
   /** find-or-start the daemon; resolves {url, version, pid} when it's accepting */
   ensureDaemon: () => ipcRenderer.invoke('supervisor:ensure'),
+  /** the machine's sign-in, via main (the file:// page cannot read the daemon's answers itself) */
+  authRequest: (
+    path: string,
+    headers?: Record<string, string>
+  ): Promise<{ status: number; body: Record<string, unknown> }> =>
+    ipcRenderer.invoke('auth:request', path, headers),
   /** stop + respawn the daemon so restart-gated config changes take effect */
   restartDaemon: () => ipcRenderer.invoke('supervisor:restart'),
   onSupervisorStatus: (callback: (status: unknown) => void) => {

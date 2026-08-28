@@ -411,6 +411,11 @@ export const useApp = create<AppState>((set, get) => {
    *  reconnect — an API this daemon rejects, erroring in the logs and binding nothing. Billing
    *  needs no assertion call at all: `?mode=` rides the connect URL.) */
   async function reconcileSession(): Promise<void> {
+    // Desktop: structurally impossible to ghost — the rendered session IS the runtime's answer,
+    // and the connection inherits the same machine session. Forcing a signOut here on a daemon
+    // that answered "not signed in" during an offline blip would REVOKE the machine's session
+    // over the network being away.
+    if (isDesktop) return
     if (!getSession()) return // nothing stored, nothing to reconcile
     try {
       const status = await gateway.request<{ signedIn: boolean }>('platform.status')
@@ -660,7 +665,11 @@ export const useApp = create<AppState>((set, get) => {
           // The FRESHEST access token, not whatever is cached: this runs on every (re)connect,
           // including reconnects after a long sleep, and presenting an expired token would make
           // the daemon treat a signed-in client as anonymous.
-          const session = await currentAccessToken()
+          // DESKTOP PRESENTS NOTHING: the daemon inherits the machine's sign-in for a
+          // connection with no session (gateway.py) and keeps it fresh itself — a token pinned
+          // here would go stale in ten minutes with nothing pushing auth.update any more. The
+          // WEB still presents its session; the socket is its only way to say who it is.
+          const session = isDesktop ? '' : await currentAccessToken()
           const mode = getMode()
           if (session) u.searchParams.set('session', session)
           if (mode) u.searchParams.set('mode', mode)

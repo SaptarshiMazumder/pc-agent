@@ -96,6 +96,11 @@ export interface AuthConfig {
   onChange?: (pair: TokenPair | null) => void
 
   /** Injected for tests. Defaults to global fetch. */
+  /** BROWSER-ONLY. The refresh token lives in an HttpOnly cookie at the accounts service
+   *  instead of anywhere this code can read: requests go out with credentials and ask the
+   *  server for cookie mode, responses carry no refresh_token, and nothing durable is stored
+   *  on this side at all. The desktop keeps its token in the runtime and never sets this. */
+  cookies?: boolean
   fetchImpl?: typeof fetch
 
   timeoutMs?: number

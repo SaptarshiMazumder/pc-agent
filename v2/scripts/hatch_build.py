@@ -61,10 +61,15 @@ class BuiltinsStagingHook(BuildHookInterface):
             shutil.copyfile(default_cfg, data_dst / "config.default.json")
         # Starter agent content, laid out exactly as it will sit under ~/.agentd/agents/
         # (first_run.seed_user_layout copies this tree file-by-file, never overwriting).
-        #   main/skills     — the SHARED skills library every agent reads
-        #   agent-builder   — a shipped DEFAULT AGENT, whole: definition, prose, own skills
+        #   main/skills          — the SHARED skills library every agent reads
+        #   agent-builder        — a shipped DEFAULT AGENT, whole: definition, prose, own skills
+        #   cloud-agent-builder  — agent-builder's WEB sister (cabbie). Shipped alongside it on
+        #                          purpose: cabbie imports agent-builder's `agent_authoring` package
+        #                          and reads its templates by sibling path, so the two must land in
+        #                          the same agents dir. cabbie is served on hosted (no requires_local);
+        #                          agent-builder rides along withheld, present only for cabbie to reuse.
         # Add a path here to ship another default agent.
-        for rel in (Path("main") / "skills", Path("agent-builder")):
+        for rel in (Path("main") / "skills", Path("agent-builder"), Path("cloud-agent-builder")):
             src = root / "agents" / rel
             if src.is_dir():
                 _copy_filtered(src, data_dst / "agents" / rel)
