@@ -126,14 +126,13 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
-    env:
-      AWS_REGION: ${{ needs.resolve.outputs.region }}
     # `marketplace` is Job 3's target and names no image: without this guard, a manual run picking
     # it would reach the build step with build=marketplace and fail looking for a Dockerfile.
     if: needs.resolve.outputs.service != 'marketplace'
     env:
       ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
       DEPLOY_SERVICE: ${{ needs.resolve.outputs.service }}
+      AWS_REGION: ${{ needs.resolve.outputs.region }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -475,14 +474,13 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
-    env:
-      AWS_REGION: ${{ needs.resolve.outputs.region }}
     # A manual single-service run ("deploy just the daemon") must not also redeploy the store.
     if: >-
       needs.resolve.outputs.service == 'all' ||
       needs.resolve.outputs.service == 'marketplace'
     env:
       ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+      AWS_REGION: ${{ needs.resolve.outputs.region }}
     steps:
       - uses: actions/checkout@v4
         with:
