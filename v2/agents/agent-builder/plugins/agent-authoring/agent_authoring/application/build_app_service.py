@@ -69,7 +69,7 @@ class BuildAppService:
             raise BuildAppError(
                 "the build reported success but wrote nothing to ui/. Check that app/vite.config.ts "
                 "still has `outDir: '../ui'` — the daemon serves ui/ and nothing else.\n\n"
-                f"{result.output}"
+                f"{outcome.output}"
             )
 
         return BuildAppResult(

@@ -52,6 +52,13 @@ def _sign(body: bytes, *, secret: str = WEBHOOK_SECRET, timestamp: int | None = 
     return f"t={ts},v1={mac}"
 
 
+def _headers(signature: str) -> dict[str, str]:
+    """The signature as it ARRIVES — in a header. `verify` takes the whole header mapping, not a
+    bare signature, because which header carries the proof is the Stripe rail's own knowledge
+    (a different rail reads a different one). Tests go through the same door production does."""
+    return {"stripe-signature": signature}
+
+
 def _session_event(
     *, event_id="evt_1", session_id="cs_test_1", amount_total=2000, metadata=None,
     kind="checkout.session.completed", payment_status_="paid",
@@ -178,7 +185,7 @@ def test_a_forged_signature_is_rejected():
     body = _session_event()
     verifier = StripeWebhookVerifier(WEBHOOK_SECRET)
     with pytest.raises(WebhookRejected, match="does not match"):
-        verifier.verify(body, _sign(body, secret="whsec_someone_elses"))
+        verifier.verify(body, _headers(_sign(body, secret="whsec_someone_elses")))
 
 
 def test_a_body_altered_after_signing_is_rejected():
@@ -186,7 +193,7 @@ def test_a_body_altered_after_signing_is_rejected():
     signature = _sign(body)
     tampered = body.replace(b'"amount_total": 2000', b'"amount_total": 1')
     with pytest.raises(WebhookRejected):
-        StripeWebhookVerifier(WEBHOOK_SECRET).verify(tampered, signature)
+        StripeWebhookVerifier(WEBHOOK_SECRET).verify(tampered, _headers(signature))
 
 
 def test_a_captured_delivery_cannot_be_replayed_forever():
@@ -195,7 +202,7 @@ def test_a_captured_delivery_cannot_be_replayed_forever():
     body = _session_event()
     old = _sign(body, timestamp=int(time.time()) - 3600)
     with pytest.raises(WebhookRejected, match="replay window"):
-        StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, old)
+        StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(old))
 
 
 def test_both_signatures_are_accepted_during_a_secret_rotation():
@@ -205,26 +212,26 @@ def test_both_signatures_are_accepted_during_a_secret_rotation():
     ts = int(time.time())
     stale = hmac.new(b"whsec_old", f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
     good = hmac.new(WEBHOOK_SECRET.encode(), f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
-    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, f"t={ts},v1={stale},v1={good}")
+    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(f"t={ts},v1={stale},v1={good}"))
     assert event.type == payment_event.PURCHASE_SUCCEEDED
 
 
 def test_a_missing_header_is_rejected_rather_than_treated_as_unsigned():
     with pytest.raises(WebhookRejected, match="no Stripe-Signature"):
-        StripeWebhookVerifier(WEBHOOK_SECRET).verify(_session_event(), "")
+        StripeWebhookVerifier(WEBHOOK_SECRET).verify(_session_event(), {})
 
 
 def test_a_completed_session_that_has_not_been_paid_grants_nothing_yet():
     """A delayed payment method completes the SESSION while the money is still in flight.
     Granting here hands over credits for a payment that can still fail days later."""
     body = _session_event(payment_status_="unpaid")
-    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _sign(body))
+    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(_sign(body)))
     assert event.type == payment_event.IGNORED
 
 
 def test_the_later_async_success_is_what_grants():
     body = _session_event(kind="checkout.session.async_payment_succeeded")
-    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _sign(body))
+    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(_sign(body)))
     assert event.type == payment_event.PURCHASE_SUCCEEDED
 
 
@@ -232,13 +239,13 @@ def test_an_event_type_we_never_subscribed_to_is_ignored_not_failed():
     """Answering with a failure makes Stripe retry for days and eventually disable the endpoint,
     taking the events we DO care about with it."""
     body = _session_event(kind="invoice.updated")
-    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _sign(body))
+    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(_sign(body)))
     assert event.type == payment_event.IGNORED
 
 
 def test_the_amount_that_reaches_the_books_is_the_one_stripe_reports():
     body = _session_event(amount_total=1999)
-    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _sign(body))
+    event = StripeWebhookVerifier(WEBHOOK_SECRET).verify(body, _headers(_sign(body)))
     assert event.payment.amount.to_usd() == pytest.approx(19.99)
 
 

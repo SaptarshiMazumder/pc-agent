@@ -108,8 +108,24 @@ def test_config_methods_are_app_callable():
 
 
 # --- B. the cross-agent boundary ---------------------------------------------
-def test_only_agent_builder_may_cross():
-    assert set(CROSS_AGENT_READS) == {"agent-builder"}
+def test_only_the_builders_may_cross():
+    """A PINNED LIST, deliberately. Crossing the app-scope boundary is the one exception to "an
+    app can never act as another agent", so growing this set must be a conscious edit here rather
+    than something a change to the gateway does quietly on its way past.
+
+    Cloud Agent Builder joined it because authoring an agent means reading it, and cabbie is the
+    only builder the web has. It gets STRUCTURALLY less than agent-builder does — the sibling
+    tests below hold the line on what any of them may do."""
+    assert set(CROSS_AGENT_READS) == {"agent-builder", "cloud-agent-builder"}
+
+
+def test_the_hosted_builder_cannot_read_another_agents_transcripts():
+    """The reason cabbie's grant is narrower, pinned so it cannot widen by accident. agent-builder
+    keeps sessions because it is desktop-only, where the caller is the machine's owner reading
+    their own machine; cabbie runs on a shared daemon where the agent beside it is a stranger's,
+    and authoring never needs to read what somebody said to it."""
+    assert "sessions.list" not in CROSS_AGENT_READS["cloud-agent-builder"]
+    assert "sessions.history" not in CROSS_AGENT_READS["cloud-agent-builder"]
 
 
 @pytest.mark.parametrize(

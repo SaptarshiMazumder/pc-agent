@@ -20,6 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_authoring.application.build_app_service import BuildAppError, BuildAppService
+from agent_authoring.infrastructure.local_node_build_backend import LocalNodeBuildBackend
 from agent_authoring.infrastructure.node_toolchain import CommandOutput, NodeMissing, NodeToolchain
 
 
@@ -78,7 +79,15 @@ def agent(tmp_path):
 
 
 def service(root, toolchain=None, store=None):
-    return BuildAppService(FakeReader(root), toolchain or FakeToolchain(), store or FakeStore())
+    """The service wired to the LOCAL backend — which is where the node and the dependency store
+    now live (BuildAppService owns the ORDER; a BuildBackend owns the WHERE).
+
+    Composed with the REAL LocalNodeBuildBackend rather than a fake one, because that adapter is
+    the pre-port behaviour moved across verbatim: going through it keeps these tests covering the
+    same ground they always did — the order of require/ensure/build, and the reporting — while
+    the fakes stay exactly where they were, at the toolchain and the store."""
+    backend = LocalNodeBuildBackend(toolchain or FakeToolchain(), store or FakeStore())
+    return BuildAppService(FakeReader(root), backend)
 
 
 # ── the happy path ──────────────────────────────────────────────────────────
