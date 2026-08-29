@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Folder, SquarePen, FolderOpen, MessageSquare } from 'lucide-react'
 
 import { agentLabel, hashColor, MAIN_AGENT_ID } from '../lib/agentPresentation'
+import { listableAgents } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
@@ -75,7 +76,8 @@ export default function ProjectView() {
                   onChange={(e) => void setProjectLead(project.id, e.target.value === MAIN_AGENT_ID ? '' : e.target.value)}
                   title="which agent answers new chats in this project (it can still bring in other agents)"
                 >
-                  {agents.map((a) => (
+                  {/* a product surface cannot be a project's lead — see standaloneApps */}
+                  {listableAgents(agents).map((a) => (
                     <option key={a.id} value={a.id}>
                       {agentLabel(a.name, a.id, hello?.agentName)}{a.id === MAIN_AGENT_ID ? ' (default)' : ''}
                     </option>

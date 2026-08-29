@@ -4,6 +4,7 @@ import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentLabel, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { fetchCredits, onCreditsChanged, useAuthSession } from '../lib/auth'
+import { listableAgents } from '../lib/standaloneApps'
 import Thread from '../chat/Thread'
 import { useApp, type OutgoingAttachment } from '../state/store'
 import FileName from './FileName'
@@ -292,7 +293,8 @@ export default function ChatView() {
                 </button>
                 <div className="cmenu-sep" />
                 <div className="cmenu-label"><Users size={13} />Message an agent</div>
-                {agents.map((a) => {
+                {/* the product's own surfaces are not agents you message — see standaloneApps */}
+                {listableAgents(agents).map((a) => {
                   // one label for display AND the inserted @mention — the gateway resolves
                   // mentions by id OR display name, so what the user sees is what routes.
                   const label = agentLabel(a.name, a.id, hello?.agentName)

@@ -7,6 +7,7 @@ import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agent
 import { useAuthSession } from '../lib/auth'
 import { hostOs } from '../lib/host'
 import { fetchMyOrgs, type OrgMembership } from '../lib/orgs'
+import { listableAgents } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
 import MarketplaceCards from './MarketplaceCards'
 import { webHref } from './MarketplaceView'
@@ -252,7 +253,10 @@ export default function MyAgentsView() {
 
   const shelf: Shelf[] = useMemo(() => {
     const byId = new Map(catalog.map((b) => [b.id, b]))
-    return agents
+    // `listableAgents` drops the product's own surfaces (Agent Builder and the like, which
+    // declare `[app] standalone`). This is the user's shelf — what they built, installed or
+    // were shared — and a feature of the app sitting on it reads as one more thing they chose.
+    return listableAgents(agents)
       .filter((a) => a.id !== MAIN_AGENT_ID && !a.sample)
       .map((agent) => ({ agent, published: byId.get(agent.id) || null }))
   }, [agents, catalog])
