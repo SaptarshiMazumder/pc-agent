@@ -23,11 +23,11 @@
  */
 
 import { useEffect } from 'react'
-import { ShieldAlert } from 'lucide-react'
+import { LogOut, ShieldAlert } from 'lucide-react'
 
 import AdminView from './components/AdminView'
 import SignIn from './components/SignIn'
-import { isAccountsMode, useAuthSession } from './lib/auth'
+import { isAccountsMode, signOut, useAuthSession } from './lib/auth'
 import { useIsAdmin } from './lib/admin'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
@@ -37,26 +37,48 @@ export default function AdminApp() {
   const session = useAuthSession()
   const admin = useIsAdmin()
 
-  // The daemon connection, for the Defaults tab. Held back until there IS a session, exactly as
-  // the app does: connecting first would open a socket for someone the gate is about to stop.
-  const needsSignIn = isAccountsMode() && !session
+  // The daemon connection, for the Defaults tab — held back until the GATE HAS PASSED, not
+  // merely until sign-in. Connecting for a refused visitor opened a WebSocket on the very page
+  // that then had nothing to say over it, and every non-admin who found the URL held one open.
   useEffect(() => {
-    if (!needsSignIn) void bootstrap()
-  }, [bootstrap, needsSignIn])
+    if (session && admin) void bootstrap()
+  }, [bootstrap, session, admin])
 
   useEffect(() => installSoftScroll(), [])
 
-  if (needsSignIn) return <SignIn />
+  if (isAccountsMode() && !session) return <SignIn />
 
   // NOT A SECURITY CHECK — the services refuse a non-admin on their own. It is here so somebody
   // who followed a link gets a sentence instead of a console full of empty tables and errors.
+  // WITH A DOOR OUT: naming the account and offering sign-out is what turns "wrong account" from
+  // a dead end into a two-click fix — without it, someone signed in as the wrong user was simply
+  // stuck, with nothing on the page they could act on.
   if (!admin) {
     return (
       <div className="settings">
         <div className="settings-inner settings-wide">
           <div className="settings-empty">
             <ShieldAlert size={20} />
-            <p>This account is not an administrator of this deployment.</p>
+            <p>
+              {session?.email ? (
+                <>
+                  <strong>{session.email}</strong> is not an administrator of this deployment.
+                </>
+              ) : (
+                'This account is not an administrator of this deployment.'
+              )}
+            </p>
+            <button
+              className="btn"
+              onClick={() => {
+                signOut()
+                location.reload()
+              }}
+              title="Sign out and return to the sign-in form — use it to switch to an admin account"
+            >
+              <LogOut size={14} />
+              Sign out
+            </button>
           </div>
         </div>
       </div>

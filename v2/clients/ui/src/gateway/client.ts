@@ -68,10 +68,16 @@ export class GatewayClient {
     this.teardownSocket() // close any socket a concurrent open() (StrictMode) just assigned
     this.ws = ws
     ws.onopen = () => {
-      this.reconnectDelay = 1000
       for (const handler of this.statusHandlers) handler('open')
     }
-    ws.onmessage = (message) => this.handleFrame(JSON.parse(message.data as string) as Frame)
+    ws.onmessage = (message) => {
+      // The backoff resets HERE, not in onopen. A socket that opens and then dies before a
+      // single frame has NOT proven anything — resetting on open meant an open-then-drop
+      // failure redialled at 1s forever, and a page full of those is a self-inflicted
+      // connection storm. One received frame is the connection earning its reset.
+      this.reconnectDelay = 1000
+      this.handleFrame(JSON.parse(message.data as string) as Frame)
+    }
     ws.onclose = () => {
       for (const [, pending] of this.pending) pending.reject(new Error('connection closed'))
       this.pending.clear()
