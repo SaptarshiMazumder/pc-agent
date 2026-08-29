@@ -353,7 +353,10 @@ resource "aws_lb_listener" "publish" {
   port              = var.publish_listener_port
   protocol          = local.tls_enabled ? "HTTPS" : "HTTP"
   ssl_policy        = local.tls_enabled ? "ELBSecurityPolicy-TLS13-1-2-2021-06" : null
-  certificate_arn   = local.tls_enabled ? var.certificate_arn : null
+  # local.listener_certificate_arn, NOT var.certificate_arn: the certificate may be the
+  # module-managed one (dns.tf), in which case the variable is empty — alb.tf owns the
+  # "which certificate" decision once, and every HTTPS listener reads it from there.
+  certificate_arn   = local.tls_enabled ? local.listener_certificate_arn : null
 
   default_action {
     type             = "forward"

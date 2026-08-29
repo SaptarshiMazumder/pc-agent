@@ -28,6 +28,14 @@ provider "aws" {
   region = "ap-northeast-1"
 }
 
+# CloudFront-region provider — dns.tf mints the marketplace certificate in us-east-1 because
+# CloudFront reads certificates from nowhere else. The module REQUIRES this alias to be passed
+# (configuration_aliases in modules/providers.tf) even when root_domain is empty.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 variable "model_proxy_desired_count" {
   description = "Initial Model Proxy task count; use 0 during the one-time gateway rename."
   type        = number
@@ -120,8 +128,33 @@ variable "marketplace_certificate_arn" {
   default     = ""
 }
 
+
+# ── the domain (see dev.auto.tfvars for the values + DOMAIN-SETUP.md for bring-up) ──────────────
+variable "root_domain" {
+  description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard."
+  type        = string
+  default     = ""
+}
+
+variable "agent_hostnames" {
+  description = "Vanity hostname -> agent id (ALB host rule + AGENTD_APP_HOSTS, one map so they cannot disagree)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "admin_hostname" {
+  description = "The standalone admin console's hostname (nginx server_name + the ALB rule that shields it from the wildcard)."
+  type        = string
+  default     = ""
+}
+
 module "stack" {
   source = "../../modules"
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 
   environment = "dev"
   paused      = var.paused
@@ -132,6 +165,9 @@ module "stack" {
   publish_engine_sha256    = var.publish_engine_sha256
   publish_engine_version   = var.publish_engine_version
   hibernate                = var.hibernate
+  root_domain              = var.root_domain
+  agent_hostnames          = var.agent_hostnames
+  admin_hostname           = var.admin_hostname
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -202,6 +238,21 @@ output "app_url" {
   description = "The public URL of the app."
   value       = module.stack.app_url
 }
+output "region" {
+  description = "This environment's AWS region (push-images.ps1, set-keys.ps1 and deploy.yml read it)."
+  value       = module.stack.region
+}
+output "hosted_zone_name_servers" {
+  description = "Route 53 nameservers for root_domain — paste these at the registrar (DOMAIN-SETUP.md step 2)."
+  value       = module.stack.hosted_zone_name_servers
+}
+
+output "domain_urls" {
+  description = "Every hostname the managed domain serves — open these to verify the domain end to end."
+  value       = module.stack.domain_urls
+}
+
+
 
 output "platform_url" {
   description = "[platform] platform_url - THE ONE address a client bakes; everything else is discovered from it."

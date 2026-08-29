@@ -150,6 +150,9 @@ def test_agent_toml_app_section_parsed(tmp_path):
         "mode": "browser",
         "public": False,
         "public_tools": (),
+        # undeclared -> an ordinary agent (not a product surface), its own surface key
+        "standalone": False,
+        "surface": "consoleapp",
     }
     assert reg.get("main").app is None  # no [app] -> a plain chat agent
 
@@ -279,6 +282,9 @@ def test_agents_list_carries_app_surface(tmp_path):
         "title": "Demo Console",
         "url": "/apps/demo/",
         "mode": "browser",
+        "standalone": False,
+        "surface": "demo",
+        "requiresLocal": False,
     }
     # a declared [app] whose entry file is MISSING must not advertise
     broken = SimpleNamespace(
@@ -422,7 +428,10 @@ def test_tools_invoke_scoped_runs_agent_allowed_tool(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     gw.service = SimpleNamespace(
-        find_tool=lambda n, a=None: _FakeTool() if n == "echo_tool" else None
+        find_tool=lambda n, a=None: _FakeTool() if n == "echo_tool" else None,
+        # the agent-declared write fence — none declared in these specs, so three empties,
+        # exactly what AgentService.resolve_write_fence returns for a fence-less agent
+        resolve_write_fence=lambda spec: ((), (), ()),
     )
     # scoped: allowed (spec.tools_allow=None => all) and runs AS the agent (run context set)
     out = asyncio.run(gw._tools_invoke({"name": "echo_tool"}, "demo"))
@@ -548,6 +557,8 @@ def test_agents_create_scaffolds_app_agent(tmp_path):
         "mode": "window",
         "public": False,  # scaffolded agents are always private until the author opts in
         "public_tools": (),
+        "standalone": False,
+        "surface": "hr-desk",
     }
     entry = Path(cfg.agents_dir) / "hr-desk" / "ui" / "index.html"
     assert entry.is_file() and "HR Desk" in entry.read_text(encoding="utf-8")
@@ -556,6 +567,9 @@ def test_agents_create_scaffolds_app_agent(tmp_path):
         "title": "HR Desk",
         "url": "/apps/hr-desk/",
         "mode": "window",
+        "standalone": False,
+        "surface": "hr-desk",
+        "requiresLocal": False,
     }
     # a plain create stays a chat agent (no [app], no ui/)
     assert reg.create("plain", name="Plain").app is None
@@ -614,12 +628,17 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
         "mode": "window",
         "public": False,
         "public_tools": (),
+        "standalone": False,
+        "surface": "kiosk",
     }
     gw = _gw_with_agent(tmp_path, spec)
     assert gw._agent_app("kiosk", spec) == {
         "title": "Kiosk Console",
         "url": "/apps/kiosk/",
         "mode": "window",
+        "standalone": False,
+        "surface": "kiosk",
+        "requiresLocal": False,
     }
     r = _serve(gw, "/apps/kiosk/")
     assert r.status_code == 200 and b"Kiosk Console" in r.body
@@ -732,7 +751,10 @@ def test_tools_invoke_public_filter(tmp_path):
         name = "send_email"
 
     tools = {"echo_tool": _FakeTool(), "send_email": _MailTool()}
-    gw.service = SimpleNamespace(find_tool=lambda n, a=None: tools.get(n))
+    gw.service = SimpleNamespace(
+        find_tool=lambda n, a=None: tools.get(n),
+        resolve_write_fence=lambda spec: ((), (), ()),
+    )
 
     # public: the declared tool runs AS the agent…
     out = asyncio.run(gw._tools_invoke({"name": "echo_tool"}, "demo", True))
@@ -789,3 +811,49 @@ def test_host_alias_serving_scope_and_dormancy(tmp_path):
         )
         is None
     )
+
+
+def test_host_suffix_derives_the_agent_from_the_label(tmp_path):
+    """The WILDCARD half of app hosting (config.app_host_suffix): <label>.<suffix> IS the agent
+    id, so publishing mints a URL with no per-agent configuration. The exact map still wins
+    (platform.<suffix> can point at an agent not named "platform"), reserved labels never
+    derive, and shapes that are not one clean label never derive."""
+    spec = _app_agent_dir(tmp_path)
+    gw = _gw_with_agent(tmp_path, spec)
+    gw.config.app_hosts = {}
+    gw.config.app_host_suffix = "example.com"
+
+    def alias(host):
+        return gw._host_alias({"Host": host})
+
+    # the label is the agent id — and serving works end to end through the same path
+    assert alias("demo.example.com") == "demo"
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    )
+    assert r is not None and r.status_code == 200 and b"demo app" in r.body
+
+    # …and the connection a page opens from that host is scoped to the derived agent
+    ws = SimpleNamespace(request=SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    assert gw._connection_scope(ws) == "demo"
+
+    # the apex is the web client's, never an agent's
+    assert alias("example.com") is None
+    # one label only — the org level is deliberately not an agent
+    assert alias("a.b.example.com") is None
+    # reserved labels never derive, whatever is published under those ids
+    for label in ("admin", "platform", "marketplace", "www", "api"):
+        assert alias(f"{label}.example.com") is None, label
+    # a different domain entirely never derives
+    assert alias("demo.elsewhere.com") is None
+    # ids must look like ids
+    assert alias("UPPER.example.com") is None or alias("upper.example.com") == "upper"
+
+    # the exact map OUTRANKS derivation: platform.<suffix> -> an agent NOT named "platform"
+    gw.config.app_hosts = {"platform.example.com": "demo"}
+    assert alias("platform.example.com") == "demo"
+
+    # dormant with no suffix, exactly as before
+    gw.config.app_host_suffix = ""
+    gw.config.app_hosts = {}
+    assert alias("demo.example.com") is None

@@ -8,7 +8,9 @@
  * the token's own claim, not via anything this module does.
  */
 
-import { accountsUrl, currentAccessToken, isAccountsMode } from './auth'
+import { useEffect, useState } from 'react'
+
+import { accountsUrl, currentAccessToken, isAccountsMode, useAuthSession } from './auth'
 
 export type OrgMembership = { id: string; name: string; role: string }
 export type JoinableOrg = { id: string; name: string }
@@ -111,6 +113,46 @@ export async function fetchMyOrgs(): Promise<MyOrgs> {
       name: String(o.name || o.id || '')
     }))
   }
+}
+
+// The last-fetched memberships, so a remount (the sidebar collapses and reopens, a view
+// swaps) renders the org row immediately instead of blinking it in after a round trip. Primed
+// by useMyOrgs below; cleared implicitly on sign-out because the hook returns [] when there is
+// no session and refetches on the next one.
+let cachedMemberships: OrgMembership[] | null = null
+
+/**
+ * React hook: the signed-in account's org memberships, [] while signed out or still loading.
+ *
+ * This is the NAV's question — "does this person belong to an organization at all?" — asked by
+ * the sidebar to decide whether an Organization row exists. Pages that need the full answer
+ * (joinable offers, roles for admin controls) keep calling fetchMyOrgs themselves; this hook
+ * is deliberately just the membership list, cached across mounts.
+ */
+export function useMyOrgs(): OrgMembership[] {
+  const session = useAuthSession()
+  const [orgs, setOrgs] = useState<OrgMembership[]>(session ? (cachedMemberships ?? []) : [])
+  useEffect(() => {
+    if (!session) {
+      setOrgs([])
+      return
+    }
+    let live = true
+    fetchMyOrgs()
+      .then((d) => {
+        cachedMemberships = d.orgs
+        if (live) setOrgs(d.orgs)
+      })
+      .catch(() => {
+        // Signed in but accounts unreachable: keep whatever we had rather than flashing the
+        // row away — the nav disappearing is worse than it being one fetch stale.
+        if (live && cachedMemberships) setOrgs(cachedMemberships)
+      })
+    return () => {
+      live = false
+    }
+  }, [session])
+  return orgs
 }
 
 export async function createOrg(name: string, seatsTotal?: number): Promise<OrgDetail> {

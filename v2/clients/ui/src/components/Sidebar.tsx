@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { Blocks, ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
+import { Blocks, Building2, ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { openAdminConsole, useIsAdmin } from '../lib/admin'
+import { useMyOrgs } from '../lib/orgs'
 import { launchStandaloneApp, listableAgents, standaloneApps } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
@@ -84,6 +85,7 @@ export default function Sidebar() {
   const resumeSession = useApp((s) => s.resumeSession)
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
+  const viewOrg = useApp((s) => s.viewOrg)
   const connection = useApp((s) => s.connection)
   const theme = useApp((s) => s.theme)
   const toggleTheme = useApp((s) => s.toggleTheme)
@@ -124,6 +126,7 @@ export default function Sidebar() {
   // defaults every account inherits, who may sign in, where the money went — so it belongs in
   // the nav beside Projects rather than three clicks down inside one account's preferences.
   const admin = useIsAdmin()
+  const orgs = useMyOrgs()
 
   // ---- collapsed icon rail --------------------------------------------------
   if (collapsed) {
@@ -203,6 +206,18 @@ export default function Sidebar() {
           onClick={() => setView('myagents')}
           title="My Agents — install, publish, open"
         />
+        {/* THE ORGANIZATION — present exactly when the account belongs to one (memberships come
+            from accounts, so an individual account never sees this). One org opens straight to
+            its page — agents, members, seats; several open the overview to pick from. */}
+        {orgs.length > 0 && (
+          <NavRow
+            icon={<Building2 size={17} />}
+            label={orgs.length === 1 ? orgs[0].name : 'Organizations'}
+            active={view === 'org'}
+            onClick={() => viewOrg(orgs.length === 1 ? orgs[0].id : '')}
+            title="Your organization — its agents, members, seats and credits"
+          />
+        )}
         {/* PRODUCT SURFACES — one row per agent that declares `[app] standalone`. Rendered from
             the roster, so Agent Builder appears on a desktop and Cloud Agent Builder on the web
             purely because each is offered there; neither is named here, and a third would show

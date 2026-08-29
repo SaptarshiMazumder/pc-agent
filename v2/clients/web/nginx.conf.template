@@ -1,0 +1,67 @@
+# A TEMPLATE, not a config: 15-agentd-servers.sh substitutes ${ADMIN_HOSTNAME} at container
+# start (only that variable — nginx's own $uri etc. pass through untouched), so one image serves
+# any domain. Unset, the admin server_name defaults to "admin.invalid" and that block is inert —
+# every environment without a domain keeps exactly the old single-server behaviour.
+
+# THE APP — and the default server, so the ALB's own hostname, the apex, and anything else that
+# is not the admin console all land here.
+server {
+  listen 80 default_server;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /assets/ {
+    try_files $uri =404;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+  }
+
+  # THE ADMIN CONSOLE IS ITS OWN DOCUMENT (ui/admin.html, a second vite entry), not a route inside
+  # the app. Matched EXACTLY and before the SPA fallback below — `location /` would otherwise hand
+  # /admin the app's index.html, and the operator would get the chat shell at the admin address.
+  #
+  # NO TRAILING SLASH, deliberately. The build uses `base: './'`, so the document's asset urls are
+  # relative: served at `/admin` they resolve against `/` and find `/assets/…`, while at `/admin/`
+  # they would resolve against `/admin/` and 404 on every one. The redirect keeps a typed slash
+  # working instead of silently serving a blank page.
+  #
+  # This path stays even when admin.<domain> exists (the server below): /admin is how every
+  # pre-domain bookmark and the desktop build reach the console, and serving both costs nothing.
+  location = /admin {
+    try_files /admin.html =404;
+    add_header Cache-Control "no-cache";
+  }
+  location = /admin/ {
+    return 301 /admin;
+  }
+
+  location / {
+    try_files $uri /index.html;
+    add_header Cache-Control "no-cache";
+  }
+}
+
+# THE ADMIN CONSOLE'S OWN HOSTNAME (admin.<domain>). Same image, same documents — nginx just
+# answers this Host with admin.html at the ROOT, which works because the build's `base: './'`
+# makes the document's asset urls relative: at `/` they resolve to `/assets/…`, the same files
+# the app server above serves. The ALB routes this hostname here explicitly (alb.tf admin_host)
+# so the *.<domain> wildcard cannot hand the console's address to the daemon.
+server {
+  listen 80;
+  server_name ${ADMIN_HOSTNAME};
+  root /usr/share/nginx/html;
+
+  location /assets/ {
+    try_files $uri =404;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+  }
+
+  # Muscle memory from the path era: /admin on the admin host is just the root.
+  location = /admin {
+    return 301 /;
+  }
+
+  location / {
+    try_files /admin.html =404;
+    add_header Cache-Control "no-cache";
+  }
+}

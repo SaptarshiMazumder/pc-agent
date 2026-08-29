@@ -33,7 +33,12 @@ const PATHS: Partial<Record<View, string>> = {
   datasources: '/datasources',
   projects: '/projects',
   myagents: '/agents',
-  marketplace: '/store'
+  marketplace: '/store',
+  // `org` DOES carry an id (viewedOrgId), unlike every other entry here — but its id-less state
+  // is a real page (the organizations overview), so restoring `/org` after a reload lands on
+  // that overview rather than on a half-restored subject. An enterprise user typing or
+  // bookmarking /org is the whole reason the enterprise surface got an address.
+  org: '/org'
 }
 
 const VIEWS: Record<string, View> = Object.fromEntries(

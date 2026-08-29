@@ -20,6 +20,16 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+      # A SECOND aws provider, pinned to us-east-1, because CloudFront reads ACM certificates
+      # from that region and nowhere else (dns.tf mints one there). Every environment root must
+      # now pass it on the module call:
+      #
+      #   provider "aws" { alias = "us_east_1"  region = "us-east-1" }
+      #   module "stack" { providers = { aws = aws, aws.us_east_1 = aws.us_east_1 } ... }
+      #
+      # Required even for an environment with no domain — configuration_aliases is a contract of
+      # the module, not of the variables — which is why all three roots carry the block.
+      configuration_aliases = [aws.us_east_1]
     }
     random = {
       source  = "hashicorp/random"

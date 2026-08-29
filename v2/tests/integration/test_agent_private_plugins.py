@@ -153,7 +153,10 @@ def test_scoped_invoke_runs_private_tool(tmp_path):
         service=SimpleNamespace(
             find_tool=lambda n, a=None: (
                 _ExecPrivTool() if (n == "priv_exec" and a == "demo") else None
-            )
+            ),
+            # the agent-declared write fence — none declared here, so three empties, exactly
+            # what AgentService.resolve_write_fence returns for a fence-less agent
+            resolve_write_fence=lambda spec: ((), (), ()),
         ),
         registry=SimpleNamespace(
             get=lambda a: spec if a == "demo" else (_ for _ in ()).throw(KeyError(a))

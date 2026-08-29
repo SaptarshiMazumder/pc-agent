@@ -30,10 +30,22 @@
 locals {
   marketplace_name = "${local.name_prefix}-marketplace"
 
-  # An alias is only legal with a certificate that covers it, and a certificate is only useful
-  # once something is aliased to it. One local so the two can never be set half-way.
+  # Which hostname (if any) aliases the distribution. The explicit pair of variables wins, as
+  # everywhere; otherwise a managed root_domain (dns.tf) supplies both halves itself —
+  # marketplace.<root> plus the us-east-1 wildcard certificate it minted. One local pair so the
+  # alias and its certificate can never be set half-way.
+  marketplace_domain = var.marketplace_domain_name != "" ? var.marketplace_domain_name : (
+    local.dns_managed ? "marketplace.${var.root_domain}" : ""
+  )
+  marketplace_certificate = var.marketplace_certificate_arn != "" ? var.marketplace_certificate_arn : (
+    # Through the VALIDATION resource, same reason as the ALB: CloudFront refuses an unissued
+    # cert, so the reference itself orders the apply correctly.
+    local.dns_managed ? aws_acm_certificate_validation.cloudfront[0].certificate_arn : ""
+  )
+  # Decidable at plan time (variables only) — `aliases`/`viewer_certificate` read this, and the
+  # certificate local above is consulted only when this is true.
   marketplace_custom_domain = (
-    var.marketplace_domain_name != "" && var.marketplace_certificate_arn != ""
+    (var.marketplace_domain_name != "" && var.marketplace_certificate_arn != "") || local.dns_managed
   )
 }
 
@@ -144,7 +156,7 @@ resource "aws_cloudfront_distribution" "marketplace" {
   # today; when it grows per-agent pages, rewrite them with a CloudFront Function scoped to the
   # site behaviour rather than an error mapping that reaches the registry's paths too.
 
-  aliases = local.marketplace_custom_domain ? [var.marketplace_domain_name] : []
+  aliases = local.marketplace_custom_domain ? [local.marketplace_domain] : []
 
   origin {
     origin_id                = "site"
@@ -197,7 +209,7 @@ resource "aws_cloudfront_distribution" "marketplace" {
     # The default certificate is AWS's own, on *.cloudfront.net — which is why this deployment
     # needs no ACM certificate to be live over https.
     cloudfront_default_certificate = local.marketplace_custom_domain ? null : true
-    acm_certificate_arn            = local.marketplace_custom_domain ? var.marketplace_certificate_arn : null
+    acm_certificate_arn            = local.marketplace_custom_domain ? local.marketplace_certificate : null
     ssl_support_method             = local.marketplace_custom_domain ? "sni-only" : null
     minimum_protocol_version       = local.marketplace_custom_domain ? "TLSv1.2_2021" : null
   }

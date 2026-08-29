@@ -48,6 +48,24 @@ locals {
       AGENTD_BUILDER_URL            = local.builder_public_url
       AGENTD_BUILDER_SCRATCH_BUCKET = aws_s3_bucket.builder_scratch.bucket
       AGENTD_BUILDER_INTERNAL_KEY   = random_password.builder_internal_key.result
+      # VANITY HOSTNAMES, the daemon's half of the same map that drives the ALB rules
+      # (alb.tf agent_host) — one variable, two consumers, so DNS pointing at a daemon that
+      # does not know what to serve there cannot happen. "{}" when unset, which the parser
+      # reads as the dormant default.
+      AGENTD_APP_HOSTS = jsonencode(var.agent_hostnames)
+      # THE WILDCARD's daemon half: with root_domain set, <bundle-id>.<root_domain> serves
+      # that agent with no per-agent configuration anywhere — publishing mints the URL, the
+      # bundle_owners table is the namespace, and reserved labels never derive
+      # (agent_runtime/domain/reserved_hosts.py). Empty = dormant.
+      AGENTD_APP_HOST_SUFFIX = var.root_domain
+    }
+
+    # The web image needs to know which hostname is the ADMIN CONSOLE's: nginx tells the app and
+    # the console apart by server_name (web/nginx.conf is a template, substituted at container
+    # start), so the image itself stays domain-agnostic. Empty = the console lives at /admin on
+    # the app's own host, exactly the pre-domain behaviour.
+    web = {
+      ADMIN_HOSTNAME = var.admin_hostname
     }
 
     # The proxy VERIFIES what accounts MINTS, so both read the SAME computed issuer below. A

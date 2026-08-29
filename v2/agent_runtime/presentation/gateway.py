@@ -43,6 +43,7 @@ from agent_runtime.domain.agent import (
     setting_env_name,
 )
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
+from agent_runtime.domain.reserved_hosts import is_reserved_host_label
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import Artifact, artifact_to_dict
 from agent_runtime.domain.notify import Notification
@@ -678,6 +679,7 @@ EXPOSED_CONFIG_KEYS = (
     "skills_relevance_enabled",
     "plugins",
     "app_hosts",
+    "app_host_suffix",
     # Per-agent overrides, {agent_id: {override_default, model, ...}}. Exposing it is the WHOLE
     # backend change for per-agent settings: _config_get returns every key in this tuple and
     # _config_set merges + hot-applies every writable one, so a settings page can read and
@@ -741,6 +743,7 @@ EXPOSED_KEY_ENV = {
     "webhook_port": "AGENTD_WEBHOOK_PORT",
     "skills_relevance_enabled": "AGENTD_SKILLS_RELEVANCE_ENABLED",
     "app_hosts": "AGENTD_APP_HOSTS",
+    "app_host_suffix": "AGENTD_APP_HOST_SUFFIX",
 }
 
 # Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
@@ -2583,18 +2586,43 @@ class Gateway:
         return bool(host) and host == served_host
 
     def _host_alias(self, headers) -> str | None:
-        """Hosted deployments: config.app_hosts maps a vanity hostname to an agent id
-        ({"weather.example.com": "weather"}) so each curated agent lives at its OWN URL
-        on the shared daemon. Empty map (the default, and every local install) => fully
-        dormant. Pure lookup — serving/scoping callers decide what to do with the id."""
+        """Hosted deployments: which agent does this Host header name?
+
+        Two sources, in order. config.app_hosts maps a vanity hostname to an agent id
+        ({"weather.example.com": "weather"}) — explicit, and it wins, because it is how a
+        hostname points at an agent whose id it is NOT (platform.<domain> -> the builder).
+        Below it, config.app_host_suffix DERIVES the id from the label: with the suffix
+        "example.com", weather.example.com is agent "weather" with no configuration at all —
+        publishing a bundle is what mints the URL, and the bundle_owners registry is the
+        namespace. Reserved labels (admin, api, www…) never derive; a label that is not a
+        plausible agent id (dots, uppercase punctuation, empty) never derives; and a host
+        equal to the bare suffix is the apex, which is the web client's, not any agent's.
+
+        Both empty (the default, and every local install) => fully dormant. Pure lookup —
+        serving/scoping callers decide what to do with the id; an id with no installed agent
+        behind it falls to _web_app_bootstrap or 404s there, not here."""
         hosts = getattr(self.config, "app_hosts", None) or {}
-        if not hosts or headers is None:
+        suffix = (getattr(self.config, "app_host_suffix", "") or "").strip().lower().lstrip(".")
+        if (not hosts and not suffix) or headers is None:
             return None
         try:
-            host = urlsplit(f"//{headers.get('Host') or ''}").hostname or ""
+            host = (urlsplit(f"//{headers.get('Host') or ''}").hostname or "").lower()
         except Exception:  # noqa: BLE001 — a malformed Host header is just "no alias"
             return None
-        return hosts.get(host.lower())
+        explicit = hosts.get(host)
+        if explicit:
+            return explicit
+        if suffix and host.endswith("." + suffix):
+            label = host[: -(len(suffix) + 1)]
+            # ONE label only ("a.b.<suffix>" is not an agent — that shape is kept for a
+            # future per-org level), shaped like the ids our packer accepts, and never a
+            # name the product keeps for itself.
+            if (
+                re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", label)
+                and not is_reserved_host_label(label)
+            ):
+                return label
+        return None
 
     def _connection_scope(self, ws: ServerConnection) -> str | None:
         """An app connection declares `scope=agent:<id>` on its connect URL — it is then

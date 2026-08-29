@@ -58,5 +58,11 @@ RUN npm run build -w agentd-web   # -> web/dist/
 # --- serve stage ---------------------------------------------------------------
 FROM nginx:alpine
 COPY --from=build /app/web/dist /usr/share/nginx/html
-COPY web/nginx.conf /etc/nginx/conf.d/default.conf
+# The nginx config is a TEMPLATE rendered at container start (which hostname is the admin
+# console's arrives as env, not at build time). It lives OUTSIDE /etc/nginx/templates/ so the
+# image's stock envsubst script — which substitutes every ${VAR} it sees — never touches it;
+# our own numbered entrypoint script renders it with an explicit variable list instead.
+COPY web/nginx.conf.template /etc/nginx/agentd/nginx.conf.template
+COPY web/docker-entrypoint.d/15-agentd-servers.sh /docker-entrypoint.d/15-agentd-servers.sh
+RUN chmod +x /docker-entrypoint.d/15-agentd-servers.sh
 EXPOSE 80

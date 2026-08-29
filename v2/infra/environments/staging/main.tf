@@ -55,8 +55,21 @@ provider "aws" {
   region = "ap-northeast-1"
 }
 
+# CloudFront-region provider — dns.tf mints the marketplace certificate in us-east-1 because
+# CloudFront reads certificates from nowhere else. The module REQUIRES this alias to be passed
+# (configuration_aliases in modules/providers.tf) even when root_domain is empty.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 module "stack" {
   source = "../../modules"
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 
   environment = "staging"
   paused      = var.paused
@@ -235,6 +248,21 @@ output "app_url" {
   description = "The public URL of the app."
   value       = module.stack.app_url
 }
+output "region" {
+  description = "This environment's AWS region (push-images.ps1, set-keys.ps1 and deploy.yml read it)."
+  value       = module.stack.region
+}
+output "hosted_zone_name_servers" {
+  description = "Route 53 nameservers for root_domain — paste these at the registrar (DOMAIN-SETUP.md step 2)."
+  value       = module.stack.hosted_zone_name_servers
+}
+
+output "domain_urls" {
+  description = "Every hostname the managed domain serves — open these to verify the domain end to end."
+  value       = module.stack.domain_urls
+}
+
+
 
 output "platform_url" {
   description = "[platform] platform_url - THE ONE address a client bakes; everything else is discovered from it."

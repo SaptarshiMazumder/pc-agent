@@ -632,3 +632,35 @@ def test_a_schema_2_registry_stays_schema_2():
     assert svc.submit(Submission(package=agentpkg(), token="tok")).status == OK
     assert store.index["schema"] == 2
     assert store.index["publishers"] == {"roster": [{"id": "c-x"}]}
+
+
+# ────────────────────────────── reserved names ──────────────────────────────
+#
+# Under a wildcard app-host domain a bundle id IS a public hostname (<id>.<domain>), and
+# bundle_owners is first-come-forever — so the platform's own labels must be unclaimable, not
+# merely unroutable. domain/reserved_hosts.py is the one shared set; the gateway's refusal to
+# DERIVE these labels is tested beside _host_alias (test_platform_protocol.py).
+
+
+def test_a_reserved_bundle_id_is_refused_and_never_claimed():
+    svc, parts = service()
+
+    result = svc.submit(Submission(package=agentpkg("admin"), token="tok"))
+
+    assert result.status == BAD_REQUEST
+    assert "reserved by the platform" in result.message
+    assert parts["creators"].owners == {}, "the id must never enter bundle_owners"
+    assert parts["index_store"].artifacts == {}
+
+
+def test_a_reserved_id_is_refused_at_parking_time_not_at_admission():
+    """Same timing rule as the broken-zip check: a pending creator hears the refusal NOW, on
+    their own screen, instead of the package parking and dying weeks later on the operator's."""
+    parker = FakeParker()
+    svc, _ = service(creators=FakeCreators(state=PENDING_REVIEW), parker=parker)
+
+    result = svc.submit(Submission(package=agentpkg("api"), token="tok"))
+
+    assert result.status == BAD_REQUEST
+    assert "reserved by the platform" in result.message
+    assert parker.slots == {}, "a reserved id must never park"

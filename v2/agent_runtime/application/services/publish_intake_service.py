@@ -49,6 +49,7 @@ from agent_runtime.application.interfaces.publish_intake import (
     Submission,
 )
 from agent_runtime.domain.bundle import BundleError, is_update
+from agent_runtime.domain.reserved_hosts import is_reserved_host_label
 
 log = logging.getLogger("agentd")
 
@@ -186,6 +187,16 @@ class PublishIntakeService:
                 manifest = bundle_io.read_manifest(package)
             except BundleError as e:
                 return IntakeResult(BAD_REQUEST, str(e), creator_id=creator.id)
+        # Same rule, same timing as the broken-zip check above: a reserved id parked silently
+        # would surface as a refusal weeks later on the operator's screen. (The _publish path
+        # re-checks before claim() — admission goes through it, so nothing slips past.)
+        if is_reserved_host_label(manifest.id):
+            return IntakeResult(
+                BAD_REQUEST,
+                f"the bundle id '{manifest.id}' is reserved by the platform (it names a product "
+                "surface or service hostname). Rename your agent and publish again.",
+                creator_id=creator.id,
+            )
         self._parker.park(creator.id, manifest.id, submission.package)
         return IntakeResult(
             PENDING,
@@ -233,6 +244,20 @@ class PublishIntakeService:
             return IntakeResult(
                 BAD_REQUEST,
                 f"the upload claims bundle id '{claimed}' but its manifest says '{manifest.id}'.",
+                creator_id=creator.id,
+            )
+
+        # RESERVED NAMES NEVER REACH claim(). Under a wildcard app-host domain a bundle id IS a
+        # public hostname (<id>.<domain>), and bundle_owners is first-come-FOREVER by design —
+        # so letting "api" or "admin" be claimed would hand a platform-looking hostname to
+        # whoever asked first, permanently. The gateway also refuses to derive these labels
+        # (domain/reserved_hosts.py, the one shared set), but refusing here keeps the ownership
+        # table clean rather than merely unroutable.
+        if is_reserved_host_label(manifest.id):
+            return IntakeResult(
+                BAD_REQUEST,
+                f"the bundle id '{manifest.id}' is reserved by the platform (it names a product "
+                "surface or service hostname). Rename your agent and publish again.",
                 creator_id=creator.id,
             )
 

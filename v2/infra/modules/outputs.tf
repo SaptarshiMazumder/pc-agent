@@ -26,8 +26,12 @@ locals {
   # `public_host` prefers the domain the certificate is for: hitting an https listener via the
   # ALB's own *.elb.amazonaws.com name fails the certificate check, so once TLS is on, the ALB
   # hostname is no longer a usable address.
-  url_scheme  = local.tls_enabled ? "https" : "http"
-  public_host = var.domain_name != "" ? var.domain_name : local.alb_dns
+  url_scheme = local.tls_enabled ? "https" : "http"
+  # Explicit `domain_name` wins (an environment naming a host the module does not manage), then
+  # the managed domain's apex (dns.tf), then the raw ALB hostname — the pre-domain world.
+  public_host = var.domain_name != "" ? var.domain_name : (
+    local.dns_managed ? var.root_domain : local.alb_dns
+  )
   # With TLS, web sits on 443 and the URL carries no port at all.
   app_origin = local.public_host == "" ? "" : (
     local.tls_enabled ? "https://${local.public_host}" : "http://${local.public_host}"
@@ -88,7 +92,30 @@ output "registry_bucket" {
 
 output "marketplace_url" {
   description = "The public marketplace. Its own https address with no certificate of ours; also the target a custom domain's ALIAS/CNAME record points at."
-  value       = "https://${aws_cloudfront_distribution.marketplace.domain_name}"
+  value       = local.marketplace_domain != "" ? "https://${local.marketplace_domain}" : "https://${aws_cloudfront_distribution.marketplace.domain_name}"
+}
+
+# ── the managed domain (dns.tf) ─────────────────────────────────────────────────────────
+#
+# THE ONE MANUAL STEP after the first apply of a new root_domain: set these four names as the
+# domain's nameservers at the registrar. Until then the zone answers nobody, ACM cannot
+# validate, and the certificate apply waits — see environments/dev/DOMAIN-SETUP.md.
+output "hosted_zone_name_servers" {
+  description = "Route 53 nameservers for root_domain — paste these at the registrar. Empty when the module manages no domain."
+  value       = local.dns_managed ? aws_route53_zone.main[0].name_servers : []
+}
+
+output "domain_urls" {
+  description = "Every hostname the managed domain serves, spelled out — what to open to verify a fresh domain end to end."
+  value = local.dns_managed ? {
+    app         = "https://${var.root_domain}"
+    admin       = var.admin_hostname != "" ? "https://${var.admin_hostname}" : "https://${var.root_domain}/admin"
+    marketplace = "https://marketplace.${var.root_domain}"
+    agents      = { for host, id in var.agent_hostnames : id => "https://${host}" }
+    published   = "https://<bundle-id>.${var.root_domain}"
+    # null, not {}: the two arms of a conditional must be the same TYPE, and an empty object
+    # does not match one with attributes — null matches anything.
+  } : null
 }
 
 output "marketplace_site_bucket" {
@@ -194,4 +221,9 @@ output "builder_url" {
 output "builder_scratch_bucket" {
   description = "The sources-in / results-out conveyor belt. Everything expires after a day."
   value       = aws_s3_bucket.builder_scratch.bucket
+}
+
+output "region" {
+  description = "The region this environment lives in — scripts and CI read it from here instead of hardcoding it, so the EU production move is a provider-block change in ONE root module."
+  value       = data.aws_region.current.name
 }

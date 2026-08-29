@@ -9,3 +9,7 @@
 v2/clients/sdk-js/dist/**       -text
 **/vendor/agentd-client.js      -text
 **/vendor/agentd-client.d.ts    -text
+# The web image entrypoint runs inside Alpine: CRLF in a sh script is a crash-loop at
+# container start ("not found" on every line). Pin LF regardless of core.autocrlf.
+v2/clients/web/docker-entrypoint.d/*.sh text eol=lf
+v2/clients/web/nginx.conf.template text eol=lf

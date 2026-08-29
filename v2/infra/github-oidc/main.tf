@@ -124,8 +124,16 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:ecs:*:${data.aws_caller_identity.me.account_id}:task/agentd-*/*"]
   }
   statement {
-    sid       = "AlbLookup"
-    actions   = ["elasticloadbalancing:DescribeLoadBalancers"]
+    sid = "AlbLookup"
+    # Listeners + the certificate as well as the balancer: deploy.yml derives the PUBLIC ORIGIN
+    # from what is actually deployed — the certificate on the :443 listener names the domain —
+    # so the web build bakes https://<domain> the moment TLS lands and http://<alb> before it,
+    # with no domain configured in the workflow. All three are reads.
+    actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeListeners",
+      "acm:DescribeCertificate",
+    ]
     resources = ["*"] # describe does not support resource scoping
   }
   # PUBLISH THE MARKETPLACE (.github/workflows/publish-registry.yml). Writing the registry is the

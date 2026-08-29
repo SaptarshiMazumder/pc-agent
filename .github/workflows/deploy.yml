@@ -72,7 +72,6 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ap-northeast-1
   SERVICES: "model-proxy accounts daemon web ingest"
 
 jobs:
@@ -83,6 +82,7 @@ jobs:
     outputs:
       environment: ${{ steps.env.outputs.environment }}
       service: ${{ steps.env.outputs.service }}
+      region: ${{ steps.env.outputs.region }}
     steps:
       - name: Resolve environment
         id: env
@@ -99,9 +99,20 @@ jobs:
             esac
             SERVICE=all
           fi
+          # WHICH REGION each environment lives in — the ONE place this workflow says so,
+          # mirroring the provider block in infra/environments/<env>/main.tf. It cannot be read
+          # from terraform here (that needs AWS credentials, which need a region first), so the
+          # mapping is spelled out; the EU production move edits the production line and the
+          # matching provider block together.
+          case "$ENV" in
+            production) REGION=ap-northeast-1 ;;
+            staging)    REGION=ap-northeast-1 ;;
+            *)          REGION=ap-northeast-1 ;;
+          esac
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
           echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
-          echo "Resolved environment: **$ENV**; service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "Resolved environment: **$ENV**; service: **$SERVICE**; region: **$REGION**" >> "$GITHUB_STEP_SUMMARY"
 
   # ── Job 2: the actual deploy. `environment:` binds it to the matching GitHub Environment,
   # so its protection rules (reviewers for staging/production, branch policy for production)
@@ -115,6 +126,8 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
+    env:
+      AWS_REGION: ${{ needs.resolve.outputs.region }}
     # `marketplace` is Job 3's target and names no image: without this guard, a manual run picking
     # it would reach the build step with build=marketplace and fail looking for a Dockerfile.
     if: needs.resolve.outputs.service != 'marketplace'
@@ -220,25 +233,50 @@ jobs:
           fi
 
       # Resolve the registry + THIS env's public ALB hostname straight from the AWS API.
-      - name: Resolve registry + ALB url
+      - name: Resolve registry + public origin
         id: aws
         run: |
           ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ALB_ARN=$(aws elbv2 describe-load-balancers --names "agentd-${ENVIRONMENT}" \
+            --query 'LoadBalancers[0].LoadBalancerArn' --output text)
           ALB_DNS=$(aws elbv2 describe-load-balancers --names "agentd-${ENVIRONMENT}" \
             --query 'LoadBalancers[0].DNSName' --output text)
           if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
             echo "::error::no ALB named agentd-${ENVIRONMENT} — provision the environment first (terraform apply)"; exit 1
           fi
+          # THE PUBLIC ORIGIN COMES FROM WHAT IS DEPLOYED, not from workflow config: if the ALB
+          # has a :443 listener, the certificate on it names the domain (terraform's dns.tf
+          # mints it for the apex, so DomainName IS public_host) and the bake is https/wss.
+          # No :443 listener — the pre-TLS world — bakes http://<alb dns>, exactly as before.
+          # Baking the ALB hostname into an https environment would fail the certificate check
+          # on every request, which is why this is derived rather than configured.
+          CERT_ARN=$(aws elbv2 describe-listeners --load-balancer-arn "$ALB_ARN" \
+            --query 'Listeners[?Port==`443`] | [0].Certificates[0].CertificateArn' --output text 2>/dev/null || echo "")
+          if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
+            HOST=$(aws acm describe-certificate --certificate-arn "$CERT_ARN" \
+              --query 'Certificate.DomainName' --output text)
+            SCHEME=https; WS=wss
+          else
+            HOST="$ALB_DNS"
+            SCHEME=http; WS=ws
+          fi
           echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
           echo "alb=$ALB_DNS"       >> "$GITHUB_OUTPUT"
+          echo "host=$HOST"         >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME"     >> "$GITHUB_OUTPUT"
+          echo "ws=$WS"             >> "$GITHUB_OUTPUT"
+          echo "Public origin: ${SCHEME}://${HOST}" >> "$GITHUB_STEP_SUMMARY"
 
       # Build + push the AFFECTED images, tagged with the git SHA (immutable) AND :latest.
-      # `web` bakes the ALB url in at build time; the other four don't.
+      # `web` bakes the public origin in at build time; the other four do not.
       - name: Build and push images
         run: |
           REG="${{ steps.aws.outputs.registry }}"
           ALB="${{ steps.aws.outputs.alb }}"
+          HOST="${{ steps.aws.outputs.host }}"
+          SCHEME="${{ steps.aws.outputs.scheme }}"
+          WS="${{ steps.aws.outputs.ws }}"
           SHA="${{ github.sha }}"
           build() { # name  context  dockerfile  [extra build args...]
             local name="$1" ctx="$2" df="$3"; shift 3
@@ -285,10 +323,10 @@ jobs:
             # OPTIONAL by design: an empty value leaves the browser reporter inert, which is what
             # a build for an environment without an ingest service should do.
             build web v2/clients v2/clients/web/Dockerfile \
-              --build-arg "VITE_AGENTD_PLATFORM_URL=http://${ALB}:4100" \
-              --build-arg "VITE_AGENTD_ACCOUNTS_URL=http://${ALB}:4100" \
-              --build-arg "VITE_AGENTD_URL=ws://${ALB}:8787" \
-              --build-arg "VITE_AGENTD_INGEST_URL=http://${ALB}:4200"
+              --build-arg "VITE_AGENTD_PLATFORM_URL=${SCHEME}://${HOST}:4100" \
+              --build-arg "VITE_AGENTD_ACCOUNTS_URL=${SCHEME}://${HOST}:4100" \
+              --build-arg "VITE_AGENTD_URL=${WS}://${HOST}:8787" \
+              --build-arg "VITE_AGENTD_INGEST_URL=${SCHEME}://${HOST}:4200"
           fi
           if want ingest; then
             build ingest v2 v2/ingest/Dockerfile
@@ -437,6 +475,8 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
+    env:
+      AWS_REGION: ${{ needs.resolve.outputs.region }}
     # A manual single-service run ("deploy just the daemon") must not also redeploy the store.
     if: >-
       needs.resolve.outputs.service == 'all' ||

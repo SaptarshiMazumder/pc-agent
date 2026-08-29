@@ -129,7 +129,7 @@ export default defineConfig({
     // `base: './'` above is what lets the same admin.html work at BOTH /admin (today) and at the
     // root of admin.<domain> (once DNS exists): relative asset urls resolve against whichever
     // directory the document was served from. nginx serves /admin without a trailing slash for
-    // exactly that reason — see web/nginx.conf.
+    // exactly that reason — see web/nginx.conf.template.
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL('../ui/index.html', import.meta.url)),

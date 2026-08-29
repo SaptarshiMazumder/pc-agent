@@ -701,3 +701,75 @@ variable "enable_execute_command" {
   type        = bool
   default     = false
 }
+
+# ── THE DOMAIN ──────────────────────────────────────────────────────────────────────────────────
+#
+# ONE NAME IN, EVERYTHING OUT. Setting `root_domain` makes this module own the whole DNS story
+# for the environment (dns.tf): a Route 53 hosted zone, two DNS-validated wildcard certificates
+# (regional for the ALB, us-east-1 for CloudFront — it reads them from nowhere else), the apex +
+# wildcard + marketplace records, HTTPS on every listener, and the wildcard host rule that gives
+# every published agent `<bundle-id>.<root_domain>` with zero per-agent provisioning.
+#
+# The values that used to be set separately now DERIVE from this one, and only when they are not
+# set themselves — `domain_name`, `certificate_arn`, `marketplace_domain_name`,
+# `marketplace_certificate_arn` all still win if given, so an environment that brings its own
+# cert/zone keeps working untouched.
+#
+# CHANGING DOMAIN IS EDITING THIS ONE VALUE and re-applying (plus re-keying `agent_hostnames` /
+# `admin_hostname` below, which spell hostnames out in full). This is the temp-domain contract:
+# thorgodofthunder.site today, the real name later, no other file involved.
+#
+# THE ONE MANUAL STEP, once per domain: point the registrar's nameservers at the zone
+# (`hosted_zone_name_servers` output). Until that propagates, ACM cannot validate and the apply
+# waits on the certificate — see environments/dev/DOMAIN-SETUP.md for the exact sequence.
+variable "root_domain" {
+  description = "The environment's base domain (e.g. \"thorgodofthunder.site\"). Non-empty = this module manages Route 53 + ACM + HTTPS + the per-agent wildcard for it. Empty = no DNS resources, exactly the pre-domain world."
+  type        = string
+  default     = ""
+
+  validation {
+    # A bare registrable name: no scheme, no port, no trailing dot, at least one dot. Catching a
+    # pasted URL here beats ACM rejecting the SAN list three resources deep into an apply.
+    condition     = var.root_domain == "" || can(regex("^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+$", var.root_domain))
+    error_message = "root_domain must be a bare lowercase domain like \"example.com\" (no https://, no port, no trailing dot), or empty."
+  }
+}
+
+# ── VANITY HOSTNAMES ────────────────────────────────────────────────────────────────────────────
+#
+# ONE MAP, TWO CONSUMERS, so they cannot disagree. Naming a hostname here does both halves of the
+# job that a per-agent URL needs:
+#
+#   the ALB   a host-header rule sending that hostname to the DAEMON's target group
+#   the daemon  AGENTD_APP_HOSTS, which makes it serve that agent's ui/ at "/" (gateway
+#               `_host_alias`) and derives the connection scope from the same fact
+#
+# Splitting these into two variables is how an environment ends up with DNS pointing at a daemon
+# that does not know what to serve there — a hostname that resolves, connects, and 404s.
+#
+# THE PRODUCT'S FRONT DOOR LIVES HERE. `platform.<domain>` is Cloud Agent Builder, which is the
+# thing this product is for; it is not a special case in code, just the first entry.
+#
+#   agent_hostnames = { "platform.example.com" = "cloud-agent-builder" }
+#
+# Empty (the default, and every environment without a domain) => fully dormant: no ALB rules,
+# and AGENTD_APP_HOSTS carries "{}", which the daemon reads as off. Changing domain is
+# rewriting the keys — no image is rebuilt.
+variable "agent_hostnames" {
+  description = "Vanity hostname -> agent id. Each becomes an ALB host rule to the daemon plus an AGENTD_APP_HOSTS entry, so the agent's own UI is served at that hostname's root. Requires a certificate that covers the names."
+  type        = map(string)
+  default     = {}
+}
+
+# The admin console's hostname. UNLIKE agent_hostnames this needs no ALB rule — the console is a
+# document in the WEB image (ui/admin.html), so the request goes to the same target group the app
+# does and nginx tells them apart by `server_name`. Passed to the web task as an env var and
+# substituted into the nginx config at container start, so the image itself is domain-agnostic.
+#
+# Empty => the console stays at /admin on whatever host the app is served from, which is where it
+# lives today and what every environment without a domain keeps using.
+variable "admin_hostname" {
+  description = "Hostname for the standalone admin console (e.g. \"admin.example.com\"). Served by the web image via nginx server_name; needs a certificate that covers it. Empty = reachable at /admin only."
+  type        = string
+  default     = ""
+}

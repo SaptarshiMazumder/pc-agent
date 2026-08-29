@@ -1430,6 +1430,20 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   color: var(--text); letter-spacing: -0.01em;
 }
 .signin-sub { color: var(--dim); font-size: 13.5px; margin-bottom: 8px; }
+/* Individual | Enterprise — a segmented pair, not tabs with content of their own: the same
+   form either way, the choice only decides the invite-code field and where sign-in lands. */
+.signin-kind {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--bg4); border: 1px solid var(--border); border-radius: 10px;
+}
+.signin-kind-btn {
+  flex: 1; font: inherit; font-size: 13px; font-weight: var(--fw-semi); color: var(--dim);
+  background: none; border: none; border-radius: 7px; padding: 7px 10px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.signin-kind-btn:hover { color: var(--text); }
+.signin-kind-btn.active { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-sm); }
+.signin-label-hint { font-weight: var(--fw-normal); color: var(--faint); text-transform: none; letter-spacing: 0; }
 .signin-label {
   font-size: 12px; font-weight: var(--fw-semi); color: var(--dim);
   text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px;

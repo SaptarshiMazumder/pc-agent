@@ -18,10 +18,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$region  = "ap-northeast-1"
 $v2      = (Resolve-Path "$PSScriptRoot/../..").Path            # deploy/scripts -> deploy -> v2
 $envDir  = Join-Path $v2 "infra/environments/$Environment"
 $chdir   = "-chdir=$envDir"                                     # quoted so PowerShell expands it
+# The region comes from the ENVIRONMENT (terraform output), not from this file — the EU
+# production move is a provider-block change in one root module, and this script follows it.
+$region  = (terraform $chdir output -raw region 2>$null)
+if (-not $region) { $region = "ap-northeast-1" }  # pre-output state files only
 $cluster = "agentd-$Environment"
 
 if (-not (Test-Path $envDir)) { throw "No such environment: $envDir" }

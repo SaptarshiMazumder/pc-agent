@@ -160,6 +160,15 @@ class Config:
     # Empty (the default, every local install) => fully dormant. Override AGENTD_APP_HOSTS
     # with a JSON object string.
     app_hosts: dict = field(default_factory=dict)
+    # The WILDCARD companion to app_hosts: a base domain ("example.com") under which every
+    # subdomain names the agent whose id is the label — weather.example.com serves agent
+    # "weather" with NO per-agent configuration, which is what lets "publish" mean "gets a
+    # URL". app_hosts still wins for a hostname it names exactly (so platform.example.com
+    # can point at cloud-agent-builder, whose id is not "platform"), and RESERVED_HOST_LABELS
+    # never derive (www/api/admin/... belong to the product, not to whoever publishes first —
+    # the same set the publish service refuses to let anyone claim as a bundle id). Empty
+    # (the default, every local install) => fully dormant. Override AGENTD_APP_HOST_SUFFIX.
+    app_host_suffix: str = ""
 
     # --- distribution (what THIS INSTALL is) + marketplace ------------------------
     # The parsed distribution.toml (product name/flavor, provisioned plugin set, store
@@ -1205,6 +1214,10 @@ def load_config(path: Path | None = None) -> Config:
                 logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: not a JSON object")
         except (ValueError, TypeError):
             logging.getLogger("agentd").warning("AGENTD_APP_HOSTS ignored: invalid JSON")
+    if os.environ.get("AGENTD_APP_HOST_SUFFIX"):
+        # A bare base domain ("example.com"). Normalized here once — lowercase, no leading
+        # dot — so the gateway's per-request comparison never has to re-clean it.
+        cfg.app_host_suffix = os.environ["AGENTD_APP_HOST_SUFFIX"].strip().lower().lstrip(".")
 
     # HOSTED, DERIVED LAST — after the distribution profile, so it sees every source.
     #

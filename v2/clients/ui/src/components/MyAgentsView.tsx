@@ -1,4 +1,4 @@
-import { Building2, Check, Copy, Download, ExternalLink, Globe, Plus, RefreshCw } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, Globe, Plus, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { gateway } from '../gateway/client'
@@ -31,11 +31,11 @@ import PageShell from './PageShell'
  * that could drift from what the registry actually serves; if the row is in the catalog, the share
  * doors render, and if it was unlisted they disappear on the next refresh.
  *
- * ORGANIZATION AGENTS (tenancy E5) render from DATA, not client logic: rows the daemon marks
- * `scope: 'org'` group into an Organization section, named via the accounts /me/orgs answer.
- * "Share to organization" appears on personal cards only when the caller ADMINISTERS at least
- * one org — the daemon re-checks the role from the token, so the button is a convenience, never
- * the authorization.
+ * ORGANIZATION AGENTS (tenancy E5) moved to the ORGANIZATION page (OrgView), which renders the
+ * same ShelfCard — exported below for exactly that. This page keeps only the bridge: "Share to
+ * organization" on a personal card, shown when the caller ADMINISTERS at least one org. The
+ * daemon re-checks the role from the token, so the button is a convenience, never the
+ * authorization.
  *
  * The catalog grid survives at the bottom as "From the platform": with the store button gone this
  * is the only place a hosted user can still ADD a platform agent to their account, and removing
@@ -43,7 +43,7 @@ import PageShell from './PageShell'
  */
 
 /** Everything the card needs to say about one agent the user has. */
-type Shelf = {
+export type Shelf = {
   agent: AgentInfo
   published: CatalogBundle | null
 }
@@ -60,7 +60,7 @@ function installerFor(bundle: CatalogBundle): { url: string; label: string } | n
   return hit ? { url: hit.url, label: hit.platform } : null
 }
 
-function ShelfCard({
+export function ShelfCard({
   row,
   adminOrgs,
   onShared,
@@ -249,7 +249,6 @@ export default function MyAgentsView() {
   }, [session])
 
   const adminOrgs = useMemo(() => orgs.filter((o) => ORG_ADMIN_ROLES.has(o.role)), [orgs])
-  const orgName = useMemo(() => new Map(orgs.map((o) => [o.id, o.name])), [orgs])
 
   const shelf: Shelf[] = useMemo(() => {
     const byId = new Map(catalog.map((b) => [b.id, b]))
@@ -261,17 +260,11 @@ export default function MyAgentsView() {
       .map((agent) => ({ agent, published: byId.get(agent.id) || null }))
   }, [agents, catalog])
 
+  // PERSONAL ONLY. Org-shared agents moved to the ORGANIZATION page (OrgView's Agents section)
+  // — that page is where an enterprise sees its whole roster in one view, and repeating the
+  // same cards here mislabelled them as things this person owns. The share-to-org control on a
+  // personal card is the bridge between the two pages.
   const personal = useMemo(() => shelf.filter((r) => r.agent.scope !== 'org'), [shelf])
-  // One section per owning org, in a stable order — grouped, because a person can be in more
-  // than one and mixing two companies' agents under one heading misattributes both.
-  const orgGroups = useMemo(() => {
-    const groups = new Map<string, Shelf[]>()
-    for (const row of shelf.filter((r) => r.agent.scope === 'org')) {
-      const key = row.agent.orgId || ''
-      groups.set(key, [...(groups.get(key) || []), row])
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [shelf])
 
   // The add-a-platform-agent grid: catalog rows this account does NOT already have. `installed`
   // comes from the daemon and is per-account on hosted, so this is "not on MY shelf" rather than
@@ -292,7 +285,7 @@ export default function MyAgentsView() {
   return (
     <PageShell
       title="My Agents"
-      sub="Every agent on your account — yours, your organization's, and the platform's."
+      sub="The agents you created or installed — your organization's live on its own page."
       actions={actions}
     >
       {catalogError && <div className="banner banner-error">{catalogError}</div>}
@@ -322,31 +315,6 @@ export default function MyAgentsView() {
           ))}
         </div>
       )}
-
-      {orgGroups.map(([orgId, rows]) => (
-        <div key={orgId} className="settings-group shelf-available">
-          <div className="settings-section">
-            <Building2 size={14} /> {orgName.get(orgId) || 'Organization'}
-          </div>
-          <div className="shelf-grid">
-            {rows.map((row) => (
-              <ShelfCard
-                key={row.agent.id}
-                row={row}
-                adminOrgs={adminOrgs}
-                onShared={(m) => {
-                  setNotice(m)
-                  setError('')
-                }}
-                onError={(m) => {
-                  setError(m)
-                  setNotice('')
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
 
       {available.length > 0 && (
         <div className="settings-group shelf-available">

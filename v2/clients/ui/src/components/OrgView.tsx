@@ -9,7 +9,7 @@ import {
   Trash2,
   Users
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { fetchCatalog, onCreditsChanged, purchase, useAuthSession, type Catalog, type CreditPack } from '../lib/auth'
 import {
@@ -26,6 +26,7 @@ import {
   type OrgUsageRow
 } from '../lib/orgs'
 import { useApp } from '../state/store'
+import { ShelfCard, type Shelf } from './MyAgentsView'
 import PageShell from './PageShell'
 
 /**
@@ -288,6 +289,20 @@ function Detail({ orgId }: { orgId: string }): JSX.Element {
       {error && <div className="banner banner-error">{error}</div>}
       {notice && <div className="banner">{notice}</div>}
 
+      <OrgAgents
+        orgId={orgId}
+        orgName={org.name}
+        role={org.role}
+        onNotice={(m) => {
+          setNotice(m)
+          setError('')
+        }}
+        onError={(m) => {
+          setError(m)
+          setNotice('')
+        }}
+      />
+
       {isAdmin && (
         <div className="settings-group">
           <div className="settings-section">Credit pool</div>
@@ -464,8 +479,8 @@ function Detail({ orgId }: { orgId: string }): JSX.Element {
         <div className="settings-group">
           <div className="settings-section">Membership</div>
           <div className="admin-empty">
-            You are a member of {org.name}. Its shared agents appear under “Organization” in My
-            Agents; your chats with them stay yours alone.
+            You are a member of {org.name}. Its shared agents are listed above — open any of
+            them to chat; your chats stay yours alone.
           </div>
         </div>
       )}
@@ -478,6 +493,69 @@ export default function OrgView(): JSX.Element {
   return viewedOrgId ? <Detail orgId={viewedOrgId} /> : <Overview />
 }
 
+
+/* THE ORG'S ROSTER — every agent shared into this organization, in one view. The daemon marks
+   them `scope: 'org'` + `orgId` on the roster it already sends (tenancy E3/E5), so this is a
+   filter over data in hand, not a fetch. The cards are My Agents' own ShelfCard: same look,
+   same Open/App doors, and — for an admin, told to the card via adminOrgs — the same
+   remove-from-org control. Agents ARRIVE here by being shared from a personal shelf (the
+   "Share to org…" picker on a My Agents card); the empty states say so per role. */
+function OrgAgents({
+  orgId,
+  orgName,
+  role,
+  onNotice,
+  onError
+}: {
+  orgId: string
+  orgName: string
+  role: string
+  onNotice: (msg: string) => void
+  onError: (msg: string) => void
+}): JSX.Element {
+  const agents = useApp((s) => s.hello?.agents)
+  const catalog = useApp((s) => s.catalog)
+  const admin = ADMIN_ROLES.has(role)
+
+  const rows: Shelf[] = useMemo(() => {
+    const byId = new Map(catalog.map((b) => [b.id, b]))
+    return (agents ?? [])
+      .filter((a) => a.scope === 'org' && a.orgId === orgId)
+      .map((agent) => ({ agent, published: byId.get(agent.id) || null }))
+  }, [agents, catalog, orgId])
+
+  // ShelfCard shows its remove-from-org control exactly when the owning org is in adminOrgs —
+  // on this page that is one org, and only for a role the server will accept anyway.
+  const adminOrgs = useMemo(
+    () => (admin ? [{ id: orgId, name: orgName, role }] : []),
+    [admin, orgId, orgName, role]
+  )
+
+  return (
+    <div className="settings-group">
+      <div className="settings-section">Agents</div>
+      {rows.length === 0 ? (
+        <div className="admin-empty">
+          {admin
+            ? 'No agents shared with this organization yet. Share one from My Agents — every member gets it, read-only.'
+            : 'No agents shared with this organization yet. An admin can share one from their My Agents page.'}
+        </div>
+      ) : (
+        <div className="shelf-grid">
+          {rows.map((row) => (
+            <ShelfCard
+              key={row.agent.id}
+              row={row}
+              adminOrgs={adminOrgs}
+              onShared={onNotice}
+              onError={onError}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* Seats and pool top-ups for one org. Kept beside the seat count and the pool because that is
    where an admin looks when either runs out. */

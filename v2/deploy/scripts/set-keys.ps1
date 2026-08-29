@@ -19,11 +19,17 @@
 param(
   [string]$Environment = "dev",
   [string]$EnvFile     = "",
-  [string]$Region      = "ap-northeast-1"
+  [string]$Region      = ""   # empty = read from the environment's terraform output below
 )
 
 $ErrorActionPreference = "Stop"
 $v2 = (Resolve-Path "$PSScriptRoot/../..").Path   # deploy/scripts -> deploy -> v2
+# Region follows the ENVIRONMENT (terraform output) unless given explicitly — the EU
+# production move is a provider-block change in one root module, and this script follows it.
+if (-not $Region) {
+  $Region = (terraform "-chdir=$v2/infra/environments/$Environment" output -raw region 2>$null)
+  if (-not $Region) { $Region = "ap-northeast-1" }  # pre-output state files only
+}
 
 # Default env file per environment: dev -> v2/.env, others -> v2/.env.<environment>
 if (-not $EnvFile) {
