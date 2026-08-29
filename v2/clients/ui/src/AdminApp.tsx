@@ -23,62 +23,59 @@
  */
 
 import { useEffect } from 'react'
-import { LogOut, ShieldAlert } from 'lucide-react'
 
 import AdminView from './components/AdminView'
 import SignIn from './components/SignIn'
-import { isAccountsMode, signOut, useAuthSession } from './lib/auth'
+import { isAccountsMode, useAuthSession } from './lib/auth'
 import { useIsAdmin } from './lib/admin'
 import { installSoftScroll } from './lib/softScroll'
 import { useApp } from './state/store'
 
+/** Where a NON-admin belongs: the main platform. Derived, never configured — on
+ *  `admin.<domain>` the apex is the hostname minus its first label; served at `/admin` on the
+ *  app's own host it is simply the root. Works for any domain, including the next one. */
+function platformHome(): string {
+  const h = typeof location !== 'undefined' ? location.hostname : ''
+  if (h.startsWith('admin.')) {
+    const port = location.port ? `:${location.port}` : ''
+    return `${location.protocol}//${h.slice('admin.'.length)}${port}/`
+  }
+  return '/'
+}
+
 export default function AdminApp() {
   const bootstrap = useApp((s) => s.bootstrap)
   const session = useAuthSession()
-  const admin = useIsAdmin()
+  const admin = useIsAdmin() // true | false | null — null is "still asking", and must not act
 
   // The daemon connection, for the Defaults tab — held back until the GATE HAS PASSED, not
   // merely until sign-in. Connecting for a refused visitor opened a WebSocket on the very page
   // that then had nothing to say over it, and every non-admin who found the URL held one open.
   useEffect(() => {
-    if (session && admin) void bootstrap()
+    if (session && admin === true) void bootstrap()
   }, [bootstrap, session, admin])
+
+  // A CONFIRMED non-admin does not get a page here at all — they are sent to the main platform,
+  // where their account actually lives. `replace`, not assign: the console's address must not
+  // sit in their history as a Back-button bounce loop. Only on `false` — `null` is the answer
+  // still in flight (or unanswerable during an outage), and redirecting on it would bounce every
+  // real admin whose whoami had not landed yet.
+  useEffect(() => {
+    if (session && admin === false) location.replace(platformHome())
+  }, [session, admin])
 
   useEffect(() => installSoftScroll(), [])
 
   if (isAccountsMode() && !session) return <SignIn />
 
-  // NOT A SECURITY CHECK — the services refuse a non-admin on their own. It is here so somebody
-  // who followed a link gets a sentence instead of a console full of empty tables and errors.
-  // WITH A DOOR OUT: naming the account and offering sign-out is what turns "wrong account" from
-  // a dead end into a two-click fix — without it, someone signed in as the wrong user was simply
-  // stuck, with nothing on the page they could act on.
-  if (!admin) {
+  // Still asking, or a confirmed non-admin mid-redirect: a quiet beat, never a refusal page —
+  // there is nothing here for a non-admin to read, and nothing an admin needs before the answer.
+  if (admin !== true) {
     return (
       <div className="settings">
         <div className="settings-inner settings-wide">
           <div className="settings-empty">
-            <ShieldAlert size={20} />
-            <p>
-              {session?.email ? (
-                <>
-                  <strong>{session.email}</strong> is not an administrator of this deployment.
-                </>
-              ) : (
-                'This account is not an administrator of this deployment.'
-              )}
-            </p>
-            <button
-              className="btn"
-              onClick={() => {
-                signOut()
-                location.reload()
-              }}
-              title="Sign out and return to the sign-in form — use it to switch to an admin account"
-            >
-              <LogOut size={14} />
-              Sign out
-            </button>
+            <p>Loading…</p>
           </div>
         </div>
       </div>

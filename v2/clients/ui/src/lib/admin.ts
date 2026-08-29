@@ -403,26 +403,34 @@ export const setSecret = (
  * The nav entry and the settings menu both need it, and two copies of the question drifted into
  * two different answers the moment one of them cached. Not a security boundary — the server
  * refuses every /admin/* call regardless of what this returns; it decides what is DRAWN. */
-export function useIsAdmin(): boolean {
+export function useIsAdmin(): boolean | null {
   // KEYED TO THE SESSION, not asked once on mount. The admin console mounts BEFORE sign-in (the
   // page renders the SignIn gate), so a mount-time whoami runs with no token, hears "no", and —
   // with [] deps — never asked again: the operator signed in and was told they were not an
   // administrator, forever, while a reload said otherwise. Re-asking when the account changes
   // fixes that race and also flips the answer on sign-out/sign-in within one tab.
+  //
+  // THREE STATES, and the third is load-bearing: `null` means "not yet answered", distinct from
+  // "answered no". The console REDIRECTS a confirmed non-admin to the main platform — acting on
+  // a loading-state false would bounce every real admin during the round trip. Truthiness keeps
+  // every boolean consumer (the sidebar nav entry) working unchanged.
   const session = useAuthSession()
-  const [admin, setAdmin] = useState(false)
+  const [admin, setAdmin] = useState<boolean | null>(null)
   useEffect(() => {
     let live = true
     if (!session) {
-      setAdmin(false)
+      setAdmin(null)
       return
     }
+    setAdmin(null)
     void (async () => {
       try {
         const me = await whoami()
         if (live) setAdmin(!!me.is_admin)
       } catch {
-        if (live) setAdmin(false)
+        // The QUESTION failed, not the answer: an outage must read as "unknown", never as a
+        // confirmed non-admin — that reading is what would redirect an operator mid-incident.
+        if (live) setAdmin(null)
       }
     })()
     return () => {
