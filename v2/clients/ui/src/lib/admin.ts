@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react'
 
 import { accountsUrl, currentAccessToken, isAccountsMode } from './auth'
+import { isDesktop } from './host'
 
 export class AdminError extends Error {
   readonly status: number
@@ -419,4 +420,30 @@ export function useIsAdmin(): boolean {
     }
   }, [])
   return admin
+}
+
+/** Where the admin console lives on the WEB: its own document, not a view in the app.
+ *
+ *  Exported as a path rather than inlined at the buttons so the two clients cannot drift — and so
+ *  the day it moves to `admin.<domain>` there is one string to change, not one per call site. */
+export const ADMIN_CONSOLE_PATH = '/admin'
+
+/**
+ * Open the admin console from wherever the caller is.
+ *
+ * TWO HOSTS, TWO ANSWERS, and neither client should have to know why. On the web the console is a
+ * SEPARATE DOCUMENT (admin.html), so this is a real navigation — a fresh page with none of the
+ * chat shell in it. Electron loads the renderer from `file://`, where there is no second document
+ * to navigate to and an absolute path resolves to the filesystem root, so desktop keeps the
+ * in-app view and gets it by calling `showView`.
+ *
+ * The caller passes its own view-setter rather than this module importing the store: lib/ stays
+ * free of state, the way the rest of it is.
+ */
+export function openAdminConsole(showView: (view: 'admin') => void): void {
+  if (isDesktop) {
+    showView('admin')
+    return
+  }
+  window.location.assign(ADMIN_CONSOLE_PATH)
 }

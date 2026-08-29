@@ -81,7 +81,9 @@ function cspAllowApiOrigins(): Plugin {
         // that produces a client that loads and then cannot reach anything.
         throw new Error(
           'agentd-csp-allow-api-origins: no <meta http-equiv="Content-Security-Policy" content="…"> ' +
-            'found in index.html. The hosted build needs its API origins in the policy; refusing to emit.'
+            'found in an entry document. EVERY entry needs one — this hook runs per document, so a ' +
+            'new entry added without a policy tag would otherwise ship unable to reach the API. ' +
+            'The hosted build needs its API origins in the policy; refusing to emit.'
         )
       }
       return html.replace(CSP_TAG, (_all, before: string, policy: string, after: string) => {
@@ -118,7 +120,22 @@ export default defineConfig({
   plugins: [react(), devDaemonToken(), cspAllowApiOrigins()],
   build: {
     outDir: fileURLToPath(new URL('./dist', import.meta.url)),
-    emptyOutDir: true
+    emptyOutDir: true,
+    // TWO DOCUMENTS, not two builds. The app and the admin console are separate entries so the
+    // console ships without the chat shell and can own a hostname of its own — but they share
+    // this build, this dependency graph and this output directory, so the code they genuinely
+    // have in common (auth, the gateway client, styles) is emitted once and cached once.
+    //
+    // `base: './'` above is what lets the same admin.html work at BOTH /admin (today) and at the
+    // root of admin.<domain> (once DNS exists): relative asset urls resolve against whichever
+    // directory the document was served from. nginx serves /admin without a trailing slash for
+    // exactly that reason — see web/nginx.conf.
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('../ui/index.html', import.meta.url)),
+        admin: fileURLToPath(new URL('../ui/admin.html', import.meta.url))
+      }
+    }
   },
   server: { port: 5273 }
 })

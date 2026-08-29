@@ -22,7 +22,11 @@ import type { View } from '../state/store'
 /** view -> the path that names it. Anything absent stays addressless (see the note above). */
 const PATHS: Partial<Record<View, string>> = {
   chat: '/',
-  admin: '/admin',
+  // NO `admin` ENTRY, and its absence is load-bearing. The admin console is its own DOCUMENT now
+  // (ui/admin.html, served by nginx at /admin), so this app never renders that path and must not
+  // claim it: pushing `/admin` into the address bar here would leave the chat shell showing at
+  // the console's address, and a reload would then swap the page under the user. Desktop still
+  // has an in-app `admin` view — it simply has no address, like every other view below.
   settings: '/settings',
   account: '/account',
   subscription: '/subscription',

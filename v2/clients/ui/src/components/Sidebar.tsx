@@ -3,7 +3,7 @@ import { Blocks, ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, P
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
-import { useIsAdmin } from '../lib/admin'
+import { openAdminConsole, useIsAdmin } from '../lib/admin'
 import { launchStandaloneApp, listableAgents, standaloneApps } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
@@ -153,7 +153,7 @@ export default function Sidebar() {
           <button
             className={`rail-btn ${view === 'admin' ? 'active' : ''}`}
             title="Admin"
-            onClick={() => setView('admin')}
+            onClick={() => openAdminConsole(setView)}
           >
             <ShieldCheck size={17} />
           </button>
@@ -221,7 +221,7 @@ export default function Sidebar() {
             icon={<ShieldCheck size={17} />}
             label="Admin"
             active={view === 'admin'}
-            onClick={() => setView('admin')}
+            onClick={() => openAdminConsole(setView)}
             title="Admin — deployment defaults, users, usage"
           />
         )}
