@@ -2833,6 +2833,14 @@ class Gateway:
                 },
             )
         log.info("connection re-authenticated: account=%s", account.get("account_id"))
+        # IN PLACE when the connection already holds an account dict: the running turn pinned
+        # that exact object (set_account at run start), so mutating it is what lets a mid-run
+        # push reach model calls already in flight. Returning a fresh dict only ever fed FUTURE
+        # turns — invisible under ten-minute tokens, fatal under two-minute ones.
+        if current is not None and current.get("account_id") == account.get("account_id"):
+            current.clear()
+            current.update(account)
+            account = current
         return account, Response(
             id=req.id,
             ok=True,
@@ -6078,9 +6086,11 @@ class Gateway:
         # letting the turn begin just moves the failure to the first model call, where it surfaces
         # as an opaque provider error halfway through a run.
         #
-        # A GRACE WINDOW past `exp` (AGENTD_AUTH_GRACE_S, default 120s) absorbs the ordinary race:
-        # the client refreshes shortly before expiry, and a turn starting in that gap should not
-        # be punished for a few seconds of clock skew. Runs ALREADY in flight are never touched by
+        # NO GRACE (AGENTD_AUTH_GRACE_S, default 0). Every second of afterlife here is a second
+        # in which a DOOMED turn starts and dies at the first model call with an opaque provider
+        # error — seen live at 15s, seen live at 120s. Refusing is typed; the client fetches a
+        # fresh token, pushes auth.update and retries the same send with nothing visible. A
+        # deployment with genuinely skewed clocks can set the env var; nothing else should. Runs ALREADY in flight are never touched by
         # this check — killing a long agent run mid-tool-call over a refresh timer would be worse
         # than the overrun it prevents.
         #
@@ -6089,9 +6099,9 @@ class Gateway:
         expires_at = float((account or {}).get("expires_at") or 0)
         if expires_at:
             try:
-                grace = float(os.environ.get("AGENTD_AUTH_GRACE_S", "") or 120)
+                grace = float(os.environ.get("AGENTD_AUTH_GRACE_S", "") or 0)
             except ValueError:
-                grace = 120.0
+                grace = 0.0
             if time.time() > expires_at + grace:
                 raise RuntimeError(
                     "auth_expired: your session token expired — refresh and retry"

@@ -70,6 +70,12 @@ variable "hibernate" {
 # image-based Lambda cannot be created before its image exists, so a single apply would fail
 # halfway. Apply once, push an image, then set this (`-var publish_image_tag=v1`, or put it in
 # dev.auto.tfvars so it sticks) and apply again.
+variable "builder_image_tag" {
+  description = "Image tag in the builder ECR repo. Empty = no builder Lambda (agent window builds then fail on hosted, loudly)."
+  type        = string
+  default     = ""
+}
+
 variable "publish_image_tag" {
   description = "Image tag for the publish Lambda. Empty = do not create the function yet."
   type        = string
@@ -161,6 +167,11 @@ module "stack" {
   # Publishing (see modules/publish.tf and deploy/PUBLISH-SERVICE.md).
   publish_image_tag        = var.publish_image_tag
   publish_admin_identities = var.publish_admin_identities
+
+  # The builder service (modules/builder.tf) — same two-step bring-up as publish: the repo and
+  # scratch bucket exist from the first apply; the Lambda exists once this tag names a pushed
+  # image. redeploy.sh --only builder does the push + bump + apply as one release.
+  builder_image_tag = var.builder_image_tag
   publish_engine_url       = var.publish_engine_url
   publish_engine_sha256    = var.publish_engine_sha256
   publish_engine_version   = var.publish_engine_version
@@ -347,4 +358,21 @@ output "marketplace_site_bucket" {
 output "marketplace_distribution_id" {
   description = "Distribution to invalidate after an upload. Skip it and the deploy looks like it did nothing."
   value       = module.stack.marketplace_distribution_id
+}
+
+# ── the builder service (modules/builder.tf) ────────────────────────────────────────────
+
+output "builder_ecr_repository" {
+  description = "Push the builder image here; redeploy.sh --only builder does push + tag bump + apply."
+  value       = module.stack.builder_ecr_repository
+}
+
+output "builder_url" {
+  description = "Where the hosted daemon sends agent window builds. Empty until builder_image_tag is set."
+  value       = module.stack.builder_url
+}
+
+output "builder_scratch_bucket" {
+  description = "The builds' sources-in/results-out conveyor belt (1-day expiry)."
+  value       = module.stack.builder_scratch_bucket
 }

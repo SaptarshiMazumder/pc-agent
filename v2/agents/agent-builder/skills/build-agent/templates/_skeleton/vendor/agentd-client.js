@@ -134,6 +134,11 @@ var TokenFetcher = class {
     this.opts = opts;
     this.answer = null;
     this.inflight = null;
+    this.clients = /* @__PURE__ */ new Set();
+  }
+  /** Register a client to receive `auth.update` pushes. Idempotent. */
+  bind(client) {
+    this.clients.add(client);
   }
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
    *  need to know WHY ask `state()`. */
@@ -150,10 +155,26 @@ var TokenFetcher = class {
         this.inflight = null;
       });
       this.inflight.then((a) => {
+        const prev = this.answer;
         this.answer = a;
+        this.push(a, prev);
       });
     }
     return this.inflight;
+  }
+  /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
+   *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
+   *  So when a genuinely NEW cookie token arrives, every bound open socket gets it via
+   *  `auth.update`, which the daemon applies to the connection AND to the turn already running
+   *  on it. Desktop answers come via the runtime, which renews its own connections — no push.
+   *  Fire-and-forget: a socket that is closed or an older daemon just ignores it. */
+  push(a, prev) {
+    if (a.state !== "ok" || a.via !== "cookie" || !a.accessToken) return;
+    if (prev?.state === "ok" && prev.accessToken === a.accessToken) return;
+    for (const c of this.clients) {
+      void c.request("auth.update", { accessToken: a.accessToken }).catch(() => {
+      });
+    }
   }
   signedIn() {
     return this.answer?.state === "ok";
@@ -172,6 +193,7 @@ function identity(opts = {}) {
     f = new TokenFetcher(opts);
     fetchers.set(key, f);
   }
+  if (opts.client) f.bind(opts.client);
   return f;
 }
 function resetIdentity() {
@@ -515,6 +537,7 @@ function fromPage(options = {}) {
     history.replaceState(null, "", here.toString());
   }
   const client = new AgentdClient(options);
+  identity({ origin: here.origin, client });
   client.connect(async () => {
     const stored = loadSession()?.token;
     const a = await identity({ origin: here.origin }).state();
