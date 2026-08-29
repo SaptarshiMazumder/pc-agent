@@ -491,10 +491,12 @@ variable "services" {
         # expiry now, so there is no server-side session row whose lifetime this could set.
         # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
         ACCOUNTS_RATE_LIMIT = "10/60"
-        # SHORT for the auth-renewal bake-in: 2-minute access tokens make a broken renewal
-        # path visible in ~4 minutes instead of ~12. Restore to 600 (or delete the line)
-        # once the one-refresher world has soaked.
-        AGENTD_AUTH_ACCESS_TTL_S = "120"
+        # 1 HOUR while staging soaks. The 2-minute stress setting did its job (2026-08-29: it
+        # exposed the missing push chain, the grace trap, the presign bug and the background-tab
+        # gap in one afternoon); an hour makes those races practically unreachable day-to-day.
+        # Production wants the 600 default back — plus the mid-run token-retry — before launch:
+        # a 1-hour token is also a 1-hour revocation lag.
+        AGENTD_AUTH_ACCESS_TTL_S = "3600"
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"

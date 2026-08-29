@@ -62,8 +62,21 @@ class BuildRefused(Exception):
 
 def _s3():
     import boto3  # imported lazily so the CLI/server modes work without AWS credentials
+    from botocore.config import Config
 
-    return boto3.client("s3")
+    # REGIONAL, VIRTUAL-HOST, SIGV4 — spelled out, not defaulted. A presigned URL signs the
+    # HOST, and S3 307-redirects path-style/global requests to the bucket's regional virtual
+    # host — so a defaulted client can mint URLs whose first use is a redirect the caller must
+    # refuse (following it breaks the signature). Presigning against the exact final host is
+    # the whole fix; found live on the first hosted build (2026-08-29).
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    kwargs: dict = {
+        "config": Config(signature_version="s3v4", s3={"addressing_style": "virtual"})
+    }
+    if region:
+        kwargs["region_name"] = region
+        kwargs["endpoint_url"] = f"https://s3.{region}.amazonaws.com"
+    return boto3.client("s3", **kwargs)
 
 
 # ------------------------------------------------------------------ the build itself

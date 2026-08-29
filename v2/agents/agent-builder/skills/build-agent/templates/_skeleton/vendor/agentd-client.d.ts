@@ -625,7 +625,10 @@ declare function fetchOrgUsage(orgId: string, opts?: OrgOptions): Promise<{
 }>;
 
 interface IdentityOptions extends DaemonOptions {
-    /** Accepted for compatibility; the fetcher needs no client. */
+    /** BINDS the client for token pushes: whenever this fetcher obtains a FRESH cookie token
+     *  (hosted), it fires `auth.update` onto every bound client's open socket — the handoff that
+     *  keeps a long-lived connection, and the run already in flight on it, paying with a live
+     *  token. No timers: the push rides whatever ask fetched the token (status polls, credits). */
     client?: AgentdClient;
     /** Accepted for compatibility; windows no longer have per-window sessions to key. */
     storageKey?: string;
@@ -659,11 +662,21 @@ declare class TokenFetcher {
     private readonly opts;
     private answer;
     private inflight;
+    private readonly clients;
     constructor(opts: DaemonOptions);
+    /** Register a client to receive `auth.update` pushes. Idempotent. */
+    bind(client: AgentdClient): void;
     /** A current access token, or '' when the machine is signed out / unreachable. Callers that
      *  need to know WHY ask `state()`. */
     accessToken(): Promise<string>;
     state(): Promise<TokenAnswer>;
+    /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
+     *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
+     *  So when a genuinely NEW cookie token arrives, every bound open socket gets it via
+     *  `auth.update`, which the daemon applies to the connection AND to the turn already running
+     *  on it. Desktop answers come via the runtime, which renews its own connections — no push.
+     *  Fire-and-forget: a socket that is closed or an older daemon just ignores it. */
+    private push;
     signedIn(): boolean;
     /** Compatibility shape for callers that read `current()?.email`. */
     current(): {

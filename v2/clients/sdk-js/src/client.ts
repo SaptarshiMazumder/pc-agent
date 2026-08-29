@@ -455,6 +455,10 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
     history.replaceState(null, '', here.toString())
   }
   const client = new AgentdClient(options)
+  // BOUND to the identity fetcher: on hosted, a fresh cookie token is pushed onto this open
+  // socket as `auth.update` the moment any ask fetches one — the handoff that keeps the
+  // connection (and a run in flight) authenticated for longer than one token's life.
+  identity({ origin: here.origin, client })
   // The RESOLVER form, not a static target: identity and mode are re-read on every (re)connect,
   // so a sign-in or a mode change is carried by the next socket without the app doing anything.
   //
