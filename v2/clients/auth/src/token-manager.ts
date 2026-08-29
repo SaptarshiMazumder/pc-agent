@@ -40,6 +40,8 @@ const DEFAULT_TIMEOUT_MS = 45_000
 export class TokenManager {
   private pair: TokenPair | null = null
   private inflight: Promise<TokenPair | null> | null = null
+  /** No renewal attempts before this time — set by a FAILED (non-terminal) exchange. Zero = free. */
+  private retryAt = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private readonly listeners = new Set<(p: TokenPair | null) => void>()
   private wake: (() => void) | null = null
@@ -201,6 +203,13 @@ export class TokenManager {
    */
   refresh(): Promise<TokenPair | null> {
     if (this.inflight) return this.inflight
+    // COOLDOWN, and it is what stands between a rate-limited server and a self-inflicted outage.
+    // Single-flight only dedupes CONCURRENT callers; a page that polls anything (status, credits)
+    // retries a spent token on every tick, and when the server answers 429 each retry is another
+    // hit on the very limiter that refused it — the client chokes on itself and never recovers.
+    // While cooling we answer null WITHOUT touching the network, exactly like the offline path:
+    // the credential is kept, and the attempt after `retryAt` proceeds normally.
+    if (Date.now() < this.retryAt) return Promise.resolve(null)
     this.inflight = this.exchange().finally(() => {
       this.inflight = null
     })
@@ -224,14 +233,26 @@ export class TokenManager {
         ...(this.config.cookies ? { cookie: true } : {})
       })
     } catch {
-      return null // offline. KEEP the credential: a flaky network is not a sign-out.
+      // offline. KEEP the credential: a flaky network is not a sign-out. Brief cooldown so a
+      // polling page probes the network at a walk, not at its poll rate.
+      this.retryAt = Date.now() + 15_000
+      return null
     }
     if (!res.ok) {
       // Terminal only when the server SAYS so. Expired, revoked, or the family killed for reuse;
       // retrying forever with a dead credential is how a page goes anonymous without saying so.
-      if (res.status === 401 || res.status === 403) await this.set(null)
+      if (res.status === 401 || res.status === 403) {
+        await this.set(null)
+        return null
+      }
+      // NON-terminal refusal — 429 above all. Honor Retry-After when the server names a number,
+      // otherwise back off 30s: every immediate retry against a fixed-window limiter is another
+      // hit on the window that refused it, which is how the loop sustains itself.
+      const after = Number(res.headers.get("retry-after") || "") || 30
+      this.retryAt = Date.now() + Math.min(after, 300) * 1000
       return null
     }
+    this.retryAt = 0
     const data = (await res.json().catch(() => ({}))) as LoginResponse
     const next = this.toPair(data, this.pair?.email || '')
     if (!next.accessToken) return null

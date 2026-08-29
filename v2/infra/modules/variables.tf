@@ -490,11 +490,16 @@ variable "services" {
         # ACCOUNTS_SESSION_TTL_DAYS is GONE: credentials are signed tokens that carry their own
         # expiry now, so there is no server-side session row whose lifetime this could set.
         # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
-        ACCOUNTS_RATE_LIMIT = "10/60"
-        # SHORT for the auth-renewal bake-in: 2-minute access tokens make a broken renewal
-        # path visible in ~4 minutes instead of ~12. Restore to 600 (or delete the line)
-        # once the one-refresher world has soaked.
-        AGENTD_AUTH_ACCESS_TTL_S = "120"
+        #
+        # 30/60, not 10/60: this window also covers /auth/refresh, and one person with the app,
+        # the builder and the admin console open renews from EVERY tab off one IP. At 10 the
+        # limiter throttled ordinary renewal, and each 429'd retry re-hit the very window that
+        # refused it — pages choked on their own renewals. 30 keeps password brute-force slow
+        # while leaving a person's tabs room to breathe.
+        ACCOUNTS_RATE_LIMIT = "30/60"
+        # AGENTD_AUTH_ACCESS_TTL_S is GONE (soak value "120" removed, default 600 restored):
+        # 2-minute tokens quintupled refresh traffic, which multiplied by open tabs is what
+        # drove renewals into the limiter above in the first place.
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"

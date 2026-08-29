@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { accountsUrl, currentAccessToken, isAccountsMode } from './auth'
+import { accountsUrl, currentAccessToken, isAccountsMode, useAuthSession } from './auth'
 import { isDesktop } from './host'
 
 export class AdminError extends Error {
@@ -404,9 +404,19 @@ export const setSecret = (
  * two different answers the moment one of them cached. Not a security boundary — the server
  * refuses every /admin/* call regardless of what this returns; it decides what is DRAWN. */
 export function useIsAdmin(): boolean {
+  // KEYED TO THE SESSION, not asked once on mount. The admin console mounts BEFORE sign-in (the
+  // page renders the SignIn gate), so a mount-time whoami runs with no token, hears "no", and —
+  // with [] deps — never asked again: the operator signed in and was told they were not an
+  // administrator, forever, while a reload said otherwise. Re-asking when the account changes
+  // fixes that race and also flips the answer on sign-out/sign-in within one tab.
+  const session = useAuthSession()
   const [admin, setAdmin] = useState(false)
   useEffect(() => {
     let live = true
+    if (!session) {
+      setAdmin(false)
+      return
+    }
     void (async () => {
       try {
         const me = await whoami()
@@ -418,7 +428,7 @@ export function useIsAdmin(): boolean {
     return () => {
       live = false
     }
-  }, [])
+  }, [session?.accountId])
   return admin
 }
 
