@@ -37,7 +37,7 @@ export function Topbar({
           collapses to agentd's 64px icon rail instead of disappearing — the expand control is
           always on screen — and a second door to it would be a button that is never needed. */}
       <div className="head-text">
-        <span className="eyebrow">{agent ? 'Building' : 'Agent Builder'}</span>
+        <span className="eyebrow">{agent ? 'Building' : 'Cloud Agent Builder'}</span>
         <h1>{agent ? agent.name || agent.id : 'What should we build?'}</h1>
         <p className="head-sub">
           {agent

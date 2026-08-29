@@ -5,8 +5,10 @@
 #
 #   ./redeploy.sh                      # dev
 #   ./redeploy.sh staging              # another environment
-#   ./redeploy.sh staging --only web   # one image (comma-separated for several)
-#   ./redeploy.sh staging --no-build   # just roll what is already in ECR
+#   ./redeploy.sh staging --only web       # one image (comma-separated for several)
+#   ./redeploy.sh staging --only builder   # a LAMBDA service: build, push vN+1, bump the
+#                                          #   tfvars tag, apply — the whole release
+#   ./redeploy.sh staging --no-build   # just roll what is already in ECR (lambdas skip)
 #   ./redeploy.sh staging --skip-tf    # skip terraform (services already at their counts)
 #
 # WHY THIS EXISTS ALONGSIDE push-images.ps1. That script builds every image and rolls the
@@ -76,13 +78,25 @@ echo "  ALB host : $ALB_HOST"
 # Kept in step with the repository_urls output — a service terraform creates but nothing here
 # builds is a service that can never start (`ingest` was exactly that for months).
 ALL_IMAGES="model-proxy accounts daemon web ingest"
+# LAMBDA services release differently, on purpose: a Lambda pins an image DIGEST, so pushing
+# over a mutable tag changes nothing it runs. Each release is therefore a NEW version tag
+# (v1, v2, ...) written into the environment's tfvars, then `terraform apply` moves the
+# function — which also handles first bring-up (empty tag -> v1) with no separate procedure.
+ALL_LAMBDAS="builder publish"
+LAMBDA_TARGETS=""
 if [ -n "$ONLY" ]; then
-  TARGETS="$(echo "$ONLY" | tr ',' ' ')"
-  for t in $TARGETS; do
-    case " $ALL_IMAGES " in *" $t "*) ;; *) echo "unknown image '$t'. Choose from: $ALL_IMAGES" >&2; exit 2 ;; esac
+  TARGETS=""
+  for t in $(echo "$ONLY" | tr ',' ' '); do
+    case " $ALL_IMAGES " in *" $t "*) TARGETS="$TARGETS $t"; continue ;; esac
+    case " $ALL_LAMBDAS " in *" $t "*) LAMBDA_TARGETS="$LAMBDA_TARGETS $t"; continue ;; esac
+    echo "unknown image '$t'. Services: $ALL_IMAGES. Lambdas: $ALL_LAMBDAS" >&2; exit 2
   done
 else
   TARGETS="$ALL_IMAGES"
+  # A full redeploy means EVERYTHING is current, lambdas included. A rebuild whose content
+  # didn't change costs one more ECR tag on mostly-shared layers — cheaper than a stale
+  # builder nobody notices. --no-build skips them below (there is nothing to "roll").
+  LAMBDA_TARGETS="$ALL_LAMBDAS"
 fi
 
 # dockerfile + build context + build args, per image. model-proxy, accounts, daemon and ingest
@@ -188,6 +202,60 @@ if [ -n "$ROLLED" ]; then
         | grep -- "$n/" | tail -25
     fi
   done
+fi
+
+# --- 6b. LAMBDA services: build -> push vN+1 -> bump tfvars -> apply ----------------------
+lambda_dockerfile_for() {
+  case "$1" in
+    builder) echo "$V2/services/builder/Dockerfile" ;;
+    publish) echo "$V2/services/publish/Dockerfile" ;;
+  esac
+}
+
+if [ -n "$LAMBDA_TARGETS" ] && [ "$DO_BUILD" = 1 ]; then
+  TFVARS="$ENV_DIR/$ENVIRONMENT.auto.tfvars"
+  APPLY_LAMBDAS=0
+  for name in $LAMBDA_TARGETS; do
+    step "lambda $name: build + push + version bump"
+    repo="$(terraform "-chdir=$ENV_DIR" output -raw "${name}_ecr_repository" 2>/dev/null)"
+    if [ -z "$repo" ]; then
+      # FIRST BRING-UP with --skip-tf (or a tree the apply has not seen): the repo this push
+      # needs is itself terraform's to create. One apply mints it — with the image tag still
+      # empty this cannot try to build the Lambda early — then the output answers.
+      step "terraform apply (creating the $name repository first)"
+      terraform "-chdir=$ENV_DIR" apply -auto-approve || { fail "apply for the $name repo failed"; continue; }
+      repo="$(terraform "-chdir=$ENV_DIR" output -raw "${name}_ecr_repository" 2>/dev/null)"
+    fi
+    if [ -z "$repo" ]; then fail "no ${name}_ecr_repository output even after apply"; continue; fi
+
+    # NEXT TAG from the tfvars, the single source the apply below reads. v1 when unset —
+    # which makes first bring-up the same command as every later release.
+    cur="$(sed -n "s/^${name}_image_tag[[:space:]]*=[[:space:]]*\"\(v[0-9]*\)\".*/\1/p" "$TFVARS" | head -1)"
+    if [ -n "$cur" ]; then next="v$(( ${cur#v} + 1 ))"; else next="v1"; fi
+
+    uri="$repo:$next"
+    if ! docker build -t "$uri" -f "$(lambda_dockerfile_for "$name")" "$V2"; then
+      fail "build of lambda $name failed"; continue
+    fi
+    if ! docker push "$uri"; then fail "push of lambda $name failed"; continue; fi
+
+    if grep -qE "^${name}_image_tag[[:space:]]*=" "$TFVARS"; then
+      sed -i "s/^${name}_image_tag[[:space:]]*=.*/${name}_image_tag = \"$next\"/" "$TFVARS"
+    else
+      printf '\n%s_image_tag = "%s"\n' "$name" "$next" >> "$TFVARS"
+    fi
+    echo "  $name -> $next (tfvars updated)"
+    APPLY_LAMBDAS=1
+  done
+
+  if [ "$APPLY_LAMBDAS" = 1 ]; then
+    step "terraform apply (lambda image tags)"
+    if ! terraform "-chdir=$ENV_DIR" apply -auto-approve; then
+      fail "terraform apply for the lambda tags failed — the tfvars name images that ARE pushed; rerun apply"
+    fi
+  fi
+elif [ -n "$LAMBDA_TARGETS" ]; then
+  echo; echo "== lambdas skipped (--no-build): a lambda release IS a new image =="
 fi
 
 # --- 7. prove it is serving ---------------------------------------------------------------

@@ -491,6 +491,10 @@ variable "services" {
         # expiry now, so there is no server-side session row whose lifetime this could set.
         # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
         ACCOUNTS_RATE_LIMIT = "10/60"
+        # SHORT for the auth-renewal bake-in: 2-minute access tokens make a broken renewal
+        # path visible in ~4 minutes instead of ~12. Restore to 600 (or delete the line)
+        # once the one-refresher world has soaked.
+        AGENTD_AUTH_ACCESS_TTL_S = "120"
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
@@ -556,6 +560,16 @@ variable "services" {
         # accounts/user_state overlay and does not flip that flag.
         AGENTD_SANDBOX_PLUGINS = "1"
         AGENTD_SANDBOX_BACKEND = "subprocess"
+        # TRUST the product's OWN curated builder. Cloud Agent Builder ships WITH the product but is
+        # installed via .agentpkg on boot (the only path that registers an agent on a hosted daemon),
+        # which lands it in the marketplace ledger — so classify_origin would treat it as an untrusted
+        # stranger's bundle and SANDBOX its authoring tools. That breaks it two ways: create_agent
+        # writes an agent's files (a sandbox permits only the workspace) and its plugin imports
+        # agent-builder's shared `agent_authoring` package (unreachable from the sandbox subprocess).
+        # It is not a stranger's code; the deployment vouches for it. Its file writes stay fenced to
+        # the caller's account by the tenant write-clamp (check_write), which is the real boundary —
+        # the sandbox was belt-and-suspenders here and is the wrong tool for the product's own builder.
+        AGENTD_SANDBOX_TRUSTED_AGENTS = "cloud-agent-builder"
       }
       # WebSocket sessions are long-lived, so a replaced daemon gets a real drain window
       # (a 30s cut-off would drop live conversations mid-turn), and a longer boot grace
@@ -623,6 +637,31 @@ variable "publish_memory_mb" {
   description = "Lambda memory. makensis is CPU-bound and Lambda scales CPU with memory, so this is really a speed dial."
   type        = number
   default     = 2048
+}
+
+# ── the builder service (builder.tf) — same two-step bring-up as publish ─────
+variable "builder_image_tag" {
+  description = "Image tag in the builder ECR repo. EMPTY (default) builds no Lambda and costs nothing: first apply creates the repo and bucket, push the image, set the tag, apply again."
+  type        = string
+  default     = ""
+}
+
+variable "builder_listener_port" {
+  description = "ALB listener port for POST /build. Its own port (:4400), beside publish at :4300."
+  type        = number
+  default     = 4400
+}
+
+variable "builder_timeout_seconds" {
+  description = "Lambda timeout. Covers one vite build, plus an npm install when an agent's package.json added dependencies (the slow path)."
+  type        = number
+  default     = 600
+}
+
+variable "builder_memory_mb" {
+  description = "Lambda memory. A node build's working set; Lambda scales CPU with memory, so this is also build speed."
+  type        = number
+  default     = 3008
 }
 
 # The ENGINE a published stub installs. Normally all three stay EMPTY and the service reads the

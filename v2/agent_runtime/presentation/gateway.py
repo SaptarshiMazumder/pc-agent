@@ -2009,8 +2009,12 @@ class Gateway:
         `templates/_previews/<name>/`. Static product pixels with nobody's data in them, so no
         token is required, same as an app's own shipped files.
 
-        Resolved through Agent Builder's own directory rather than a hardcoded path, because that
-        is where the templates live and the registry already knows where Agent Builder is."""
+        Resolved through Agent Builder's own directory, where the templates live. The registry
+        knows it on desktop; on a hosted daemon it is WITHHELD (requires_local) so `resolve_dir`
+        returns None — but its FILES are on disk beside cabbie's (installed alongside), and these
+        previews are static product pixels, so we fall back to its directory under the shared
+        agents dir. Cloud Agent Builder reuses Agent Builder's templates, so its create dialog's
+        thumbnails must serve even where Agent Builder itself is not offered."""
 
         def deny(code: int, reason: str) -> HttpResponse:
             return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
@@ -2018,6 +2022,10 @@ class Gateway:
         if self.registry is None:
             return deny(404, "Not Found")
         builder_dir = self.registry.resolve_dir("agent-builder")
+        if builder_dir is None:
+            # WITHHELD, NOT ABSENT: resolve the on-disk directory directly (see the docstring).
+            candidate = Path(getattr(self.config, "agents_dir", "") or "") / "agent-builder"
+            builder_dir = str(candidate) if candidate.is_dir() else None
         if builder_dir is None:
             return deny(404, "Not Found")
         parts = [p for p in split.path.split("/") if p]  # ["template-previews", "<name>", ...]
@@ -2978,7 +2986,16 @@ class Gateway:
             return Response(id=req.id, ok=True, payload=payload)
         except Exception as e:
             log.exception("dispatch error for %s", req.method)
-            return Response(id=req.id, ok=False, payload={"error": f"{type(e).__name__}: {e}"})
+            detail = str(e)
+            payload: dict = {"error": f"{type(e).__name__}: {detail}"}
+            # A snake_case prefix before the first colon is a TYPED code (e.g.
+            # "auth_expired: your session token expired"). Surfaced as its own field so a
+            # client can branch on it — matching on prose is how the auth-repair path breaks
+            # on a reword. Only lowercase identifiers qualify; ordinary sentences never match.
+            m = re.match(r"^([a-z][a-z0-9_]{2,40}):", detail)
+            if m:
+                payload["code"] = m.group(1)
+            return Response(id=req.id, ok=False, payload=payload)
 
     def _resolve_state_dir(self, agent_id: str) -> tuple[str, object]:
         """(effective agent id, its state_dir). Each agent partitions its own transcripts;
@@ -5999,12 +6016,35 @@ class Gateway:
         # access token lives ten minutes, and no window pushes auth.update any more: the runtime
         # is the refresher (platform_session is single-flight and free while the cached token is
         # alive), so "expired" is a state this connection should never be seen in.
-        if account is not None and account.get("machine_session") and self.platform_session is not None:
-            tok = await self.platform_session.token()
-            if tok.get("state") == "ok":
-                fresh = await accounts.resolve(tok["accessToken"])
-                if fresh is not None:
-                    account = {**fresh, "machine_session": True}
+        # ANY stale account, not just marked ones: on a desktop daemon the runtime holds the
+        # session, so whatever path produced this connection's account dict, refusing a turn
+        # over a token the runtime can re-mint in-place is never the right answer. The mark
+        # SHOULD be present on every desktop connection — its absence is logged below because
+        # it means some path is still minting unmarked accounts, and that path is a bug.
+        if account is not None and self.platform_session is not None:
+            stale = float(account.get("expires_at") or 0) - time.time() < 60
+            if stale or account.get("machine_session"):
+                if not account.get("machine_session"):
+                    log.warning(
+                        "chat.send: desktop account without machine_session mark "
+                        "(keys=%s expires_at=%s) — re-pinning from the machine session anyway",
+                        sorted(account.keys()),
+                        account.get("expires_at"),
+                    )
+                tok = await self.platform_session.token()
+                if tok.get("state") == "ok":
+                    fresh = await accounts.resolve(tok["accessToken"])
+                    # NEVER a different person: a connection that PRESENTED its own session
+                    # (a browser on the LAN, signed in as somebody else) keeps its identity —
+                    # re-pinning would silently swap accounts mid-connection. The machine's
+                    # token renews the machine's connections only.
+                    if fresh is not None and (
+                        account.get("machine_session")
+                        or fresh.get("account_id") == account.get("account_id")
+                    ):
+                        account = {**fresh, "machine_session": True}
+                else:
+                    log.warning("chat.send: machine session did not answer ok: %s", tok.get("state"))
         # AN EXPIRED CREDENTIAL CANNOT START NEW WORK. The socket stays open and its identity
         # stands — the client is who it said it was — but the token it would pay with is dead, so
         # letting the turn begin just moves the failure to the first model call, where it surfaces

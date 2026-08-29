@@ -18,7 +18,7 @@ forever and eventually disable the endpoint — taking the events we DO care abo
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import Callable, Mapping
 
 from payments.application.interfaces.payment_intent_store import PaymentIntentStore
 from payments.application.interfaces.payments_post_processor import PaymentsPostProcessor
@@ -40,11 +40,13 @@ class PaymentEventService:
         self._post_processor = post_processor
         self._clock = clock
 
-    def handle(self, body: bytes, signature: str) -> dict:
+    def handle(self, body: bytes, headers: Mapping[str, str]) -> dict:
         """Raises `WebhookRejected` when the delivery is not the rail's. Everything else is a
-        result, because the rail reads our status code as "retry or not"."""
+        result, because the rail reads our status code as "retry or not". Which headers prove
+        the delivery is the verifier's knowledge, not this service's — the mapping passes
+        through untouched (keys lowercase, the router's contract)."""
         at = self._clock()
-        event = self._verifier.verify(body, signature)
+        event = self._verifier.verify(body, headers)
         if not self._intents.claim_event(event.id, at=at):
             return {"ok": True, "event": event.id, "duplicate": True, "processed": False}
 

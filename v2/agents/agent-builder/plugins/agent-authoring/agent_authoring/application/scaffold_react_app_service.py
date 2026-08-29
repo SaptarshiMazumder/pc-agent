@@ -69,6 +69,9 @@ class ReactScaffoldResult:
     agent_id: str
     app_dir: Path
     written: list[str] = field(default_factory=list)
+    #: True when the PREBUILT template window was installed as ui/ — the agent is openable with
+    #: no build having run anywhere. False falls back to compiling (previews absent/stale-proof).
+    ui_installed: bool = False
 
 
 class ScaffoldReactAppService:
@@ -99,6 +102,13 @@ class ScaffoldReactAppService:
             if variants_root is not None
             else self._skeleton_root.parent / "_variants"
         )
+        # `_prebuilt/` beside both: each template ALREADY BUILT, Gate and all
+        # (build_prebuilt_templates.py, run by the SDK vendor pipeline). Scaffolding copies the
+        # matching one in as ui/, so a new agent is openable without any build running here —
+        # which on a hosted daemon is the difference between working and OOM-killing the task.
+        # NOT `_previews/`: those are the create dialog's DISPLAY builds, deliberately Gate-less
+        # so a thumbnail shows the layout — shipped into an agent they would bypass sign-in.
+        self._prebuilt_root = self._skeleton_root.parent / "_prebuilt"
 
     def templates(self) -> list[str]:
         """The template names on offer — the folders in `_variants/`. The skeleton needs no
@@ -143,7 +153,32 @@ class ScaffoldReactAppService:
             shutil.copyfile(src, dest)
             written.append(rel)
 
-        return ReactScaffoldResult(agent_id=agent_id, app_dir=app_dir, written=sorted(written))
+        ui_installed = self._install_prebuilt_ui(template, agent_dir / "ui")
+
+        return ReactScaffoldResult(
+            agent_id=agent_id,
+            app_dir=app_dir,
+            written=sorted(written),
+            ui_installed=ui_installed,
+        )
+
+    def _install_prebuilt_ui(self, template: str, ui_dir: Path) -> bool:
+        """Copy the template's PREBUILT window in as ui/ — the source just scaffolded is exactly
+        what the preview was built from, so this is the build's output without the build.
+
+        False (never an error) when there is nothing suitable: previews are an optimization, and
+        the caller's fallback is the real compile. An EXISTING ui/ is left alone for the same
+        reason an existing app/ refuses the scaffold: it is somebody's work."""
+        wanted = (template or "chat").strip().lower() or "chat"
+        preview = self._prebuilt_root / wanted
+        if not (preview / "index.html").is_file():
+            preview = self._prebuilt_root / "chat"
+        if not (preview / "index.html").is_file():
+            return False
+        if ui_dir.exists() and any(ui_dir.iterdir()):
+            return False
+        shutil.copytree(preview, ui_dir, dirs_exist_ok=True)
+        return True
 
     # ------------------------------------------------------------------ planning
     def _plan(self, template: str = "chat") -> list[tuple[str, Path]]:

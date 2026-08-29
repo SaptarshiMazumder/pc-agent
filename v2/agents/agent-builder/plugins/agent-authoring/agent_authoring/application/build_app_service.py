@@ -20,8 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
-from agent_authoring.infrastructure.node_toolchain import NodeMissing, NodeToolchain
+from agent_authoring.application.build_backend import BuildBackend, BuildBackendError
 
 
 class BuildAppError(Exception):
@@ -45,46 +44,22 @@ class BuildAppResult:
 
 
 class BuildAppService:
-    """Builds one agent's app. Owns the ORDER of the steps and nothing else — finding a toolchain
-    and providing dependencies are injected, so this stays testable without a Node on the box."""
+    """Builds one agent's app. Owns the ORDER of the steps and nothing else — WHERE the build
+    runs is the injected BuildBackend's business (local node on desktop, the builder service on
+    hosted), so this stays testable without a Node on the box and identical on both."""
 
-    def __init__(
-        self,
-        reader,
-        toolchain: NodeToolchain,
-        dependencies: AppDependencyStore,
-        build_timeout: float = 600.0,
-    ):
+    def __init__(self, reader, backend: BuildBackend):
         self._reader = reader
-        self._toolchain = toolchain
-        self._dependencies = dependencies
-        self._timeout = build_timeout
+        self._backend = backend
 
     def build(self, agent_id: str) -> BuildAppResult:
         app_dir = self._app_dir(agent_id)
 
         try:
-            self._toolchain.require()
-        except NodeMissing as e:
+            outcome = self._backend.build(app_dir)
+        except BuildBackendError as e:
+            # VERBATIM — the backend's text already names files and lines.
             raise BuildAppError(str(e)) from e
-
-        deps = self._dependencies.ensure(app_dir)
-        if not deps.ok:
-            raise BuildAppError(
-                f"could not provide this app's dependencies, so it cannot be built.\n\n"
-                f"{deps.detail or '(no detail)'}"
-            )
-
-        result = self._toolchain.npm(["run", "build"], cwd=app_dir, timeout=self._timeout)
-        if result.timed_out:
-            raise BuildAppError(
-                f"the build ran for {int(self._timeout)}s and was stopped. Partial output:\n\n"
-                f"{result.output}"
-            )
-        if not result.ok:
-            # VERBATIM. vite names the file and the line; replacing that with a verdict turns a
-            # one-line fix into a hunt.
-            raise BuildAppError(f"the build failed:\n\n{result.output}")
 
         written = self._built_files(app_dir.parent / "ui")
         if not written:
@@ -100,8 +75,8 @@ class BuildAppService:
         return BuildAppResult(
             agent_id=agent_id,
             ok=True,
-            dependencies=deps.how,
-            output=_tail(result.output),
+            dependencies=outcome.dependencies,
+            output=_tail(outcome.output),
             written=written,
         )
 

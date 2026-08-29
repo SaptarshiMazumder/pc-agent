@@ -13,6 +13,11 @@ knowledge and would be re-derived (wrongly) by anyone adding it themselves:
   3. IT RUNS IN A THREADPOOL. Handling touches SQLite, and doing that inline in an async endpoint
      blocks the event loop for every other request on the service.
 
+THE HEADERS GO THROUGH WHOLE, keys lowercased. Which of them prove the delivery is rail
+knowledge — Stripe uses one header, Razorpay two, Standard-Webhooks rails three — and naming any
+of them here would put that knowledge back in the HTTP layer, which is the bug this router
+existed to prevent for the body. The verifier behind `handle` reads its own.
+
 The host supplies `handle` — a callable that owns the database and the order. This module never
 learns what post-processing means.
 """
@@ -33,16 +38,16 @@ WEBHOOK_PATH = "/payments/webhook"
 
 
 def build_payment_router(
-    handle: Callable[[bytes, str], dict], *, path: str = WEBHOOK_PATH
+    handle: Callable[[bytes, dict], dict], *, path: str = WEBHOOK_PATH
 ) -> APIRouter:
     router = APIRouter()
 
     @router.post(path)
     async def payment_webhook(request: Request) -> dict:
         body = await request.body()
-        signature = request.headers.get("stripe-signature", "")
+        headers = {k.lower(): v for k, v in request.headers.items()}
         try:
-            return await run_in_threadpool(handle, body, signature)
+            return await run_in_threadpool(handle, body, headers)
         except WebhookRejected as e:
             # Deliberately no body contents in the log: a rejected delivery is the shape an
             # attack takes, and echoing it into CloudWatch is how the payload gets stored.

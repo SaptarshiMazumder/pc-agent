@@ -214,6 +214,23 @@ export class AgentdClient {
     method: string,
     params: Record<string, unknown> = {}
   ): Promise<T> {
+    return this.rawRequest<T>(method, params).catch(async (e) => {
+      // AUTH REPAIR, exactly what the daemon's error asks for: "refresh and retry". The token
+      // this connection presented has died mid-life; a fresh one is one identity ask away
+      // (runtime on desktop, accounts cookie on hosted), and auth.update swaps it onto the
+      // OPEN socket — no reconnect, no dropped subscriptions. One retry, single-flight,
+      // and never for auth.update itself (that way lies recursion).
+      const code = (e as Error & { code?: string })?.code
+      if (code !== 'auth_expired' || method === 'auth.update') throw e
+      if (!(await this.repairAuth())) throw e
+      return this.rawRequest<T>(method, params)
+    })
+  }
+
+  private rawRequest<T = Record<string, any>>(
+    method: string,
+    params: Record<string, unknown> = {}
+  ): Promise<T> {
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('not connected'))
@@ -224,6 +241,28 @@ export class AgentdClient {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as Pending['resolve'], reject })
     })
+  }
+
+  private authRepair: Promise<boolean> | null = null
+
+  /** Fetch a fresh access token and push it onto the open socket. True when the daemon took it.
+   *  SINGLE-FLIGHT: ten rejected requests during one dead-token moment ride one repair. */
+  private repairAuth(): Promise<boolean> {
+    if (!this.authRepair) {
+      this.authRepair = (async () => {
+        try {
+          const a = await identity().state()
+          if (a.state !== 'ok' || !a.accessToken) return false
+          await this.rawRequest('auth.update', { accessToken: a.accessToken })
+          return true
+        } catch {
+          return false
+        } finally {
+          this.authRepair = null
+        }
+      })()
+    }
+    return this.authRepair
   }
 
   /** Subscribe to a broadcast event by name. Returns the unsubscribe. */
@@ -426,11 +465,17 @@ export function fromPage(options: AgentdClientOptions = {}): AgentdClient {
   // is a 404 (answered as signed-out) and the borrowed launch-URL session travels instead.
   client.connect(async () => {
     const stored = loadSession()?.token
-    const signedIn = !!stored || (await identity({ origin: here.origin }).state()).state === 'ok'
+    const a = await identity({ origin: here.origin }).state()
+    // HOSTED (the answer came from the accounts cookie): the socket must PRESENT the token —
+    // there is no machine identity to inherit, and the launch-URL token dies in minutes. Every
+    // (re)connect therefore carries the freshest one. DESKTOP presents nothing: the daemon
+    // inherits the machine session and keeps it renewed itself.
+    const cookieToken = a.via === 'cookie' && a.state === 'ok' ? a.accessToken || '' : ''
+    const signedIn = !!stored || a.state === 'ok'
     return {
       url: here.origin,
       token: token || undefined,
-      session: stored || undefined,
+      session: cookieToken || stored || undefined,
       mode: effectiveMode('', signedIn),
       scope: scope || undefined
     }

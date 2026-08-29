@@ -17,6 +17,8 @@ flags were approximating from a distance.
 
 from __future__ import annotations
 
+import os
+
 import logging
 from pathlib import Path
 
@@ -158,11 +160,28 @@ def register(api, ctx):
     # once and shared with `build_app` below, so creating an agent and rebuilding it later cannot
     # disagree about the toolchain.
     from agent_authoring.application.build_app_service import BuildAppService
-    from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
-    from agent_authoring.infrastructure.node_toolchain import NodeToolchain
 
-    toolchain = NodeToolchain()
-    app_builder = BuildAppService(reader, toolchain, AppDependencyStore(toolchain))
+    # WHERE builds run is deployment configuration, decided once, here. A builder URL in the
+    # environment (hosted: terraform sets it from builder.tf) sends every build out over the
+    # scratch bucket — this container never runs npm, which is what OOM-killed the 512 MB
+    # hosted task. No URL (desktop) keeps the local toolchain, byte-identical to before.
+    builder_url = os.environ.get("AGENTD_BUILDER_URL", "").strip()
+    if builder_url:
+        from agent_authoring.infrastructure.remote_builder_build_backend import (
+            RemoteBuilderBuildBackend,
+        )
+
+        build_backend = RemoteBuilderBuildBackend(
+            builder_url, os.environ.get("AGENTD_BUILDER_INTERNAL_KEY", "")
+        )
+    else:
+        from agent_authoring.infrastructure.app_dependency_store import AppDependencyStore
+        from agent_authoring.infrastructure.local_node_build_backend import LocalNodeBuildBackend
+        from agent_authoring.infrastructure.node_toolchain import NodeToolchain
+
+        toolchain = NodeToolchain()
+        build_backend = LocalNodeBuildBackend(toolchain, AppDependencyStore(toolchain))
+    app_builder = BuildAppService(reader, build_backend)
 
     # EVERY WRITE TO AN app/ IS A BUILD, automatically — the mechanism that closes the loop the
     # hot-reload work opened: edit -> auto-build -> the open window reloads itself. Without this,

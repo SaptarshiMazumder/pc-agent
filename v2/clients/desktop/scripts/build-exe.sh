@@ -65,6 +65,12 @@ step "SDK (clients/sdk-js)"
 step "Agent Builder UI"
 ( cd "$V2/agents/agent-builder/app" && npm run build )
 
+# --- 4b. Cloud Agent Builder (cabbie) — her own window, built to her ui/ so the exe ships the
+#         current one. She rides the same wheel (hatch_build stages cloud-agent-builder), so a
+#         stale ui/ here would ship a stale cabbie.
+step "Cloud Agent Builder UI"
+( cd "$V2/agents/cloud-agent-builder/app" && npm run build )
+
 # --- 5. the embedded runtime (wheel rebuilt every time; big downloads cached) --------------
 step "runtime (build-runtime.ps1)"
 ( cd "$DESKTOP" && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-runtime.ps1 )
