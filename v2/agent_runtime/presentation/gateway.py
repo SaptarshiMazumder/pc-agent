@@ -3867,6 +3867,21 @@ class Gateway:
             # the author's declared presentation — a normal "browser" tab or the app's
             # own chromeless "window"; every opener (CLI, desktop button) honors it
             "mode": app.get("mode") or "browser",
+            # A SURFACE OF THE PRODUCT, not one of the user's agents (see the [app] parse in
+            # file_registry): clients give it its own place in the navigation and leave it out
+            # of agent lists. Sent to every client so the rule is read from data once, rather
+            # than re-guessed — by id — in each of them.
+            "standalone": bool(app.get("standalone", False)),
+            # The DESTINATION this app provides. Several agents may name the same surface —
+            # they are implementations of it, not separate places — so a client draws one entry
+            # per surface rather than one per agent.
+            "surface": str(app.get("surface") or aid),
+            # WHICH HOST this implementation was built for, so a client with two of them can
+            # choose: `requires_local` is the author saying "this needs a machine of its own".
+            # On a desktop that is the better fit (it is that machine); on a shared host it is
+            # the one that never arrives. The same declaration the hosted daemon uses to refuse
+            # the agent outright — one fact, not a second flag that could disagree with it.
+            "requiresLocal": bool(getattr(spec, "requires_local", False)),
         }
 
     def _agents_list(self, host: bool = False) -> dict:

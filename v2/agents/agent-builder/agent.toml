@@ -44,6 +44,15 @@ title = "Agent Builder"
 mode = "window"
 entry = "ui/index.html"
 public = false
+# A SURFACE OF THE PRODUCT, not one of your agents. Clients give this app its own entry
+# in their navigation and keep it out of agent lists and shelves — building agents is a
+# feature of agentd, not an agent you picked. Remove this line and it lists like any other.
+standalone = true
+# ONE DESTINATION, TWO IMPLEMENTATIONS. Agent Builder and Cloud Agent Builder both provide
+# this surface — the desktop one where you own the machine, the fenced one where you own an
+# account on someone else's. Naming the same surface makes clients draw a SINGLE
+# "Agent Builder" entry and open whichever implementation suits the host they run on.
+surface = "agent-builder"
 
 # The SHARED tools this agent may reach.
 #

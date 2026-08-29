@@ -682,6 +682,29 @@ class FileAgentRegistry:
                 "public_tools": tuple(
                     str(t).strip() for t in (app_raw.get("public_tools") or []) if str(t).strip()
                 ),
+                # STANDALONE — the author declaring "this app is a surface of the product in
+                # its own right, not one of the user's agents". Two consequences, both the
+                # client's to apply and both from THIS one fact: it earns its own entry in the
+                # navigation, and it is kept out of agent lists and shelves.
+                #
+                # A DECLARATION, not a name check. Agent Builder is the first of these, but
+                # nothing anywhere names it: any agent that says this becomes one, and an agent
+                # that stops saying it goes back to being listed. The alternative — clients
+                # testing `id === 'agent-builder'` — puts the same guess in every client and
+                # breaks the moment an install renames or forks it.
+                #
+                # Deliberately NOT `listed()` on the registry: an unlisted agent is dropped from
+                # the roster entirely, and a client cannot render a button for an agent it was
+                # never told about. It ships in the roster, flagged.
+                "standalone": bool(app_raw.get("standalone", False)),
+                # WHICH SURFACE this app provides. Two agents naming the same one are two
+                # IMPLEMENTATIONS of a single destination, and a client renders ONE entry for
+                # them — Agent Builder and Cloud Agent Builder are both "agent-builder", so the
+                # navigation says "Agent Builder" once and the host picks which one opens.
+                #
+                # Defaults to the agent's own id, so an app that names no surface is simply the
+                # only implementation of its own — one button, which is the common case.
+                "surface": str(app_raw.get("surface") or agent_id).strip().lower(),
             }
 
         # Display presentation: authored agent.toml fields win; else the sidecar the
