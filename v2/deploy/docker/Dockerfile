@@ -42,18 +42,6 @@ COPY clients/sdk-js/tsconfig.json clients/sdk-js/tsup.config.ts ./
 COPY clients/sdk-js/src ./src
 RUN npx tsup
 
-# --- app-deps stage: the shared React/Vite node_modules every agent window builds against ---
-# An agent's window is a React project; `build_app` compiles `app/` -> `ui/` with vite. Rather
-# than `npm install` per agent — a few hundred MB every time a user gives an agent a window, and
-# dead on a container with no egress — the deps are installed ONCE here from the SKELETON'S OWN
-# package.json (the same list build-runtime.ps1 uses for the desktop bundle), and each agent's
-# `app/node_modules` becomes a symlink into this tree (AppDependencyStore). One source of truth:
-# the skeleton package.json is the input, so adding a dependency there is the whole change.
-FROM node:20-slim AS appdeps
-WORKDIR /app-deps
-COPY agents/agent-builder/skills/build-agent/templates/_skeleton/package.json ./package.json
-RUN npm install --no-audit --no-fund --loglevel=error
-
 # --- build stage: wheel + curated .agentpkg bundles -------------------------------------
 FROM python:3.11-slim AS build
 WORKDIR /src
@@ -87,7 +75,15 @@ sys.exit(0 if n in zipfile.ZipFile(w).namelist() else f'{w} is missing {n}')"
 RUN pip install --no-cache-dir --no-deps /dist/agentd-*.whl \
  && mkdir -p /bundles \
  && agentd bundle pack agents/weather --out /bundles \
- && agentd bundle pack agents/figure-creator --out /bundles
+ && agentd bundle pack agents/figure-creator --out /bundles \
+ # Cloud Agent Builder (cabbie) + agent-builder — packed and installed by the entrypoint, the ONE
+ # mechanism that actually registers an agent on a hosted daemon (wheel-seeding via first_run does
+ # not reach the hosted registry — weather/figure list, wheel-seeded agents don't). cabbie is
+ # served + listed; agent-builder rides along WITHHELD (requires_local, so never served/listed) but
+ # its files land in the same agents dir so cabbie's imported `agent_authoring` package + templates
+ # resolve by sibling path. Order does not matter — plugins load at `agentd serve`, after both.
+ && agentd bundle pack agents/agent-builder --out /bundles \
+ && agentd bundle pack agents/cloud-agent-builder --out /bundles
 
 # --- runtime stage -----------------------------------------------------------------------
 FROM python:3.11-slim
@@ -141,27 +137,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN python -m playwright install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright
 
-# NODE + npm + the shared app-deps — what turns an agent's `app/` SOURCE into the `ui/` the
-# daemon serves. Without this, `build_app` (Cloud Agent Builder's core tool on the web, and Agent
-# Builder's on desktop) has no toolchain: a user gives an agent a window and nothing compiles it.
-#
-# Node is COPIED from the sdk stage's `node:20-slim` base — deterministic, the same version that
-# built the SDK — rather than apt's older node. `libstdc++6` is the one shared library node needs
-# that python:3.11-slim does not already carry. The shared deps come from the appdeps stage.
-# Both sit ABOVE the wheel layer, so a code-only deploy never rebuilds them.
-#
-# node_toolchain finds node via PATH (`shutil.which`); AppDependencyStore reads AGENTD_APP_DEPS
-# and symlinks it in as each agent's `app/node_modules`.
-RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 \
- && rm -rf /var/lib/apt/lists/*
-COPY --from=sdk /usr/local/bin/node /usr/local/bin/node
-COPY --from=sdk /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
- && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
- && node --version && npm --version
-COPY --from=appdeps /app-deps /opt/app-deps
-RUN chmod -R a+rX /opt/app-deps
-ENV AGENTD_APP_DEPS=/opt/app-deps
+# NO NODE IN THE DAEMON IMAGE, on purpose. An agent's window build (npm + vite) runs in the
+# separate BUILDER LAMBDA (builder.tf / RemoteBuilderBuildBackend), NOT here — a node build's
+# memory peak exceeds this 512 MB task and OOM-killed the daemon mid-create (exit 137, staging,
+# 2026-08-29). The daemon only SERVES the built ui/; the toolchain lives where the build runs.
+# On desktop the build uses the bundled node (build-runtime.ps1), also not this image.
 
 # ── everything above caches across deploys; everything below is per-deploy and SMALL ──
 # The wheel is the one artifact that changes on every source edit, so it lands last:

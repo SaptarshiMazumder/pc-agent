@@ -245,7 +245,7 @@ export function Sidebar({
     <aside className="rail sidebar">
       <div className="brand">
         <img className="brand-logo" src={logo} alt="" />
-        <span className="brand-name">Agent Builder</span>
+        <span className="brand-name">Cloud Agent Builder</span>
         {/* Connection state, in the one place a user already looks for it. When the daemon goes
             away a window that merely stops responding is unexplainable; this is the explanation.
             agentd only ever prints "live" and fades the dot — this window says which of the three

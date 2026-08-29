@@ -28,7 +28,7 @@
  */
 
 import type { AgentdClient } from './client'
-import { daemonOrigin, daemonToken, type DaemonOptions } from './platform-status'
+import { daemonOrigin, daemonToken, platformStatus, type DaemonOptions } from './platform-status'
 
 export interface IdentityOptions extends DaemonOptions {
   /** Accepted for compatibility; the fetcher needs no client. */
@@ -45,6 +45,10 @@ export interface TokenAnswer {
   email?: string
   accountId?: string
   retryAfterSec?: number
+  /** Who answered: the runtime (desktop) or the accounts cookie session (hosted). A window
+   *  uses this to know whether it must PRESENT the token on its socket — on desktop the daemon
+   *  inherits the machine identity and nothing travels. */
+  via?: 'runtime' | 'cookie'
 }
 
 /** Build a runtime /auth/* URL. The MACHINE TOKEN rides along (`?token=`, same slot every
@@ -58,15 +62,66 @@ export function authUrl(path: string, opts: DaemonOptions = {}): URL {
   return u
 }
 
-/** Ask the runtime for the machine's token state. The ONE identity read everything builds on. */
+/** HOSTED: no machine session exists (the daemon serves many people), so the window's
+ *  renewal source is the ACCOUNTS COOKIE — the httpOnly refresh token the web sign-in set in
+ *  this browser. The request goes out with credentials and the browser attaches the cookie
+ *  itself; this code never sees it. The accounts origin is same-site with the daemon's, which
+ *  is what lets the cookie travel (identity/presentation/auth_router.py sets the flags).
+ *
+ *  `signed_out` covers both "no cookie" and "dead cookie": cookie mode cannot tell them apart
+ *  (the cookie is unreadable here by design), and both mean the same thing to a window — show
+ *  the sign-in. */
+async function fetchCookieToken(opts: DaemonOptions): Promise<TokenAnswer> {
+  let base = ''
+  try {
+    base = String((await platformStatus(opts)).accountsUrl || '').replace(/\/$/, '')
+  } catch {
+    return { state: 'accounts_unreachable', retryAfterSec: 15, via: 'cookie' }
+  }
+  if (!base) return { state: 'signed_out', via: 'cookie' }
+  let r: Response
+  try {
+    r = await fetch(`${base}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({ cookie: true, client_id: 'agent-window' }),
+    })
+  } catch {
+    return { state: 'accounts_unreachable', retryAfterSec: 15, via: 'cookie' }
+  }
+  if (r.status === 401 || r.status === 403) return { state: 'signed_out', via: 'cookie' }
+  if (!r.ok) return { state: 'accounts_unreachable', retryAfterSec: 30, via: 'cookie' }
+  const d = (await r.json().catch(() => ({}))) as {
+    access_token?: string
+    expires_in?: number
+    account_id?: string
+    email?: string
+  }
+  if (!d.access_token) return { state: 'signed_out', via: 'cookie' }
+  return {
+    state: 'ok',
+    accessToken: d.access_token,
+    expiresAt: Date.now() / 1000 + Number(d.expires_in || 0),
+    accountId: String(d.account_id || ''),
+    email: String(d.email || ''),
+    via: 'cookie',
+  }
+}
+
+/** Ask the runtime for the machine's token state. The ONE identity read everything builds on.
+ *  On a hosted daemon the runtime answers 404 — no machine session exists there — and the ask
+ *  falls through to the accounts cookie (see fetchCookieToken). */
 export async function fetchToken(opts: DaemonOptions = {}): Promise<TokenAnswer> {
   try {
     const r = await fetch(authUrl('/auth/token', opts), {
       cache: 'no-store',
     })
+    if (r.status === 404) return fetchCookieToken(opts)
     const d = (await r.json().catch(() => ({}))) as TokenAnswer
-    if (d && typeof d.state === 'string') return d
-    return { state: r.ok ? 'ok' : 'signed_out' }
+    if (d && typeof d.state === 'string') return { ...d, via: 'runtime' }
+    return { state: r.ok ? 'ok' : 'signed_out', via: 'runtime' }
   } catch {
     // The RUNTIME itself is unreachable — indistinguishable, for a caller, from the accounts
     // service being away: keep working, retry later. Never "signed out": that answer makes a

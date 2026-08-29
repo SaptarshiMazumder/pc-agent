@@ -2139,7 +2139,7 @@ def grant_entitlement(payload: dict = Body(...), x_internal_key: str | None = He
 # --- the rail's callback ------------------------------------------------------
 
 
-def _handle_payment_event(body: bytes, signature: str) -> dict:
+def _handle_payment_event(body: bytes, headers: dict) -> dict:
     """One webhook delivery, inside one transaction.
 
     THE ORDER IS NOT IN THIS REQUEST. Nobody started it, no session is attached, and the customer
@@ -2157,7 +2157,7 @@ def _handle_payment_event(body: bytes, signature: str) -> dict:
             SqlitePaymentIntentStore(c),
             WebhookPostProcessor(c, ledger, now=_now),
             clock=_now,
-        ).handle(body, signature)
+        ).handle(body, headers)
 
 
 # MOUNTED ONLY WHEN A RAIL HAS A CALLBACK. On the mock rail there is nothing to call back, and a

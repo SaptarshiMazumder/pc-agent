@@ -87,10 +87,17 @@ one is configured.
 ## Configuration
 
 ```
-AGENTD_PAYMENT_PROVIDER         null | stripe        (unset => null)
+AGENTD_PAYMENT_PROVIDER         null | stripe | razorpay | dodo (unset => null)
 STRIPE_SECRET_KEY               sk_test_… / sk_live_…    required when stripe
 STRIPE_WEBHOOK_SECRET           whsec_…                  required when stripe
 STRIPE_STATEMENT_DESCRIPTOR     shown on the card statement (optional, 22 chars)
+RAZORPAY_KEY_ID                 rzp_test_… / rzp_live_…  required when razorpay
+RAZORPAY_KEY_SECRET             the key's secret half    required when razorpay
+RAZORPAY_WEBHOOK_SECRET         set when creating the webhook in their dashboard
+DODO_API_KEY                    required when dodo
+DODO_PRODUCT_ID                 the one pay-what-you-want product in Dodo's catalog
+DODO_WEBHOOK_SECRET             whsec_…                  required when dodo
+DODO_API_BASE_URL               optional; test mode is a separate HOST, not a key prefix
 AGENTD_CHECKOUT_RETURN_ORIGINS  comma-separated allowlist for success/cancel urls
 ```
 
@@ -108,10 +115,14 @@ unrecoverable revenue loss found at month end, if at all.
 | `NullPaymentGateway` | done — records intent, moves nothing, every consequence real |
 | `StripePaymentGateway` — hosted Checkout | done |
 | `StripeWebhookVerifier` + `POST /payments/webhook` | done |
+| `RazorpayPaymentGateway` — hosted Payment Links | done — idempotency via unique `reference_id` (no header on this rail) |
+| `RazorpayWebhookVerifier` | done — event id arrives in a header, not the body; replay is bounded by the claim, Razorpay signs no timestamp |
+| `DodoPaymentGateway` — hosted checkout sessions (merchant of record) | done — needs ONE pay-what-you-want product in their catalog (`DODO_PRODUCT_ID`); the rail offers no idempotency, so a double-click can open two payable sessions — the grant dedupes on the ledger, a doubly-paid session surfaces in reconciliation as a refund to issue |
+| `DodoWebhookVerifier` | done — Standard Webhooks (three headers, base64 secret decoded before HMAC) |
 | `POST /me/checkout` on accounts | done |
-| **Subscription renewals on Stripe** | **not built** — needs a card on file (Customer + saved payment method). `charge_off_session` RAISES, so renewals fail loudly instead of looking like declines. Enabling Stripe today means `/subscriptions/renew-due` errors on the first due subscription. |
-| `payout()` | declared, unimplemented — Stripe Connect is its own project |
-| Terraform secrets for the Stripe keys | not wired |
+| **Subscription renewals** | **not built on either real rail** — Stripe needs a card on file, Razorpay a recurring mandate. `charge_off_session` RAISES, so renewals fail loudly instead of looking like declines; `/subscriptions/renew-due` errors on the first due subscription. |
+| `payout()` | declared, unimplemented — Stripe Connect / RazorpayX are their own projects |
+| Terraform secrets for the rail keys | not wired |
 
 Tests: `tests/unit/test_payments_module.py` (the rail-agnostic contract) and
 `tests/unit/test_stripe_rail.py` (the request we send, the signature we trust, and an end-to-end

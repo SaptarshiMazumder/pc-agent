@@ -83,14 +83,48 @@ function authUrl(path, opts = {}) {
   if (token) u.searchParams.set("token", token);
   return u;
 }
+async function fetchCookieToken(opts) {
+  let base = "";
+  try {
+    base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
+  } catch {
+    return { state: "accounts_unreachable", retryAfterSec: 15, via: "cookie" };
+  }
+  if (!base) return { state: "signed_out", via: "cookie" };
+  let r;
+  try {
+    r = await fetch(`${base}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      cache: "no-store",
+      body: JSON.stringify({ cookie: true, client_id: "agent-window" })
+    });
+  } catch {
+    return { state: "accounts_unreachable", retryAfterSec: 15, via: "cookie" };
+  }
+  if (r.status === 401 || r.status === 403) return { state: "signed_out", via: "cookie" };
+  if (!r.ok) return { state: "accounts_unreachable", retryAfterSec: 30, via: "cookie" };
+  const d = await r.json().catch(() => ({}));
+  if (!d.access_token) return { state: "signed_out", via: "cookie" };
+  return {
+    state: "ok",
+    accessToken: d.access_token,
+    expiresAt: Date.now() / 1e3 + Number(d.expires_in || 0),
+    accountId: String(d.account_id || ""),
+    email: String(d.email || ""),
+    via: "cookie"
+  };
+}
 async function fetchToken(opts = {}) {
   try {
     const r = await fetch(authUrl("/auth/token", opts), {
       cache: "no-store"
     });
+    if (r.status === 404) return fetchCookieToken(opts);
     const d = await r.json().catch(() => ({}));
-    if (d && typeof d.state === "string") return d;
-    return { state: r.ok ? "ok" : "signed_out" };
+    if (d && typeof d.state === "string") return { ...d, via: "runtime" };
+    return { state: r.ok ? "ok" : "signed_out", via: "runtime" };
   } catch {
     return { state: "accounts_unreachable", retryAfterSec: 15 };
   }
@@ -229,6 +263,7 @@ var _AgentdClient = class _AgentdClient {
     this.openedAt = 0;
     this.closedByUs = false;
     this.lastTarget = null;
+    this.authRepair = null;
     this.clientName = options.clientName || `@agentd/client/${PROTOCOL_VERSION}`;
   }
   /** Connect (or switch) to a daemon. Reconnects automatically with backoff until close(). */
@@ -312,6 +347,14 @@ var _AgentdClient = class _AgentdClient {
   }
   // ------------------------------------------------------------------ raw protocol
   request(method, params = {}) {
+    return this.rawRequest(method, params).catch(async (e) => {
+      const code = e?.code;
+      if (code !== "auth_expired" || method === "auth.update") throw e;
+      if (!await this.repairAuth()) throw e;
+      return this.rawRequest(method, params);
+    });
+  }
+  rawRequest(method, params = {}) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("not connected"));
@@ -322,6 +365,25 @@ var _AgentdClient = class _AgentdClient {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
     });
+  }
+  /** Fetch a fresh access token and push it onto the open socket. True when the daemon took it.
+   *  SINGLE-FLIGHT: ten rejected requests during one dead-token moment ride one repair. */
+  repairAuth() {
+    if (!this.authRepair) {
+      this.authRepair = (async () => {
+        try {
+          const a = await identity().state();
+          if (a.state !== "ok" || !a.accessToken) return false;
+          await this.rawRequest("auth.update", { accessToken: a.accessToken });
+          return true;
+        } catch {
+          return false;
+        } finally {
+          this.authRepair = null;
+        }
+      })();
+    }
+    return this.authRepair;
   }
   /** Subscribe to a broadcast event by name. Returns the unsubscribe. */
   on(event, handler) {
@@ -455,11 +517,13 @@ function fromPage(options = {}) {
   const client = new AgentdClient(options);
   client.connect(async () => {
     const stored = loadSession()?.token;
-    const signedIn = !!stored || (await identity({ origin: here.origin }).state()).state === "ok";
+    const a = await identity({ origin: here.origin }).state();
+    const cookieToken = a.via === "cookie" && a.state === "ok" ? a.accessToken || "" : "";
+    const signedIn = !!stored || a.state === "ok";
     return {
       url: here.origin,
       token: token || void 0,
-      session: stored || void 0,
+      session: cookieToken || stored || void 0,
       mode: effectiveMode("", signedIn),
       scope: scope || void 0
     };

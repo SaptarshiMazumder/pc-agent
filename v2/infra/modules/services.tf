@@ -40,6 +40,14 @@ locals {
       # visitor's machine, and advertising it gives an agent app a login form that can never
       # submit. Same expression the publish service uses, so both name one address.
       AGENTD_PUBLIC_ACCOUNTS_URL = local.publish_product_accounts_url
+      # WHERE AGENT WINDOW BUILDS RUN (builder.tf). Set => the agent-authoring plugin sends
+      # builds out over the scratch bucket instead of running npm in this container — which is
+      # what OOM-killed the 512 MB task. Empty (builder not brought up) => builds stay local,
+      # which on a small task means create/edit of windowed agents will fail; the empty value
+      # keeps that failure honest rather than hiding the dependency.
+      AGENTD_BUILDER_URL            = local.builder_public_url
+      AGENTD_BUILDER_SCRATCH_BUCKET = aws_s3_bucket.builder_scratch.bucket
+      AGENTD_BUILDER_INTERNAL_KEY   = random_password.builder_internal_key.result
     }
 
     # The proxy VERIFIES what accounts MINTS, so both read the SAME computed issuer below. A

@@ -163,3 +163,23 @@ console.log(
   `vendor: ${updated} updated, ${pairs.length - updated} already current ` +
     `(${(total / 1024).toFixed(1)} KB across ${pairs.length} file(s))`
 )
+
+// PREBUILT TEMPLATES RIDE THE SAME TRAIN. They embed the SDK just vendored above, and
+// create_agent copies them in as a new agent's ui/ — stale here is a stale product, not a
+// stale thumbnail (the thumbnails are _previews/, a separate Gate-less display flavor). The script hashes its inputs and answers "current" in
+// under a second when nothing changed, so the inner build loop stays fast; when it DOES
+// build and fails, this vendor run fails with it, because shipping without previews would
+// re-open the gap this pipeline exists to close.
+{
+  const { spawnSync } = await import('node:child_process')
+  const script = path.join(
+    v2, 'agents', 'agent-builder', 'skills', 'build-agent', 'templates',
+    'build_prebuilt_templates.py'
+  )
+  const py = process.platform === 'win32' ? 'python' : 'python3'
+  const r = spawnSync(py, [script], { stdio: 'inherit' })
+  if (r.status !== 0) {
+    console.error('vendor: prebuilt templates failed to build (see above)')
+    process.exit(1)
+  }
+}

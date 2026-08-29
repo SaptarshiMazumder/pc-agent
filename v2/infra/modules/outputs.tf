@@ -178,3 +178,20 @@ output "publish_kms_key" {
   description = "KMS key that wraps creator signing keys - what `agentd bundle roster upload-root` wraps the vaulted root key with."
   value       = aws_kms_alias.publish.name
 }
+
+# ── builder service (builder.tf) ─────────────────────────────────────────────
+
+output "builder_ecr_repository" {
+  description = "Push the builder image here, then set builder_image_tag and apply again."
+  value       = aws_ecr_repository.builder.repository_url
+}
+
+output "builder_url" {
+  description = "Where the daemon sends builds. Empty until builder_image_tag is set."
+  value       = local.builder_public_url
+}
+
+output "builder_scratch_bucket" {
+  description = "The sources-in / results-out conveyor belt. Everything expires after a day."
+  value       = aws_s3_bucket.builder_scratch.bucket
+}

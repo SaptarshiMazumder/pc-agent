@@ -173,6 +173,11 @@ declare class AgentdClient {
     /** Detach + close the current socket without triggering its reconnect. */
     private teardownSocket;
     request<T = Record<string, any>>(method: string, params?: Record<string, unknown>): Promise<T>;
+    private rawRequest;
+    private authRepair;
+    /** Fetch a fresh access token and push it onto the open socket. True when the daemon took it.
+     *  SINGLE-FLIGHT: ten rejected requests during one dead-token moment ride one repair. */
+    private repairAuth;
     /** Subscribe to a broadcast event by name. Returns the unsubscribe. */
     on(event: string, handler: EventHandler): () => void;
     /**
@@ -633,13 +638,19 @@ interface TokenAnswer {
     email?: string;
     accountId?: string;
     retryAfterSec?: number;
+    /** Who answered: the runtime (desktop) or the accounts cookie session (hosted). A window
+     *  uses this to know whether it must PRESENT the token on its socket — on desktop the daemon
+     *  inherits the machine identity and nothing travels. */
+    via?: 'runtime' | 'cookie';
 }
 /** Build a runtime /auth/* URL. The MACHINE TOKEN rides along (`?token=`, same slot every
  *  other daemon HTTP call uses) because the runtime requires it where one is configured — it is
  *  what keeps a hostile web page from driving these endpoints blind. Every window has it on its
  *  own launch URL. */
 declare function authUrl(path: string, opts?: DaemonOptions): URL;
-/** Ask the runtime for the machine's token state. The ONE identity read everything builds on. */
+/** Ask the runtime for the machine's token state. The ONE identity read everything builds on.
+ *  On a hosted daemon the runtime answers 404 — no machine session exists there — and the ask
+ *  falls through to the accounts cookie (see fetchCookieToken). */
 declare function fetchToken(opts?: DaemonOptions): Promise<TokenAnswer>;
 /** The thin per-window fetcher behind `identity()`. Caches the token in memory only, and only
  *  until near expiry — the runtime does all real work, so "cache" here just saves HTTP chatter

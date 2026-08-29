@@ -9,11 +9,18 @@ IT VERIFIES BYTES, NOT A PARSED BODY. The signature covers the exact octets that
 Parsing to JSON and re-serialising changes key order and whitespace and the signature stops
 matching, so the caller must hand over the raw body — which means the HTTP layer must NOT let its
 framework parse it first.
+
+IT RECEIVES THE HEADERS, NOT A SIGNATURE STRING, because which headers carry the proof is rail
+knowledge: Stripe sends one (`Stripe-Signature`), Razorpay one under another name plus the event
+id in a third, and the Standard-Webhooks rails (Dodo) need three (`webhook-id`,
+`webhook-timestamp`, `webhook-signature`). Extracting them in the HTTP layer would re-derive that
+knowledge per rail in the wrong place; the verifier takes the whole mapping and reads its own.
+Keys are LOWERCASE — the router normalises once so no verifier has to guess at casing.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Mapping, Protocol, runtime_checkable
 
 from payments.domain.payment_event import PaymentEvent
 
@@ -28,6 +35,6 @@ class WebhookRejected(Exception):
 
 @runtime_checkable
 class WebhookVerifier(Protocol):
-    def verify(self, body: bytes, signature: str) -> PaymentEvent:
-        """Raises `WebhookRejected` on a bad or missing signature."""
+    def verify(self, body: bytes, headers: Mapping[str, str]) -> PaymentEvent:
+        """Raises `WebhookRejected` on a bad or missing signature. Header keys are lowercase."""
         ...

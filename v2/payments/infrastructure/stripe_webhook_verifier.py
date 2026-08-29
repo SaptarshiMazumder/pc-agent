@@ -28,7 +28,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Callable
+from typing import Callable, Mapping
 
 from payments.application.interfaces.webhook_verifier import WebhookRejected
 from payments.domain import payment_event, payment_status
@@ -67,8 +67,9 @@ class StripeWebhookVerifier:
         self._tolerance_s = tolerance_s
         self._clock = clock
 
-    def verify(self, body: bytes, signature: str) -> PaymentEvent:
-        timestamp, candidates = self._parse(signature)
+    def verify(self, body: bytes, headers: Mapping[str, str]) -> PaymentEvent:
+        # Which header carries the proof is THIS rail's knowledge (see WebhookVerifier).
+        timestamp, candidates = self._parse(headers.get("stripe-signature") or "")
         expected = hmac.new(
             self._secret.encode("utf-8"),
             f"{timestamp}.".encode("utf-8") + body,

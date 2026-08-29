@@ -406,13 +406,19 @@ class CreateAgentTool(Tool):
                     f"working. EDIT it; do not rebuild it, and do not scaffold it again. "
                     f"`src/common/` is shared and must not be changed at all."
                 )
-                # AND COMPILED, because source alone cannot be opened. Without this the agent has
-                # a complete window and no `ui/`, so the daemon advertises no app and the button
-                # to open it never appears — which reads as "creating an agent with a window did
-                # not give it one".
-                if self._builder is not None:
+                # AND OPENABLE, because source alone cannot be opened. The scaffold normally
+                # installs the template's PREBUILT window as ui/ (built by the vendor pipeline,
+                # long before this call) — no compile runs anywhere at create, which on a hosted
+                # daemon is what keeps a create from being a build. The compile below is the
+                # FALLBACK for a tree whose previews are missing.
+                if getattr(built, "ui_installed", False):
+                    scaffold_note += (
+                        " It is openable right now (the template ships prebuilt); run `build_app` "
+                        "after every change to `app/`, because `ui/` is what the daemon serves."
+                    )
+                elif self._builder is not None:
                     try:
-                        self._builder.build(agent_id)
+                        await asyncio.to_thread(self._builder.build, agent_id)
                         scaffold_note += (
                             " It is compiled and openable right now; run `build_app` again after "
                             "every change to `app/`, because `ui/` is what the daemon serves."
