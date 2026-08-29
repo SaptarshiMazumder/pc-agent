@@ -43,9 +43,9 @@ publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 #
 # The keys below it are FALLBACKS, used only when discovery cannot be reached (offline) or by a
 # client too old to know about it.
-platform_url = "http://agentd-dev-91895423.ap-northeast-1.elb.amazonaws.com:4100"
-accounts_url = "http://agentd-dev-91895423.ap-northeast-1.elb.amazonaws.com:4100"
-model_proxy_url = "http://agentd-dev-91895423.ap-northeast-1.elb.amazonaws.com:4000"
+platform_url = "https://thorgodofthunder.site:4100"
+accounts_url = "https://thorgodofthunder.site:4100"
+model_proxy_url = "https://thorgodofthunder.site:4000"
 # Opt-in diagnostics, default off. Declared so sync-platform-urls can keep it current — it
 # retargets existing keys and never adds one.
-ingest_url = "http://agentd-dev-91895423.ap-northeast-1.elb.amazonaws.com:4200"
+ingest_url = "https://thorgodofthunder.site:4200"

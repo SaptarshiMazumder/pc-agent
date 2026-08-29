@@ -559,15 +559,59 @@ async function authLogin(args, opts = {}) {
       ...args.signup ? { "X-Auth-Signup": "1" } : {}
     }
   });
+  if (r.status === 404) return cookieLogin(args, opts);
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d.state !== "ok") {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
   }
   return authStatus(opts);
 }
-async function authLogout(opts = {}) {
-  await fetch(authUrl("/auth/logout", opts), { cache: "no-store" }).catch(() => {
+async function cookieLogin(args, opts) {
+  const base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
+  if (!base) throw new Error("this deployment has no accounts service to sign in to");
+  const email = args.email.trim().toLowerCase();
+  if (args.signup) {
+    const s = await fetch(`${base}/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      cache: "no-store",
+      body: JSON.stringify({ email, password: args.password })
+    });
+    if (!s.ok) {
+      const d = await s.json().catch(() => ({}));
+      throw new Error(String(d.detail || d.error || `sign-up failed (HTTP ${s.status})`));
+    }
+  }
+  const r = await fetch(`${base}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify({ email, password: args.password, client_id: "agent-window", cookie: true })
   });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
+  }
+  return authStatus(opts);
+}
+async function authLogout(opts = {}) {
+  const r = await fetch(authUrl("/auth/logout", opts), { cache: "no-store" }).catch(() => null);
+  if (!r || r.status === 404) {
+    const status = await platformStatus(opts).catch(() => ({}));
+    const base = String(status.accountsUrl || "").replace(/\/$/, "");
+    if (base) {
+      await fetch(`${base}/auth/logout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({ cookie: true })
+      }).catch(() => {
+      });
+    }
+  }
   saveMode(null, opts.storageKey);
   return authStatus(opts);
 }

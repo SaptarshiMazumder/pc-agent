@@ -78,6 +78,13 @@ export async function authLogin(
       ...(args.signup ? { 'X-Auth-Signup': '1' } : {}),
     },
   })
+  // HOSTED: the daemon has no runtime login (it serves many people, holds no machine session),
+  // so /auth/login is 404 there. Sign in against the ACCOUNTS service directly, in COOKIE mode
+  // — the same door the main web client uses, and the same session `fetchToken` already falls
+  // back to reading (identity.ts, fetchCookieToken). Without this the builder's own sign-in form
+  // posted into a 404 and the flagship web page could never authenticate. The Set-Cookie lands
+  // on the accounts host, which is exactly where the token read looks for it.
+  if (r.status === 404) return cookieLogin(args, opts)
   const d = (await r.json().catch(() => ({}))) as { state?: string; error?: string }
   if (!r.ok || d.state !== 'ok') {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`))
@@ -85,12 +92,64 @@ export async function authLogin(
   return authStatus(opts)
 }
 
+/** Hosted sign-in: create the account if asked, then log in COOKIE-mode against accounts so the
+ *  browser holds the refresh cookie and `fetchCookieToken` can renew from it. */
+async function cookieLogin(
+  args: { email: string; password: string; signup?: boolean },
+  opts: AuthOptions,
+): Promise<AuthState> {
+  const base = String((await platformStatus(opts)).accountsUrl || '').replace(/\/$/, '')
+  if (!base) throw new Error('this deployment has no accounts service to sign in to')
+  const email = args.email.trim().toLowerCase()
+  if (args.signup) {
+    const s = await fetch(`${base}/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({ email, password: args.password }),
+    })
+    if (!s.ok) {
+      const d = (await s.json().catch(() => ({}))) as { detail?: string; error?: string }
+      throw new Error(String(d.detail || d.error || `sign-up failed (HTTP ${s.status})`))
+    }
+  }
+  const r = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify({ email, password: args.password, client_id: 'agent-window', cookie: true }),
+  })
+  if (!r.ok) {
+    const d = (await r.json().catch(() => ({}))) as { detail?: string; error?: string }
+    throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`))
+  }
+  return authStatus(opts)
+}
+
 /** Forget the MACHINE's session. Every window on this daemon signs out together — identity is a
  *  fact about the machine now, not about a window. */
 export async function authLogout(opts: AuthOptions = {}): Promise<AuthState> {
-  await fetch(authUrl('/auth/logout', opts), { cache: 'no-store' }).catch(() => {
-    // The runtime being unreachable does not keep a window "signed in" — status will answer.
-  })
+  const r = await fetch(authUrl('/auth/logout', opts), { cache: 'no-store' }).catch(() => null)
+  // HOSTED: no runtime logout either (see authLogin). Clear the accounts cookie directly so the
+  // browser stops being able to renew — otherwise "sign out" would drop the run mode but leave a
+  // live cookie that silently signs the next call back in.
+  if (!r || r.status === 404) {
+    const status = await platformStatus(opts).catch(() => ({}) as Record<string, any>)
+    const base = String(status.accountsUrl || '').replace(/\/$/, '')
+    if (base) {
+      await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({ cookie: true }),
+      }).catch(() => {
+        // Unreachable accounts does not keep a window signed in — status will answer.
+      })
+    }
+  }
   saveMode(null, opts.storageKey)
   return authStatus(opts)
 }
