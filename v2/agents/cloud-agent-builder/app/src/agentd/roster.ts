@@ -44,13 +44,19 @@ export interface AgentRow {
    * actually on disk (gateway `_agent_app`), so its presence is the whole test for "can this be
    * opened" — a half-built window advertises nothing rather than offering a button that 404s.
    */
-  app?: { title: string; url: string; mode?: string }
+  app?: { title: string; url: string; mode?: string; standalone?: boolean }
 }
 
 /** Agents this window can open. Agent Builder itself is excluded: it is the thing doing the
- *  building, and offering "work on Agent Builder" in a picker meant for its output is a trap. */
+ *  building, and offering "work on Agent Builder" in a picker meant for its output is a trap.
+ *
+ *  SO IS EVERY OTHER PRODUCT SURFACE. An agent that declares `[app] standalone = true` is a
+ *  feature of agentd rather than one of the user's agents, and the same trap applies to all of
+ *  them: on a desktop this window can see Cloud Agent Builder, which is no more a thing you
+ *  "work on" than this one is. Read from the agent's own declaration, never from its id, so a
+ *  fork or a rename cannot slip back into the list. */
 export const openable = (agents: AgentRow[]): AgentRow[] =>
-  agents.filter((a) => a.id !== AGENT_ID)
+  agents.filter((a) => a.id !== AGENT_ID && !a.app?.standalone)
 
 /* Publish is OWNERSHIP-gated. The daemon marks each agents.list row with `mine` (is it the
    caller's) and `origin` (authored | installed | curated). A catalogue agent stays fully
