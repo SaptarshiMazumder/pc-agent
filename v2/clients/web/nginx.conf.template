@@ -3,6 +3,17 @@
 # any domain. Unset, the admin server_name defaults to "admin.invalid" and that block is inert —
 # every environment without a domain keeps exactly the old single-server behaviour.
 
+# COMPRESSION, because the stock image ships with it OFF — and the difference is not subtle:
+# the app's main chunk is ~650 KB raw and ~195 KB gzipped, so an uncompressed serve more than
+# triples every first load, felt hardest exactly where this deployment's users are (a long-RTT
+# hop to the region). http-context directives: conf.d files are included inside http{}, so
+# these apply to both servers below. text/html is compressed by default once gzip is on.
+gzip on;
+gzip_vary on;
+gzip_comp_level 5;
+gzip_min_length 1024;
+gzip_types application/javascript text/css application/json image/svg+xml application/wasm text/plain application/xml;
+
 # THE APP — and the default server, so the ALB's own hostname, the apex, and anything else that
 # is not the admin console all land here.
 server {
