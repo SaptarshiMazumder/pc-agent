@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
+import { Blocks, ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
 
 import logo from '../assets/nakama.svg'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
 import { useIsAdmin } from '../lib/admin'
+import { launchStandaloneApp, listableAgents, standaloneApps } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
 import ProfileMenu from './ProfileMenu'
@@ -76,6 +77,7 @@ export default function Sidebar() {
   const currentAgentId = useApp((s) => s.currentAgentId)
   const viewedAgentId = useApp((s) => s.viewedAgentId)
   const viewAgent = useApp((s) => s.viewAgent)
+  const openAgentApp = useApp((s) => s.openAgentApp)
   const newChat = useApp((s) => s.newChat)
   const recents = useApp((s) => s.recents)
   const currentSessionKey = useApp((s) => s.currentSessionKey)
@@ -90,7 +92,7 @@ export default function Sidebar() {
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState({ mine: true, agents: true, samples: false, recents: true })
+  const [sectionOpen, setSectionOpen] = useState({ mine: true, samples: false, recents: true })
   const toggleSection = (k: keyof typeof sectionOpen): void =>
     setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
   const [newAgent, setNewAgent] = useState(false)
@@ -106,11 +108,16 @@ export default function Sidebar() {
   // shared catalogue, so `mine` is true for agents this account never made. The layer is the
   // account's own directory, which is exactly what "my agents" means — and it is empty when
   // nobody is signed in, so the section simply does not render then.
-  const myAgents = agents.filter((a) => a.layer === 'account' && a.id !== MAIN_AGENT_ID && !a.sample)
-  const namedAgents = agents.filter(
+  // STANDALONE APPS ARE NOT AGENTS EITHER — Agent Builder is a feature of the product, so it
+  // gets its own nav row below and is filtered out of every list here. The rule comes from the
+  // agent's own `[app] standalone` declaration (lib/standaloneApps), never from its id.
+  const listable = listableAgents(agents)
+  const surfaces = standaloneApps(agents)
+  const myAgents = listable.filter((a) => a.layer === 'account' && a.id !== MAIN_AGENT_ID && !a.sample)
+  const namedAgents = listable.filter(
     (a) => a.id !== MAIN_AGENT_ID && !a.sample && a.layer !== 'account',
   )
-  const sampleAgents = agents.filter((a) => a.sample)
+  const sampleAgents = listable.filter((a) => a.sample)
 
   const projectsActive = view === 'projects' || view === 'project'
   // THE CONTROL PLANE IS A PLACE, not a settings row. It governs the whole deployment — the
@@ -186,9 +193,9 @@ export default function Sidebar() {
           <NavRow icon={<Search size={17} />} label="Search" onClick={() => setSearchOpen(true)} title="Search chats" />
         )}
         <NavRow icon={<Folder size={17} />} label="Projects" active={projectsActive} onClick={() => setView('projects')} title="Projects" />
-        {/* The SHELF. It was reachable only from the footer icon and the collapsed rail, which is
-            a hard place to find a whole section of the product — and it is where agents are
-            installed from, so it is the second thing most people want after their chats. */}
+        {/* The SHELF — the way to the full list of agents, and where agents are installed from.
+            It is the ONLY agent entry point in this panel now that the inline "Agents" listing
+            below has gone, so it stays in the nav rows rather than only in the rail/footer. */}
         <NavRow
           icon={<LayoutGrid size={17} />}
           label="My Agents"
@@ -196,6 +203,19 @@ export default function Sidebar() {
           onClick={() => setView('myagents')}
           title="My Agents — install, publish, open"
         />
+        {/* PRODUCT SURFACES — one row per agent that declares `[app] standalone`. Rendered from
+            the roster, so Agent Builder appears on a desktop and Cloud Agent Builder on the web
+            purely because each is offered there; neither is named here, and a third would show
+            up by declaring the same thing. */}
+        {surfaces.map((a) => (
+          <NavRow
+            key={a.id}
+            icon={<Blocks size={17} />}
+            label={a.app?.title || a.name || a.id}
+            onClick={() => void launchStandaloneApp(a, openAgentApp)}
+            title={`${a.app?.title || a.name} — ${a.tagline || 'open the app'}`}
+          />
+        ))}
         {admin && (
           <NavRow
             icon={<ShieldCheck size={17} />}
@@ -239,36 +259,11 @@ export default function Sidebar() {
         </>
       )}
 
-      {/* AGENTS — the listing STAYS; clicking an agent opens its detail page (not a chat) */}
-      <SectionHead
-        icon={<Users size={14} />}
-        label="Agents"
-        open={sectionOpen.agents}
-        onToggle={() => toggleSection('agents')}
-        onAdd={() => setNewAgent(true)}
-        addTitle="create agent"
-      />
-      {sectionOpen.agents && (
-        <div className="agents-list">
-          {namedAgents.length === 0 && (
-            <div className="row-sub list-empty">no agents yet — use +</div>
-          )}
-          {namedAgents.map((a) => (
-            <button
-              key={a.id}
-              className={`row ${a.id === viewedAgentId && view === 'agent' ? 'active' : ''}`}
-              title={a.name || a.id}
-              onClick={() => viewAgent(a.id)}
-            >
-              <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>{agentInitials(a.name, a.id)}</span>
-              <span className="row-main">
-                <span className="row-title">{a.name || a.id}</span>
-                <span className="row-sub">{a.tagline || agentTag(a.id)}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* NO INLINE "AGENTS" LISTING. Every agent on the machine used to be enumerated here; the
+          full list now lives on the My Agents shelf (the nav row above, /agents), so the panel
+          keeps chats and the account's own agents rather than duplicating the catalogue.
+          Creating an agent moved with it — the "+" that opened NewAgentModal lived on this
+          section head, and the rail's create button (above) is now the one in this panel. */}
 
       {/* SAMPLES — reference agents we ship. Collapsed by default and never mixed in above:
           they are here to be opened, read and run, not to pad the user's own list. */}

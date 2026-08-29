@@ -161,7 +161,7 @@ export function Sidebar({
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState({ mine: true, agents: true, recents: true })
+  const [sectionOpen, setSectionOpen] = useState({ mine: true, recents: true })
   const toggleSection = (k: keyof typeof sectionOpen): void =>
     setSectionOpen((s) => ({ ...s, [k]: !s[k] }))
 
@@ -177,7 +177,6 @@ export function Sidebar({
   // same reason: `mine` is presumed true for the whole shared catalogue, so only the LAYER can
   // say which agents are actually this account's. Empty when signed out, so the section hides.
   const mineShown = shown.filter((a) => a.layer === 'account')
-  const otherShown = shown.filter((a) => a.layer !== 'account')
   const shownChats = chats.filter(
     (c) => !q || `${c.title || ''} ${c.snippet || ''}`.toLowerCase().includes(q),
   )
@@ -336,40 +335,11 @@ export function Sidebar({
         </>
       )}
 
-      {/* AGENTS — clicking one opens it in a conversation of its own (see App's editAgent). */}
-      <SectionHead
-        icon={<Users size={14} />}
-        label="Agents"
-        open={sectionOpen.agents}
-        onToggle={() => toggleSection('agents')}
-        onAdd={onCreate}
-        addTitle="create agent"
-      />
-      {sectionOpen.agents && (
-        <div className="agents-list">
-          {otherShown.length === 0 && (
-            <div className="row-sub list-empty">
-              {q ? 'nothing matches' : 'no agents yet — use +'}
-            </div>
-          )}
-          {otherShown.map((a) => (
-            <button
-              key={a.id}
-              className={`row ${a.id === selected?.id ? 'active' : ''}`}
-              title={a.description || a.tagline || a.id}
-              onClick={() => onPickAgent(a.id)}
-            >
-              <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
-                {agentInitials(a.name, a.id)}
-              </span>
-              <span className="row-main">
-                <span className="row-title">{a.name || a.id}</span>
-                <span className="row-sub">{a.tagline || a.id}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* NO INLINE "AGENTS" LISTING. The platform's agents were enumerated here; the full list
+          now lives on the My Agents shelf (the rail button above, /agents), so this panel keeps
+          the account's OWN agents and its chats rather than duplicating the catalogue.
+          Creating an agent is unaffected — the "+" that sat on this section head is also the
+          rail's "New agent" button and the empty-state button above. */}
 
       {/* RECENTS */}
       <div className="sidebar-scroll">

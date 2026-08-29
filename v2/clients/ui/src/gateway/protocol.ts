@@ -35,6 +35,17 @@ export interface AgentApp {
   /** the author's declared presentation: the app's own chromeless window ("program"
    *  feel) or a normal browser tab. Openers honor it; absent = browser. */
   mode?: 'window' | 'browser'
+  /** A SURFACE OF THE PRODUCT rather than one of the user's agents — declared by the agent
+   *  itself (`[app] standalone = true`). Such an app gets its own entry in the navigation and
+   *  is kept out of agent lists and shelves. Read this flag; never test the agent's id. */
+  standalone?: boolean
+  /** WHICH destination this app provides. Agents naming the same surface are implementations of
+   *  one place, not separate places — the client draws a single entry for them. Defaults to the
+   *  agent's own id server-side, so a lone app is the only implementation of its own surface. */
+  surface?: string
+  /** the author's `requires_local` — "this needs a machine of its own". Decides which
+   *  implementation of a surface a host opens: the desktop IS that machine, the web never is. */
+  requiresLocal?: boolean
 }
 
 export interface AgentInfo {
