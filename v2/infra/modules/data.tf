@@ -70,6 +70,12 @@ resource "aws_secretsmanager_secret_version" "app" {
     RAZORPAY_WEBHOOK_SECRET = "REPLACE_ME"
     DODO_API_KEY            = "REPLACE_ME"
     DODO_WEBHOOK_SECRET     = "REPLACE_ME"
+    # Not credentials, in the vault by the operator's decision: ALL payment-rail values live
+    # in one place. PRODUCT_ID = the one pay-what-you-want catalog product (an MoR only sells
+    # from its catalog); API_BASE_URL = https://test.dodopayments.com for test mode (Dodo
+    # splits test/live by HOST), placeholder = the live host.
+    DODO_PRODUCT_ID         = "REPLACE_ME"
+    DODO_API_BASE_URL       = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

@@ -124,16 +124,23 @@ class DodoWebhookVerifier:
         metadata = data.get("metadata") or {}
         meta = {str(k): str(v) for k, v in metadata.items()}
         if kind == payment_event.REFUND_SUCCEEDED:
-            # `amount` on a refund, `total_amount` on a payment — and the refund keeps the
-            # payment it reverses in meta, the join reconciliation works from.
+            # `amount` on a refund — and the refund keeps the payment it reverses in meta,
+            # the join reconciliation works from.
             reference = str(data.get("refund_id") or "")
-            minor = data.get("amount", 0)
+            minor = int(data.get("amount") or 0)
+            currency = str(data.get("currency") or "usd")
             meta["original"] = str(data.get("payment_id") or "")
         else:
             # The payment id is what a later refund needs; it first exists HERE, on the
             # webhook — begin_purchase only ever saw a session id.
             reference = str(data.get("payment_id") or "")
-            minor = data.get("total_amount", data.get("amount", 0))
+            minor, currency = _merchant_amount(data)
+            if data.get("total_amount") is not None:
+                # The CUSTOMER's side of the FX, kept for reconciliation: what they paid,
+                # tax included, in their own currency.
+                meta["customer_paid"] = (
+                    f"{data.get('total_amount')} {str(data.get('currency') or '').lower()}"
+                )
         status = {
             payment_event.PURCHASE_SUCCEEDED: payment_status.SUCCEEDED,
             payment_event.PURCHASE_FAILED: payment_status.FAILED,
@@ -143,11 +150,36 @@ class DodoWebhookVerifier:
             kind=REFUND if kind == payment_event.REFUND_SUCCEEDED else PURCHASE,
             provider="dodo",
             reference=reference,
-            amount=Money.from_minor_units(
-                int(minor or 0), str(data.get("currency") or "usd")
-            ),
+            amount=Money.from_minor_units(minor, currency),
             status=status,
             account_id=str(metadata.get("account_id") or ""),
             detail=str(data.get("status") or ""),
             meta=meta,
         )
+
+
+def _merchant_amount(data: dict) -> tuple[int, str]:
+    """A payment's value AS THE MERCHANT RECEIVES IT — minor units plus currency.
+
+    Dodo is a merchant of record with adaptive pricing: the customer pays `total_amount` in
+    THEIR currency, tax included (a $20 product bills an Indian card ~₹2,341 with GST), while
+    the merchant balance receives `settlement_amount` in `settlement_currency`, the tax Dodo
+    collects-and-remits carried in `settlement_tax`. The books' amount is settlement minus
+    that tax — the product's own value, the number that matches what was quoted. The
+    customer's figure fails the grant guard on every cross-currency sale, which is exactly
+    how this function came to exist.
+
+    `settlement_tax` only — never the buyer-currency `tax` field: subtracting rupees from
+    cents would be quietly wrong, whereas a payload missing `settlement_tax` at worst leaves
+    the tax in and trips the guard LOUDLY, with both numbers in the log.
+    """
+    settlement = data.get("settlement_amount")
+    if settlement is not None:
+        return (
+            int(settlement) - int(data.get("settlement_tax") or 0),
+            str(data.get("settlement_currency") or "usd"),
+        )
+    return (
+        int(data.get("total_amount", data.get("amount", 0)) or 0),
+        str(data.get("currency") or "usd"),
+    )

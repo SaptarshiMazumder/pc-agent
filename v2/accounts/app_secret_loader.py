@@ -56,6 +56,11 @@ class AppSecretLoader:
         for field in self._fields:
             value = str(secret.get(field) or "").strip()
             if not value or value == PLACEHOLDER:
+                # The vault says UNSET — and that must win over the environment too: ECS
+                # injects the literal placeholder at task start, and leaving it would turn
+                # "not configured" into "configured as REPLACE_ME", which reads as a wrong
+                # credential instead of a missing one.
+                os.environ.pop(field, None)
                 continue
             os.environ[field] = value
             loaded.append(field)

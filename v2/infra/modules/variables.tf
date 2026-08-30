@@ -439,6 +439,7 @@ variable "checkout_return_origins" {
   default     = []
 }
 
+
 # ─────────────────────────── The services map ───────────────────────────
 # ONE entry per container. Adding a service here gives it an ECR repo, ALB target
 # group + listener + firewall holes, service discovery, and a Fargate service — no
@@ -553,6 +554,8 @@ variable "services" {
         RAZORPAY_WEBHOOK_SECRET = "RAZORPAY_WEBHOOK_SECRET"
         DODO_API_KEY            = "DODO_API_KEY"
         DODO_WEBHOOK_SECRET     = "DODO_WEBHOOK_SECRET"
+        DODO_PRODUCT_ID         = "DODO_PRODUCT_ID"
+        DODO_API_BASE_URL       = "DODO_API_BASE_URL"
       }
       efs = true
     }

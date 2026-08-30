@@ -101,10 +101,22 @@ module "stack" {
   # production, which is the module default.
   enable_execute_command = true
 
-  # The payment rail (v2/payments/), same as dev: Razorpay with TEST-mode keys from the
-  # agentd/staging/app secret — checkouts open Razorpay's test page and move no real money.
-  # Production stays on the module default (mock rail) until live keys and a go-live decision.
-  payment_provider = "razorpay"
+  # The payment rail (v2/payments/): Dodo Payments in TEST mode. EVERY Dodo value — API key,
+  # webhook secret, the pay-what-you-want catalog product id, and the TEST host (Dodo splits
+  # test/live by host) — lives in the agentd/staging/app secret; only the rail's NAME is
+  # config here. Checkouts open Dodo's test page and move no real money. (Razorpay test keys
+  # remain in the secret, unread; dev carries the razorpay flip. Production stays on the
+  # module default, the mock rail.)
+  payment_provider = "dodo"
+
+  # TLS. Setting the certificate flips EVERY listener to HTTPS (web moves to :443, :80
+  # redirects) — turned on because Dodo's webhooks refuse plain http. The cert is the
+  # DNS-validated wildcard for thorgodofthunder.site; staging.thorgodofthunder.site is an
+  # explicit Route 53 alias to this environment's ALB (the bare wildcard record points at
+  # DEV's). Clients built against the http URLs need a re-sync + rebuild after this lands —
+  # see certificate_arn's own docs about deploy.yml's baked origins.
+  certificate_arn = "arn:aws:acm:ap-northeast-1:891612568944:certificate/751ea0c5-ba23-4a2a-bb79-12001ac9d108"
+  domain_name     = "staging.thorgodofthunder.site"
 
   # Alarms. THRESHOLDS ARE PRODUCTION'S, not dev's loose ones — the whole point of staging is to
   # find out whether an alarm fires when it should and stays quiet when it should not, and an
