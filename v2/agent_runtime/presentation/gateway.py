@@ -3033,6 +3033,14 @@ class Gateway:
                 payload = await self._agents_share_to_org(req.params)
             elif req.method == "agents.unshareFromOrg":
                 payload = await self._agents_unshare_from_org(req.params)
+            elif req.method == "agents.submitToOrg":
+                payload = await self._agents_submit_to_org(req.params)
+            elif req.method == "agents.listOrgShareRequests":
+                payload = self._agents_list_org_requests(req.params)
+            elif req.method == "agents.approveOrgShare":
+                payload = await self._agents_approve_org_share(req.params)
+            elif req.method == "agents.rejectOrgShare":
+                payload = await self._agents_reject_org_share(req.params)
             elif req.method == "cron.list":
                 payload = self._cron_list()
             elif req.method == "cron.add":
@@ -4566,17 +4574,31 @@ class Gateway:
         if source is None or not (Path(source) / "agent.toml").is_file():
             return {"shared": False, "error": f"unknown agent: {agent_id}"}
 
+        target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
+        err = self._install_org_definition(Path(source), target, org_id, agent_id)
+        if err:
+            return {"shared": False, "error": err}
+        self.registry.refresh()
+        await self._broadcast_agents_changed()
+        log.info("agents.shareToOrg %s -> %s", agent_id, org_id)
+        return {"shared": True, "agentId": agent_id, "orgId": org_id}
+
+    @staticmethod
+    def _install_org_definition(source: Path, target: Path, org_id: str, agent_id: str) -> str:
+        """Copy an agent's DEFINITION (not its data) into `target`, atomically, stamped as the
+        org's own installed copy. Returns "" on success or an error string. Shared by the direct
+        admin share and the approval of a member submission, so both write byte-identical folders
+        — the only difference between the two paths is who is allowed to trigger it."""
         import shutil
 
         from agent_runtime.domain.agent import definition_entries
         from agent_runtime.infrastructure.agents import ownership_store
 
-        target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
         staged = target.with_name(target.name + ".installing")
         try:
             shutil.rmtree(staged, ignore_errors=True)
             staged.mkdir(parents=True)
-            for entry in definition_entries(Path(source)):
+            for entry in definition_entries(source):
                 entry = Path(entry)
                 if entry.is_dir():
                     shutil.copytree(entry, staged / entry.name)
@@ -4594,11 +4616,8 @@ class Gateway:
             staged.rename(target)
         except OSError as e:
             shutil.rmtree(staged, ignore_errors=True)
-            return {"shared": False, "error": f"install failed: {e}"}
-        self.registry.refresh()
-        await self._broadcast_agents_changed()
-        log.info("agents.shareToOrg %s -> %s", agent_id, org_id)
-        return {"shared": True, "agentId": agent_id, "orgId": org_id}
+            return f"install failed: {e}"
+        return ""
 
     async def _agents_unshare_from_org(self, params: dict) -> dict:
         """Remove an agent from an org's shared layer. The ORG COPY only — the author's
@@ -4623,6 +4642,138 @@ class Gateway:
         await self._broadcast_agents_changed()
         log.info("agents.unshareFromOrg %s -> %s", agent_id, org_id)
         return {"removed": True, "agentId": agent_id, "orgId": org_id}
+
+    # ─────────────────────────── member submit → admin approve (tenancy E3.1) ───────────────────
+    #
+    # WHY THIS EXISTS AS THREE STEPS AND NOT ONE. Direct shareToOrg is admin-only. A member who
+    # builds something useful had no way to get it in front of the org except asking an admin to
+    # re-create it. This adds the missing half: a member SUBMITS (their own agent, captured now),
+    # an admin APPROVES (promotes it) or REJECTS (drops it).
+    #
+    # THE ISOLATION-SAFE TRICK. The definition is copied into the org's pending-agents/ folder at
+    # SUBMIT time, because that is the one moment the agent's owner is the caller and can read it.
+    # Approval, run by a DIFFERENT account (the admin), only PROMOTES that already-staged folder
+    # into agents/ — it never reaches into the member's private subtree, so the tenant fence we
+    # verified stays intact. pending-agents/ is a sibling of agents/ and is NOT scanned by the
+    # registry, so a submission is invisible to the org until an admin approves it.
+
+    def _org_pending_paths(self, org_id: str, agent_id: str) -> tuple[Path, Path]:
+        """(staged-definition dir, request-metadata sibling file) for one pending submission."""
+        base = user_state.org_pending_agents_dir(self.config.state_dir, org_id)
+        return base / agent_id, base / f"{agent_id}.request.json"
+
+    async def _agents_submit_to_org(self, params: dict) -> dict:
+        """A MEMBER offers one of their own agents to an org; it waits for admin approval.
+
+        Any ACTIVE member may submit (role != ''), unlike shareToOrg which requires admin+ — the
+        approval gate is where the privilege lives. The caller must own the source agent, so
+        nobody submits someone else's."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        org_id = (params.get("orgId") or "").strip()
+        if not agent_id or not org_id:
+            return {"submitted": False, "error": "agentId and orgId required"}
+        role = accounts.org_role(org_id)
+        if not role:
+            return {"submitted": False, "error": "you are not a member of this organization"}
+        if self.registry is None:
+            return {"submitted": False, "error": "no agent registry"}
+        owns = getattr(self.registry, "owns", None)
+        if callable(owns) and not owns(agent_id):
+            return {"submitted": False, "error": f"'{agent_id}' is not yours to submit"}
+        source = self.registry.resolve_dir(agent_id)
+        if source is None or not (Path(source) / "agent.toml").is_file():
+            return {"submitted": False, "error": f"unknown agent: {agent_id}"}
+        # Already live in the org? Then this is a re-share an admin should do directly, not a
+        # request that would sit pending behind an agent members already have.
+        if (user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id).is_dir():
+            return {"submitted": False, "error": f"'{agent_id}' is already shared with this org"}
+
+        staged_dir, request_file = self._org_pending_paths(org_id, agent_id)
+        err = self._install_org_definition(Path(source), staged_dir, org_id, agent_id)
+        if err:
+            return {"submitted": False, "error": err}
+        spec = self.registry.get(agent_id)
+        acct = accounts.current_account.get() or {}
+        request_file.write_text(
+            json.dumps(
+                {
+                    "agentId": agent_id,
+                    "agentName": getattr(spec, "name", "") or agent_id,
+                    "requesterAccountId": str(acct.get("account_id") or ""),
+                    "requesterEmail": str(acct.get("email") or ""),
+                    "submittedAt": int(time.time()),
+                }
+            ),
+            encoding="utf-8",
+        )
+        log.info("agents.submitToOrg %s -> %s (pending)", agent_id, org_id)
+        # Admins are watching the org page — tell them a request landed.
+        await self._broadcast_agents_changed()
+        return {"submitted": True, "agentId": agent_id, "orgId": org_id}
+
+    def _agents_list_org_requests(self, params: dict) -> dict:
+        """Pending submissions for an org — admin+ only, the approval queue the org page renders."""
+        org_id = (params.get("orgId") or "").strip()
+        if not org_id:
+            return {"requests": [], "error": "orgId required"}
+        if accounts.org_role(org_id) not in ("owner", "admin"):
+            return {"requests": [], "error": "requires an org admin or owner"}
+        base = user_state.org_pending_agents_dir(self.config.state_dir, org_id)
+        out: list[dict] = []
+        if base.is_dir():
+            for meta in sorted(base.glob("*.request.json")):
+                try:
+                    out.append(json.loads(meta.read_text(encoding="utf-8")))
+                except (OSError, ValueError):
+                    continue  # a half-written request must not break the whole queue
+        return {"requests": out, "orgId": org_id}
+
+    async def _agents_approve_org_share(self, params: dict) -> dict:
+        """Admin+ promotes a pending submission into the org's live agents — the SAME end state
+        as a direct share, reached by moving the folder the member already staged."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        org_id = (params.get("orgId") or "").strip()
+        if not agent_id or not org_id:
+            return {"approved": False, "error": "agentId and orgId required"}
+        if accounts.org_role(org_id) not in ("owner", "admin"):
+            return {"approved": False, "error": "requires an org admin or owner"}
+        staged_dir, request_file = self._org_pending_paths(org_id, agent_id)
+        if not staged_dir.is_dir():
+            return {"approved": False, "error": "no such pending request"}
+        target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
+        import shutil
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(target, ignore_errors=True)
+            staged_dir.rename(target)  # promote: pending-agents/<id> -> agents/<id>
+            request_file.unlink(missing_ok=True)
+        except OSError as e:
+            return {"approved": False, "error": f"approve failed: {e}"}
+        if self.registry is not None:
+            self.registry.refresh()
+        await self._broadcast_agents_changed()
+        log.info("agents.approveOrgShare %s -> %s", agent_id, org_id)
+        return {"approved": True, "agentId": agent_id, "orgId": org_id}
+
+    async def _agents_reject_org_share(self, params: dict) -> dict:
+        """Admin+ drops a pending submission — deletes the staged copy, nothing reaches agents/."""
+        agent_id = (params.get("agentId") or "").strip().lower()
+        org_id = (params.get("orgId") or "").strip()
+        if not agent_id or not org_id:
+            return {"rejected": False, "error": "agentId and orgId required"}
+        if accounts.org_role(org_id) not in ("owner", "admin"):
+            return {"rejected": False, "error": "requires an org admin or owner"}
+        staged_dir, request_file = self._org_pending_paths(org_id, agent_id)
+        if not staged_dir.is_dir():
+            return {"rejected": False, "error": "no such pending request"}
+        import shutil
+
+        shutil.rmtree(staged_dir, ignore_errors=True)
+        request_file.unlink(missing_ok=True)
+        log.info("agents.rejectOrgShare %s -> %s", agent_id, org_id)
+        await self._broadcast_agents_changed()
+        return {"rejected": True, "agentId": agent_id, "orgId": org_id}
 
     async def _broadcast_agents_changed(self) -> None:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""

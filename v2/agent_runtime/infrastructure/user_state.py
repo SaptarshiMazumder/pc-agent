@@ -61,6 +61,19 @@ def org_agents_dir(state_dir, org_id: str) -> Path:
     return org_root(state_dir, org_id) / "agents"
 
 
+def org_pending_agents_dir(state_dir, org_id: str) -> Path:
+    """Agents a MEMBER submitted to the org that an admin has not approved yet:
+    ``<state_dir>/orgs/<org_id>/pending-agents``.
+
+    A SIBLING of ``agents/``, deliberately outside it, because the registry scans ``agents/`` —
+    a pending share must be invisible to every member until an admin approves it, and putting it
+    under the scanned folder would leak it the instant it was submitted. The definition is COPIED
+    here at submit time (when the submitting member, who owns the source, is the caller and can
+    read it); approval just promotes the folder into ``agents/``, so no admin ever needs to read
+    the member's private account subtree — the tenant fence stays intact."""
+    return org_root(state_dir, org_id) / "pending-agents"
+
+
 def identity_root(state_dir, identity: str) -> Path:
     """WHERE one identity's world lives — the identity→root mapper the tenancy plan names.
 

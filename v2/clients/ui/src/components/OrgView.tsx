@@ -25,6 +25,7 @@ import {
   type OrgDetail,
   type OrgUsageRow
 } from '../lib/orgs'
+import { gateway } from '../gateway/client'
 import { useApp } from '../state/store'
 import { ShelfCard, type Shelf } from './MyAgentsView'
 import PageShell from './PageShell'
@@ -532,27 +533,128 @@ function OrgAgents({
   )
 
   return (
+    <>
+      {admin && <PendingShareRequests orgId={orgId} onNotice={onNotice} onError={onError} />}
+      <div className="settings-group">
+        <div className="settings-section">Agents</div>
+        {rows.length === 0 ? (
+          <div className="admin-empty">
+            {admin
+              ? 'No agents shared with this organization yet. Share one from My Agents — every member gets it, read-only.'
+              : 'No agents shared with this organization yet. An admin can share one from their My Agents page.'}
+          </div>
+        ) : (
+          <div className="shelf-grid">
+            {rows.map((row) => (
+              <ShelfCard
+                key={row.agent.id}
+                row={row}
+                adminOrgs={adminOrgs}
+                onShared={onNotice}
+                onError={onError}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+type ShareRequest = {
+  agentId: string
+  agentName: string
+  requesterEmail: string
+  requesterAccountId: string
+  submittedAt: number
+}
+
+/* THE APPROVAL QUEUE — agents members submitted, waiting for an admin. Approve promotes the
+   already-staged copy into the org (identical end state to a direct share); Reject drops it.
+   Admin-only, and the server re-checks the role, so this is the convenience surface, not the
+   authorization. Refreshes on the same agents.changed broadcast the roster uses, so an approve
+   here and a new submission elsewhere both land without a manual reload. */
+function PendingShareRequests({
+  orgId,
+  onNotice,
+  onError
+}: {
+  orgId: string
+  onNotice: (msg: string) => void
+  onError: (msg: string) => void
+}): JSX.Element | null {
+  const agents = useApp((s) => s.hello?.agents) // a proxy for "the roster changed" — re-reads below
+  const [requests, setRequests] = useState<ShareRequest[]>([])
+  const [busy, setBusy] = useState('')
+
+  const reload = useCallback(() => {
+    void gateway
+      .request<{ requests?: ShareRequest[] }>('agents.listOrgShareRequests', { orgId })
+      .then((r) => setRequests(r.requests || []))
+      .catch(() => setRequests([]))
+  }, [orgId])
+  // Re-read on mount, on org change, and whenever the roster broadcast fires (a submit/approve).
+  useEffect(reload, [reload, agents])
+
+  async function decide(agentId: string, approve: boolean): Promise<void> {
+    setBusy(agentId)
+    try {
+      const method = approve ? 'agents.approveOrgShare' : 'agents.rejectOrgShare'
+      const r = await gateway.request<{ approved?: boolean; rejected?: boolean; error?: string }>(
+        method,
+        { agentId, orgId }
+      )
+      if (r.approved) onNotice(`Approved “${agentId}” — every member has it now.`)
+      else if (r.rejected) onNotice(`Rejected the request for “${agentId}”.`)
+      else onError(r.error || 'action failed')
+      reload()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  if (requests.length === 0) return null
+
+  return (
     <div className="settings-group">
-      <div className="settings-section">Agents</div>
-      {rows.length === 0 ? (
-        <div className="admin-empty">
-          {admin
-            ? 'No agents shared with this organization yet. Share one from My Agents — every member gets it, read-only.'
-            : 'No agents shared with this organization yet. An admin can share one from their My Agents page.'}
-        </div>
-      ) : (
-        <div className="shelf-grid">
-          {rows.map((row) => (
-            <ShelfCard
-              key={row.agent.id}
-              row={row}
-              adminOrgs={adminOrgs}
-              onShared={onNotice}
-              onError={onError}
-            />
+      <div className="settings-section">Pending share requests ({requests.length})</div>
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Requested by</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.map((req) => (
+            <tr key={req.agentId}>
+              <td>{req.agentName || req.agentId}</td>
+              <td>{req.requesterEmail || req.requesterAccountId || 'a member'}</td>
+              <td className="admin-row-actions">
+                <button
+                  className="btn primary"
+                  disabled={!!busy}
+                  onClick={() => void decide(req.agentId, true)}
+                  title="Approve — install it into the org for every member, read-only"
+                >
+                  Approve
+                </button>
+                <button
+                  className="btn"
+                  disabled={!!busy}
+                  onClick={() => void decide(req.agentId, false)}
+                  title="Reject — drop the request; nothing is shared"
+                >
+                  Reject
+                </button>
+              </td>
+            </tr>
           ))}
-        </div>
-      )}
+        </tbody>
+      </table>
     </div>
   )
 }

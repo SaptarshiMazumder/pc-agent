@@ -63,12 +63,16 @@ function installerFor(bundle: CatalogBundle): { url: string; label: string } | n
 export function ShelfCard({
   row,
   adminOrgs,
+  memberOrgs = [],
   onShared,
   onError
 }: {
   row: Shelf
   /** orgs the CALLER administers — share targets for a personal card, unshare right on an org one */
   adminOrgs: OrgMembership[]
+  /** orgs the caller is a plain MEMBER of — a personal card can REQUEST to share into these
+   *  (an admin approves), the missing half of "only admins could put an agent in the org". */
+  memberOrgs?: OrgMembership[]
   onShared: (msg: string) => void
   onError: (msg: string) => void
 }): ReactNode {
@@ -106,6 +110,25 @@ export function ShelfCard({
       })
       if (r.shared) onShared(`“${agent.name || agent.id}” is now shared with ${org.name}.`)
       else onError(r.error || 'sharing failed')
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitTo(orgId: string): Promise<void> {
+    const org = memberOrgs.find((o) => o.id === orgId)
+    if (!org) return
+    setBusy(true)
+    try {
+      const r = await gateway.request<{ submitted?: boolean; error?: string }>(
+        'agents.submitToOrg',
+        { agentId: agent.id, orgId }
+      )
+      if (r.submitted)
+        onShared(`Requested to share “${agent.name || agent.id}” with ${org.name}. An admin will review it.`)
+      else onError(r.error || 'request failed')
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -200,6 +223,25 @@ export function ShelfCard({
             ))}
           </select>
         )}
+        {!isOrg && agent.mine !== false && memberOrgs.length > 0 && (
+          <select
+            className="admin-select"
+            disabled={busy}
+            value=""
+            title="Submit this agent to an organization you belong to — an admin approves before members get it"
+            onChange={(e) => {
+              if (e.target.value) void submitTo(e.target.value)
+              e.target.value = ''
+            }}
+          >
+            <option value="">Request to share…</option>
+            {memberOrgs.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        )}
         {isOrg && owningOrg && (
           <button className="btn danger" disabled={busy} onClick={() => void unshare()} title={`Remove this agent from ${owningOrg.name}`}>
             Remove from org
@@ -249,6 +291,7 @@ export default function MyAgentsView() {
   }, [session])
 
   const adminOrgs = useMemo(() => orgs.filter((o) => ORG_ADMIN_ROLES.has(o.role)), [orgs])
+  const memberOrgs = useMemo(() => orgs.filter((o) => !ORG_ADMIN_ROLES.has(o.role)), [orgs])
 
   const shelf: Shelf[] = useMemo(() => {
     const byId = new Map(catalog.map((b) => [b.id, b]))
@@ -303,6 +346,7 @@ export default function MyAgentsView() {
               key={row.agent.id}
               row={row}
               adminOrgs={adminOrgs}
+              memberOrgs={memberOrgs}
               onShared={(m) => {
                 setNotice(m)
                 setError('')

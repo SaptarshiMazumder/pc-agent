@@ -413,3 +413,80 @@ def test_a_version_1_database_upgrades_in_place():
     assert {"orgs", "org_members", "identities", "refresh_tokens"} <= tables
     # idempotent: a second boot is a no-op, never a crash
     assert sqlite_schema.create_schema(conn) == 2
+
+
+# ─────────────── member submit → admin approve/reject (tenancy E3.1) ───────────────
+
+async def _sync(fn, *a):
+    """Run a SYNC gateway method inside the account context `run` establishes."""
+    return fn(*a)
+
+
+def test_member_submits_and_it_waits_invisible_until_approved(tmp_path):
+    gw_m, run_m, cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
+    _author_agent(tmp_path, "acct_a")
+
+    out = run_m(gw_m._agents_submit_to_org({"agentId": "kajima-helper", "orgId": ORG}))
+    assert out["submitted"] is True
+
+    # NOT live: absent from the scanned agents/ dir, so no member sees it yet…
+    assert not (user_state.org_agents_dir(cfg.state_dir, ORG) / "kajima-helper").exists()
+    # …but staged in the sibling pending dir, definition only, with a request record.
+    pend = user_state.org_pending_agents_dir(cfg.state_dir, ORG)
+    assert (pend / "kajima-helper" / "agent.toml").is_file()
+    assert not (pend / "kajima-helper" / "sessions").exists()  # data never rode along
+    meta = json.loads((pend / "kajima-helper.request.json").read_text("utf-8"))
+    assert meta["agentId"] == "kajima-helper" and meta["requesterAccountId"] == "acct_a"
+
+    # An ADMIN (a different account) sees it in the queue and approves it.
+    gw_a, run_a, _ = _share_gateway(tmp_path, "acct_b", [{"id": ORG, "role": "admin"}])
+    reqs = run_a(_sync(gw_a._agents_list_org_requests, {"orgId": ORG}))["requests"]
+    assert [r["agentId"] for r in reqs] == ["kajima-helper"]
+
+    out = run_a(gw_a._agents_approve_org_share({"agentId": "kajima-helper", "orgId": ORG}))
+    assert out["approved"] is True
+    # promoted into the live dir, pending cleared
+    assert (user_state.org_agents_dir(cfg.state_dir, ORG) / "kajima-helper" / "agent.toml").is_file()
+    assert not (pend / "kajima-helper").exists()
+    assert not (pend / "kajima-helper.request.json").exists()
+
+
+def test_reject_drops_the_submission_and_shares_nothing(tmp_path):
+    gw_m, run_m, cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
+    _author_agent(tmp_path, "acct_a")
+    run_m(gw_m._agents_submit_to_org({"agentId": "kajima-helper", "orgId": ORG}))
+
+    gw_a, run_a, _ = _share_gateway(tmp_path, "acct_b", [{"id": ORG, "role": "owner"}])
+    out = run_a(gw_a._agents_reject_org_share({"agentId": "kajima-helper", "orgId": ORG}))
+    assert out["rejected"] is True
+    pend = user_state.org_pending_agents_dir(cfg.state_dir, ORG)
+    assert not (pend / "kajima-helper").exists()
+    assert not (user_state.org_agents_dir(cfg.state_dir, ORG) / "kajima-helper").exists()
+
+
+def test_a_non_member_cannot_submit(tmp_path):
+    # admin of a DIFFERENT org, member of nothing here
+    gw, run, _ = _share_gateway(tmp_path, "acct_a", [{"id": OTHER_ORG, "role": "admin"}])
+    _author_agent(tmp_path, "acct_a")
+    out = run(gw._agents_submit_to_org({"agentId": "kajima-helper", "orgId": ORG}))
+    assert out["submitted"] is False and "member" in out["error"]
+
+
+def test_a_plain_member_cannot_approve_reject_or_list(tmp_path):
+    gw, run, _ = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
+    assert run(gw._agents_approve_org_share({"agentId": "x", "orgId": ORG}))["approved"] is False
+    assert run(gw._agents_reject_org_share({"agentId": "x", "orgId": ORG}))["rejected"] is False
+    reqs = run(_sync(gw._agents_list_org_requests, {"orgId": ORG}))
+    assert reqs["requests"] == [] and "admin" in reqs["error"]
+
+
+def test_submitting_an_already_shared_agent_is_refused(tmp_path):
+    # owner shares directly, then a member submit of the same id is a no-op refusal
+    gw_o, run_o, cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "owner"}])
+    _author_agent(tmp_path, "acct_a")
+    assert run_o(gw_o._agents_share_to_org({"agentId": "kajima-helper", "orgId": ORG}))["shared"]
+
+    gw_m, run_m, _ = _share_gateway(tmp_path, "acct_b", [{"id": ORG, "role": "member"}])
+    _author_agent(tmp_path, "acct_b")
+    out = run_m(gw_m._agents_submit_to_org({"agentId": "kajima-helper", "orgId": ORG}))
+    assert out["submitted"] is False and "already shared" in out["error"]
