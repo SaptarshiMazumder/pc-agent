@@ -60,6 +60,14 @@ SIGNING_KEY_RETIRE_TTL_MULTIPLE = 6
 OUTBOUND_TIMEOUT_S = 8.0
 
 
+def _real_secret_id(raw: str) -> str:
+    """The Secrets Manager id this deployment writes provider keys to, or "" when there is none.
+    "local" is a valid STARTUP source (ambient env) but not a writable secret store, so it maps
+    to "" here — the admin keys panel treats it as unconfigured rather than trying to reach it."""
+    value = (raw or "").strip()
+    return "" if value.lower() == "local" else value
+
+
 @dataclass(frozen=True)
 class AdminSettings:
     """Where everything is. All of it deploy configuration; none of it is defaulted to a real
@@ -103,7 +111,11 @@ class AdminSettings:
             identities=frozenset(
                 p.strip().lower() for p in raw_identities.split(",") if p.strip()
             ),
-            app_secret_id=(os.environ.get("AGENTD_APP_SECRET_ID", "") or "").strip(),
+            # "local" is a real startup source (the ambient environment) but NOT a Secrets Manager
+            # secret this admin panel can read or write to — so it reads as unconfigured HERE,
+            # which makes the keys panel show an honest gap and refuse writes (503) instead of
+            # trying to reach a secret named "local" and 502-ing. Only a real id is configured.
+            app_secret_id=_real_secret_id(os.environ.get("AGENTD_APP_SECRET_ID", "")),
             creators_table=(os.environ.get("AGENTD_CREATORS_TABLE", "") or "").strip(),
             kms_key_id=(os.environ.get("AGENTD_PUBLISH_KMS_KEY", "") or "").strip(),
             ecs_cluster=(os.environ.get("AGENTD_ECS_CLUSTER", "") or "").strip(),

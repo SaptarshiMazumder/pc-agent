@@ -1283,6 +1283,7 @@ Three that are easy to get wrong:
 hello
 chat.send
 chat.abort
+chat.status
 sessions.list
 sessions.history
 sessions.rename

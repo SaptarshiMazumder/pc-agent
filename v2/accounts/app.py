@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -652,13 +653,25 @@ def _startup() -> None:
         raise AppSecretUnavailable(
             "AGENTD_APP_SECRET_ID is not set. The accounts service reads its secrets from "
             "Secrets Manager and refuses to start without it — locally, point it at the dev "
-            "secret (run-local.py does) and have AWS credentials available."
+            "secret (run-local.py does) and have AWS credentials available, or set it to "
+            "'local' to declare the ambient environment as the source (tests, no-AWS dev)."
         )
-    AppSecretLoader(
-        secret_id,
-        fields=_APP_SECRET_FIELDS,
-        region=(os.environ.get("AWS_REGION") or "").strip(),
-    ).load_into_environ()
+    # LOCAL/TEST MODE, and it is a DECLARATION, not a silent fallback. The empty case above still
+    # refuses to boot — you must name a source. "local" names the ambient environment as that
+    # source, which is what a test harness and a no-AWS `npm run dev` daemon have: no Secrets
+    # Manager, the fields already in os.environ. The invariant the strict path protects (one
+    # explicit source, never "whatever was lying around") holds, because choosing local is the
+    # explicit act. Any other value is a real Secrets Manager id and loads from there as before.
+    if secret_id.lower() != "local":
+        AppSecretLoader(
+            secret_id,
+            fields=_APP_SECRET_FIELDS,
+            region=(os.environ.get("AWS_REGION") or "").strip(),
+        ).load_into_environ()
+    else:
+        logging.getLogger("accounts").info(
+            "app secret: LOCAL mode — reading declared fields from the ambient environment"
+        )
     _init_db()
     _seed_credit_packs()
     _seed_seat_packs()

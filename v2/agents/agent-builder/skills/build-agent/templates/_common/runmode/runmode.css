@@ -6,10 +6,10 @@
   align-items: center;
   gap: 7px;
   padding: 4px 10px 4px 8px;
-  border: 1px solid var(--border2, #cbd2dc);
+  border: 1px solid var(--border2);
   border-radius: 999px;
-  background: var(--bg2, #f7f8fa);
-  color: var(--text, #1a1d23);
+  background: var(--bg2);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
   font-weight: var(--fw-semi, 600);
@@ -18,8 +18,8 @@
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .runmode:hover:not(:disabled) {
-  background: var(--bg3, #eef1f5);
-  border-color: var(--accent, #4f46e5);
+  background: var(--bg3);
+  border-color: var(--accent);
 }
 .runmode:disabled {
   cursor: default;
@@ -63,13 +63,13 @@
 
 /* Cloud = the accent (platform keys, live spend). Local = a calm neutral (your own keys). */
 .runmode--cloud .runmode-dot {
-  background: var(--accent, #4f46e5);
+  background: var(--accent);
 }
 .runmode--cloud {
-  border-color: var(--accent-soft, rgba(79, 70, 229, 0.3));
+  border-color: var(--accent-soft);
 }
 .runmode--local .runmode-dot {
-  background: var(--dim, #6d6250);
+  background: var(--dim);
 }
 
 /* Respect a user who asked for no motion — the colour still tells the story. */

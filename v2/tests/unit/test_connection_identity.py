@@ -186,12 +186,18 @@ def test_the_daemon_offers_no_sign_in_methods():
 
 
 def test_status_reports_this_connection_not_the_machine(cloud_build):
+    # IDENTITY is the connection's (signedIn/email track set_account); MODE is the DAEMON's —
+    # its persisted run_mode, not a per-connection guess. This gateway has no run_mode set and is
+    # not hosted, so mode resolves to LOCAL ("your own keys, no surprise billing" until a user
+    # explicitly switches), the SAME answer whether or not someone is signed in — which is exactly
+    # the property that replaced reading ?mode= off the socket (two windows could disagree before).
     gateway = _gateway()
     t = _on({"account_id": "a1", "email": "a@b.c", "session_token": "sess_a"})
     try:
         status = gateway._platform_status()
         assert status["signedIn"] is True and status["email"] == "a@b.c"
-        assert status["mode"] == "cloud"
+        assert status["mode"] == "local"  # the daemon's mode, unchanged by who is signed in
+        assert status["canUseCloud"] is True, "a Cloud exists to switch to"
     finally:
         _off(t)
     t = _on(None)

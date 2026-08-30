@@ -21,6 +21,18 @@ _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _app_secret_local(monkeypatch):
+    """Point the accounts service's startup at its LOCAL secret source (the ambient environment)
+    for every test. The service refuses to boot without a declared secret source (app.py's
+    _startup) — in production that is a Secrets Manager id; in a test there is no Secrets Manager,
+    so 'local' declares the env the test already sets as the source. Without this, every test that
+    builds the FastAPI app via TestClient fails at startup with AppSecretUnavailable. Autouse and
+    harmless where no app is built: it only sets an env var. Uses setdefault semantics via
+    monkeypatch so a test that wants to exercise the strict path can still override it."""
+    monkeypatch.setenv("AGENTD_APP_SECRET_ID", "local")
+
+
 def _add_bundles(parent: Path) -> None:
     if not parent.is_dir():
         return

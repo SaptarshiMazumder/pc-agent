@@ -11,7 +11,12 @@ from agent_runtime.presentation.gateway import Gateway, RunHandle
 
 
 def _gw():
-    return Gateway(config=load_config(), service=None)
+    cfg = load_config()
+    # 0 = abort on disconnect (no detach grace) — the behaviour these tests assert. The
+    # merge's default 180s reaper detaches instead, to survive a reconnect; not what is under
+    # test here.
+    cfg.run_detach_grace_seconds = 0
+    return Gateway(config=cfg, service=None)
 
 
 async def _long():
@@ -32,7 +37,7 @@ async def test_disconnect_aborts_only_that_clients_runs():
     gw.runs["s1"] = RunHandle("r1", "s1", a1, client_id="C1", task=t1)
     gw.runs["s2"] = RunHandle("r2", "s2", a2, client_id="C2", task=t2)
 
-    await gw._abort_client_runs("C1")  # client C1 disconnects
+    await gw._detach_client_runs("C1")  # client C1 disconnects
 
     assert a1.is_set()  # cooperative abort flag set (the loop/tools check it)
     with pytest.raises(asyncio.CancelledError):
@@ -105,6 +110,7 @@ async def test_disconnect_over_real_websocket_aborts_run():
                 raise
 
     cfg = load_config()
+    cfg.run_detach_grace_seconds = 0  # abort on disconnect (see _gw)
     gw = Gateway(config=cfg, service=FakeService())
     server = await ws_serve(gw._handle_conn, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]

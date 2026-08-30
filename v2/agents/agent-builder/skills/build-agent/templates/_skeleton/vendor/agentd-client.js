@@ -565,10 +565,7 @@ async function authStatus(opts = {}) {
     signedIn,
     email: signedIn && tok.email || "",
     accountId: signedIn && tok.accountId || "",
-    // THE DAEMON'S answer, not a client-side guess: it reads persisted config (and forces cloud on
-    // hosted). This is what fixes "the switch says Cloud but the call ran Local".
-    mode: status.mode === "local" || status.mode === "cloud" ? status.mode : "local",
-    modeLocked: !!status.runModeLocked,
+    mode: effectiveMode(opts.storageKey, signedIn, canUseCloud),
     canUseCloud,
     // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there — a
     // client that guessed "not required" against a daemon that requires it would show no login
@@ -645,7 +642,7 @@ async function setRunMode(mode, opts = {}) {
   if (mode === "cloud" && !await identity(opts).accessToken()) {
     throw new Error("sign in first \u2014 Cloud mode meters model calls to your account");
   }
-  await opts.client?.request("config.set", { patch: { run_mode: mode } });
+  saveMode(mode, opts.storageKey);
   opts.client?.reconnect();
   return authStatus(opts);
 }
@@ -739,24 +736,20 @@ var BillingClient = class {
    * Buy a pack. THROWS with the server's own message on refusal.
    *
    * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
-   * place it is ignored, and the returned `checkoutUrl` is empty. The DEFAULT return is the
-   * accounts service's own neutral "checkout finished" page, NOT the caller's URL: a surface's
-   * own href drags its whole query string — session token included — through the rail's redirect
-   * and into browser history, and on desktop it reopens the app in a browser tab instead of the
-   * window the purchase started in. The purchase's real conclusion never travels through that
-   * tab anyway — it arrives on the webhook, and `awaitGrant` is what tells the initiating window.
+   * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
+   * card payment comes back where it started.
    */
   async buy(productId, returnUrl = "", orgId = "") {
-    const base = await this.base();
     const body = {
       product_id: productId,
       idempotency_key: this.host.newKey()
     };
     if (orgId) body.org_id = orgId;
-    const back = returnUrl || `${base}/checkout/complete`;
-    body.success_url = back;
-    body.cancel_url = back;
-    const r = await fetch(`${base}/me/checkout`, {
+    if (returnUrl) {
+      body.success_url = returnUrl;
+      body.cancel_url = returnUrl;
+    }
+    const r = await fetch(`${await this.base()}/me/checkout`, {
       method: "POST",
       headers: { ...await this.authed(), "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -775,32 +768,6 @@ var BillingClient = class {
       paymentDetail: String(payment.detail || ""),
       checkoutUrl
     };
-  }
-  /**
-   * Watch for a checkout's credits to land, then ring the credits bus.
-   *
-   * A card purchase finishes on a WEBHOOK, in another tab, minutes later — nothing tells the
-   * window that started it. This polls the balance until it RISES (a grant adds; concurrent
-   * spending only subtracts, so a rise is unambiguous), then fires `notifyCreditsChanged()` so
-   * every listening view refreshes itself — the window the purchase began in included.
-   *
-   * Resolves true when the grant landed, false when the customer walked away (timeout). A false
-   * is "nothing happened", never an error — an abandoned checkout costs nothing and grants
-   * nothing, and the next purchase starts clean.
-   */
-  async awaitGrant(opts = {}) {
-    const { agentId = "", timeoutMs = 18e4, pollMs = 4e3 } = opts;
-    const baseline = (await this.credits(agentId))?.creditsRemaining;
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-      const now = (await this.credits(agentId))?.creditsRemaining;
-      if (now !== void 0 && (baseline === void 0 || now > baseline)) {
-        notifyCreditsChanged();
-        return true;
-      }
-    }
-    return false;
   }
 };
 

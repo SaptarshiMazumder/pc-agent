@@ -29,9 +29,12 @@ def _load(monkeypatch, tmp_path, **env: str):
     monkeypatch.setenv("ACCOUNTS_RATE_LIMIT", "0/0")
     monkeypatch.delenv("ACCOUNTS_INTERNAL_KEY", raising=False)
     # Every AWS-backed panel off by default: these tests must never reach a network or a profile.
+    # AGENTD_APP_SECRET_ID is NOT cleared — the conftest sets it to 'local' (read secrets from the
+    # ambient env, never Secrets Manager), which is precisely "no AWS" for the secret path while
+    # still satisfying the service's refuse-to-boot-without-a-source rule. Deleting it would put
+    # startup back to AppSecretUnavailable.
     for name in (
         "AGENTD_ADMIN_IDENTITIES",
-        "AGENTD_APP_SECRET_ID",
         "AGENTD_CREATORS_TABLE",
         "AGENTD_ECS_CLUSTER",
         "AGENTD_KEY_CONSUMERS",
@@ -539,8 +542,12 @@ def test_setting_a_secret_requires_a_non_empty_value(monkeypatch, tmp_path):
         monkeypatch,
         tmp_path,
         AGENTD_ADMIN_IDENTITIES="boss@example.com",
-        AGENTD_APP_SECRET_ID="agentd/test/app",
+        AGENTD_APP_SECRET_ID="agentd/test/app",  # a REAL id, so the keys panel is "configured"
     )
+    # …but there is no Secrets Manager in a test, so neutralize the startup LOAD of that real id
+    # (the empty-value check under test happens before any AWS call anyway — the load is just the
+    # boot step that would otherwise fail with AppSecretUnavailable).
+    monkeypatch.setattr(module.AppSecretLoader, "load_into_environ", lambda self: [])
     with TestClient(module.app) as client:
         _signup(client, "boss@example.com")
         boss = _token(client, "boss@example.com")
