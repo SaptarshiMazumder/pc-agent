@@ -49,10 +49,14 @@ export default function Credits({ agentId = '' }: { agentId?: string }) {
     setError('')
     setReceipt('')
     try {
-      const r = await shop().buy(pack.id, location.href.split('#')[0])
-      // A card rail answers with somewhere to go rather than a completed purchase.
+      const r = await shop().buy(pack.id)
+      // A card rail answers with somewhere to go rather than a completed purchase. The payment
+      // opens in its OWN tab — this window stays put, and awaitGrant rings the credits bus
+      // (which the effect above listens to) the moment the webhook grants.
       if (r.checkoutUrl) {
-        location.href = r.checkoutUrl
+        window.open(r.checkoutUrl, '_blank', 'noopener')
+        setReceipt('Complete the payment in the opened tab — your balance here updates automatically.')
+        void shop().awaitGrant({ agentId })
         return
       }
       setBalance((c) => (c ? { ...c, creditsRemaining: r.creditsRemaining } : c))

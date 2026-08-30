@@ -36,12 +36,13 @@ import {
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
-import type { AuthState } from '@agentd/client'
+import type { AgentdClient, AuthState } from '@agentd/client'
 import logo from '../assets/brick.svg'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 import { openable } from '../agentd/roster'
 import { useApp, useSubject } from '../state/store'
 import { ProfileMenu } from './ProfileMenu'
+import RunModeBadge from '../../../skills/build-agent/templates/_common/runmode/RunModeBadge'
 import SearchBox from './SearchBox'
 import { SettingsMenu } from './SettingsMenu'
 import SessionItem from './SessionItem'
@@ -131,6 +132,7 @@ export function Sidebar({
   authError,
   onSignIn,
   onSignOut,
+  client,
   status,
   daemonVersion,
 }: {
@@ -147,6 +149,8 @@ export function Sidebar({
   authError: string
   onSignIn: () => Promise<void> | void
   onSignOut: () => Promise<void> | void
+  /** The daemon connection — the run-mode badge reads/sets the mode through it. */
+  client?: AgentdClient
   status: string
   daemonVersion: string
 }) {
@@ -379,6 +383,8 @@ export function Sidebar({
           onSignIn={onSignIn}
           onSignOut={onSignOut}
         />
+        {/* Always on screen, in every view — whose keys pay for model calls; click to switch. */}
+        <RunModeBadge client={client} />
         <button
           className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`}
           title="My Agents"

@@ -412,6 +412,33 @@ variable "registry_publisher_key" {
   }
 }
 
+# ─────────────────────────── Payments ───────────────────────────
+
+variable "payment_provider" {
+  description = <<-EOT
+    Which payment rail the accounts service runs (payments/main/payment_gateway_factory.py).
+    Empty/null = the mock rail: checkouts settle inline and move no money — the right state
+    for an environment whose rail keys are still placeholders. The factory refuses an unknown
+    name at checkout rather than falling back, so a typo here cannot mint free credits.
+  EOT
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "null", "stripe", "razorpay", "dodo"], var.payment_provider)
+    error_message = "payment_provider must be one of: null, stripe, razorpay, dodo (or empty for the mock rail)."
+  }
+}
+
+variable "checkout_return_origins" {
+  description = <<-EOT
+    Origins /me/checkout may return a paying customer to (AGENTD_CHECKOUT_RETURN_ORIGINS).
+    Empty = any absolute http(s) URL, which is right for dev and wrong for production — the
+    alternative there is an open redirect wearing our domain in the address bar.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # ─────────────────────────── The services map ───────────────────────────
 # ONE entry per container. Adding a service here gives it an ECR repo, ALB target
 # group + listener + firewall holes, service discovery, and a Fargate service — no
@@ -515,6 +542,17 @@ variable "services" {
         # Wraps the token signing key at rest (identity/infrastructure/sqlite_key_store.py).
         # Absent, keys are stored in clear and the service logs a warning on first use.
         AGENTD_IDENTITY_KEK = "AGENTD_IDENTITY_KEK"
+        # Payment rail credentials (payments/main/payment_gateway_factory.py). ALL rails'
+        # keys are injected; the factory reads only the one var.payment_provider names, so a
+        # REPLACE_ME placeholder is inert until that rail is switched on — and flipping
+        # providers is then a variable change + service roll, not a plumbing change.
+        STRIPE_SECRET_KEY       = "STRIPE_SECRET_KEY"
+        STRIPE_WEBHOOK_SECRET   = "STRIPE_WEBHOOK_SECRET"
+        RAZORPAY_KEY_ID         = "RAZORPAY_KEY_ID"
+        RAZORPAY_KEY_SECRET     = "RAZORPAY_KEY_SECRET"
+        RAZORPAY_WEBHOOK_SECRET = "RAZORPAY_WEBHOOK_SECRET"
+        DODO_API_KEY            = "DODO_API_KEY"
+        DODO_WEBHOOK_SECRET     = "DODO_WEBHOOK_SECRET"
       }
       efs = true
     }

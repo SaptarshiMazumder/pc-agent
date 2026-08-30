@@ -54,6 +54,7 @@ from typing import Iterator
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 # Shared instrumentation (v2/monitoring). Optional at import so an image that has not installed
 # it still boots — telemetry must never be able to take down the identity service.
@@ -126,6 +127,7 @@ try:  # pragma: no cover - exercised by whichever path the runtime takes
         PurchaseOrder,
         WebhookPostProcessor,
     )
+    from app_secret_loader import AppSecretLoader, AppSecretUnavailable
     from identity_bridge import SqliteAccountDirectory
 except ModuleNotFoundError:  # pragma: no cover
     import importlib.util as _ilu
@@ -151,6 +153,9 @@ except ModuleNotFoundError:  # pragma: no cover
     AccountsPostProcessor = _post_processing.AccountsPostProcessor
     PurchaseOrder = _post_processing.PurchaseOrder
     WebhookPostProcessor = _post_processing.WebhookPostProcessor
+    _secret_loader = _sibling("app_secret_loader")
+    AppSecretLoader = _secret_loader.AppSecretLoader
+    AppSecretUnavailable = _secret_loader.AppSecretUnavailable
     SqliteAccountDirectory = _sibling("identity_bridge").SqliteAccountDirectory
 
 
@@ -616,8 +621,42 @@ def _seed_seat_packs() -> None:
             )
 
 
+#: What this service reads from the app secret — the same statement of need as its
+#: `secret_keys` map in infra/modules/variables.tf, made where the code runs. The vault's
+#: OTHER fields (model-provider keys) are deliberately not loaded: this process has no
+#: business holding keys it never reads.
+_APP_SECRET_FIELDS = (
+    "ACCOUNTS_INTERNAL_KEY",
+    "AGENTD_IDENTITY_KEK",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "RAZORPAY_KEY_ID",
+    "RAZORPAY_KEY_SECRET",
+    "RAZORPAY_WEBHOOK_SECRET",
+    "DODO_API_KEY",
+    "DODO_WEBHOOK_SECRET",
+)
+
+
 @app.on_event("startup")
 def _startup() -> None:
+    # SECRETS FIRST, AND MANDATORY. This service reads its secrets from Secrets Manager and
+    # nowhere else — the same source on ECS and on a developer's machine, so there is exactly
+    # one place a key lives. No secret id means no boot; booting on ambient env vars is the
+    # two-sources-of-truth failure this exists to remove. (ECS still injects the same fields
+    # at task start; the load below re-reads the same secret and agrees with itself.)
+    secret_id = (os.environ.get("AGENTD_APP_SECRET_ID") or "").strip()
+    if not secret_id:
+        raise AppSecretUnavailable(
+            "AGENTD_APP_SECRET_ID is not set. The accounts service reads its secrets from "
+            "Secrets Manager and refuses to start without it — locally, point it at the dev "
+            "secret (run-local.py does) and have AWS credentials available."
+        )
+    AppSecretLoader(
+        secret_id,
+        fields=_APP_SECRET_FIELDS,
+        region=(os.environ.get("AWS_REGION") or "").strip(),
+    ).load_into_environ()
     _init_db()
     _seed_credit_packs()
     _seed_seat_packs()
@@ -1735,6 +1774,35 @@ def _checkout_return_urls(payload: dict, *, required: bool) -> tuple[str, str]:
         if allowed and not any(url.startswith(origin) for origin in allowed):
             raise HTTPException(status_code=400, detail="return url is not an allowed origin")
     return success, cancel
+
+
+#: The page a card rail returns the customer to. DELIBERATELY DUMB: it reads no query params
+#: and claims no outcome — only the webhook knows whether money moved, and echoing rail-appended
+#: params into a page is how payment ids and tokens end up in browser history. The window the
+#: purchase started in learns the real result from the balance (BillingClient.awaitGrant), not
+#: from this tab.
+_CHECKOUT_COMPLETE_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout finished</title>
+<style>
+  body { margin: 0; display: grid; place-items: center; min-height: 100vh;
+         font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  main { text-align: center; padding: 2rem; max-width: 26rem; }
+  h1 { font-size: 1.3rem; margin: 0 0 .6rem; }
+  p { margin: 0; color: #aaa; line-height: 1.5; }
+</style></head>
+<body><main>
+  <h1>Checkout finished</h1>
+  <p>You can close this tab and return to the app. Your balance updates automatically once the
+  payment is confirmed.</p>
+</main>
+<script>try { window.close() } catch (e) {}</script>
+</body></html>"""
+
+
+@app.get("/checkout/complete")
+def checkout_complete() -> HTMLResponse:
+    return HTMLResponse(_CHECKOUT_COMPLETE_HTML)
 
 
 @app.post("/me/checkout")

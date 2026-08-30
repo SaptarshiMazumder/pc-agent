@@ -107,6 +107,7 @@ export default function App() {
         onView={setView}
         onNewChat={() => newSession(false)}
         account={account}
+        client={client ?? undefined}
         status={status}
         middle={
           <div className="nav-rows">

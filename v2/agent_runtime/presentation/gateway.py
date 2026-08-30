@@ -86,6 +86,7 @@ APP_SCOPED_METHODS = frozenset(
         "hello",
         "chat.send",
         "chat.abort",
+        "chat.status",
         "sessions.list",
         "sessions.history",
         "sessions.rename",
@@ -228,6 +229,11 @@ def _scoped_event_allowed(name: str, payload: dict, agent_id: str) -> bool:
     if name in ("chat.event", "sessions.changed"):
         return payload.get("agentId") == agent_id
     if name == "agents.changed":
+        return True
+    # RUN MODE is machine-wide (or, on hosted, this account's) — every window shows the badge and
+    # must follow a flip made anywhere. `_send_all` already restricts it to the same identity's
+    # sockets; this just lets a scoped app window be one of them.
+    if name == "runmode.changed":
         return True
     # ITS OWN REBUILD, AND NOBODY ELSE'S. This comparison is not a nicety -- an agent window
     # reloading itself because a DIFFERENT agent was rebuilt would be a page that refreshes at
@@ -396,6 +402,11 @@ class RunHandle:
     #: When this run last produced an event, on the monotonic clock. The silence watchdog reads
     #: it; `on_event` writes it. 0.0 until the run starts.
     last_event_at: float = 0.0
+    #: Set when the client that started this run disconnected (epoch seconds); cleared when any
+    #: window re-attaches (chat.status / a new send on the session). The grace reaper reads it.
+    detached_at: float | None = None
+    #: The pending grace-period abort, so a re-attach can cancel it.
+    detach_reaper: asyncio.Task | None = None
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
     cron_failure_alert: int = 0  # auto-pause + alert after N consecutive failures (0=off)
@@ -657,6 +668,10 @@ EXPOSED_CONFIG_KEYS = (
     "memory_auto_recall_limit",
     "skill_workshop",
     "mcp_workshop",
+    # run_mode: local (BYOK) vs cloud (platform keys). Writable like every other knob, so switching
+    # mode goes through config.set and is PERSISTED — one answer every window reads, not a per-window
+    # guess. Hosted ignores it (forced cloud); desktop persists the real choice.
+    "run_mode",
     "agent_messaging_enabled",
     "autonomy_enabled",
     "heartbeat_default_interval",
@@ -2441,6 +2456,10 @@ class Gateway:
             # daemon that would have served it with no account at all — see `signInRequired` in
             # _platform_status.
             "signInRequired": accounts.enabled(),
+            # THE ONE RUN MODE, from persisted config, so every window shows the same answer instead
+            # of guessing. Locked (no toggle) on hosted, where cloud is the only runnable option.
+            "runMode": self._resolved_run_mode(),
+            "runModeLocked": bool(getattr(self.config, "hosted", False)),
         }
 
     def _serve_platform(self, split, headers) -> HttpResponse:
@@ -2527,6 +2546,19 @@ class Gateway:
         connect, `?session=` for the person using it — and the two must not be confused, since one
         is a machine secret and the other identifies a human."""
         return self._query(ws, "session") or self._presented_token(ws)
+
+    def _resolved_run_mode(self) -> str:
+        """The ONE run mode this daemon runs on — from PERSISTED config, not the client's `?mode=`.
+
+        HOSTED forces cloud: BYOK is refused there (no per-account key store), so platform keys are
+        the only thing a call can run on. DESKTOP reads the persisted `run_mode`; empty resolves to
+        LOCAL — honest and safe (your own keys, no surprise billing) rather than an optimistic cloud
+        guess. This replaces reading `?mode=` off the socket url, which let two windows disagree and
+        showed cloud while a desktop call actually ran local."""
+        if getattr(self.config, "hosted", False):
+            return model_proxy.CLOUD
+        chosen = str(getattr(self.config, "run_mode", "") or "").strip().lower()
+        return chosen if chosen in (model_proxy.LOCAL, model_proxy.CLOUD) else model_proxy.LOCAL
 
     def _presented_mode(self, ws: ServerConnection) -> str:
         """`?mode=local|cloud` — which keys this client wants its model calls to run on.
@@ -2754,7 +2786,8 @@ class Gateway:
         _conn_acct_tok = accounts.set_account(account)
         # WHICH KEYS this connection's model calls run on. Pinned the same way and for the same
         # reason: it is this client's choice, not the machine's, so two windows can differ.
-        _conn_bill_tok = model_proxy.set_billing(self._presented_mode(ws))
+        # THE PERSISTED mode, not the client's `?mode=` guess: one answer, same in every window.
+        _conn_bill_tok = model_proxy.set_billing(self._resolved_run_mode())
         try:
             async for raw in ws:
                 try:
@@ -2790,7 +2823,17 @@ class Gateway:
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
             self.client_identities.pop(ws, None)
-            await self._abort_client_runs(client_id)
+            # WHO HUNG UP, BY THE WIRE'S OWN WORD. Every mystery mid-run death of 2026-08-29
+            # started as an unexplained disconnect; the close code says whether the client
+            # closed (1000/1001), the daemon's keepalive gave up on a frozen client (1011),
+            # or the transport just died (1006 = no close frame at all).
+            log.info(
+                "client %s disconnected (close code %s%s)",
+                client_id,
+                getattr(ws, "close_code", None),
+                f", reason {ws.close_reason!r}" if getattr(ws, "close_reason", "") else "",
+            )
+            await self._detach_client_runs(client_id)
 
     async def _auth_update(self, req: Request, current: dict | None) -> tuple[dict | None, Response]:
         """Swap this connection's access token in place — no reconnect, no dropped run.
@@ -2897,12 +2940,26 @@ class Gateway:
                 payload = await self._chat_send(req.params, client_id, account)
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
+            elif req.method == "chat.status":
+                payload = await self._chat_status(req.params)
             elif req.method == "hello":
                 payload = self._hello(req.params)
             elif req.method == "config.get":
                 payload = self._config_get(scope, req.params)
             elif req.method == "config.set":
                 payload = self._config_set(req.params, scope)
+                # A run_mode change is a machine-wide fact: every OTHER open window (its badge, its
+                # settings switch) must re-read it, not just the one that flipped it. One event, and
+                # the resolved answer travels with it so a listener need not ask again.
+                if "run_mode" in (req.params.get("patch") or {}):
+                    await self._send_all(
+                        dump_frame(
+                            Event(
+                                event="runmode.changed",
+                                payload={"mode": self._resolved_run_mode()},
+                            )
+                        )
+                    )
             elif req.method == "sessions.list":
                 payload = self._sessions_list(req.params)
             elif req.method == "sessions.history":
@@ -4978,7 +5035,11 @@ class Gateway:
                 for o in (account.get("orgs") or ())
                 if isinstance(o, dict) and str(o.get("id") or "").strip()
             ],
-            "mode": model_proxy.CLOUD if model_proxy.enabled() else model_proxy.LOCAL,
+            # The PERSISTED run mode — the same resolver `hello` uses, so every window reads ONE
+            # answer instead of a per-window guess. Locked (no toggle) on hosted, where cloud is the
+            # only runnable option (BYOK is refused there).
+            "mode": self._resolved_run_mode(),
+            "runModeLocked": bool(getattr(self.config, "hosted", False)),
             # Is there a Cloud to switch to at all on this build?
             "canUseCloud": model_proxy.available(),
             # IS SIGN-IN DEMANDED, or merely offered? `accountsUrl` above answers "where do people
@@ -6238,22 +6299,86 @@ class Gateway:
         handle.task.cancel()
         return True
 
-    async def _abort_client_runs(self, client_id: str) -> None:
-        """When a client connection ends, stop every in-flight run it started.
+    async def _detach_client_runs(self, client_id: str) -> None:
+        """When a client connection ends, its in-flight runs go DETACHED — not dead.
 
-        Transport-agnostic: any front-end (terminal, desktop, mobile, a messaging
-        channel adapter) that drops its connection has its own work cancelled —
-        e.g. a computer-use run stops driving the PC the moment you close the app.
+        THE OLD RULE WAS ABORT-ON-DISCONNECT, and it amplified every transport blip into a lost
+        run: a window occluded long enough for the keepalive to give up, a sleep, an accidental
+        reload — the daemon was fine, the run was fine, and the policy killed it anyway (a full
+        day of "daemon restarted mid-run" reports traced to exactly this, 2026-08-29).
+
+        A detached run keeps going: it is already bounded by the silence watchdog and the credit
+        meter, and its transcript persists event by event. What remains of the old rule's safety
+        case ("a computer-use run must not keep driving the PC after you close the app") is the
+        GRACE REAPER: if nothing re-attaches within `run_detach_grace_seconds` (default 180; 0
+        restores abort-on-disconnect), the run is aborted after all. Re-attaching is any window
+        asking `chat.status` for the session, or a new send on it.
         Runs started by OTHER clients are untouched.
         """
+        grace = float(getattr(self.config, "run_detach_grace_seconds", 180.0))
         for handle in list(self.runs.values()):
-            if handle.client_id == client_id and self._abort_handle(handle):
-                log.info(
-                    "client %s disconnected; aborting run %s (session %s)",
-                    client_id,
-                    handle.run_id,
-                    handle.session_key,
-                )
+            if handle.client_id != client_id or handle.task is None or handle.task.done():
+                continue
+            if grace <= 0:
+                if self._abort_handle(handle):
+                    log.info(
+                        "client %s disconnected; aborting run %s (session %s) — grace disabled",
+                        client_id,
+                        handle.run_id,
+                        handle.session_key,
+                    )
+                continue
+            handle.detached_at = time.time()
+            log.info(
+                "client %s disconnected; run %s (session %s) DETACHED — continues, reaped in %ds "
+                "unless a window re-attaches",
+                client_id,
+                handle.run_id,
+                handle.session_key,
+                int(grace),
+            )
+            handle.detach_reaper = asyncio.create_task(self._reap_if_still_detached(handle, grace))
+
+    async def _reap_if_still_detached(self, handle: RunHandle, grace: float) -> None:
+        try:
+            await asyncio.sleep(grace)
+        except asyncio.CancelledError:
+            return  # re-attached — the run has a viewer again
+        if handle.detached_at is None or handle.task is None or handle.task.done():
+            return
+        if self._abort_handle(handle):
+            log.info(
+                "run %s (session %s): no window re-attached within %ds — aborted",
+                handle.run_id,
+                handle.session_key,
+                int(grace),
+            )
+
+    def _reattach(self, session_key: str) -> None:
+        """A window is watching this session again: clear detachment, cancel the reaper."""
+        handle = self.runs.get(session_key)
+        if handle is None:
+            return
+        if handle.detached_at is not None:
+            log.info("run %s (session %s): window re-attached", handle.run_id, handle.session_key)
+        handle.detached_at = None
+        if handle.detach_reaper is not None and not handle.detach_reaper.done():
+            handle.detach_reaper.cancel()
+        handle.detach_reaper = None
+
+    async def _chat_status(self, params: dict) -> dict:
+        """Is this session's run still going? THE RE-ATTACH SIGNAL: a client that asks is a
+        client that is watching, so asking also clears any pending detach-reap. Called by every
+        window on reconnect — the answer decides between "keep streaming" and "load what
+        finished while I was away"."""
+        session_key = str(params.get("sessionKey") or "default")
+        self._reattach(session_key)
+        handle = self.runs.get(session_key)
+        running = handle is not None and handle.task is not None and not handle.task.done()
+        return {
+            "running": running,
+            "runId": handle.run_id if handle is not None and running else "",
+        }
 
     async def _run_watched(self, handle: RunHandle, coro) -> None:
         """Run `coro`, cancelling it if it goes silent for too long.

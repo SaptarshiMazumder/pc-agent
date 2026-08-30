@@ -41,7 +41,9 @@ export function getMode(): RunMode | null {
   return cached
 }
 
-/** Set (or clear, with null) the run mode and notify subscribers. Clearing returns to the launcher. */
+/** Set (or clear, with null) the run mode. The DAEMON owns it now, so a real choice is PERSISTED
+ *  there via config.set — its `runmode.changed` broadcast then updates every OTHER window, and the
+ *  reconnect re-resolves this one's billing immediately. Clearing (null) returns to the launcher. */
 export function setMode(mode: RunMode | null): void {
   const changed = mode !== cached
   cached = mode
@@ -52,10 +54,30 @@ export function setMode(mode: RunMode | null): void {
     /* private mode / quota — the in-memory cache still drives this session */
   }
   listeners.forEach((l) => l())
-  // The wire is where the mode lives (`?mode=` on the connect url) — rebuild the socket so the
-  // choice takes effect NOW, not on whichever future reconnect happens to come along.
-  if (changed && mode !== null) gateway.reconnect()
+  if (changed && mode !== null) {
+    // ONE source of truth: persist on the daemon like every other setting.
+    void gateway.request('config.set', { patch: { run_mode: mode } }).catch(() => {})
+    gateway.reconnect()
+  }
 }
+
+/** Adopt the DAEMON's mode (from `hello` on connect, or a `runmode.changed` broadcast from another
+ *  window) as the truth. Keeps the cache and localStorage in step so the switch and the wire never
+ *  disagree — this is what stops the shell showing Cloud while a call runs Local. */
+export function applyDaemonMode(mode: unknown): void {
+  if (mode !== 'local' && mode !== 'cloud') return
+  if (mode === cached) return
+  cached = mode
+  try {
+    localStorage.setItem(LS_KEY, mode)
+  } catch {
+    /* ignore */
+  }
+  listeners.forEach((l) => l())
+}
+
+// Follow a flip made in ANY window: the daemon broadcasts the resolved mode.
+gateway.on('runmode.changed', (p: { mode?: unknown }) => applyDaemonMode(p?.mode))
 
 /** React hook: the current run mode (re-renders on change). */
 export function useMode(): RunMode | null {

@@ -17,7 +17,7 @@
 import type { AgentdClient } from './client'
 import { authUrl, fetchToken, identity } from './identity'
 import { platformStatus, type DaemonOptions } from './platform-status'
-import { effectiveMode, loadMode, saveMode, type RunMode } from './session'
+import { loadMode, saveMode, type RunMode } from './session'
 
 export interface AuthState {
   /** Does this daemon have an accounts service at all? (BYOK installs: no.) */
@@ -25,8 +25,10 @@ export interface AuthState {
   signedIn: boolean
   email: string
   accountId: string
-  /** Which keys pay for THIS connection's model calls. */
+  /** Which keys pay for model calls — the DAEMON's persisted answer, same in every window. */
   mode: RunMode
+  /** Is the mode fixed (no toggle)? True on hosted, where cloud is the only runnable option. */
+  modeLocked: boolean
   canUseCloud: boolean
   /** Must somebody sign in before this app may run? The daemon's answer; `<Gate>` reads it. */
   required: boolean
@@ -49,7 +51,10 @@ export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
     signedIn,
     email: (signedIn && tok.email) || '',
     accountId: (signedIn && tok.accountId) || '',
-    mode: effectiveMode(opts.storageKey, signedIn, canUseCloud),
+    // THE DAEMON'S answer, not a client-side guess: it reads persisted config (and forces cloud on
+    // hosted). This is what fixes "the switch says Cloud but the call ran Local".
+    mode: status.mode === 'local' || status.mode === 'cloud' ? status.mode : 'local',
+    modeLocked: !!status.runModeLocked,
     canUseCloud,
     // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there — a
     // client that guessed "not required" against a daemon that requires it would show no login
@@ -159,8 +164,11 @@ export async function setRunMode(mode: RunMode, opts: AuthOptions = {}): Promise
   if (mode === 'cloud' && !(await identity(opts).accessToken())) {
     throw new Error('sign in first — Cloud mode meters model calls to your account')
   }
-  saveMode(mode, opts.storageKey)
-  opts.client?.reconnect() // the daemon reads the mode when the socket opens
+  // PERSIST on the daemon (config.set), like every other setting — so the choice is the SAME in
+  // every window, not a per-window localStorage value. The daemon re-resolves the connection's
+  // billing when the socket reopens, so a reconnect carries it.
+  await opts.client?.request('config.set', { patch: { run_mode: mode } })
+  opts.client?.reconnect()
   return authStatus(opts)
 }
 

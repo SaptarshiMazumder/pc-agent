@@ -338,8 +338,10 @@ interface AuthState {
     signedIn: boolean;
     email: string;
     accountId: string;
-    /** Which keys pay for THIS connection's model calls. */
+    /** Which keys pay for model calls — the DAEMON's persisted answer, same in every window. */
     mode: RunMode;
+    /** Is the mode fixed (no toggle)? True on hosted, where cloud is the only runnable option. */
+    modeLocked: boolean;
     canUseCloud: boolean;
     /** Must somebody sign in before this app may run? The daemon's answer; `<Gate>` reads it. */
     required: boolean;
@@ -499,10 +501,31 @@ declare class BillingClient {
      * Buy a pack. THROWS with the server's own message on refusal.
      *
      * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
-     * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
-     * card payment comes back where it started.
+     * place it is ignored, and the returned `checkoutUrl` is empty. The DEFAULT return is the
+     * accounts service's own neutral "checkout finished" page, NOT the caller's URL: a surface's
+     * own href drags its whole query string — session token included — through the rail's redirect
+     * and into browser history, and on desktop it reopens the app in a browser tab instead of the
+     * window the purchase started in. The purchase's real conclusion never travels through that
+     * tab anyway — it arrives on the webhook, and `awaitGrant` is what tells the initiating window.
      */
     buy(productId: string, returnUrl?: string, orgId?: string): Promise<Purchase>;
+    /**
+     * Watch for a checkout's credits to land, then ring the credits bus.
+     *
+     * A card purchase finishes on a WEBHOOK, in another tab, minutes later — nothing tells the
+     * window that started it. This polls the balance until it RISES (a grant adds; concurrent
+     * spending only subtracts, so a rise is unambiguous), then fires `notifyCreditsChanged()` so
+     * every listening view refreshes itself — the window the purchase began in included.
+     *
+     * Resolves true when the grant landed, false when the customer walked away (timeout). A false
+     * is "nothing happened", never an error — an abandoned checkout costs nothing and grants
+     * nothing, and the next purchase starts clean.
+     */
+    awaitGrant(opts?: {
+        agentId?: string;
+        timeoutMs?: number;
+        pollMs?: number;
+    }): Promise<boolean>;
 }
 
 /**

@@ -14,8 +14,11 @@
 import { Building2, CreditCard, MessageSquarePlus, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
+import type { AgentdClient } from '@agentd/client'
+
 import { when } from '../agentd/sessions'
 import { ProfileMenu } from '../common/auth/ProfileMenu'
+import RunModeBadge from '../common/runmode/RunModeBadge'
 import type { Auth } from '../common/auth/useAuth'
 import { useApp, type View } from '../state/store'
 
@@ -31,6 +34,7 @@ export function Sidebar({
   onView,
   onNewChat,
   account,
+  client,
   status,
   name = 'This agent',
   extraDestinations = [],
@@ -41,6 +45,8 @@ export function Sidebar({
   onNewChat: () => void
   /** The window's one auth state — owned by App, so the menu and the card cannot disagree. */
   account: Auth
+  /** The daemon connection — the run-mode badge reads/sets the mode through it. */
+  client?: AgentdClient
   status: string
   /** What this agent is called. Yours to set. */
   name?: string
@@ -114,6 +120,9 @@ export function Sidebar({
           </button>
         ))}
 
+        {/* Whose keys pay for model calls — always on screen, click to switch. Shared component;
+            fixed "Cloud" on the web (no BYOK there). */}
+        <RunModeBadge client={client} />
         {/* WHO IS SIGNED IN, and the way to Credits from beside the identity it bills. Shared —
             do not replace it with one of your own; see src/common/README.md. */}
         <ProfileMenu {...account} onCredits={() => onView('credits')} />

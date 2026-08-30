@@ -31,7 +31,7 @@ import {
   signOut
 } from '../lib/auth'
 import { onTokens } from '../lib/tokens'
-import { getMode, setMode } from '../lib/mode'
+import { applyDaemonMode, getMode, setMode } from '../lib/mode'
 import { downloadTextFile, safeFileName, sessionToMarkdown } from '../lib/exportChat'
 import { isDesktop, platform, randomUuid } from '../lib/platform'
 import { pushView, viewFromLocation } from '../lib/route'
@@ -381,6 +381,8 @@ export const useApp = create<AppState>((set, get) => {
 
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
+    // ADOPT the daemon's run mode on every connect — it is the source of truth now.
+    applyDaemonMode(hello.platform?.mode)
     // There is no daemon-held session to adopt: identity arrives on the socket (`?session=`) and
     // the daemon stores none, so this client's own storage is already the only answer.
     await reconcileSession()
@@ -707,6 +709,9 @@ export const useApp = create<AppState>((set, get) => {
       try {
         const hello = (await gateway.request<Hello>('hello')) as Hello
         set({ hello })
+        // ADOPT the daemon's mode — it owns it now. This is what stops the shell showing Cloud
+        // while a call runs Local (and vice versa).
+        applyDaemonMode(hello.platform?.mode)
       } catch {
         /* transient — leave the last known status in place */
       }

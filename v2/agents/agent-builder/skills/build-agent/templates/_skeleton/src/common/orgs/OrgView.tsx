@@ -530,8 +530,9 @@ function OrgShop({
     const shop = billing({ client })
     void shop.catalog('seat_subscription').then(setSeatCatalog)
     void shop.catalog('credit_pack').then(setPackCatalog)
-    // A purchase that finished on a card rail lands back here via the return URL; the balance
-    // event is what tells this page the pool moved without anyone pressing Refresh.
+    // A purchase on a card rail finishes in another tab, on a webhook; the balance event
+    // (rung by awaitGrant's poll) is what tells this page the pool moved without anyone
+    // pressing Refresh.
     return onCreditsChanged(onBought)
   }, [client, onBought])
 
@@ -540,9 +541,12 @@ function OrgShop({
     setNote('')
     setError('')
     try {
-      const r = await billing({ client }).buy(p.id, location.href.split('#')[0], orgId)
+      const shop = billing({ client })
+      const r = await shop.buy(p.id, '', orgId)
       if (r.checkoutUrl) {
-        location.href = r.checkoutUrl
+        window.open(r.checkoutUrl, '_blank', 'noopener')
+        setNote('Complete the payment in the opened tab — this page updates automatically.')
+        void shop.awaitGrant({})
         return
       }
       setNote(

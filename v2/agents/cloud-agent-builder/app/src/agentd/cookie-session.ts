@@ -62,6 +62,7 @@ function snapshot(): CabbieSession {
     email: p?.email || '',
     accountId: p?.accountId || '',
     mode: 'cloud', // runs on the platform's model keys
+    modeLocked: true, // hosted: cloud is the only runnable option, no toggle
     canUseCloud: true,
     required: true, // the daemon requires an account to run
   }

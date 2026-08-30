@@ -66,25 +66,42 @@ export default function App() {
     return () => off()
   }, [client])
 
-  /* A RECONNECT MEANS EVERY IN-FLIGHT RUN IS DEAD. `running` only clears on `agent_end`, and a
-     daemon that restarted mid-run never sends one — without this the composer says "running"
-     forever for a run that no longer exists. */
+  /* A RECONNECT NO LONGER MEANS THE RUN IS DEAD. The daemon keeps a run alive when its window
+     drops (detached; reaped only if nobody returns within the grace period) — so the honest move
+     is to ASK. `chat.status` answers AND re-attaches this window, cancelling the reaper: still
+     running means keep streaming on this socket; ended means it finished (or was reaped) while
+     we were away, and the transcript holds anything we missed. An older daemon without
+     chat.status gets the old assumption. */
   useEffect(() => {
-    if (!connected) return
-    const { sessions, patch, append } = useApp.getState()
+    if (!connected || !client) return
+    const { sessions } = useApp.getState()
     for (const key of Object.keys(sessions)) {
       if (!sessions[key].running) continue
-      patch(key, { running: false })
-      append(key, [
-        {
-          kind: 'system',
-          tone: 'error',
-          text: 'The daemon restarted mid-run, so this run is gone. Resend your last message to continue.',
-          ts: Date.now(),
-        },
-      ])
+      void (async () => {
+        let running = false
+        try {
+          const st = (await client.request('chat.status', { sessionKey: key })) as {
+            running?: boolean
+          }
+          running = !!st?.running
+        } catch {
+          /* older daemon — no way to ask; assume the run is gone, as before */
+        }
+        if (running) return
+        const { sessions: now, patch, append } = useApp.getState()
+        if (!now[key]?.running) return
+        patch(key, { running: false })
+        append(key, [
+          {
+            kind: 'system',
+            tone: 'error',
+            text: 'This run ended while the window was away — the conversation up to here is saved. Reopen the chat to see anything you missed, or resend to continue.',
+            ts: Date.now(),
+          },
+        ])
+      })()
     }
-  }, [connected])
+  }, [connected, client])
 
   /* A conversation to type into, and the list of the saved ones. Both wait for the socket: a
      window that lists nothing because it asked too early looks like a window with no history. */
@@ -110,6 +127,7 @@ export default function App() {
         onView={setView}
         onNewChat={() => newSession()}
         account={account}
+        client={client ?? undefined}
         status={status}
       />
 

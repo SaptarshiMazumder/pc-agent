@@ -9,6 +9,7 @@ import { launchStandaloneApp, listableAgents, standaloneApps } from '../lib/stan
 import { useApp } from '../state/store'
 import NewAgentModal from './NewAgentModal'
 import ProfileMenu from './ProfileMenu'
+import RunModeBadge from './RunModeBadge'
 import SearchBox from './SearchBox'
 import SessionItem from './SessionItem'
 import SettingsMenu from './SettingsMenu'
@@ -343,6 +344,8 @@ export default function Sidebar() {
 
       <div className="footer-nav">
         <ProfileMenu variant="footer" />
+        {/* Whose keys pay for model calls — always on screen, click to switch. */}
+        <RunModeBadge />
         <button className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`} title="My Agents" onClick={() => setView('myagents')}>
           <LayoutGrid size={17} />
         </button>

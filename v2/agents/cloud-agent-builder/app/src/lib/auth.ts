@@ -35,8 +35,14 @@ export async function fetchCatalog(kind = 'credit_pack') {
   return billing({}).catalog(kind)
 }
 
-/** Buy — agentd's signature, orgId included (the org shop passes it). */
+/** Buy — agentd's signature, orgId included (the org shop passes it). No return URL: the
+ *  SDK sends the rail to the accounts service's neutral "checkout finished" page, and the
+ *  outcome reaches this window over the credits bus (awaitGrant), never through the tab. */
 export async function purchase(productId: string, orgId = '') {
-  const page = location.href.split('#')[0]
-  return billing({}).buy(productId, /^https?:\/\//.test(page) ? page : '', orgId)
+  return billing({}).buy(productId, '', orgId)
+}
+
+/** Wait for a checkout begun with `purchase` to grant, then ring the credits bus. */
+export function awaitGrant() {
+  return billing({}).awaitGrant({})
 }

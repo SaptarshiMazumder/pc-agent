@@ -111,10 +111,15 @@ export class BillingClient {
    * Buy a pack. THROWS with the server's own message on refusal.
    *
    * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
-   * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
-   * card payment comes back where it started.
+   * place it is ignored, and the returned `checkoutUrl` is empty. The DEFAULT return is the
+   * accounts service's own neutral "checkout finished" page, NOT the caller's URL: a surface's
+   * own href drags its whole query string — session token included — through the rail's redirect
+   * and into browser history, and on desktop it reopens the app in a browser tab instead of the
+   * window the purchase started in. The purchase's real conclusion never travels through that
+   * tab anyway — it arrives on the webhook, and `awaitGrant` is what tells the initiating window.
    */
   async buy(productId: string, returnUrl = '', orgId = ''): Promise<Purchase> {
+    const base = await this.base()
     const body: Record<string, unknown> = {
       product_id: productId,
       idempotency_key: this.host.newKey()
@@ -122,11 +127,10 @@ export class BillingClient {
     // Buying FOR an organization — seats, or a pool top-up. The server checks the buyer is an
     // owner/admin of it; this only names which purchase it is.
     if (orgId) body.org_id = orgId
-    if (returnUrl) {
-      body.success_url = returnUrl
-      body.cancel_url = returnUrl
-    }
-    const r = await fetch(`${await this.base()}/me/checkout`, {
+    const back = returnUrl || `${base}/checkout/complete`
+    body.success_url = back
+    body.cancel_url = back
+    const r = await fetch(`${base}/me/checkout`, {
       method: 'POST',
       headers: { ...(await this.authed()), 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -150,5 +154,32 @@ export class BillingClient {
       paymentDetail: String(payment.detail || ''),
       checkoutUrl
     }
+  }
+
+  /**
+   * Watch for a checkout's credits to land, then ring the credits bus.
+   *
+   * A card purchase finishes on a WEBHOOK, in another tab, minutes later — nothing tells the
+   * window that started it. This polls the balance until it RISES (a grant adds; concurrent
+   * spending only subtracts, so a rise is unambiguous), then fires `notifyCreditsChanged()` so
+   * every listening view refreshes itself — the window the purchase began in included.
+   *
+   * Resolves true when the grant landed, false when the customer walked away (timeout). A false
+   * is "nothing happened", never an error — an abandoned checkout costs nothing and grants
+   * nothing, and the next purchase starts clean.
+   */
+  async awaitGrant(opts: { agentId?: string; timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
+    const { agentId = '', timeoutMs = 180_000, pollMs = 4_000 } = opts
+    const baseline = (await this.credits(agentId))?.creditsRemaining
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
+      const now = (await this.credits(agentId))?.creditsRemaining
+      if (now !== undefined && (baseline === undefined || now > baseline)) {
+        notifyCreditsChanged()
+        return true
+      }
+    }
+    return false
   }
 }

@@ -17,6 +17,11 @@ _here = Path(__file__).resolve()
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("AGENTD_ACCOUNTS_DB", str(_here.parent / "data" / "accounts.db"))
+# Secrets come from Secrets Manager EVERYWHERE — a local run reads the same dev secret the
+# cloud does (app.py refuses to boot without one), so keys never live in files or shell
+# exports. Requires AWS credentials; region matches deploy/scripts/set-keys.ps1's default.
+os.environ.setdefault("AGENTD_APP_SECRET_ID", "agentd/dev/app")
+os.environ.setdefault("AWS_REGION", "ap-northeast-1")
 
 # import by module path so `app` is importable no matter the CWD
 import sys

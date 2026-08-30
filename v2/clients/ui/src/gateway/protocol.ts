@@ -96,6 +96,10 @@ export interface Hello {
     modelProxy?: { enabled: boolean; api_base: string; source: string; has_key: boolean }
     /** Deprecated compatibility field returned by older daemons. */
     modelGateway?: { enabled: boolean; api_base: string; source: string; has_key: boolean }
+    /** The daemon's PERSISTED run mode — the one source the shell adopts (see lib/mode.ts).
+     *  `runModeLocked` is true on hosted, where cloud is the only runnable option. */
+    mode?: 'local' | 'cloud'
+    runModeLocked?: boolean
   }
 }
 

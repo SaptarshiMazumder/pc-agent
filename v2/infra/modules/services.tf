@@ -115,6 +115,13 @@ locals {
       # — permanent while deployed and not demotable from the dashboard — and the editable roster
       # lives in the accounts database beside it.
       AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
+      # ── the payment rail (v2/payments/) ──
+      # The provider NAME and return-origin allowlist are config and live here; the rail's KEYS
+      # are secrets and arrive via secret_keys (variables.tf → the app secret). The factory
+      # refuses a name whose keys are missing rather than degrading to the mock rail, so a
+      # half-configured environment fails a checkout loudly instead of granting free credits.
+      AGENTD_PAYMENT_PROVIDER        = var.payment_provider
+      AGENTD_CHECKOUT_RETURN_ORIGINS = join(",", var.checkout_return_origins)
       # WHERE EVERYTHING IS. All derived from the resources themselves, so no address, table or
       # ARN is typed twice, and an environment cannot end up pointed at another one's.
       AGENTD_APP_SECRET_ID   = aws_secretsmanager_secret.app.arn

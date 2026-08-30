@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { fetchCatalog, onCreditsChanged, purchase, useAuthSession, type Catalog, type CreditPack } from '../lib/auth'
+import { awaitGrant, fetchCatalog, onCreditsChanged, purchase, useAuthSession, type Catalog, type CreditPack } from '../lib/auth'
 import {
   createOrg,
   fetchMyOrgs,
@@ -579,7 +579,9 @@ function OrgShop({ orgId, onBought }: { orgId: string; onBought: () => void }): 
     try {
       const r = await purchase(p.id, orgId)
       if (r.checkoutUrl) {
-        location.href = r.checkoutUrl
+        window.open(r.checkoutUrl, '_blank', 'noopener')
+        setNote('Complete the payment in the opened tab — this page updates automatically.')
+        void awaitGrant()
         return
       }
       setNote(

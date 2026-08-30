@@ -385,6 +385,13 @@ class Config:
     # sandbox_trusted_plugins: plugin ids to EXEMPT from the sandbox even when the above is on
     # (local dev convenience for a plugin you author yourself). Never trust a plugin you didn't write.
     sandbox_trusted_plugins: tuple = ()
+    # run_mode: which keys pay for model calls — "local" (BYOK, your own keys) or "cloud" (platform
+    # keys, metered). PERSISTED like every other setting (config.set writes it), so the answer is the
+    # SAME in every window instead of a per-window localStorage guess. Empty = not chosen yet, which
+    # resolves to LOCAL (honest and safe: your own keys, no surprise billing). A HOSTED daemon ignores
+    # this and forces cloud — BYOK is refused there (no per-account key store), so local cannot run.
+    # AGENTD_RUN_MODE overrides.
+    run_mode: str = ""
     # WHICH sandbox backend: "local" (in-process passthrough, no isolation) or "subprocess" (a child
     # process per tool call, scrubbed env, no runtime handles, audit-hook enforcement). Empty = the
     # HOST'S CAPABILITY decides: subprocess wherever a child process can be launched (always on
@@ -1102,6 +1109,8 @@ def load_config(path: Path | None = None) -> Config:
             "sandbox_untrusted_agents) — their private tools run sandboxed as if installed",
             ", ".join(cfg.sandbox_untrusted_agents),
         )
+    if os.environ.get("AGENTD_RUN_MODE"):
+        cfg.run_mode = os.environ["AGENTD_RUN_MODE"].strip().lower()
     if os.environ.get("AGENTD_SANDBOX_TRUSTED_AGENTS"):
         cfg.sandbox_trusted_agents = tuple(
             s.strip()

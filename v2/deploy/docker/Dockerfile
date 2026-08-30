@@ -74,14 +74,17 @@ sys.exit(0 if n in zipfile.ZipFile(w).namelist() else f'{w} is missing {n}')"
 # not an image rebuild of the daemon layer. --no-deps: everything is already in the layer above.
 RUN pip install --no-cache-dir --no-deps /dist/agentd-*.whl \
  && mkdir -p /bundles \
- && agentd bundle pack agents/weather --out /bundles \
- && agentd bundle pack agents/figure-creator --out /bundles \
  # Cloud Agent Builder (cabbie) + agent-builder — packed and installed by the entrypoint, the ONE
  # mechanism that actually registers an agent on a hosted daemon (wheel-seeding via first_run does
  # not reach the hosted registry — weather/figure list, wheel-seeded agents don't). cabbie is
  # served + listed; agent-builder rides along WITHHELD (requires_local, so never served/listed) but
  # its files land in the same agents dir so cabbie's imported `agent_authoring` package + templates
  # resolve by sibling path. Order does not matter — plugins load at `agentd serve`, after both.
+# NO DEMO AGENTS ON THE HOSTED DAEMON. weather and figure-creator used to ship here, which
+# put two fully-readable agents in the shared catalogue of a multi-tenant server - and the
+# builder promptly used them as the sample library the skeleton-first redesign had deleted
+# (2026-08-29: it read weather-kit plugin source to learn what plugins look like). The cloud
+# catalogue carries exactly what the product needs and nothing else.
  && agentd bundle pack agents/agent-builder --out /bundles \
  && agentd bundle pack agents/cloud-agent-builder --out /bundles
 

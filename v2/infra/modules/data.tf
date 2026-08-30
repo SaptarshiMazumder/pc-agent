@@ -56,6 +56,20 @@ resource "aws_secretsmanager_secret_version" "app" {
     # MCP server credentials are secrets like any other (workspace-mcp / the google plugin).
     GOOGLE_OAUTH_CLIENT_ID     = "REPLACE_ME"
     GOOGLE_OAUTH_CLIENT_SECRET = "REPLACE_ME"
+    # Payment rails (payments/main/payment_gateway_factory.py). All rails' fields exist so
+    # switching provider is a config flip + service roll, never a schema change; only the rail
+    # AGENTD_PAYMENT_PROVIDER names is ever read, so the others may stay placeholders.
+    #
+    # NOTE for an ALREADY-DEPLOYED environment: ignore_changes below means adding fields here
+    # does NOT add them to the live secret — merge them in once via the CLI before any task
+    # definition references them, or the task will fail to launch on the missing JSON key.
+    STRIPE_SECRET_KEY       = "REPLACE_ME"
+    STRIPE_WEBHOOK_SECRET   = "REPLACE_ME"
+    RAZORPAY_KEY_ID         = "REPLACE_ME"
+    RAZORPAY_KEY_SECRET     = "REPLACE_ME"
+    RAZORPAY_WEBHOOK_SECRET = "REPLACE_ME"
+    DODO_API_KEY            = "REPLACE_ME"
+    DODO_WEBHOOK_SECRET     = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

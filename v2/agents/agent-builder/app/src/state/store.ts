@@ -479,33 +479,48 @@ export const useApp = create<AppState>()((set, get) => ({
   connect: (next) => {
     get().disconnect()
     client = next
-    /* A RECONNECT MEANS EVERY IN-FLIGHT RUN IS DEAD. `running` is only ever cleared by an
-       `agent_end` event, and a daemon that restarted mid-run never sends one — so without this,
-       each of those conversations shows "running — press Stop" forever, for a run that no longer
-       exists anywhere. Cleared here, with a line saying WHY, so a stuck chat becomes a resendable
-       one instead of a mystery. */
-    set((s) => {
-      const sessions = { ...s.sessions }
-      let touched = false
-      for (const key of Object.keys(sessions)) {
-        if (!sessions[key].running) continue
-        touched = true
-        sessions[key] = {
-          ...sessions[key],
-          running: false,
-          items: [
-            ...sessions[key].items,
-            {
-              kind: 'system' as const,
-              tone: 'error' as const,
-              text: 'The daemon restarted mid-run, so this run is gone. Resend your last message to continue — the conversation up to here is saved.',
-              ts: Date.now(),
-            },
-          ],
+    /* A RECONNECT NO LONGER MEANS EVERY RUN IS DEAD. The daemon keeps a run alive when its
+       window drops (detached; grace-reaped only if nobody returns), so each running session is
+       ASKED about: `chat.status` answers AND re-attaches this window (cancelling the reaper).
+       Still running — keep streaming on this socket. Ended — it finished or was reaped while we
+       were away; the transcript holds whatever we missed. Older daemon: the old assumption. */
+    for (const key of Object.keys(get().sessions)) {
+      if (!get().sessions[key]?.running) continue
+      void (async () => {
+        let stillRunning = false
+        try {
+          const st = (await next.request('chat.status', { sessionKey: key })) as {
+            running?: boolean
+          }
+          stillRunning = !!st?.running
+        } catch {
+          /* older daemon — no way to ask; assume the run is gone, as before */
         }
-      }
-      return touched ? { sessions } : {}
-    })
+        if (stillRunning) return
+        set((s) => {
+          const session = s.sessions[key]
+          if (!session?.running) return {}
+          return {
+            sessions: {
+              ...s.sessions,
+              [key]: {
+                ...session,
+                running: false,
+                items: [
+                  ...session.items,
+                  {
+                    kind: 'system' as const,
+                    tone: 'error' as const,
+                    text: 'This run ended while the window was away — the conversation up to here is saved. Reopen the chat to see anything you missed, or resend to continue.',
+                    ts: Date.now(),
+                  },
+                ],
+              },
+            },
+          }
+        })
+      })()
+    }
     unsubscribe = [
       next.on('agents.changed', () => void get().reloadAgents()),
       next.on('sessions.changed', () => void get().reloadChats()),

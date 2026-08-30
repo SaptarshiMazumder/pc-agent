@@ -1,0 +1,80 @@
+/* The run-mode badge. Tokens only, so it wears each template's palette. A LIVE pulsing dot — the
+   point is that you can always see, at a glance, whose keys are paying. */
+
+.runmode {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--border2, #cbd2dc);
+  border-radius: 999px;
+  background: var(--bg2, #f7f8fa);
+  color: var(--text, #1a1d23);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--fw-semi, 600);
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.runmode:hover:not(:disabled) {
+  background: var(--bg3, #eef1f5);
+  border-color: var(--accent, #4f46e5);
+}
+.runmode:disabled {
+  cursor: default;
+}
+.runmode--locked {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.runmode-label {
+  letter-spacing: 0.02em;
+}
+
+/* The live dot: a steady core with an expanding halo — "this is on, right now". */
+.runmode-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  position: relative;
+}
+.runmode-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: runmode-pulse 2s ease-out infinite;
+}
+@keyframes runmode-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+/* Cloud = the accent (platform keys, live spend). Local = a calm neutral (your own keys). */
+.runmode--cloud .runmode-dot {
+  background: var(--accent, #4f46e5);
+}
+.runmode--cloud {
+  border-color: var(--accent-soft, rgba(79, 70, 229, 0.3));
+}
+.runmode--local .runmode-dot {
+  background: var(--dim, #6d6250);
+}
+
+/* Respect a user who asked for no motion — the colour still tells the story. */
+@media (prefers-reduced-motion: reduce) {
+  .runmode-dot::after {
+    animation: none;
+  }
+}

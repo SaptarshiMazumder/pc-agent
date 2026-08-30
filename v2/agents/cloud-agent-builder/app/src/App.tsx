@@ -374,6 +374,7 @@ export default function App() {
   return (
     <div className={shellClass}>
       <Sidebar
+        client={client}
         openKey={sessionKey}
         onOpenChat={(key) => {
           setView('chat')

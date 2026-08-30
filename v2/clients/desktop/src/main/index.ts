@@ -55,6 +55,10 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // An occluded window must keep streaming: this app's whole job is watching long agent
+      // runs while the user looks elsewhere, and Chromium's occlusion throttling is one of the
+      // triggers behind mystery mid-run socket drops (2026-08-29).
+      backgroundThrottling: false,
       sandbox: false
     }
   })
@@ -384,6 +388,8 @@ function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // Same reason as the shell window: an agent app streams runs while occluded.
+      backgroundThrottling: false,
       // sandbox stays ON. The app preload is receive-only and needs no Node APIs — see
       // src/preload/app.ts for why this window gets its own, much smaller, bridge.
       sandbox: true,

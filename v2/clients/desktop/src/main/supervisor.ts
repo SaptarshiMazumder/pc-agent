@@ -17,7 +17,7 @@
  */
 
 import { app } from 'electron'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import fsSync from 'node:fs'
 import path from 'node:path'
@@ -42,6 +42,58 @@ export interface SupervisorStatus {
 type StatusListener = (status: SupervisorStatus) => void
 
 const SPAWN_WAIT_MS = 300_000 // cold container builds (imports) can take minutes
+
+const execFileP = (cmd: string, args: string[]): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true }, (err, stdout) =>
+      err ? reject(err) : resolve(String(stdout))
+    )
+  })
+
+/** The ports our spawn could try to bind: explicit override, the stale file's, the default. */
+function candidatePorts(before: GatewayInfo | null): number[] {
+  const ports = new Set<number>()
+  const env = Number(process.env.AGENTD_PORT || '')
+  if (Number.isFinite(env) && env > 0) ports.add(env)
+  if (before?.port) ports.add(before.port)
+  ports.add(8787)
+  return [...ports]
+}
+
+async function listenerPid(port: number): Promise<number | null> {
+  try {
+    if (process.platform === 'win32') {
+      const out = await execFileP('netstat', ['-ano', '-p', 'tcp'])
+      for (const line of out.split(/\r?\n/)) {
+        const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i)
+        if (m && Number(m[1]) === port) return Number(m[2])
+      }
+      return null
+    }
+    const out = await execFileP('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'])
+    const pid = Number(out.trim().split(/\s+/)[0])
+    return Number.isFinite(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+async function processCommandLine(pid: number): Promise<string> {
+  try {
+    if (process.platform === 'win32') {
+      const out = await execFileP('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`
+      ])
+      return out.trim()
+    }
+    const out = await execFileP('ps', ['-o', 'command=', '-p', String(pid)])
+    return out.trim()
+  } catch {
+    return ''
+  }
+}
 
 function commandCandidates(): string[][] {
   const override = (process.env.AGENTD_DAEMON_CMD || '').trim()
@@ -170,7 +222,46 @@ export class Supervisor {
       )
       throw new Error('agentd could not start (circuit-breaker open)')
     }
+    await this.evictSquatters()
     return this.spawnDaemon()
+  }
+
+  /** ORPHAN EVICTION — the port is taken, but nothing answering describes itself in the
+   *  rendezvous file. That is, by construction, an agentd whose file was overwritten or deleted
+   *  (today's dev daemons, a kill that outraced a respawn): nothing can ever adopt it again, so
+   *  every spawn dies on the bind and the breaker opens with a message that names neither cause
+   *  nor cure. Killing it is the RECOVERY, not a risk — but only after reading the process's
+   *  command line and proving it is ours. A port held by anything else is REPORTED, named and
+   *  left alone: killing an arbitrary pid by port number is how somebody's dev server dies.
+   *
+   *  findRunning() ran just before this, so anything adoptable was adopted — whatever holds the
+   *  port now is unreachable by definition. */
+  private async evictSquatters(): Promise<void> {
+    const before = await readGatewayFile()
+    for (const port of candidatePorts(before)) {
+      if (!(await portOpen('127.0.0.1', port))) continue
+      const pid = await listenerPid(port)
+      if (!pid || pid === process.pid) continue
+      const cmd = await processCommandLine(pid)
+      if (!/agent_runtime|agentd/i.test(cmd)) {
+        // Not ours. Say exactly who it is — the honest failure the old message buried.
+        this.set(
+          'starting',
+          `port ${port} is held by pid ${pid} (${cmd.slice(0, 100) || 'unknown process'}) — not an agentd, leaving it alone`
+        )
+        continue
+      }
+      this.set('starting', `evicting an orphaned agentd (pid ${pid}) from port ${port}…`)
+      try {
+        process.kill(pid)
+      } catch {
+        /* already gone */
+      }
+      const deadline = Date.now() + 4000
+      while (Date.now() < deadline && (await portOpen('127.0.0.1', port))) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    }
   }
 
   private async spawnDaemon(): Promise<GatewayInfo> {

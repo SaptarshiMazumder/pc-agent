@@ -101,6 +101,11 @@ module "stack" {
   # production, which is the module default.
   enable_execute_command = true
 
+  # The payment rail (v2/payments/), same as dev: Razorpay with TEST-mode keys from the
+  # agentd/staging/app secret — checkouts open Razorpay's test page and move no real money.
+  # Production stays on the module default (mock rail) until live keys and a go-live decision.
+  payment_provider = "razorpay"
+
   # Alarms. THRESHOLDS ARE PRODUCTION'S, not dev's loose ones — the whole point of staging is to
   # find out whether an alarm fires when it should and stays quiet when it should not, and an
   # alarm tuned for a dead environment answers neither question. The money alarms (unbilled

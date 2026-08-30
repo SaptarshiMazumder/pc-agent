@@ -426,12 +426,16 @@ export async function fetchCatalog(kind = 'credit_pack'): Promise<Catalog | null
  */
 export async function purchase(productId: string, orgId = ''): Promise<Purchase> {
   if (!getSession() || !isAccountsMode()) throw new Error('sign in to buy credits')
-  // Our own address goes along ONLY when it is a web URL. In the installed shell the page loads
-  // from disk (file://...), and telling a checkout "return the customer to a file on my C: drive"
-  // is a value the accounts service rightly refuses — so there, the field stays empty, which the
-  // current settle-in-place rail ignores anyway. A card rail on desktop will need a deep link.
-  const page = typeof location === 'undefined' ? '' : location.href.split('#')[0]
-  return shop.buy(productId, /^https?:\/\//.test(page) ? page : '', orgId)
+  // No return URL: BillingClient sends the rail to the accounts service's own neutral
+  // "checkout finished" page. Passing this window's href here is what used to drag the session
+  // token through the rail's redirect and reopen the app in a browser tab — the initiating
+  // window learns the outcome from the balance (awaitGrant), never from the returning tab.
+  return shop.buy(productId, '', orgId)
+}
+
+/** Wait for a checkout begun with `purchase` to grant, then ring the credits bus. */
+export function awaitGrant(): Promise<boolean> {
+  return shop.awaitGrant({})
 }
 
 /** React hook: the current session (re-renders on sign-in/out). */

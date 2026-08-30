@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { Check, CreditCard, RefreshCw, Sparkles, Zap } from 'lucide-react'
 
 import {
+  awaitGrant,
   fetchCatalog,
   fetchCredits,
+  onCreditsChanged,
   purchase,
   useAuthSession,
   type Catalog,
@@ -52,6 +54,9 @@ export default function SubscriptionView() {
     }
     void refresh()
     void fetchCatalog().then(setCatalog)
+    // A purchase that finishes on a webhook (card rail, another tab) reaches this view over
+    // the credits bus — awaitGrant rings it when the grant lands.
+    return onCreditsChanged(() => void refresh())
   }, [billing, session?.accountId])
 
   async function buy(pack: CreditPack): Promise<void> {
@@ -60,6 +65,15 @@ export default function SubscriptionView() {
     setReceipt('')
     try {
       const r = await purchase(pack.id)
+      // A card rail answers with somewhere to go — nothing is granted yet, so the receipt
+      // wording below would lie ("Added 0 credits"). The payment opens in its own tab and
+      // awaitGrant refreshes this view when the webhook grants.
+      if (r.checkoutUrl) {
+        window.open(r.checkoutUrl, '_blank', 'noopener')
+        setReceipt('Complete the payment in the opened tab — your balance here updates automatically.')
+        void awaitGrant()
+        return
+      }
       setCredits((c) => (c ? { ...c, creditsRemaining: r.creditsRemaining } : c))
       setReceipt(
         r.replayed
