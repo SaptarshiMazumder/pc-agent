@@ -75,6 +75,16 @@ module "stack" {
   paused      = var.paused
   hibernate   = var.hibernate
 
+  # ── the domain, STAGING'S WAY: root_domain stays EMPTY. Dev hands the module the whole DNS
+  # story (root_domain => module-managed zone + certs + wildcard, dns.tf); staging instead
+  # rides the account's existing wildcard cert via certificate_arn below, with its one Route 53
+  # record (staging.thorgodofthunder.site) created by hand in the apex zone. Same tls_enabled
+  # either way (alb.tf: certificate_arn != "" || dns_managed). Both knobs exist in both
+  # environments so their SHAPE is identical; only the values pick the path.
+  root_domain     = var.root_domain
+  agent_hostnames = var.agent_hostnames
+  admin_hostname  = var.admin_hostname
+
   # Publishing (modules/publish.tf, deploy/PUBLISH-SERVICE.md). WITHOUT `publish_image_tag`
   # there is no publish service at all — see the header. Push the image to the repository named
   # by the `publish_ecr_repository` output, then apply again with the tag.
@@ -107,7 +117,8 @@ module "stack" {
   # config here. Checkouts open Dodo's test page and move no real money. (Razorpay test keys
   # remain in the secret, unread; dev carries the razorpay flip. Production stays on the
   # module default, the mock rail.)
-  payment_provider = "dodo"
+  payment_provider        = var.payment_provider
+  checkout_return_origins = var.checkout_return_origins
 
   # TLS. Setting the certificate flips EVERY listener to HTTPS (web moves to :443, :80
   # redirects) — turned on because Dodo's webhooks refuse plain http. The cert is the
@@ -123,9 +134,13 @@ module "stack" {
   # alarm tuned for a dead environment answers neither question. The money alarms (unbilled
   # spend, ledger write failures, buffer backlog, overspend) trigger at > 0 and need no tuning
   # at any traffic level; those are the ones that matter.
-  alert_email             = var.alert_email
-  cost_per_hour_alarm_usd = var.cost_per_hour_alarm_usd
-  proxy_5xx_threshold     = var.proxy_5xx_threshold
+  alert_email                = var.alert_email
+  cost_per_hour_alarm_usd    = var.cost_per_hour_alarm_usd
+  proxy_5xx_threshold        = var.proxy_5xx_threshold
+  resolve_latency_p99_ms     = var.resolve_latency_p99_ms
+  login_rejection_threshold  = var.login_rejection_threshold
+  enable_login_absence_alarm = var.enable_login_absence_alarm
+  enable_job_absence_alarm   = var.enable_job_absence_alarm
 
   # THE CLOCK, AT PRODUCTION CADENCE — deliberately unlike dev.
   #
@@ -247,6 +262,71 @@ variable "marketplace_certificate_arn" {
   description = "ACM certificate for marketplace_domain_name. MUST be in us-east-1 whatever region this deployment runs in — CloudFront reads certificates only from there."
   type        = string
   default     = ""
+}
+
+# ── the domain (kept for SHAPE parity with dev; staging leaves all three empty and does TLS
+# via certificate_arn instead — see the module call) ─────────────────────────────────────────
+variable "root_domain" {
+  description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard. Staging leaves this empty: its TLS rides certificate_arn."
+  type        = string
+  default     = ""
+}
+
+variable "agent_hostnames" {
+  description = "Vanity hostname -> agent id (ALB host rule + AGENTD_APP_HOSTS, one map so they cannot disagree)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "admin_hostname" {
+  description = "The standalone admin console's hostname (nginx server_name + the ALB rule that shields it from the wildcard)."
+  type        = string
+  default     = ""
+}
+
+variable "resolve_latency_p99_ms" {
+  description = "Page when p99 session-token resolution exceeds this. It runs before every model call for every user, so it is the platform's latency floor."
+  type        = number
+  default     = 1000
+}
+
+variable "login_rejection_threshold" {
+  description = "Rejected sign-ins in 5 minutes before paging. Catches credential stuffing and a broken password path alike."
+  type        = number
+  default     = 20
+}
+
+variable "enable_login_absence_alarm" {
+  description = "Page when NO successful sign-in occurs in the window. Off until staging carries continuous traffic — it is the one alarm that treats missing data as breaching."
+  type        = bool
+  default     = false
+}
+
+variable "enable_job_absence_alarm" {
+  description = "Page when NO scheduled job has run in 24h (a stopped billing clock). Off by default because it necessarily fires once before the first invocation; enable after the schedules have run."
+  type        = bool
+  default     = false
+}
+
+variable "checkout_return_origins" {
+  description = "Origins /me/checkout may return a paying customer to (AGENTD_CHECKOUT_RETURN_ORIGINS). Empty = any absolute http(s) URL; set it once staging's client origins are stable, because the alternative in production is an open redirect wearing our domain."
+  type        = list(string)
+  default     = []
+}
+
+variable "payment_provider" {
+  description = <<-EOT
+    Which payment rail this environment runs (v2/payments/). STAGING DEFAULTS TO DODO and
+    dev to Razorpay, deliberately: two live rails, one per environment, so both stay
+    exercised. Empty/null = the mock rail, which settles inline and moves no money. Every
+    rail's KEYS live in this environment's Secrets Manager secret, never here.
+  EOT
+  type        = string
+  default     = "dodo"
+  validation {
+    condition     = contains(["", "null", "stripe", "razorpay", "dodo"], var.payment_provider)
+    error_message = "payment_provider must be one of: null, stripe, razorpay, dodo (or empty for the mock rail)."
+  }
 }
 
 # ── outputs ──────────────────────────────────────────────────────────────────

@@ -1,28 +1,109 @@
 # Copy to `dev.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
 # automatically, so no -var flag on any command.
 #
-# WHY THIS FILE EXISTS. `alert_email` defaults to "" and the subscription is `count =
-# var.alert_email == "" ? 0 : 1`. Passing it with -var on one apply and forgetting it on
-# the next therefore does not leave the subscription alone — it DESTROYS it, and every
-# alarm silently goes back to firing into the void. The variable is doing exactly what it
-# says; the flag is just too easy to forget. An auto-loaded file makes it stick.
+# WHY A FILE AND NOT `-var`. Several of these default to "" or [], and the resources they
+# drive are conditional on being non-empty. Passing one with -var on a Monday and forgetting
+# it on Tuesday does not leave that resource alone — it DESTROYS it. The alarm subscription
+# and the publish Lambda both work exactly that way. An auto-loaded file is what makes it
+# stick; the variables are behaving correctly, the flag is just too easy to forget.
 #
-# AWS emails a confirmation link the recipient must click. Until then the subscription
-# exists but is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
-# reports both states.
+# THE SAME MENU AS STAGING. This file and staging's list the same settings in the same
+# order, so an operator moving between environments sees one vocabulary and a missing knob
+# is visible as a missing knob rather than as "that environment must not support it". Only
+# the VALUES and the commentary differ.
 
+# ── alarms: where they go ────────────────────────────────────────────────────
+# Empty = the SNS topic is created and nobody is subscribed, so every alarm fires into
+# nothing. AWS emails a confirmation link the recipient must click; until they do the
+# subscription is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
+# reports both states.
 alert_email = "you@example.com"
 
-# The publish service (see deploy/PUBLISH-SERVICE.md). The tag here rather than -var for the same
-# reason as alert_email: forgetting the flag on a later apply would DESTROY the Lambda.
+# ── the publish service (deploy/PUBLISH-SERVICE.md) ──────────────────────────
+# EMPTY on the first apply: the image does not exist yet, because ECR is created by that
+# same apply. `publish_enabled` is `var.publish_image_tag != ""`, so an empty tag is not an
+# error — it simply builds no publish Lambda, no creator table and no KMS key, and
+# `publish_url` comes back empty. Push the image to the repository named by the
+# `publish_ecr_repository` output, then set the tag and apply again.
 publish_image_tag = "v2"
 
-# Who may call the publish service's admin endpoints (bundle roster pending/admit/revoke):
-# account ids and/or emails of the accounts they sign in with. EMPTY = admin door closed.
+# Who may call the publish service's admin endpoints (`agentd bundle roster pending/admit/
+# revoke`): account ids and/or the emails those accounts sign in with. EMPTY = admin door
+# closed, so nobody can admit a creator and nothing can be published.
 publish_admin_identities = ["you@example.com"]
 
-# Optional — the module defaults are fine for dev. Uncomment to override:
-# cost_per_hour_alarm_usd    = 5
-# proxy_5xx_threshold        = 5
-# resolve_latency_p99_ms     = 1000
-# login_rejection_threshold  = 20
+# The builder service (agent window builds out of the daemon) — same two-step bring-up as
+# publish: apply once (ECR repo + scratch bucket, no Lambda, no cost), push the image to the
+# `builder_ecr_repository` output, then set the tag and apply again.
+builder_image_tag = "v2"
+
+# ── the engine a published product's installer downloads ─────────────────────
+# All three or none. A stub refuses a download it cannot verify, so a URL without its
+# sha256 is a product that installs nothing. Empty = read the registry index instead.
+# publish_engine_url     = "https://.../agentd-setup-0.1.11.exe"
+# publish_engine_sha256  = "…"
+# publish_engine_version = "0.1.11"
+
+# ── the domain (DOMAIN-SETUP.md) ─────────────────────────────────────────────
+# DEV'S TLS PATH. Non-empty root_domain hands the module the whole DNS story: its own
+# Route 53 zone, DNS-validated ACM certificates in both regions, HTTPS on every listener and
+# the per-agent wildcard. Staging does the inverse — empty root_domain, TLS via
+# certificate_arn against an existing cert. Both knobs exist in both environments.
+root_domain = "thorgodofthunder.site"
+# Vanity hostname -> agent id (one map, so the ALB rule and AGENTD_APP_HOSTS cannot disagree).
+# agent_hostnames = { "platform" = "cloud-agent-builder" }
+# The standalone admin console's hostname; empty = no admin route.
+# admin_hostname = "admin"
+# Unused on this path — dev's certificates are minted by root_domain above. Set these two
+# INSTEAD of root_domain to ride a certificate that already exists (staging's way).
+# certificate_arn = "arn:aws:acm:ap-northeast-1:…"
+# domain_name     = "dev.example.com"
+
+# ── payments (v2/payments/) ──────────────────────────────────────────────────
+# The rail's NAME only. Every key — Razorpay, Stripe, Dodo, plus Dodo's product id and API
+# host — lives in this environment's Secrets Manager secret and never in this file. Dev runs
+# Razorpay and staging runs Dodo on purpose, so both rails stay exercised.
+# payment_provider = "razorpay"
+# Origins /me/checkout may return a paying customer to. Empty = any absolute http(s) URL,
+# which is right while dev clients run on changing origins and is an open redirect in
+# production.
+# checkout_return_origins = ["https://thorgodofthunder.site"]
+
+# ── cost control ─────────────────────────────────────────────────────────────
+# `paused` scales every task to 0 and stops the scheduled jobs while KEEPING the ALB — the
+# URL survives and no client needs re-syncing. `hibernate` also removes the ALB: cheaper,
+# and it CHANGES THE URL.
+# paused    = true
+# hibernate = false
+
+# ── alarms: thresholds ───────────────────────────────────────────────────────
+# DEV'S ARE DELIBERATELY LOOSE. The goal here is proving the alarms wire up and can fire,
+# not tuning them; staging carries production's values so the tuning question is answered
+# there. The money alarms (unbilled spend, ledger failures, buffer backlog, overspend)
+# trigger at > 0 and need no tuning at any traffic level — those are the ones that matter.
+# cost_per_hour_alarm_usd   = 5
+# proxy_5xx_threshold       = 5
+# resolve_latency_p99_ms    = 1000
+# login_rejection_threshold = 20
+# The two ABSENCE alarms treat missing data as breaching, so they stay OFF in an environment
+# that is legitimately silent overnight or scaled to zero.
+# enable_login_absence_alarm = false
+# enable_job_absence_alarm   = false
+
+# ── the clock ────────────────────────────────────────────────────────────────
+# Dev's default slows subscription renewals to once daily (hourly is right in production,
+# but dev has no subscribers and is scaled to zero most of the day). Staging overrides
+# nothing and rehearses the production cadence.
+# scheduled_job_overrides = { subscription-renewals = { schedule = "cron(0 0 * * ? *)" } }
+
+# ── the public marketplace ───────────────────────────────────────────────────
+# Both empty = CloudFront's own https address, needing no DNS and no certificate of ours.
+# Set both together or neither: CloudFront rejects an alias without a certificate that
+# covers it, and that certificate MUST live in us-east-1 whatever region this deployment
+# runs in.
+# marketplace_domain_name     = "agents.example.com"
+# marketplace_certificate_arn = "arn:aws:acm:us-east-1:…"
+
+# ── model proxy ──────────────────────────────────────────────────────────────
+# Initial task count; 0 parks it without removing the service.
+# model_proxy_desired_count = 1

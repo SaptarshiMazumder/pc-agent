@@ -22,6 +22,19 @@ terraform {
       version = "~> 2.0"
     }
   }
+
+  # REMOTE STATE, same story as staging's block below: dev is deployed from more than one
+  # machine, and state on somebody's laptop means whoever has the laptop is the only one who
+  # can change anything. Commented until the migration is done from the checkout that holds
+  # dev's REAL state (state files elsewhere are partial): run `infra/bootstrap` once, then
+  # uncomment and `terraform init -migrate-state` FROM THAT MACHINE.
+  #
+  # backend "s3" {
+  #   bucket  = "agentd-tfstate-<account-id>"
+  #   key     = "dev/terraform.tfstate"
+  #   region  = "ap-northeast-1"
+  #   encrypt = true
+  # }
 }
 
 provider "aws" {
@@ -154,6 +167,78 @@ variable "admin_hostname" {
   default     = ""
 }
 
+variable "cost_per_hour_alarm_usd" {
+  description = "Spend-rate alarm. Dev's default is deliberately loose — the goal is proving the alarm wires up, not tuning it; staging carries production's value."
+  type        = number
+  default     = 5
+}
+
+variable "proxy_5xx_threshold" {
+  description = "Model-proxy 5xx alarm threshold, as a percentage over 5 minutes. Loose in dev, production's value in staging."
+  type        = number
+  default     = 5
+}
+
+variable "scheduled_job_overrides" {
+  description = <<-EOT
+    Per-job schedule overrides. Dev's DEFAULT slows subscription renewals to once a day:
+    hourly is correct in production, but dev has no subscribers and is scaled to zero for
+    most of the day, so the production cadence just invokes a Lambda against a dead service
+    24 times a day. 00:00 keeps the ordering the module depends on (renewals :00 ->
+    close-expired 00:05 -> snapshot 00:20) — the same schedule as the default, just its
+    once-daily instance. Staging overrides nothing and rehearses the production clock.
+  EOT
+  type        = any
+  default = {
+    subscription-renewals = { schedule = "cron(0 0 * * ? *)" }
+  }
+}
+
+variable "resolve_latency_p99_ms" {
+  description = "Page when p99 session-token resolution exceeds this. It runs before every model call for every user, so it is the platform's latency floor."
+  type        = number
+  default     = 1000
+}
+
+variable "login_rejection_threshold" {
+  description = "Rejected sign-ins in 5 minutes before paging. Catches credential stuffing and a broken password path alike."
+  type        = number
+  default     = 20
+}
+
+variable "enable_login_absence_alarm" {
+  description = "Page when NO successful sign-in occurs in the window. Off in dev: it is legitimately silent for hours, and this is the one alarm that treats missing data as breaching."
+  type        = bool
+  default     = false
+}
+
+variable "enable_job_absence_alarm" {
+  description = "Page when NO scheduled job has run in 24h (a stopped billing clock). Off by default because it necessarily fires once before the first invocation; enable after the schedules have run."
+  type        = bool
+  default     = false
+}
+
+variable "checkout_return_origins" {
+  description = "Origins /me/checkout may return a paying customer to (AGENTD_CHECKOUT_RETURN_ORIGINS). Empty = any absolute http(s) URL — right for dev, an open redirect wearing our domain in production."
+  type        = list(string)
+  default     = []
+}
+
+variable "payment_provider" {
+  description = <<-EOT
+    Which payment rail this environment runs (v2/payments/). DEV DEFAULTS TO RAZORPAY and
+    staging to Dodo, deliberately: two live rails, one per environment, so both stay
+    exercised. Empty/null = the mock rail, which settles inline and moves no money. Every
+    rail's KEYS live in this environment's Secrets Manager secret, never here.
+  EOT
+  type        = string
+  default     = "razorpay"
+  validation {
+    condition     = contains(["", "null", "stripe", "razorpay", "dodo"], var.payment_provider)
+    error_message = "payment_provider must be one of: null, stripe, razorpay, dodo (or empty for the mock rail)."
+  }
+}
+
 module "stack" {
   source = "../../modules"
 
@@ -189,31 +274,37 @@ module "stack" {
 
   # The payment rail (v2/payments/). Razorpay TEST-mode keys live in the agentd/dev/app
   # secret; a checkout here opens Razorpay's test page and moves no real money. Return
-  # origins stay unrestricted (the module default) — dev clients run on changing origins.
-  payment_provider = "razorpay"
+  # origins stay unrestricted by default — dev clients run on changing origins.
+  payment_provider        = var.payment_provider
+  checkout_return_origins = var.checkout_return_origins
 
-  # Alarms (3.5). Thresholds are deliberately loose for dev: the goal here is to prove the
-  # alarms WIRE UP and can actually fire, not to tune them. The money alarms (unbilled
-  # spend, ledger failures, buffer backlog, overspend) all trigger at > 0 and need no
-  # tuning at any traffic level -- those are the ones that matter.
-  alert_email             = var.alert_email
-  cost_per_hour_alarm_usd = 5
-  proxy_5xx_threshold     = 5
-  # enable_login_absence_alarm stays false: dev has no continuous traffic, so "no sign-ins
+  # TLS, DEV'S WAY: these two stay EMPTY here — dev's HTTPS comes from `root_domain` above
+  # (the module manages zone + certs + wildcard, dns.tf). Staging does the inverse: it sets
+  # certificate_arn/domain_name and leaves root_domain empty. Both knobs exist in both
+  # environments so their SHAPE is identical; only the values pick the path.
+  certificate_arn = ""
+  domain_name     = ""
+
+  # Alarms (3.5). Thresholds are deliberately loose for dev (the variables' defaults): the
+  # goal here is to prove the alarms WIRE UP and can actually fire, not to tune them. The
+  # money alarms (unbilled spend, ledger failures, buffer backlog, overspend) all trigger
+  # at > 0 and need no tuning at any traffic level -- those are the ones that matter.
+  alert_email                = var.alert_email
+  cost_per_hour_alarm_usd    = var.cost_per_hour_alarm_usd
+  proxy_5xx_threshold        = var.proxy_5xx_threshold
+  resolve_latency_p99_ms     = var.resolve_latency_p99_ms
+  login_rejection_threshold  = var.login_rejection_threshold
+  # The two ABSENCE alarms stay false in dev: it has no continuous traffic, so "no sign-ins
   # for 30 minutes" is the normal state overnight.
+  enable_login_absence_alarm = var.enable_login_absence_alarm
+  enable_job_absence_alarm   = var.enable_job_absence_alarm
 
-  # The clock, slowed down for dev. Renewals are HOURLY by default and that is correct in
-  # production, where a subscription must never renew more than an hour late. Dev has no
-  # subscribers and is scaled to zero for most of the day, so the production cadence buys
-  # nothing and invokes a Lambda against a dead service 24 times a day -- noise in the logs
-  # and in the scheduled-jobs-failing alarm.
-  #
-  # 00:00 keeps the ORDERING the module depends on: renewals :00 -> close-expired 00:05 ->
-  # snapshot 00:20, so the snapshot still reports a settled balance sheet. This is the same
-  # schedule as the default, just its once-daily instance rather than all 24.
-  scheduled_job_overrides = {
-    subscription-renewals = { schedule = "cron(0 0 * * ? *)" }
-  }
+  # The clock, slowed down for dev (the variable's default). Renewals are HOURLY by default
+  # and that is correct in production, where a subscription must never renew more than an
+  # hour late. Dev has no subscribers and is scaled to zero for most of the day, so the
+  # production cadence buys nothing and invokes a Lambda against a dead service 24 times a
+  # day -- noise in the logs and in the scheduled-jobs-failing alarm.
+  scheduled_job_overrides = var.scheduled_job_overrides
 
   # THE MARKETPLACE's trust anchor: the public half of the keypair that signs index.json. The
   # hosted daemon pins downloads to it, so browsers get the same guarantee the desktop already

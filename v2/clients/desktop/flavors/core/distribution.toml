@@ -11,7 +11,7 @@ name = "agentd"
 enabled = true
 # The public marketplace (S3 registry from terraform: agentd-dev-registry-910828b2).
 # publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
-registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
+registry_url = "https://agentd-staging-registry-274ab2e9.s3.ap-northeast-1.amazonaws.com/index.json"
 publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 # The WRITE side: where Agent Builder's Publish button sends a packed agent. Declared here even
 # while empty, for the same reason ingest_url below is — sync-platform-urls retargets keys a flavor
@@ -20,7 +20,7 @@ publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 #
 # An author sets NOTHING. They install this build, sign in, and press Publish; no key, no bucket,
 # no config. That is the whole point of the publish service.
-publish_url = "https://thorgodofthunder.site:4300"
+publish_url = "https://staging.thorgodofthunder.site:4300"
 
 # [platform] — hosted accounts + platform model keys: this build is a SIGN-IN product. The
 # app gates on account sign-in and the local daemon runs model calls through our gateway on
@@ -40,12 +40,12 @@ publish_url = "https://thorgodofthunder.site:4300"
 #
 # The keys below it are FALLBACKS, used only when discovery cannot be reached (offline) or by a
 # client too old to know about it.
-platform_url = "https://thorgodofthunder.site:4100"
-accounts_url = "https://thorgodofthunder.site:4100"
-model_proxy_url = "https://thorgodofthunder.site:4000"
+platform_url = "https://staging.thorgodofthunder.site:4100"
+accounts_url = "https://staging.thorgodofthunder.site:4100"
+model_proxy_url = "https://staging.thorgodofthunder.site:4000"
 # Where OPT-IN diagnostics go (Settings > Advanced > Diagnostics, default OFF). The key must be
 # declared here even though sync-platform-urls keeps it current: that script retargets keys a
 # flavor already has and never invents one, so an absent key means the toggle can be switched on
 # and still never send. Empty value = the toggle is unavailable, which is the right state for a
 # build with nowhere to report to.
-ingest_url = "https://thorgodofthunder.site:4200"
+ingest_url = "https://staging.thorgodofthunder.site:4200"
