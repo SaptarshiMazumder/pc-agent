@@ -490,16 +490,18 @@ variable "services" {
         # ACCOUNTS_SESSION_TTL_DAYS is GONE: credentials are signed tokens that carry their own
         # expiry now, so there is no server-side session row whose lifetime this could set.
         # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
-        #
-        # 30/60, not 10/60: this window also covers /auth/refresh, and one person with the app,
+# 30/60, not 10/60: this window also covers /auth/refresh, and one person with the app,
         # the builder and the admin console open renews from EVERY tab off one IP. At 10 the
         # limiter throttled ordinary renewal, and each 429'd retry re-hit the very window that
         # refused it — pages choked on their own renewals. 30 keeps password brute-force slow
         # while leaving a person's tabs room to breathe.
         ACCOUNTS_RATE_LIMIT = "30/60"
-        # AGENTD_AUTH_ACCESS_TTL_S is GONE (soak value "120" removed, default 600 restored):
-        # 2-minute tokens quintupled refresh traffic, which multiplied by open tabs is what
-        # drove renewals into the limiter above in the first place.
+        # 1 HOUR while staging soaks. The 2-minute stress setting did its job (2026-08-29: it
+        # exposed the missing push chain, the grace trap and the background-tab gap in one
+        # afternoon); an hour makes those races practically unreachable day-to-day. Production
+        # wants the 600 default back — plus the mid-run token-retry (auth.update push chain,
+        # now merged) — before launch: a 1-hour token is also a 1-hour revocation lag.
+        AGENTD_AUTH_ACCESS_TTL_S = "3600"
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
