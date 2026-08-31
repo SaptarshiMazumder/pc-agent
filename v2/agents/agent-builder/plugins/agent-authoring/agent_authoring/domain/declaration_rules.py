@@ -77,7 +77,61 @@ class DeclarationRules:
         out += self._mcp_servers(servers, declared, logins)
         out += self._oauth(logins, declared)
         out += self._shipping(raw, settings, servers, logins)
+        out += self._authored_setting_values(settings, sources or {})
         return out
+
+    # ---- the one that decides WHOSE account ---------------------------------
+    def _authored_setting_values(self, settings: list[dict], sources: dict) -> list[Finding]:
+        """A VALUE written into agent.config.json for a field the OWNER is supposed to fill in.
+
+        Declaring `[[settings]]` is the author's job; supplying the value is the owner's. The two
+        get confused because a plausible default is usually sitting right there — a profile name
+        the machine already has configured, a localhost URL — and filling it in makes the agent
+        work on the first run without anyone being asked.
+
+        That convenience is the whole problem. A referenced `${NAME}` with no value is what stops
+        a declared server from starting, and that refusal is how the owner gets ASKED which account
+        the agent acts on. Write the value and the server comes up on credentials nobody chose,
+        which looks exactly like success. Observed: an authoring agent filled in the credential
+        setting of an agent it was building, from a value already present on the machine, and
+        connected seven servers to the owner's live cloud account without anyone being asked.
+
+        It also SHIPS. agent.config.json travels inside the package, so the author's answer becomes
+        every installer's default.
+        """
+        raw = sources.get("agent.config.json")
+        if not raw:
+            return []
+        try:
+            import json
+
+            values = (json.loads(raw) or {}).get("settings")
+        except (ValueError, AttributeError):
+            return []  # unparseable is a different problem, and not this rule's to report
+        if not isinstance(values, dict):
+            return []
+        declared = {str(f.get("key") or "").strip() for f in settings} - {""}
+        filled = sorted(k for k, v in values.items() if k in declared and str(v).strip())
+        if not filled:
+            return []
+        return [
+            Finding(
+                level=ERROR,
+                code="AUTHORED_SETTING_VALUE",
+                message=(
+                    f"agent.config.json supplies values for declared settings "
+                    f"({', '.join(filled)}). Those belong to whoever RUNS the agent, not to "
+                    f"whoever wrote it — including when there is an obvious default and when a "
+                    f"value is already configured on this machine. Declare the field, leave it "
+                    f"empty, and ask the owner to fill it in on the agent's settings page"
+                ),
+                path="agent.config.json",
+                fix=(
+                    "remove those keys from the settings block; if you need them filled to "
+                    "verify the agent, ask the owner to set them and wait"
+                ),
+            )
+        ]
 
     # ---- the one that costs money ------------------------------------------
     def _inlined_credentials(self, raw: dict) -> list[Finding]:

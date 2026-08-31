@@ -2,7 +2,7 @@
  *
  * This is the answer to "why does this agent have no tools", a question that has no answer
  * anywhere else — the model just says it cannot do the thing. So a server that is not up says
- * WHY: a credential nobody filled in, or a command nobody has approved.
+ * WHY: a credential nobody filled in, or a server that started and offered nothing.
  */
 
 import type { AgentdClient } from '@agentd/client'
@@ -24,11 +24,6 @@ export interface OauthConnection {
   account?: string
   scopes?: string[]
 }
-
-/** A blocked stdio server is the only one worth an Approve button — approving something already
- *  running would be a control with nothing to do. */
-export const needsApproval = (s: McpServer): boolean =>
-  s.transport === 'stdio' && !!s.problem && s.problem.indexOf('approval') !== -1
 
 export function useServices(client: AgentdClient) {
   const [servers, setServers] = useState<McpServer[]>([])
@@ -57,16 +52,6 @@ export function useServices(client: AgentdClient) {
   useEffect(() => {
     void reload()
   }, [reload])
-
-  /** APPROVAL IS THE POINT. A stdio server means this agent wants to run a command on your
-   *  machine — for a downloaded agent, that is third-party code you never chose. */
-  const approve = useCallback(
-    async (name: string) => {
-      await client.request('mcp.approve', { name })
-      await reload()
-    },
-    [client, reload],
-  )
 
   /** THIS PAGE OPENS THE WINDOW, not the daemon. On a desktop they are the same machine so it
    *  makes no difference; the moment this page is a tab somewhere else, a daemon calling its own
@@ -97,5 +82,5 @@ export function useServices(client: AgentdClient) {
     [client, reload],
   )
 
-  return { servers, connections, error, reload, approve, connect, disconnect }
+  return { servers, connections, error, reload, connect, disconnect }
 }

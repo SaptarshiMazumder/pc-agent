@@ -322,7 +322,15 @@ export class Supervisor {
       const bin = bundledNodeBin(path.join(process.resourcesPath, 'node'))
       if (bin) {
         env.AGENTD_NODE_DIR = bin
-        env.PATH = `${bin}${path.delimiter}${env.PATH || ''}`
+        // WRITE BACK TO THE KEY THAT IS ALREADY THERE. Windows names this variable `Path`, and
+        // `process.env` is only case-insensitive on ITSELF — spreading it into a plain object
+        // above keeps the original casing, so `env.PATH` is undefined here and `env.PATH = …`
+        // ADDS A SECOND VARIABLE holding nothing but this one directory. The child gets both,
+        // picks that one, and every daemon we spawn runs without System32: no `where`, no
+        // `findstr`, no PowerShell, no user-installed CLI. Agent Builder rediscovered that
+        // broken shell by trial and error at the start of every session.
+        const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') ?? 'PATH'
+        env[pathKey] = `${bin}${path.delimiter}${env[pathKey] ?? ''}`
       }
       // THE SHARED DEPENDENCY STORE. Every agent app declares the same seven packages, because
       // they all come from the same starter — so the product carries ONE copy and each agent's

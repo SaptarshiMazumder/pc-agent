@@ -40,6 +40,15 @@ class ReloadAgentService:
             parts.append(f"{tools} private tool(s) loaded from its plugins/")
         elif tools == 0:
             parts.append("no private tools (none declared, or none loadable)")
+        # SAY WHETHER THERE IS MCP TO CHECK. The line above reports PRIVATE tools, and an agent
+        # whose tools all come from a declared server used to read "no private tools" — which is
+        # true, unrelated, and was taken as "the daemon is not even trying the MCP servers".
+        mcp = result.get("mcp")
+        if mcp:
+            parts.append(
+                f"{mcp} declared MCP server(s) will re-dial on its next run — call "
+                f"mcp_status to see what they expose and why any of them did not come up"
+            )
         parts.append("clients notified" if result.get("announced") else "clients NOT notified")
 
         message = " — ".join(parts) + "."

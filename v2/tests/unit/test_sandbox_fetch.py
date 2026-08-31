@@ -394,9 +394,24 @@ def test_a_real_child_cannot_reach_an_undeclared_host(tmp_path, http_server, mon
 
 # --- the docs must not lie about it -----------------------------------------
 
-SKILL = (
-    Path(__file__).resolve().parents[2]
-    / "agents/agent-builder/skills/build-agent/SKILL.md"
+
+class _SkillText:
+    """THE SKILL IS A DIRECTORY. SKILL.md is the procedure; the format detail lives in
+    reference/*.md, read on demand. These checks ask "does the skill teach X", so reading spans
+    the whole directory — a paragraph moving between its files must not disarm the check."""
+
+    def __init__(self, root):
+        self._root = root
+
+    def read_text(self, encoding="utf-8"):
+        parts = [(self._root / "SKILL.md").read_text(encoding=encoding)]
+        parts += [p.read_text(encoding=encoding)
+                  for p in sorted((self._root / "reference").glob("*.md"))]
+        return chr(10).join(parts)
+
+
+SKILL = _SkillText(
+    Path(__file__).resolve().parents[2] / "agents/agent-builder/skills/build-agent"
 )
 
 

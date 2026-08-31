@@ -74,7 +74,6 @@ export function SettingsView({ client }: { client: AgentdClient }) {
           <ServicesSection
             servers={services.servers}
             connections={services.connections}
-            onApprove={services.approve}
             onConnect={services.connect}
             onDisconnect={services.disconnect}
           />

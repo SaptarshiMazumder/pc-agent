@@ -2,26 +2,24 @@
  *
  * This section is the answer to "why does this agent have no tools", a question that has no answer
  * anywhere else — the model just says it cannot do the thing. So a server that is not up says WHY:
- * a credential nobody filled in, or a command nobody has approved.
+ * a credential nobody filled in, or a server that started and offered no tools.
  *
- * APPROVAL IS THE POINT OF THE BUTTON. A stdio server means this agent wants to run a command on
- * your machine — for a downloaded agent, that is third-party code you never chose. The exact argv
- * is printed, not a friendly name, because the argv is what actually runs.
+ * THE EXACT ARGV IS PRINTED, not a friendly name, because the argv is what actually runs. There
+ * used to be an "Approve and run" button beside it, gating every stdio server on the user pressing
+ * it; declared servers now start on their agent's first run, so the row only reports.
  */
 
 import { useState } from 'react'
-import { needsApproval, type McpServer, type OauthConnection } from '../../agentd/services'
+import { type McpServer, type OauthConnection } from '../../agentd/services'
 
 export function ServicesSection({
   servers,
   connections,
-  onApprove,
   onConnect,
   onDisconnect,
 }: {
   servers: McpServer[]
   connections: OauthConnection[]
-  onApprove: (name: string) => Promise<void>
   onConnect: (name: string) => Promise<void>
   onDisconnect: (name: string) => Promise<void>
 }) {
@@ -45,21 +43,13 @@ export function ServicesSection({
       ))}
 
       {servers.map((s) => (
-        <ServerRow key={s.name} server={s} onApprove={onApprove} />
+        <ServerRow key={s.name} server={s} />
       ))}
     </section>
   )
 }
 
-function ServerRow({
-  server,
-  onApprove,
-}: {
-  server: McpServer
-  onApprove: (name: string) => Promise<void>
-}) {
-  const [state, setState] = useState<'idle' | 'busy' | string>('idle')
-
+function ServerRow({ server }: { server: McpServer }) {
   return (
     <div className="field">
       <div>
@@ -77,25 +67,7 @@ function ServerRow({
         {server.problem && <span className="fhelp missing">{server.problem}</span>}
       </div>
 
-      {needsApproval(server) ? (
-        <button
-          className="prime-btn"
-          disabled={state === 'busy'}
-          onClick={async () => {
-            setState('busy')
-            try {
-              await onApprove(server.name)
-              setState('idle')
-            } catch (e) {
-              setState(`could not approve: ${String((e as Error)?.message || e)}`)
-            }
-          }}
-        >
-          {state === 'busy' ? 'approving…' : state === 'idle' ? 'Approve and run' : state}
-        </button>
-      ) : (
-        <span className="fhelp">{server.problem ? '' : 'connected'}</span>
-      )}
+      <span className="fhelp">{server.problem ? '' : 'connected'}</span>
     </div>
   )
 }

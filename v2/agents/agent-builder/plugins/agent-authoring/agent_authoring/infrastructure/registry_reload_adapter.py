@@ -1,12 +1,21 @@
 """RegistryReloadAdapter — make a freshly-authored agent REAL, in three steps.
 
-Writing files changes nothing the daemon has already read. Exactly two things are cached, and
-this adapter refreshes both, then tells the clients:
+Writing files changes nothing the daemon has already read. Exactly three things are cached, and
+this adapter refreshes all of them, then tells the clients:
 
   1. the agent DEFINITION   -> FileAgentRegistry.refresh() / add()   (re-parses agent.toml)
   2. its PRIVATE PLUGINS    -> register_plugin_live()                (re-scans agents/*/plugins/,
                                replaces the private-tool map wholesale, so it is idempotent)
-  3. every connected client -> broadcast_agents_changed()            (the sidebar redraws)
+  3. its DECLARED MCP       -> AgentMcpConnector.forget()            (drops the cached outcome so
+                               the next run re-dials — see below)
+  4. every connected client -> broadcast_agents_changed()            (the sidebar redraws)
+
+STEP 3 IS NOT OPTIONAL, and leaving it out cost a real build an hour. The connector settles each
+declared server ONCE and caches the outcome — success is kept, and failure is deliberately not
+retried every turn so a dead server does not add its timeout to every message. Reloading re-reads
+agent.toml, so the [[mcp]] block the author just FIXED is live while the connector still holds the
+verdict it reached about the old one. The author then edits, reloads, re-runs, sees the identical
+failure, and concludes the edit did nothing.
 
 NOT here, on purpose — these are already live and need no nudge:
   * SKILLS — container.resolve_skills() re-reads the skills dirs on EVERY turn.
@@ -21,10 +30,17 @@ from __future__ import annotations
 
 
 class RegistryReloadAdapter:
-    def __init__(self, registry, register_plugin_live=None, broadcast_agents_changed=None):
+    def __init__(
+        self,
+        registry,
+        register_plugin_live=None,
+        broadcast_agents_changed=None,
+        mcp_connector=None,
+    ):
         self._registry = registry
         self._reload_plugins = register_plugin_live
         self._broadcast = broadcast_agents_changed
+        self._mcp = mcp_connector
 
     def reload(self, agent_id: str) -> dict:
         """Refresh definition + private tools, announce, and report what actually happened.
@@ -37,6 +53,7 @@ class RegistryReloadAdapter:
             "definition": False,  # did the registry re-read succeed?
             "found": False,  # is this agent actually in the roster afterwards?
             "tools": None,
+            "mcp": None,  # how many [[mcp]] servers it declares (None = connector absent)
             "announced": False,
         }
 
@@ -67,7 +84,17 @@ class RegistryReloadAdapter:
             except Exception as e:  # noqa: BLE001
                 result["error"] = f"plugin reload failed: {type(e).__name__}: {e}"
 
-        # 3. announce — without this the agent works but no sidebar knows it exists.
+        # 3. declared MCP — the definition just changed, so any verdict cached about the OLD
+        # declarations is now about a file that no longer exists.
+        if self._mcp is not None:
+            try:
+                self._mcp.forget(agent_id)
+                spec = self._registry.get(agent_id)
+                result["mcp"] = len(tuple(getattr(spec, "mcp", ()) or ()))
+            except Exception as e:  # noqa: BLE001
+                result["error"] = f"mcp reset failed: {type(e).__name__}: {e}"
+
+        # 4. announce — without this the agent works but no sidebar knows it exists.
         if callable(self._broadcast):
             try:
                 self._broadcast()

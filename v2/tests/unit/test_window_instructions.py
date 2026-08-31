@@ -74,7 +74,12 @@ def test_the_skill_says_the_window_already_exists_before_it_says_anything_else()
     the reference would not get retyped from scratch. There is no reference to retype now — the
     window arrives complete — and the failure it guards against moved with it: a model that reads
     the mechanics first starts BUILDING a window instead of editing the one it already has."""
-    skill = SKILL.read_text(encoding="utf-8")
+    # The window section lives in the skill's UI REFERENCE now (SKILL.md is the procedure, the
+    # format detail sits beside it in reference/). The ordering rule is unchanged — it is about
+    # what a reader of that section meets first.
+    skill = (BUILDER / "skills" / "build-agent" / "reference" / "ui.md").read_text(
+        encoding="utf-8"
+    )
     ui = skill.index("## ui/ — the agent's own app")
 
     starts_with = skill.index("already HAS one", ui)

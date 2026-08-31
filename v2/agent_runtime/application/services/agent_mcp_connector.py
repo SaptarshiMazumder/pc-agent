@@ -18,13 +18,17 @@ FOUR RULES, and each exists because of a specific way this goes wrong:
                environment, so it would launch and quietly act on whatever account the daemon
                itself holds — the failure that looks like success.
 
-  ASK BEFORE LAUNCHING A PROCESS. ``command = ["uvx", …]`` means installing an agent causes
-               third-party code to be downloaded and executed. The user approves the exact command
-               once. A ``url`` server executes nothing locally and needs no approval.
+  LAUNCH WITHOUT ASKING. ``command = ["uvx", …]`` downloads and runs third-party code, and
+               this used to require the user to approve the exact command once. It was removed:
+               the person who asked for the agent had already asked for the integration, and the
+               prompt landed on them with no way to see WHY a server was down — a declared agent
+               simply had no tools until they found a button in a settings page. A DECLARED server
+               is now brought up on first run, full stop. The credential refusal below is what
+               still stops a server acting on the wrong account.
 
   ONE ATTEMPT PER STATE. A failure is remembered with its reason and not retried every turn: a
                server that is down would otherwise add its timeout to every message the user
-               sends. Changing a setting (or approving the command) clears the memory.
+               sends. Changing a setting clears the memory.
 """
 
 from __future__ import annotations
@@ -40,15 +44,12 @@ class AgentMcpConnector:
     :param read_env: ``(name) -> str`` for one RESOLVED env var name (already prefixed for the
         agent by the caller's rule). Injected for the same reason: reading the process
         environment is not the application layer's job.
-    :param approvals: an ApprovalStore-shaped object — ``approved(agent_id, name, command)`` and
-        ``approve(...)``. None disables the prompt entirely (a deployment with no user to ask).
     """
 
-    def __init__(self, connect, read_env, setting_env, approvals=None, oauth=None):
+    def __init__(self, connect, read_env, setting_env, oauth=None):
         self._connect = connect
         self._read_env = read_env
         self._setting_env = setting_env
-        self._approvals = approvals
         self._oauth = oauth
         #: agent_id -> {server name: list[Tool]} for servers that are UP
         self._tools: dict[str, dict[str, list]] = {}
@@ -97,12 +98,6 @@ class AgentMcpConnector:
         if missing:
             failed[decl.name] = (
                 f"needs {', '.join(missing)} — set it in this agent's settings, then try again"
-            )
-            return
-        if not self._approved(agent_id, decl):
-            failed[decl.name] = (
-                f"waiting for approval to run: {' '.join(decl.command)} — approve it in this "
-                f"agent's settings to connect '{decl.name}'"
             )
             return
         headers = self._resolve(agent_id, decl.headers)
@@ -167,32 +162,13 @@ class AgentMcpConnector:
 
     # ---- consent ------------------------------------------------------------
 
-    def _approved(self, agent_id: str, decl) -> bool:
-        """A url server needs no approval — nothing runs locally. A stdio server does."""
-        if decl.transport != "stdio" or self._approvals is None:
-            return True
-        return bool(self._approvals.approved(agent_id, decl.name, decl.command))
-
-    def approve(self, agent_id: str, decl) -> bool:
-        """Record consent for this declaration's exact command, and drop the cached refusal.
-
-        Without the forget, approval would appear to do nothing until a restart: the refusal is
-        remembered precisely so it is not retried every turn.
-        """
-        if self._approvals is None:
-            return False
-        ok = bool(self._approvals.approve(agent_id, decl.name, decl.command))
-        if ok:
-            self.forget(agent_id)
-        return ok
-
     # ---- invalidation -------------------------------------------------------
 
     def forget(self, agent_id: str) -> None:
         """Drop this agent's cached state so the next run re-dials.
 
         Called when a setting it uses changes (the running child holds the env it launched with,
-        so a new key does nothing until the process is replaced) and when its command is approved.
+        so a new key does nothing until the process is replaced).
         """
         self._tools.pop(agent_id, None)
         self._failed.pop(agent_id, None)

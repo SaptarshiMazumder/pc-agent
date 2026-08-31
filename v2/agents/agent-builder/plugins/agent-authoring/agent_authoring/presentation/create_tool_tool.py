@@ -25,8 +25,15 @@ the failure you would expect. Two mechanisms, both mechanical (``domain/sandbox_
     handling as the existing compile-check: a defect the caller can act on beats a file on disk
     that only breaks somewhere else.
 
-The refusal applies to AGENT-SCOPED tools only. A shared tool (no ``agent``) lives in the
-operator's own catalog, is never classified untrusted, and may legitimately do both."""
+``agent`` IS REQUIRED, and that is what makes the two mechanisms above mean anything. Omitting it
+used to write a SHARED tool into the operator's machine-wide catalog — a tier that is never
+classified untrusted, so it skipped both refusals AND the filesystem fence that stops this agent
+writing outside the agent it was asked to build. One argument was the difference between "checked"
+and "unchecked", the refusal message above named it as the way out, and AGENTS.md meanwhile told
+the model that create_tool refused everything outside the target agent. Building one agent never
+needs a machine-wide tool; wiring an EXISTING shared tool into a built agent is a ``[tools] allow``
+entry in its agent.toml and does not come through here. Authoring a new shared tool is a change to
+the whole machine and belongs to the operator, by hand."""
 
 from __future__ import annotations
 
@@ -90,9 +97,11 @@ class CreateToolTool(Tool):
         "it), a `parameters` JSON-schema object, and `code` — the Python body of its execute "
         "step: `params` holds the call args, and you MUST end by returning "
         '`ToolResult.text("...")` (or with is_error=True). Use stdlib / already-installed '
-        "packages. Pass `agent` to give the tool to ONE agent (it lands in that agent's own "
-        "folder, is offered only to it, and needs no [tools] allow entry); omit `agent` for a "
-        "SHARED tool every agent inherits. Prefer create_skill (no code) or add_mcp (a server) "
+        "packages. `agent` is REQUIRED and names the agent that owns the tool: it lands in that "
+        "agent's own folder, is offered only to it, and needs no [tools] allow entry. There is no "
+        "machine-wide option — to give an agent a capability the shared catalog ALREADY has, name "
+        "that existing tool in its [tools] allow rather than writing a new one. "
+        "Prefer create_skill (no code) or add_mcp (a server) "
         "when they fit — this runs NEW code in-process, so use it only for a genuinely new "
         "capability.\n"
         "TO CALL A MODEL from the tool, use `from agent_runtime.infrastructure.llm.oneshot "
@@ -105,13 +114,15 @@ class CreateToolTool(Tool):
     )
     parameters = {
         "type": "object",
-        "required": ["id", "name", "code"],
+        "required": ["id", "name", "code", "agent"],
         "properties": {
             "id": {"type": "string", "description": "plugin id, kebab-case (e.g. word-count)"},
             "agent": {
                 "type": "string",
-                "description": "agent id that OWNS this tool -> agents/<id>/plugins/<pid>/ "
-                "(private to that agent). Omit for a shared tool in the global catalog.",
+                "description": "REQUIRED — agent id that OWNS this tool -> agents/<id>/plugins/"
+                "<pid>/, private to that agent. There is no machine-wide option: to give an "
+                "agent a tool that already exists in the shared catalog, name it in that "
+                "agent's [tools] allow instead of writing a new one.",
             },
             "name": {
                 "type": "string",
@@ -129,28 +140,29 @@ class CreateToolTool(Tool):
         },
     }
 
-    def __init__(self, config, register_plugin_live, registry=None):
-        self._config = config
+    def __init__(self, register_plugin_live, registry=None):
         self._reload = register_plugin_live
-        self._registry = registry  # needed to scope a tool to ONE agent (agents_dir + id check)
+        # REQUIRED in practice: every tool is scoped to one agent, and the agents_dir + id check
+        # comes from here. It stays optional only so a minimal test can construct the tool and
+        # get the refusal rather than a TypeError. The daemon's config used to be injected too,
+        # for the shared plugins dir — nothing resolves there any more.
+        self._registry = registry
 
     def _resolve_root(self, agent_id: str) -> tuple:
-        """Where the new plugin dir goes: the AGENT-PRIVATE tier when an agent is named,
-        else the shared catalog (unchanged default). Returns ``(root, error)``.
+        """Where the new plugin dir goes: always the AGENT-PRIVATE tier. Returns ``(root, error)``.
 
         The agents dir comes from the REGISTRY, not config, so the write path is the same
         one ``discover_agent_plugins`` scans on reload (container._agent_private_tools)."""
         if not agent_id:
-            root = (
-                getattr(self._config, "plugins_dir", "")
-                or getattr(self._config, "builtin_plugins_dir", "")
-                or ""
+            return None, (
+                "create_tool needs 'agent' — the id of the agent that will own this tool. "
+                "Every tool written here is private to one agent. If the capability already "
+                "exists in the shared catalog, do not write a new tool: name the existing one "
+                "in that agent's [tools] allow. Authoring a machine-wide shared tool is the "
+                "operator's decision and is not done through this tool."
             )
-            if not root:
-                return None, "no plugins dir configured (set AGENTD_PLUGINS_DIR)"
-            return Path(root), None
         if self._registry is None:
-            return None, "agent-scoped tools need the agent registry — omit `agent` for a shared tool"
+            return None, "agent-scoped tools need the agent registry, which is not available here"
         try:
             known = self._registry.list_ids()
         except Exception as e:  # noqa: BLE001 — a registry failure must not crash the turn
@@ -185,29 +197,30 @@ class CreateToolTool(Tool):
                 f"a plugin '{pid}' already exists at {d} — pick a different id", is_error=True
             )
 
-        # An AGENT-SCOPED tool becomes untrusted the moment someone installs the agent, so the
-        # shapes that cannot survive that are refused now, before the file exists. Checked only
-        # for the scoped tier: a shared tool is the operator's own code and is never sandboxed.
-        if agent_id:
-            defects = blocking_defects(code)
-            if defects:
-                lines = [
-                    f"REFUSING to write '{tool_name}' — this code cannot work once someone "
-                    f"installs agent '{agent_id}'. A private tool is UNTRUSTED on their machine:",
-                    "",
-                ]
-                for _code, what, fix in defects:
-                    lines += [f"  • it {what}", f"    -> {fix}", ""]
-                lines.append(
-                    "Rewrite the code and call create_tool again. If this tool is genuinely "
-                    "local-only and will never be shipped, ask the USER whether to make it a "
-                    "SHARED tool instead (omit `agent`) — do not decide that for them."
-                )
-                return ToolResult.text(
-                    "\n".join(lines),
-                    is_error=True,
-                    details={"refused": [c for c, _w, _f in defects], "agent": agent_id},
-                )
+        # A tool written here becomes untrusted the moment someone installs the agent, so the
+        # shapes that cannot survive that are refused now, before the file exists. There is no
+        # longer a tier this check can be routed around — see the module docstring.
+        defects = blocking_defects(code)
+        if defects:
+            lines = [
+                f"REFUSING to write '{tool_name}' — this code cannot work once someone "
+                f"installs agent '{agent_id}'. A private tool is UNTRUSTED on their machine:",
+                "",
+            ]
+            for _code, what, fix in defects:
+                lines += [f"  • it {what}", f"    -> {fix}", ""]
+            lines.append(
+                "Rewrite the code so it works under the sandbox and call create_tool again. "
+                "The fix above is the supported route: a tool that needs a model asks through "
+                "oneshot, and a tool that needs a key takes it from [[settings]]. If neither "
+                "shape can express what this tool does, say so to the user and stop — do not "
+                "look for a tier where the check does not apply."
+            )
+            return ToolResult.text(
+                "\n".join(lines),
+                is_error=True,
+                details={"refused": [c for c, _w, _f in defects], "agent": agent_id},
+            )
 
         # needs_model is read OFF THE CODE. It is the whole authorisation for a sandboxed model
         # call, and asking the caller to remember an attribute it has no reason to know about is
@@ -237,17 +250,15 @@ class CreateToolTool(Tool):
             )
 
         # THE SAME SCOPE `write` ENFORCES. This tool opens files itself, so without this it is a
-        # way straight past the block — and the path it would take is the dangerous one: a tool
-        # with no `agent` lands in the SHARED plugins dir, and a shared plugin is FIRST_PARTY on
-        # every machine that installs it. Never sandboxed. That is exactly how a capability
-        # refused to a private tool gets laundered back in.
+        # way straight past the block. The shared-plugins escape it used to guard is gone —
+        # `agent` is required — but the check stays: it is the fence, and a fence that only holds
+        # while one caller happens to behave is not one.
         try:
             check_write(d)
         except WriteRefused as e:
             return ToolResult.text(
-                f"{e}\n\nA SHARED tool (no `agent`) is written outside this agent's scope on "
-                f"purpose — it becomes part of the product for every agent on the machine. That "
-                f"is the USER's decision, not yours: ask them, and let them place it.",
+                f"{e}\n\nA tool is written inside the agent that owns it. Check that `agent` "
+                f"names the agent you are building.",
                 is_error=True,
             )
 
@@ -269,15 +280,10 @@ class CreateToolTool(Tool):
                 f"wrote tool '{tool_name}' at {d}, but reload failed: {result.get('error')}",
                 is_error=True,
             )
-        # Which side of the reload report to check: a SHARED tool shows up in `tools`, an
-        # agent-private one in `agentTools` ({agentId: count}) — the two tiers are reported
-        # separately, so checking `tools` for a scoped tool would always falsely warn.
-        if agent_id:
-            loaded = bool((result.get("agentTools") or {}).get(agent_id))
-            where = f"private to agent '{agent_id}'"
-        else:
-            loaded = tool_name in (result.get("tools") or [])
-            where = "shared (every agent inherits it)"
+        # Agent-private tools are reported in `agentTools` ({agentId: count}), separately from the
+        # shared `tools` list — checking the wrong side would always falsely warn.
+        loaded = bool((result.get("agentTools") or {}).get(agent_id))
+        where = f"private to agent '{agent_id}'"
         # Say that the model wiring was decided FOR the caller, and how to change it. A tool that
         # silently acquires an attribute is one nobody knows to configure later.
         model_note = (
