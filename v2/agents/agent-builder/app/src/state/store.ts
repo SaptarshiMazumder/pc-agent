@@ -470,12 +470,21 @@ function handleRunEvent(
 export const useApp = create<AppState>()((set, get) => ({
   agents: [],
   chats: [],
-  sessions: { [FIRST_KEY]: blankSession() },
+  /* NO CONVERSATION AT BOOT. A conversation exists only when a door made one — the Blueprint
+     (create) or the agent picker (edit) — because an unscoped blank chat is a screen that has
+     to guess what it is about. The empty chat view says where to start instead. */
+  sessions: {},
   currentSessionKey: FIRST_KEY,
-  openTabs: [FIRST_KEY],
-  view: 'chat',
+  openTabs: [],
+  /* THE LAUNCHPAD IS HOME. Opening this window lands on "start something", not on an empty
+     composer that has to explain itself — the design's call, and the right one: chat is what
+     you do to an agent, not where you decide which agent. */
+  view: 'launchpad',
   viewedOrgId: '',
-  sidebarCollapsed: false,
+  /* THE ICON RAIL IS THE RESTING STATE — the design's shell. The full sidebar (search, My
+     agents, Recents as lists) is one click away and loses nothing; it is the drawer now, not
+     the wall. */
+  sidebarCollapsed: true,
   panelOpen: true,
   composerSeed: null,
 
@@ -580,7 +589,9 @@ export const useApp = create<AppState>()((set, get) => ({
         // keeps its own.
         if (born) {
           const key = get().currentSessionKey
-          patch(set, key, (session) => (session.scope ? {} : { scope: born }))
+          patch(set, key, (session) =>
+            session.scope ? {} : { scope: born, wsTab: born.app?.url ? 'preview' : 'files' },
+          )
         }
       }
     }
@@ -673,7 +684,8 @@ export const useApp = create<AppState>()((set, get) => ({
     })
     if (currentSessionKey !== key) return
     if (rest.length) set({ currentSessionKey: rest[Math.min(at, rest.length - 1)] })
-    else get().newSession()
+    /* No minting a blank replacement: with the last tab gone the chat view shows its empty
+       state, which points at the launchpad — the door conversations actually come through. */
   },
 
   reorderTabs: (key, before) => {
@@ -822,7 +834,14 @@ export const useApp = create<AppState>()((set, get) => ({
     })),
 
   setScope: (agent) =>
-    patch(set, get().currentSessionKey, () => ({ scope: agent, scopeSent: false })),
+    patch(set, get().currentSessionKey, () => ({
+      scope: agent,
+      scopeSent: false,
+      /* Scoping OPENS THE WORKSPACE — the design's 3c: the conversation arrives beside the
+         agent's window (or its source, when it has no window), not as a bare thread with the
+         panes hidden behind tabs. */
+      wsTab: agent ? (agent.app?.url ? 'preview' : 'files') : '',
+    })),
 
   setWsTab: (tab) => patch(set, get().currentSessionKey, () => ({ wsTab: tab })),
 

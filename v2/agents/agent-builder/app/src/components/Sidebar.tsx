@@ -24,6 +24,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  CreditCard,
   LayoutGrid,
   PanelLeft,
   Pencil,
@@ -162,6 +163,9 @@ export function Sidebar({
   const setView = useApp((s) => s.setView)
   const collapsed = useApp((s) => s.sidebarCollapsed)
   const toggleSidebar = useApp((s) => s.toggleSidebar)
+  const openTabs = useApp((s) => s.openTabs)
+  const sessions = useApp((s) => s.sessions)
+  const activateTab = useApp((s) => s.activateTab)
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -186,38 +190,72 @@ export function Sidebar({
   )
 
   // ---- collapsed icon rail --------------------------------------------------
+  /* THE SUBJECTS ON THE RAIL are the OPEN conversations' agents, in tab order — the reference
+     shows three chips in a busy workspace and none on a fresh launchpad, because the rail is a
+     working set, not the roster (the roster lives on the launchpad and in the drawer). Clicking
+     one brings ITS conversation forward. Deduped: two tabs about one agent are one chip. */
+  const subjectChips: { key: string; agent: NonNullable<ReturnType<typeof useSubject>> }[] = []
+  for (const key of openTabs) {
+    const scope = sessions[key]?.scope
+    if (scope && !subjectChips.some((c) => c.agent.id === scope.id)) {
+      subjectChips.push({ key, agent: scope })
+    }
+  }
+
   if (collapsed) {
+    /* THE REFERENCE'S RAIL, and only it: brand · Launchpad · Conversations · Search · the open
+       subjects · then Credits, Settings and the account at the foot. New-agent and Edit doors
+       live on the launchpad now, where starting lives. The one deliberate extra is the expand
+       control under the brand — the drawer (full sidebar) is behaviour this window keeps. */
     return (
       <aside className="rail sidebar sidebar--rail">
         <img className="brand-logo brand-logo--rail" src={logo} alt="" />
-        <button className="rail-btn" title="expand sidebar" aria-label="Expand the sidebar" onClick={toggleSidebar}>
-          <PanelLeft size={17} />
+        <button className="rail-btn rail-expand" title="expand sidebar" aria-label="Expand the sidebar" onClick={toggleSidebar}>
+          <PanelLeft size={16} />
         </button>
-        <button className="rail-primary" title="New agent" onClick={onCreate}>
-          <SquarePen size={17} />
+        <button
+          className={`rail-btn ${view === 'launchpad' ? 'active' : ''}`}
+          title="Launchpad"
+          aria-label="Launchpad"
+          onClick={() => setView('launchpad')}
+        >
+          <LayoutGrid size={18} />
         </button>
-        <button className="rail-btn" title="Edit an agent" onClick={onEdit}>
-          <Pencil size={17} />
+        <button
+          className={`rail-btn ${view === 'chat' ? 'active' : ''}`}
+          title="Conversations"
+          aria-label="Conversations"
+          onClick={() => setView('chat')}
+        >
+          <History size={18} />
         </button>
-        <button className="rail-btn" title="search" onClick={toggleSidebar}>
+        <button className="rail-btn" title="search" aria-label="Search — opens the full sidebar" onClick={toggleSidebar}>
           <Search size={17} />
         </button>
-        <div className="rail-sep" />
-        <div className="rail-agents">
-          {openable(agents).map((a) => (
-            <button
-              key={a.id}
-              className={`rail-agent ${a.id === selected?.id ? 'active' : ''}`}
-              title={a.name || a.id}
-              onClick={() => onPickAgent(a.id)}
-            >
-              <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
-                {agentInitials(a.name, a.id)}
-              </span>
-            </button>
-          ))}
-        </div>
+        {subjectChips.length > 0 && (
+          <div className="rail-agents">
+            {subjectChips.map(({ key, agent: a }) => (
+              <button
+                key={a.id}
+                className={`rail-agent ${a.id === selected?.id ? 'active' : ''}`}
+                title={a.name || a.id}
+                onClick={() => {
+                  activateTab(key)
+                  setView('chat')
+                }}
+              >
+                <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
+                  {agentInitials(a.name, a.id)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="rail-spacer" />
+        <button className="rail-btn" title="Credits & billing" aria-label="Credits & billing" onClick={onCredits}>
+          <CreditCard size={17} />
+        </button>
+        <SettingsMenu variant="rail" onSettings={onSettings} onCredits={onCredits} onOrgs={onOrgs} />
         <ProfileMenu
           onOrgs={() => viewOrg('')}
           onOrg={viewOrg}
@@ -228,17 +266,6 @@ export function Sidebar({
           onSignIn={onSignIn}
           onSignOut={onSignOut}
         />
-        <button
-          className={`rail-btn ${view === 'launchpad' ? 'active' : ''}`}
-          title="Launchpad"
-          onClick={() => setView('launchpad')}
-        >
-          <LayoutGrid size={18} />
-        </button>
-        <SettingsMenu variant="rail" onSettings={onSettings} onCredits={onCredits} onOrgs={onOrgs} />
-        <button className="rail-btn" title="Light mode — not available yet" disabled>
-          <Sun size={17} />
-        </button>
       </aside>
     )
   }

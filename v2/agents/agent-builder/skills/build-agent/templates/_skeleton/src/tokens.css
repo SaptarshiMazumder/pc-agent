@@ -126,6 +126,7 @@
      far off the rest of the scale and a theme sets it deliberately or not at all. */
   --fs-hero: 44px;
   --fs-display: 24px;     /* the one headline on a screen that has one */
+  --fs-figure: 28px;      /* a number that is the point of its card */
   --fs-title: 18px;       /* page title */
   --fs-lead: 16px;        /* a lead-in line, a large control */
   --fs-panel: 17px;       /* panel heading */

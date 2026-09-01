@@ -2203,3 +2203,49 @@ h2 { font-size: 16px; }
   font-family: var(--display); font-size: var(--fs-title); font-weight: var(--fw-bold);
   letter-spacing: var(--ls-title); color: var(--text-bright);
 }
+
+/* The rail's account avatar — the design's foot: a lime tile carrying the account initials.
+   Grey while signed out (the User glyph shows instead). */
+.rail-account-tile {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--prim-bg); color: var(--prim-ink);
+  font-size: 11px; font-weight: var(--fw-on-accent);
+}
+
+/* Rail rhythm per the reference: roomier verticals, a quieter expand control, the working-set
+   chips separated from the destinations by space rather than a rule. */
+.sidebar--rail { gap: 6px; padding: 14px 0 16px; align-items: center; }
+.sidebar--rail .brand-logo--rail { margin-bottom: 2px; }
+.rail-expand { opacity: 0.55; }
+.rail-expand:hover { opacity: 1; }
+.rail-agents { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+/* The rail's popovers open OUTSIDE its 64px — never clip them. Short fixed content, so the
+   rail needs no scroll; raised so the menu floats over the main surface. */
+.sidebar--rail { overflow: visible; position: relative; z-index: 30; }
+
+/* The chat view with nothing open: the truth and the door, centred. */
+.chat-none {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center; padding: var(--sp-section);
+}
+.chat-none-title { margin: 0; font-size: var(--fs-subject); font-weight: var(--fw-heavy); color: var(--text); }
+.chat-none-sub { margin: 0 0 8px; font-size: var(--fs-control); color: var(--dim); max-width: 380px; }
+
+/* ── The composer in a NARROW column ────────────────────────────────────────────────────────
+   Beside a workspace pane the conversation is a 360px column, and the full composer does not
+   fold: the labelled buttons wrap and the keyboard tutorial runs three lines under them. A
+   container query on the column (not the viewport — the same column is wide when no pane is
+   open) compacts it: Open-app and Fork drop to their icons (their titles still carry the
+   names), and the hint keeps the two facts that matter — model and credits — while the
+   Enter/Shift+Enter tutorial goes. Nothing is removed: every control stays clickable. */
+.stage-chat { container-type: inline-size; }
+@container (max-width: 480px) {
+  .open-app-btn > span:not(.ico),
+  .ghost-chip > span:not(.ico) { display: none; }
+  .open-app-btn, .ghost-chip { padding-left: 9px; padding-right: 9px; }
+  .composer-hint .hint-note { display: none; }
+  /* the sep RIGHT BEFORE the hidden note — :last-of-type matches element type, not class */
+  .composer-hint .hint-sep:has(+ .hint-note) { display: none; }
+  .composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

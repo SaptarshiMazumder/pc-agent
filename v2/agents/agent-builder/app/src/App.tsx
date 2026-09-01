@@ -48,7 +48,6 @@ import { ShipScreen } from './components/ShipScreen'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsView } from './components/settings/SettingsView'
 import { StartModal, type StartMode } from './components/StartModal'
-import { HeroStart, HeroSuggestions } from './components/Hero'
 import { Thread } from './components/Thread'
 import TabBar from './components/TabBar'
 import { Topbar } from './components/Topbar'
@@ -90,6 +89,7 @@ export default function App() {
   const addFiles = useApp((s) => s.addFiles)
   const removeFile = useApp((s) => s.removeFile)
   const toolTick = useApp((s) => s.toolTick)
+  const openTabs = useApp((s) => s.openTabs)
   const sidebarCollapsed = useApp((s) => s.sidebarCollapsed)
   const panelOpen = useApp((s) => s.panelOpen)
   const togglePanel = useApp((s) => s.togglePanel)
@@ -304,14 +304,6 @@ export default function App() {
   /* Built once, rendered in one of two places: centred in an empty page, or pinned under a
      conversation. Two copies of this JSX would be two things to keep in step. */
   const empty = chat.items.length === 0
-  /* HAS THIS CONVERSATION BEEN STARTED? Not "does it have messages" — a chat you just created or
-     picked an agent for has none yet, and it is emphatically not untouched.
-     
-     This is the bug that made every screen look like the same screen: the empty state WAS the
-     Start card, so answering "create a new agent" in the dialog dropped you on a page offering to
-     create a new agent. You could not tell it had worked. Only a genuinely fresh chat — no
-     messages, no subject, no window decision — asks how to begin. */
-  const fresh = empty && !chat.scope
   const composer = (
     <Composer
       running={chat.running}
@@ -464,6 +456,7 @@ export default function App() {
               setView('chat')
               void openChat(key)
             }}
+            onSuggest={(text) => setBlueprint({ seed: text })}
             credits={credits}
             onCredits={() => setView('credits')}
             status={status}
@@ -498,30 +491,32 @@ export default function App() {
               onWsTab={setWsTab}
               onShip={() => setShip(true)}
             />
+        {openTabs.length === 0 ? (
+          /* NOTHING OPEN. Not a blank composer pretending to be a conversation — conversations
+             come through the launchpad's doors (create, or pick an agent), and this says so. */
+          <section className="stage">
+            <div className="chat-none">
+              <p className="chat-none-title">Nothing open</p>
+              <p className="chat-none-sub">
+                Conversations start from the Launchpad — pick an agent to work on, or create one.
+              </p>
+              <button className="prime-btn" onClick={() => setView('launchpad')}>
+                Open the Launchpad
+              </button>
+            </div>
+          </section>
+        ) : (
         <section className={`stage ${paneOpen ? 'stage--split' : ''}`}>
           {/* The conversation column — the whole stage when no pane is open (the old layout,
               exactly), a 400px column beside the live window when one is. */}
           <div className="stage-chat">
             {empty ? (
               /* NOTHING SAID YET: the input in the MIDDLE of the page rather than pinned to the
-                 bottom, which on an empty chat left the one thing you came to use furthest from
-                 where you were looking. The cards around it appear only on a chat that has not
-                 been started — see `fresh`. */
+                 bottom. The Start card and the suggestions that used to sit around it moved to
+                 the Launchpad — which is HOME now, and where "what shall we start" belongs. An
+                 empty conversation is just a conversation that has not started. */
               <div className="chat-hero">
-                {fresh && (
-                  <HeroStart
-                    hasAgents={openable(agents).length > 0}
-                    onCreate={() => setBlueprint({})}
-                    onEdit={() => setStart({ mode: 'edit' })}
-                  />
-                )}
                 <div className="chat-hero-composer">{composer}</div>
-                {/* A suggestion says WHAT to build; the dialog is still HOW. Routing it through
-                    the same door is what stops the most-taken path being the one that skips the
-                    question. */}
-                {fresh && (
-                  <HeroSuggestions onSuggest={(text) => setBlueprint({ seed: text })} />
-                )}
               </div>
             ) : (
               <>
@@ -550,6 +545,7 @@ export default function App() {
           )}
           {testOpen && selected && <WorkspaceTestDrive agent={selected} />}
         </section>
+        )}
           </>
         )}
       </main>

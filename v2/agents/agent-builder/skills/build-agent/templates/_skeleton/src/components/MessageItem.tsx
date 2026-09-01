@@ -109,22 +109,31 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 function AssistantMessage({ item }: { item: BotItem & { ts?: number } }) {
   const stamp = item.ts ? timeLabel(item.ts) : ''
   return (
-    <div className="msg-item">
-      <div className="msg-assistant markdown">
-        <Markdown text={item.text} />
-        {item.streaming && <span className="caret" />}
-      </div>
-      <ArtifactView artifacts={item.artifacts} />
-      {!item.streaming && (item.text || stamp) && (
-        <div className="msg-meta">
-          {item.text && (
-            <div className="msg-actions">
-              <CopyButton text={item.text} />
-            </div>
-          )}
-          {stamp && <div className="msg-time">{stamp}</div>}
+    <div className="msg-item msg-row">
+      {/* THE AGENT'S MARK, beside its own words. The user's turn is a bubble and needs no label;
+          this side is bare prose, and without a mark a long answer reads as page furniture
+          rather than as something that was said. Decorative — the text is the message, so it is
+          hidden from assistive tech rather than announced on every turn. */}
+      <span className="msg-avatar" aria-hidden="true">
+        <Sparkles size={14} strokeWidth={1.9} />
+      </span>
+      <div className="msg-body">
+        <div className="msg-assistant markdown">
+          <Markdown text={item.text} />
+          {item.streaming && <span className="caret" />}
         </div>
-      )}
+        <ArtifactView artifacts={item.artifacts} />
+        {!item.streaming && (item.text || stamp) && (
+          <div className="msg-meta">
+            {item.text && (
+              <div className="msg-actions">
+                <CopyButton text={item.text} />
+              </div>
+            )}
+            {stamp && <div className="msg-time">{stamp}</div>}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

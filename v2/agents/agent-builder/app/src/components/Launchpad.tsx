@@ -24,6 +24,7 @@ import { useApp } from '../state/store'
 import { LaunchpadAgentTable } from './LaunchpadAgentTable'
 import { LaunchpadSideColumn } from './LaunchpadSideColumn'
 import { LaunchpadTemplateShelf } from './LaunchpadTemplateShelf'
+import { HeroSuggestions } from './Hero'
 import SearchBox from './SearchBox'
 
 export function Launchpad({
@@ -33,6 +34,7 @@ export function Launchpad({
   onCreateShape,
   onPreviewTemplate,
   onOpenChat,
+  onSuggest,
   credits,
   onCredits,
   status,
@@ -48,6 +50,8 @@ export function Launchpad({
   onPreviewTemplate: (id: string) => void
   /** Resume a saved conversation — the same door the sidebar's Recents use. */
   onOpenChat: (key: string) => void
+  /** A starter suggestion — opens the Blueprint seeded, the same door it always opened. */
+  onSuggest: (text: string) => void
   /** The live balance, or null when unknown — null hides the block (the composer's rule). */
   credits: number | null
   onCredits: () => void
@@ -108,6 +112,10 @@ export function Launchpad({
             onEdit={onEdit}
             onRefresh={() => void reloadAgents()}
           />
+
+          {/* The chat-hero's suggestions, living where starting lives now. Same door as ever:
+              each opens the Blueprint seeded. */}
+          <HeroSuggestions onSuggest={onSuggest} />
         </div>
 
         <LaunchpadSideColumn onOpenChat={onOpenChat} credits={credits} onCredits={onCredits} />

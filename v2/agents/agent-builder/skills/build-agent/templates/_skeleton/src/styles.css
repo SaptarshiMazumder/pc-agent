@@ -523,29 +523,37 @@ h2 { font-size: var(--fs-lead); }
  * could not find out in this window. */
 .tool { margin: 10px 0; }
 .tool-head {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  background: transparent; border: 1px solid var(--border); border-radius: 10px;
-  padding: 8px 12px; color: var(--text); cursor: pointer; text-align: left; font: inherit;
+  display: flex; align-items: center; gap: var(--sp-icon); width: 100%;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
+  padding: 10px var(--sp-control); color: var(--text); cursor: pointer; text-align: left; font: inherit;
   transition: background var(--dur-base) ease, border-color var(--dur-base) ease;
 }
 .tool-head:hover { background: var(--bg3); border-color: var(--border2); }
-.tool-status { display: flex; flex: none; color: var(--accent); }
+/* THE STATE IS A TILE, so a finished call reads at a glance down a column of them and a
+   running one is obviously not finished. Green when it worked — the accent means "this is the
+   agent's", not "this succeeded", and the two were the same colour before. */
+.tool-status {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; border-radius: var(--r-chip);
+  background: var(--bg3); color: var(--ok);
+}
+.tool-status.spin { color: var(--accent-text); }
 .tool-status.spin svg { animation: ag-spin 1s linear infinite; }
-.tool-status.err { color: var(--danger); }
+.tool-status.err { color: var(--danger); background: var(--danger-soft); }
 .tool-name { font: 600 12.5px var(--mono); color: var(--accent-text); }
 .tool.error .tool-name { color: var(--danger); }
 .tool.error .tool-head:hover { background: var(--danger-soft); border-color: var(--danger-soft); }
 .tool-args { flex: 1; min-width: 0; font: var(--fs-meta) var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-caret { color: var(--faint); display: flex; flex: none; }
 /* collapsed: one line of the result, or the newest progress step while it is still running */
-.tool-first { font: var(--fs-meta) var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-first { font: var(--fs-meta) var(--mono); color: var(--dim); padding: 5px 0 0 33px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-first.live { color: var(--accent-text); animation: ag-pulse 1.2s ease infinite; }
-.tool-running { font: var(--fs-meta) var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
+.tool-running { font: var(--fs-meta) var(--mono); color: var(--accent-text); padding: 5px 0 0 33px; animation: ag-pulse 1.2s ease infinite; }
 /* expanded: the whole thing, capped and scrollable so one enormous result cannot own the thread */
-.tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: var(--r-input); max-height: 280px; overflow: auto; font: var(--fs-meta)/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
+.tool-full { margin: 6px 0 0 33px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: var(--r-input); max-height: 280px; overflow: auto; font: var(--fs-meta)/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
 
 /* the update_plan checklist, and a subagent's step list — one shape, two readers */
-.todo-list { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.todo-list { list-style: none; margin: 6px 0 0 33px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .todo-step { display: flex; align-items: flex-start; gap: 9px; font-size: var(--fs-control); color: var(--text); line-height: 1.5; }
 .todo-check { flex: none; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--dim); }
 .todo-dot { width: 11px; height: 11px; border: 1.5px solid var(--border2); border-radius: 50%; }
@@ -855,3 +863,191 @@ h2 { font-size: var(--fs-lead); }
 /* A conversation in the rail. `.row` is the assistant's; this is only the selected state, which
    its own sidebar expresses through a component this one does not have. */
 .sidebar .row.on { background: var(--bg3); }
+
+/* ══ THE DESIGN'S LAYOUT ═════════════════════════════════════════════════════════════════════
+   The rail is destinations-first; the main column is a page head over a stage; the stage is the
+   conversation with the run's own numbers beside it. Every value is a token — see tokens.css on
+   why a literal here is a bug. */
+
+/* ── the rail ──────────────────────────────────────────────────────────────────────────────── */
+.brand-tile {
+  width: 34px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius); color: var(--prim-ink);
+  /* A gradient rather than a logo file: an agent that ships no artwork still has a mark. */
+  background: linear-gradient(150deg, var(--accent), var(--accent-deep));
+}
+.brand-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.brand-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-small); color: var(--faint);
+}
+
+/* THE ONE FILLED CONTROL in the window. Everything else is a place to go. */
+.nav-primary {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-tight);
+  margin: 0 var(--sp-gap) var(--sp-control); padding: 11px var(--sp-control);
+  border: 0; border-radius: var(--r-control);
+  background: var(--prim-bg); color: var(--prim-ink);
+  font-family: var(--sans); font-size: var(--fs-control); font-weight: var(--fw-on-accent);
+  cursor: pointer; transition: background var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth);
+}
+.nav-primary:hover { background: var(--prim-bg-h); }
+.nav-primary:active { transform: scale(.985); }
+
+.nav-items { display: flex; flex-direction: column; gap: 3px; padding: 0 var(--sp-gap) var(--sp-gap); }
+.nav-item {
+  display: flex; align-items: center; gap: var(--sp-icon);
+  padding: 7px 9px; border: 0; border-radius: var(--r-control);
+  background: transparent; color: var(--dim);
+  font-family: var(--sans); font-size: var(--fs-control); font-weight: var(--fw-medium);
+  cursor: pointer; text-align: left;
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
+}
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.on { background: var(--accent-soft); color: var(--text); font-weight: var(--fw-semi); }
+/* THE ICON SITS IN A TILE, which is what gives the rail its rhythm — a bare glyph beside text
+   reads as a bullet list, and the active state has nothing to fill. */
+.nav-ico {
+  width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-control); background: var(--bg3); color: var(--dim);
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
+}
+.nav-item.on .nav-ico { background: var(--accent-soft); color: var(--accent-text); }
+.nav-item-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-count { flex: none; font-family: var(--mono); font-size: var(--fs-small); color: var(--faint); }
+
+.rail-foot {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: var(--sp-gap); border-top: 1px solid var(--border);
+}
+
+/* ── the page head ─────────────────────────────────────────────────────────────────────────── */
+.page-head {
+  flex: none; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--sp-control); padding: var(--sp-panel) 26px var(--sp-control);
+}
+.page-head-text { min-width: 0; }
+.page-title {
+  margin: 0; font-family: var(--display); font-size: var(--fs-display);
+  font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.page-sub { margin: 5px 0 0; font-size: var(--fs-control); color: var(--faint); }
+
+/* ── the stage: the conversation, and the numbers beside it ────────────────────────────────── */
+.stage {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--aside-w);
+  gap: var(--sp-panel); padding: 0 26px var(--sp-panel);
+}
+.stage-main { display: flex; flex-direction: column; min-height: 0; gap: var(--sp-control); }
+/* THE TRANSCRIPT HAS AN EDGE now, so the page around it can carry the aside without the two
+   running together. It clips its own scroll — the card is the frame, the thread is the content. */
+.convo-card {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel);
+}
+.stage-aside {
+  display: flex; flex-direction: column; gap: var(--sp-control);
+  min-height: 0; overflow-y: auto;
+}
+/* THE ASIDE IS THE FIRST THING TO GO when the window is narrow: the conversation is the product
+   and a squeezed one is worse than a hidden figure. */
+@media (max-width: 1100px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .stage-aside { display: none; }
+}
+
+/* Inside the stage the composer is the column's width and carries its own padding — the
+   centred 720px measure belongs to the bare-thread layout it came from. */
+.stage-main > .composer-wrap { padding: 0; }
+.stage-main > .composer-wrap > .composer { max-width: none; }
+
+/* ── the opening ───────────────────────────────────────────────────────────────────────────── */
+.opening {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: var(--sp-panel);
+}
+.opening-eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: var(--r-pill);
+  background: var(--bg2); border: 1px solid var(--border);
+  color: var(--dim); font-size: var(--fs-meta);
+}
+.opening-headline {
+  margin: var(--sp-control) 0 0; max-width: 16ch;
+  font-family: var(--display); font-size: var(--fs-hero); font-weight: var(--fw-bold);
+  letter-spacing: -0.035em; line-height: 1.04; color: var(--text);
+}
+.opening-blurb {
+  margin: var(--sp-control) 0 0; max-width: 58ch;
+  font-size: var(--fs-control); line-height: 1.62; color: var(--dim);
+}
+.opening-grid {
+  margin-top: 30px; width: 100%; max-width: 660px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-gap);
+}
+@media (max-width: 720px) { .opening-grid { grid-template-columns: minmax(0, 1fr); } }
+.opening-card {
+  display: flex; align-items: center; gap: var(--sp-icon); text-align: left;
+  padding: var(--sp-control); cursor: pointer; color: var(--text);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
+  transition: background var(--dur-base) ease, border-color var(--dur-base) ease,
+              transform var(--dur-fast) var(--ease-smooth);
+}
+.opening-card:hover { background: var(--bg3); border-color: var(--accent-edge); }
+.opening-card:active { transform: scale(.99); }
+.opening-card-ico {
+  width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-control); background: var(--bg3); color: var(--accent-text);
+}
+.opening-card-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+.opening-card-title { font-size: var(--fs-control); font-weight: var(--fw-semi); }
+.opening-card-sub { font-size: var(--fs-meta); color: var(--faint); }
+.opening-card-go { color: var(--faint); flex: none; }
+.opening-card:hover .opening-card-go { color: var(--accent-text); }
+
+/* ── the stat cards ────────────────────────────────────────────────────────────────────────── */
+.stat-card {
+  flex: none; display: flex; flex-direction: column; gap: var(--sp-tight);
+  padding: var(--sp-control);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
+}
+.stat-head {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--faint); font-weight: var(--fw-semi);
+}
+.stat-figure {
+  font-family: var(--display); font-size: var(--fs-figure); font-weight: var(--fw-bold);
+  letter-spacing: -0.03em; color: var(--text); line-height: 1;
+}
+.stat-unit { font-size: var(--fs-lead); color: var(--dim); margin-left: 2px; }
+.stat-bar { height: 5px; border-radius: var(--r-pill); background: var(--bg3); overflow: hidden; }
+/* The percentage arrives as a custom property so the WIDTH is data and everything else is
+   styling — see the note at its call site in App.tsx. */
+.stat-bar-fill {
+  display: block; height: 100%; border-radius: inherit;
+  width: calc(var(--pct, 0) * 1%);
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+  transition: width var(--dur-slow) var(--ease-smooth);
+}
+.stat-link {
+  align-self: flex-start; padding: 0; border: 0; background: none; cursor: pointer;
+  font-family: var(--sans); font-size: var(--fs-meta); color: var(--accent-text);
+}
+.stat-link:hover { text-decoration: underline; }
+
+/* ── the assistant's turn: a mark, then the words ──────────────────────────────────────────── */
+.msg-row { display: flex; align-items: flex-start; gap: var(--sp-icon); }
+.msg-avatar {
+  width: 30px; height: 30px; flex: none; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-control); color: var(--prim-ink);
+  /* The same gradient as the rail's brand tile — one mark, two places. */
+  background: linear-gradient(150deg, var(--accent), var(--accent-deep));
+}
+.msg-body { flex: 1; min-width: 0; }
+/* The prose already sets its own top margin; inside the row it would double the gap. */
+.msg-row > .msg-body > .msg-assistant { margin-top: 0; }

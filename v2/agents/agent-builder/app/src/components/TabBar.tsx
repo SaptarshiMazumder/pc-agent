@@ -32,7 +32,7 @@ export default function TabBar() {
   const chats = useApp((s) => s.chats)
   const activateTab = useApp((s) => s.activateTab)
   const closeTab = useApp((s) => s.closeTab)
-  const newSession = useApp((s) => s.newSession)
+  const setView = useApp((s) => s.setView)
   const reorderTabs = useApp((s) => s.reorderTabs)
   const closeOthers = useApp((s) => s.closeOthers)
   const closeToLeft = useApp((s) => s.closeToLeft)
@@ -220,7 +220,7 @@ export default function TabBar() {
             </div>
           ))}
           {/* the "+" sits right after the last tab and scrolls with them, Chrome-style */}
-          <button className="tab-add-inline" title="New conversation" onClick={() => newSession()}>
+          <button className="tab-add-inline" title="Start something — opens the Launchpad" onClick={() => setView('launchpad')}>
             <Plus size={16} />
           </button>
         </div>
@@ -290,8 +290,8 @@ export default function TabBar() {
           }
           return (
             <div className="tab-ctx" style={{ left: ctx.x, top: ctx.y }} role="menu" ref={ctxRef}>
-              <button className="tab-ctx-item" onClick={() => run(() => newSession())}>
-                New conversation
+              <button className="tab-ctx-item" onClick={() => run(() => setView('launchpad'))}>
+                Start something…
               </button>
               <div className="tab-ctx-sep" />
               <button className="tab-ctx-item" onClick={() => run(() => beginClose(ctx.key))}>
