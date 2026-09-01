@@ -37,6 +37,11 @@ class PluginContext:
     credential_store: object = None  # saved-login vault (no plaintext secrets ever reach the model)
     connect_token_store: object = None  # channel connect tokens
     registry: object = None  # AgentRegistry — list/author agents at runtime (create_agent)
+    mcp_connector: object = None  # AgentMcpConnector — the per-agent DECLARED [[mcp]] servers:
+    #                               `ensure(spec)` dials them, `tools_for`/`problems_for` say what
+    #                               came up and why the rest did not. Agent Builder needs it to
+    #                               answer "the agent I just built has no tools" — without it the
+    #                               only signal is an agent that says it cannot do the thing.
     register_plugin_live: object = None  # callable() -> hot-load NEWLY-written plugins into the
     #                                      live catalog without a restart (used by create_tool)
     broadcast_app_rebuilt: object = None  # callable(agent_id) -> tell THAT agent's own windows

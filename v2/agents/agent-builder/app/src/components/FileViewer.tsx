@@ -8,27 +8,15 @@ import Markdown from './Markdown'
 
 const TEXTY = /\.(toml|md|txt|json|ya?ml|py|js|mjs|ts|tsx|css|html|sh|ps1|cfg|ini|log|env)$/i
 
-export function FileViewer({
-  entry,
-  client,
-  onClose,
-}: {
-  entry: TreeEntry
-  client: AgentdClient
-  onClose: () => void
-}) {
-  const [body, setBody] = useState<{ state: 'loading' | 'text' | 'markdown' | 'note'; text: string }>({
-    state: 'loading',
-    text: 'loading…',
-  })
+export type FileBody = { state: 'loading' | 'text' | 'markdown' | 'note'; text: string }
+
+/** Fetch one file's content by the viewer's rules — texty files load, media is left to the
+ *  caller (`media: true`), and a large binary becomes a refusal note rather than mojibake.
+ *  Extracted so the modal and the workspace's inline pane read files identically. */
+export function useFileBody(entry: TreeEntry, client: AgentdClient): { body: FileBody; url: string; media: boolean } {
+  const [body, setBody] = useState<FileBody>({ state: 'loading', text: 'loading…' })
   const url = client.fileUrl(entry.path)
   const media = entry.kind === 'image' || entry.kind === 'video' || entry.kind === 'audio'
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   useEffect(() => {
     if (media) return
@@ -51,6 +39,26 @@ export function FileViewer({
       live = false
     }
   }, [entry, url, media])
+
+  return { body, url, media }
+}
+
+export function FileViewer({
+  entry,
+  client,
+  onClose,
+}: {
+  entry: TreeEntry
+  client: AgentdClient
+  onClose: () => void
+}) {
+  const { body, url, media } = useFileBody(entry, client)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

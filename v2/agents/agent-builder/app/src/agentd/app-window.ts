@@ -58,12 +58,19 @@ export async function buildAndOpen(
   agent: AgentRow,
   build: boolean,
 ): Promise<void> {
-  if (build) {
-    // Throws with the tool's own report — vite's error, naming the file and line — which the
-    // caller shows verbatim. There is nothing useful this layer could add to it.
-    await client.invokeTool('build_app', { agent_id: agent.id })
-  }
+  if (build) await buildApp(client, agent)
   await openAgentWindow(agent)
+}
+
+/** Just the build — the first half of buildAndOpen, split out so the in-app preview pane can
+ *  rebuild without popping a window. Throws with the tool's own report — vite's error, naming
+ *  the file and line — which the caller shows verbatim. There is nothing useful this layer
+ *  could add to it. */
+export async function buildApp(
+  client: { invokeTool(name: string, params: Record<string, unknown>): Promise<unknown> },
+  agent: AgentRow,
+): Promise<void> {
+  await client.invokeTool('build_app', { agent_id: agent.id })
 }
 
 /** The desktop bridge, when this window is running inside the desktop app. */

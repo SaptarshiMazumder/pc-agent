@@ -106,12 +106,20 @@ export function ProfileMenu({
           <User size={17} />
         </button>
       ) : (
+        /* The rail trigger is the ACCOUNT AVATAR, the way the design draws it — a lime tile
+           with the account's initial, grey while signed out. The identity fact was already in
+           the title; now it is the button. */
         <button
-          className={`rail-btn ${open ? 'active' : ''}`}
+          className={`rail-btn rail-account ${signedIn ? '' : 'anon'} ${open ? 'active' : ''}`}
           title={signedIn ? `Signed in as ${auth?.email || 'your account'}` : 'Account'}
+          aria-label="Account"
           onClick={() => setOpen((v) => !v)}
         >
-          <User size={18} />
+          {signedIn && auth?.email ? (
+            <span className="rail-account-tile">{auth.email.slice(0, 2).toUpperCase()}</span>
+          ) : (
+            <User size={18} />
+          )}
         </button>
       )}
       {open && (

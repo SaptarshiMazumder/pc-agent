@@ -148,23 +148,39 @@ variable "marketplace_certificate_arn" {
 }
 
 
-# ── the domain (see dev.auto.tfvars for the values + DOMAIN-SETUP.md for bring-up) ──────────────
+# ── the domain (../../DOMAIN-SETUP.md is the runbook) ───────────────────────────────────────
+#
+# ONE SUBDOMAIN PER ENVIRONMENT. Dev owns `dev.<apex>` and staging owns `staging.<apex>`, each
+# with its own Route 53 zone, its own pair of ACM certificates and its own wildcard — so an
+# environment's namespace is a subtree nothing else can reach into, and the two can never fight
+# over a record. The bare apex is nobody's: it holds the NS delegations for those two zones and
+# serves nothing.
+#
+# WHY THESE CARRY REAL VALUES INSTEAD OF "" + a gitignored tfvars: a hostname is not a secret,
+# and the environment that a checkout deploys should be legible from the checkout. A local
+# `dev.auto.tfvars` still overrides them — WHICH IS THE TRAP: tfvars beat defaults, so an old
+# `root_domain = "thorgodofthunder.site"` line there silently keeps this environment on the
+# apex. Delete that line before applying (see the runbook's step 0).
 variable "root_domain" {
   description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard."
   type        = string
-  default     = ""
+  default     = "dev.thorgodofthunder.site"
 }
 
+# The full hostname is the KEY (not a label): the module writes it into the ALB host rule and
+# into the daemon's AGENTD_APP_HOSTS from this one map, so the two cannot disagree.
 variable "agent_hostnames" {
   description = "Vanity hostname -> agent id (ALB host rule + AGENTD_APP_HOSTS, one map so they cannot disagree)."
   type        = map(string)
-  default     = {}
+  default = {
+    "platform.dev.thorgodofthunder.site" = "cloud-agent-builder"
+  }
 }
 
 variable "admin_hostname" {
   description = "The standalone admin console's hostname (nginx server_name + the ALB rule that shields it from the wildcard)."
   type        = string
-  default     = ""
+  default     = "admin.dev.thorgodofthunder.site"
 }
 
 variable "cost_per_hour_alarm_usd" {

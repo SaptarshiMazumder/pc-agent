@@ -378,6 +378,7 @@ def build_service(
         "credential_store": credential_store,
         "connect_token_store": connect_token_store,
         "registry": registry,
+        "mcp_connector": mcp_connector,
         "register_plugin_live": register_plugin_live,
         "broadcast_agents_changed": broadcast_agents_changed,
         "broadcast_app_rebuilt": broadcast_app_rebuilt,
@@ -846,7 +847,6 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
 
     from agent_runtime.application.services.agent_mcp_connector import AgentMcpConnector
     from agent_runtime.domain.agent import setting_env_name
-    from agent_runtime.infrastructure.agents.mcp_approval_store import McpApprovalStore
     from agent_runtime.infrastructure.tools.mcp.provider import McpProvider
     from agent_runtime.infrastructure.tools.mcp.session import create_session
     from agent_runtime.presentation.gateway import _guarded_with_source
@@ -883,7 +883,6 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
         connect=_connect,
         read_env=lambda name: os.environ.get(name, ""),
         setting_env=setting_env_name,
-        approvals=McpApprovalStore(Path(config.state_dir) / "mcp_approvals.json"),
         oauth=oauth_token,  # for a server declaring auth = "oauth:<name>"
     )
 

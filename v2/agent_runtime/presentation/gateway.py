@@ -131,12 +131,11 @@ APP_SCOPED_METHODS = frozenset(
         "config.get",
         "config.set",
         # DECLARED MCP. `status` answers "why does this agent have no tools" on its own settings
-        # page; `approve` is the user consenting to launch the command their agent declared. Both
-        # are forced onto the connection's own agentId like every other scoped write, so a page
-        # can only ever see and approve ITS OWN servers. Neither can invent a server: approve
-        # refuses any name the agent's own agent.toml does not declare.
+        # page — a missing credential, a server that came up with nothing. It is forced onto the
+        # connection's own agentId like every other scoped call, so a page can only ever see ITS
+        # OWN servers. There was an `approve` beside it, for the user consenting to launch the
+        # command their agent declared; declared servers now start on first run and it is gone.
         "mcp.status",
-        "mcp.approve",
         # OAUTH. Signing in to the third-party service THIS agent declared, from the page the
         # user is already looking at. Forced onto the connection's own agentId like every other
         # scoped call, and each handler refuses a name the agent's own agent.toml does not
@@ -3019,8 +3018,6 @@ class Gateway:
                 payload = self._oauth_disconnect(req.params)
             elif req.method == "mcp.status":
                 payload = self._mcp_status(req.params)
-            elif req.method == "mcp.approve":
-                payload = self._mcp_approve(req.params)
             elif req.method == "mcp.list":
                 payload = self._mcp_list()
             elif req.method == "mcp.remove":
@@ -5747,19 +5744,6 @@ class Gateway:
                 }
             )
         return {"agentId": agent_id, "servers": servers}
-
-    def _mcp_approve(self, params: dict) -> dict:
-        """Record the user's consent to launch one declared server's exact command."""
-        if self.mcp_connector is None:
-            return {"approved": False, "error": "this daemon has no declared-MCP support"}
-        agent_id = str(params.get("agentId") or "")
-        name = str(params.get("name") or "")
-        spec = self.registry.get(agent_id) if (self.registry and agent_id) else None
-        decl = next((d for d in getattr(spec, "mcp", ()) or () if d.name == name), None)
-        if decl is None:
-            raise ValueError(f"agent '{agent_id}' declares no MCP server '{name}'")
-        ok = self.mcp_connector.approve(agent_id, decl)
-        return {"approved": ok, "agentId": agent_id, "name": name}
 
     def _env_write_plan(self, keys: dict, target: str) -> tuple[dict, dict, list[str], list[str]]:
         """Turn ``{name: value}`` as the PAGE wrote it into the two places a value can now go.

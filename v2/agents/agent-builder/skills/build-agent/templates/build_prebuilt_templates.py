@@ -42,6 +42,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parent
@@ -49,6 +50,7 @@ SKELETON = TEMPLATES / "_skeleton"
 VARIANTS = TEMPLATES / "_variants"
 COMMON = TEMPLATES / "_common"
 PREBUILT = TEMPLATES / "_prebuilt"
+PREVIEWS = TEMPLATES / "_previews"
 
 #: Mirrors ScaffoldReactAppService.SKIP_DIRS — build output and installed packages are not the
 #: template.
@@ -135,10 +137,26 @@ def _link_modules(app_dir: Path) -> None:
     raise SystemExit(f"could not link {target} -> {modules}; build previews on a box that can")
 
 
-def build_one(template: str, force: bool) -> str:
+def _ungate(app_dir: Path) -> None:
+    """Drop the sign-in gate from a PREVIEW build only.
+
+    A thumbnail exists to show the agent's own screen. Rendered with the gate, every template
+    looks like the same sign-in card, which is exactly the picture the create dialog does not
+    need. Nothing else changes, and the real skeleton — the one every shipped agent is built
+    from — keeps its gate: this rewrite happens in a throwaway directory.
+    """
+    main = app_dir / "src" / "main.tsx"
+    src = main.read_text(encoding="utf-8")
+    src = src.replace("import Gate from './common/auth/Gate'\n", "")
+    src = src.replace("    <Gate>\n", "").replace("    </Gate>\n", "")
+    main.write_text(src, encoding="utf-8")
+
+
+def build_one(template: str, force: bool, *, preview: bool = False) -> str:
     """'built' | 'current' — and raises/exits loudly on a broken template, because a template
     that cannot build means create_agent would hand out a window that cannot build either."""
-    stamp = PREBUILT / template / STAMP_NAME
+    out_root = PREVIEWS if preview else PREBUILT
+    stamp = out_root / template / STAMP_NAME
     digest = inputs_hash(template)
     if not force and stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == digest:
         return "current"
@@ -151,6 +169,8 @@ def build_one(template: str, force: bool) -> str:
         app_dir = Path(td) / "app"
         app_dir.mkdir()
         assemble(template, app_dir)
+        if preview:
+            _ungate(app_dir)
         _link_modules(app_dir)
         r = subprocess.run(
             [npm, "run", "build"],
@@ -170,10 +190,22 @@ def build_one(template: str, force: bool) -> str:
         if not (ui / "index.html").is_file():
             raise SystemExit(f"template '{template}' built but wrote no ui/index.html")
 
-        dest = PREBUILT / template
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(ui, dest)
+        dest = out_root / template
+        # REPLACE THE CONTENTS, NOT THE DIRECTORY. On Windows a folder that is some process's
+        # working directory cannot be removed — a static server left serving a preview is enough
+        # to fail the whole run with PermissionError — but its CHILDREN delete fine. Clearing in
+        # place also means anyone watching the folder keeps their handle.
+        dest.mkdir(parents=True, exist_ok=True)
+        for child in dest.iterdir():
+            for attempt in range(6):
+                try:
+                    shutil.rmtree(child) if child.is_dir() else child.unlink()
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.5)
+        shutil.copytree(ui, dest, dirs_exist_ok=True)
         (dest / STAMP_NAME).write_text(digest + "\n", encoding="utf-8")
     return "built"
 
@@ -189,6 +221,9 @@ def main() -> int:
     for name in wanted:
         results[name] = build_one(name, args.force)
         print(f"  prebuilt {name}: {results[name]}")
+        # The create dialog's thumbnail, from the same inputs — see _ungate.
+        results[f"{name}:preview"] = build_one(name, args.force, preview=True)
+        print(f"  preview  {name}: {results[f'{name}:preview']}")
     print(json.dumps(results))
     return 0
 

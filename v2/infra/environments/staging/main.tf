@@ -120,14 +120,12 @@ module "stack" {
   payment_provider        = var.payment_provider
   checkout_return_origins = var.checkout_return_origins
 
-  # TLS. Setting the certificate flips EVERY listener to HTTPS (web moves to :443, :80
-  # redirects) — turned on because Dodo's webhooks refuse plain http. The cert is the
-  # DNS-validated wildcard for thorgodofthunder.site; staging.thorgodofthunder.site is an
-  # explicit Route 53 alias to this environment's ALB (the bare wildcard record points at
-  # DEV's). Clients built against the http URLs need a re-sync + rebuild after this lands —
-  # see certificate_arn's own docs about deploy.yml's baked origins.
-  certificate_arn = "arn:aws:acm:ap-northeast-1:891612568944:certificate/751ea0c5-ba23-4a2a-bb79-12001ac9d108"
-  domain_name     = "staging.thorgodofthunder.site"
+  # TLS comes from root_domain above — the module mints this environment's OWN certificates.
+  # These two are the other path (ride a certificate that already exists, DNS by hand) and
+  # stay empty here; dev keeps them empty for the same reason. They are what staging used
+  # while it borrowed DEV's wildcard certificate, which is the coupling root_domain removes.
+  certificate_arn = ""
+  domain_name     = ""
 
   # Alarms. THRESHOLDS ARE PRODUCTION'S, not dev's loose ones — the whole point of staging is to
   # find out whether an alarm fires when it should and stays quiet when it should not, and an
@@ -264,24 +262,40 @@ variable "marketplace_certificate_arn" {
   default     = ""
 }
 
-# ── the domain (kept for SHAPE parity with dev; staging leaves all three empty and does TLS
-# via certificate_arn instead — see the module call) ─────────────────────────────────────────
+# ── the domain (../../DOMAIN-SETUP.md is the runbook) ───────────────────────────────────────
+#
+# ONE SUBDOMAIN PER ENVIRONMENT. Staging owns `staging.<apex>` and dev owns `dev.<apex>`, each
+# with its own Route 53 zone, its own pair of ACM certificates and its own wildcard — so an
+# environment's namespace is a subtree nothing else can reach into, and the two can never fight
+# over a record. The bare apex is nobody's: it holds the NS delegations for those two zones and
+# serves nothing.
+#
+# THIS REPLACED certificate_arn/domain_name BELOW, which had staging borrowing the wildcard
+# certificate DEV'S terraform owns — an invisible coupling where one environment's apply could
+# take the other's HTTPS down. Each environment now mints its own.
+#
+# A local `staging.auto.tfvars` still overrides these, and tfvars BEAT defaults — so a stale
+# root_domain line there silently keeps this environment where it was. See the runbook's step 0.
 variable "root_domain" {
-  description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard. Staging leaves this empty: its TLS rides certificate_arn."
+  description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard."
   type        = string
-  default     = ""
+  default     = "staging.thorgodofthunder.site"
 }
 
+# The full hostname is the KEY (not a label): the module writes it into the ALB host rule and
+# into the daemon's AGENTD_APP_HOSTS from this one map, so the two cannot disagree.
 variable "agent_hostnames" {
   description = "Vanity hostname -> agent id (ALB host rule + AGENTD_APP_HOSTS, one map so they cannot disagree)."
   type        = map(string)
-  default     = {}
+  default = {
+    "platform.staging.thorgodofthunder.site" = "cloud-agent-builder"
+  }
 }
 
 variable "admin_hostname" {
   description = "The standalone admin console's hostname (nginx server_name + the ALB rule that shields it from the wildcard)."
   type        = string
-  default     = ""
+  default     = "admin.staging.thorgodofthunder.site"
 }
 
 variable "resolve_latency_p99_ms" {

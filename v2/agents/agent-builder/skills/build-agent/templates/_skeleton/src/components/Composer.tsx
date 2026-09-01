@@ -251,11 +251,13 @@ export function Composer({
           )}
         </div>
 
+        {/* SEPARATORS ARE THE STYLESHEET'S, not this file's — every conditional piece below used
+            to carry its own ` · `, which is how a hint ends up starting with a stray dot the
+            moment one of them is absent. */}
         <div className="composer-hint">
           <span className="hint-model">{model || 'no model yet'}</span>
           {credits !== null && (
             <>
-              <span className="hint-sep"> · </span>
               {/* A dead end is the worst place to learn you are out of credits, so the readout is
                   also the way to the top-up panel. */}
               <button
@@ -272,16 +274,21 @@ export function Composer({
               </button>
             </>
           )}
-          <span className="hint-sep"> · </span>
-          <span className="hint-note">
-            {!connected
-              ? 'not connected'
-              : running
-                ? 'running — press Stop to interrupt'
-                : dragging
-                  ? 'drop to attach'
-                  : 'Enter to send · Shift+Enter for a new line · paste or drop images'}
-          </span>
+          {/* STATUS AND INSTRUCTIONS ARE DIFFERENT THINGS, so they are different elements.
+              `hint-note` is what is happening right now — always worth the room. `hint-keys`
+              teaches the keyboard, which a narrow window (the dashboard's agent panel) can
+              drop without losing anything it could not discover by pressing Enter. */}
+          {!connected ? (
+            <span className="hint-note">not connected</span>
+          ) : running ? (
+            <span className="hint-note">running — press Stop to interrupt</span>
+          ) : dragging ? (
+            <span className="hint-note">drop to attach</span>
+          ) : (
+            <span className="hint-keys">
+              Enter to send · Shift+Enter for a new line · paste or drop images
+            </span>
+          )}
         </div>
 
         <input

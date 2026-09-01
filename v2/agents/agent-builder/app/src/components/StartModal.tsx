@@ -33,6 +33,30 @@ import type { AgentRow } from '../agentd/roster'
 
 export type StartMode = 'create' | 'edit'
 
+/* THE TEMPLATES ON OFFER — module-scope and exported because two surfaces now draw them: this
+   dialog's gallery and the launchpad's shelf. One entry per folder in `templates/_variants/`
+   (id must match the folder name); adding a template there means adding its card here and
+   BOTH surfaces grow it. `blurb` is the shelf's one-liner; `body` is the gallery's fuller
+   sentence — same fact at two lengths, kept together so they cannot disagree. */
+export const TEMPLATES: { id: string; label: string; blurb: string; body: string }[] = [
+  {
+    id: 'chat',
+    label: 'Chat app',
+    blurb: 'A thread and a composer.',
+    body:
+      'A thread and a composer — for an agent whose work is a conversation. ' +
+      'Sign-in, credits, settings and organizations included and working.',
+  },
+  {
+    id: 'dashboard',
+    label: 'Dashboard app',
+    blurb: 'Sections, panels, and the agent alongside.',
+    body:
+      'A workbench: sections in the rail, content panels in the middle, and the agent in ' +
+      'a permanent chat panel beside the work.',
+  },
+]
+
 export function StartModal({
   mode,
   agents,
@@ -65,26 +89,6 @@ export function StartModal({
    *  template must not silently change which one "Use" would take. */
   const [previewing, setPreviewing] = useState('')
 
-  /* THE TEMPLATES ON OFFER. One entry per folder in `templates/_variants/` — adding a template
-     there means adding its card here (id must match the folder name). `preview` is a stylised
-     wireframe, not a screenshot: it has to say "this is the SHAPE you are choosing" at a glance,
-     and it must not go stale every time the real template's pixels change. */
-  const TEMPLATES: { id: string; label: string; body: string }[] = [
-    {
-      id: 'chat',
-      label: 'Chat app',
-      body:
-        'A thread and a composer — for an agent whose work is a conversation. ' +
-        'Sign-in, credits, settings and organizations included and working.',
-    },
-    {
-      id: 'dashboard',
-      label: 'Dashboard app',
-      body:
-        'A workbench: sections in the rail, content panels in the middle, and the agent in ' +
-        'a permanent chat panel beside the work.',
-    },
-  ]
   const choice = picked || agents[0]?.id || ''
 
   // Escape closes. A dialog that can only be dismissed by finding the right button is a dialog

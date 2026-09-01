@@ -6,10 +6,10 @@
  * panel is hidden until an agent is in focus.
  */
 
-import { resultText, type AgentdClient } from '@agentd/client'
+import type { AgentdClient } from '@agentd/client'
 import { useState } from 'react'
 import type { TreeEntry, useAgentFiles } from '../agentd/agent-files'
-import { publishable, publishBlockReason, type AgentRow } from '../agentd/roster'
+import type { AgentRow } from '../agentd/roster'
 import { FileTree } from './FileTree'
 import { FileViewer } from './FileViewer'
 
@@ -24,56 +24,7 @@ export function Inspector({
   files: ReturnType<typeof useAgentFiles>
   onChanged: () => void
 }) {
-  const [out, setOut] = useState<{ title: string; text: string; bad: boolean } | null>(null)
-  const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState<TreeEntry | null>(null)
-
-  const canPublish = publishable(agent)
-
-  async function runTool(tool: string, title: string, extra: Record<string, unknown> = {}) {
-    if (!agent) return null
-    setOut({ title, text: `running ${tool} on ${agent.id}…`, bad: false })
-    setBusy(true)
-    try {
-      const res = await client.invokeTool(tool, { agent_id: agent.id, ...extra })
-      const text = resultText(res) || '(no output)'
-      setOut({ title, text, bad: false })
-      onChanged()
-      return text
-    } catch (e) {
-      // The daemon throws with the tool's own report text when a tool reports an error — that IS
-      // the result, so show it rather than a generic failure line.
-      setOut({ title, text: String((e as Error)?.message || e), bad: true })
-      return null
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /* Publish is TWO steps on purpose.
-     A publish uploads a public artifact and rewrites the registry index every client reads, so one
-     click must not be enough. The first call is the tool's default dry run: it prints the exact
-     index that would be published — which is where you notice a bundle you did not expect is about
-     to change. Only then do we ask, and only a yes sends dry_run=false + confirm=true (the tool
-     requires BOTH, so nothing here can publish by accident either).
-     A dry run that FAILED returns null — usually "not configured to publish", already on screen —
-     and we stop rather than asking the user to confirm something that cannot work. */
-  async function publishFlow() {
-    if (!agent || !canPublish) return // the button is disabled; this guards a stale handler
-    const preview = await runTool('publish_agent', 'Publish — preview', { dry_run: true })
-    if (preview === null) return
-    const ok = window.confirm(
-      `Publish ${agent.id} to the marketplace?\n\n` +
-        'This uploads a PUBLIC artifact and rewrites the registry index.\n' +
-        'Check the preview behind this dialog first — it lists every bundle that will be in the ' +
-        'published index.',
-    )
-    if (!ok) {
-      setOut({ title: 'Publish', text: `cancelled — nothing was uploaded.\n\n${preview}`, bad: false })
-      return
-    }
-    await runTool('publish_agent', 'Publish', { dry_run: false, confirm: true })
-  }
 
   if (!agent) return null
 
@@ -95,41 +46,9 @@ export function Inspector({
         </div>
       </div>
 
-      <div className="card panel-actions">
-        <div className="card-label">
-          <span>Actions</span>
-        </div>
-        <div className="action-row">
-          <button
-            className="ghost-btn"
-            disabled={busy}
-            title="Check this agent for problems the daemon will not report"
-            onClick={() => void runTool('validate_agent', 'Validation')}
-          >
-            Validate
-          </button>
-          <button
-            className="ghost-btn"
-            disabled={busy}
-            title="Build the shareable .agentpkg"
-            onClick={() => void runTool('package_agent', 'Package')}
-          >
-            Package
-          </button>
-        </div>
-        <button
-          className="prime-btn wide"
-          disabled={busy || !canPublish}
-          title={
-            canPublish
-              ? 'Publish to the marketplace — shows a preview first, then asks to confirm'
-              : publishBlockReason(agent)
-          }
-          onClick={() => void publishFlow()}
-        >
-          Publish
-        </button>
-      </div>
+      {/* THE ACTIONS CARD RETIRED HERE (validate · package · publish). The Ship screen carries
+          all three with the same calls and the same two-step publish contract — verified before
+          this card came out. One place per verb; two was how they drift. */}
 
       <div className="card panel-files">
         <div className="card-label">
@@ -142,18 +61,6 @@ export function Inspector({
         </div>
         <FileTree rows={files.rows} error={files.error} onToggle={files.toggle} onOpen={setViewing} />
       </div>
-
-      {out && (
-        <div className="card panel-out">
-          <div className="card-label">
-            <span>{out.title}</span>
-            <button className="link-btn" onClick={() => setOut(null)}>
-              clear
-            </button>
-          </div>
-          <pre className={out.bad ? 'bad' : ''}>{out.text}</pre>
-        </div>
-      )}
 
       {viewing && <FileViewer entry={viewing} client={client} onClose={() => setViewing(null)} />}
     </aside>

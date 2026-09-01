@@ -1,0 +1,68 @@
+/* The placeholder widgets' own rules. Tokens only — this template's `theme.css` decides the look.
+ *
+ * CO-LOCATED, and imported by the components that use them, so a widget that gets ADOPTED keeps
+ * its styling without anybody remembering to move a block. A widget that gets DELETED takes its
+ * rules out of the bundle with it.
+ */
+
+/* ── the result card: an answer that is a thing, not a paragraph ───────────────────────────── */
+.result-card {
+  margin: var(--sp-gap) 0;
+  padding: var(--sp-card);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-bubble);
+}
+.result-card-head { display: flex; align-items: flex-start; gap: var(--sp-gap); }
+.result-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.result-card-title {
+  font-size: var(--fs-lead); font-weight: var(--fw-heavy);
+  letter-spacing: -0.015em; color: var(--text);
+}
+.result-card-meta { font-size: var(--fs-meta); color: var(--faint); }
+.result-card-open {
+  flex: none; width: var(--icon-btn); height: var(--icon-btn);
+  display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: transparent; color: var(--dim);
+  transition: background var(--dur-base) ease, color var(--dur-base) ease,
+              border-color var(--dur-base) ease;
+}
+.result-card-open:hover { background: var(--accent-soft); border-color: var(--accent-edge); color: var(--accent-text); }
+
+.result-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: var(--sp-control); }
+.result-chip {
+  padding: 5px 11px; border-radius: var(--r-pill);
+  background: var(--bg3); border: 1px solid transparent;
+  font-size: var(--fs-meta); color: var(--body);
+}
+/* THE GAP IS THE POINT. A card listing only what you have is one you have to diff in your head,
+   so what is missing gets the one colour that means "this needs you". */
+.result-chip.is-missing {
+  background: transparent; border-color: var(--danger); color: var(--danger);
+}
+
+/* ── the standing note, at the foot of the aside ───────────────────────────────────────────── */
+.aside-note {
+  margin: 0; padding: var(--sp-control);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
+  font-size: var(--fs-meta); line-height: var(--lh-body); color: var(--faint);
+}
+
+/* ── the shelf: a placeholder screen's grid of made things ─────────────────────────────────── */
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--sp-gap);
+  align-content: start;
+}
+/* The cards carry their own vertical margin for the transcript, where they sit between turns.
+   In a grid that margin is the gap's job, so it is dropped here rather than doubled. */
+.shelf .result-card { margin: 0; }
+
+.shelf-empty {
+  margin: var(--sp-panel) 0 0;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-body);
+  color: var(--faint);
+}

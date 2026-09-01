@@ -24,7 +24,6 @@ import pytest
 from agent_runtime.application.services.agent_mcp_connector import AgentMcpConnector
 from agent_runtime.domain.agent import McpServerDecl, setting_env_name
 from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry, _mcp_servers
-from agent_runtime.infrastructure.agents.mcp_approval_store import McpApprovalStore
 
 DECLARING = """
 name = "Trader"
@@ -46,7 +45,7 @@ class _Tool:
         self.name = name
 
 
-def _connector(env: dict, connect=None, approvals=None) -> AgentMcpConnector:
+def _connector(env: dict, connect=None) -> AgentMcpConnector:
     """A connector whose environment and transport are both fakes — the policy is the subject."""
     calls: list = []
 
@@ -58,7 +57,6 @@ def _connector(env: dict, connect=None, approvals=None) -> AgentMcpConnector:
         connect=connect or _default_connect,
         read_env=lambda name: env.get(name, ""),
         setting_env=setting_env_name,
-        approvals=approvals,
     )
     c.calls = calls  # type: ignore[attr-defined]
     return c
@@ -126,7 +124,7 @@ def test_a_missing_credential_refuses_the_connection():
 
 def test_the_daemons_own_value_does_not_satisfy_an_agents_declaration():
     """Unprefixed AWS_ACCESS_KEY_ID is the DAEMON's. The agent's is trader__AWS_ACCESS_KEY_ID."""
-    c = _connector({"AWS_ACCESS_KEY_ID": "the-daemons"}, approvals=None)
+    c = _connector({"AWS_ACCESS_KEY_ID": "the-daemons"})
     asyncio.run(c.ensure(_agent("trader", STDIO_SERVER)))
     assert c.tools_for("trader") == [] and c.calls == []
 
@@ -156,62 +154,24 @@ def test_two_agents_hold_two_accounts_for_the_same_server_name():
     assert len(c.tools_for("cost")) == 1 and len(c.tools_for("provision")) == 1
 
 
-# ── consent ─────────────────────────────────────────────────────────────────
-def test_a_url_server_needs_no_approval():
-    """Nothing runs locally — it is an HTTPS call. Asking would be a prompt with no decision."""
-    c = _connector({"health-agent__TOKEN": "t"}, approvals=_Approvals())
+# ── launching ───────────────────────────────────────────────────
+# A stdio server used to wait for the user to approve its exact argv before it could launch, on
+# the reasoning that installing an agent should not silently run third-party code. It was removed:
+# the prompt reached the person who had just ASKED for the integration, gave them no way to see
+# why their agent had no tools, and left an authoring agent with no way to tell "blocked on you"
+# from "broken". A declared server now comes up on the agent's first run, whatever its transport.
+def test_a_url_server_connects():
+    c = _connector({"health-agent__TOKEN": "t"})
     asyncio.run(c.ensure(_agent("health-agent", URL_SERVER)))
     assert [t.name for t in c.tools_for("health-agent")] == ["health__do_thing"]
 
 
-def test_a_stdio_server_waits_for_approval():
-    """`uvx <package>` downloads and executes third-party code because someone installed an
-    agent. The user is told the exact command and asked once."""
-    approvals = _Approvals()
-    c = _connector({"trader__AWS_ACCESS_KEY_ID": "AKIA"}, approvals=approvals)
+def test_a_stdio_server_connects_without_being_approved():
+    c = _connector({"trader__AWS_ACCESS_KEY_ID": "AKIA"})
     asyncio.run(c.ensure(_agent("trader", STDIO_SERVER)))
-    assert c.calls == []
-    problem = c.problems_for("trader")["aws"]
-    assert "uvx awslabs.aws-api-mcp-server@latest" in problem
-
-
-def test_approving_connects_on_the_next_run():
-    approvals = _Approvals()
-    c = _connector({"trader__AWS_ACCESS_KEY_ID": "AKIA"}, approvals=approvals)
-    agent = _agent("trader", STDIO_SERVER)
-    asyncio.run(c.ensure(agent))
-    assert c.approve("trader", STDIO_SERVER) is True
-    asyncio.run(c.ensure(agent))
     assert [t.name for t in c.tools_for("trader")] == ["aws__do_thing"]
+    assert c.problems_for("trader") == {}
 
-
-class _Approvals:
-    def __init__(self):
-        self._ok: dict = {}
-
-    def approved(self, agent_id, name, command):
-        return self._ok.get((agent_id, name)) == list(command)
-
-    def approve(self, agent_id, name, command):
-        self._ok[(agent_id, name)] = list(command)
-        return True
-
-
-def test_the_approval_is_of_the_command_not_the_name(tmp_path):
-    """An update that changes what the agent launches has to be approved again — otherwise
-    approving 'the aws server' once is consent to whatever that name means in version 7."""
-    store = McpApprovalStore(tmp_path / "mcp_approvals.json")
-    store.approve("trader", "aws", ["uvx", "awslabs.aws-api-mcp-server@1.0"])
-    assert store.approved("trader", "aws", ["uvx", "awslabs.aws-api-mcp-server@1.0"]) is True
-    assert store.approved("trader", "aws", ["uvx", "something-else@latest"]) is False
-
-
-def test_an_unreadable_approval_ledger_approves_nothing(tmp_path):
-    """Fail closed: the worst case is being asked again, and the alternative is treating a
-    corrupt file as consent."""
-    path = tmp_path / "mcp_approvals.json"
-    path.write_text("{not json", encoding="utf-8")
-    assert McpApprovalStore(path).approved("trader", "aws", ["uvx", "x"]) is False
 
 
 # ── failure handling ────────────────────────────────────────────────────────

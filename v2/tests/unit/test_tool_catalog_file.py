@@ -134,7 +134,12 @@ def test_no_hook_at_all_is_fine(tmp_path):
 # ── the skill points at it ──────────────────────────────────────────────────
 def test_the_skill_tells_it_to_read_the_catalog():
     """A file nobody is told about is a file nobody reads — which is where this started."""
-    skill = (Path(__file__).resolve().parents[2] / "agents" / "agent-builder" / "skills"
-             / "build-agent" / "SKILL.md").read_text(encoding="utf-8")
+    root = (Path(__file__).resolve().parents[2] / "agents" / "agent-builder" / "skills"
+            / "build-agent")
+    # the skill is a DIRECTORY: procedure in SKILL.md, format detail in reference/*.md
+    parts = [(root / "SKILL.md").read_text(encoding="utf-8")]
+    parts += [p.read_text(encoding="utf-8")
+              for p in sorted((root / "reference").glob("*.md"))]
+    skill = chr(10).join(parts)
     assert tool_catalog_file.FILENAME in skill
     assert "before writing a private tool" in skill.lower()

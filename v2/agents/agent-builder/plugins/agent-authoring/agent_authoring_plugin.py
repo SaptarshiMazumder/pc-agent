@@ -214,7 +214,7 @@ def register(api, ctx):
     if register_plugin_live is not None:
         from agent_authoring.presentation.create_tool_tool import CreateToolTool
 
-        api.register_tool(CreateToolTool(ctx.config, register_plugin_live, registry))
+        api.register_tool(CreateToolTool(register_plugin_live, registry))
     else:
         log.info("agent-authoring: no live-reload handle — create_tool not registered")
 
@@ -340,8 +340,20 @@ def register(api, ctx):
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes
     # every client's sidebar. Both are OPTIONAL — reload still does what it can without them,
     # and reports honestly which steps it managed.
-    reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast)
+    mcp_connector = getattr(ctx, "mcp_connector", None)
+    reloader = RegistryReloadAdapter(registry, register_plugin_live, broadcast, mcp_connector)
     api.register_tool(ReloadAgentTool(ReloadAgentService(reloader)))
+
+    # --- SEE WHAT THE DECLARED SERVERS DID -------------------------------------------
+    # Writing an [[mcp]] block was a one-way street: nothing this agent could call reported
+    # whether the server came up, so a missing credential and a wrong command and a server that
+    # exposes nothing all looked the same — an agent that says it cannot do the thing.
+    from agent_authoring.presentation.mcp_status_tool import McpStatusTool
+
+    if registry is not None and mcp_connector is not None:
+        api.register_tool(McpStatusTool(registry, mcp_connector))
+    else:
+        log.info("agent-authoring: no MCP connector handle — mcp_status not registered")
 
     if broadcast is None:
         log.info("agent-authoring: no broadcast handle — reload_agent will not refresh clients")

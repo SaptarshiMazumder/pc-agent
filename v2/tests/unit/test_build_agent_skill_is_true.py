@@ -27,8 +27,29 @@ import pytest
 from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILL = ROOT / "agents" / "agent-builder" / "skills" / "build-agent" / "SKILL.md"
+SKILL_DIR = ROOT / "agents" / "agent-builder" / "skills" / "build-agent"
 RUNTIME = ROOT / "agent_runtime"
+
+
+class _Skill:
+    """THE SKILL IS A DIRECTORY, not a file. SKILL.md is the procedure; the format detail it used
+    to carry inline now lives in reference/*.md, which the model reads on demand — one 77KB file
+    meant the whole reference was loaded before the first decision, and the 'look things up as you
+    need them' line at the top of it could not be true.
+
+    Every check below asks "does the skill say X", and the answer must not change because a
+    paragraph moved between its files. So reading is defined over the WHOLE directory, and a
+    future reshuffle cannot silently disarm these tests."""
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        parts = [(SKILL_DIR / "SKILL.md").read_text(encoding=encoding)]
+        parts += [
+            p.read_text(encoding=encoding) for p in sorted((SKILL_DIR / "reference").glob("*.md"))
+        ]
+        return "\n".join(parts)
+
+
+SKILL = _Skill()
 
 # Emitted by the engine but deliberately NOT part of the app contract: relayed sub-agent
 # beats and the egress privacy gate are internal plumbing, not things an agent UI renders.
@@ -187,7 +208,10 @@ def test_the_skill_names_the_one_constraint_with_no_workaround():
     place. A skill that answers the question you happen to ask is not teaching."""
     text = SKILL.read_text(encoding="utf-8").lower()
     assert "never sandboxed" in text or "not sandboxed" in text, (
-        "say that SHARED tools are the way out, or the constraint reads as 'you cannot do this'"
+        "say WHY the fence exists — shared tools are the daemon's own code and are never "
+        "sandboxed, which is what makes an EXISTING one the answer when a private tool cannot "
+        "do the job. Without that, the constraint reads as 'you cannot do this'. (Authoring a "
+        "new shared tool is no longer a route: create_tool requires an owning agent.)"
     )
     assert "before writing any private tool" in text, (
         "the general rule — look at what already exists — is what transfers to the next agent"

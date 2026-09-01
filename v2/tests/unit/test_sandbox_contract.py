@@ -155,7 +155,7 @@ def _tool(tmp_path, reloaded=None):
         (reloaded if reloaded is not None else []).append(True)
         return {"ok": True, "tools": [], "agentTools": {"note-taker": 1}}
 
-    return CreateToolTool(object(), _reload, _Registry(tmp_path))
+    return CreateToolTool(_reload, _Registry(tmp_path))
 
 
 def _run(tool, params):
@@ -239,9 +239,13 @@ def test_an_agent_scoped_tool_that_reads_a_key_is_refused(tmp_path):
     )
 
 
-def test_the_refusal_names_the_fix_and_hands_the_choice_back(tmp_path):
+def test_the_refusal_names_the_fix_and_offers_no_way_around_it(tmp_path):
     """Same shape as create_agent's already-exists refusal: say what to do, and do not offer the
-    model a one-step workaround it can take on its own initiative."""
+    model a one-step workaround it can take on its own initiative.
+
+    The refusal USED TO end by suggesting the shared tier — 'omit `agent`' — which was a real
+    bypass: shared tools skipped this check entirely. The text pointing at the exit is as much
+    the hole as the exit was."""
     res = _run(
         _tool(tmp_path),
         {
@@ -253,29 +257,29 @@ def test_the_refusal_names_the_fix_and_hands_the_choice_back(tmp_path):
     )
     assert res.is_error
     text = res.content[0].text
-    assert "oneshot.text_complete" in text or "SHARED tool" in text
-    assert "ask the user" in text.lower()
+    assert "oneshot" in text or "settings" in text.lower()
+    assert "omit" not in text.lower()
+    assert "shared" not in text.lower()
 
 
-def test_a_SHARED_tool_is_not_refused(tmp_path):
-    """The refusal is about the UNTRUSTED tier. A shared tool is the operator's own code, is
-    never sandboxed, and may legitimately hold a key and dial out."""
-
-    class _Cfg:
-        plugins_dir = ""
-
-    cfg = _Cfg()
-    cfg.plugins_dir = str(tmp_path / "shared")
-    tool = CreateToolTool(cfg, lambda: {"ok": True, "tools": ["fetch_page"]}, _Registry(tmp_path))
+def test_a_tool_with_no_agent_is_refused(tmp_path):
+    """THE SIDE DOOR, closed. Omitting `agent` used to write into the machine-wide catalog — a
+    tier that skipped this whole contract AND the filesystem fence that keeps Agent Builder
+    inside the agent it was asked to build. One missing argument was the difference between
+    checked and unchecked, so the argument is now required."""
     res = _run(
-        tool,
+        _tool(tmp_path),
         {
             "id": "fetcher",
             "name": "fetch_page",
             "code": "import requests\nreturn ToolResult.text(requests.get(params['u']).text)",
         },
     )
-    assert not res.is_error, res.content
+    assert res.is_error
+    text = res.content[0].text
+    assert "agent" in text.lower()
+    # names the supported alternative rather than leaving a dead end
+    assert "allow" in text.lower()
 
 
 # --- SandboxRules: the same defect, in code create_tool did not write --------

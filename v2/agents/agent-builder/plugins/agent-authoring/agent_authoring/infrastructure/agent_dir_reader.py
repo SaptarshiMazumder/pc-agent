@@ -83,6 +83,8 @@ class AgentDirReader:
             ui/**/*.js              the app checks (event shapes, callable methods)
             app/src/**/*.ts(x)      the SAME checks for an app that is BUILT rather than
                                     hand-written — see below
+            agent.config.json       the AUTHOR layer — checked for settings VALUES, which are the
+                                    OWNER's to supply and must never ship inside the agent
             app/src/**/*.css        the token contract: the shared modules define no colours or
                                     fonts, so an agent that never defines the names they read
                                     ships pages that render transparent
@@ -113,6 +115,9 @@ class AgentDirReader:
                 # NOT filtered by extension. What the shared modules consist of is their business,
                 # and anything here that cannot be read is reported as a missing module.
                 or rel.startswith(COMMON_SRC_DIR)
+                # The author layer travels with the agent, so a value written here is a value
+                # shipped to everyone who installs it.
+                or rel == "agent.config.json"
             )
             if not wanted:
                 continue
