@@ -47,6 +47,23 @@ export function WorkspacePreview({
   const [nonce, setNonce] = useState(0)
   const frame = useRef<HTMLIFrameElement>(null)
 
+  /* THE WINDOW IS RENDERED AT DESKTOP WIDTH AND SCALED, never squeezed. A fluid iframe below
+   * the template's minimum lets the template's own responsive rules collapse it — the pane then
+   * shows a phone layout (or worse, just its rail) and LIES about how the agent looks. Same
+   * idiom as every template thumbnail in this app: fixed 1280 design width, transform-scaled to
+   * whatever the pane affords, remeasured live. */
+  const fit = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = fit.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [url])
+  const DESIGN_W = 1280
+  const scale = box.w > 0 ? Math.min(1, box.w / DESIGN_W) : 0
+
   useEffect(() => {
     let live = true
     setUrl('')
@@ -129,13 +146,22 @@ export function WorkspacePreview({
 
       <div className="wsp-stage">
         {url ? (
-          <iframe
-            key={nonce}
-            ref={frame}
-            className="wsp-frame"
-            src={url}
-            title={`${agent.name || agent.id} — live preview`}
-          />
+          <div ref={fit} className="wsp-fit">
+            {scale > 0 && (
+              <iframe
+                key={nonce}
+                ref={frame}
+                className="wsp-frame"
+                src={url}
+                title={`${agent.name || agent.id} — live preview`}
+                style={{
+                  width: DESIGN_W,
+                  height: Math.round(box.h / scale),
+                  transform: `scale(${scale})`,
+                }}
+              />
+            )}
+          </div>
         ) : (
           <div className="wsp-empty">{urlError || 'preparing the window…'}</div>
         )}

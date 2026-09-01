@@ -493,7 +493,7 @@ h2 { font-size: 16px; }
 /* The owner's shelf. A grid of cards rather than a list, because the thing you are scanning for
    is WHICH ONE, and an avatar plus a name reads faster in two dimensions than in one. */
 .page-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.page-inner { max-width: 940px; margin: 0 auto; padding: 26px 28px 40px; }
+.page-inner { max-width: var(--measure); margin: 0 auto; padding: 26px 28px 40px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
 .page-head p { margin: 6px 0 0; font-size: 13px; color: var(--dim); }
@@ -1476,8 +1476,10 @@ h2 { font-size: 16px; }
 }
 .lp-tr {
   display: grid; grid-template-columns: 2.4fr 1fr 1fr 96px;
-  gap: var(--sp-card-pad); align-items: center;
-  padding: var(--sp-card-pad) 20px;
+  /* the row GAP and the card PADDING are different measurements — sharing the token made the
+     rows ~72px against the artboard's ~62 */
+  gap: 14px; align-items: center;
+  padding: 14px 20px;
 }
 .lp-tr + .lp-tr { border-top: 1px solid var(--bg2); }
 
@@ -1664,7 +1666,6 @@ h2 { font-size: 16px; }
 /* The form column scrolls; the spec panel manages its own height. */
 .bp-form {
   flex: 1; min-width: 0; overflow-y: auto;
-  max-width: 620px;
   padding: 44px 52px;
   display: flex; flex-direction: column; gap: 32px;
 }
@@ -1760,7 +1761,10 @@ h2 { font-size: 16px; }
 .bp-toml-section { color: #84cc16; }
 .bp-toml-comment { color: var(--faint); }
 
-.bp-spec-foot { margin-top: auto; display: flex; justify-content: flex-end; }
+.bp-spec-foot {
+  margin-top: auto; display: flex; justify-content: flex-end;
+  padding-top: var(--sp-card-pad); border-top: 1px solid var(--bg2);
+}
 
 /* ── Template viewer — full-screen looking before committing ────────────────────────────────
    Header bar | (rail | stage). Same overlay depth as the Blueprint: one of them is ever open. */
@@ -1984,11 +1988,17 @@ h2 { font-size: 16px; }
   white-space: pre-wrap; max-height: 180px; overflow-y: auto;
 }
 .wsp-stage { flex: 1; min-height: 0; padding: var(--sp-card-pad); display: flex; }
-.wsp-frame {
-  flex: 1; min-width: 0; border: 0;
+.wsp-fit {
+  /* the frame chrome moved out to this clipping box; the iframe inside renders at 1280 design
+     width and is transform-scaled to fit — see WorkspacePreview's header comment */
+  flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden;
   border-radius: var(--radius-lg); background: #fff;
   border: 1px solid var(--border2);
   box-shadow: 0 20px 44px -20px rgba(0, 0, 0, 0.55);
+}
+.wsp-frame {
+  position: absolute; top: 0; left: 0; border: 0;
+  transform-origin: top left;
 }
 .wsp-empty {
   flex: 1; display: flex; align-items: center; justify-content: center;
@@ -2102,7 +2112,7 @@ h2 { font-size: 16px; }
 .ship-body { flex: 1; min-height: 0; display: flex; }
 .ship-main {
   flex: 1; min-width: 0; overflow-y: auto;
-  max-width: 760px; padding: 40px 48px;
+  padding: 40px 48px;
   display: flex; flex-direction: column; gap: var(--sp-section);
 }
 
@@ -2249,3 +2259,61 @@ h2 { font-size: 16px; }
   .composer-hint .hint-sep:has(+ .hint-note) { display: none; }
   .composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ── Design corrections, round 2 (CLAUDE-DESIGN-CORRECTIONS.md) ─────────────────────────────── */
+:root { --measure: 980px; }
+
+/* §0 THE MEASURE. The corrections doc's padding idiom uses percentage padding, which resolves
+   against the PARENT's width — wrong whenever the region is narrower than its parent (all of
+   these are, beside rails and side columns). Capping each region's direct children instead is
+   element-relative and needs no wrapper either. */
+.lp-main > *, .ship-main > *, .wsc-main > * {
+  width: 100%; max-width: var(--measure); margin-left: auto; margin-right: auto;
+}
+.bp-form > * { width: 100%; max-width: 620px; margin-left: auto; margin-right: auto; }
+
+/* §1.2 — the balance is a glance, not a footer: on a tall column it stops chasing the bottom */
+@media (min-height: 900px) { .lp-credit { margin-top: var(--sp-section); } }
+
+/* §1.3 — launchpad Recents get two lines so the distinguishing words survive; the sidebar's
+   single-line rows (narrow by design, tooltip carried) stay as they are */
+.lp-recents .row-title {
+  white-space: normal;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* §2.2 — ONE box for the Name field: the wrapper carries the border (lit by focus-within);
+   the input's global focus ring stands down so the two never draw offset twins */
+.bp-name:focus-visible { outline: none; }
+.bp-name-row:focus-within { border-color: var(--accent); }
+
+/* §2.4 — placeholder CHROME must stay legible enough to explain itself; the global disabled
+   fade (.38) is for disabled ACTIONS */
+.bp-select:disabled, .bp-cap:disabled, .ship-tile[aria-disabled='true'] { opacity: 0.55; }
+
+/* §3.2 — beside a pane the conversation column pins its composer to the bottom, artboard-style */
+.stage--split .chat-hero { justify-content: flex-end; padding-bottom: 24px; }
+
+/* §3.3 — the subject header is ONE line: identity shrinks before anything wraps */
+.topbar { flex-wrap: nowrap; }
+.topbar .ws-tabs { flex: none; }
+.subj-text { flex: 1 1 auto; min-width: 40px; }
+
+/* §3.4 — the inspector hugs its content; the void collapses instead of stretching */
+.panel-files { flex: none; }
+
+/* §4 — Credits, builder-local overrides ONLY (the screen itself is _common/, locked).
+   Packs as rows in one column: no orphaned fourth card at any catalogue size. */
+.credits-page { max-width: var(--measure); margin: 0 auto; }
+.credits-page .pack-grid { grid-template-columns: 1fr; gap: 10px; }
+.credits-page .pack { flex-direction: row; align-items: center; gap: 14px; }
+.credits-page .pack .pack-desc { flex: 1; }
+.credits-page .pack:hover { transform: none; }
+/* §4.3 — lime means THE consequential action; four of them means nothing. All pack buys go
+   secondary (no catalogue field marks one "recommended", and faking an emphasis would be data
+   we do not have — reported in the deliverable notes). */
+.credits-page .pack .cbtn.primary {
+  background: transparent; color: var(--dim); border: 1px solid var(--border2);
+}
+.credits-page .pack .cbtn.primary:hover:not(:disabled) { background: var(--bg3); color: var(--text); }

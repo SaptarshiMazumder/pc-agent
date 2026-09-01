@@ -916,10 +916,22 @@ h2 { font-size: var(--fs-lead); }
 .nav-item-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-count { flex: none; font-family: var(--mono); font-size: var(--fs-small); color: var(--faint); }
 
+/* THE RAIL'S FOOT: who you are, and whose keys are paying — ONE row, in a panel of its own.
+   Stacked in a column they were a stretched pill above a lonely circle, because `.runmode` is an
+   inline-flex badge and a column stretches it edge to edge. Both come from `src/common/` and
+   cannot be edited, so the composition is done from here: the descendant selectors below
+   out-rank their single-class rules whatever order the bundler emits. */
 .rail-foot {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: var(--sp-gap); border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-tight);
+  margin: 0 var(--sp-gap) var(--sp-gap); padding: 7px 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
 }
+/* The account first — it is the answer to "who am I signed in as", which is the question this
+   corner exists for. The mode badge is the qualifier, so it sits to the right. */
+.rail-foot .agentd-pm { order: -1; flex: none; display: flex; align-items: center; }
+.rail-foot .agentd-pm-btn { width: 30px; height: 30px; font-size: var(--fs-meta); }
+/* Not stretched: a pill is as wide as its label. */
+.rail-foot .runmode { flex: none; align-self: center; font-size: var(--fs-small); }
 
 /* ── the page head ─────────────────────────────────────────────────────────────────────────── */
 .page-head {
