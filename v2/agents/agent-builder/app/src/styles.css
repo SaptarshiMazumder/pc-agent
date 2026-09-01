@@ -44,10 +44,23 @@
   --border2: #3a352c;
   --row-line: transparent;
 
+  /* TWO RECESSES, both stepping DOWN from the surface they sit in — the same one-direction rule
+     as above, read the other way. A recess is how this window shows something it is HOSTING
+     rather than drawing: the agent's own window inside the preview, a header strip inside a card.
+     Neither is agentd's; both come from the redesign, which introduced them between existing
+     steps rather than beside them. */
+  --stage: #0c0b0a;   /* behind a framed preview — darker than --bg4 so the frame reads as lit */
+  --trough: #161512;  /* table headers and tab-strip grooves — between --bg and --bg2 */
+
   /* --- text. Dimmed from a near-white cream: pure white on near-black blooms and reads heavy. */
   --text: #d2cec3;
   --dim: #a49d8d;
   --faint: #6c665a;
+  /* One step ABOVE --text, and the only thing that goes there: the title of the page you are on,
+     and the label of the tab you are in. --text is the reading weight for prose; lifting a
+     heading to it as well leaves a page with no top note. Not a fourth tier of body copy — if
+     something other than a title or an active tab wants this, the answer is --text. */
+  --text-bright: #f0ede4;
 
   /* --- lime accent. One accent with one job, replacing the orange/purple/blue split: agentd
      draws selection, primary action and emphasis from the same hue, and two windows that
@@ -81,22 +94,52 @@
   --sans: 'Hanken Grotesk', 'Segoe UI', system-ui, sans-serif;
   --display: 'Bricolage Grotesque', var(--sans);
 
-  /* Weight TOKENS at agentd's dark values. No web font is bundled and the CSP blocks external
-     ones, so this falls back to SEGOE UI — which has no 500-weight face and jumps 400 -> 600.
-     Anything ~460-590 rounds UP and still looks bold, so the reading tiers snap to faces Segoe
-     actually has and 600 is kept for genuinely prominent headings only. */
-  --fw-normal: 350;
-  --fw-medium: 400;
-  --fw-strong: 400;
-  --fw-semi: 400;
+  /* Weight TOKENS at agentd's dark values, FLATTENED for a fallback that no longer applies.
+     The reasoning was: no web font is bundled, so this lands on Segoe UI, which has no 500 face
+     and jumps 400 -> 600 — hence six tokens collapsed onto three weights Segoe actually has.
+     `main.tsx` now bundles Hanken Grotesk 400/500/600/700 and Bricolage 600/700/800, so the
+     premise is gone and these tiers are flatter than the faces on disk can draw.
+     Left AS IS deliberately: changing a weight changes every screen, which is a visual change,
+     and this pass is meant to have none. Unflatten them with the rest of the type work. */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 500;
+  --fw-semi: 600;
   --fw-heavy: 600;
-  --fw-bold: 600;
+  --fw-bold: 700;
   --fw-on-accent: 700;    /* bumped, not cut: dark ink on a light lime fill reads thin */
 
   /* --- layout. No agentd equivalent: the three-column shell is this window's own. --- */
   --rail-w: 276px;        /* agentd's sidebar width, exactly */
   --rail-icon-w: 64px;    /* agentd's collapsed rail width; Phase 3 */
   --panel-w: 360px;
+
+  /* --- ONE SPACING SCALE. Every gap in the redesign is one of these six; a value that is not
+     here is a value somebody eyeballed, and six of those in a row is what makes a layout look
+     approximately aligned rather than aligned. --- */
+  --sp-page: 40px;      /* page padding */
+  --sp-section: 34px;   /* between major sections */
+  --sp-card: 26px;      /* card to card down a rail */
+  --sp-card-pad: 16px;  /* inside a card; also table rows (16px 20px) and header bars (16px 26px) */
+  --sp-control: 10px;   /* between sibling controls */
+  --sp-icon: 4px;       /* between icon buttons */
+
+  /* --- TYPE SCALE. Sizes only. The WEIGHTS stay where they are — see the note below. --- */
+  --fs-title: 32px;     /* page titles */
+  --fs-section: 20px;   /* section titles */
+  --fs-subject: 17px;   /* the name of the thing on screen */
+  --fs-body: 14px;
+  --fs-control: 13px;
+  --fs-cell: 12.5px;    /* table cells, mono paths */
+  --fs-meta: 11.5px;    /* metadata, hints */
+  --fs-label: 10.5px;   /* uppercase section labels, with --ls-label */
+  --ls-title: -0.02em;
+  --ls-label: 0.1em;
+
+  /* Radii either side of --radius (11px): --radius-sm for icon buttons and rows, --radius-lg for
+     a framed preview, which needs to read as a device rather than as a card. */
+  --radius-sm: 8px;
+  --radius-lg: 14px;
 }
 
 * { box-sizing: border-box; }
@@ -211,16 +254,23 @@ h2 { font-size: 16px; }
 .icon-btn.on { background: var(--accent-soft); color: var(--accent-text); }
 
 .ghost-btn {
+  /* same flex treatment as .prime-btn below, for the same baseline-sink reason */
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   border-color: var(--border2); color: var(--dim);
   border-radius: 999px; padding: 8px 15px; font-size: 13px;
 }
-.ghost-btn:hover:not(:disabled) { border-color: var(--border2); background: var(--bg3); color: var(--text); }
+.ghost-btn:hover:not(:disabled) { border-color: var(--dim); background: var(--bg3); color: var(--text); }
 
 .prime-btn {
+  /* inline-flex, not inline: an SVG beside text otherwise sits on the TEXT BASELINE, sinking
+     below center and touching the label — every icon-after-label button (Create →, Use this
+     template →) rendered exactly that way. Centering + a gap fixes all of them at once, and
+     icon-before-label buttons (Open) only gain the spacing they were missing. */
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   background: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent);
   border-radius: 999px; padding: 8px 16px; font-size: 13px;
 }
-.prime-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.prime-btn:hover:not(:disabled) { background: var(--prim-bg-h); }
 .prime-btn.wide { width: 100%; margin-top: 8px; }
 
 .link-btn { color: var(--faint); font-size: 12px; padding: 0; }
@@ -474,21 +524,29 @@ h2 { font-size: 16px; }
 /* ── main ──────────────────────────────────────────────────────────────── */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 
+/* The subject header: one row — avatar tile, name over a mono path, actions at the end. The
+   old eyebrow-over-title stack said "Building / name" in words; the tile now carries it. */
 .topbar {
-  display: flex; align-items: flex-start; gap: 16px; flex: none;
-  padding: 22px 26px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: var(--sp-card-pad) 26px; border-bottom: 1px solid var(--border);
 }
-.head-text { flex: 1; min-width: 0; }
-.eyebrow {
-  display: block; font-size: 12px; color: var(--faint); margin-bottom: 3px;
+.subj-avatar {
+  width: 34px; height: 34px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; font-size: 12px; font-weight: var(--fw-on-accent); color: #182100;
 }
-.head-text h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.head-sub {
-  font-size: 12px; color: var(--faint); margin-top: 4px;
+.subj-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.subj-name {
+  font-size: var(--fs-subject); font-weight: var(--fw-bold); color: var(--text-bright);
+  letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.subj-sub {
+  margin: 0; font-family: var(--mono); font-size: 11px; color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.topbar-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
 /* What the restart is doing, beside the button doing it. Truncated rather than wrapped: this
    sits in a header row, and a two-line status would move the whole page. */
 .restart-note {
@@ -1312,7 +1370,7 @@ h2 { font-size: 16px; }
 .page-search .search-box { width: 100%; max-width: 440px; }
 .page-sub { color: var(--dim); font-size: 14px; margin-top: 2px; }
 .settings-head-titles .page-sub { margin-top: 3px; }
-.page-title { font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px; letter-spacing: -.02em; }
+.page-title { font-family: var(--display); font-weight: var(--fw-bold); font-size: var(--fs-title); letter-spacing: var(--ls-title); color: var(--text-bright); }
 .settings-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 34px 40px; }
 .app-embed .settings-body { overflow: hidden; display: flex; padding: 0 18px 18px; }
 .app-embed .settings-body > .settings-inner { max-width: none; display: flex; min-height: 0; }
@@ -1355,3 +1413,793 @@ h2 { font-size: 16px; }
    lists the user's orgs inside its account menu. */
 .app-menu-item--sub { padding-left: 30px; font-size: 12.5px; color: var(--dim); }
 .app-menu-item--sub:hover { color: var(--text); }
+
+/* ── Launchpad ───────────────────────────────────────────────────────────────────────────────
+   Where a session starts: pick a shape, see what you own, deal with what broke.
+
+   ONE SCROLLING REGION. `.lp` is a flex column filling the main area; `.lp-main` is the only
+   `overflow:auto` in it, so anything pinned later (the top bar, the right column) is a `flex:none`
+   sibling rather than a `position:sticky` child — sticky would suppress the app-wide soft
+   scroll-edge fade on the body it sits in (see lib/softScroll.ts).
+
+   Sections land one at a time; the geometry below is what they land into. */
+.lp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+
+/* The row beneath the (not yet built) top bar: the scrolling column, and later the 330px
+   right-hand column beside it. */
+.lp-body { display: flex; min-height: 0; flex: 1; }
+
+.lp-main {
+  flex: 1; min-width: 0; overflow: auto;
+  padding: var(--sp-page);
+  display: flex; flex-direction: column; gap: var(--sp-section);
+}
+
+.lp-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-bright);
+}
+
+/* A section owns the gap to its OWN heading; the gap between sections is --sp-section on the
+   column above, so a section never has to know what follows it. */
+.lp-section { display: flex; flex-direction: column; gap: var(--sp-card-pad); }
+
+.lp-section-head {
+  margin: 0;
+  font-size: var(--fs-subject);
+  font-weight: var(--fw-heavy);
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* ── Launchpad · the "Your agents" table ────────────────────────────────────────────────────
+   The shelf's cards laid flat. Columns: who 2.4fr · shape 1fr · state 1fr · actions 96px —
+   the design's grid minus its time column, which has no data behind it (see the component). */
+.lp-section-bar { display: flex; align-items: center; gap: var(--sp-card-pad); }
+.lp-section-bar .lp-section-head { margin-right: auto; }
+
+.lp-filters { display: flex; gap: var(--sp-icon); }
+.lp-pill {
+  padding: 5px 12px; border-radius: 999px;
+  font-size: var(--fs-control); font-weight: var(--fw-medium); color: var(--dim);
+}
+.lp-pill:hover:not(:disabled):not(.active) { background: var(--bg2); color: var(--text); }
+.lp-pill.active { background: var(--accent-soft); color: var(--accent-text); }
+
+.lp-table {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); overflow: hidden;
+}
+.lp-tr {
+  display: grid; grid-template-columns: 2.4fr 1fr 1fr 96px;
+  gap: var(--sp-card-pad); align-items: center;
+  padding: var(--sp-card-pad) 20px;
+}
+.lp-tr + .lp-tr { border-top: 1px solid var(--bg2); }
+
+/* The header row sits in the TROUGH — recessed, not raised: it labels the rows, it is not one. */
+.lp-tr--head {
+  background: var(--trough); padding-top: 10px; padding-bottom: 10px;
+  font-size: var(--fs-label); font-weight: var(--fw-heavy);
+  letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--faint);
+}
+
+.lp-td-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lp-td-names { display: flex; flex-direction: column; min-width: 0; }
+.lp-td-name { font-size: var(--fs-body); font-weight: var(--fw-strong); color: var(--text); }
+.lp-td-tag {
+  font-size: var(--fs-meta); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.lp-td-shape, .lp-td-state {
+  display: flex; align-items: center; gap: 7px;
+  font-size: var(--fs-control); color: var(--dim);
+}
+.lp-td-shape svg { color: var(--faint); }
+.lp-td-state.ok svg { color: var(--dim); }
+.lp-td-state.warn { color: var(--warn); }
+
+/* Actions right-align in their fixed track; Open is ABSENT without a window, so a one-button
+   row still lands where the two-button rows do. */
+.lp-td-actions { display: flex; justify-content: flex-end; gap: var(--sp-icon); }
+
+/* ── Launchpad · the template shelf ─────────────────────────────────────────────────────────
+   A horizontal scroller of shape cards. Each windowed card's 140px thumbnail is the compiled
+   template in an iframe, scaled the way the Start dialog's gallery scales its tiles: rendered
+   at desktop width, transform-scaled to the card, top-cropped by the container. 268/1280 ≈ .21. */
+/* `flex: none` is load-bearing: this sits in the .lp-main COLUMN, and a flex item whose
+   overflow is not visible loses its automatic minimum size — when the column's content is
+   taller than the viewport, the shelf is the one thing that would be crushed to nothing to
+   make it fit. It scrolls sideways; it never shrinks. */
+.lp-shelf { flex: none; display: flex; gap: 18px; overflow-x: auto; padding-bottom: 6px; }
+
+.lp-tpl {
+  flex: none; width: 268px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg2); overflow: hidden;
+  transition: border-color .15s ease;
+}
+.lp-tpl:hover, .lp-tpl:focus-visible { border-color: var(--accent); }
+
+.lp-tpl-thumb {
+  position: relative; height: 140px; overflow: hidden;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.lp-tpl-frame {
+  width: 1280px; height: 800px; border: 0; pointer-events: none;
+  position: absolute; top: 0; left: 0; transform-origin: top left;
+  transform: scale(0.21);
+}
+/* Headless has no window, so no iframe: a neutral recess with the clock, saying "no screen"
+   rather than drawing a fake one. */
+.lp-tpl-thumb--plain {
+  display: flex; align-items: center; justify-content: center; color: var(--faint);
+  background: var(--trough);
+}
+
+.lp-tpl-eye {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px; background: rgba(0, 0, 0, 0.45); color: #fff;
+  opacity: 0; transition: opacity .12s ease;
+}
+.lp-tpl-thumb:hover .lp-tpl-eye, .lp-tpl-eye:focus-visible { opacity: 1; }
+.lp-tpl-eye:hover { background: rgba(0, 0, 0, 0.65); }
+
+.lp-tpl-caption { display: flex; flex-direction: column; gap: 3px; padding: var(--sp-card-pad); }
+.lp-tpl-name {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: var(--fw-heavy); color: var(--text);
+}
+.lp-tpl-name svg { color: var(--dim); }
+.lp-tpl-blurb { font-size: 12px; color: var(--dim); }
+
+/* The way out of the gallery: no template, just say what you want. Dashed — an outline of a
+   card, because it is the card you have not picked. */
+.lp-tpl-describe {
+  flex: none; width: 180px; min-height: 140px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border: 1px dashed var(--border2); border-radius: var(--radius);
+  color: var(--dim); font-size: var(--fs-control); font-weight: var(--fw-medium);
+  transition: border-color .15s ease, color .15s ease;
+}
+.lp-tpl-describe:hover { border-color: var(--accent); color: var(--text); }
+
+/* ── Launchpad · the right column ───────────────────────────────────────────────────────────
+   Needs-you, Recents, and the balance pinned to the bottom. A glance column: the sidebar stays
+   the full Recents list, the credits page stays the full story. */
+.lp-side {
+  flex: none; width: 330px; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-section);
+  padding: var(--sp-page) 28px;
+  border-left: 1px solid var(--bg2);
+  overflow-y: auto;
+}
+/* The design drops the right panel first on a narrow window; everything here lives elsewhere
+   too (sidebar Recents, composer credits), so nothing is lost when it goes. */
+@media (max-width: 1439px) { .lp-side { display: none; } }
+
+.lp-side-section { display: flex; flex-direction: column; gap: var(--sp-control); flex: none; }
+
+.lp-side-label {
+  margin: 0; display: flex; align-items: center; gap: 7px;
+  font-size: var(--fs-label); font-weight: var(--fw-heavy);
+  letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--faint);
+}
+.lp-side-label svg { color: var(--faint); }
+
+.lp-side-empty { margin: 0; font-size: var(--fs-meta); color: var(--faint); }
+
+.lp-recents { display: flex; flex-direction: column; }
+.lp-recents .session-row { padding: 12px 4px; border-radius: 0; }
+.lp-recents .session-row + .session-row { border-top: 1px solid var(--bg2); }
+
+/* The balance, pinned to the bottom whatever the sections above do. A button because the
+   number IS the way to the credits page — same destination as the composer's chip. */
+.lp-credit {
+  margin-top: auto; flex: none;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 0; text-align: left;
+}
+.lp-credit-figure {
+  font-size: 22px; font-weight: var(--fw-bold); color: var(--text-bright);
+  font-variant-numeric: tabular-nums;
+}
+.lp-credit-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-meta); color: var(--dim);
+}
+.lp-credit:hover .lp-credit-label { color: var(--text); }
+
+/* ── Launchpad · the top bar ────────────────────────────────────────────────────────────────
+   Live state on the left, a page-scoped search in the middle-right, the balance on the right.
+   A `flex:none` sibling of .lp-body — pinned by geometry, not position:sticky (softScroll). */
+.lp-topbar {
+  flex: none; display: flex; align-items: center; gap: var(--sp-card-pad);
+  padding: var(--sp-card-pad) 32px;
+  border-bottom: 1px solid var(--bg2);
+}
+
+.lp-live {
+  display: flex; align-items: center; gap: 7px; margin-right: auto;
+  font-size: var(--fs-control); color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-search { width: 300px; }
+.lp-search input { width: 100%; }
+
+.lp-topbar-credits {
+  display: flex; align-items: center; gap: 7px;
+  font-size: var(--fs-control); color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.lp-topbar-credits:hover { color: var(--text); }
+.lp-topbar-credits svg { color: var(--faint); }
+
+/* ── Blueprint — the create wizard as a page ────────────────────────────────────────────────
+   Full-bleed over the shell: a fixed sheet, not a centered card, because its right half is a
+   spec panel that needs the height. The shell stays mounted (and subscribed) underneath. */
+.bp {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg4);
+}
+
+.bp-head {
+  flex: none; display: flex; align-items: center; gap: var(--sp-control);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--bg2);
+}
+.bp-head-title { margin: 0; font-size: 15px; font-weight: var(--fw-heavy); color: var(--text); }
+.bp-head .push-end { margin-left: auto; }
+
+.bp-body { flex: 1; min-height: 0; display: flex; }
+
+/* The form column scrolls; the spec panel manages its own height. */
+.bp-form {
+  flex: 1; min-width: 0; overflow-y: auto;
+  max-width: 620px;
+  padding: 44px 52px;
+  display: flex; flex-direction: column; gap: 32px;
+}
+
+.bp-field { display: flex; flex-direction: column; gap: 8px; }
+.bp-label { font-size: var(--fs-control); color: var(--dim); }
+.bp-hint { font-size: var(--fs-meta); color: var(--faint); }
+
+.bp-name-row {
+  display: flex; align-items: center; gap: var(--sp-control);
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius);
+  padding: 0 14px;
+}
+.bp-name {
+  flex: 1; min-width: 0; padding: 12px 0;
+  background: none; border: 0; outline: none;
+  font-size: 16px; color: var(--text);
+}
+.bp-slug { font-family: var(--mono); font-size: var(--fs-cell); color: var(--faint); }
+
+.bp-what {
+  min-height: 80px; resize: vertical;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13.5px; line-height: 1.65; color: var(--text);
+}
+.bp-what:focus { outline: none; border-color: var(--border2); }
+
+.bp-shapes { display: flex; gap: var(--sp-control); }
+.bp-shape {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 14px 12px;
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: var(--fs-control); font-weight: var(--fw-medium); color: var(--dim);
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.bp-shape svg { color: var(--faint); }
+.bp-shape:hover { border-color: var(--border2); color: var(--text); }
+.bp-shape.is-picked {
+  border-color: var(--accent); background: rgba(163, 230, 53, 0.10); color: var(--text);
+}
+.bp-shape.is-picked svg { color: var(--accent); }
+
+.bp-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-card-pad); }
+.bp-select {
+  display: flex; align-items: center; gap: var(--sp-control);
+  padding: 11px 14px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  font-size: var(--fs-control); color: var(--dim); text-align: left;
+}
+.bp-select svg:last-child { margin-left: auto; color: var(--faint); }
+
+.bp-caps { display: flex; }
+.bp-cap {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px;
+  border: 1px dashed var(--border2); border-radius: 999px;
+  font-size: var(--fs-control); color: var(--faint);
+}
+
+/* The spec panel: the recessed half. Everything in it is a consequence, so it draws no
+   controls except the one commitment at the bottom. */
+.bp-spec {
+  flex: none; width: 460px; min-height: 0; margin-left: auto;
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+  padding: 28px;
+  background: var(--stage); border-left: 1px solid var(--bg2);
+  overflow-y: auto;
+}
+.bp-spec-head { display: flex; align-items: baseline; }
+.bp-spec-label {
+  font-size: var(--fs-label); font-weight: var(--fw-heavy);
+  letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--faint);
+}
+.bp-spec-count { margin-left: auto; font-size: var(--fs-meta); color: var(--faint); }
+
+.bp-tree {
+  margin: 0; font-family: var(--mono); font-size: var(--fs-cell);
+  line-height: 2; color: var(--text); white-space: pre;
+}
+/* Folder colouring in the spec: one shade DOWN from the accent, so the tree reads as structure
+   rather than as five selected things. Literal because it is syntax colouring, not a theme
+   surface — the same reason the TOML strings below hold the accent itself. */
+.bp-tree-dir { color: #84cc16; }
+
+.bp-toml {
+  margin: 0; padding: var(--sp-card-pad);
+  background: var(--bg); border: 1px solid #1f1d19; border-radius: 10px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.95;
+  color: var(--text); white-space: pre-wrap;
+}
+.bp-toml-str { color: var(--accent); }
+.bp-toml-section { color: #84cc16; }
+.bp-toml-comment { color: var(--faint); }
+
+.bp-spec-foot { margin-top: auto; display: flex; justify-content: flex-end; }
+
+/* ── Template viewer — full-screen looking before committing ────────────────────────────────
+   Header bar | (rail | stage). Same overlay depth as the Blueprint: one of them is ever open. */
+.tv {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg4);
+}
+
+.tv-head {
+  flex: none; display: flex; align-items: center; gap: var(--sp-control);
+  padding: var(--sp-card-pad) 26px;
+  border-bottom: 1px solid var(--bg2);
+}
+.tv-badge {
+  width: 34px; height: 34px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; background: var(--accent-soft); color: var(--accent);
+}
+.tv-title { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
+.tv-name { font-size: var(--fs-subject); font-weight: var(--fw-bold); color: var(--text-bright); }
+.tv-sub {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-meta); color: var(--dim);
+}
+
+.tv-devices {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--trough); border: 1px solid #1f1d19; border-radius: 9px;
+}
+.tv-device {
+  width: 30px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 7px; color: var(--dim);
+}
+.tv-device:hover { color: var(--text); }
+.tv-device.active { background: var(--border); color: var(--text); }
+
+.tv-body { flex: 1; min-height: 0; display: flex; }
+
+.tv-rail {
+  flex: none; width: 236px;
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+  padding: 26px 20px;
+  border-right: 1px solid var(--bg2);
+}
+.tv-rail-label {
+  font-size: var(--fs-label); font-weight: var(--fw-heavy);
+  letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--faint);
+}
+.tv-included { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.tv-included li {
+  display: flex; align-items: center; gap: 9px;
+  font-size: var(--fs-control); color: var(--dim);
+}
+.tv-included svg { color: var(--accent); flex: none; }
+.tv-source {
+  margin-top: auto; font-family: var(--mono); font-size: 11px; color: var(--faint);
+  overflow-wrap: anywhere;
+}
+
+.tv-stage {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 20px; padding: var(--sp-section);
+  background: var(--stage);
+}
+/* The frame reads as a DEVICE on the recessed stage: big radius, a light border (the template
+   inside is its own palette, usually light), a deep soft shadow. Width comes from the device
+   switcher; the height is whatever the stage allows. */
+.tv-frame-wrap {
+  flex: 1; min-height: 0; max-width: 100%;
+  border-radius: var(--radius-lg); overflow: hidden;
+  border: 1px solid #cbd2dc;
+  box-shadow: 0 20px 44px -20px rgba(20, 25, 40, 0.45);
+  transition: width .2s ease;
+}
+.tv-frame { width: 100%; height: 100%; border: 0; display: block; }
+
+.tv-switcher { flex: none; display: flex; align-items: center; gap: var(--sp-control); }
+.tv-thumb {
+  width: 150px; padding: 0; overflow: hidden; text-align: left;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg2);
+}
+.tv-thumb.active { border-color: var(--accent); }
+.tv-thumb-shot { position: relative; display: block; height: 64px; overflow: hidden; }
+.tv-thumb-frame {
+  width: 1280px; height: 545px; border: 0; pointer-events: none;
+  position: absolute; top: 0; left: 0;
+  transform-origin: top left; transform: scale(0.1172);
+}
+.tv-thumb-caption {
+  display: block; padding: 6px 10px;
+  font-size: var(--fs-meta); color: var(--dim);
+  border-top: 1px solid var(--border);
+}
+.tv-thumb.active .tv-thumb-caption { background: var(--accent-soft); color: var(--accent-text); }
+
+/* The frame's click-to-open doorway: invisible until hovered, then a centred pill. zoom-in
+   cursor everywhere on the frame, so the affordance reads before the pill appears. */
+.tv-frame-wrap { position: relative; }
+.tv-frame-open {
+  position: absolute; inset: 0; cursor: zoom-in;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; transition: background .15s ease;
+}
+.tv-frame-open:hover { background: rgba(0, 0, 0, 0.18); }
+.tv-frame-open-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62); color: #fff;
+  font-size: var(--fs-control); font-weight: var(--fw-medium);
+  opacity: 0; transition: opacity .15s ease;
+}
+.tv-frame-open:hover .tv-frame-open-pill, .tv-frame-open:focus-visible .tv-frame-open-pill { opacity: 1; }
+
+/* The in-app lightbox: over the viewer (70 > 60), a slim bar, then the frame gets the rest. */
+.tv-full {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; flex-direction: column;
+  background: var(--stage);
+}
+.tv-full-bar {
+  flex: none; display: flex; align-items: center; gap: var(--sp-control);
+  padding: 10px var(--sp-card-pad);
+  background: var(--bg4); border-bottom: 1px solid var(--bg2);
+}
+.tv-full-name {
+  margin-right: auto;
+  font-size: var(--fs-subject); font-weight: var(--fw-bold); color: var(--text-bright);
+}
+.tv-full-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+
+/* ── Blueprint · shape cards ────────────────────────────────────────────────────────────────
+   The same template cards as the shelf, sized for the 620px form: three across, ~96px live
+   thumbnail, caption below. Selection is a lime ring + a check chip on the thumb — visible
+   from across the room, because a pick carried in from the viewer must READ as already made. */
+.bp-tpls { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-control); }
+
+.bp-tpl {
+  cursor: pointer; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg2);
+  transition: border-color .15s ease;
+}
+.bp-tpl:hover { border-color: var(--border2); }
+.bp-tpl.is-picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.bp-tpl-thumb {
+  position: relative; display: block; height: 96px; overflow: hidden;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+/* form column ~186px per card: 1280 * 0.146 ≈ 187 */
+.bp-tpl-frame {
+  width: 1280px; height: 800px; border: 0; pointer-events: none;
+  position: absolute; top: 0; left: 0;
+  transform-origin: top left; transform: scale(0.146);
+}
+.bp-tpl-thumb--plain {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--faint); background: var(--trough);
+}
+/* the eye badge is the shelf's — same class, same look; it just needs its hover hook here */
+.bp-tpl-thumb:hover .lp-tpl-eye { opacity: 1; }
+
+.bp-tpl-check {
+  position: absolute; top: 8px; left: 8px; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px; background: var(--prim-bg); color: var(--prim-ink);
+}
+
+.bp-tpl-caption {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  font-size: var(--fs-control); font-weight: var(--fw-medium); color: var(--text);
+}
+.bp-tpl-caption svg { color: var(--dim); }
+.bp-tpl.is-picked .bp-tpl-caption { color: var(--accent-text); }
+.bp-tpl.is-picked .bp-tpl-caption svg { color: var(--accent); }
+
+/* ── Workspace · split stage + preview pane ─────────────────────────────────────────────────
+   Default: .stage-chat IS the stage (the old layout, exactly — a column filling it). Split:
+   the chat becomes a fixed 400px column and the preview pane takes the rest. */
+.stage-chat {
+  flex: 1; min-width: 0; min-height: 0; position: relative;
+  display: flex; flex-direction: column;
+}
+.stage--split { flex-direction: row; }
+.stage--split .stage-chat {
+  flex: none; width: 360px;
+  border-right: 1px solid var(--bg2);
+}
+
+/* The workspace tab strip in the subject header — a trough holding pill tabs. One tab today;
+   Files / Capabilities / Test drive join it with their screens. */
+.ws-tabs {
+  display: flex; gap: 2px; padding: 4px;
+  background: var(--trough); border: 1px solid #1f1d19; border-radius: 10px;
+}
+.ws-tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; border-radius: 7px;
+  font-size: var(--fs-cell); font-weight: var(--fw-medium); color: var(--dim);
+}
+.ws-tab:hover { color: var(--text); }
+.ws-tab.active { background: var(--border); color: var(--text-bright); font-weight: var(--fw-heavy); }
+.ws-tab svg { color: var(--faint); }
+.ws-tab.active svg { color: var(--accent); }
+
+/* The pane itself: toolbar, then the agent's window framed on the recessed stage. */
+.wsp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.wsp-bar {
+  flex: none; display: flex; align-items: center; gap: var(--sp-icon);
+  padding: 10px var(--sp-card-pad);
+  border-bottom: 1px solid var(--bg2);
+}
+.wsp-url {
+  margin-right: auto; font-family: var(--mono); font-size: 11px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wsp-error {
+  flex: none; padding: 10px var(--sp-card-pad);
+  font-family: var(--mono); font-size: var(--fs-meta); color: var(--danger);
+  background: var(--danger-soft); border-bottom: 1px solid var(--bg2);
+  white-space: pre-wrap; max-height: 180px; overflow-y: auto;
+}
+.wsp-stage { flex: 1; min-height: 0; padding: var(--sp-card-pad); display: flex; }
+.wsp-frame {
+  flex: 1; min-width: 0; border: 0;
+  border-radius: var(--radius-lg); background: #fff;
+  border: 1px solid var(--border2);
+  box-shadow: 0 20px 44px -20px rgba(0, 0, 0, 0.55);
+}
+.wsp-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-meta); color: var(--faint);
+}
+
+.spin { animation: ag-spin 0.9s linear infinite; }
+
+/* ── Workspace · files pane — tree | inline reader, raw with a gutter ───────────────────────── */
+.wsf { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.wsf-tree {
+  flex: none; width: 248px; overflow-y: auto;
+  padding: 10px 8px;
+  border-right: 1px solid var(--bg2);
+}
+.wsf-view { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--stage); }
+.wsf-view--empty { align-items: center; justify-content: center; }
+.wsf-view-head {
+  flex: none; padding: 10px var(--sp-card-pad);
+  border-bottom: 1px solid var(--bg2);
+}
+.wsf-view-name { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.wsf-view-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 0; }
+.wsf-view-body img, .wsf-view-body video { max-width: 100%; padding: 0 var(--sp-card-pad); }
+
+.wsf-code { font-family: var(--mono); font-size: var(--fs-cell); line-height: 2.05; }
+.wsf-line { display: flex; }
+.wsf-ln {
+  flex: none; width: 44px; padding-right: 14px; text-align: right;
+  color: var(--faint); user-select: none;
+}
+.wsf-lc { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+
+/* ── Workspace · capabilities pane — rows | the agent.toml that backs them ──────────────────── */
+.wsc { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.wsc-main {
+  flex: 1 1 auto; min-width: 300px; overflow-y: auto;
+  padding: 26px 28px;
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+}
+.wsc-head { margin: 0; font-size: var(--fs-subject); font-weight: var(--fw-heavy); color: var(--text); }
+.wsc-head:not(:first-child) { margin-top: var(--sp-card-pad); }
+
+.wsc-rows { display: flex; flex-direction: column; gap: var(--sp-control); }
+.wsc-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: var(--sp-card-pad) 18px;
+  background: var(--trough); border: 1px solid #1f1d19; border-radius: var(--radius);
+}
+.wsc-row > svg { flex: none; color: var(--dim); }
+.wsc-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wsc-row-name { font-size: var(--fs-body); color: var(--text); font-family: var(--mono); font-size: 13px; }
+.wsc-row-note { font-size: var(--fs-cell); color: var(--faint); }
+
+.wsc-row--denied { background: rgba(240, 113, 95, 0.05); border-color: rgba(240, 113, 95, 0.25); }
+.wsc-row--denied > svg { color: var(--danger); }
+.wsc-denied {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid rgba(240, 113, 95, 0.35);
+  font-size: var(--fs-meta); color: var(--danger);
+}
+
+/* The 38×22 switch, drawn but inert — aria-disabled and a title say why. */
+.wsc-toggle {
+  flex: none; width: 38px; height: 22px; border-radius: 999px;
+  background: var(--border); position: relative; opacity: 0.75; cursor: not-allowed;
+}
+.wsc-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 999px; background: var(--faint);
+}
+.wsc-toggle.on { background: var(--prim-bg); }
+.wsc-toggle.on::after { left: auto; right: 2px; background: var(--prim-ink); }
+
+.wsc-toml {
+  /* yields before the rows do: 420 when the window affords it, never below 250 —
+     with the inspector also open, something has to give, and the raw file scrolls better
+     than switch rows wrap. */
+  flex: 0 1 420px; min-width: 250px; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--stage); border-left: 1px solid var(--bg2);
+}
+
+/* ── Workspace · test-drive pane — the frame, honestly empty ───────────────────────────────── */
+.wst { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.wst-stage {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--stage); padding: var(--sp-section);
+}
+.wst-card {
+  max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center; color: var(--dim);
+}
+.wst-card > svg { color: var(--faint); }
+.wst-title { margin: 0; font-size: var(--fs-subject); font-weight: var(--fw-heavy); color: var(--text); }
+.wst-copy { margin: 0; font-size: var(--fs-control); line-height: 1.65; color: var(--dim); }
+
+.wst-trace {
+  flex: 0 1 300px; min-width: 220px;
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+  padding: 26px 22px; border-left: 1px solid var(--bg2);
+}
+
+/* ── Ship — preflight, the two real verbs, and the listing ─────────────────────────────────── */
+.ship {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg4);
+}
+.ship-body { flex: 1; min-height: 0; display: flex; }
+.ship-main {
+  flex: 1; min-width: 0; overflow-y: auto;
+  max-width: 760px; padding: 40px 48px;
+  display: flex; flex-direction: column; gap: var(--sp-section);
+}
+
+.ship-rows { display: flex; flex-direction: column; gap: var(--sp-control); }
+.ship-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 15px 18px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: var(--fs-body);
+}
+.ship-row.is-bad { background: rgba(240, 113, 95, 0.05); border-color: rgba(240, 113, 95, 0.32); }
+.ship-row-name { font-weight: var(--fw-heavy); color: var(--text); }
+.ship-row-note {
+  flex: 1; min-width: 0; font-size: var(--fs-cell); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ship-ok { color: var(--accent); }
+.ship-bad { color: var(--danger); }
+.ship-dim { color: var(--faint); }
+.ship-spinner {
+  width: 14px; height: 14px; border-radius: 999px; flex: none;
+  border: 2px solid var(--accent); border-top-color: transparent;
+  animation: ag-spin 0.9s linear infinite;
+}
+
+.ship-report {
+  margin: 0; padding: var(--sp-card-pad);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  font-family: var(--mono); font-size: var(--fs-cell); line-height: 1.8; color: var(--dim);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto;
+}
+.ship-report.is-bad { color: var(--danger); border-color: rgba(240, 113, 95, 0.32); }
+
+.ship-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-section); }
+.ship-tiles { display: flex; gap: var(--sp-control); }
+.ship-tile {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+  font-size: var(--fs-control); font-weight: var(--fw-heavy); color: var(--faint);
+  cursor: not-allowed;
+}
+.ship-tile small { font-size: var(--fs-meta); font-weight: var(--fw-normal); }
+.ship-tile.is-current { border-color: var(--accent); color: var(--text); cursor: default; }
+
+.ship-actions { display: flex; align-items: center; gap: var(--sp-control); }
+
+.ship-confirm {
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+  padding: var(--sp-card-pad); border: 1px solid var(--warn); border-radius: var(--radius);
+  background: rgba(240, 163, 94, 0.06);
+}
+.ship-confirm-note {
+  margin: 0; display: flex; align-items: center; gap: 9px;
+  font-size: var(--fs-control); color: var(--warn);
+}
+
+.ship-panel {
+  flex: none; width: 420px; min-height: 0; margin-left: auto;
+  display: flex; flex-direction: column; gap: var(--sp-card-pad);
+  padding: 40px 28px; overflow-y: auto;
+  background: var(--stage); border-left: 1px solid var(--bg2);
+}
+.ship-listing {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: var(--sp-card-pad);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.ship-listing-head { display: flex; align-items: center; gap: 12px; }
+.ship-listing-names { display: flex; flex-direction: column; min-width: 0; }
+.ship-listing-name { font-size: var(--fs-body); font-weight: var(--fw-heavy); color: var(--text); }
+.ship-listing-by { font-size: var(--fs-meta); color: var(--faint); }
+.ship-listing-desc { margin: 0; font-size: var(--fs-control); line-height: 1.6; color: var(--dim); }
+
+/* ── The feel pass (slice 6) ────────────────────────────────────────────────────────────────── */
+
+/* FOCUS IS THE LIME RING, everywhere, and never the UA default. :focus-visible only — a mouse
+   click does not paint a ring, a Tab does. Inputs that style their own focused border (search,
+   rename, name fields) keep it; the ring joins it rather than replacing it. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Lucide draws at stroke-width 2; the design is drawn at 1.5 — lighter lines on a dark ground
+   read as marks, not shapes. One rule, every icon. */
+.lucide { stroke-width: 1.5px; }
+
+/* BELOW 1440 THE INSPECTOR IS THE FIRST THING TO GO — the design's drop order. Its toggle goes
+   with it: a button whose subject cannot appear is a dead control, not an option. Everything in
+   the panel lives elsewhere now (files: the Files tab; the verbs: Ship). */
+@media (max-width: 1439px) {
+  .shell .panel { display: none; }
+  .panel-toggle { display: none; }
+}
+
+/* The SHARED settings page's own title, lifted to this window's page-title scale. An override
+   HERE, not in _common/settings.css: that file is the blueprint every generated agent ships —
+   light templates included — and this window's 32px bright-cream masthead is this window's
+   look, not theirs. */
+.settings-page .settings-title {
+  font-family: var(--display); font-size: var(--fs-title); font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title); color: var(--text-bright);
+}

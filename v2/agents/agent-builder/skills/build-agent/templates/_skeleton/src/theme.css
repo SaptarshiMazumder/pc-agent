@@ -1,0 +1,24 @@
+/* THIS TEMPLATE'S LOOK — and the only file that decides one.
+ *
+ * `tokens.css` ships a complete set of defaults, so this file overrides ONLY what this template
+ * actually changes. That is the whole difference between one template and another: same
+ * components, same structure, a different handful of values here.
+ *
+ * The base skeleton ships this file empty on purpose — it looks like `tokens.css` says it looks.
+ * A template variant supplies its own copy (see `_variants/chat/src/theme.css`), and the
+ * scaffolder overlays it, file for file.
+ *
+ * WHAT BELONGS HERE
+ *   :root { --token: value }   any token from tokens.css — palette, type, radii, spacing, motion
+ *   @import for a web font     then redefine --sans / --mono / --display to use it
+ *   nothing else
+ *
+ * WHAT DOES NOT
+ *   Layout and structure. Those live in `styles.css` and belong to the components, so that a
+ *   component dropped into another template still works. If a rule here is doing more than
+ *   setting a token, it is probably a structural change wearing a theme's clothes — and the next
+ *   template to import that component will inherit the surprise.
+ *
+ * Loaded AFTER tokens.css and BEFORE styles.css (main.tsx), so it wins over the defaults and the
+ * structure reads whatever it decides.
+ */

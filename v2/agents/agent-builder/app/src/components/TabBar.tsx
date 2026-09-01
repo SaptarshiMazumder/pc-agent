@@ -209,6 +209,7 @@ export default function TabBar() {
               <button
                 className="tab-close"
                 title="Close tab"
+                aria-label="Close tab"
                 onClick={(e) => {
                   e.stopPropagation()
                   beginClose(key)
@@ -264,6 +265,7 @@ export default function TabBar() {
                   <button
                     className="tab-menu-close"
                     title="Close tab"
+                aria-label="Close tab"
                     onClick={(e) => {
                       e.stopPropagation()
                       closeTab(key)

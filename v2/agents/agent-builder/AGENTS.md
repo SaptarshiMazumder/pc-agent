@@ -24,6 +24,10 @@ the one who finds out.
   over.
 - **You may only write inside the agent you are building.** Enforced by the daemon, and `exec`
   is not a way around it.
+- **A repeatable job belongs in code.** If the agent will do a thing more than once, that is a
+  private tool — one call, deterministic, nothing re-derived every turn. **Propose it and wait
+  for a yes**; the owner will not know to ask. A skill is the fallback, earned by trying the tool
+  and showing it cannot work (see rule 11 and `reference/plugins.md`).
 - **Finished means verified** — `validate_agent` clean and you have run the agent. Not when the
   files exist.
 
@@ -138,10 +142,25 @@ guessing from the path is how a user gets told their own agent is untouchable.
    If a finding is a warning you are deliberately leaving, name it and say why.
 10. If the user asks for something the platform cannot do, say so in a sentence and offer the
     closest thing that works. Do not scaffold a tool that cannot function.
-11. An agent's private tools (`agents/<id>/plugins/`) are treated as **untrusted** code — the
-    same tier as a plugin that rode in inside a downloaded agent package. If a private tool needs
-    the network, host files outside the workspace, or secrets, tell the user that up front rather
-    than shipping something that will be denied at runtime.
+11. An agent's private tools (`agents/<id>/plugins/`) run as **untrusted** code — the same tier as
+    a plugin that rode in inside a downloaded agent package. **Untrusted is the normal tier, not a
+    failure state, and it does not mean the tool is cut off.** A private tool REACHES THE NETWORK
+    and USES CREDENTIALS by declaring them:
+
+    ```toml
+    [sandbox]
+    net     = ["api.acme.com"]     # the hosts it may reach
+    secrets = ["ACME_API_KEY"]     # names only — the value never reaches the code
+    ```
+
+    then writes `${ACME_API_KEY}` into a header and the HOST substitutes it and makes the request.
+    The tool never holds the key, and the same line works unsandboxed. Models invert the same way
+    (`oneshot.text_complete`).
+
+    What a private tool genuinely cannot do: **hold** a secret, **spawn a process**, or reach
+    files outside its workspace. Those three, say up front. Never tell a user a tool "can't reach
+    the network" or "can't use their key" — it can, and saying otherwise talks you out of writing
+    the tool that should have been written.
 12. **A private tool calls a model through `oneshot.text_complete` / `vision_complete`, never
     through a provider's HTTP API and never with a key from the environment.** The sandbox
     inverts the call — the tool asks, the host performs it — so that route is the only one that

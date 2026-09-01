@@ -37,6 +37,14 @@ import LiveReload from '../../skills/build-agent/templates/_common/dev/LiveReloa
 // the requirement is carbon-copy behavior with the assistant, checkable by diffing the two
 // files. Agents still get `common/orgs`; this window matches its parent instead.
 import OrgView from './components/OrgView'
+import { Blueprint } from './components/Blueprint'
+import { Launchpad } from './components/Launchpad'
+import { TemplateViewer } from './components/TemplateViewer'
+import { WorkspaceCapabilities } from './components/WorkspaceCapabilities'
+import { WorkspaceFiles } from './components/WorkspaceFiles'
+import { WorkspacePreview } from './components/WorkspacePreview'
+import { WorkspaceTestDrive } from './components/WorkspaceTestDrive'
+import { ShipScreen } from './components/ShipScreen'
 import { MyAgentsView } from './components/MyAgentsView'
 import { SettingsView } from './components/settings/SettingsView'
 import { StartModal, type StartMode } from './components/StartModal'
@@ -45,12 +53,7 @@ import { Thread } from './components/Thread'
 import TabBar from './components/TabBar'
 import { Topbar } from './components/Topbar'
 
-/** A display name -> the kebab-case id the daemon files it under. Mirrors `_slug` in
- *  create_agent_tool.py; the tool re-derives it anyway, so a disagreement is cosmetic rather than
- *  a second source of truth. */
-function slugOf(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-}
+import { slugOf } from './lib/agentSlug'
 
 export default function App() {
   const { client, status } = useClient()
@@ -82,6 +85,7 @@ export default function App() {
    *  create_agent reported, because nothing else knows it. */
   const [pendingScope, setPendingScope] = useState<{ id: string; dir: string } | null>(null)
   const sendMessage = useApp((s) => s.sendMessage)
+  const setWsTab = useApp((s) => s.setWsTab)
   const abortRun = useApp((s) => s.abortRun)
   const addFiles = useApp((s) => s.addFiles)
   const removeFile = useApp((s) => s.removeFile)
@@ -92,7 +96,18 @@ export default function App() {
   const connectStore = useApp((s) => s.connect)
   // Which start dialog is open, and the suggestion that opened it. One piece of state, because
   // "create" and "edit" are two questions asked by one screen and never both at once.
+  // CREATE now opens the Blueprint page below; this dialog still owns EDIT (the agent picker).
   const [start, setStart] = useState<{ mode: StartMode; seed?: string } | null>(null)
+  /** The Blueprint page — the create wizard as a full-bleed overlay. Holds the seed the same
+   *  way `start` held it; rendered over the shell (not instead of it) so LiveReload and every
+   *  subscription stay mounted underneath, exactly as they did under the modal. `shape` is a
+   *  pre-picked Shape tile — the template viewer's "Use this template", or the shelf's
+   *  Headless card, neither of which should re-ask what was just chosen. */
+  const [blueprint, setBlueprint] = useState<{ seed?: string; shape?: string } | null>(null)
+  /** The template viewer — full-screen looking, over the launchpad. Holds the template id. */
+  const [viewer, setViewer] = useState<string | null>(null)
+  /** The Ship screen — preflight and the two real verbs, over the shell like the Blueprint. */
+  const [ship, setShip] = useState(false)
   const [windowError, setWindowError] = useState('')
   const [opening, setOpening] = useState(false)
   const [forking, setForking] = useState(false)
@@ -187,6 +202,7 @@ export default function App() {
     async (name: string, window: boolean, template: string, seed?: string) => {
       if (!client) return
       setStart(null)
+      setBlueprint(null)
       setCreating(name)
       setCreateError('')
       try {
@@ -244,6 +260,15 @@ export default function App() {
   // Does this agent COMPILE its window? `app/` at the top of its tree is the whole test: source
   // there, build output in ui/. A hand-written ui/ has nothing to build and is live on save.
   const compiles = files.rows.some((r) => r.name === 'app' && r.depth === 0 && r.kind === 'folder')
+
+  /* The workspace pane beside the conversation. Preview is guarded on hasWindow as well as the
+     tab — an agent can LOSE its window mid-session (the model rewrites agent.toml), and a
+     preview of nothing should close itself rather than 404. Files needs only a subject. */
+  const previewOpen = !!selected && hasWindow(selected) && chat.wsTab === 'preview'
+  const filesOpen = !!selected && chat.wsTab === 'files'
+  const capsOpen = !!selected && chat.wsTab === 'caps'
+  const testOpen = !!selected && chat.wsTab === 'test'
+  const paneOpen = previewOpen || filesOpen || capsOpen || testOpen
 
   /** BUILD, THEN OPEN. The button means "show me my current source", not "show me the last
    *  build" — see buildAndOpen. Failure shows vite's error and opens nothing. */
@@ -373,7 +398,7 @@ export default function App() {
           setView('chat')
           editAgent(id)
         }}
-        onCreate={() => setStart({ mode: 'create' })}
+        onCreate={() => setBlueprint({})}
         onEdit={() => setStart({ mode: 'edit' })}
         onSettings={() => setView('settings')}
         onCredits={() => setView('credits')}
@@ -425,7 +450,28 @@ export default function App() {
              a floating card is a page pretending not to be one. The conversation is one click
              away in the rail and its tab is still open. */
           <SettingsView client={client} />
+        ) : view === 'launchpad' ? (
+          <Launchpad
+            agents={openable(agents)}
+            onEdit={(id) => {
+              setView('chat')
+              editAgent(id)
+            }}
+            onCreate={() => setBlueprint({})}
+            onCreateShape={(shape) => setBlueprint({ shape })}
+            onPreviewTemplate={(id) => setViewer(id)}
+            onOpenChat={(key) => {
+              setView('chat')
+              void openChat(key)
+            }}
+            credits={credits}
+            onCredits={() => setView('credits')}
+            status={status}
+            daemonVersion={daemonVersion}
+          />
         ) : view === 'myagents' ? (
+          /* SUPERSEDED by the launchpad above and no longer reachable from the rail. Left routed
+             until the launchpad has grown the rest of the page — see the View type. */
           <MyAgentsView
             agents={openable(agents)}
             onEdit={(id) => {
@@ -447,43 +493,62 @@ export default function App() {
               canTogglePanel={!!selected}
               panelOpen={panelOpen}
               onTogglePanel={togglePanel}
+              previewable={hasWindow(selected)}
+              wsTab={chat.wsTab}
+              onWsTab={setWsTab}
+              onShip={() => setShip(true)}
             />
-        <section className="stage">
-          {empty ? (
-            /* NOTHING SAID YET: the input in the MIDDLE of the page rather than pinned to the
-               bottom, which on an empty chat left the one thing you came to use furthest from
-               where you were looking. The cards around it appear only on a chat that has not been
-               started — see `fresh`. */
-            <div className="chat-hero">
-              {fresh && (
-                <HeroStart
-                  hasAgents={openable(agents).length > 0}
-                  onCreate={() => setStart({ mode: 'create' })}
-                  onEdit={() => setStart({ mode: 'edit' })}
-                />
-              )}
-              <div className="chat-hero-composer">{composer}</div>
-              {/* A suggestion says WHAT to build; the dialog is still HOW. Routing it through the
-                  same door is what stops the most-taken path being the one that skips the
-                  question. */}
-              {fresh && (
-                <HeroSuggestions onSuggest={(text) => setStart({ mode: 'create', seed: text })} />
-              )}
-            </div>
-          ) : (
-            <>
-              <Thread items={chat.items} running={chat.running} />
-              {composer}
-            </>
+        <section className={`stage ${paneOpen ? 'stage--split' : ''}`}>
+          {/* The conversation column — the whole stage when no pane is open (the old layout,
+              exactly), a 400px column beside the live window when one is. */}
+          <div className="stage-chat">
+            {empty ? (
+              /* NOTHING SAID YET: the input in the MIDDLE of the page rather than pinned to the
+                 bottom, which on an empty chat left the one thing you came to use furthest from
+                 where you were looking. The cards around it appear only on a chat that has not
+                 been started — see `fresh`. */
+              <div className="chat-hero">
+                {fresh && (
+                  <HeroStart
+                    hasAgents={openable(agents).length > 0}
+                    onCreate={() => setBlueprint({})}
+                    onEdit={() => setStart({ mode: 'edit' })}
+                  />
+                )}
+                <div className="chat-hero-composer">{composer}</div>
+                {/* A suggestion says WHAT to build; the dialog is still HOW. Routing it through
+                    the same door is what stops the most-taken path being the one that skips the
+                    question. */}
+                {fresh && (
+                  <HeroSuggestions onSuggest={(text) => setBlueprint({ seed: text })} />
+                )}
+              </div>
+            ) : (
+              <>
+                <Thread items={chat.items} running={chat.running} />
+                {composer}
+              </>
+            )}
+            {windowError && (
+              <div className="composer-error" role="alert">
+                {windowError}
+                <button className="icon-btn" onClick={() => setWindowError('')} title="Dismiss">
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+
+          {previewOpen && selected && (
+            <WorkspacePreview client={client} agent={selected} compiles={compiles} />
           )}
-          {windowError && (
-            <div className="composer-error" role="alert">
-              {windowError}
-              <button className="icon-btn" onClick={() => setWindowError('')} title="Dismiss">
-                ✕
-              </button>
-            </div>
+          {filesOpen && selected && (
+            <WorkspaceFiles client={client} agent={selected} files={files} />
           )}
+          {capsOpen && selected && (
+            <WorkspaceCapabilities client={client} agent={selected} files={files} />
+          )}
+          {testOpen && selected && <WorkspaceTestDrive agent={selected} />}
         </section>
           </>
         )}
@@ -495,6 +560,41 @@ export default function App() {
           client={client}
           files={files}
           onChanged={() => void files.refresh()}
+        />
+      )}
+
+      {/* The create wizard, full-bleed over the shell. Mounted only while open, like the
+          dialog it replaces; createAgent closes it the way it closed the dialog. */}
+      {blueprint && (
+        <Blueprint
+          seed={blueprint.seed}
+          initialShape={blueprint.shape}
+          onCreate={createAgent}
+          onClose={() => setBlueprint(null)}
+        />
+      )}
+
+      {/* Ship: the inspector's verbs as a screen. The inspector keeps its copies until this
+          one has earned the retirement. */}
+      {ship && selected && (
+        <ShipScreen
+          client={client}
+          agent={selected}
+          authorLabel={who.known && who.signedIn ? who.label : ''}
+          onClose={() => setShip(false)}
+        />
+      )}
+
+      {/* Full-screen template walkthrough. "Use this template" hands the pick straight to the
+          Blueprint — looking never creates anything. */}
+      {viewer && (
+        <TemplateViewer
+          templateId={viewer}
+          onUse={(id) => {
+            setViewer(null)
+            setBlueprint({ shape: id })
+          }}
+          onClose={() => setViewer(null)}
         />
       )}
 

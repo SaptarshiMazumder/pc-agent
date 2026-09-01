@@ -1,29 +1,39 @@
-/* THE PALETTE — this agent's own, and yours to change.
+/* THE DEFAULT DESIGN TOKENS — every visual decision this window can make, with a working value.
  *
- * WHY IT SHIPS. The shared modules copied into `src/common/` — the settings page, credits,
- * sign-in — define no colours and no fonts at all. Every one of their visual properties is a
- * `var()`, so they take on whatever window they land in. That is deliberate: layout travels with
- * the module, appearance belongs to the agent.
+ * THE SPLIT THIS FILE EXISTS TO ENFORCE:
  *
- * But it means the modules have a CONTRACT: the names below. Without them their `var()`s resolve
- * to nothing and the pages render structurally perfect and visually blank — transparent cards,
- * inherited text, no accent. Shipping the palette as a real file is what makes copying a module
- * enough to make it work, rather than something that also requires reading a document.
+ *   components   markup, class names, behaviour.          Never a colour, never a size.
+ *   styles.css   STRUCTURE — what makes a component work:  scroll, pinning, wrapping, overlays.
+ *                every value in it is a var() from here.   Never a decision of its own.
+ *   tokens.css   the DEFAULTS below.                       Complete, so nothing is ever undefined.
+ *   theme.css    THE TEMPLATE'S OWN LOOK.                  Loaded after this file; overrides only
+ *                                                          what that template actually changes.
  *
- * TO RESTYLE THIS AGENT, edit the values here. Every shared page follows, because they all read
- * these names and nothing else. Adding your own tokens is fine; REMOVING one of these is what
- * breaks a page you did not write.
+ * So a template is its `theme.css`. Chat and dashboard ship the same components, the same
+ * structure, and different themes — and a new template is a short file of decisions, not a copy
+ * of this one. That is what lets a component be imported into any template with zero edits and
+ * full behaviour.
  *
- * `styles.css` is imported after this one, so anything you redefine there wins.
+ * TWO RULES, both learned the hard way:
+ *
+ *   ADD, NEVER RENAME OR REMOVE. The four shared pages under `src/common/` — sign-in, credits,
+ *   settings, organizations — declare no colours and no fonts at all; every property they have is
+ *   a var() resolved from the names below. Drop a name and those pages render structurally
+ *   perfect and visually blank. They are copied verbatim into every agent and compared against
+ *   the source, so they cannot be patched to match a renamed token.
+ *
+ *   NO SECOND :root ANYWHERE ELSE. styles.css once carried a full palette of its own, which
+ *   loaded afterwards and silently won — every template's tokens were dead on arrival. The order
+ *   is tokens -> theme -> styles (see main.tsx), and only the first two decide anything.
  */
 
 :root {
   /* Tell the engine this is a dark surface, so native controls — the <select> popup, scrollbars —
-     render dark rather than in the default light scheme. */
+     render dark rather than in the default light scheme. A light theme overrides this. */
   color-scheme: dark;
 
-  /* --- surfaces, darkest to lightest. Nothing is ever lighter than what it sits on, which is
-     what stops a dark UI collapsing into grey rectangles. --- */
+  /* ── surfaces, darkest to lightest. Nothing is ever lighter than what it sits on, which is
+     what stops a dark UI collapsing into grey rectangles. ─────────────────────────────────── */
   --bg4: #100f0d;   /* the window itself */
   --bg:  #131210;   /* a full-height region: a rail, a panel, the page under a card */
   --bg2: #1a1815;   /* a card, a menu, anything sitting ON a surface */
@@ -34,35 +44,67 @@
      everywhere at once. */
   --row-line: transparent;
 
-  /* --- text. Dimmed from a near-white: pure white on near-black blooms and reads heavy. --- */
+  /* ── text, loudest to quietest. Dimmed from a near-white: pure white on near-black blooms and
+     reads heavy. `--faint` is the metadata floor — anything quieter fails contrast at 11-13px. */
   --text: #d2cec3;
+  /* Long-form prose (an assistant's reply). Its own name because a theme often wants reading text
+     a step softer than a heading without touching either neighbour. */
+  --body: var(--text);
   --dim: #a49d8d;
   --faint: #6c665a;
 
-  /* --- one accent, three jobs: --prim-bg fills the consequential action, --accent marks
-     selection and life, --accent-text carries emphasis in type. --- */
+  /* ── one accent, three jobs: --prim-bg fills the consequential action, --accent marks
+     selection and life, --accent-text carries emphasis in type. ──────────────────────────── */
   --accent: #a3e635;
   --accent-text: #a3e635;
   --accent-soft: rgba(163, 230, 53, 0.14);
+  /* The border that goes with --accent-soft, and the far end of an accent gradient. Separate
+     names because a tinted panel needs an edge that is neither the fill nor the full accent. */
+  --accent-edge: color-mix(in srgb, var(--accent) 30%, transparent);
+  --accent-deep: var(--accent);
   --prim-bg: #a3e635;
   --prim-bg-h: #bef264;
   --prim-ink: #182100;    /* dark ink ON the accent — never white, which is unreadable there */
 
-  /* --- semantic --- */
+  /* ── semantic ─────────────────────────────────────────────────────────────────────────── */
   --danger: #f0715f;
   --danger-soft: rgba(240, 113, 95, 0.13);
   /* Attention that is neither an error nor an action: a required field still empty, a meter
      nearing full. */
   --warn: #f0a35e;
+  /* Something is alive and well: the connected dot, a completed tool call. Defaults to the accent
+     because this palette's accent already reads as "live". */
+  --ok: var(--accent);
 
-  /* --- elevation --- */
+  /* ── ambient light. Off by default: a glow is a theme's decision, and one that is always on
+     costs paint time on every scroll for nothing. ────────────────────────────────────────── */
+  --glow-1: transparent;
+  --glow-2: transparent;
+
+  /* ── elevation ────────────────────────────────────────────────────────────────────────── */
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 36px -14px rgba(0,0,0,.6);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.35);
+  /* The two things that cast in this window, named by role so a theme can lift the window
+     without lifting every card with it. */
+  --shadow-window: var(--shadow);
+  --shadow-card: var(--shadow);
 
+  /* ── geometry. `--radius` is the historic general-purpose name and stays exactly what it was;
+     the rest name a ROLE, so a theme can round the bubbles without rounding the inputs. ──── */
   --radius: 11px;
+  --r-window: 12px;
+  --r-panel: 12px;
+  --r-card: var(--radius);
+  --r-bubble: 16px;
+  --r-input: 9px;
+  --r-control: 8px;
+  --r-chip: 6px;
+  --r-sm: 5px;
+  --r-pill: 999px;
 
-  /* --- type. Fall back rather than bundle: an agent window is served under a strict CSP and
-     should not need the network to draw itself. Swap in a bundled face if you want one. --- */
+  /* ── type. Fall back rather than bundle: an agent window is served under a strict CSP and
+     should not need the network to draw itself. A theme that wants a real face imports it in
+     `theme.css` and redefines these three. ──────────────────────────────────────────────── */
   --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --display: var(--sans);
@@ -77,6 +119,79 @@
   --fw-heavy: 600;
   --fw-bold: 600;
   --fw-on-accent: 700;    /* bumped, not cut: dark ink on a light fill reads thin */
+
+  /* The size scale, by ROLE rather than by number — `--fs-meta` survives a theme that decides
+     metadata is 11px, where a literal 12px scattered through the stylesheet does not. */
+  /* The opening screen's headline — the one place a window shouts. Its own name because it is
+     far off the rest of the scale and a theme sets it deliberately or not at all. */
+  --fs-hero: 44px;
+  --fs-display: 24px;     /* the one headline on a screen that has one */
+  --fs-title: 18px;       /* page title */
+  --fs-lead: 16px;        /* a lead-in line, a large control */
+  --fs-panel: 17px;       /* panel heading */
+  --fs-bubble: 14.5px;    /* a message */
+  --fs-body: 14px;        /* running text */
+  --fs-control: 13.5px;   /* buttons, inputs */
+  --fs-row: 13px;         /* a row in a list */
+  --fs-help: 12.5px;      /* the sentence under a field */
+  --fs-meta: 12px;        /* timestamps, counts */
+  --fs-small: 11px;       /* the quietest readable tier */
+  --fs-label: 10.5px;     /* uppercase section labels */
+  --fs-tiny: 10px;        /* the smallest thing that ships */
+  /* Line height is a type decision like any other: prose wants air, a bubble wants less. */
+  --lh-body: 1.55;
+  --lh-prose: 1.68;
+  --tracking-tight: 0;    /* headlines, if the face wants it pulled in */
+  --tracking-label: 0.08em;
+
+  /* ── spacing. One scale, named by what it separates. ──────────────────────────────────── */
+  --sp-window: 22px;      /* window padding */
+  --sp-panel: 20px;       /* between panels */
+  --sp-card: 17px;        /* inside a card */
+  --sp-row: 15px;         /* a list row's own padding */
+  --sp-control: 14px;     /* between controls */
+  --sp-gap: 12px;         /* the general small gap */
+  --sp-icon: 11px;        /* icon to its label */
+  --sp-tight: 8px;
+
+  /* ── the shell's geometry. HERE rather than in styles.css so a template can re-proportion the
+     window from its theme — styles.css loads last and anything it declared would win. ───── */
+  --rail-w: 276px;
+  --rail-icon-w: 64px;
+  --panel-w: 360px;
+  --aside-w: var(--panel-w);
+  --icon-btn: 32px;
+  --avatar: 30px;
+
+  /* ── motion. Durations and easings as tokens so a theme can slow the whole window down, and so
+     `prefers-reduced-motion` has one place to switch off. ───────────────────────────────── */
+  --ease-smooth: cubic-bezier(.22,.68,.32,1);
+  --ease-rise: cubic-bezier(.2,.7,.2,1);
+  --dur-fast: .12s;
+  --dur-base: .15s;
+  --dur-slow: .3s;
+  --dur-rise: .48s;
+
+  /* ── derived: the shell's own names, computed from the palette so they follow a re-theme
+     without being restated. ─────────────────────────────────────────────────────────────── */
+  --user-bubble: var(--accent-soft);
+  --user-border: var(--accent-edge);
+  --sky: var(--accent-text);
+
+  /* ── the credits panel ships inside the SDK and reads ITS OWN names. Mapping them here is what
+     makes it look native in this window rather than bolted on. Change the values, keep the
+     names. ──────────────────────────────────────────────────────────────────────────────── */
+  --wallet-font:      inherit;
+  --wallet-fg:        var(--text);
+  --wallet-muted:     var(--dim);
+  --wallet-card:      var(--bg3);
+  --wallet-border:    var(--border2);
+  --wallet-radius:    var(--radius);
+  --wallet-accent:    var(--accent, #5b4fcf);
+  --wallet-on-accent: var(--prim-ink);   /* dark ink on lime; #fff here was unreadable */
+  --wallet-warn:      var(--warn);
+  --wallet-error-bg:  var(--danger-soft);
+  --wallet-error-fg:  var(--danger);
 }
 
 /* A floor the shared pages assume: a background, a text colour, and a font. An agent's own
@@ -85,7 +200,7 @@ html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.55 var(--sans);
+  font: var(--fs-body)/1.55 var(--sans);
   font-weight: var(--fw-normal);
   -webkit-font-smoothing: antialiased;
   accent-color: var(--accent);

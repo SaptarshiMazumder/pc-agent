@@ -12,24 +12,19 @@
  * THIS FILE IS YOURS. Rewrite any of it. `src/common/**` is the part that is not.
  */
 
-/* NO PALETTE HERE. `tokens.css` — the template's overlay of it — is the ONLY place a colour,
- * face or weight is decided; every rule below reads that file through var(). This used to carry
- * a second full :root palette, which loaded after tokens.css and silently won — every template's
- * tokens were dead on arrival. The handful of names below are the shell's own: values DERIVED
- * from the palette, and layout widths.
+/* NOTHING IS DECIDED HERE — not a colour, not a size, not a duration. Every value below is a
+ * var() resolved from `tokens.css` (the defaults) and `theme.css` (this template's overrides),
+ * both of which load first. This file is STRUCTURE: what makes a component work wherever it is
+ * imported — scroll, pinning, wrapping, overlays, states.
+ *
+ * The rule is not stylistic. This file once carried a full :root palette of its own, which loaded
+ * after the tokens and silently won, so every template's theme was dead on arrival. It then
+ * carried the shell's layout widths, which meant a template could re-colour the window but not
+ * re-proportion it. Both now live with the other tokens, where a theme can reach them.
+ *
+ * So: a literal here is a bug. If a value is a DECISION, it belongs in tokens.css as a named
+ * default that a theme can override.
  */
-
-:root {
-  /* derived — restyle tokens.css and these follow */
-  --user-bubble: var(--accent-soft);
-  --user-border: color-mix(in srgb, var(--accent) 30%, transparent);
-  --sky: var(--accent-text);
-
-  /* layout — the three-column shell's own, not colour */
-  --rail-w: 276px;
-  --rail-icon-w: 64px;
-  --panel-w: 360px;
-}
 
 * { box-sizing: border-box; }
 
@@ -38,7 +33,7 @@ html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.55 var(--sans);
+  font: var(--fs-body)/1.55 var(--sans);
   font-weight: var(--fw-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -53,8 +48,8 @@ h1, h2, h3 { margin: 0; font-weight: var(--fw-heavy); letter-spacing: -0.015em; 
 p { margin: 0; }
 
 /* The type scale, straight off the spec sheet: 24 / 16 / 14 / 12. */
-h1 { font-size: 24px; }
-h2 { font-size: 16px; }
+h1 { font-size: var(--fs-display); }
+h2 { font-size: var(--fs-lead); }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
 /* THE AREAS ARE NAMED, and that is not a style choice.
@@ -100,7 +95,7 @@ h2 { font-size: 16px; }
 .shell.rail-icons.no-panel { grid-template-columns: var(--rail-icon-w) minmax(0, 1fr); }
 .shell.no-panel > .panel { display: none; }
 /* the width change is the animation, matching agentd's 300ms sidebar slide */
-.shell { transition: grid-template-columns .3s var(--ease-smooth); }
+.shell { transition: grid-template-columns var(--dur-slow) var(--ease-smooth); }
 
 /* ── the card treatment ────────────────────────────────────────────────── */
 /* A CARD IS A THING ON A SURFACE, which is why the rail, main and panel are no longer in this
@@ -117,27 +112,27 @@ h2 { font-size: 16px; }
 .card { padding: 17px; }
 .card-label {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; color: var(--faint); margin-bottom: 12px;
+  font-size: var(--fs-meta); color: var(--faint); margin-bottom: 12px;
 }
-.card-note { font-size: 12px; color: var(--faint); margin-top: 10px; }
+.card-note { font-size: var(--fs-meta); color: var(--faint); margin-top: 10px; }
 
 /* Icon tiles and marks. */
 .tile {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  border-radius: 8px; background: var(--prim-bg); color: var(--prim-ink);
-  width: 26px; height: 26px; font-size: 13px; font-weight: var(--fw-heavy);
+  border-radius: var(--r-control); background: var(--prim-bg); color: var(--prim-ink);
+  width: 26px; height: 26px; font-size: var(--fs-row); font-weight: var(--fw-heavy);
 }
-.tile.sm { width: 22px; height: 22px; border-radius: 7px; font-size: 11px; }
-.tile.lg { width: 42px; height: 42px; border-radius: var(--radius); font-size: 16px; }
+.tile.sm { width: 22px; height: 22px; border-radius: 7px; font-size: var(--fs-small); }
+.tile.lg { width: 42px; height: 42px; border-radius: var(--radius); font-size: var(--fs-lead); }
 
 /* THE icon button, copied from agentd: a bare glyph on an 8px hover square. This window drew a
    30px circle instead, which read as a chip rather than a toolbar control and collided with the
    round .footer-icon that IS meant to read that way. */
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  border: 0; background: transparent; color: var(--dim); cursor: pointer; border-radius: 8px;
-  font-size: 13px;
-  transition: background .15s ease, color .15s ease, transform .12s var(--ease-smooth);
+  border: 0; background: transparent; color: var(--dim); cursor: pointer; border-radius: var(--r-control);
+  font-size: var(--fs-row);
+  transition: background var(--dur-base) ease, color var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth);
 }
 .icon-btn:hover { background: var(--bg3); color: var(--text); }
 .icon-btn:active { transform: scale(.88); }
@@ -146,18 +141,18 @@ h2 { font-size: 16px; }
 
 .ghost-btn {
   border-color: var(--border2); color: var(--dim);
-  border-radius: 999px; padding: 8px 15px; font-size: 13px;
+  border-radius: var(--r-pill); padding: 8px 15px; font-size: var(--fs-row);
 }
 .ghost-btn:hover:not(:disabled) { border-color: var(--border2); background: var(--bg3); color: var(--text); }
 
 .prime-btn {
   background: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent);
-  border-radius: 999px; padding: 8px 16px; font-size: 13px;
+  border-radius: var(--r-pill); padding: 8px 16px; font-size: var(--fs-row);
 }
 .prime-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .prime-btn.wide { width: 100%; margin-top: 8px; }
 
-.link-btn { color: var(--faint); font-size: 12px; padding: 0; }
+.link-btn { color: var(--faint); font-size: var(--fs-meta); padding: 0; }
 .link-btn:hover { color: var(--accent-text); }
 
 /* ── sidebar ─────────────────────────────────────────── */
@@ -170,7 +165,6 @@ h2 { font-size: 16px; }
    `.session-dot` (agentd colours each recent by its AGENT, and every conversation here belongs to
    the same one, so the dot would be decoration pretending to be a signal). */
 
-:root { --ease-smooth: cubic-bezier(.22,.68,.32,1); }
 @keyframes ag-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes ag-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes ag-ring { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent)} 70%,100%{box-shadow:0 0 0 7px transparent} }
@@ -178,25 +172,30 @@ h2 { font-size: 16px; }
 /* The grid owns the WIDTH (--rail-w / --rail-icon-w), so the animation agentd runs on its own
    sidebar lives on the shell's column track instead — same 300ms, same easing. */
 .rail { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.sidebar { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+/* The rail carries its own right edge. It used to rely on the grid's background change, which
+   disappeared the moment the panels became translucent. */
+.sidebar { display: flex; flex-direction: column; min-height: 0; height: 100%; border-right: 1px solid var(--border); }
 
-.brand { display: flex; align-items: center; gap: 11px; padding: 14px 12px 12px 15px; }
+.brand { display: flex; align-items: center; gap: var(--sp-icon); padding: var(--sp-panel) var(--sp-gap) var(--sp-control) 18px; }
 .brand-logo { width: 34px; height: 34px; flex: none; }
 .brand-name {
   flex: 1; min-width: 0; font-family: var(--display); font-weight: var(--fw-bold);
-  font-size: 17px; letter-spacing: -.01em;
+  font-size: var(--fs-panel); letter-spacing: -.01em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.live { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 10.5px var(--mono); color: var(--dim); padding: 3px 8px; border-radius: 20px; background: var(--accent-soft); }
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: ag-ring 2.6s ease-out infinite; }
+.live { display: inline-flex; align-items: center; gap: 6px; flex: none; font: var(--fs-label) var(--mono); color: var(--dim); padding: 3px 8px; border-radius: 20px; background: var(--accent-soft); }
+/* THE STATE IS A CLASS, not an inline style. A component that writes `style={{opacity}}` has
+   made a visual decision no theme can reach — see tokens.css on where decisions live. */
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); opacity: .3; }
+.live-dot.is-live { opacity: 1; animation: ag-ring 2.6s ease-out infinite; }
 
 /* compact ChatGPT-style nav rows (New agent / Edit an agent / Search) */
 .nav-rows { display: flex; flex-direction: column; gap: 1px; padding: 4px 12px 2px; }
 .nav-row {
   display: flex; align-items: center; gap: 11px; width: 100%;
-  padding: 6px 10px; border: 0; border-radius: 9px; cursor: pointer;
+  padding: 6px 10px; border: 0; border-radius: var(--r-input); cursor: pointer;
   background: transparent; color: var(--text); text-align: left; font: inherit;
-  font-size: 13.5px; font-weight: var(--fw-medium);
+  font-size: var(--fs-control); font-weight: var(--fw-medium);
 }
 .nav-row:hover { background: var(--bg3); }
 .nav-row.active { background: var(--accent-soft); color: var(--accent-text); }
@@ -210,19 +209,19 @@ h2 { font-size: 16px; }
    everywhere — change it here, change it everywhere. */
 .search-box, .search {
   display: flex; align-items: center; gap: 9px; padding: 8px 14px;
-  border: 1px solid var(--border); border-radius: 999px;
+  border: 1px solid var(--border); border-radius: var(--r-pill);
   background: var(--bg2); color: var(--faint);
 }
 .search-box input, .search input {
   flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
-  color: var(--text); font-size: 13px;
+  color: var(--text); font-size: var(--fs-row);
 }
 .search { margin: 6px 12px 2px; background: var(--bg3); border-color: transparent; }
 .search-clear {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 20px; height: 20px; margin: -3px -5px -3px 0; padding: 0;
   border: 0; border-radius: 50%; background: transparent; color: var(--faint); cursor: pointer;
-  transition: background .12s ease, color .12s ease;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 .search-clear:hover { background: var(--bg); color: var(--text); }
 
@@ -234,7 +233,7 @@ h2 { font-size: 16px; }
 .sidebar > .section-label { padding-left: 20px; padding-right: 20px; }
 .section-label {
   display: flex; align-items: center; gap: 7px;
-  font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase;
+  font-size: var(--fs-label); letter-spacing: .11em; text-transform: uppercase;
   color: var(--faint); font-weight: var(--fw-semi); padding: 13px 8px 6px;
 }
 .section-label:first-child { padding-top: 10px; }
@@ -252,27 +251,27 @@ h2 { font-size: 16px; }
 .section-title { flex: 1; min-width: 0; }
 .section-add {
   display: flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; border: 0; border-radius: 6px;
+  width: 22px; height: 22px; border: 0; border-radius: var(--r-chip);
   background: transparent; color: var(--faint); cursor: pointer;
-  opacity: 0; transition: opacity .12s ease;
+  opacity: 0; transition: opacity var(--dur-fast) ease;
 }
 .section-add:hover { background: var(--bg3); color: var(--accent-text); }
-.section-caret { display: flex; align-items: center; color: var(--faint); margin-left: 1px; opacity: 0; transition: opacity .12s ease; }
+.section-caret { display: flex; align-items: center; color: var(--faint); margin-left: 1px; opacity: 0; transition: opacity var(--dur-fast) ease; }
 .section-head:hover .section-add,
 .section-head:hover .section-caret { opacity: 1; }
 
 .row {
   display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 5px 9px; border: 0; border-radius: 9px; cursor: pointer;
+  padding: 5px 9px; border: 0; border-radius: var(--r-input); cursor: pointer;
   background: transparent; color: var(--text); text-align: left; font: inherit;
 }
 .row:hover { background: var(--bg3); }
 .row.active { background: var(--accent-soft); }
-.avatar { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 8px; color: #181712; font-weight: var(--fw-bold); font-size: 11px; }
-.avatar.lg { width: 46px; height: 46px; border-radius: 13px; font-size: 17px; }
+.avatar { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: var(--r-control); color: #181712; font-weight: var(--fw-bold); font-size: var(--fs-small); }
+.avatar.lg { width: 46px; height: 46px; border-radius: 13px; font-size: var(--fs-panel); }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.row-title { font-weight: var(--fw-strong); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-sub { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-title { font-weight: var(--fw-strong); font-size: var(--fs-row); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub { font-size: var(--fs-small); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .list-empty { padding: 4px 9px; }
 
 /* chat rows: the title uses the FULL width and the actions overlay the right edge on hover only
@@ -289,30 +288,30 @@ h2 { font-size: 16px; }
 .session-row.menu-open .row-actions { opacity: 1; pointer-events: auto; }
 .session-row.menu-open { background: var(--bg3); }
 
-.hover-btn { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 2px; border-radius: 5px; display: flex; }
+.hover-btn { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 2px; border-radius: var(--r-sm); display: flex; }
 .row:hover .hover-btn { opacity: .7; }
 .hover-btn:hover { opacity: 1 !important; color: var(--text); background: var(--bg); }
-.rename-input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 13px; outline: none; }
+.rename-input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-pill); padding: 5px 11px; font: inherit; font-size: var(--fs-row); outline: none; }
 
 /* the hover tooltip, portalled to <body> so a scroll container's overflow can never clip it */
 .hovertip {
   position: fixed; z-index: 60; max-width: 300px; pointer-events: none;
   background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
-  padding: 7px 10px; box-shadow: var(--shadow); animation: ag-pop .12s var(--ease-smooth);
+  padding: 7px 10px; box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
-.hovertip-title { font-size: 12.5px; font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
-.hovertip-sub { margin-top: 2px; font: 11px var(--mono); color: var(--dim); white-space: nowrap; }
+.hovertip-title { font-size: var(--fs-help); font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
+.hovertip-sub { margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim); white-space: nowrap; }
 
 /* the per-chat ... menu */
 .chat-menu {
   position: fixed; z-index: 61; min-width: 196px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 6px;
-  box-shadow: var(--shadow); animation: ag-pop .12s var(--ease-smooth);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel); padding: 6px;
+  box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
 .chat-menu-item {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  padding: 8px 10px; border: 0; border-radius: 8px; cursor: pointer;
-  background: transparent; color: var(--text); font: inherit; font-size: 13px;
+  padding: 8px 10px; border: 0; border-radius: var(--r-control); cursor: pointer;
+  background: transparent; color: var(--text); font: inherit; font-size: var(--fs-row);
 }
 .chat-menu-item:hover { background: var(--bg3); }
 .chat-menu-item .cm-ico { display: flex; color: var(--dim); flex: none; }
@@ -328,12 +327,12 @@ h2 { font-size: 16px; }
 /* collapsed icon rail — the sidebar is never GONE, only narrow. See the shell rules above. */
 .sidebar--rail { align-items: center; gap: 5px; padding: 13px 0; }
 .brand-logo--rail { margin-bottom: 4px; }
-.rail-btn { display: flex; align-items: center; justify-content: center; width: 44px; height: 40px; border: 0; border-radius: 11px; background: transparent; color: var(--dim); cursor: pointer; transition: background .15s ease, color .15s ease, transform .12s var(--ease-smooth); }
+.rail-btn { display: flex; align-items: center; justify-content: center; width: 44px; height: 40px; border: 0; border-radius: var(--radius); background: transparent; color: var(--dim); cursor: pointer; transition: background var(--dur-base) ease, color var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth); }
 .rail-btn:hover { background: var(--bg3); color: var(--text); }
 .rail-btn:active { transform: scale(.9); }
 .rail-btn.active { background: var(--accent-soft); color: var(--accent-text); }
-.rail-primary { width: 44px; height: 44px; border-radius: 12px; background: var(--prim-bg); color: var(--prim-ink); border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); }
-.rail-agent { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; }
+.rail-primary { width: 44px; height: 44px; border-radius: var(--r-panel); background: var(--prim-bg); color: var(--prim-ink); border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); }
+.rail-agent { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: var(--r-panel); background: transparent; cursor: pointer; }
 .rail-agent:hover { background: var(--bg3); }
 .rail-agent.active { background: var(--accent-soft); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 5px 0; }
@@ -347,16 +346,16 @@ h2 { font-size: 16px; }
 .icon-btn.menu-trigger-on { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft) !important; }
 .app-menu {
   position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 41; min-width: 210px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel);
   box-shadow: var(--shadow); padding: 6px; animation: ag-up .14s var(--ease-smooth);
 }
 .app-menu--rail { bottom: 0; left: calc(100% + 10px); right: auto; }
 .app-menu--left { left: 0; right: auto; }
-.app-menu-label { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); padding: 6px 9px 5px; }
+.app-menu-label { font-size: var(--fs-tiny); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); padding: 6px 9px 5px; }
 .app-menu-item {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  padding: 9px 10px; border: 0; border-radius: 8px; cursor: pointer;
-  background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: var(--fw-medium);
+  padding: 9px 10px; border: 0; border-radius: var(--r-control); cursor: pointer;
+  background: transparent; color: var(--text); font: inherit; font-size: var(--fs-row); font-weight: var(--fw-medium);
 }
 .app-menu-item:hover:not(:disabled) { background: var(--bg3); }
 .app-menu-item:disabled { opacity: 0.6; cursor: default; }
@@ -364,9 +363,9 @@ h2 { font-size: 16px; }
 .app-menu-item svg { color: var(--dim); flex: none; }
 .app-menu-item.active svg { color: var(--accent-text); }
 .pmenu-head { padding: 6px 9px 8px; max-width: 220px; }
-.pmenu-name { font-size: 13px; font-weight: var(--fw-semi); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pmenu-desc { font-size: 11px; color: var(--dim); margin-top: 2px; }
-.pmenu-err { font-size: 11px; color: var(--danger); margin-top: 6px; line-height: 1.4; }
+.pmenu-name { font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu-desc { font-size: var(--fs-small); color: var(--dim); margin-top: 2px; }
+.pmenu-err { font-size: var(--fs-small); color: var(--danger); margin-top: 6px; line-height: 1.4; }
 .pmenu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 
 /* ── main ──────────────────────────────────────────────────────────────── */
@@ -378,11 +377,11 @@ h2 { font-size: 16px; }
 }
 .head-text { flex: 1; min-width: 0; }
 .eyebrow {
-  display: block; font-size: 12px; color: var(--faint); margin-bottom: 3px;
+  display: block; font-size: var(--fs-meta); color: var(--faint); margin-bottom: 3px;
 }
 .head-text h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .head-sub {
-  font-size: 12px; color: var(--faint); margin-top: 4px;
+  font-size: var(--fs-meta); color: var(--faint); margin-top: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -390,17 +389,17 @@ h2 { font-size: 16px; }
 /* What the restart is doing, beside the button doing it. Truncated rather than wrapped: this
    sits in a header row, and a two-line status would move the whole page. */
 .restart-note {
-  font-size: 12px; color: var(--faint); max-width: 260px;
+  font-size: var(--fs-meta); color: var(--faint); max-width: 260px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .whoami {
   display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 12px; border-radius: 999px;
+  padding: 6px 12px; border-radius: var(--r-pill);
   border: 1px solid var(--border2); background: var(--bg3);
-  font-size: 12px; color: var(--dim); max-width: 220px;
+  font-size: var(--fs-meta); color: var(--dim); max-width: 220px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.who-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent-text); flex: none; }
+.who-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--accent-text); flex: none; }
 .whoami.anon { color: var(--faint); }
 .whoami.anon .who-dot { background: var(--faint); }
 
@@ -408,7 +407,19 @@ h2 { font-size: 16px; }
 
 
 /* ── thread ────────────────────────────────────────────────────────────── */
-.thread { flex: 1; overflow-y: auto; min-height: 0; padding: 22px 26px 8px; }
+.thread {
+  flex: 1; overflow-y: auto; min-height: 0; padding: var(--sp-panel) 26px var(--sp-tight);
+  position: relative;
+}
+/* THE CORNER GLOW: the light the window sits in. Painted by the thread rather than by a new
+   element, so it costs no markup and no component knows about it; a theme that leaves
+   `--glow-1` transparent (the default) renders nothing at all. */
+.thread::before {
+  content: ''; position: fixed; z-index: 0; pointer-events: none;
+  left: 8%; bottom: -220px; width: 560px; height: 420px;
+  background: radial-gradient(ellipse at center, var(--glow-1), transparent 68%);
+}
+.thread-inner { position: relative; z-index: 1; }
 .thread-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 
 /* EMPTY STATE — agentd's shape: the start cards, the input, and the starter prompts stacked and
@@ -430,7 +441,7 @@ h2 { font-size: 16px; }
 .pick-row select {
   flex: 1; min-width: 0; padding: 9px 11px;
   background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
-  border-radius: 999px; font-size: 13px; outline: none;
+  border-radius: var(--r-pill); font-size: var(--fs-row); outline: none;
 }
 .pick-row select:focus { border-color: var(--accent); }
 
@@ -443,14 +454,14 @@ h2 { font-size: 16px; }
 .suggest:hover { border-color: var(--accent); background: var(--accent-soft); }
 .check {
   display: flex; align-items: center; justify-content: center; flex: none;
-  width: 22px; height: 22px; border-radius: 999px; margin-top: 1px;
-  background: var(--accent-soft); color: var(--accent-text); font-size: 11px;
+  width: 22px; height: 22px; border-radius: var(--r-pill); margin-top: 1px;
+  background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-small);
 }
 .suggest:hover .check { background: var(--prim-bg); color: var(--prim-ink); }
 .suggest-text { min-width: 0; }
-.suggest-title { display: block; font-size: 14px; }
+.suggest-title { display: block; font-size: var(--fs-body); }
 .suggest-body {
-  display: block; font-size: 12px; color: var(--faint);
+  display: block; font-size: var(--fs-meta); color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -462,29 +473,35 @@ h2 { font-size: 16px; }
 .msg-item { animation: ag-up .28s ease; }
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; margin: 10px 0; }
 .msg-user .bubble {
-  max-width: 80%; background: var(--user-bubble); border: 1px solid transparent;
-  padding: 10px 15px; border-radius: 16px 16px 5px 16px;
-  white-space: pre-wrap; font-size: 14.5px; line-height: 1.55;
-  transition: border-color .15s ease;
+  /* 74%, not 80%: the turn needs a visible gutter on its left or the conversation stops reading
+     as two voices and becomes one column with tinted patches in it. */
+  max-width: 74%; background: var(--user-bubble); border: 1px solid var(--user-border);
+  padding: 13px 16px; border-radius: var(--r-bubble) var(--r-bubble) var(--r-sm) var(--r-bubble);
+  white-space: pre-wrap; font-size: var(--fs-bubble); line-height: var(--lh-body);
+  transition: border-color var(--dur-base) ease;
 }
-.msg-user:hover .bubble { border-color: var(--user-border); }
+/* The edge is always there now — it was hover-only, which meant the bubble had no shape at rest
+   on a ground this dark. Hover lifts it a step rather than introducing it. */
+.msg-user:hover .bubble { border-color: var(--accent); }
 .msg-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.msg-time { font: 10px var(--mono); color: var(--faint); }
+.msg-time { font: var(--fs-tiny) var(--mono); color: var(--faint); }
 /* Hidden until the message is hovered: a row of buttons under every turn is noise, and these are
    reached for rarely and deliberately. */
-.msg-actions { display: inline-flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+.msg-actions { display: inline-flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity var(--dur-base) ease; }
 .msg-item:hover .msg-actions { opacity: 1; pointer-events: auto; }
 .msg-act {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border: 0; border-radius: 7px;
   background: transparent; color: var(--faint); cursor: pointer;
-  transition: background .15s ease, color .15s ease;
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
 }
 .msg-act:hover { background: var(--bg3); color: var(--text); }
 .msg-act.ok { color: var(--accent-text); }
-.msg-assistant { margin: 10px 0; font-size: 14.5px; line-height: 1.68; color: var(--text); }
-.msg-assistant p { margin: 0 0 10px; }
-.msg-system { text-align: center; color: var(--faint); font: 12px var(--mono); margin: 12px 0; }
+/* PROSE, not a bubble: an answer is the page rather than a thing on it. `--body` is a step
+   softer than `--text` so a heading inside the answer still has somewhere louder to go. */
+.msg-assistant { margin: 10px 0; font-size: var(--fs-bubble); line-height: var(--lh-prose); color: var(--body); }
+.msg-assistant p { margin: 0 0 14px; }
+.msg-system { text-align: center; color: var(--faint); font: var(--fs-meta) var(--mono); margin: 12px 0; }
 .msg-system.error { color: var(--danger); }
 
 .bubble { white-space: pre-wrap; word-break: break-word; }
@@ -509,7 +526,7 @@ h2 { font-size: 16px; }
   display: flex; align-items: center; gap: 9px; width: 100%;
   background: transparent; border: 1px solid var(--border); border-radius: 10px;
   padding: 8px 12px; color: var(--text); cursor: pointer; text-align: left; font: inherit;
-  transition: background .15s ease, border-color .15s ease;
+  transition: background var(--dur-base) ease, border-color var(--dur-base) ease;
 }
 .tool-head:hover { background: var(--bg3); border-color: var(--border2); }
 .tool-status { display: flex; flex: none; color: var(--accent); }
@@ -518,18 +535,18 @@ h2 { font-size: 16px; }
 .tool-name { font: 600 12.5px var(--mono); color: var(--accent-text); }
 .tool.error .tool-name { color: var(--danger); }
 .tool.error .tool-head:hover { background: var(--danger-soft); border-color: var(--danger-soft); }
-.tool-args { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-args { flex: 1; min-width: 0; font: var(--fs-meta) var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-caret { color: var(--faint); display: flex; flex: none; }
 /* collapsed: one line of the result, or the newest progress step while it is still running */
-.tool-first { font: 12px var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-first { font: var(--fs-meta) var(--mono); color: var(--dim); padding: 5px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-first.live { color: var(--accent-text); animation: ag-pulse 1.2s ease infinite; }
-.tool-running { font: 12px var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
+.tool-running { font: var(--fs-meta) var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
 /* expanded: the whole thing, capped and scrollable so one enormous result cannot own the thread */
-.tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: 9px; max-height: 280px; overflow: auto; font: 12px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
+.tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: var(--r-input); max-height: 280px; overflow: auto; font: var(--fs-meta)/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
 
 /* the update_plan checklist, and a subagent's step list — one shape, two readers */
 .todo-list { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
-.todo-step { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.todo-step { display: flex; align-items: flex-start; gap: 9px; font-size: var(--fs-control); color: var(--text); line-height: 1.5; }
 .todo-check { flex: none; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--dim); }
 .todo-dot { width: 11px; height: 11px; border: 1.5px solid var(--border2); border-radius: 50%; }
 .todo-dot.active { background: var(--accent); border-color: var(--accent); }
@@ -546,8 +563,8 @@ h2 { font-size: 16px; }
  * answer off screen. That was dropped for agentd's on purpose. The consequence is agentd's too —
  * a long reasoning pass now grows the thread for as long as it runs. */
 .msg-thinking { margin: 12px 0; border-left: 2px solid var(--accent-soft); padding-left: 13px; }
-.thinking-label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--accent-text); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 3px; }
-.thinking-text { color: var(--dim); font-size: 13px; font-style: italic; line-height: 1.55; white-space: pre-wrap; }
+.thinking-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--accent-text); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 3px; }
+.thinking-text { color: var(--dim); font-size: var(--fs-row); font-style: italic; line-height: 1.55; white-space: pre-wrap; }
 
 /* WHAT THIS CONVERSATION IS ABOUT, and what the model was told before you typed. Neither is a
    message, so neither is drawn as one — they are facts about the run, which is the job agentd
@@ -557,11 +574,11 @@ h2 { font-size: 16px; }
    which is backwards for a note nobody needs to read twice. */
 .scope-row {
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;
-  margin: 12px 0; font: 12px var(--mono); color: var(--faint);
+  margin: 12px 0; font: var(--fs-meta) var(--mono); color: var(--faint);
 }
 /* the agent's name keeps the accent: it is the one word here worth finding at a glance */
 .scope-row b { color: var(--accent-text); font-weight: var(--fw-semi); }
-.scope-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); flex: none; }
+.scope-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--accent); flex: none; }
 .scope-path { color: var(--faint); opacity: .8; }
 
 /* the loading reel */
@@ -581,30 +598,30 @@ h2 { font-size: 16px; }
   display: flex; align-items: center; gap: 10px; min-width: 220px; max-width: 320px;
   padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg2); color: var(--text); text-decoration: none;
-  transition: border-color .15s ease, background .15s ease;
+  transition: border-color var(--dur-base) ease, background var(--dur-base) ease;
 }
 .artifact-card:hover { border-color: var(--accent); background: var(--bg3); }
 .artifact-icon { display: flex; flex: none; color: var(--accent-text); }
 .artifact-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.artifact-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.artifact-sub { font: 11px var(--mono); color: var(--faint); }
+.artifact-name { font-size: var(--fs-row); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artifact-sub { font: var(--fs-small) var(--mono); color: var(--faint); }
 .artifact-open { display: flex; flex: none; color: var(--faint); }
 
 /* ── markdown ──────────────────────────────────────────────────────────── */
 .markdown > *:first-child { margin-top: 0; }
 .markdown > *:last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 11px; }
+.markdown p { margin: 0 0 14px; line-height: var(--lh-prose); }
 .markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 20px 0 9px; line-height: 1.3; }
-.markdown h1 { font-size: 18px; }
-.markdown h2 { font-size: 16px; }
-.markdown h3, .markdown h4 { font-size: 14px; }
+.markdown h1 { font-size: var(--fs-title); }
+.markdown h2 { font-size: var(--fs-lead); }
+.markdown h3, .markdown h4 { font-size: var(--fs-body); }
 .markdown ul, .markdown ol { margin: 0 0 11px; padding-left: 20px; }
 .markdown li { margin: 3px 0; }
 .markdown a { color: var(--accent-text); }
 .markdown code {
-  font-family: var(--mono); font-size: 12px;
+  font-family: var(--mono); font-size: var(--fs-meta);
   background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 6px; padding: 1px 6px;
+  border-radius: var(--r-chip); padding: 1px 6px;
 }
 .markdown pre {
   background: var(--bg3); border: 1px solid var(--border);
@@ -615,7 +632,7 @@ h2 { font-size: 16px; }
   margin: 0 0 11px; padding-left: 13px;
   border-left: 2px solid var(--border2); color: var(--dim);
 }
-.markdown table { border-collapse: collapse; width: 100%; margin: 0 0 11px; font-size: 13px; }
+.markdown table { border-collapse: collapse; width: 100%; margin: 0 0 11px; font-size: var(--fs-row); }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
 .markdown th { background: var(--bg3); font-weight: var(--fw-heavy); }
 .markdown hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
@@ -627,8 +644,8 @@ h2 { font-size: 16px; }
    headings, paragraphs or lists, so its markdown inherits the browser's. This window DOES reset
    h1-h3 globally, so deleting these would leave headings unstyled and paragraphs unspaced: a
    visible regression bought for no extra fidelity. */
-.markdown pre { background: var(--bg4); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; font: 12.5px var(--mono); }
-.markdown code { font: 12.5px var(--mono); color: var(--accent-text); }
+.markdown pre { background: var(--bg4); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; font: var(--fs-help) var(--mono); }
+.markdown code { font: var(--fs-help) var(--mono); color: var(--accent-text); }
 .markdown pre code { color: var(--text); }
 .markdown a { color: var(--accent-text); }
 .markdown table { border-collapse: collapse; }
@@ -637,14 +654,16 @@ h2 { font-size: 16px; }
 /* ── composer ──────────────────────────────────────────────────────────── */
 .composer-wrap { flex: none; padding: 10px 26px 20px; }
 .composer {
-  max-width: 720px; margin: 0 auto; padding: 12px;
+  max-width: 720px; margin: 0 auto; padding: var(--sp-gap) var(--sp-card);
   background-color: var(--bg2);
   /* agentd's composer weight: the soft border and the SMALL shadow. The heavy --shadow made this
      box hover off the page now that nothing around it is floating any more. Its radius and its
      layout are left alone — this window's composer carries Open app, Fork and the context ring,
      so it is not agentd's pill and matching that shape is the chat track's call, not Phase 0's. */
-  border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); transition: border-color 0.15s;
+  /* The panel radius, not the general one: the composer is the largest single surface on the
+     screen and reads as furniture rather than as a card sitting on the page. */
+  border: 1px solid var(--border2); border-radius: var(--r-panel);
+  box-shadow: var(--shadow-sm); transition: border-color var(--dur-base) ease;
 }
 .composer:focus-within { border-color: var(--accent); }
 /* the drop affordance is the stage-wide overlay below, not a tint on this box */
@@ -656,8 +675,12 @@ h2 { font-size: 16px; }
   pointer-events: none;
 }
 .chat-dropzone-inner {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  color: var(--accent-text); font-weight: var(--fw-semi); font-size: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-gap);
+  color: var(--accent-text); font-weight: var(--fw-semi); font-size: var(--fs-body);
+  /* A dashed target the size of the drop area, so the cursor has somewhere to be rather than a
+     tinted screen with a sentence floating in it. */
+  padding: 34px 44px; border: 1.5px dashed var(--accent-edge); border-radius: var(--r-panel);
+  background: var(--accent-soft);
 }
 .composer textarea {
   display: block; width: 100%; max-height: 40vh;
@@ -671,7 +694,7 @@ h2 { font-size: 16px; }
 /* THE STATUS ROW, copied from agentd: what it is running on, and what it costs. It used to be a
    keyboard hint sharing the action row — so the model actually answering you, and the balance
    paying for it, were nowhere on this screen. */
-.composer-hint { margin: 8px auto 0; text-align: center; font: 11px var(--mono); color: var(--faint); }
+.composer-hint { margin: 8px auto 0; text-align: center; font: var(--fs-small) var(--mono); color: var(--faint); }
 .composer-hint .hint-model { color: var(--accent-text); font-weight: var(--fw-semi); }
 .composer-hint .hint-sep,
 .composer-hint .hint-note { color: var(--faint); }
@@ -693,18 +716,18 @@ h2 { font-size: 16px; }
 .composer-send.stop { background: var(--prim-bg); color: var(--prim-ink); }
 .composer-send.stop:hover { background: var(--prim-bg-h); }
 
-.att-limit { align-self: center; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); }
+.att-limit { align-self: center; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-small); color: var(--faint); }
 
 .attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .chip-file {
   display: inline-flex; align-items: center; gap: 8px; max-width: 210px;
-  padding: 5px 9px; border-radius: 999px;
+  padding: 5px 9px; border-radius: var(--r-pill);
   background: var(--bg3); border: 1px solid var(--border);
-  font-size: 12px; color: var(--dim);
+  font-size: var(--fs-meta); color: var(--dim);
 }
-.chip-file img { width: 24px; height: 24px; object-fit: cover; border-radius: 999px; display: block; }
+.chip-file img { width: 24px; height: 24px; object-fit: cover; border-radius: var(--r-pill); display: block; }
 .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip-x { color: var(--faint); font-size: 11px; padding: 0 2px; }
+.chip-x { color: var(--faint); font-size: var(--fs-small); padding: 0 2px; }
 .chip-x:hover { color: var(--danger); }
 
 /* ── scrollbars & soft scroll edges ─────────────────────────────────────── */
@@ -717,7 +740,7 @@ h2 { font-size: 16px; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 /* a 2px hairline pill (1px transparent inset via padding-box), invisible until scrolled; the
    gutter stays reserved by the transparent thumb so nothing shifts when it appears */
-::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 1px solid transparent; background-clip: padding-box; transition: background .2s ease; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--r-control); border: 1px solid transparent; background-clip: padding-box; transition: background .2s ease; }
 ::-webkit-scrollbar-corner { background: transparent; }
 /* visible while actively scrolling, OR while the pointer is inside a container whose content is
    genuinely cut off — so you can tell a div scrolls, and roughly how much is below */
@@ -764,22 +787,9 @@ h2 { font-size: 16px; }
 
 
 /* ── credits panel ──────────────────────────────────────────────────────────────────────
-   The Credits & billing panel ships inside the SDK, so Agent Builder shows the same screen as
-   agentd and as every agent it builds. These map it onto THIS app's palette, which is why it
-   looks native rather than bolted on. Change the values, keep the names. */
-:root {
-  --wallet-font:      inherit;
-  --wallet-fg:        var(--text);
-  --wallet-muted:     var(--dim);
-  --wallet-card:      var(--bg3);
-  --wallet-border:    var(--border2);
-  --wallet-radius:    var(--radius);
-  --wallet-accent:    var(--accent, #5b4fcf);
-  --wallet-on-accent: var(--prim-ink);   /* dark ink on lime; #fff here was unreadable */
-  --wallet-warn:      var(--warn);
-  --wallet-error-bg:  var(--danger-soft);
-  --wallet-error-fg:  var(--danger);
-}
+   The Credits & billing panel ships inside the SDK, so every agent shows the same screen. Its
+   own `--wallet-*` names are mapped onto this palette in tokens.css, which is what makes it look
+   native rather than bolted on. */
 .wallet-mount { margin-top: 12px; }
 
 
@@ -794,7 +804,7 @@ h2 { font-size: 16px; }
   stroke-linecap: round;
   transition: stroke-dashoffset 0.35s ease, stroke 0.25s ease;
 }
-.ctx-pct { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.ctx-pct { font-size: var(--fs-small); color: var(--dim); font-variant-numeric: tabular-nums; }
 
 /* Colour carries the same message as the fill level, for anyone who reads one and not the other.
    It stays neutral until there is something to act on — a meter that is always amber is a meter
@@ -807,7 +817,7 @@ h2 { font-size: 16px; }
 /* ── a quiet action in the composer row ──────────────────────────────────────────────────── */
 .ghost-chip {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
-  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  padding: 5px 11px; border-radius: var(--r-pill); cursor: pointer; font-size: var(--fs-meta);
   background: transparent; border: 1px solid var(--border2); color: var(--dim);
 }
 /* the brief confirmation after a fork lands — the same accent flash the copy-message button uses,
@@ -815,7 +825,7 @@ h2 { font-size: 16px; }
 .ghost-chip.ok { color: var(--accent-text); border-color: var(--accent); }
 .ghost-chip:disabled { opacity: .6; cursor: default; }
 .ghost-chip:hover { border-color: var(--accent); color: var(--text); background: var(--bg2); }
-.ghost-chip .ico { font-size: 12px; }
+.ghost-chip .ico { font-size: var(--fs-meta); }
 
 
 /* ── the pieces this window adds ─────────────────────────────────────────────────────────── */
@@ -840,7 +850,7 @@ h2 { font-size: 16px; }
 
 /* How full the context is, in the composer's corner. A conversation that outgrows its model
    fails silently, so the number earns its space. */
-.meter { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.meter { font-size: var(--fs-small); color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* A conversation in the rail. `.row` is the assistant's; this is only the selected state, which
    its own sidebar expresses through a component this one does not have. */

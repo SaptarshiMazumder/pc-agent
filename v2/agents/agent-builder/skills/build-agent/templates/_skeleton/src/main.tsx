@@ -8,7 +8,9 @@
  * agentd's React card now, so it lives inside the tree like everything else and the window paints
  * immediately — a blank screen while a status probe runs is indistinguishable from a broken app.
  *
- * The palette (tokens.css) first; styles.css only reads it.
+ * THE STYLE ORDER IS LOAD-BEARING: tokens (complete defaults) -> theme (this template's own
+ * decisions, overriding only what it changes) -> styles (structure, which reads both and decides
+ * nothing). Move `styles.css` above `theme.css` and every template's look dies quietly.
  */
 
 import { StrictMode } from 'react'
@@ -17,6 +19,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import Gate from './common/auth/Gate'
 import './tokens.css'
+import './theme.css'
 import './styles.css'
 
 const host = document.getElementById('root')

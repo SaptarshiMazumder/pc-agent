@@ -70,7 +70,9 @@ export function Sidebar({
             this is the explanation — so it lives where it is always visible rather than turning
             up only once something has already gone wrong. */}
         <span className="live" title={`daemon: ${status}`}>
-          <span className="live-dot" style={{ opacity: status === 'open' ? 1 : 0.3 }} />
+          {/* The STATE is a class; the look of each state is the stylesheet's. An inline style
+              here would be a visual decision no theme could reach. */}
+          <span className={`live-dot${status === 'open' ? ' is-live' : ''}`} />
         </span>
       </div>
 

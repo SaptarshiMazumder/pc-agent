@@ -1,7 +1,10 @@
 /* THE WORKBENCH TEMPLATE'S PALETTE — warm paper, burnt orange, an old-style serif for display.
  * A ledger, not a chat bubble.
  *
- * A TEMPLATE OVERLAY of the base `tokens.css`: same contract, different world. Every shared
+ * THIS TEMPLATE'S THEME. `tokens.css` ships a complete set of defaults and loads first;
+ * this file overrides only what this template actually changes, so it is a list of
+ * DECISIONS rather than a copy of the contract. Adding a template means writing one of
+ * these, not duplicating eighty names and hoping none were missed. Every shared
  * screen and every base component reads only these names, so this one file is most of the
  * difference between this template's look and the chat template's. Yours to change.
  *
@@ -60,14 +63,5 @@
   --fw-on-accent: 600;
 }
 
-/* The floor the shared pages assume. */
-html, body, #root { height: 100%; margin: 0; }
-body {
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.55 var(--sans);
-  font-weight: var(--fw-normal);
-  -webkit-font-smoothing: antialiased;
-  accent-color: var(--accent);
-}
-* { box-sizing: border-box; }
+/* No floor here: `tokens.css` sets it, and restating it would pin values (a literal
+   14px) that the tokens are meant to decide. */

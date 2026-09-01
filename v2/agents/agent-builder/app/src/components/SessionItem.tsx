@@ -95,6 +95,7 @@ export default function SessionItem({
         <span
           className="hover-btn"
           title="more"
+          aria-label="Conversation actions"
           onClick={(e) => {
             e.stopPropagation()
             tip.hide()

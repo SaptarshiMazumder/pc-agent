@@ -44,18 +44,18 @@ builder_image_tag = "v2"
 # publish_engine_sha256  = "…"
 # publish_engine_version = "0.1.11"
 
-# ── the domain ───────────────────────────────────────────────────────────────
-# STAGING'S TLS PATH, the inverse of dev's. root_domain stays EMPTY — staging does not own a
-# zone; it rides the account's existing wildcard certificate through certificate_arn and one
-# hand-made Route 53 record (staging.thorgodofthunder.site) in the apex zone. Either path
-# turns HTTPS on for every listener; both knobs exist in both environments.
-certificate_arn = "arn:aws:acm:ap-northeast-1:891612568944:certificate/751ea0c5-ba23-4a2a-bb79-12001ac9d108"
-domain_name     = "staging.thorgodofthunder.site"
-# Set root_domain INSTEAD (and clear the two above) to have the module manage a zone,
-# certificates and the per-agent wildcard itself — dev's way. See dev/DOMAIN-SETUP.md.
+# ── the domain (../../DOMAIN-SETUP.md) ───────────────────────────────────────
+# DO NOT SET THESE HERE. `root_domain`, `agent_hostnames` and `admin_hostname` now carry real
+# values in main.tf — staging owns `staging.thorgodofthunder.site`, dev owns `dev.…`, and the
+# bare apex is nobody's. A line here would OVERRIDE that (tfvars beat defaults) and silently
+# strand this environment on its old domain, which is trap #2 in the runbook.
+#
+# Staging used to sit on certificate_arn/domain_name instead, borrowing the wildcard
+# certificate DEV's terraform owns — one environment's apply could take the other's HTTPS
+# down. root_domain removes that coupling; each environment mints its own certificates.
 # root_domain     = "staging.example.com"
-# agent_hostnames = { "platform" = "cloud-agent-builder" }
-# admin_hostname  = "admin"
+# agent_hostnames = { "platform.staging.example.com" = "cloud-agent-builder" }
+# admin_hostname  = "admin.staging.example.com"
 
 # ── payments (v2/payments/) ──────────────────────────────────────────────────
 # The rail's NAME only. Every key — Dodo's API key, webhook secret, pay-what-you-want

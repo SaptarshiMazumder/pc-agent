@@ -41,7 +41,12 @@ import { openable, type AgentRow } from '../agentd/roster'
 import { forkSession, renameSession as rename, type ChatRow } from '../agentd/sessions'
 import type { Attachment } from '@agentd/client'
 
-export type View = 'chat' | 'myagents' | 'settings' | 'credits' | 'orgs'
+/* `myagents` is being SUPERSEDED by `launchpad`, and both are here on purpose. The launchpad is
+   the shelf plus the things you do next to it — start something, deal with what broke — so it is
+   where the rail now points. The old route still renders, unreferenced, until the launchpad has
+   grown the whole page: a view that is one commit from being needed again is cheaper to keep than
+   to reconstruct. */
+export type View = 'chat' | 'launchpad' | 'myagents' | 'settings' | 'credits' | 'orgs'
 
 /** One conversation, keyed by session.
  *
@@ -74,6 +79,10 @@ export interface ChatSession {
    *  writes one — usually before the assistant has said anything. Flushed at `agent_end` onto the
    *  last answer, or onto a bare one if the run produced files and no prose. */
   pendingArtifacts: Artifact[]
+  /** Which workspace pane rides beside this conversation — '' is none (the chat at full
+   *  width, exactly the old layout). PER SESSION like everything else here: switching tabs
+   *  restores the pane that conversation was using, not the last one anyone used. */
+  wsTab: '' | 'preview' | 'files' | 'caps' | 'test'
 }
 
 const blankSession = (): ChatSession => ({
@@ -84,6 +93,7 @@ const blankSession = (): ChatSession => ({
   scopeSent: false,
   usage: null,
   pendingArtifacts: [],
+  wsTab: '',
 })
 
 interface AppState {
@@ -150,6 +160,8 @@ interface AppState {
   removeFile: (index: number) => void
   /** Point the current conversation at an agent, and tell the model so on the next message. */
   setScope: (agent: AgentRow | null) => void
+  /** Switch the CURRENT conversation's workspace pane — '' closes it (full-width chat). */
+  setWsTab: (tab: ChatSession['wsTab']) => void
   /** Bumped whenever a tool finishes in the CURRENT conversation — the inspector's file tree
    *  watches it. A counter rather than a callback: a store that calls back into its subscribers
    *  is a store that has to know who they are. */
@@ -812,6 +824,7 @@ export const useApp = create<AppState>()((set, get) => ({
   setScope: (agent) =>
     patch(set, get().currentSessionKey, () => ({ scope: agent, scopeSent: false })),
 
+  setWsTab: (tab) => patch(set, get().currentSessionKey, () => ({ wsTab: tab })),
 
   toolTick: 0,
 }))

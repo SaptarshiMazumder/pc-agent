@@ -52,7 +52,14 @@ reading and writes nothing.
 
 ## Path A — a NEW agent
 
-### A1. Ask ONE question: what window should it have?
+### A1. Agree the plan before you build it
+
+**Come back with the shape of the agent, in plain language, and wait for a yes.** Not TOML, not a
+file list — what it will do, what it will be able to reach, what it will do on its own, and what
+you are going to write. Five or six lines. The owner should be able to read it without knowing
+what an `[[mcp]]` block is.
+
+Put the real questions in that same message, so they answer once:
 
 ```
 What should its window be?
@@ -62,28 +69,26 @@ What should its window be?
   4. Workbench  — drop files in, watch each one process
 ```
 
-This is a PRODUCT decision and it is theirs. Recommend one with a reason in a single line — a
-monitor wants a dashboard, an ingester wants a workbench — then use what they choose. A default
-picked silently is how an agent that should have had a screen ends up as another chat box, and
-rebuilding it later means re-authoring `[app]`, `ui/` and the tool wiring.
+Recommend one with a reason — a monitor wants a dashboard, an ingester wants a workbench. A
+default picked silently is how an agent that should have had a screen ends up as another chat
+box, and changing it later means re-authoring `[app]`, `ui/` and the tool wiring.
 
-**Ask the CONSEQUENTIAL ones in the same message.** Anything that touches a real account, spends
-money, can change or delete things outside the agent's own folder, or runs on its own. For a
-cloud-ops agent that is usually two: *may it change resources, or read only?* and *should it run
-on a schedule by itself?* Ask them now — they decide what goes in `agent.toml`, and asking after
-it is built means rewriting it.
+**And everything else that decides what the agent IS or what it can DO:**
 
-**And ask anything you are UNSURE about.** If you are weighing options and cannot tell which the
-owner wants, that is a question. Do not resolve it by choosing the path that avoids interrupting
-them — that is how an agent ends up pointed at the wrong account with nobody having agreed to it.
+- **What may it change?** Read-only, or may it create and modify and delete real things?
+- **Does it run on its own**, on a schedule, without anybody asking?
+- **Which service, and which account?** Name the servers or APIs you intend to reach, and say
+  what the owner will have to supply.
+- **Anything you are weighing.** If you catch yourself reasoning about which option they would
+  probably want, that is the question — ask it instead of settling it.
 
-These are yours to answer, not theirs — from `reference/agent-toml.md` and the design section
-below:
+These all go in `agent.toml`, so asking now costs one message and asking later means rewriting
+the agent. **Do not ask about how you build it** — file layout, panel styling, how a skill is
+worded. Those are yours; announce them.
 
-- Does it **run on its own**? A monitor/tracker/reporter does — heartbeat, workspace snapshots,
-  and a skill for the routine. (The *whether* is theirs; the *how* is yours.)
-- Does it reach a **third-party service**? Then `[[mcp]]`, not tools you write. Use `connect-mcp`.
-- What must the **user supply** — keys, URLs, a sign-in? Then `[[settings]]` / `[[oauth]]`.
+Answer these for yourself, from `reference/agent-toml.md` and the design section below — they are
+about HOW, not WHAT: which `[[mcp]]` block or private tool implements a capability they agreed to,
+what the heartbeat routine actually does, which fields a `[[settings]]` block needs.
 
 ## You DECLARE settings. The owner FILLS THEM IN.
 
@@ -171,8 +176,21 @@ working is worth more than five written.
 Now the rest: the remaining skills, tools, data files, `AGENTS.md`, the `[tools]` and
 `[plugins.*]` wiring. Same loop — `validate_agent` until clean, fixing every `[x]`.
 
+**Anything the agent will do more than once goes in CODE, not in prose.** A tool does the whole
+sequence in one call and does it the same way every time; a skill is a procedure the model works
+through again on every turn. Read `reference/plugins.md` for which services a tool can reach
+directly — most authenticate with a bearer token, and for those the tool is straightforwardly the
+right answer.
+
+**Propose the tool and wait for a yes.** Say what it would do, what it needs declared, and what it
+saves. The owner will not think to ask for one, and they should still be the one who agrees to it.
+
+Reach for a skill when the work genuinely needs judgement that changes with the situation, or when
+the service can only be reached over `[[mcp]]` — a tool cannot call an MCP tool, so that procedure
+has to be markdown. Say which of those it was; "it was easier to write" is not one of them.
+
 For a private tool prefer `create_tool` with `agent="<id>"`; it compile-checks the code and
-writes the plugin in the right shape. Read `reference/plugins.md` first.
+writes the plugin in the right shape.
 
 ### A6. The window: build it, then OPEN it
 
@@ -353,8 +371,9 @@ problem. If you genuinely need a path outside your scope, that is a conversation
 - **Never invent a config key.** If a knob is not in `reference/`, read an existing agent's
   `agent.toml` and copy the shape, or ask.
 - One concern per file. Identity in IDENTITY.md, rules in AGENTS.md, procedures in skills.
-- Prefer a **skill** (markdown, no code) over a tool. Reach for a private plugin only when a
-  genuinely new capability is needed.
+- **Anything repeatable goes in a tool, not a skill** — proposed to the owner and built once they
+  agree. A skill is for work whose shape changes with the situation, or for a procedure over
+  `[[mcp]]` tools, which a tool cannot call.
 - Keep `[tools] allow` tight when the agent's job is narrow — it reduces mistakes and cost.
 - **Always set `version`**, and bump it on every change you ship.
 - After creating or changing an agent, state exactly which files you wrote and where.

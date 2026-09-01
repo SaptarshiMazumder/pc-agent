@@ -44,20 +44,18 @@ builder_image_tag = "v2"
 # publish_engine_sha256  = "…"
 # publish_engine_version = "0.1.11"
 
-# ── the domain (DOMAIN-SETUP.md) ─────────────────────────────────────────────
-# DEV'S TLS PATH. Non-empty root_domain hands the module the whole DNS story: its own
-# Route 53 zone, DNS-validated ACM certificates in both regions, HTTPS on every listener and
-# the per-agent wildcard. Staging does the inverse — empty root_domain, TLS via
-# certificate_arn against an existing cert. Both knobs exist in both environments.
-root_domain = "thorgodofthunder.site"
-# Vanity hostname -> agent id (one map, so the ALB rule and AGENTD_APP_HOSTS cannot disagree).
-# agent_hostnames = { "platform" = "cloud-agent-builder" }
-# The standalone admin console's hostname; empty = no admin route.
-# admin_hostname = "admin"
-# Unused on this path — dev's certificates are minted by root_domain above. Set these two
-# INSTEAD of root_domain to ride a certificate that already exists (staging's way).
-# certificate_arn = "arn:aws:acm:ap-northeast-1:…"
-# domain_name     = "dev.example.com"
+# ── the domain (../../DOMAIN-SETUP.md) ───────────────────────────────────────
+# DO NOT SET THESE HERE. `root_domain`, `agent_hostnames` and `admin_hostname` now carry real
+# values in main.tf — dev owns `dev.thorgodofthunder.site`, staging owns `staging.…`, and the
+# bare apex is nobody's. A line here would OVERRIDE that (tfvars beat defaults) and silently
+# strand this environment on its old domain, which is trap #2 in the runbook.
+#
+# Uncomment only to point this checkout at a different domain entirely, and read the runbook
+# first — a zone change needs a delegation record and a certificate revalidation, not just an
+# apply.
+# root_domain     = "dev.example.com"
+# agent_hostnames = { "platform.dev.example.com" = "cloud-agent-builder" }
+# admin_hostname  = "admin.dev.example.com"
 
 # ── payments (v2/payments/) ──────────────────────────────────────────────────
 # The rail's NAME only. Every key — Razorpay, Stripe, Dodo, plus Dodo's product id and API

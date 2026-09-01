@@ -190,7 +190,7 @@ export function Sidebar({
     return (
       <aside className="rail sidebar sidebar--rail">
         <img className="brand-logo brand-logo--rail" src={logo} alt="" />
-        <button className="rail-btn" title="expand sidebar" onClick={toggleSidebar}>
+        <button className="rail-btn" title="expand sidebar" aria-label="Expand the sidebar" onClick={toggleSidebar}>
           <PanelLeft size={17} />
         </button>
         <button className="rail-primary" title="New agent" onClick={onCreate}>
@@ -229,9 +229,9 @@ export function Sidebar({
           onSignOut={onSignOut}
         />
         <button
-          className={`rail-btn ${view === 'myagents' ? 'active' : ''}`}
-          title="My Agents"
-          onClick={() => setView('myagents')}
+          className={`rail-btn ${view === 'launchpad' ? 'active' : ''}`}
+          title="Launchpad"
+          onClick={() => setView('launchpad')}
         >
           <LayoutGrid size={18} />
         </button>
@@ -260,7 +260,7 @@ export function Sidebar({
           <span className="live-dot" style={{ opacity: status === 'open' ? 1 : 0.3 }} />
           {status === 'open' ? 'live' : status === 'closed' ? 'down' : '…'}
         </span>
-        <button className="icon-btn icon-btn--sm" title="collapse sidebar" onClick={toggleSidebar}>
+        <button className="icon-btn icon-btn--sm" title="collapse sidebar" aria-label="Collapse the sidebar" onClick={toggleSidebar}>
           <PanelLeft size={17} />
         </button>
       </div>
@@ -386,9 +386,9 @@ export function Sidebar({
         {/* Always on screen, in every view — whose keys pay for model calls; click to switch. */}
         <RunModeBadge client={client} />
         <button
-          className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`}
-          title="My Agents"
-          onClick={() => setView('myagents')}
+          className={`icon-btn footer-icon push-end ${view === 'launchpad' ? 'active' : ''}`}
+          title="Launchpad"
+          onClick={() => setView('launchpad')}
         >
           <LayoutGrid size={17} />
         </button>
