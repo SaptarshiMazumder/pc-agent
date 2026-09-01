@@ -124,7 +124,7 @@ headers = { Authorization = "Bearer …" }
 ## 4. The Tool contract
 
 A tool implements the `Tool` ABC ([tool.py](../agentd/application/interfaces/tool.py)). Import it
-with `from agentd.application.interfaces.tool import Tool, ToolResult`.
+with `from agent_runtime.application.interfaces.tool import Tool, ToolResult`.
 
 ### Class attributes
 
@@ -169,7 +169,7 @@ If the tool calls an LLM/VLM/diffusion/embedding model, declare the three attrs 
 through the layer (§8) — never hardcode a model id:
 
 ```python
-from agentd.application.tool_models import resolve_tool_model
+from agent_runtime.application.tool_models import resolve_tool_model
 
 class VerifyFigureTool(Tool):
     name = "verify_figure"
@@ -462,9 +462,9 @@ env = { OAUTHLIB_INSECURE_TRANSPORT = "1" }
 is generated from live tool metadata, so it never drifts.
 
 ```bash
-python -m agentd.main.list_plugins            # human tree: every plugin, its tools, resolved models
-python -m agentd.main.list_plugins --json     # machine-readable JSON (docs / tooling)
-python -m agentd.main.list_plugins --scaffold # MERGE every discovered plugin+tool into
+python -m agent_runtime.main.list_plugins            # human tree: every plugin, its tools, resolved models
+python -m agent_runtime.main.list_plugins --json     # machine-readable JSON (docs / tooling)
+python -m agent_runtime.main.list_plugins --scaffold # MERGE every discovered plugin+tool into
                                               # agentd.config.json's "plugins" block
 ```
 
@@ -504,7 +504,7 @@ already-loaded ones (`skip_ids`).
    in the same `.py` as the tool.
 5. **Restart** (or use `create_tool` for live load). Discovery scans, gates, imports, registers — your
    tool is in the catalog (§6). No core edit.
-6. **(Optional) Register in config** — run `python -m agentd.main.list_plugins --scaffold` to add it to
+6. **(Optional) Register in config** — run `python -m agent_runtime.main.list_plugins --scaffold` to add it to
    `agentd.config.json` for description/enable/model/provider tuning (§12). Not required to function.
 7. **An agent uses it automatically** — it's in the global catalog, so every agent sees it unless that
    agent's `agent.toml [tools] allow` excludes it (§9).
@@ -524,7 +524,7 @@ entry = "weather_plugin:register"
 ```
 `v2/plugins/weather/weather_plugin.py`
 ```python
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 class WeatherTool(Tool):
     name = "weather"
@@ -545,14 +545,30 @@ def register(api, ctx):
 
 ### B. Model-bearing tool (extra bits only)
 
-```python
-from agentd.application.tool_models import resolve_tool_model, resolve_tool_provider
+**THE RULE: a tool asks for model WORK; the runtime owns transport, credential and billing.**
+Declare `needs_model = True` + `model_kind`, resolve the id with `self.resolve_model(config)`,
+and call the shape you need on `self.models` (the ModelAccess port):
 
+    self.models.text(model=…, prompt=…)                          # kind "text"
+    self.models.vision(model=…, prompt=…, image_paths=[…])       # kind "vision"
+    self.models.generate_image(model=…, prompt=…, out_path=…)    # kind "image-gen"
+
+That ONE call is correct everywhere the tool can run — local BYOK (direct on the user's own
+keys), desktop cloud and web hosted (the platform's LiteLLM proxy, metered per account), and
+inside the plugin sandbox (host-brokered, granted and clamped) — with zero mode branching in
+your code. NEVER import a provider SDK or read a key from `os.environ`: it looks fine on your
+machine and is broken or unmetered on every other deployment, the guard test
+(`tests/unit/test_no_rogue_model_keys.py`) fails the build on it, and agent-builder's
+`create_tool` refuses the shape outright.
+
+```python
 class SummarizeTool(Tool):
     name = "summarize"
     plugin = "textkit"
     needs_model = True
-    default_model = "gemini/gemini-2.5-flash"
+    model_kind = "text"     # picks the right model picker + the house default
+    default_model = ""      # "" => inherit the house default for the kind; set only a
+                            # considered per-tool choice (e.g. a deliberately cheap judge)
     description = "Summarize text with an LLM."
     parameters = {"type": "object", "required": ["text"],
                   "properties": {"text": {"type": "string"},
@@ -560,10 +576,11 @@ class SummarizeTool(Tool):
     def __init__(self, config):
         self.config = config
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        model = resolve_tool_model(self.config, self.plugin, self.name,
-                                   per_call=params.get("model"), default=self.default_model)
-        # ... call `model` via litellm/oneshot ...
-        return ToolResult.text("…summary…")
+        model = self.resolve_model(self.config, per_call=params.get("model"))
+        summary = await asyncio.to_thread(
+            lambda: self.models.text(model=model, prompt=f"Summarize:\n{params['text']}")
+        )
+        return ToolResult.text(summary)
 ```
 Config after `--scaffold`:
 ```json
@@ -588,7 +605,7 @@ section.)
 
 ## 16. Editing & reading existing plugins
 
-- **See everything:** `python -m agentd.main.list_plugins` — the full plugin→tool tree with resolved
+- **See everything:** `python -m agent_runtime.main.list_plugins` — the full plugin→tool tree with resolved
   models. `--json` for a machine view.
 - **Find a tool's code:** it's under `v2/plugins/<plugin>/`; the tool's `name` is a class attr, its
   `plugin`/`needs_model` tell you if it's model-bearing.
@@ -636,7 +653,7 @@ section.)
 - **No `plugin.toml` ⇒ invisible.** Writing a `.py` under `plugins/` is not enough; discovery only sees
   folders with a manifest.
 - **Plugin-local imports are bare** (`from x import Y`), because the folder is on `sys.path`. Don't use
-  `agentd.`-style paths for your own modules; do use them for the framework (`agentd.application...`).
+  `agentd.`-style paths for your own modules; do use them for the framework (`agent_runtime.application...`).
 - **Models come only from config** — no env var changes any model. Setting `AGENTD_MODEL` does nothing
   now; put the brain model in `config.json` (`"model": ...`) or per-agent `agent.toml`.
 - **Missing config is loud** — `brain_model` raises `ConfigMissingError`; the status line shows

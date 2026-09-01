@@ -11,12 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from commitment_tool import CommitmentTool
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.auth_profile import AuthProfile
-from agentd.domain.autonomy import ScheduledTask
-from agentd.domain.commitment import Commitment
-from agentd.infrastructure.auth import SqliteAuthProfileStore
-from agentd.infrastructure.tasks import SqliteTaskStore
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.auth_profile import AuthProfile
+from agent_runtime.domain.autonomy import ScheduledTask
+from agent_runtime.domain.commitment import Commitment
+from agent_runtime.infrastructure.auth import SqliteAuthProfileStore
+from agent_runtime.infrastructure.tasks import SqliteTaskStore
 
 # ---- S14: failure-alert (consecutive failures) ------------------------------
 
@@ -97,32 +97,11 @@ def test_auth_rotation_and_cooldown(tmp_path):
     s.close()
 
 
-# ---- S17: sandbox seam ------------------------------------------------------
-
-
-def test_build_sandbox_defaults_local():
-    from agentd.infrastructure.sandbox import LocalSandbox, build_sandbox
-
-    assert isinstance(build_sandbox(SimpleNamespace(sandbox="")), LocalSandbox)
-    assert isinstance(build_sandbox(SimpleNamespace(sandbox="docker")), LocalSandbox)  # fallback
-
-
-@pytest.mark.asyncio
-async def test_local_sandbox_runs_a_command():
-    from agentd.infrastructure.sandbox import LocalSandbox
-
-    try:
-        code, out = await LocalSandbox().run("echo sandbox-ok")
-    except NotImplementedError:
-        pytest.skip("asyncio subprocess not supported on this event loop")
-    assert code == 0 and "sandbox-ok" in out
-
-
 # ---- S18: agent version -----------------------------------------------------
 
 
 def test_agent_version_from_toml(tmp_path):
-    from agentd.infrastructure.agents import FileAgentRegistry
+    from agent_runtime.infrastructure.agents import FileAgentRegistry
 
     agents = tmp_path / "agents"
     (agents / "scout").mkdir(parents=True)

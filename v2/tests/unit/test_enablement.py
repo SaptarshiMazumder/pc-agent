@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.agent import apply_enablement
+from agent_runtime.domain.agent import apply_enablement
 
 
 class T:

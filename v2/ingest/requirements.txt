@@ -1,0 +1,6 @@
+# Ingest runtime deps. Same discipline as accounts/: stdlib + FastAPI only.
+#
+# This service is the one place UNTRUSTED input enters our infrastructure, so its dependency
+# list is a security surface, not a convenience. Nothing that parses, renders, or persists.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1

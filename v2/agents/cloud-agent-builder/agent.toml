@@ -1,0 +1,99 @@
+# Cloud Agent Builder ("cabbie") — Agent Builder's sister for the web.
+#
+# Same job as agent-builder — turn a description into a real agent on disk — but built to run on a
+# HOSTED, multi-tenant daemon reached through a browser, where agent-builder itself is refused
+# (its create_tool writes and hot-loads Python, its exec runs a shell; on a shared container that
+# is any signed-in visitor acting on everyone else's process). Cabbie is the fenced answer: it
+# authors CLOUD agents only, using the tools that are safe when the boundary is a tenant rather
+# than a machine.
+#
+# NO `requires_local`. This agent is FOR the hosted daemon, so it is offered there. On a desktop
+# daemon it also appears, a fenced builder beside the full one — harmless, and useful for testing
+# the exact web surface locally.
+#
+# SHARED CODE, NOT COPIED. Its authoring tools are agent-builder's `agent_authoring` package,
+# imported (see plugins/cloud-agent-authoring/) — one source of truth. The DIFFERENCE between the
+# two agents is this file: which of those tools each one is allowed to call.
+
+name = "Cloud Agent Builder"
+version = "1.0.0"
+description = "Builds cloud agents from chat: their agent.toml, identity, skills, and app UI — web-deliverable by construction. The fenced, hosted sister of Agent Builder."
+tagline = "build · validate · ship — on the web"
+color = "#0EA5A0"
+suggestions = [
+  "Build me an agent that watches a webhook and summarises it",
+  "Make an agent that answers questions from a public API",
+  "Validate every agent I have",
+]
+
+# Its own window, opened in a browser tab on the hosted daemon — the whole point is to feel the
+# real web experience. `public = false`: this surface authors agents, so it must never admit a
+# tokenless visitor. The static UI still serves (that gate is separate); the WebSocket it opens
+# requires a signed-in session.
+[app]
+title = "Cloud Agent Builder"
+mode = "window"
+entry = "ui/index.html"
+public = false
+# A SURFACE OF THE PRODUCT, not one of your agents. Clients give this app its own entry
+# in their navigation and keep it out of agent lists and shelves — building agents is a
+# feature of agentd, not an agent you picked. Remove this line and it lists like any other.
+standalone = true
+# ONE DESTINATION, TWO IMPLEMENTATIONS. Agent Builder and Cloud Agent Builder both provide
+# this surface — the desktop one where you own the machine, the fenced one where you own an
+# account on someone else's. Naming the same surface makes clients draw a SINGLE
+# "Agent Builder" entry and open whichever implementation suits the host they run on.
+surface = "agent-builder"
+
+# WHERE IT MAY WRITE — same self-protection agent-builder uses. Its job is authoring OTHER agents,
+# so it writes into the agents root; on a hosted daemon the tenant fence further clamps that to the
+# caller's OWN account subtree, so "the agents root" means "this account's agents". Its own
+# definition is denied: an agent that could rewrite its own agent.toml could widen its own rules.
+[tools.fs]
+write_roots = ["<agents_dir>"]
+deny        = ["<agent_dir>"]
+
+# NO MCP WORKSHOP on the web. `add_mcp` lets the model connect an arbitrary MCP server from chat
+# text, and on a hosted surface that text can arrive from anywhere — a bad default when the process
+# is shared. Cabbie still WRITES [[mcp]] blocks into the agents it builds; it just does not spin up
+# arbitrary servers live in the shared daemon. (agent-builder keeps the workshop; it is local.)
+[capabilities]
+mcp_workshop = false
+
+# THE TOOLS CABBIE MAY CALL.
+#
+# The shared authoring plugin registers agent-builder's FULL toolset (one source, imported). The
+# fence is here, in two halves:
+#
+#   allow  — the shared tools cabbie gets. Note what is ABSENT: `exec` and `process`. A shell
+#            cannot be confined to one tenant's files on a shared daemon (exec refuses itself
+#            there anyway), so cabbie never asks for it, and an agent it builds is checked to not
+#            need it either.
+#   deny   — the private authoring tools cabbie must NOT have. These are implicitly allowed for
+#            their owning agent, so removing them takes an explicit deny:
+#              create_tool     writes + hot-loads Python into the running process — RCE, the exact
+#                              thing that makes agent-builder local-only. Never on the web.
+#              package_agent   builds a Windows .exe installer; a cloud daemon has no NSIS and no
+#                              business making desktop binaries.
+#              publish_agent   pushing to the public registry — deferred; a later phase decides
+#                              whether cabbie publishes or that stays a desktop step.
+#              run_agent       "test my agent" dials an internal socket that a hosted daemon
+#                              closes (act_as is machine-token-only); broken here until its own
+#                              fix lands, so it is withheld rather than offered broken.
+#
+# What cabbie KEEPS from the authoring set: create_agent, scaffold_react_app, build_app,
+# verify_app, validate_agent, reload_agent — create, give a window, build it, check it, activate
+# it. Every one is fence-compatible.
+[tools]
+allow = [
+  "read", "write", "edit", "ls", "find", "grep",
+  "skill_workshop", "update_plan", "verify_answer", "show_files",
+  "web_search", "web_fetch",
+  "spawn_subagent",
+]
+deny = [
+  "create_tool",
+  "package_agent",
+  "publish_agent",
+  "run_agent",
+]

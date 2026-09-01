@@ -5,8 +5,11 @@ entry = "figure_art_plugin:register"
 description = "Generate textless scientific-figure ARTWORK (illustrations/scenes) for the figure-creator pipeline: templated raster art via Gemini's Nano Banana (or fal/replicate FLUX), reference-image grounding, and the art-template gallery. Not a general image generator — it's the artwork half of figure creation."
 
 # The figure ARTWORK engine (was 'imagegen' — renamed so a future general image-gen plugin can own
-# that name). Default provider (gemini) uses the google-genai SDK (already a core dep) + GEMINI_API_KEY/
-# GOOGLE_API_KEY. Optional providers give cheaper generation with REAL ControlNet conditioning:
+# that name). Default provider (gemini) generates through the runtime's model funnel
+# (oneshot.generate_image): direct on GEMINI_API_KEY/GOOGLE_API_KEY in BYOK, via the platform's
+# metered proxy in cloud modes — this plugin holds no credential and no provider client.
+# Optional providers give cheaper generation with REAL ControlNet conditioning (BYOK ONLY —
+# they call their host directly with your own key):
 #   fal       -> `pip install fal-client` + FAL_KEY            (fal.ai, $10 minimum)
 #   replicate -> `pip install replicate`  + REPLICATE_API_TOKEN (no minimum; takes Civitai/HF LoRAs)
 # family = flux (default) | sdxl. All backends error gracefully at call time if their key/dep is

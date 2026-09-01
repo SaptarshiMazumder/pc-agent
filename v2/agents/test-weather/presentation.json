@@ -1,4 +1,10 @@
 {
   "color": "#8c51d6",
-  "hue": 266.5
+  "hue": 266.5,
+  "tagline": "weather",
+  "suggestions": [
+    "Show current weather in New York",
+    "Get tomorrow's forecast for London",
+    "Check rain in Seattle today"
+  ]
 }

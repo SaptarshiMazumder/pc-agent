@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 CACHE_TTL_SEC = 900
 CACHE_MAX = 100

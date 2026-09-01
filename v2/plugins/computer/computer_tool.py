@@ -9,7 +9,7 @@ present (see factory).
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class ComputerTool(Tool):
@@ -51,8 +51,8 @@ class ComputerTool(Tool):
         self.provider = provider
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        from agentd.application.tool_models import COMPUTER_DEFAULT_MODEL, resolve_tool_model
-        from agentd.infrastructure.tools.computer.drivers import GeminiComputerUseDriver
+        from agent_runtime.application.tool_models import COMPUTER_DEFAULT_MODEL, resolve_tool_model
+        from agent_runtime.infrastructure.tools.computer.drivers import GeminiComputerUseDriver
 
         try:
             model = resolve_tool_model(

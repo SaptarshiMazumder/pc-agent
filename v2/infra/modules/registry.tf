@@ -14,6 +14,14 @@ resource "random_id" "suffix" {
   byte_length = 4
 }
 
+locals {
+  # The one expression that builds the index url, so the desktop flavors (via the output), the
+  # hosted daemon (via task env) and any future client all read the SAME string. It used to live
+  # only in outputs.tf, which is why the hosted daemon never got one: an output is for humans, and
+  # nothing inside the module could reach it.
+  registry_index_url = "https://${aws_s3_bucket.registry.bucket}.s3.${var.region}.amazonaws.com/index.json"
+}
+
 resource "aws_s3_bucket" "registry" {
   bucket        = "${local.name_prefix}-registry-${random_id.suffix.hex}"
   force_destroy = true # dev: registry contents are always re-publishable build artifacts
@@ -35,14 +43,18 @@ resource "aws_s3_bucket_policy" "public_read" {
   bucket     = aws_s3_bucket.registry.id
   depends_on = [aws_s3_bucket_public_access_block.registry]
 
+  # NotResource carves `pending/*` OUT of the public grant: that prefix holds first-publish
+  # uploads from creators nobody has admitted yet — unreviewed, unsigned content that must not be
+  # downloadable from the registry's own domain. With no Allow matching it, the prefix falls back
+  # to default-deny for the public while the publish Lambda's own role grants still apply.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "PublicReadRegistry"
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.registry.arn}/*"
+      Sid         = "PublicReadRegistry"
+      Effect      = "Allow"
+      Principal   = "*"
+      Action      = "s3:GetObject"
+      NotResource = "${aws_s3_bucket.registry.arn}/pending/*"
     }]
   })
 }

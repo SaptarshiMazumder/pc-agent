@@ -11,12 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from skill_tool import SkillWorkshopTool
 
-from agentd.application import run_context as rc
-from agentd.application.interfaces.skills import Skill
-from agentd.application.run_context import RunContext
-from agentd.domain.agent import merge_skills, select_skills
-from agentd.infrastructure.agents import FileAgentRegistry
-from agentd.infrastructure.skills.file_skills import load_skills_dir
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.interfaces.skills import Skill
+from agent_runtime.application.run_context import RunContext
+from agent_runtime.domain.agent import merge_skills, select_skills
+from agent_runtime.infrastructure.agents import FileAgentRegistry
+from agent_runtime.infrastructure.skills.file_skills import load_skills_dir
 
 
 def _skill(name, desc="d"):
@@ -105,6 +105,13 @@ def _put_skill(agents_dir, agent, skill):
     d = agents_dir / agent / "skills" / skill
     d.mkdir(parents=True)
     (d / "SKILL.md").write_text(f"---\nname: {skill}\ndescription: d\n---\nb\n", encoding="utf-8")
+    # A named agent DECLARES itself with an agent.toml; a folder holding only skills/ is a
+    # half-authored directory, not an agent, and the registry no longer loads one (it would
+    # otherwise shadow a real definition with an empty spec). `main` is the documented
+    # exception and stays undeclared here on purpose.
+    toml = agents_dir / agent / "agent.toml"
+    if agent != "main" and not toml.is_file():
+        toml.write_text(f'name = "{agent}"\n', encoding="utf-8")
 
 
 def test_skill_read_matrix(tmp_path):

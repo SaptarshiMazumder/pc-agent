@@ -10,8 +10,20 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   flavor: () => ipcRenderer.invoke('app:flavor'),
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),
+  // OS-encrypted storage for the refresh token (see src/main/index.ts). Shaped as the renderer's
+  // RefreshStorage interface so lib/tokens.ts can use it without knowing it is Electron.
+  secrets: {
+    read: (): Promise<string | null> => ipcRenderer.invoke('secrets:read'),
+    write: (token: string | null): Promise<void> => ipcRenderer.invoke('secrets:write', token)
+  },
   /** find-or-start the daemon; resolves {url, version, pid} when it's accepting */
   ensureDaemon: () => ipcRenderer.invoke('supervisor:ensure'),
+  /** the machine's sign-in, via main (the file:// page cannot read the daemon's answers itself) */
+  authRequest: (
+    path: string,
+    headers?: Record<string, string>
+  ): Promise<{ status: number; body: Record<string, unknown> }> =>
+    ipcRenderer.invoke('auth:request', path, headers),
   /** stop + respawn the daemon so restart-gated config changes take effect */
   restartDaemon: () => ipcRenderer.invoke('supervisor:restart'),
   onSupervisorStatus: (callback: (status: unknown) => void) => {
@@ -36,6 +48,8 @@ const api = {
   pickFiles: (): Promise<Array<{ name: string; size: number; dataBase64: string }>> =>
     ipcRenderer.invoke('file:pick'),
   /** open an AGENT APP's daemon-served UI (/apps/<id>/) in its own desktop window */
+  broadcastAppToken: (token: string): Promise<unknown> =>
+    ipcRenderer.invoke('app:broadcastToken', token),
   openAppWindow: (url: string, title?: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('app:openWindow', url, title)
 }

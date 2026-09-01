@@ -14,9 +14,9 @@ from memory_tools import (
     RememberTool,
 )
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.memory import MemoryItem
-from agentd.infrastructure.memory.bank import SqliteMemoryBank
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.memory import MemoryItem
+from agent_runtime.infrastructure.memory.bank import SqliteMemoryBank
 
 # ---- bank (S4) --------------------------------------------------------------
 
@@ -60,7 +60,7 @@ def test_bank_persists_across_reopen(tmp_path):
 
 def test_consolidate_dedups_per_agent(tmp_path):
     # S6 — collapse exact-duplicate notes (case/space-insensitive), per agent, keep newest
-    from agentd.infrastructure.memory.consolidate import consolidate
+    from agent_runtime.infrastructure.memory.consolidate import consolidate
 
     bank = SqliteMemoryBank(tmp_path / "m.sqlite")
     bank.save(MemoryItem(id="1", agent_id="A", source="note", text="prefers dark mode"))

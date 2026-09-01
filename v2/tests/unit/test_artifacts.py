@@ -9,13 +9,13 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from agentd.domain.messages import (
+from agent_runtime.domain.messages import (
     Artifact,
     ToolResultMessage,
     message_from_dict,
     message_to_dict,
 )
-from agentd.infrastructure.files import classify, describe_artifact, resolve_artifacts
+from agent_runtime.infrastructure.files import classify, describe_artifact, resolve_artifacts
 
 
 def _png(p: Path) -> Path:

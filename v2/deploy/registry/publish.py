@@ -13,8 +13,15 @@ Everything is parameterized (args > env > defaults); nothing points at a fixed b
     AGENTD_PUBLISH_AGENTS   default agent list (comma-separated ids under v2/agents)
     AGENTD_PUBLISH_OUT      default output directory
     AGENTD_PUBLISH_BUCKET   S3 bucket name — only used to PRINT the exact upload command
-    AGENTD_PUBLISHER_KEY    default keypair file (from `agentd bundle keygen`; keep it
+    AGENTD_PUBLISHER_KEYFILE default keypair file (from `agentd bundle keygen`; keep it
                             OUTSIDE the repo — the private key never ships or commits)
+
+RENAMED from AGENTD_PUBLISHER_KEY, which now means something different and dangerous to confuse
+with this: the daemon reads AGENTD_PUBLISHER_KEY as the base64 PUBLIC key it pins downloads to
+(agent_runtime/config.py). One name for "path to a file containing a private key" and "the public
+key itself" would eventually put a file path where a key belongs, and the symptom — every install
+failing its signature check on a daemon that boots and lists the store perfectly — points nowhere
+near the cause. Prefer `agentd bundle publish`, which takes --key and needs neither variable.
 
 The upload itself is printed, not executed (the operator runs all aws commands by hand).
 """
@@ -35,8 +42,8 @@ _REGISTRY_NAME = "agentd marketplace"
 _PUBLISHER = "agentd"
 
 
-# The CLI entry (agentd.cli.main), NOT `-m agentd` — the bare module entry boots the DAEMON.
-_CLI = [sys.executable, "-c", "from agentd.cli.main import main; raise SystemExit(main())"]
+# The CLI entry (agent_runtime.cli.main), NOT `-m agent_runtime` — the bare module entry boots the DAEMON.
+_CLI = [sys.executable, "-c", "from agent_runtime.cli.main import main; raise SystemExit(main())"]
 
 
 def _run(cli_args: list[str]) -> None:
@@ -60,7 +67,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--key",
-        default=os.environ.get("AGENTD_PUBLISHER_KEY", ""),
+        default=os.environ.get("AGENTD_PUBLISHER_KEYFILE", ""),
         help="publisher keypair file from `agentd bundle keygen` (omitting it builds an "
         "UNSIGNED index — fine locally, never for the public registry)",
     )

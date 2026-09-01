@@ -20,7 +20,7 @@ Useful env while developing:
 | var | effect |
 |---|---|
 | `AGENTD_FLAVOR` | which `flavors/<name>/distribution.toml` a dev run uses (default `core`) |
-| `AGENTD_DAEMON_CMD` | explicit daemon launch command for the supervisor (e.g. `...\.venv\Scripts\python.exe -m agentd`) |
+| `AGENTD_DAEMON_CMD` | explicit daemon launch command for the supervisor (e.g. `...\.venv\Scripts\python.exe -m agent_runtime`) |
 | `AGENTD_HOME` | sandbox the rendezvous/state (used heavily by the e2e tests) |
 
 First daemon start on a cold machine can take a minute+ (python imports); the

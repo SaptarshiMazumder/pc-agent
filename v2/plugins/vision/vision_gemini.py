@@ -1,6 +1,6 @@
 """Thin image-ANALYSIS helper for the vision plugin (plugin-prefixed to avoid sys.path collisions).
 
-`analyze` now routes through the provider-agnostic one-shot (agentd.infrastructure.llm.oneshot →
+`analyze` now routes through the provider-agnostic one-shot (agent_runtime.infrastructure.llm.oneshot →
 LiteLLM), so the vision tools' model is a CONFIG knob (the `plugins.vision.*` map, resolved by
 resolve_tool_model), not a hardcoded SDK call — point it at Gemini / OpenAI / Anthropic / a local VLM.
 The constants below are only the built-in DEFAULTS the resolver falls back to.
@@ -12,7 +12,6 @@ brain is text-only (e.g. DeepSeek) and can't see tool-returned images itself.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 # DEFAULT model for the VLM judge (verify_figure). Bare id => gemini provider (oneshot normalizes).
@@ -26,14 +25,6 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 GROUNDING_MODEL = "gemini-3.1-pro-preview"
 
 
-def resolve_key(param_key: str | None, config) -> str:
-    for cand in (param_key, os.environ.get("GEMINI_API_KEY"), os.environ.get("GOOGLE_API_KEY"),
-                 getattr(config, "gemini_api_key", None)):
-        if cand:
-            return str(cand)
-    raise RuntimeError("no Gemini API key (set GEMINI_API_KEY or GOOGLE_API_KEY)")
-
-
 def _mime(path: Path) -> str:
     return "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
 
@@ -43,7 +34,7 @@ def analyze(image_path: Path, prompt: str, *, model: str, api_key: str | None = 
     """Return the model's text (or JSON string) for an image + prompt, via the provider-agnostic
     one-shot (LiteLLM). `model` is a litellm id (bare id => gemini); `api_key` is optional (gemini
     falls back to GEMINI_API_KEY/GOOGLE_API_KEY, other providers read their own env key)."""
-    from agentd.infrastructure.llm.oneshot import vision_complete
+    from agent_runtime.infrastructure.llm.oneshot import vision_complete
 
     return vision_complete(model=model, prompt=prompt, image_paths=[image_path],
                            want_json=want_json, api_key=api_key)

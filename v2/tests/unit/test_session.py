@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import (
+from agent_runtime.domain.messages import (
     AssistantMessage,
     TextContent,
     ToolCallContent,
@@ -13,7 +13,7 @@ from agentd.domain.messages import (
     message_from_dict,
     message_to_dict,
 )
-from agentd.infrastructure.memory.local_store import SessionStore, list_sessions
+from agent_runtime.infrastructure.memory.local_store import SessionStore, list_sessions
 
 
 def test_agent_session_key_with_colons_is_filesystem_safe(tmp_path):
@@ -94,8 +94,8 @@ def test_list_sessions(tmp_path):
 
 
 def test_read_session_messages(tmp_path):
-    from agentd.domain.messages import ToolCallContent, ToolResultMessage
-    from agentd.infrastructure.memory.local_store import read_session_messages
+    from agent_runtime.domain.messages import ToolCallContent, ToolResultMessage
+    from agent_runtime.infrastructure.memory.local_store import read_session_messages
 
     # non-existent session: [] and NO file created (read-only)
     assert read_session_messages(tmp_path, "ghost") == []
@@ -129,7 +129,7 @@ def test_read_session_messages(tmp_path):
 
 
 def test_delete_session(tmp_path):
-    from agentd.infrastructure.memory.local_store import (
+    from agent_runtime.infrastructure.memory.local_store import (
         delete_session,
         read_session_meta,
         write_session_meta,
@@ -148,7 +148,7 @@ def test_gateway_sessions_delete(tmp_path):
     import asyncio
     from types import SimpleNamespace
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     SessionStore(tmp_path, "d1").load()
     events = []
@@ -162,7 +162,9 @@ def test_gateway_sessions_delete(tmp_path):
         service=None,
         registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)),
     )
-    gw.clients = {_WS()}
+    ws = _WS()
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
 
     out = asyncio.run(gw._sessions_delete({"sessionKey": "d1", "agentId": "main"}))
     assert out["ok"] and out["deleted"]
@@ -177,7 +179,7 @@ def test_gateway_sessions_delete(tmp_path):
 
 
 def test_session_meta_and_titled_list(tmp_path):
-    from agentd.infrastructure.memory.local_store import (
+    from agent_runtime.infrastructure.memory.local_store import (
         list_sessions,
         read_session_meta,
         write_session_meta,
@@ -204,7 +206,7 @@ def test_gateway_sessions_rename(tmp_path):
     import asyncio
     from types import SimpleNamespace
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     SessionStore(tmp_path, "s1").load()
     events = []
@@ -218,13 +220,15 @@ def test_gateway_sessions_rename(tmp_path):
         service=None,
         registry=SimpleNamespace(get=lambda a: SimpleNamespace(state_dir=tmp_path)),
     )
-    gw.clients = {_WS()}
+    ws = _WS()
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
 
     out = asyncio.run(
         gw._sessions_rename({"sessionKey": "s1", "agentId": "main", "title": "  My Chat  "})
     )
     assert out["ok"] and out["title"] == "My Chat"
-    from agentd.infrastructure.memory.local_store import read_session_meta
+    from agent_runtime.infrastructure.memory.local_store import read_session_meta
 
     assert read_session_meta(tmp_path, "s1") == {"title": "My Chat", "manual": True}
     assert any("sessions.changed" in f for f in events), "rename must broadcast sessions.changed"
@@ -237,7 +241,7 @@ def test_gateway_sessions_rename(tmp_path):
 def test_gateway_sessions_history_is_agent_scoped(tmp_path):
     from types import SimpleNamespace
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     main_dir = tmp_path
     sp_dir = tmp_path / "agents" / "spending-agent"
@@ -266,8 +270,8 @@ def test_gateway_sessions_history_is_agent_scoped(tmp_path):
 def test_sessions_history_trims_images_and_big_results(tmp_path):
     from types import SimpleNamespace
 
-    from agentd.domain.messages import ImageContent, ToolCallContent, ToolResultMessage
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.domain.messages import ImageContent, ToolCallContent, ToolResultMessage
+    from agent_runtime.presentation.gateway import Gateway
 
     store = SessionStore(tmp_path, "big")
     store.load()
@@ -312,7 +316,7 @@ def test_gateway_sessions_list_is_agent_scoped(tmp_path):
     # CALLING agent's threads (so you can resume the right one), not the default's.
     from types import SimpleNamespace
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     main_dir = tmp_path
     sp_dir = tmp_path / "agents" / "spending-agent"

@@ -1,0 +1,408 @@
+@startuml sre-telemetry-topology
+' ============================================================================
+'  agentd SRE / Observability — the plan
+'
+'  Page 1  topology        where telemetry is emitted and how it reaches CloudWatch
+'  Page 2  correlation id  one ID from keystroke to billing row
+'  Page 3  the four clocks what "time to first token" actually means here
+'  Page 4  module anatomy  what in v2/monitoring/ is a LIBRARY vs a SERVICE
+'  Page 5  build order     phases, effort, payoff
+'
+'  Location tags are the same as the request-flow diagrams:
+'    (USER PC) = the user's machine    (ON AWS) = our fleet
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng sre-observability.puml
+' ============================================================================
+
+title Observability topology — ONE library, TWO roads, ONE destination
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "THE LIBRARY — v2/monitoring/telemetry/   (imported, never deployed)" as LIB #F0FFF0 {
+  rectangle "count()  timer()  log()  redact()\n--\nEvery call just PRINTS one line of JSON.\nPrinting cannot fail, cannot be slow,\nand has no dependency." as TEL #DFF5DF
+}
+
+package "DESKTOP CLOUD MODE   (USER PC)" as PC #EAF3FF {
+  rectangle "agentd daemon\nimports the library" as DD
+  rectangle "Electron shell" as SH
+  rectangle "local log file\n~/.agentd/logs\n**we can NEVER read this**" as LOG #FFE0E0
+  rectangle "uploader\nbatch + consent + redact\n(6 numbers per run, no content)" as UP #FFF3CD
+}
+
+package "CLOUD WEB MODE   (ON AWS)" as WEBMODE #E8F5E9 {
+  rectangle "agentd daemon\n<<ECS task>>\nimports the library" as CD
+  rectangle "web UI\n(browser JS)" as WEB
+}
+
+package "SHARED BY BOTH MODES   (ON AWS)" as SHARED #FFF0F0 {
+  rectangle "Model Proxy\n<<ECS task>>\nimports the library" as MP
+  rectangle "Accounts\n<<ECS task>>\nimports the library" as AC
+  rectangle "**ingest**\n<<ECS task — the ONLY new service>>\nPOST /v1/events -> validate -> print" as ING #FFD9D9
+}
+
+database "CloudWatch Logs + Metrics\n(the awslogs driver at services.tf:46-53\nALREADY does this — no new infra)" as CW #E0F2F1
+
+TEL ..> DD  : import
+TEL ..> CD  : import
+TEL ..> MP  : import
+TEL ..> AC  : import
+TEL ..> ING : import
+
+DD --> LOG : print()  ->  dead end
+DD --> UP  : agent_end summary
+SH --> UP  : crash / start-failure
+UP --> ING : HTTPS  (the ONLY way off the user's PC)
+WEB --> ING : browser errors + timings
+
+CD --> CW : print() -> awslogs
+MP --> CW : print() -> awslogs
+AC --> CW : print() -> awslogs
+ING --> CW : print() -> awslogs
+
+note bottom of ING
+  **Why this service exists at all.**
+  A program's output lands where the program runs. The desktop daemon
+  runs on the user's laptop, so its printed lines are on THEIR disk and
+  unreachable. The app must mail us a summary; ingest is the mailbox.
+  Everything on AWS needs no mailbox — it just prints.
+end note
+
+note right of CW
+  **Both roads end here.** Ingest is not a
+  separate monitoring system — it only gets
+  desktop/browser data onto our servers so it
+  can join the same pipe everything else uses.
+end note
+
+legend left
+  | Signal | Measured in | Desktop Cloud | Cloud Web |
+  | ledger write success | Model Proxy | complete | complete |
+  | token resolve ok + latency | Model Proxy | complete | complete |
+  | cost per hour / per account | Model Proxy | complete | complete |
+  | time to first chunk | Model Proxy | complete | complete |
+  | model call success | Model Proxy | complete | complete |
+  | run / tool / turn metrics | daemon | uploader only | complete |
+  | daemon start, version, connect | desktop shell | uploader only | n/a |
+  | runs killed by deploy | daemon | n/a | complete |
+endlegend
+
+@enduml
+
+
+@startuml sre-correlation-id
+title Correlation ID — one ID from keystroke to billing row
+
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+participant "Client\nstore.ts"                as C
+participant "Gateway\ngateway.py"             as G
+participant "Loop\nnative.py"                 as L
+participant "proxy seam\nmodel_proxy.py"      as S
+participant "Model Proxy\ncustom_auth.py"     as P
+participant "Accounts\napp.py"                as A
+database    "CloudWatch"                      as CW
+
+== born at the EDGE, not inside the server ==
+
+C -> C : traceId = crypto.randomUUID()
+note right of C
+  TODAY store.ts:1278 sends only idempotencyKey
+  (sessionKey + timestamp) — for dedup, not tracing.
+end note
+C -> G : chat.send { traceId, sessionKey, message, ... }
+
+G -> G : run_id = traceId  (else generate)
+note right of G
+  TODAY gateway.py:3905 always generates
+  uuid4().hex[:12] — born at line 3905, so the
+  55 lines BEFORE it have no ID at all:
+  validation, attachment save, idempotency,
+  active-run check (3903 RAISES).
+  Widen to full uuid4: it becomes a ledger join key.
+end note
+
+G -> CW : log { run_id, event: "run_start" }
+G -> L  : start run
+
+== the ID rides in a contextvar, not in 200 signatures ==
+
+loop one model turn
+  L -> L : turn_id = run_id + "-" + iterations
+  L -> S : litellm kwargs
+  S -> S : extra_headers\nX-Agentd-Run-Id / X-Agentd-Turn-Id
+  note right of S
+    model_proxy.apply() already rewrites
+    model + api_base + api_key. Two more fields.
+  end note
+  S -> P : POST /chat/completions  (+ headers)
+  P -> CW : log { run_id, turn_id, ttfb_ms, model, outcome }
+  P -> A  : POST /usage { run_id, account_id, tokens, cost }
+  A -> A  : store run_id on the usage row
+  A -> CW : log { run_id, event: "usage_written" }
+end
+
+L -> G  : agent_end
+G -> CW : log { run_id, total_ms, model_ms, tool_ms, turns, outcome }
+
+note over C, CW
+  **Payoff.** A user complains -> search ONE id ->
+  the message, every model call, every timing,
+  every error, and exactly what it cost.
+  Without it, "my chat broke at 3pm" is unanswerable.
+end note
+
+note over C, A
+  **A hierarchy, not one ID:**
+  account_id  = who            (from /resolve)
+  session_key = conversation   (exists)
+  run_id      = one user action  <-- THE correlation id
+  turn_id     = one model turn
+  X-Amzn-Trace-Id = the ALB's own id — log it in web mode to
+  join ALB access logs (502s, timeouts) to app logs. Free.
+end note
+
+@enduml
+
+
+@startuml sre-four-clocks
+title The four clocks — "time to first token" is FOUR different numbers
+
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam sequence {
+  ArrowColor #444444
+  LifeLineBorderColor #888888
+  ParticipantBackgroundColor White
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+actor       "User"                       as U
+participant "Gateway"                    as G
+participant "Loop\nnative.py"            as L
+participant "Model Proxy\n(ON AWS)"      as P
+participant "Provider"                   as V
+participant "Tool\n(local)"              as T
+
+U -> G  : T0  hits enter
+G -> U  : T1  res { runId }   (ack only — the answer never comes back here)
+G -> L  : T2  agent_start                      native.py:170
+L -> L  : T3  turn_start                       native.py:180
+
+== CLOCK 1 — infra latency (the only one WE fully control) ==
+L -> P  : T4  request LEAVES the machine
+P -> P  : T5  auth + /resolve                  custom_auth.py:85
+P -> V  : forward with OUR provider key
+V --> P : T6  first chunk
+P --> L : first chunk
+note right of P
+  **CLOCK 1 = T4 -> T6.** Auth + resolve + proxy + provider queue.
+  Measured AT THE PROXY, so it is complete in BOTH modes.
+  300ms = we are fine, slowness is the model.
+  3s = our problem, probably /resolve.
+end note
+
+== CLOCK 2 — does it feel alive ==
+L -> U  : T7  first thinking_delta rendered    native.py:200-203
+note right of L
+  **CLOCK 2 = T0 -> T7.** The UI streams thinking, so this is
+  usually the first thinking_delta. Under 1s feels instant,
+  over 3s feels broken — even if the full answer is faster.
+end note
+
+== the loop: this is why one message != one call ==
+L -> T  : toolcall_end -> run tool LOCALLY     litellm.py:410
+T --> L : ToolResultMessage
+note right of T
+  **model_time vs tool_time.** A 90s run:
+  80 model / 10 tool  -> the provider is slow
+  10 model / 80 tool  -> OUR code is slow
+  30 / 10 + 50 missing -> a bug (the loop is stalling)
+end note
+L -> P  : turn 2 ...   (metered again)
+
+== CLOCK 3 — when did they get REAL content ==
+L -> U  : T9  first text_delta of the FINAL turn   litellm.py:380
+note right of L
+  **CLOCK 3 = T0 -> T9.** text_delta also fires on intermediate
+  turns ("let me check that..."), so you only know WHICH turn was
+  final once the loop ends — compute this retroactively at agent_end.
+end note
+
+== CLOCK 4 — total ==
+L -> G  : T10 agent_end                        native.py:345
+G -> U  : final answer, session idle
+
+note over U, V
+  **Which token did you mean? All three — they blame different people.**
+  first THINKING token -> the pipe works, auth passed        (us / provider)
+  TOOL execution time  -> our code, our disk, our network    (US)
+  first ANSWER token   -> when the user got real value       (agent design)
+  Track only one and the other two hide.
+end note
+
+legend left
+  | Clock | Span | Measured in | Desktop Cloud | Cloud Web |
+  | 1 infra latency | T4 -> T6 | Model Proxy | complete | complete |
+  | 2 feels alive | T0 -> T7 | daemon | uploader only | complete |
+  | 3 answer start | T0 -> T9 | daemon | uploader only | complete |
+  | 4 total | T0 -> T10 | daemon | uploader only | complete |
+endlegend
+
+@enduml
+
+
+@startuml sre-module-anatomy
+title v2/monitoring/ — what is a LIBRARY, what is a SERVICE
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+package "v2/monitoring/" as M {
+
+  package "NOT PROGRAMS — imported or applied" as NOTP #F0FFF0 {
+    rectangle "**telemetry/**\ncount() timer() log() redact()\nimported by daemon + accounts + model_proxy\n(like utils.py — nothing runs it)" as T1
+    rectangle "**terraform/**\nalarms + dashboards + synthetics schedule\nCALLED FROM infra/environments/dev/main.tf\n(owned here, applied there)" as T2
+    rectangle "**runbooks/**\nmarkdown. one per alarm.\nlinked from the alarm description" as T3
+    rectangle "**synthetics/**\ncanary script: login -> chat ->\nassert stream -> assert ledger row" as T4
+  }
+
+  package "THE ONE REAL SERVICE" as ISP #FFF0F0 {
+    rectangle "**ingest/**\nFastAPI, POST /v1/events\nschema allowlist + rate limit -> print()\n<<deploys as an ECS task>>" as T5 #FFD9D9
+  }
+}
+
+rectangle "agent_runtime\n(daemon)"   as D
+rectangle "accounts"                  as A
+rectangle "model_proxy"               as P
+rectangle "infra/environments/dev"    as I
+database  "CloudWatch"                as CW
+
+T1 ..> D : import
+T1 ..> A : import
+T1 ..> P : import
+T2 <.. I : module "../../monitoring/terraform"
+T5 --> CW : print()
+T4 ..> T2 : scheduled by
+
+note bottom of T5
+  Adding this service = ONE entry in the services map at
+  infra/modules/variables.tf. The existing for_each in
+  services.tf then builds the task, target group, listener
+  and DNS automatically. Infra is data-driven already.
+end note
+
+note right of T1
+  **Never build a monitoring SERVICE that apps call.**
+  It puts a network hop in the hot path, and you lose
+  telemetry exactly when things break — the thing that
+  reports incidents is on the far side of the outage.
+  Apps write to stdout, which cannot fail.
+  (custom_auth.py:149 is this failure mode today.)
+end note
+
+note bottom of T2
+  Industry shape, unchanged since Borgmon:
+  a LIBRARY in the app -> something NEARBY that ships it -> a
+  BIG SYSTEM far away that stores and graphs it.
+  At our scale, awslogs IS the "nearby" part, already running.
+end note
+
+@enduml
+
+
+@startuml sre-build-order
+title Build order — phases, and what each one buys
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+rectangle "**0 · FOUNDATION**\n1 monitoring library (telemetry/)\n--\nunblocks everything" as P0 #DFF5DF
+
+rectangle "**1 · TRACEABILITY**\n2 correlation id (client -> ledger)\n3 structured JSON logging\n--\nwe can debug a complaint" as P1 #DCEBFF
+
+rectangle "**2 · MONEY + TIMING**\n4 proxy instrumentation\n5 fix silent ledger loss\n6 enforce budgets at the proxy\n7 the four clocks\n--\n**stops real losses. highest value.**" as P2 #FFE0B2
+
+rectangle "**3 · ALERTING**\n8 alarms + dashboards\n9 deep health check (/health/ready)\n10 synthetic canary\n--\nwe learn before users tell us" as P3 #E1BEE7
+
+rectangle "**4 · HOSTED SAFETY**\n11 SIGTERM graceful shutdown\n12 deployment circuit breaker\n--\ndeploys stop killing live chats" as P4 #FFCDD2
+
+rectangle "**5 · CLIENT REACH**\n13 desktop uploader (+consent)\n14 ingest service\n15 web RUM\n16 runbooks\n--\ndesktop visibility. most expensive." as P5 #CFD8DC
+
+P0 --> P1
+P1 --> P2
+P2 --> P3
+P3 --> P4
+P4 --> P5
+
+note right of P2
+  Phases 1-3 cover desktop AND web **equally** —
+  they live in the Model Proxy and Accounts, which are
+  ON AWS in both modes. Maximum coverage, least work.
+  Phase 5 is the only desktop-specific part, and the
+  priciest, which is why it is last.
+end note
+
+note bottom of P4
+  **Two live defects found during this review — neither is "monitoring":**
+  1. custom_auth.py:149 swallows failed billing writes. Accounts down
+     for an hour = money spent, nothing recorded, no symptom.
+  2. budget_usd is enforced NOWHERE in desktop Cloud mode: the daemon
+     check at gateway.py:3874 needs accounts.enabled() (false on desktop)
+     and the proxy never checks at all.
+  Plus: main.py:32 catches KeyboardInterrupt but ECS sends SIGTERM,
+  so today every deploy kills every in-flight conversation.
+end note
+
+@enduml

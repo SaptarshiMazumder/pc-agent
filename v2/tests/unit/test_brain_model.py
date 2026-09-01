@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.application.tool_models import ConfigMissingError, brain_model
+from agent_runtime.application.tool_models import ConfigMissingError, brain_model
 
 
 def test_reads_from_config_not_env(monkeypatch):
@@ -36,7 +36,7 @@ def test_config_present_but_no_model_raises():
 
 
 def test_load_config_sets_config_path():
-    # the real load_config finds v2/agentd.config.json and records its path
-    from agentd.config import load_config
+    # the real load_config finds v2/agent_runtime.config.json and records its path
+    from agent_runtime.config import load_config
 
     assert load_config().config_path.endswith("agentd.config.json")

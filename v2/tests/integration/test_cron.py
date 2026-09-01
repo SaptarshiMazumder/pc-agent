@@ -12,11 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cron_tool import CronTool
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.autonomy import ScheduledTask
-from agentd.infrastructure.autonomy.scheduler import HeartbeatScheduler
-from agentd.infrastructure.tasks import SqliteTaskStore
-from agentd.main.container import build_task_store
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.autonomy import ScheduledTask
+from agent_runtime.infrastructure.autonomy.scheduler import HeartbeatScheduler
+from agent_runtime.infrastructure.tasks import SqliteTaskStore
+from agent_runtime.main.container import build_task_store
 
 
 def _task(**over):
@@ -39,7 +39,7 @@ def _task(**over):
 
 
 def test_next_due_after_interval_and_oneshot():
-    from agentd.infrastructure.autonomy.schedule import next_due_after
+    from agent_runtime.infrastructure.autonomy.schedule import next_due_after
 
     assert next_due_after(_task(kind="every", every_seconds=60.0), 1000.0) == 1060.0
     assert next_due_after(_task(kind="at", every_seconds=None), 1000.0) is None
@@ -49,7 +49,7 @@ def test_cron_expression_next_fire_with_tz():
     import datetime as dt
     from zoneinfo import ZoneInfo
 
-    from agentd.infrastructure.autonomy.schedule import cron_next, cron_valid, next_due_after
+    from agent_runtime.infrastructure.autonomy.schedule import cron_next, cron_valid, next_due_after
 
     assert cron_valid("55 19 * * 6") and not cron_valid("nope")
     wed = dt.datetime(2026, 6, 17, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp()  # a Wednesday
@@ -359,7 +359,7 @@ async def test_cron_tool_status_runs_wake(tmp_path):
 
 
 def test_gateway_cron_list(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     store = SqliteTaskStore(tmp_path / "a.sqlite")
     store.add(
@@ -389,7 +389,7 @@ def test_gateway_cron_list(tmp_path):
 def test_gateway_cron_crud(tmp_path):
     import time as _t
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _Reg:
         def list_ids(self):
@@ -431,7 +431,7 @@ def test_gateway_cron_crud(tmp_path):
 
 
 def test_gateway_cron_runs_full_history(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     store = SqliteTaskStore(tmp_path / "a.sqlite")
     store.finish_run(store.record_run("t1", "alpha"), "ok")

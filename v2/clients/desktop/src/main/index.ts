@@ -8,7 +8,7 @@
  * All agent intelligence stays in the daemon — this process never talks to an LLM.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -19,7 +19,8 @@ import { Supervisor } from './supervisor'
 
 let flavor: Flavor = {
   productId: 'agentd', productName: 'agentd', defaultAgent: '', appAgent: '', storeEnabled: true,
-  preinstalledBundles: [], accountsUrl: '', modelGatewayUrl: '', sourcePath: '', bundledPackages: []
+  preinstalledBundles: [], platformUrl: '', accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: [],
+  payloadDir: '', iconPath: '', appUserModelId: ''
 }
 const supervisor = new Supervisor(() => flavor.sourcePath)
 let mainWindow: BrowserWindow | null = null
@@ -27,11 +28,18 @@ let mainWindow: BrowserWindow | null = null
 // The nakama-link app icon (green, transparent). In dev __dirname is out/main, so
 // ../../resources reaches the project's resources/; packaged builds get it from
 // electron-builder's win.icon + the exe, but the explicit path keeps dev identical.
-const appIcon = path.join(
+const engineIcon = path.join(
   __dirname,
   '../../resources',
   process.platform === 'win32' ? 'icon.ico' : 'icon.png'
 )
+
+/** The icon for THIS product. One engine serves many products (flavor.payloadDir), so the
+ *  window icon has to come from the payload — the executable's own icon is only the fallback
+ *  for the engine's plain desktop client. Resolved per call: flavor loads asynchronously. */
+function appIconPath(): string {
+  return flavor.iconPath || engineIcon
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -40,13 +48,17 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: flavor.productName,
-    icon: appIcon,
+    icon: appIconPath(),
     backgroundColor: '#f4f2ea',   // matches the LIGHT theme surface (the default theme)
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // An occluded window must keep streaming: this app's whole job is watching long agent
+      // runs while the user looks elsewhere, and Chromium's occlusion throttling is one of the
+      // triggers behind mystery mid-run socket drops (2026-08-29).
+      backgroundThrottling: false,
       sandbox: false
     }
   })
@@ -83,11 +95,55 @@ function registerIpc(): void {
     appAgent: flavor.appAgent,
     storeEnabled: flavor.storeEnabled,
     preinstalledBundles: flavor.preinstalledBundles,
+    platformUrl: flavor.platformUrl,
     accountsUrl: flavor.accountsUrl,
-    modelGatewayUrl: flavor.modelGatewayUrl,
+    modelProxyUrl: flavor.modelProxyUrl,
+    // Compatibility for older renderers loaded during a rolling desktop update.
+    modelGatewayUrl: flavor.modelProxyUrl,
     bundledPackages: flavor.bundledPackages,
     version: app.getVersion()
   }))
+  // THE REFRESH TOKEN'S HOME ON DESKTOP. A 30-day credential in localStorage is readable by
+  // anything that can read the profile directory; safeStorage wraps it with a key held by the OS
+  // keychain (DPAPI on Windows, Keychain on macOS, libsecret on Linux). The ACCESS token is never
+  // written anywhere — it is re-derivable from this one, so persisting it would only add a place
+  // to steal it from.
+  //
+  // Falls back to plaintext-on-disk when the OS declines encryption (a headless Linux box with no
+  // keyring), because the alternative is an app that silently cannot stay signed in. The file
+  // records which it was, so a later read never tries to decrypt something that was never encrypted.
+  const secretFile = path.join(app.getPath('userData'), 'refresh-token.json')
+  ipcMain.handle('secrets:read', () => {
+    try {
+      if (!fs.existsSync(secretFile)) return null
+      const box = JSON.parse(fs.readFileSync(secretFile, 'utf-8')) as {
+        v?: string
+        encrypted?: boolean
+      }
+      if (!box?.v) return null
+      if (!box.encrypted) return box.v
+      return safeStorage.decryptString(Buffer.from(box.v, 'base64'))
+    } catch {
+      return null // unreadable or from another machine's keychain => signed out, not crashed
+    }
+  })
+  ipcMain.handle('secrets:write', (_e, token: string | null) => {
+    try {
+      if (!token) {
+        if (fs.existsSync(secretFile)) fs.unlinkSync(secretFile)
+        return true
+      }
+      const canEncrypt = safeStorage.isEncryptionAvailable()
+      const box = canEncrypt
+        ? { encrypted: true, v: safeStorage.encryptString(token).toString('base64') }
+        : { encrypted: false, v: token }
+      fs.writeFileSync(secretFile, JSON.stringify(box), { mode: 0o600 })
+      return true
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle('supervisor:status', () => supervisor.current())
   ipcMain.handle('supervisor:ensure', async () => {
     const info = await supervisor.ensure()
@@ -107,7 +163,59 @@ function registerIpc(): void {
 
   // --- agent apps: open an APP AGENT's daemon-served UI (/apps/<id>/) in its OWN window
   //     (shared with the agent-app shell boot below — same window either way).
-  ipcMain.handle('app:openWindow', (_e, rawUrl: string, title?: string) => {
+  // The shell renderer calls this on every token rotation; app windows have no other way to
+  // learn about it, and without it they run until their launch token expires and then go
+  // anonymous (which reads to the user as "all my agents disappeared").
+  // --- machine sign-in: the renderer's ONLY path to the daemon's /auth/*. The renderer
+  //     page is file:// — cross-origin to the daemon, whose HTTP surface (the websockets
+  //     handshake hook) speaks no CORS — so a fetch from the page can never read the answer.
+  //     Main is a native caller with the same trust as the daemon's own state dir. Paths are
+  //     whitelisted and only X-Auth-* headers pass, so this cannot become a generic proxy.
+  ipcMain.handle(
+    'auth:request',
+    async (_e, authPath: string, headers?: Record<string, string>) => {
+      if (!/^\/auth\/(token|status|login|logout|adopt)$/.test(String(authPath || ''))) {
+        return { status: 400, body: { error: 'not an auth path' } }
+      }
+      const safe: Record<string, string> = {}
+      for (const [k, v] of Object.entries(headers || {})) {
+        if (/^X-Auth-[A-Za-z-]+$/.test(k)) safe[k] = String(v)
+      }
+      try {
+        const info = await supervisor.ensure()
+        const u = new URL(`http://${info.host}:${info.port}${authPath}`)
+        if (info.token) u.searchParams.set('token', info.token)
+        const r = await fetch(u, { headers: safe, cache: 'no-store' })
+        const body = (await r.json().catch(() => ({}))) as Record<string, unknown>
+        return { status: r.status, body }
+      } catch (e) {
+        // The DAEMON is unreachable — same answer shape as the runtime's own "accounts away":
+        // keep working, retry. Never "signed out" over a hiccup.
+        return { status: 0, body: { state: 'accounts_unreachable', error: String(e) } }
+      }
+    }
+  )
+
+  ipcMain.handle('app:broadcastToken', (_e, token: string) => {
+    broadcastAccessToken(String(token || ''))
+    return { ok: true, windows: appWindows.size }
+  })
+
+  ipcMain.handle('app:openWindow', (event, rawUrl: string, title?: string) => {
+    // WHO IS ASKING, decided here and never by the caller.
+    //
+    // Two kinds of window can reach this channel. The shell's own renderer is ours and may open
+    // anything. An AGENT APP window runs third-party code — the whole premise of the marketplace —
+    // and this call takes a URL, so granting it generally would let any published agent open a
+    // desktop window pointed at any address it liked, wearing this app's frame.
+    //
+    // Agent Builder is the exception, because building an agent's window and looking at it are one
+    // loop and the second half of it used to live in a different application. It is identified by
+    // the WINDOW the request arrived on, which the page cannot state or forge — not by anything in
+    // the message.
+    if (!mayOpenAppWindows(event.sender)) {
+      return { ok: false, error: 'this window may not open app windows' }
+    }
     let url: URL
     try {
       url = new URL(String(rawUrl || ''))
@@ -212,6 +320,54 @@ function registerIpc(): void {
 // app:openWindow IPC (desktop client's "Open app") and the agent-app shell boot.
 const appWindows = new Map<string, BrowserWindow>()
 
+/** The receive-only bridge for agent app windows (built alongside the shell's own preload). */
+function appPreloadPath(): string {
+  return path.join(__dirname, '../preload/app.js')
+}
+
+/**
+ * The one agent app allowed to open other agents' windows.
+ *
+ * A specific id in the shell, which is not something this codebase does lightly. The justification
+ * is the same one the daemon already accepts for this agent (CROSS_AGENT_READS): Agent Builder is
+ * not an agent among agents, it is the tool that makes them, and the window it is building is the
+ * thing it exists to show you.
+ */
+const BUILDER_APP_PATH = '/apps/agent-builder/'
+
+/**
+ * May this sender open app windows?
+ *
+ * The shell's own renderer may — it is our code, and it is where the "Open app" button has always
+ * lived. An agent app window may only if it IS Agent Builder, decided by matching the sender
+ * against the window register rather than by anything the page said about itself.
+ *
+ * Fails CLOSED: a sender we cannot place is refused. A window that is not in the register is not a
+ * window this process opened.
+ */
+function mayOpenAppWindows(sender: Electron.WebContents): boolean {
+  if (mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents) return true
+  for (const [key, win] of appWindows) {
+    if (!win.isDestroyed() && win.webContents === sender) {
+      return new URL(key).pathname === BUILDER_APP_PATH
+    }
+  }
+  return false
+}
+
+/**
+ * Hand every open agent app window a freshly-minted access token.
+ *
+ * Called by the SHELL renderer whenever its token rotates. This is the whole reason app windows
+ * outlive a single ten-minute token: they cannot refresh (no refresh token, by design), so the
+ * one party that can — the shell — pushes the result down.
+ */
+function broadcastAccessToken(token: string): void {
+  for (const win of appWindows.values()) {
+    if (!win.isDestroyed()) win.webContents.send('agentd:access-token', token)
+  }
+}
+
 function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
   const key = `${url.origin}${url.pathname}`
   const existing = appWindows.get(key)
@@ -227,9 +383,18 @@ function openAgentAppWindow(url: URL, title?: string): BrowserWindow {
     minWidth: 480,
     minHeight: 360,
     title: String(title || 'agent app'),
-    icon: appIcon,
+    icon: appIconPath(),
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Same reason as the shell window: an agent app streams runs while occluded.
+      backgroundThrottling: false,
+      // sandbox stays ON. The app preload is receive-only and needs no Node APIs — see
+      // src/preload/app.ts for why this window gets its own, much smaller, bridge.
+      sandbox: true,
+      preload: appPreloadPath()
+    }
   })
   appWindows.set(key, win)
   win.on('closed', () => appWindows.delete(key))
@@ -291,7 +456,7 @@ function createSplash(): BrowserWindow {
     resizable: false,
     autoHideMenuBar: true,
     title: flavor.productName,
-    icon: appIcon,
+    icon: appIconPath(),
     backgroundColor: '#f4f2ea',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
@@ -311,14 +476,63 @@ function createSplash(): BrowserWindow {
 /** First-run: install any bundled .agentpkg the daemon doesn't have yet — the same flow
  *  the JARVIS renderer runs (store.ts preinstallBundles), mirrored here because an
  *  app-shell build never loads that renderer. Idempotent via the installed ledger. */
+/** `<id>-<version>.agentpkg` -> its two parts. The version is the artifact's own claim; the
+ *  installer re-reads the manifest, so this is only used to decide WHETHER to install. */
+function splitPackageName(fileName: string): { id: string; version: string } {
+  const m = /^(.*)-([0-9][^-]*)\.agentpkg$/.exec(fileName)
+  if (!m) return { id: fileName.replace(/\.agentpkg$/, ''), version: '' }
+  return { id: m[1], version: m[2] }
+}
+
+/** True when `candidate` is a newer version than `installed`. Numeric-dotted compare with a
+ *  string tiebreak, matching how the daemon supersedes installs. An unparseable or equal
+ *  version is NOT an update — re-installing on every launch would wipe the agent's directory
+ *  (and its user's edits) each time the app opened. */
+function isNewer(candidate: string, installed: string): boolean {
+  if (!candidate) return false
+  if (!installed) return true
+  const a = candidate.split('.')
+  const b = installed.split('.')
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = parseInt(a[i] ?? '0', 10)
+    const y = parseInt(b[i] ?? '0', 10)
+    if (Number.isNaN(x) || Number.isNaN(y)) return candidate > installed
+    if (x !== y) return x > y
+  }
+  return false
+}
+
+/** First run AND every upgrade: install any bundled .agentpkg the daemon doesn't have, or has
+ *  at an OLDER version.
+ *
+ *  The version check is the point. This used to skip on bundle ID alone, which meant a shipped
+ *  app-agent product could never deliver a new version of its own agent: the user installs
+ *  "Game Master 0.2.0", you ship 0.3.0 with a fix, they run the new installer — and the shell
+ *  sees game-master already present and installs nothing. The app updates, the agent inside it
+ *  never does, and the symptom is a fixed bug that is still there.
+ *
+ *  Equal versions must NOT reinstall: `install_files` replaces the agent's definition, so doing
+ *  it on every launch would discard whatever the user changed under agents/<id>/. */
 async function ensureBundlesInstalled(wsUrl: string): Promise<void> {
   if (flavor.bundledPackages.length === 0) return
   const { bundles } = await gatewayRequest(wsUrl, 'marketplace.installed')
-  const have = new Set(((bundles as Array<{ id: string }>) || []).map((b) => b.id))
+  const installed = new Map<string, string>(
+    ((bundles as Array<{ id: string; version?: string }>) || []).map((b) => [
+      b.id,
+      String(b.version || '')
+    ])
+  )
   for (const packagePath of flavor.bundledPackages) {
     const fileName = packagePath.replace(/\\/g, '/').split('/').pop() || ''
-    const bundleId = fileName.replace(/-[0-9][^-]*\.agentpkg$/, '')
-    if (!bundleId || have.has(bundleId)) continue
+    const { id, version } = splitPackageName(fileName)
+    if (!id) continue
+    const have = installed.get(id)
+    if (have !== undefined && !isNewer(version, have)) continue
+    console.log(
+      have === undefined
+        ? `bundles: installing ${id} ${version}`
+        : `bundles: upgrading ${id} ${have} -> ${version}`
+    )
     // generous timeout: an install may pip-install the agent's plugin deps
     await gatewayRequest(wsUrl, 'marketplace.install', { file: packagePath }, 600_000)
   }
@@ -376,6 +590,14 @@ function readPicked(paths: string[]): Array<{ name: string; size: number; dataBa
 
 app.whenReady().then(async () => {
   flavor = await loadFlavor()
+  // Windows taskbar identity. With ONE shared executable the OS cannot tell products apart by
+  // path, so without this every agent app collapses into a single taskbar button and a pinned
+  // shortcut relaunches whichever product was installed last. Must match the AUMID the
+  // launching shortcut sets. No-op on other platforms.
+  if (flavor.appUserModelId) app.setAppUserModelId(flavor.appUserModelId)
+  if (flavor.payloadDir) {
+    console.log(`flavor: product "${flavor.productName}" from payload ${flavor.payloadDir}`)
+  }
   registerIpc()
   if (flavor.appAgent) {
     // AGENT-APP shell: this build IS one agent's product — its own UI, no JARVIS renderer

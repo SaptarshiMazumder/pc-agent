@@ -22,7 +22,7 @@ from pathlib import Path
 
 from figexport_common import px, resolve_path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 # arrow `style` -> (stroke width pt, default colour) when the element omits width/color.
 _ARROW_LOOK = {

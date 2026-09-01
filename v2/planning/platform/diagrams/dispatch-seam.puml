@@ -65,7 +65,7 @@ skinparam note {
 }
 
 participant "Agent loop +\nSandbox Executor\n(agentd core)" as E
-participant "Model Gateway\n(our LiteLLM svc)" as G
+participant "Model Proxy\n(our LiteLLM svc)" as G
 participant "Orchestrator\n(ECS/Fargate ctl)" as O
 participant "Runner\n(inside the sandbox)" as R
 database "User dir\n/users/uid (EFS)" as D

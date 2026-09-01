@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.memory import projects_store
-from agentd.presentation.gateway import Gateway
+from agent_runtime.infrastructure.memory import projects_store
+from agent_runtime.presentation.gateway import Gateway
 
 
 class _G:

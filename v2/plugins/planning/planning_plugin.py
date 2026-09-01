@@ -8,7 +8,7 @@ framework. It imports only the framework surface (``Tool`` / ``ToolResult``). Al
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 _PLAN_STEP_STATUSES = ("pending", "in_progress", "completed")
 _STATUS_ICON = {"completed": "✓", "in_progress": "▶", "pending": "○"}

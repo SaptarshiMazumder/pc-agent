@@ -1,0 +1,14 @@
+# Publish service — deliberately tiny.
+#
+# NOT listed here, and installed by the Dockerfile instead because they are properties of the
+# RUNTIME rather than of this code: `awslambdaric` (the Lambda runtime interface client, which is
+# what lets an ordinary Debian image be a Lambda) and `boto3` (present in the AWS base image, but
+# this image is not built on it — see the Dockerfile for why).
+#
+# What is NOT here matters as much: no fastapi/uvicorn (the Lambda runtime is the server), no
+# litellm, no plugin dependencies. The intake path imports only the marketplace, product and
+# signing corners of agent_runtime.
+cryptography>=42,<46   # ed25519 — infrastructure/signing.py
+httpx>=0.27,<0.29      # the accounts /resolve call
+packaging>=23          # version comparison (is_update) and agentd_compat specifiers
+# tomllib and zipfile are stdlib on 3.11, so packing and manifest reading need nothing.

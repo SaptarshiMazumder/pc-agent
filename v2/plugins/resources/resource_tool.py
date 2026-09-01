@@ -9,8 +9,8 @@ described catalog + index-maintaining writes.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context, current_workspace
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context, current_workspace
 
 _READ_CAP = 20_000
 

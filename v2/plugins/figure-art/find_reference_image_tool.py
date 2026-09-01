@@ -20,9 +20,9 @@ import asyncio
 import base64
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.domain.messages import ImageContent, TextContent
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.domain.messages import ImageContent, TextContent
 
 _EXT = {
     "image/jpeg": ".jpg",

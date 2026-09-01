@@ -1,0 +1,243 @@
+@startuml plugin-sandbox
+' =============================================================================
+'  agentd — Untrusted Plugin Tool Sandboxing (PROPOSED)
+'  Source-only by convention. Render on demand:
+'     java -jar ../../../plantuml.jar -tsvg plugin-sandbox.puml
+'
+'  Problem: today EVERY tool runs IN-PROCESS in the daemon. Fine for our own
+'  built-in tools, unacceptable for third-party plugin code (it would get the
+'  host FS, network, platform secrets, and other users' data). This design adds
+'  a TRUST BOUNDARY so untrusted plugin tools execute inside an isolated sandbox
+'  — only `params in -> ToolResult out` crosses the line.
+' =============================================================================
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+hide empty members
+
+legend top
+  |= colour |= meaning |
+  |<#e8f5e9>  | EXISTING code — unchanged |
+  |<#fff3e0>  | NEW seam — pure code, backend-agnostic (BUILT: this change, zero infra) |
+  |<#e3f2fd>  | NEW backends — need infra (gVisor / Firecracker / managed) |
+  |<#eeeeee>  | LATER — separate approval/consent layer (NOT built here) |
+endlegend
+
+' =============================================================================
+' EXISTING agentd core (green) — the seams we build on
+' =============================================================================
+package "agentd core (existing)" {
+
+  interface Tool #e8f5e9 {
+    +name : str
+    +description : str
+    +parameters : dict
+    +execute(id, params, abort, on_update) : ToolResult
+  }
+
+  class ToolResult #e8f5e9
+
+  class RunContext #e8f5e9 {
+    +workspace : str
+    +agent_id : str
+    +account : dict
+  }
+
+  class GuardedTool #e8f5e9 {
+    -policy : ToolPolicy
+    +execute(...) : ToolResult
+  }
+
+  class NativeTool #e8f5e9
+  class McpTool #e8f5e9
+
+  interface Sandbox #e8f5e9 {
+    +run(command, cwd, env, timeout) : (int, str)
+  }
+  class LocalSandbox #e8f5e9
+
+  GuardedTool  ..|> Tool
+  NativeTool   ..|> Tool
+  McpTool      ..|> Tool
+  LocalSandbox ..|> Sandbox
+  GuardedTool  *--> Tool : wraps >
+
+  note bottom of Sandbox
+    EXISTING port — **command-based** (run a shell string).
+    Isolates shell / exec / computer tools.
+    COMPLEMENTARY to PluginSandbox below, which
+    isolates arbitrary plugin execute(). Both needed.
+  end note
+}
+
+' =============================================================================
+' NEW SEAM (orange) — build first, no infrastructure required
+' =============================================================================
+package "plugin-sandbox seam (NEW — pure code)" {
+
+  enum PluginOrigin #fff3e0 {
+    BUILTIN
+    FIRST_PARTY
+    THIRD_PARTY_BUNDLE
+  }
+
+  class CapabilityGrant #fff3e0 {
+    +fs_paths : tuple
+    +net_allowlist : tuple
+    +cpu_ms : int
+    +mem_mb : int
+    +timeout_s : float
+    +secrets : dict
+  }
+  note bottom of CapabilityGrant
+    DEFAULT-DENY (DENY_ALL = CapabilityGrant()).
+    secrets = {} always by default — the sandbox
+    NEVER sees provider keys or other users' tokens.
+    It is DATA: produced by a CapabilityResolver,
+    flows INTO a sandbox, which ENFORCES it. The
+    sandbox never DECIDES a grant.
+  end note
+
+  interface CapabilityResolver #fff3e0 {
+    +resolve(plugin_id, origin, ctx) : CapabilityGrant
+  }
+  class DefaultCapabilityResolver #fff3e0 {
+    +resolve(...) : CapabilityGrant
+  }
+  note right of CapabilityResolver
+    THE POLICY SEAM (separate from execution).
+    Default impl: non-interactive — workspace-only FS,
+    no net, secrets={}, a timeout. This is exactly the
+    seam the APPROVAL/consent layer plugs into LATER
+    (an ApprovalCapabilityResolver, same method) — swap
+    it and the sandbox below is untouched. See the
+    grey "approval (LATER)" box: NOT built here.
+  end note
+
+  class Classifier #fff3e0 {
+    +classify_origin(tool, config) : PluginOrigin
+    +wrap_untrusted(tools, sandbox, resolver, config) : list<Tool>
+  }
+  note right of Classifier
+    ONE decision point (infrastructure/tools/sandbox/classify.py).
+    origin == THIRD_PARTY_BUNDLE  -> wrap in SandboxedTool
+    origin == BUILTIN/FIRST_PARTY -> run in-process (unchanged, fast)
+    Untrusted tier = agents/<id>/plugins/ (tagged _agent_id).
+    Dormant unless config.sandbox_untrusted_plugins is set.
+  end note
+
+  interface PluginSandbox #fff3e0 {
+    +run_tool(plugin_id, tool_name, id, params, abort, on_update, grant, ctx) : ToolResult
+  }
+  note bottom of PluginSandbox
+    NEW port — **call-based** (not a shell command).
+    params + grant IN  ->  ToolResult OUT.
+    The ONLY thing that crosses the trust boundary.
+    ENFORCES the grant it is handed; never decides one.
+    Swap the impl (local / gVisor / Firecracker / vendor)
+    without touching the daemon.
+  end note
+
+  class SandboxedTool #fff3e0 {
+    -plugin_id : str
+    -tool_name : str
+    +execute(id, params, abort, on_update) : ToolResult
+  }
+  note left of SandboxedTool
+    Transparent Tool wrapper (name/params/_inner all
+    forward). Per-execute: asks the resolver for a grant,
+    hands (plugin_id, tool_name, params, grant) to the
+    sandbox. Grant resolved PER-CALL so approval can be
+    dynamic later with zero change here.
+  end note
+
+  class LocalPluginSandbox #fff3e0 {
+    +register(plugin_id, tool_name, tool)
+    +run_tool(...) : ToolResult
+  }
+  note bottom of LocalPluginSandbox
+    Default impl: IN-PROCESS passthrough — resolves the
+    inner tool by (plugin_id, tool_name) and calls its
+    real execute() on the host. NO isolation, does NOT
+    enforce grant. Behaviour-preserving; proves the seam
+    and keeps first-party dev working. Swapped later.
+  end note
+
+  SandboxedTool      ..|> Tool
+  SandboxedTool      --> PluginSandbox      : delegates execute >
+  SandboxedTool      --> CapabilityResolver : asks per-call >
+  SandboxedTool      ..> RunContext         : carries scoped ctx >
+  DefaultCapabilityResolver ..|> CapabilityResolver
+  CapabilityResolver --> CapabilityGrant    : produces >
+  LocalPluginSandbox ..|> PluginSandbox
+  Classifier         --> SandboxedTool      : wraps untrusted >
+  Classifier         --> PluginOrigin       : reads tags >
+}
+
+' =============================================================================
+' APPROVAL / CONSENT — a SEPARATE, LATER layer (grey = not built here)
+' =============================================================================
+package "approval layer (LATER — separate concern)" {
+  class ApprovalCapabilityResolver #eeeeee {
+    +resolve(plugin_id, origin, ctx) : CapabilityGrant
+  }
+  note bottom of ApprovalCapabilityResolver
+    FUTURE. Implements the SAME CapabilityResolver port by
+    consulting user consent + a plugin's requested caps +
+    policy, and remembering grants. It DECIDES what is granted;
+    the sandbox still just ENFORCES. Decoupled on purpose —
+    approval swaps the resolver, execution is untouched.
+    NOT part of this build.
+  end note
+  ApprovalCapabilityResolver ..|> CapabilityResolver
+}
+
+' =============================================================================
+' NEW BACKENDS (blue) — real isolation, need infra
+' =============================================================================
+package "sandbox backends (NEW — infra)" {
+
+  class SandboxPool #e3f2fd {
+    +acquire(user_id) : PluginSandbox
+    +release(user_id)
+    -idle_reaper()
+  }
+  note right of SandboxPool
+    ONE warm sandbox per user/session, reused across
+    calls, reaped on idle. NEVER shared between users
+    (multi-tenant isolation).
+  end note
+
+  class ContainerPluginSandbox #e3f2fd {
+    -runtime = "runsc (gVisor)"
+    +run_tool(...) : ToolResult
+  }
+
+  class FirecrackerPluginSandbox #e3f2fd {
+    -microvm
+    +run_tool(...) : ToolResult
+  }
+
+  class SandboxRunner #e3f2fd {
+    +load_plugin()
+    +invoke(tool, params) : ToolResult
+  }
+  note bottom of SandboxRunner
+    Runs INSIDE the sandbox. Loads the untrusted plugin,
+    executes the real tool, returns ToolResult over
+    stdio/RPC. Sees ONLY the scoped workspace + granted
+    caps. No host secrets, no other users' data.
+  end note
+
+  ContainerPluginSandbox   ..|> PluginSandbox
+  FirecrackerPluginSandbox ..|> PluginSandbox
+  SandboxPool              --> PluginSandbox     : manages >
+  ContainerPluginSandbox   --> SandboxRunner     : dispatches >
+  FirecrackerPluginSandbox --> SandboxRunner     : dispatches >
+  ContainerPluginSandbox   --> CapabilityGrant   : enforces >
+}
+
+' cross-package: the guarded pipeline is unchanged; a SandboxedTool is just
+' another Tool the daemon guards + advertises exactly like today.
+GuardedTool ..> SandboxedTool : guards (same contract) >
+
+@enduml

@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import (
+from agent_runtime.domain.messages import (
     AssistantMessage,
     TextContent,
     ThinkingContent,
@@ -19,7 +19,7 @@ from agentd.domain.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from agentd.infrastructure.llm.litellm import (
+from agent_runtime.infrastructure.llm.litellm import (
     _ToolCallAccumulator,
     litellm_stream,
     messages_to_litellm,
@@ -78,7 +78,7 @@ def test_drops_placeholder_and_orphaned_tool_result():
     # Regression: a "couldn't generate" placeholder persisted BETWEEN a tool call and its
     # result, plus an orphaned tool result, must be sanitized out so strict providers
     # (Gemini) don't reject the whole history with "missing corresponding tool call".
-    from agentd.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
+    from agent_runtime.infrastructure.engine.incomplete_turn import INCOMPLETE_TURN_FALLBACK_TEXT
 
     history = [
         AssistantMessage(
@@ -328,3 +328,85 @@ async def test_local_provider_skips_idle(monkeypatch):
 
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(consume(), timeout=0.3)  # never emits idle error -> we time out
+
+
+@pytest.mark.asyncio
+async def test_a_stream_that_sends_only_usage_is_an_error_not_a_clean_stop(monkeypatch):
+    """The failure this exists to stop: an upstream refusal read as a successful empty answer.
+
+    A provider whose balance is exhausted (or whose key is dead, or whose gateway declines the
+    model) can open the stream, send a usage chunk and close without a single `choices` entry.
+    `finish_reason` is then never set, and the mapping reads `finish_reason or "stop"` — so the
+    run reported a normal finish, took the empty-run path, and told the user "the model returned
+    an entirely empty response". That blames the model for something upstream of it and sends
+    them off re-sending a message that cannot succeed.
+    """
+    chunks = [
+        SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=10541, completion_tokens=0))
+    ]
+
+    async def fake_acompletion(**kwargs):
+        return FakeStream(chunks)
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    events = []
+    async for ev in litellm_stream(
+        model="fake/model",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
+    ):
+        events.append(ev)
+
+    msg = events[-1]["message"]
+    assert msg.stop_reason == "error"
+    assert "empty response" in msg.error_message
+    # WHAT A USER READS, and what they must never read. This text goes straight into somebody's
+    # conversation, so it carries no token counts, no field names and no provider internals —
+    # all of which belong in the log. It also invents no causes: litellm raises on auth and
+    # billing failures, so naming them here would be a guess presented as a finding.
+    for jargon in ("finish_reason", "chunk", "prompt_tokens", "delta", "balance", "API key"):
+        assert jargon not in msg.error_message
+
+
+@pytest.mark.asyncio
+async def test_zero_output_is_an_error_even_when_the_provider_says_stop(monkeypatch):
+    """The shape that actually shipped, and the one this check was first written too narrowly to
+    catch: a `choices` entry DOES arrive, with an empty delta and `finish_reason: "stop"`, and
+    usage reports zero completion tokens.
+
+    It was first left alone on the theory that a model may legitimately choose to say nothing. It
+    cannot: choosing to say nothing still costs completion tokens, and an agent turn with no text
+    AND no tool call has not answered by any definition. `output == 0` on a billed request is a
+    failed generation whatever the provider labelled it."""
+    chunks = [
+        make_chunk(delta=make_delta(), finish_reason="stop"),
+        SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=10780, completion_tokens=0)),
+    ]
+
+    async def fake_acompletion(**kwargs):
+        return FakeStream(chunks)
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    events = []
+    async for ev in litellm_stream(
+        model="fake/model",
+        system_prompt="S",
+        messages=[UserMessage(content="hi")],
+        tools=[],
+        abort=asyncio.Event(),
+    ):
+        events.append(ev)
+
+    msg = events[-1]["message"]
+    assert msg.stop_reason == "error"
+    assert "empty response" in msg.error_message
+    for jargon in ("finish_reason", "chunk", "prompt_tokens", "delta", "balance", "API key"):
+        assert jargon not in msg.error_message

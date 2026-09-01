@@ -1,7 +1,7 @@
 # OpenClaw vs. agentd — Capability Parity & Build Roadmap
 
 > **Purpose.** A durable, evidence-based reference for deciding what to build next. It
-> compares our `v2/agentd` against the OpenClaw reference codebase
+> compares our `v2/agent_runtime` against the OpenClaw reference codebase
 > (`reference/openclaw-main/`), capability by capability, with **file pointers into
 > OpenClaw** so that when we build a missing piece we can study the real implementation
 > first. Everything here was verified by reading both codebases (not from memory).

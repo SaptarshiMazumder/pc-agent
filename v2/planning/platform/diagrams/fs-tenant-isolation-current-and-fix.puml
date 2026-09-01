@@ -1,0 +1,210 @@
+@startuml fs-tenant-isolation-current-and-fix
+' ============================================================================
+'  WHO CAN READ WHOSE FILES - filesystem tenant isolation across the modes,
+'  the unfenced-read premise that leaks one tenant's workspace and transcripts
+'  to another on the hosted web, and the read-scope fix.
+'  STATUS: BUILT (uncommitted) - companion to
+'  tenant-isolation-current-and-fix.puml, which covered the EGRESS leaks
+'  (event fan-out + GET /file, fixed via may_observe). This one is the
+'  TOOL layer: what read/ls/find/exec can reach inside the daemon itself.
+'  Where things landed: domain/agent.definition_entries + agent_dir_key,
+'  user_state.tenant_scope (the one scope builder), write_scope.check_read +
+'  check_write's write_clamp, RunContext.read_roots/write_clamp, core_fs
+'  _resolve -> check_read (find searches its roots, never the machine, when
+'  fenced), exec refuses any fenced run, sandbox read grant = definition
+'  view, private-tool map keyed by agent_dir_key (location, not id),
+'  tools.invoke runs as the CALLER (per-account workspace + scope).
+'  Pinned by tests/unit/test_tenant_fence.py (the incident replayed).
+'
+'  THE BREAK, one sentence:
+'    the write side has ONE fence at ONE choke point (write_scope.check_write),
+'    but reads were declared exempt ("READS ARE NEVER SCOPED - reading damages
+'    nothing") - a premise imported from desktop, where the machine is yours -
+'    so on a hosted daemon, where EVERY tenant shares one process and one EFS,
+'    any signed-in user can read the entire accounts/ tree of everyone else.
+'
+'  WHY THE FIX IS NOT "if web then restrict the read tool": that plants a
+'  mode branch in a tool, the first of many, and every future tool has to
+'  remember to plant its own. Instead the fix is the SAME shape the write
+'  side already proved: one check at the choke point all paths already pass
+'  through, fed by per-run DATA. The mode never appears in code - a desktop
+'  run carries an EMPTY scope (= unrestricted, today's bytes), a hosted run
+'  carries the caller's roots. Deployment changes values, never code paths.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng fs-tenant-isolation-current-and-fix.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Filesystem tenant isolation - today's unfenced reads, the observed leak, and the read-scope fix\none EFS, one daemon, many tenants: isolation must be ENFORCED at the path choke point,\nnot assumed from each tool defaulting its cwd to the right folder
+
+start
+
+partition "0 . TODAY'S GEOMETRY   (what is already right)" #E8F0FE {
+  :ONE path authority (infrastructure/user_state.py) maps
+  (account, agent) to a namespace inside the one store:
+  accounts/<acct>/agents/<id>/ = definition + workspace/ + sessions/;
+  :tenant identity is established ONCE per connection (the accounts
+  contextvar + per-connection registry overlay) and consumed as a
+  value downstream - workspace, transcripts and memory all key on
+  the CALLER's account and never mix;
+  :the WRITE side is fenced at one choke point:
+  application/write_scope.check_write, carried on the RunContext,
+  realpath containment (is_inside), deny beats allow;
+  :the READ side is exempt BY DESIGN: "READS ARE NEVER SCOPED -
+  reading damages nothing" (write_scope.py docstring), and the fs
+  tools honor it - _resolve() maps a relative path into the run's
+  workspace and passes any ABSOLUTE path straight through
+  (plugins/core_fs/fs_tools.py);
+}
+
+switch (which deployment is this daemon?)
+
+case ( desktop LOCAL / BYOK )
+
+  partition "1 . DESKTOP - the premise is TRUE" #E6F4EA {
+    :one human, one machine, files already theirs. An agent reading
+    any absolute path is a FEATURE (read your repo, your Desktop,
+    the skill it vendors) - nothing to isolate, nothing leaks;
+  }
+
+case ( hosted WEB - many tenants, one EFS )
+
+  partition "2 . HOSTED - the observed leak, step by step" #FDECEA {
+    :user X chats with marketing-agent: files land in
+    accounts/acct_X/agents/marketing-agent/workspace/,
+    transcripts in .../sessions/ - the UNIFIED layout keeps an
+    agent's definition AND its user data in the same folder;
+    :user Y signs in. Sidebar is clean - sessions key on the
+    caller's account, so Y sees no chats of X (this part works);
+    :Y runs the same agent. The run's OWN workspace resolves
+    correctly to accounts/acct_Y/... (container._acct_workspace) -
+    the resolver is NOT the bug;
+    :but the agent's prompt names its DEFINITION directory, which
+    physically lives in X's subtree - and X's workspace/ and
+    sessions/ sit right inside it;
+    if (Y's agent calls ls / read with that absolute path?) then (yes)
+      :_resolve() passes absolute paths through untouched, no read
+      check exists anywhere => X's files and chat transcripts are
+      returned to Y. This is the reported incident;
+    else (no - it explores instead)
+      :same outcome, slower: nothing stops a walk from Y's folder
+      up to accounts/ and into ANY tenant's subtree;
+    endif
+    :=> the incident is the MILD case. The general fact: every
+    hosted user can read the whole /data tree - all tenants'
+    workspaces, transcripts, uploaded files - through first-party
+    tools, no exploit needed, just a path;
+  }
+
+endswitch
+
+partition "3 . ROOT CAUSE - two facts multiply" #FDECEA {
+  :FACT A: reads are unfenced ON PURPOSE, a desktop premise that
+  became false the day one daemon started serving many tenants;
+  :FACT B: user data lives INSIDE the shareable definition folder,
+  so wherever a definition legitimately crosses a tenant boundary
+  (marketplace, curated catalog, app serving, read_paths grants),
+  the owner's data is standing next to it;
+  :neither fact is a tool bug. Fixing a tool - or hiding one
+  folder - leaves the class open. The fix must be structural:
+  decide visibility ONCE, enforce it where all paths already flow;
+}
+
+partition "4 . THE FIX - the write side's shape, applied to reads" #E6F4EA {
+  :MOVE 1 - THE VISIBILITY SET, decided once per run. One builder
+  computes read_roots + write_roots from (caller account, resolved
+  agent): the caller's OWN per-agent subtree, the agent's
+  DEFINITION VIEW read-only, the shared catalog read-only, scratch.
+  No account signed in => EMPTY, and empty means unrestricted;
+  :MOVE 2 - check_read BESIDE check_write, same file, same
+  RunContext carriage, same is_inside realpath containment (so
+  symlinks and dot-dot cannot walk out). The fs tools' _resolve()
+  gains ONE line; read/ls/find inherit it through the funnel they
+  already share. Refusals NAME the caller's legitimate roots, so
+  the model redirects instead of retrying;
+  :MOVE 3 - ONE definition of "the shareable part of an agent":
+  a definition-view function next to USER_DATA_DIRS (= workspace,
+  sessions) in domain/agent.py. Run grants, the sandbox
+  CapabilityResolver's read_paths, app serving and publish packing
+  ALL consume it - so in-process tools and sandboxed plugins get
+  the same answer and cannot drift. Data never crosses a tenant
+  boundary; definitions do;
+  :MOVE 4 - RESOLUTION SCOPING, the front door: the registry
+  answers a caller only from the shared layer + the caller's own
+  overlay. The remaining bare-agent_id process-global maps (the
+  known open gap) get keyed by (account, agent). The fence of
+  moves 1-3 is the backstop for whatever still slips through;
+  :INVARIANTS riding along: exec/shell on hosted stays refused or
+  runs INSIDE the subprocess sandbox under the same grant (one
+  unfenced shell makes the fence decorative); sessions appear in
+  NO read grant ever - transcripts are reachable only through
+  session RPCs, which already pass may_observe;
+}
+
+partition "5 . WHAT EACH MODE FEELS AFTER   (same code, different values)" #E0F2F1 {
+  :desktop LOCAL - unchanged, byte for byte: no account, empty
+  scope, every path allowed, the check passes everything;
+  :desktop CLOUD (signed in) - own roots granted, own files all
+  in scope: the UX is identical, the fence only exists for paths
+  that were never yours;
+  :hosted WEB - Y lists files and sees Y's OWN (empty) workspace.
+  Y's agent tries X's absolute path and gets a refusal naming
+  Y's roots. The reported incident becomes unreproducible;
+  :CI pins it: a cross-tenant probe suite - two accounts, every
+  path-taking tool and RPC, each asserting refusal on the other
+  tenant's subtree - so the property is PROVEN continuously, not
+  promised once;
+}
+
+stop
+
+note right
+  ==== WHY THERE IS NO "if web" ANYWHERE ====
+  The mode never appears in code. The builder runs for
+  every deployment and produces different VALUES:
+    no account        => read_roots = ()   (unrestricted)
+    signed-in caller  => read_roots = that caller's roots
+  check_read is mode-blind; it only asks "inside a root?".
+  A future tool that resolves paths through the shared
+  funnel is fenced automatically on day one - no wrapper,
+  no per-tool edits, no branch to forget.
+
+  ==== WHAT THIS DOES NOT COVER (later rungs) ====
+  * kernel-level enforcement (per-tenant uid/gid or EFS
+    access points) - defense in depth below the process
+  * gVisor / Firecracker behind the existing sandbox seam
+    for third-party plugin code
+  * per-tenant disk quotas (already on the open-gaps list)
+  None are needed for the fence to be correct; they harden
+  the layers underneath it.
+end note
+
+legend left
+  | Piece | desktop today | hosted today | hosted after the fix |
+  | who resolves the workspace | the run (per account) - correct | the run (per account) - correct | unchanged |
+  | relative paths in tools | mapped into the run's workspace | mapped into the run's workspace | unchanged |
+  | absolute paths in tools | allowed - the machine is yours | allowed - THE HOLE | inside the caller's roots only |
+  | other tenants' subtrees | n/a (one tenant) | fully readable | refused, refusal names own roots |
+  | agent definition sharing | n/a | carries owner's workspace + sessions | definition view only - data stays home |
+  | enforcement point | write side only (check_write) | write side only | reads AND writes at one choke point |
+  | proof | - | - | cross-tenant probe suite in CI |
+endlegend
+
+@enduml

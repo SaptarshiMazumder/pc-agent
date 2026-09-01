@@ -12,7 +12,7 @@ import asyncio
 
 import figure_art_templates as tpl
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class ListTemplatesTool(Tool):

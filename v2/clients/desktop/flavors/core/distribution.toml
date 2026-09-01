@@ -11,13 +11,41 @@ name = "agentd"
 enabled = true
 # The public marketplace (S3 registry from terraform: agentd-dev-registry-910828b2).
 # publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
-registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
-publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+registry_url = "https://agentd-staging-registry-274ab2e9.s3.ap-northeast-1.amazonaws.com/index.json"
+publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
+# The WRITE side: where Agent Builder's Publish button sends a packed agent. Declared here even
+# while empty, for the same reason ingest_url below is — sync-platform-urls retargets keys a flavor
+# already has and never invents one, so an absent key means Publish stays unavailable no matter
+# what terraform outputs. Filled by `npm run sync:urls` from the publish_url output.
+#
+# An author sets NOTHING. They install this build, sign in, and press Publish; no key, no bucket,
+# no config. That is the whole point of the publish service.
+publish_url = "https://staging.thorgodofthunder.site:4300"
 
 # [platform] — hosted accounts + platform model keys: this build is a SIGN-IN product. The
 # app gates on account sign-in and the local daemon runs model calls through our gateway on
 # platform keys (BYOK still works after sign-out). HTTP for the private-testing phase —
 # switch to https + rebuild the installer once TLS lands (REQUIRED before public launch).
 [platform]
-accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
-model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"
+# THE ONE ADDRESS THIS BUILD BAKES. Everything else about the deployment — where to sign in,
+# the model proxy, which issuer's tokens to trust, which login providers to offer — is fetched
+# from <platform_url>/.well-known/agentd-platform at runtime.
+#
+# It replaced four independently-baked ALB hostnames. Each of those carries an AWS-assigned
+# suffix that changes on any destroy/recreate, and nothing forced sync-platform-urls to run
+# before a build — so every release froze another stale set, and the artifacts under dist/ point
+# at three different long-dead load balancers. The user-visible symptom was not an obvious
+# failure: two clients built at different times signed in against two different accounts
+# databases, so the same email was two accounts with two separate credit balances.
+#
+# The keys below it are FALLBACKS, used only when discovery cannot be reached (offline) or by a
+# client too old to know about it.
+platform_url = "https://staging.thorgodofthunder.site:4100"
+accounts_url = "https://staging.thorgodofthunder.site:4100"
+model_proxy_url = "https://staging.thorgodofthunder.site:4000"
+# Where OPT-IN diagnostics go (Settings > Advanced > Diagnostics, default OFF). The key must be
+# declared here even though sync-platform-urls keeps it current: that script retargets keys a
+# flavor already has and never invents one, so an absent key means the toggle can be switched on
+# and still never send. Empty value = the toggle is unavailable, which is the right state for a
+# build with nowhere to report to.
+ingest_url = "https://staging.thorgodofthunder.site:4200"

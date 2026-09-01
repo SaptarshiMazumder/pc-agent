@@ -1,20 +1,26 @@
 """One command to run the whole HOSTED stack locally — so you stop juggling terminals + env vars.
 
-    python deploy/dev.py            # accounts + daemon + web   ->  open http://localhost:5273
-    python deploy/dev.py --proxy    # ALSO run the model gateway (full "keys live server-side" shape)
-    python deploy/dev.py --no-web    # backends only (accounts + daemon)
+    python deploy/dev.py            # accounts + ingest + daemon + web  ->  http://localhost:5273
+    python deploy/dev.py --model-proxy  # ALSO run the Model Proxy (full hosted-key shape)
+    python deploy/dev.py --no-web    # backends only (accounts + ingest + daemon)
+    python deploy/dev.py --no-ingest # skip the telemetry mail slot
 
 Ctrl+C stops everything it started. Re-running is safe: it frees its own ports first.
 
 What it starts (and why the proxy is OFF by default):
   * accounts service (:4100)  — identity + per-account budget/tab
+  * ingest service   (:4200)  — the mail slot for desktop + browser telemetry (plan 5.1/5.2/5.3).
+                                ON by default because without it the diagnostics toggle and the
+                                browser RUM reporter have nowhere to send, so both are only
+                                testable by deploying. Its stdout is where a batch becomes EMF.
   * agentd daemon    (:8790)  — accounts ON; calls providers DIRECTLY with your v2/.env keys
   * web client       (:5273)  — the browser UI, in accounts mode
-The LiteLLM model gateway is only needed for the PRODUCTION property "provider keys live in a
+The LiteLLM Model Proxy is only needed for the PRODUCTION property "provider keys live in a
 separate process, not the daemon." For local dev that adds a 4th process for no functional gain —
-accounts, metering, and per-user isolation all work without it — so it's opt-in via --proxy.
+accounts, metering, and per-user isolation all work without it — so it's opt-in via
+--model-proxy (`--proxy` remains a short compatibility alias).
 
-The DESKTOP app is separate and already one command:  cd clients/desktop && npm run dev
+The DESKTOP app is separate and already one command:  cd clients && npm run dev:desktop
 """
 
 from __future__ import annotations
@@ -36,7 +42,12 @@ except ImportError:  # pragma: no cover
 HERE = Path(__file__).resolve()
 V2 = HERE.parents[1]
 REPO = HERE.parents[2]
-VENV_PY = REPO / ".venv" / "Scripts" / ("python.exe" if os.name == "nt" else "python")
+VENV_PY = (
+    REPO
+    / ".venv"
+    / ("Scripts" if os.name == "nt" else "bin")
+    / ("python.exe" if os.name == "nt" else "python")
+)
 PY = str(VENV_PY if VENV_PY.exists() else Path(sys.executable))
 
 # --- knobs (kept obvious; not user-facing config) ---------------------------
@@ -44,11 +55,19 @@ ACCOUNTS_PORT = 4100
 DAEMON_PORT = 8790
 WEB_PORT = 5273
 PROXY_PORT = 4000
+INGEST_PORT = 4200
 STATE_DIR = V2 / ".agentd-hosted"  # deterministic hosted state (NOT ~/.agentd; keeps desktop separate)
 DAEMON_TOKEN = "devtoken"
 MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-agentd-local")
+# Shared by accounts (gates /usage writes) and the proxy (presents it). Same default as
+# deploy/docker/compose.yaml so the local and container stacks behave identically.
+INTERNAL_KEY = os.environ.get("ACCOUNTS_INTERNAL_KEY", "devinternal")
 
-USE_PROXY = "--proxy" in sys.argv
+USE_PROXY = "--model-proxy" in sys.argv or "--proxy" in sys.argv
+# Ingest is ON by default, unlike the proxy: it costs one tiny process, and without it the
+# desktop diagnostics toggle (plan 5.1) has nowhere to send, so the whole feature is only
+# testable by deploying. `--no-ingest` turns it off.
+USE_INGEST = "--no-ingest" not in sys.argv
 NO_WEB = "--no-web" in sys.argv
 
 if load_dotenv:
@@ -162,17 +181,32 @@ def main() -> None:
     print(f"[dev] python={PY}")
     print(f"[dev] hosted state_dir={STATE_DIR}")
     ports = [ACCOUNTS_PORT, DAEMON_PORT] + ([PROXY_PORT] if USE_PROXY else []) + \
-            ([] if NO_WEB else [WEB_PORT])
+            ([INGEST_PORT] if USE_INGEST else []) + ([] if NO_WEB else [WEB_PORT])
     for port in ports:
         free_port(port)
 
     # 1) accounts
-    spawn("accounts", [PY, str(V2 / "deploy" / "accounts" / "run-local.py")],
-          env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT)})
+    spawn("accounts", [PY, str(V2 / "accounts" / "run-local.py")],
+          env={"AGENTD_ACCOUNTS_PORT": str(ACCOUNTS_PORT),
+               # only enforced when the proxy is in play; matches what the proxy presents
+               **({"ACCOUNTS_INTERNAL_KEY": INTERNAL_KEY} if USE_PROXY else {})})
 
-    # 2) model gateway (opt-in)
+    # 2) Model Proxy (opt-in)
+    #    Wire it to accounts, or it only accepts the master key and NEVER writes the usage
+    #    ledger (custom_auth returns early without ACCOUNTS_URL + ACCOUNTS_INTERNAL_KEY) — which
+    #    makes the two things the proxy exists for, per-user auth and metering, untestable here.
     if USE_PROXY:
-        spawn("proxy", [PY, str(V2 / "deploy" / "gateway" / "run-local.py")])
+        spawn("model-proxy", [PY, str(V2 / "model_proxy" / "run-local.py")],
+              env={"ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
+                   "ACCOUNTS_INTERNAL_KEY": INTERNAL_KEY})
+
+    # 2b) ingest — the mail slot for desktop + browser telemetry (5.2). Wired to accounts so a
+    #     batch carrying a session token is ATTRIBUTED; without it events still arrive, anonymous.
+    #     Its stdout is where you watch a diagnostics batch turn into EMF lines.
+    if USE_INGEST:
+        spawn("ingest", [PY, str(V2 / "ingest" / "run-local.py")],
+              env={"AGENTD_INGEST_PORT": str(INGEST_PORT),
+                   "ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}"})
 
     # 3) daemon (accounts ON; direct provider calls unless --proxy)
     #    AGENTD_HOME gives it a SEPARATE rendezvous/logs from the desktop app's daemon (~/.agentd),
@@ -187,21 +221,26 @@ def main() -> None:
         "AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
     }
     if USE_PROXY:
-        daemon_env["AGENTD_MODEL_GATEWAY_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
-        daemon_env["AGENTD_MODEL_GATEWAY_KEY"] = MASTER_KEY
-    spawn("daemon", [PY, "-m", "agentd"], env=daemon_env, cwd=str(V2))
+        daemon_env["AGENTD_MODEL_PROXY_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
+        daemon_env["AGENTD_MODEL_PROXY_KEY"] = MASTER_KEY
+    spawn("daemon", [PY, "-m", "agent_runtime"], env=daemon_env, cwd=str(V2))
 
     # 4) web client (accounts mode)
     if not NO_WEB:
-        spawn("web", "npm run dev:web", cwd=str(V2 / "clients" / "desktop"), shell=True,
-              env={"VITE_AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
-                   "VITE_AGENTD_URL": f"ws://127.0.0.1:{DAEMON_PORT}"})
+        web_env = {"VITE_AGENTD_ACCOUNTS_URL": f"http://127.0.0.1:{ACCOUNTS_PORT}",
+                   "VITE_AGENTD_URL": f"ws://127.0.0.1:{DAEMON_PORT}"}
+        if USE_INGEST:
+            # Browser RUM (5.3) is inert without this, so a local run would silently exercise
+            # none of it.
+            web_env["VITE_AGENTD_INGEST_URL"] = f"http://127.0.0.1:{INGEST_PORT}"
+        spawn("web", "npm run dev:web", cwd=str(V2 / "clients"), shell=True, env=web_env)
 
     # readiness board
     print("[dev] waiting for services...")
     ok_acc = wait_http(f"http://127.0.0.1:{ACCOUNTS_PORT}/health")
     ok_daemon = wait_port(DAEMON_PORT)
     ok_proxy = wait_port(PROXY_PORT) if USE_PROXY else None
+    ok_ingest = wait_http(f"http://127.0.0.1:{INGEST_PORT}/health") if USE_INGEST else None
     ok_web = wait_port(WEB_PORT) if not NO_WEB else None
 
     def tick(v):
@@ -209,7 +248,9 @@ def main() -> None:
     print("\n" + "=" * 56)
     print(f"  {tick(ok_acc)} accounts   http://127.0.0.1:{ACCOUNTS_PORT}")
     if USE_PROXY:
-        print(f"  {tick(ok_proxy)} gateway    http://127.0.0.1:{PROXY_PORT}")
+        print(f"  {tick(ok_proxy)} model-proxy http://127.0.0.1:{PROXY_PORT}")
+    if USE_INGEST:
+        print(f"  {tick(ok_ingest)} ingest     http://127.0.0.1:{INGEST_PORT}")
     print(f"  {tick(ok_daemon)} daemon     ws://127.0.0.1:{DAEMON_PORT}  (accounts ON)")
     if not NO_WEB:
         print(f"  {tick(ok_web)} web        http://localhost:{WEB_PORT}   <-- OPEN THIS")

@@ -8,7 +8,7 @@ import re
 
 import httpx
 
-from agentd.application.interfaces.fetch import FetchResult
+from agent_runtime.application.interfaces.fetch import FetchResult
 from fetch.extract import (
     MAX_REDIRECTS,
     MAX_RESPONSE_BYTES,

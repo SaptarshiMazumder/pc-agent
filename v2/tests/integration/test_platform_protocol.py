@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.events import AgentEvent
-from agentd.presentation.gateway import PROTOCOL_VERSION, Gateway
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.presentation.gateway import PROTOCOL_VERSION, Gateway
 
 
 def _gw(tmp_path) -> Gateway:
@@ -61,6 +61,8 @@ class _CapturingWs:
 def _broadcast_payload(gw: Gateway, session_key: str, agent_id=None) -> dict:
     ws = _CapturingWs()
     gw.clients.add(ws)
+    # tenant fan-out is fail-closed: wire the identity _handle_conn would have wired
+    gw.client_identities[ws] = frozenset({"local"})
     asyncio.run(gw._broadcast(session_key, "run1", AgentEvent("turn_start", {}), agent_id))
     return json.loads(ws.frames[0])["payload"]
 
@@ -85,11 +87,11 @@ def test_broadcast_falls_back_to_default_agent(tmp_path):
 # =============================== P2: app hosting + scoping ===================================
 from urllib.parse import urlsplit  # noqa: E402
 
-from agentd.presentation.gateway import (  # noqa: E402
+from agent_runtime.presentation.gateway import (  # noqa: E402
     APP_SCOPED_METHODS,
     _scoped_event_allowed,
 )
-from agentd.presentation.protocol import Request  # noqa: E402
+from agent_runtime.presentation.protocol import Request  # noqa: E402
 
 
 def _app_agent_dir(tmp_path, agent_id="demo") -> SimpleNamespace:
@@ -125,7 +127,7 @@ def _gw_with_agent(tmp_path, spec) -> Gateway:
 
 # ---- [app] parsing (file registry) ----------------------------------------------------------
 def test_agent_toml_app_section_parsed(tmp_path):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     d = tmp_path / "agents" / "consoleapp"
     (d / "ui").mkdir(parents=True)
@@ -148,6 +150,9 @@ def test_agent_toml_app_section_parsed(tmp_path):
         "mode": "browser",
         "public": False,
         "public_tools": (),
+        # undeclared -> an ordinary agent (not a product surface), its own surface key
+        "standalone": False,
+        "surface": "consoleapp",
     }
     assert reg.get("main").app is None  # no [app] -> a plain chat agent
 
@@ -155,7 +160,7 @@ def test_agent_toml_app_section_parsed(tmp_path):
 def test_agent_toml_app_mode_declared_and_normalized(tmp_path):
     """[app] mode: the AUTHOR declares how openers present the app — "window" (its own
     chromeless window) or "browser" (a tab, the default); junk falls back to browser."""
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     agents = tmp_path / "agents"
     for aid, mode_line in (("winapp", 'mode = "window"'), ("junkapp", 'mode = "kiosk"')):
@@ -175,23 +180,28 @@ def test_agent_toml_app_mode_declared_and_normalized(tmp_path):
 
 
 # ---- static /apps/<id>/ serving --------------------------------------------------------------
+def _serve(gw, url):
+    """_serve_app is a coroutine (caller identity resolves via Accounts, like /file)."""
+    return asyncio.run(gw._serve_app(urlsplit(url)))
+
+
 def test_serve_app_entry_asset_spa_and_redirect(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     # entry
-    r = gw._serve_app(urlsplit("/apps/demo/"))
+    r = _serve(gw, "/apps/demo/")
     assert r.status_code == 200 and b"demo app" in r.body
     assert "text/html" in r.headers["Content-Type"]
     # real asset
-    r = gw._serve_app(urlsplit("/apps/demo/app.js"))
+    r = _serve(gw, "/apps/demo/app.js")
     assert r.status_code == 200 and b"console.log" in r.body
     # SPA fallback: extensionless route -> entry
-    r = gw._serve_app(urlsplit("/apps/demo/settings/view"))
+    r = _serve(gw, "/apps/demo/settings/view")
     assert r.status_code == 200 and b"demo app" in r.body
     # missing real asset -> 404 (not a silent entry)
-    assert gw._serve_app(urlsplit("/apps/demo/missing.js")).status_code == 404
+    assert _serve(gw, "/apps/demo/missing.js").status_code == 404
     # no trailing slash -> redirect so relative asset urls resolve
-    r = gw._serve_app(urlsplit("/apps/demo?token=T"))
+    r = _serve(gw, "/apps/demo?token=T")
     assert r.status_code == 307 and r.headers["Location"] == "/apps/demo/?token=T"
 
 
@@ -199,12 +209,68 @@ def test_serve_app_guards(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     # path traversal out of ui/ must never serve (agent.toml is a sibling of ui/)
-    assert gw._serve_app(urlsplit("/apps/demo/../agent.toml")).status_code == 404
-    assert gw._serve_app(urlsplit("/apps/demo/%2e%2e/agent.toml")).status_code == 404
+    assert _serve(gw, "/apps/demo/../agent.toml").status_code == 404
+    assert _serve(gw, "/apps/demo/%2e%2e/agent.toml").status_code == 404
     # unknown agent / agent without [app]
-    assert gw._serve_app(urlsplit("/apps/nope/")).status_code == 404
+    assert _serve(gw, "/apps/nope/").status_code == 404
     plain = SimpleNamespace(id="plain", name="P", app=None, dir=spec.dir)
-    assert _gw_with_agent(tmp_path, plain)._serve_app(urlsplit("/apps/plain/")).status_code == 404
+    assert _serve(_gw_with_agent(tmp_path, plain), "/apps/plain/").status_code == 404
+
+
+# ---- /apps sees the caller's ACCOUNT layers (the third egress door) --------------------------
+def _account_layer_app(tmp_path, acct="acct_a", agent_id="mkt"):
+    """A signed-in-created app agent: definition in the ACCOUNT layer, not the shared dir.
+    The path comes from user_state — the layout's owner — never spelled out here."""
+    from agent_runtime.infrastructure import user_state
+
+    d = user_state.account_agents_dir(tmp_path / "state", acct) / agent_id
+    (d / "ui").mkdir(parents=True)
+    (d / "ui" / "index.html").write_text("<html>mkt app</html>", encoding="utf-8")
+    (d / "ui" / "app.js").write_text("console.log('mkt')", encoding="utf-8")
+    (d / "agent.toml").write_text('name = "Mkt"\n[app]\ntitle = "Mkt"\n', encoding="utf-8")
+    return d
+
+
+def _gw_with_layered_registry(tmp_path):
+    from agent_runtime.infrastructure.agents import FileAgentRegistry
+
+    (tmp_path / "agents").mkdir(exist_ok=True)
+    cfg = SimpleNamespace(
+        state_dir=str(tmp_path / "state"),
+        agents_dir=str(tmp_path / "agents"),
+        agent_name="jarvis",
+        workspace=str(tmp_path),
+    )
+    gw = _gw(tmp_path)
+    gw.registry = FileAgentRegistry(cfg)
+    return gw
+
+
+def test_serve_app_finds_an_account_layer_agent_on_desktop(tmp_path):
+    """THE marketing-agent 404: a signed-in-created agent lives in the ACCOUNT layer, and an
+    HTTP request pins no account contextvar — so the plain registry view missed it. On a
+    NON-ENFORCING (desktop) daemon every layer belongs to this machine, so /apps serves it,
+    entry AND assets, tokenless — the same statement shared apps always served under."""
+    _account_layer_app(tmp_path)
+    gw = _gw_with_layered_registry(tmp_path)
+    r = _serve(gw, "/apps/mkt/")
+    assert r.status_code == 200 and b"mkt app" in r.body
+    # assets carry no token or session on ANY surface — they must resolve identically
+    r = _serve(gw, "/apps/mkt/app.js")
+    assert r.status_code == 200 and b"console.log" in r.body
+
+
+def test_hosted_anonymous_cannot_probe_an_account_layer_app(tmp_path, monkeypatch):
+    """Sign-in-enforcing deployment: an anonymous /apps request sees the shared layer ONLY.
+    Another tenant's private app stays a 404 even though the files exist — fail closed, the
+    same default as the fan-out and /file."""
+    from agent_runtime.infrastructure import accounts as accounts_mod
+
+    _account_layer_app(tmp_path)
+    gw = _gw_with_layered_registry(tmp_path)
+    monkeypatch.setattr(accounts_mod, "enabled", lambda: True)
+    assert _serve(gw, "/apps/mkt/").status_code == 404
+    assert _serve(gw, "/apps/mkt/app.js").status_code == 404
 
 
 # ---- discovery: the app field ----------------------------------------------------------------
@@ -216,6 +282,9 @@ def test_agents_list_carries_app_surface(tmp_path):
         "title": "Demo Console",
         "url": "/apps/demo/",
         "mode": "browser",
+        "standalone": False,
+        "surface": "demo",
+        "requiresLocal": False,
     }
     # a declared [app] whose entry file is MISSING must not advertise
     broken = SimpleNamespace(
@@ -228,17 +297,53 @@ def test_agents_list_carries_app_surface(tmp_path):
 # ---- scoped connections: method tier + forced agent ------------------------------------------
 def test_scoped_dispatch_denies_host_tier_and_forces_agent(tmp_path):
     gw = _gw(tmp_path)
+    # `config.get` used to be the example here. It is now app-callable ON PURPOSE — an agent
+    # app renders its own settings page (BYOK), and the SECRET fields are what get withheld
+    # instead (see tests/unit/test_app_scope_boundary.py). Administration of the backend is
+    # still host-only, so assert that with something that genuinely is.
     denied = asyncio.run(
-        gw._dispatch(Request(id="1", method="config.get", params={}), None, "demo")
+        gw._dispatch(Request(id="1", method="marketplace.install", params={}), None, "demo")
     )
     assert denied.ok is False and "not available to app connections" in denied.payload["error"]
-    assert "config.get" not in APP_SCOPED_METHODS
+    assert "marketplace.install" not in APP_SCOPED_METHODS
     # a stable-tier method passes, with the scoped agent FORCED onto the params
     req = Request(id="2", method="sessions.list", params={"agentId": "other-agent"})
     ok = asyncio.run(gw._dispatch(req, None, "demo"))
     assert ok.ok is True
     assert req.params["agentId"] == "demo"  # the app cannot act as another agent
     assert ok.payload.get("agentId") == "demo"
+
+
+def test_agent_builder_alone_may_read_across_agents(tmp_path):
+    """The ONE exception to the forcing above — and only for reads.
+
+    'demo' above proves the rule; agent-builder proves the exception, so a future edit to
+    CROSS_AGENT_READS cannot quietly widen the boundary without one of these failing."""
+    gw = _gw(tmp_path)
+    # READ: the requested agent survives
+    req = Request(id="1", method="sessions.list", params={"agentId": "other-agent"})
+    asyncio.run(gw._dispatch(req, None, "agent-builder"))
+    assert req.params["agentId"] == "other-agent"
+
+    # WRITE: forced back to self, even for agent-builder
+    req = Request(id="2", method="chat.send", params={"agentId": "other-agent", "text": "hi"})
+    asyncio.run(gw._dispatch(req, None, "agent-builder"))
+    assert req.params["agentId"] == "agent-builder"
+
+
+def test_scoped_connections_cannot_list_across_agents(tmp_path):
+    """The cross-agent list modes would sidestep the forced agentId: sessions.list honors
+    `all` (Recents) and `projectId` (project view) BEFORE the per-agent partition, so a
+    marketplace app page could read the account's chats with every OTHER agent — found live,
+    figure-create's panel rendering the user's JARVIS history. A scoped connection lists its
+    own agent's world, full stop; the params are STRIPPED, not errored, so app UIs built on
+    the shared panel components degrade to their own agent instead of breaking."""
+    gw = _gw(tmp_path)
+    req = Request(id="1", method="sessions.list", params={"all": True, "projectId": "p1"})
+    ok = asyncio.run(gw._dispatch(req, None, "demo"))
+    assert ok.ok is True
+    assert req.params["agentId"] == "demo"
+    assert "all" not in req.params and "projectId" not in req.params
 
 
 # ---- scoped event filtering ------------------------------------------------------------------
@@ -252,11 +357,27 @@ def test_scoped_event_policy():
     assert not _scoped_event_allowed("projects.changed", {}, "demo")
 
 
+def test_a_window_hears_only_its_own_rebuild():
+    """`app.rebuilt` tells an agent's window its ui/ was recompiled, so it can reload itself.
+
+    SCOPED, and the scoping is the point: a window that reloaded because a DIFFERENT agent was
+    rebuilt would refresh at random while somebody was using it. This is also the ONLY place the
+    rule lives -- the window deliberately does not re-check the id."""
+    assert _scoped_event_allowed("app.rebuilt", {"agentId": "demo"}, "demo")
+    assert not _scoped_event_allowed("app.rebuilt", {"agentId": "other"}, "demo")
+    # No agentId at all is not "for everyone" -- this whitelist fails closed.
+    assert not _scoped_event_allowed("app.rebuilt", {}, "demo")
+
+
 def test_send_all_filters_scoped_connections(tmp_path):
     gw = _gw(tmp_path)
     host_ws, app_ws = _CapturingWs(), _CapturingWs()
     gw.clients.update({host_ws, app_ws})
     gw.client_scopes[app_ws] = "demo"
+    # every real connection registers its identity set at _handle_conn; a desktop socket
+    # holds "local" (tenant fan-out is fail-closed, so the test wires what the gate wires)
+    gw.client_identities[host_ws] = frozenset({"local"})
+    gw.client_identities[app_ws] = frozenset({"local"})
     asyncio.run(gw._broadcast("s1", "r1", AgentEvent("turn_start", {}), "other"))
     asyncio.run(gw._broadcast("s2", "r2", AgentEvent("turn_start", {}), "demo"))
     assert len(host_ws.frames) == 2  # host sees everything
@@ -292,12 +413,13 @@ class _FakeTool:
     artifact_action = None  # NOT a canvas-action tool — host invoke must refuse it
 
     async def execute(self, _id, params, _abort):
-        from agentd.application.run_context import current_run_context
+        from agent_runtime.application.run_context import current_run_context
 
         ctx = current_run_context()
         return SimpleNamespace(
             content=[SimpleNamespace(text=f"ran-as:{ctx.agent_id if ctx else 'none'}")],
             is_error=False,
+            details=None,
             artifacts=[],
         )
 
@@ -306,7 +428,10 @@ def test_tools_invoke_scoped_runs_agent_allowed_tool(tmp_path):
     spec = _app_agent_dir(tmp_path)
     gw = _gw_with_agent(tmp_path, spec)
     gw.service = SimpleNamespace(
-        find_tool=lambda n, a=None: _FakeTool() if n == "echo_tool" else None
+        find_tool=lambda n, a=None: _FakeTool() if n == "echo_tool" else None,
+        # the agent-declared write fence — none declared in these specs, so three empties,
+        # exactly what AgentService.resolve_write_fence returns for a fence-less agent
+        resolve_write_fence=lambda spec: ((), (), ()),
     )
     # scoped: allowed (spec.tools_allow=None => all) and runs AS the agent (run context set)
     out = asyncio.run(gw._tools_invoke({"name": "echo_tool"}, "demo"))
@@ -328,9 +453,9 @@ def test_tools_invoke_scoped_runs_agent_allowed_tool(tmp_path):
 
 # ---- agentd app open: entry point mints the URL and AUTO-STARTS the daemon --------------------
 def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
-    from agentd import lifecycle
-    from agentd.cli import rpc
-    from agentd.cli.commands import app as app_cmd
+    from agent_runtime import lifecycle
+    from agent_runtime.cli import rpc
+    from agent_runtime.cli.commands import app as app_cmd
 
     info = lifecycle.GatewayInfo(host="127.0.0.1", port=8787, pid=1, token="TOK")
     ensured = {"called": False}
@@ -349,8 +474,8 @@ def test_app_open_mints_url_and_ensures_daemon(monkeypatch):
     )
     url, app = app_cmd._mint_url("demo")
     assert ensured["called"] is True  # opening an app STARTS the daemon when needed
-    # exact prefix + a per-launch fresh= cache-buster (value varies, so match it loosely)
-    assert url.startswith("http://127.0.0.1:8787/apps/demo/?token=TOK&scope=agent:demo&fresh=")
+    assert url.startswith("http://127.0.0.1:8787/apps/demo/?token=TOK&scope=agent:demo")
+    assert "&fresh=" in url  # per-launch freshness marker (see app.py _mint_url)
     assert app == {"url": "/apps/demo/", "title": "Demo"}  # descriptor rides along (mode etc.)
     # unknown agent -> a helpful error, not a broken URL
     try:
@@ -368,7 +493,7 @@ def test_app_open_window_prefers_app_window_and_falls_back(monkeypatch):
     import subprocess
     import webbrowser
 
-    from agentd.cli.commands import app as app_cmd
+    from agent_runtime.cli.commands import app as app_cmd
 
     URL = "http://127.0.0.1:8787/apps/demo/?x=1"
     real_find = app_cmd._find_chromium  # keep the real one for the env-override check
@@ -416,7 +541,7 @@ def test_app_open_window_prefers_app_window_and_falls_back(monkeypatch):
 def test_agents_create_scaffolds_app_agent(tmp_path):
     """registry.create(app="window"): the new agent ships [app] mode="window" + a starter
     ui/ page — an OPENABLE app agent the moment it exists, advertised with its mode."""
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     cfg = SimpleNamespace(
         state_dir=str(tmp_path / "state"),
@@ -432,6 +557,8 @@ def test_agents_create_scaffolds_app_agent(tmp_path):
         "mode": "window",
         "public": False,  # scaffolded agents are always private until the author opts in
         "public_tools": (),
+        "standalone": False,
+        "surface": "hr-desk",
     }
     entry = Path(cfg.agents_dir) / "hr-desk" / "ui" / "index.html"
     assert entry.is_file() and "HR Desk" in entry.read_text(encoding="utf-8")
@@ -440,6 +567,9 @@ def test_agents_create_scaffolds_app_agent(tmp_path):
         "title": "HR Desk",
         "url": "/apps/hr-desk/",
         "mode": "window",
+        "standalone": False,
+        "surface": "hr-desk",
+        "requiresLocal": False,
     }
     # a plain create stays a chat agent (no [app], no ui/)
     assert reg.create("plain", name="Plain").app is None
@@ -451,8 +581,8 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
     .agentpkg, unpack it into a fresh agents_dir (= install), and the app agent works from there —
     [app] parsed (mode included), ui served. Built products (clients/) and user data never ride
     inside the package. 'Anyone can ship a child client' as one file."""
-    from agentd.domain.bundle import BundleManifest
-    from agentd.infrastructure.marketplace.bundle_io import (
+    from agent_runtime.domain.bundle import BundleManifest
+    from agent_runtime.infrastructure.marketplace.bundle_io import (
         pack_bundle,
         read_manifest,
         unpack_bundle,
@@ -483,7 +613,7 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
     assert not (installed / "clients").exists()  # built products never ship in the source artifact
 
     # the installed copy is a working app agent: registry parses [app], the gateway serves it
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     cfg = SimpleNamespace(
         state_dir=str(tmp_path / "state"),
@@ -498,14 +628,19 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
         "mode": "window",
         "public": False,
         "public_tools": (),
+        "standalone": False,
+        "surface": "kiosk",
     }
     gw = _gw_with_agent(tmp_path, spec)
     assert gw._agent_app("kiosk", spec) == {
         "title": "Kiosk Console",
         "url": "/apps/kiosk/",
         "mode": "window",
+        "standalone": False,
+        "surface": "kiosk",
+        "requiresLocal": False,
     }
-    r = gw._serve_app(urlsplit("/apps/kiosk/"))
+    r = _serve(gw, "/apps/kiosk/")
     assert r.status_code == 200 and b"Kiosk Console" in r.body
 
 
@@ -514,11 +649,11 @@ def test_app_agent_bundle_roundtrip_carries_ui(tmp_path):
 # connections scoped to it, limited to PUBLIC_APP_METHODS and the author-declared
 # `public_tools` subset. config.app_hosts maps a vanity hostname to an agent so each curated
 # agent lives at its own URL. Both are fully dormant by default (no opt-in, empty map).
-from agentd.presentation.gateway import PUBLIC_APP_METHODS  # noqa: E402
+from agent_runtime.presentation.gateway import PUBLIC_APP_METHODS  # noqa: E402
 
 
 def test_agent_toml_app_public_parsed(tmp_path):
-    from agentd.infrastructure.agents.file_registry import FileAgentRegistry
+    from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
 
     d = tmp_path / "agents" / "pubapp"
     (d / "ui").mkdir(parents=True)
@@ -616,7 +751,10 @@ def test_tools_invoke_public_filter(tmp_path):
         name = "send_email"
 
     tools = {"echo_tool": _FakeTool(), "send_email": _MailTool()}
-    gw.service = SimpleNamespace(find_tool=lambda n, a=None: tools.get(n))
+    gw.service = SimpleNamespace(
+        find_tool=lambda n, a=None: tools.get(n),
+        resolve_write_fence=lambda spec: ((), (), ()),
+    )
 
     # public: the declared tool runs AS the agent…
     out = asyncio.run(gw._tools_invoke({"name": "echo_tool"}, "demo", True))
@@ -638,16 +776,18 @@ def test_host_alias_serving_scope_and_dormancy(tmp_path):
     gw.config.app_hosts = {"demo.example.com": "demo"}
 
     # aliased host serves the agent's ui at "/" (and assets by path)
-    r = gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    )
     assert r is not None and r.status_code == 200 and b"demo app" in r.body
-    r = gw._http_request(
-        None, SimpleNamespace(path="/app.js", headers={"Host": "demo.example.com"})
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/app.js", headers={"Host": "demo.example.com"}))
     )
     assert r is not None and r.status_code == 200 and b"console.log" in r.body
 
     # a WebSocket upgrade on the aliased host must NOT be short-circuited
     ws_req = SimpleNamespace(path="/", headers={"Host": "demo.example.com", "Upgrade": "websocket"})
-    assert gw._http_request(None, ws_req) is None
+    assert asyncio.run(gw._http_request(None, ws_req)) is None
 
     # …and the connection it becomes is scoped to the aliased agent server-side
     ws = SimpleNamespace(request=ws_req)
@@ -660,12 +800,60 @@ def test_host_alias_serving_scope_and_dormancy(tmp_path):
 
     # unaliased host: nothing changes (falls through to the normal handshake / no scope)
     plain = SimpleNamespace(path="/", headers={"Host": "127.0.0.1:8787"})
-    assert gw._http_request(None, plain) is None
+    assert asyncio.run(gw._http_request(None, plain)) is None
     assert gw._connection_scope(SimpleNamespace(request=plain)) is None
 
     # dormant by default: empty map == today's behavior everywhere
     gw.config.app_hosts = {}
     assert (
-        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+        asyncio.run(
+            gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+        )
         is None
     )
+
+
+def test_host_suffix_derives_the_agent_from_the_label(tmp_path):
+    """The WILDCARD half of app hosting (config.app_host_suffix): <label>.<suffix> IS the agent
+    id, so publishing mints a URL with no per-agent configuration. The exact map still wins
+    (platform.<suffix> can point at an agent not named "platform"), reserved labels never
+    derive, and shapes that are not one clean label never derive."""
+    spec = _app_agent_dir(tmp_path)
+    gw = _gw_with_agent(tmp_path, spec)
+    gw.config.app_hosts = {}
+    gw.config.app_host_suffix = "example.com"
+
+    def alias(host):
+        return gw._host_alias({"Host": host})
+
+    # the label is the agent id — and serving works end to end through the same path
+    assert alias("demo.example.com") == "demo"
+    r = asyncio.run(
+        gw._http_request(None, SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    )
+    assert r is not None and r.status_code == 200 and b"demo app" in r.body
+
+    # …and the connection a page opens from that host is scoped to the derived agent
+    ws = SimpleNamespace(request=SimpleNamespace(path="/", headers={"Host": "demo.example.com"}))
+    assert gw._connection_scope(ws) == "demo"
+
+    # the apex is the web client's, never an agent's
+    assert alias("example.com") is None
+    # one label only — the org level is deliberately not an agent
+    assert alias("a.b.example.com") is None
+    # reserved labels never derive, whatever is published under those ids
+    for label in ("admin", "platform", "marketplace", "www", "api"):
+        assert alias(f"{label}.example.com") is None, label
+    # a different domain entirely never derives
+    assert alias("demo.elsewhere.com") is None
+    # ids must look like ids
+    assert alias("UPPER.example.com") is None or alias("upper.example.com") == "upper"
+
+    # the exact map OUTRANKS derivation: platform.<suffix> -> an agent NOT named "platform"
+    gw.config.app_hosts = {"platform.example.com": "demo"}
+    assert alias("platform.example.com") == "demo"
+
+    # dormant with no suffix, exactly as before
+    gw.config.app_host_suffix = ""
+    gw.config.app_hosts = {}
+    assert alias("demo.example.com") is None

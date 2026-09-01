@@ -17,13 +17,14 @@ import os
 import sys
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.domain.messages import ImageContent, TextContent
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context, current_workspace
+from agent_runtime.application.write_scope import WriteRefused, check_read, check_write
+from agent_runtime.domain.messages import ImageContent, TextContent
 
 # document text extraction (docx/pdf/xlsx/pptx) — one source of truth, shared with the
 # Resource Manager describer so both read & describe documents the same way.
-from agentd.infrastructure.documents import EXTRACTORS as _EXTRACTORS
+from agent_runtime.infrastructure.documents import EXTRACTORS as _EXTRACTORS
 
 log = logging.getLogger("agentd")
 
@@ -96,7 +97,20 @@ def _resolve(config, path: str) -> Path:
     if not p.is_absolute():
         # the calling agent's workspace (per-run) wins; else the global config workspace
         p = Path(current_workspace(str(config.workspace))) / p
-    return p
+    # THE TENANT FENCE — every path this plugin touches, read or write, passes through here.
+    # One line because the rule lives in the runtime (application/write_scope): a desktop run
+    # carries no read scope and this is a pass-through; a hosted run carries the caller's
+    # roots and a path into another tenant's subtree raises before any IO happens.
+    return check_read(p)
+
+
+def _resolve_write(config, path: str) -> Path:
+    """``_resolve`` plus the calling agent's write scope.
+
+    Only the MUTATING tools use this. The rule itself lives in the runtime
+    (``application/write_scope``) because `write` is not the only writer — the authoring tools
+    open files directly, and one of them writes into the shared plugins dir."""
+    return check_write(_resolve(config, path))
 
 
 class ReadTool(Tool):
@@ -128,6 +142,8 @@ class ReadTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # READS ARE NEVER SCOPED — see _resolve_write. An agent must be able to read its own
+        # skill and the SDK it vendors into a generated UI, and reading damages nothing.
         path = _resolve(self.config, params["path"])
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
@@ -226,7 +242,10 @@ class WriteTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        path = _resolve(self.config, params["path"])
+        try:
+            path = _resolve_write(self.config, params["path"])
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
         existed = path.exists()
         path.parent.mkdir(parents=True, exist_ok=True)
         content = params["content"]
@@ -334,7 +353,10 @@ class EditTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        path = _resolve(self.config, params["path"])
+        try:
+            path = _resolve_write(self.config, params["path"])
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
         if not path.is_file():
             return ToolResult.text(f"File not found: {path}", is_error=True)
         original = path.read_text(encoding="utf-8")
@@ -455,6 +477,11 @@ class FindTool(Tool):
         pattern = params["pattern"]
         max_results = params.get("max_results", 100)
         scope = "machine"
+        # A run carrying a tenant scope searches ITS OWN universe, never the machine's: its
+        # roots ARE everything that exists for it, so "search everywhere" means "search the
+        # roots" — same tool, the deployment only changed the values.
+        ctx = current_run_context()
+        fence = tuple(getattr(ctx, "read_roots", ()) or ()) if ctx is not None else ()
 
         if params.get("path"):
             root = _resolve(self.config, params["path"])
@@ -462,6 +489,15 @@ class FindTool(Tool):
                 return ToolResult.text(f"Search root not found: {root}", is_error=True)
             matches = await asyncio.to_thread(_find_files, [root], pattern, max_results)
             scope = str(root)
+        elif fence:
+            # Stage 1: the run's workspace. Stage 2: every root the run may see.
+            home = Path(current_workspace(str(self.config.workspace)))
+            matches = await asyncio.to_thread(_find_files, [home], pattern, max_results)
+            scope = str(home)
+            if not matches:
+                roots = [Path(r) for r in fence if Path(r).is_dir()]
+                matches = await asyncio.to_thread(_find_files, roots, pattern, max_results)
+                scope = "your visible files"
         else:
             # Stage 1: the user's folder (fast, covers Desktop/Documents/Downloads/OneDrive).
             home = Path(self.config.workspace)

@@ -1,7 +1,7 @@
 {
   "name": "@agentd/client",
   "version": "0.1.0",
-  "description": "Official client SDK for the agentd gateway protocol — works in the browser (agent apps), Node, and Electron. Transport-agnostic: connect to a local daemon or a hosted one with the same code.",
+  "description": "Official client SDK for the agentd gateway protocol \u2014 works in the browser (agent apps), Node, and Electron. Transport-agnostic: connect to a local daemon or a hosted one with the same code.",
   "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,10 +17,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/vendor.mjs",
+    "vendor": "node scripts/vendor.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@agentd/auth": "file:../auth",
+    "@agentd/billing": "file:../billing",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"
   }

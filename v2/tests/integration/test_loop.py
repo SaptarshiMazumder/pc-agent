@@ -6,15 +6,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.events import AgentEvent
-from agentd.domain.messages import (
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.domain.messages import (
     AssistantMessage,
     TextContent,
     ToolCallContent,
     UserMessage,
 )
-from agentd.infrastructure.engine.native import run_agent_loop
-from agentd.infrastructure.tools import Tool, ToolResult
+from agent_runtime.infrastructure.engine.native import run_agent_loop
+from agent_runtime.infrastructure.tools import Tool, ToolResult
 
 
 class EchoTool(Tool):
@@ -227,7 +227,7 @@ async def test_unknown_tool():
 
 @pytest.mark.asyncio
 async def test_planning_only_triggers_continuation():
-    from agentd.infrastructure.engine.incomplete_turn import PLANNING_ONLY_RETRY_INSTRUCTION
+    from agent_runtime.infrastructure.engine.incomplete_turn import PLANNING_ONLY_RETRY_INSTRUCTION
 
     script = [
         text_turn("I'll search for the files and read them to find the answer."),
@@ -271,7 +271,7 @@ async def test_planning_only_retry_capped_at_one():
 
 @pytest.mark.asyncio
 async def test_empty_response_triggers_continuation():
-    from agentd.infrastructure.engine.incomplete_turn import EMPTY_RESPONSE_RETRY_INSTRUCTION
+    from agent_runtime.infrastructure.engine.incomplete_turn import EMPTY_RESPONSE_RETRY_INSTRUCTION
 
     script = [
         [{"type": "done", "message": AssistantMessage(content=[], stop_reason="stop")}],
@@ -357,7 +357,13 @@ async def test_stream_error_ends_run():
     ]
     events, new, msgs = await collect_run(script, [])
     assert events[-1].payload["stopReason"] == "error"
-    assert events[-1].payload.get("error") == "provider down"  # exact reason surfaced
+    # The reason is SAID ONCE now: streamed as the run's visible fallback message (persisted to
+    # the transcript), not duplicated into an `error` banner on agent_end (native.py).
+    assert events[-1].payload.get("error") is None
+    streamed = "".join(
+        e.payload.get("delta", "") for e in events if e.type == "message_update"
+    )
+    assert "provider down" in streamed  # exact reason surfaced, in the message that survives
 
 
 class ProgressTool(Tool):

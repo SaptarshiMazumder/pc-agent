@@ -73,7 +73,7 @@ page check. It is the operating loop that keeps multi-step browsing reliable.
 ## Existing user browser
 
 By default the tool uses its own persistent profile (logged in once via
-`python -m agentd.main.browser_login`). To drive the user's **already-running
+`python -m agent_runtime.main.browser_login`). To drive the user's **already-running
 Chrome** with their live cookies, start Chrome with `--remote-debugging-port=9222`
 and set `AGENTD_BROWSER_CDP_URL=http://localhost:9222` (chosen at startup;
 `action="profiles"` reports the active mode).

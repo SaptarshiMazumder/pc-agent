@@ -1,0 +1,20 @@
+id = "microscopy-histology"
+name = "Microscopy / Histology"
+description = "Stylised microscopy / histology view — stained tissue sections, cell populations, an idealised micrograph look."
+when_to_use = "Tissue sections, cell populations, histology stains, blood smears, idealised micrographs — a 'looking down the microscope' field of view."
+tags = ["microscopy", "histology", "tissue", "cells", "micrograph", "stain"]
+aspect = "1:1"
+resolution = "2K"
+provider = "gemini"
+model = "gemini/gemini-3-pro-image"
+palette = ["#B4478F", "#6A4C93", "#E7A6C4", "#8A5DA6", "#F0DDE9", "#3D2C4A"]
+palette_locked = false
+negative = "no real photographic microscope artefacts or blur, no baked-in scale bars or text, no messy noise"
+prompt = """
+An idealised microscopy / histology illustration of {subject}, as if viewed through a light
+microscope. Cleanly rendered cells and tissue architecture with characteristic stain tones (e.g.
+H&E-like pinks and purples, or the relevant stain), soft cell-to-cell variation, believable but tidy
+organisation filling a circular or full-frame field of view. Crisp, readable, textbook-quality — an
+idealised micrograph, not a noisy real photo. Composed to fill the frame evenly.
+"""
+exemplars = []

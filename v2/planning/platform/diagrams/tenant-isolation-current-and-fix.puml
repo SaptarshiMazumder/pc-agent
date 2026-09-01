@@ -1,0 +1,204 @@
+@startuml tenant-isolation-current-and-fix
+' ============================================================================
+'  agentd TENANT ISOLATION - the two live leaks (2026-08) and the ONE-RULE fix.
+'  STATUS: FIX BUILT (uncommitted) - pinned by tests/unit/test_tenant_isolation.py.
+'  Activity-flowchart view, same conventions as web-agent-request-flow.puml and
+'  agent-publish-and-ownership-flow.puml.
+'
+'  THE TWO LEAKS, one sentence each:
+'    #1  _send_all() fans every chat.event to every socket, filtered by AGENT
+'        only - user X watches user Y's live run on the same web agent.
+'    #2  GET /file serves any absolute path under state_dir - which contains
+'        EVERY account's subtree - with no account check at all.
+'
+'  WHY THE FIX IS NOT "if hosted": the RPC read side never branched and never
+'  leaked. It derives every path from ONE fact resolved per connection (the
+'  account contextvar), and desktop is simply the case where that fact is the
+'  local owner. The leaks are exactly the two egress paths that DON'T consume
+'  that fact yet. So the fix is to finish the model, not to add branches:
+'
+'    every CONNECTION authenticates to a set of IDENTITIES   (ownership.callers)
+'    every RUN / FILE has an OWNER                            (stamp_owner)
+'    egress = one membership test: owner IN identities        (owned_by_caller)
+'
+'  Deployment shape changes the VALUES, never the CODE PATH. Desktop local:
+'  owner and identities are both "local" -> the test is always true -> today's
+'  behaviour byte-for-byte. Hosted: strangers only ever match themselves.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng tenant-isolation-current-and-fix.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Tenant isolation - current leaks + the one-rule fix\nONE membership test (owner IN caller identities) at the daemon's two egress choke points\nno `if hosted` anywhere - deployment shape changes the identity VALUES, never the code path
+
+start
+
+partition "0 . THE MODEL - already half-built   (DAEMON, any deployment)" #E8F0FE {
+  :**what already works**: every RPC read resolves paths through the
+  account contextvar pinned per connection (_handle_conn) - sessions,
+  workspace, memory, agent visibility all land in `accounts/<acct>/...`
+  and desktop (no account) is the degenerate one-tenant case;
+  :**what the leaks have in common**: the two paths that BYPASS the
+  contextvar seam - the WebSocket fan-out and the HTTP file server -
+  because neither ever learned who a frame or a file BELONGS to;
+}
+
+switch (What is leaving the daemon?)
+
+case ( a live chat.event frame )
+
+  partition "1a . BEFORE THE FIX - _broadcast / _send_all   (LEAK #1)" #FDECEA {
+    :RunHandle already KNOWS its account_id
+    (stamped at _chat_send) - but the outgoing
+    frame is never tagged with it;
+    :the connection's account exists only as a
+    contextvar DURING _handle_conn - it is not
+    stored per socket, so the fan-out loop
+    could not filter by account even if it tried;
+    if (socket is agent-scoped?) then (yes)
+      :_scoped_event_allowed: **agent id match ONLY** -
+      X and Y both scoped to `agent:bedtime-kids`
+      pass each other's filter;
+    else (no - host connection)
+      :**NO FILTER AT ALL** - an authenticated
+      unscoped client receives every account's
+      events on the whole daemon;
+    endif
+    :=> user X watches user Y's run LIVE:
+    messages, text deltas, tool results,
+    and the absolute PATHS of Y's artifacts;
+  }
+
+  partition "1b . THE FIX (BUILT) - identities + one membership test" #E6F4EA {
+    :**connection side**: at _handle_conn, store
+    `client_identities[ws] = ownership.callers(account, hosted)`
+    right where the contextvar is pinned - identity becomes
+    CONNECTION state, like client_scopes already is
+    (anonymous public sockets hold the EMPTY set);
+    :**frame side**: nothing stamped, NO protocol change -
+    _send_all derives the frame's owner from the EMISSION
+    context (`accounts.account_id()`, else stamp_owner:
+    "local" on desktop, "platform" on hosted). Every emitter
+    already runs in its actor's context, so every current
+    AND future event is scoped automatically;
+    :**fan-out**: ONE domain rule - **ownership.may_observe**:
+    a deployment-owner identity observes its deployment,
+    everyone else strict owner-membership, the unknown
+    socket observes nothing (fail closed) - checked for
+    EVERY socket (scoped and unscoped alike), THEN the
+    existing agent-scope filter applies unchanged;
+  }
+
+case ( file bytes via GET /file )
+
+  partition "2a . BEFORE THE FIX - _serve_file   (LEAK #2)" #FDECEA {
+    :auth = compare against the FIXED machine bearer only -
+    `sess_` tokens are not understood, so on a hosted
+    daemon this door is either wide open (no machine
+    token configured) or checked against a credential
+    web users do not hold;
+    :path = an ABSOLUTE path from the query string,
+    allowed if under the GLOBAL root list - and
+    state_dir is on that list, which contains
+    **every** `accounts/<acct>/...` subtree;
+    :=> anyone who can reach the port fetches
+    Y's workspace files and transcript .jsonl
+    by URL - and LEAK #1 hands X those paths;
+  }
+
+  partition "2b . THE FIX (BUILT) - same auth rule, caller-shaped roots" #E6F4EA {
+    :**authenticate like the socket does**: `_http_identities`
+    mirrors the _handle_conn gate exactly - the session
+    IDENTIFIES (accounts.resolve, the `?token=` fallback
+    every client already sends), the machine token
+    authorises only where sign-in is not enforced -
+    one rule, two transports, never two doors;
+    :**roots follow the caller**: `_file_roots_for(identities)` -
+    a deployment owner keeps the legacy whole-world roots,
+    an account gets its OWN `accounts/<acct>/...` subtree
+    (user_state.account_root - the same resolver every
+    write already uses) + the shared read-only
+    agent-definition dirs;
+    :a cross-account path is then OUTSIDE the caller's
+    roots - unreachable by construction, not refused
+    by a check someone must remember;
+  }
+
+endswitch
+
+partition "3 . WHAT EACH DEPLOYMENT FEELS   (same code, different values)" #E0F2F1 {
+  :**desktop LOCAL (signed out)** - identities = {local},
+  every run and file owned "local" - the membership test
+  is ALWAYS TRUE, roots = the whole home dir:
+  today's behaviour byte-for-byte, nothing to configure;
+  :**desktop CLOUD MODE (signed in, daemon on the user's PC)** -
+  identities = {local, account} (sign-in ADDS, never subtracts) -
+  runs owned by either identity still match: single-human
+  machine, still sees everything of its own, zero change;
+  :**hosted WEB** - identities = {account} - X matches only
+  X's runs and X's roots; the operator (machine token) is
+  {platform} and sees the deployment's own, a deliberate
+  policy VALUE in callers(), not a code branch;
+}
+
+partition "4 . WHY EVERY AGENT OBEYS AUTOMATICALLY   (choke points)" #E8F0FE {
+  :agents, tools and plugins never see any of this -
+  enforcement sits at the daemon's TWO egress doors
+  (WS fan-out, HTTP file serving), which every event
+  and every byte pass through no matter which agent
+  produced them or which surface serves them;
+  :same doctrine as agent visibility (_current) and
+  publish (withheld_reason): absent one choke point,
+  "places that must also check" becomes a list
+  somebody forgets to extend;
+}
+
+stop
+
+note right
+  ==== REUSED, NOT INVENTED ====
+  callers() / stamp_owner() / owned_by_caller()
+  already exist (domain/ownership.py) and already
+  encode desktop-keeps-local, hosted-is-strict.
+  The fix teaches the last two egress paths to
+  consume the SAME domain rules that agents.list,
+  publish and the state resolvers consume today.
+
+  ==== KNOWN RESIDUE, same seam later ====
+  * autonomy.sqlite (cron) + auth.sqlite vaults are
+    daemon-global - partition like memory_partition
+    before offering them hosted
+  * no-account runs write the shared layer (by design:
+    that layer IS the deployment owner's)
+end note
+
+legend left
+  | Piece | Today | After the fix |
+  | connection identity | contextvar only, lost at fan-out | client_identities[ws] = ownership.callers(...) |
+  | event frame | agentId + sessionKey | unchanged - owner derived from the emission context |
+  | fan-out filter | _scoped_event_allowed (agent only, scoped sockets only) | ownership.may_observe for ALL sockets, then agent filter |
+  | /file auth | fixed machine bearer | _http_identities - the socket gate's own rule |
+  | /file roots | global list incl. all of state_dir | _file_roots_for(identities) via user_state.account_root |
+  | desktop local | works (single tenant) | identical - membership test degenerates to true |
+  | desktop cloud | works (single tenant) | identical - {local, account} both match |
+  | hosted web | LEAKS #1 + #2 | X sees only X - by values, not branches |
+endlegend
+
+@enduml

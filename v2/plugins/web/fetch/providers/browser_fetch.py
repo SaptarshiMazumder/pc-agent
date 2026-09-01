@@ -9,7 +9,7 @@ Shares cookies/session with the context, which is usually beneficial.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.fetch import FetchResult
+from agent_runtime.application.interfaces.fetch import FetchResult
 from fetch.extract import extract_html, truncate
 
 _NETWORKIDLE_TIMEOUT_MS = 8_000

@@ -1,0 +1,21 @@
+id = "game-kit"
+name = "Game Kit"
+kind = "native"
+entry = "game_kit:register"
+description = "Game Master's own tools: roll_dice (pure), narrate_scene (LLM), lookup_monster (API)."
+
+# What this plugin needs when it runs UNTRUSTED — i.e. on the machine of anyone who installs this
+# agent from a package. NOT [requires]: that is a load GATE ("skip me unless present"); this is a
+# GRANT ("when you box me in, leave this open").
+#
+# The list is PUBLIC and it is a ceiling. Someone deciding whether to install this agent can read
+# exactly which hosts it will contact, and no config on their machine can widen it — an operator
+# may only narrow it further (sandbox_net_allow / sandbox_net_deny).
+#
+# No `secrets` here on purpose: the 5e reference API needs no account, which keeps this agent
+# runnable by anyone with no signup. A plugin that DID need a key would add
+#   secrets = ["ACME_API_KEY"]
+# and write `${ACME_API_KEY}` into a header — the host substitutes it and the plugin never sees
+# the value.
+[sandbox]
+net = ["www.dnd5eapi.co"]

@@ -18,7 +18,7 @@ def register(api, ctx):
         RememberTool,
     )
 
-    from agentd.infrastructure.memory.background import BackgroundEmbedder
+    from agent_runtime.infrastructure.memory.background import BackgroundEmbedder
 
     bank = ctx.memory_bank
     embedder = BackgroundEmbedder(bank)  # remember() writes now, embeds off the turn

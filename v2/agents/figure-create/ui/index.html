@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bio Figure</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- the agentd client's REAL canvas (viewers + fabric editor + workspace tree), vendored
+       from @agentd/canvas — same components the desktop shell renders, not a lookalike -->
+  <link rel="stylesheet" href="vendor/agentd-canvas.css" />
+</head>
+<body>
+  <div class="app-grid">
+    <!-- LEFT PANEL: Canvas and File Browser -->
+    <aside class="left-panel">
+      <div class="canvas-area" id="canvasArea">
+        <!-- agentdCanvas.mountCanvas renders the shell's viewer/editor stack here -->
+        <div class="fc-canvas-wrap" id="canvasMount"></div>
+      </div>
+
+      <div class="file-browser">
+        <div class="file-tabs">
+          <button class="tab-btn active" data-tab="generated">Generated</button>
+          <button class="tab-btn" data-tab="workspace">Workspace</button>
+        </div>
+        <ul class="file-list" id="fileList"></ul>
+        <!-- agentdCanvas.mountWorkspace renders the REAL tree here (hierarchy, upload,
+             new-folder, delete) — files click through onto the canvas above -->
+        <div class="ws-mount" id="workspaceMount" hidden></div>
+      </div>
+    </aside>
+
+    <div class="resizer" id="resizer" title="Drag to resize panel"></div>
+
+    <!-- RIGHT PANEL: Chat and Settings -->
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="brand">
+          <span class="mark" id="brandMark">◑</span>
+          <span class="brand-name" id="brandName">Bio Figure</span>
+        </div>
+        <div class="topbar-actions">
+          <div class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">starting…</span></div>
+          <span id="userEmail" style="font-size: var(--t-2); color: var(--faint); margin-right: var(--s-3);"></span>
+          <button class="link-btn" id="signOut" type="button" hidden title="Sign out" style="font-size: var(--t-2); color: var(--accent); background: none; border: none; cursor: pointer; margin-right: var(--s-3);">Sign out</button>
+          <button class="icon-btn" id="templatesBtn" title="Select Art Template">🎨</button>
+          <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+          <button class="icon-btn" id="historyToggle" title="Chat History">☰</button>
+        </div>
+      </header>
+
+      <!-- CHAT -->
+      <section class="view" id="view-chat">
+        <div class="thread" id="thread">
+          <div class="hero" id="hero">
+            <h1>Describe a figure</h1>
+            <p>Tell Bio Figure what to draw — a mechanism, a pathway, an anatomy plate, a process. Renders publication-grade artwork with editable labels. Click any generated figure to edit it on a canvas.</p>
+            <div class="suggests" id="suggests"></div>
+          </div>
+        </div>
+
+        <div class="composer-wrap">
+          <div class="composer" id="composer">
+            <div class="attachments" id="attachments" hidden></div>
+            <textarea id="input" rows="1" placeholder="Send a message…"></textarea>
+            <div class="composer-foot">
+              <button class="attach-btn" id="attach" title="Attach files">+</button>
+              <span class="hint">Enter to send · Shift+Enter for a new line · paste or drop images</span>
+              <button class="send" id="send" title="Send">↑</button>
+            </div>
+            <input type="file" id="filePicker" multiple hidden />
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="view" id="view-settings" hidden>
+        <div class="settings-scroll">
+          <div class="settings-inner" id="settingsBody">
+            <div class="loading">loading settings…</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TEMPLATES MODAL -->
+      <div class="modal" id="templatesModal" hidden>
+        <div class="modal-content">
+          <h2>Select an Art Template</h2>
+          <div class="template-list" id="templateList"></div>
+          <div class="modal-actions">
+            <button class="prime-btn" id="templatesClose">Close</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT DRAWER: Chat History -->
+    <aside class="chat-rail" id="chatRail">
+      <div class="rail-head">
+        <span class="brand-name">Chat History</span>
+        <button class="icon-btn" id="railClose" title="Close">✕</button>
+      </div>
+      <button class="new-btn" id="newChat"><span class="plus">+</span> New chat</button>
+      <div class="rail-section">
+        <span class="rail-label">Recent</span>
+        <span class="count" id="chatCount"></span>
+      </div>
+      <ul class="chat-list" id="chatList"></ul>
+    </aside>
+  </div>
+
+  <script src="vendor/agentd-client.js"></script>
+  <script src="vendor/agentd-canvas.js"></script>
+  <script src="md.js"></script>
+  <script src="chat.js"></script>
+  <script src="settings.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

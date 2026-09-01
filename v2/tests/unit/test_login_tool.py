@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from login_tool import SimpleLoginTool
 
-from agentd.application.run_context import RunContext, set_run_context
-from agentd.domain.credential import Credential
+from agent_runtime.application.run_context import RunContext, set_run_context
+from agent_runtime.domain.credential import Credential
 
 
 class FakePage:

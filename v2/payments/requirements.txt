@@ -1,0 +1,4 @@
+# The Stripe rail talks HTTP directly (see infrastructure/stripe_api_client.py for why not the
+# vendor SDK). Nothing here is needed to run on the mock rail; the import is deferred in
+# main/payment_gateway_factory.py so an image without it still boots on AGENTD_PAYMENT_PROVIDER=null.
+httpx>=0.27,<1

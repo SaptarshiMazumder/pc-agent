@@ -1,0 +1,136 @@
+# Agent Builder — the agent that builds agents.
+#
+# Ships with every install (staged into the wheel by scripts/hatch_build.py, seeded to
+# ~/.agentd/agents/ on first run). It OWNS the build-agent skill: that folder moved here out
+# of agents/main/skills/, which is the shared library every agent reads — so authoring an
+# agent is now this agent's job alone, not something JARVIS does on the side.
+
+name = "Agent Builder"
+version = "1.0.0"
+description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
+
+# NOTE: `max_turns` is NOT settable here — it is an OVERRIDABLE_KEY resolved from
+# `agentd.config.json` under `agents.agent-builder`, not from agent.toml (domain/agent_config.py).
+# Writing it here would be silently ignored, which is the exact class of mistake validate_agent
+# exists to catch. See that file for the raised turn budget and why building needs one.
+
+# LOCAL ONLY — a HOSTED daemon does not offer this agent at all (not listed, not resolvable, no
+# app served, its private tools never discovered). Desktop is unaffected.
+#
+# Not caution: `create_tool` writes Python and hot-loads it INTO THE RUNNING PROCESS, and `exec`
+# runs a shell. On a desktop that is the owner acting on their own machine, which is the entire
+# product. On one container shared by strangers it is any signed-in visitor acting on everyone
+# else's files — the same code, a different blast radius, because the boundary moved.
+#
+# Lifting this needs a runtime per user, not a config change. An operator who has one can say so
+# with `hosted_agents_allow = ["agent-builder"]`; nothing this agent ships can grant it itself.
+requires_local = true
+tagline = "build · validate · ship agents"
+color = "#5B4FCF"
+# Starter prompts on an empty chat. NEVER name a specific agent: these are clickable, and on a
+# machine that has never had that agent the click asks to work on something that does not
+# exist. Keep them about what the user wants DONE, not about which agent does it.
+suggestions = [
+  "Build me an agent that tracks my gym sets",
+  "Give one of my agents its own app window",
+  "Validate every agent I have",
+]
+
+# Its own window: a workbench over every agent on the machine — validate one, package one.
+# `public = false` is not a default being restated; it is the point. This surface can author
+# and package agents, so it must never admit a tokenless visitor on a hosted daemon.
+[app]
+title = "Agent Builder"
+mode = "window"
+entry = "ui/index.html"
+public = false
+# A SURFACE OF THE PRODUCT, not one of your agents. Clients give this app its own entry
+# in their navigation and keep it out of agent lists and shelves — building agents is a
+# feature of agentd, not an agent you picked. Remove this line and it lists like any other.
+standalone = true
+# ONE DESTINATION, TWO IMPLEMENTATIONS. Agent Builder and Cloud Agent Builder both provide
+# this surface — the desktop one where you own the machine, the fenced one where you own an
+# account on someone else's. Naming the same surface makes clients draw a SINGLE
+# "Agent Builder" entry and open whichever implementation suits the host they run on.
+surface = "agent-builder"
+
+# The SHARED tools this agent may reach.
+#
+# This list once read "no shell, no browser, no web: building an agent is a filesystem job",
+# which optimised for least privilege and removed the two abilities that most separate good
+# agent output from bad — PLANNING and VERIFYING. An agent that cannot run what it wrote
+# cannot discover that it was wrong, so it shipped a UI whose every event branch was dead.
+#   update_plan   keep a live checklist while building (the user watches it tick over)
+#   exec          RUN what was written: node --check on generated JS, import a new plugin
+#   process       poll/kill what `exec` started with background=true. exec's own description
+#                 sends the model here, so granting one without the other leaves it blocking a
+#                 whole turn on a sleep — which is exactly what an agent built WITHOUT the pair
+#                 ended up doing while babysitting a 20GB download
+#   verify_answer self-review before declaring done — it catches, in its own words, "an
+#                 answer that only promises instead of delivering"
+#
+# `show_files` is granted for TWO reasons, and the second is the important one:
+#   1. it produces files (a package, a validation report) and should be able to show them
+#   2. this list is also what it KNOWS EXISTS. A tool absent from here is absent from its
+#      prompt, and it has no other way to enumerate the catalog — so it writes its own. That
+#      is exactly what happened: an agent it built shipped a private `artifact-location` tool
+#      that shelled out to explorer.exe, while `show_files` sat in the catalog unused.
+# Add a tool here when the builder needs to know it exists, not only when it needs to call it.
+#
+# `exec` is not a new risk class here: this agent already has unsandboxed `write` (any path)
+# and `create_tool`, which writes Python AND hot-loads it into the running process. It could
+# always execute arbitrary code — it just could not check its own work first.
+#
+# Its OWN tools (create_agent, create_tool, validate_agent, reload_agent, package_agent —
+# from plugins/agent-authoring/ below) are deliberately absent: an agent's private tools are
+# IMPLICITLY allowed and never need naming here. That is also why `main` cannot call them.
+# WHERE IT MAY WRITE. Its whole job is authoring OTHER agents, so it must write outside its own
+# workspace — and before this, "outside its own workspace" meant the entire disk, including the
+# shared plugins/ directory. A tool written there is FIRST_PARTY on every machine that installs
+# it: never sandboxed, whatever the agent that brought it along is. That is the one place a
+# capability refused to a private tool could be laundered back in.
+#
+# The deny is the other half: an agent that can rewrite its own agent.toml, AGENTS.md or skill
+# can widen its own rules, and then none of them mean anything. Its own workspace is denied for
+# the same reason — nothing it writes should be able to reach its own constraints.
+#
+# Tokens, not paths: agents/ is <repo>/v2/agents/ in a checkout and ~/.agentd/agents/ on an
+# install. AgentService expands them per run.
+[tools.fs]
+write_roots = ["<agents_dir>"]
+deny        = ["<agent_dir>"]
+
+# THE ONE AGENT THAT NEEDS THE MCP WORKSHOP, and the reason the flag became per-agent.
+#
+# `add_mcp` lets the MODEL connect an arbitrary MCP server from chat text — text that can arrive
+# from a web page or an email. Machine-wide that is a bad default, which is why the daemon's is
+# off. But this agent's job includes trying a server the user just described so it can report
+# back what tools actually appeared, instead of writing an [[mcp]] block and hoping.
+#
+# The agents it BUILDS get no such thing unless their author asks: an explicit `false` (or simply
+# saying nothing, with the daemon default off) is what they inherit. See the connect-mcp skill.
+[capabilities]
+mcp_workshop = true
+
+[tools]
+allow = [
+  "read", "write", "edit", "ls", "find", "skill_workshop",
+  "update_plan", "exec", "process", "verify_answer",
+  "show_files",
+  # RESEARCH. Without these it builds integrations BLIND: asked for an AWS cost monitor it had
+  # no way to look up the Cost Explorer API, no way to find which MCP server exposes cost tools,
+  # and no way to check that the package it named even exists — so it guessed one, and the guess
+  # did not expose the tools the agent needed. Every third-party service an agent connects to is
+  # documented somewhere; an agent-builder that cannot read that documentation is authoring
+  # against its own recollection.
+  "web_search", "web_fetch",
+  # SEARCH BY CONTENT. `find` matches file NAMES only, so "where is this defined", "which agents
+  # declare an [[mcp]] block", "who calls this" had no answer but opening files one at a time and
+  # hoping. An agent that cannot search answers from whatever it happened to read — which is
+  # indistinguishable, in its output, from an agent that searched and found nothing.
+  "grep",
+  # DELEGATION. A child run with its own context: "read this API's docs and tell me which server
+  # exposes cost tools" returns three sentences instead of spending this conversation's budget on
+  # pages of documentation. The builder's context is for BUILDING; finding out belongs elsewhere.
+  "spawn_subagent",
+]

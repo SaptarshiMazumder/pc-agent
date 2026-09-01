@@ -1,0 +1,11 @@
+name = "LinkedIn Job Finder"
+version = "1.0.0"
+description = "Finds and stores LinkedIn job postings matching a user's resume."
+
+# This agent ships its own UI (ui/), served at /apps/linkedin-job-finder/ and opened in its own
+# window. Without this table the directory exists and nothing serves it, so the window can
+# never open — which is what ORPHANED_UI reports.
+[app]
+title = "LinkedIn Job Finder"
+mode = "window"
+entry = "ui/index.html"

@@ -1,0 +1,141 @@
+@startuml agent-builder-phase4-flow
+' ============================================================================
+'  AGENT BUILDER - PHASE 4 (freeze create_agent)
+'  Where the hand-off happens during one "build me an agent" turn.
+'  Read the ACT brackets; the notes on the right explain in plain english.
+'  Render (from this folder):
+'    java -jar ../../../../plantuml.jar -tpng agent-builder-phase4-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFFDF0
+skinparam NoteBorderColor #C9B458
+skinparam NoteFontSize 12
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Agent Builder - PHASE 4: the hand-off\ncreate_agent lays the foundation, then gets out of the way
+
+start
+
+group ACT 1 . SCAFFOLD  (create_agent - the only part with code)
+  partition "the model creates the agent  <<MODIFIED>>" #FFE0B2 {
+    :model calls **create_agent**{id, name, identity, ...}\n<color:#1B5E20>+ version  <<NEW param>></color>;
+    :write agent.toml SKELETON\nname, version, description, model, heartbeat,\n[capabilities], [subagents];
+    :write IDENTITY.md (+ AGENTS.md, HEARTBEAT.md if given);
+    :**registry.add(id)** -> the agent is LIVE right now;
+    :<color:#1B5E20>return a HAND-OFF, not just "created":</color>\n<color:#1B5E20>what was written | what is still missing |</color>\n<color:#1B5E20>call write for [app]/ui/tools, then validate_agent</color>;
+  }
+  note right
+    **PLAIN ENGLISH**
+    Why keep this tool at all, if the model can just write files?
+
+    Three things `write` cannot do:
+      * guarantee VALID TOML key order - every top-level key must
+        come before the first [table], or it silently lands inside
+        that table (this is the purple-dot bug's root cause)
+      * refuse to overwrite 'main'
+      * **register the agent LIVE** - after this call the agent is
+        resolvable on the very next message, with no restart
+
+    So it keeps the skeleton. It does not keep the rest.
+  end note
+end group
+
+group ACT 2 . THE FREEZE  (the actual decision of this phase)
+  if (does the user want [app], ui/, tool wiring, display keys?) then (yes - the usual case)
+    partition "everything else is plain file writing" #EDE7F6 {
+      :model calls **write** for each of them\n[app] table | tagline/color/suggestions | [tools]\n[plugins.<p>.tools.<t>] | ui/* | templates/*;
+      :model calls **create_skill** for playbooks;
+      :model calls **create_tool**(agent=<id>) for private tools;
+    }
+    note right
+      **PLAIN ENGLISH - why create_agent does NOT grow parameters**
+
+      The remaining half of agent.toml has no fixed shape. The
+      big one is:
+
+          [plugins.<plugin>.tools.<tool>]
+
+      any plugin x any tool x any setting. figure-creator's entire
+      engine lives there - which image model, which template, what
+      resolution, which vision model for reading labels.
+
+      You cannot turn "any plugin x any tool x any knob" into a
+      list of tool parameters. So a parameterised create_agent can
+      never be finished - it would grow forever and still be
+      incomplete.
+
+      Meanwhile the model already writes TOML perfectly well, and
+      since phase 1 it has the full grammar in build-agent/SKILL.md.
+      So: let it write. That is the freeze.
+    end note
+  else (no - a plain chat agent)
+    :the skeleton alone is already a working agent;
+  endif
+end group
+
+group ACT 3 . SAFETY NET  (phase 3 makes the freeze safe)
+  partition "check what was written" #C8E6C9 {
+    :model calls **validate_agent**{agent_id};
+    if (findings?) then (yes)
+      :fix with `write`, validate again;
+      detach
+    else (clean)
+    endif
+  }
+  note right
+    **PLAIN ENGLISH**
+    Freezing create_agent only works because something ELSE
+    catches mistakes. That is phase 3.
+
+    Without validate_agent, "just write the TOML yourself"
+    would be a way to ship silent bugs. With it, a mistake
+    comes straight back with the file, the reason, and the fix -
+    and the model repairs it before you ever see the agent.
+
+    Phase 3 is what earns phase 4.
+  end note
+
+  partition "make edits take effect" #C8E6C9 {
+    :model calls **reload_agent**{agent_id}\n(agent.toml changed after create_agent registered it);
+  }
+end group
+
+group ACT 4 . DONE
+  partition "the user tries it" #E0F2F1 {
+    :new chat with the agent, or its app window;
+  }
+  note right
+    **THE DIVISION OF LABOUR, IN ONE LINE**
+      create_agent  -> the skeleton + making it live
+      write         -> the open-ended rest
+      create_skill  -> playbooks
+      create_tool   -> private tools
+      validate      -> catches what write got wrong
+      reload        -> makes it real
+  end note
+}
+
+stop
+
+legend left
+  | Colour | Meaning |
+  |<#FFE0B2> | **MODIFIED in phase 4** - CreateAgentTool (one file) |
+  |<#C8E6C9> | phase 3 - the safety net that makes the freeze viable |
+  |<#EDE7F6> | existing - `write` / create_skill / create_tool |
+  |<#E0F2F1> | outcome |
+endlegend
+
+@enduml

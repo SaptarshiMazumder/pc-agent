@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>agentd admin</title>
+    <!--
+      THE SAME POLICY AS index.html, and it has to stay that way: the build-time plugin
+      (web/vite.config.ts, cspAllowApiOrigins) rewrites the connect-src of EVERY entry document
+      from the same baked API origins, and it fails the build loudly if a document has no policy
+      tag to rewrite. A second entry with a weaker policy would be the quiet way to lose the
+      boundary on exactly the page that administers the deployment.
+
+      connect-src also allows https:/http: so the console can reach the HOSTED accounts service,
+      whose host is per-deployment (from the flavor's [platform] accounts_url) and therefore not
+      knowable here. http: is only needed for the pre-TLS testing phase; drop it once endpoints
+      are https. Only connect-src is broadened — scripts, images, media and frames stay pinned to
+      'self'/localhost.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' https: http: ws://127.0.0.1:* ws://localhost:* wss:; img-src 'self' data: http://127.0.0.1:* http://localhost:*; media-src 'self' http://127.0.0.1:* http://localhost:*; frame-src 'self' data: http://127.0.0.1:* http://localhost:*"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main-admin.tsx"></script>
+  </body>
+</html>

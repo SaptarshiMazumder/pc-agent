@@ -1,0 +1,107 @@
+# Copy to `dev.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
+# automatically, so no -var flag on any command.
+#
+# WHY A FILE AND NOT `-var`. Several of these default to "" or [], and the resources they
+# drive are conditional on being non-empty. Passing one with -var on a Monday and forgetting
+# it on Tuesday does not leave that resource alone — it DESTROYS it. The alarm subscription
+# and the publish Lambda both work exactly that way. An auto-loaded file is what makes it
+# stick; the variables are behaving correctly, the flag is just too easy to forget.
+#
+# THE SAME MENU AS STAGING. This file and staging's list the same settings in the same
+# order, so an operator moving between environments sees one vocabulary and a missing knob
+# is visible as a missing knob rather than as "that environment must not support it". Only
+# the VALUES and the commentary differ.
+
+# ── alarms: where they go ────────────────────────────────────────────────────
+# Empty = the SNS topic is created and nobody is subscribed, so every alarm fires into
+# nothing. AWS emails a confirmation link the recipient must click; until they do the
+# subscription is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
+# reports both states.
+alert_email = "you@example.com"
+
+# ── the publish service (deploy/PUBLISH-SERVICE.md) ──────────────────────────
+# EMPTY on the first apply: the image does not exist yet, because ECR is created by that
+# same apply. `publish_enabled` is `var.publish_image_tag != ""`, so an empty tag is not an
+# error — it simply builds no publish Lambda, no creator table and no KMS key, and
+# `publish_url` comes back empty. Push the image to the repository named by the
+# `publish_ecr_repository` output, then set the tag and apply again.
+publish_image_tag = "v2"
+
+# Who may call the publish service's admin endpoints (`agentd bundle roster pending/admit/
+# revoke`): account ids and/or the emails those accounts sign in with. EMPTY = admin door
+# closed, so nobody can admit a creator and nothing can be published.
+publish_admin_identities = ["you@example.com"]
+
+# The builder service (agent window builds out of the daemon) — same two-step bring-up as
+# publish: apply once (ECR repo + scratch bucket, no Lambda, no cost), push the image to the
+# `builder_ecr_repository` output, then set the tag and apply again.
+builder_image_tag = "v2"
+
+# ── the engine a published product's installer downloads ─────────────────────
+# All three or none. A stub refuses a download it cannot verify, so a URL without its
+# sha256 is a product that installs nothing. Empty = read the registry index instead.
+# publish_engine_url     = "https://.../agentd-setup-0.1.11.exe"
+# publish_engine_sha256  = "…"
+# publish_engine_version = "0.1.11"
+
+# ── the domain (../../DOMAIN-SETUP.md) ───────────────────────────────────────
+# DO NOT SET THESE HERE. `root_domain`, `agent_hostnames` and `admin_hostname` now carry real
+# values in main.tf — dev owns `dev.thorgodofthunder.site`, staging owns `staging.…`, and the
+# bare apex is nobody's. A line here would OVERRIDE that (tfvars beat defaults) and silently
+# strand this environment on its old domain, which is trap #2 in the runbook.
+#
+# Uncomment only to point this checkout at a different domain entirely, and read the runbook
+# first — a zone change needs a delegation record and a certificate revalidation, not just an
+# apply.
+# root_domain     = "dev.example.com"
+# agent_hostnames = { "platform.dev.example.com" = "cloud-agent-builder" }
+# admin_hostname  = "admin.dev.example.com"
+
+# ── payments (v2/payments/) ──────────────────────────────────────────────────
+# The rail's NAME only. Every key — Razorpay, Stripe, Dodo, plus Dodo's product id and API
+# host — lives in this environment's Secrets Manager secret and never in this file. Dev runs
+# Razorpay and staging runs Dodo on purpose, so both rails stay exercised.
+# payment_provider = "razorpay"
+# Origins /me/checkout may return a paying customer to. Empty = any absolute http(s) URL,
+# which is right while dev clients run on changing origins and is an open redirect in
+# production.
+# checkout_return_origins = ["https://thorgodofthunder.site"]
+
+# ── cost control ─────────────────────────────────────────────────────────────
+# `paused` scales every task to 0 and stops the scheduled jobs while KEEPING the ALB — the
+# URL survives and no client needs re-syncing. `hibernate` also removes the ALB: cheaper,
+# and it CHANGES THE URL.
+# paused    = true
+# hibernate = false
+
+# ── alarms: thresholds ───────────────────────────────────────────────────────
+# DEV'S ARE DELIBERATELY LOOSE. The goal here is proving the alarms wire up and can fire,
+# not tuning them; staging carries production's values so the tuning question is answered
+# there. The money alarms (unbilled spend, ledger failures, buffer backlog, overspend)
+# trigger at > 0 and need no tuning at any traffic level — those are the ones that matter.
+# cost_per_hour_alarm_usd   = 5
+# proxy_5xx_threshold       = 5
+# resolve_latency_p99_ms    = 1000
+# login_rejection_threshold = 20
+# The two ABSENCE alarms treat missing data as breaching, so they stay OFF in an environment
+# that is legitimately silent overnight or scaled to zero.
+# enable_login_absence_alarm = false
+# enable_job_absence_alarm   = false
+
+# ── the clock ────────────────────────────────────────────────────────────────
+# Dev's default slows subscription renewals to once daily (hourly is right in production,
+# but dev has no subscribers and is scaled to zero most of the day). Staging overrides
+# nothing and rehearses the production cadence.
+# scheduled_job_overrides = { subscription-renewals = { schedule = "cron(0 0 * * ? *)" } }
+
+# ── the public marketplace ───────────────────────────────────────────────────
+# Both empty = CloudFront's own https address, needing no DNS and no certificate of ours.
+# Set both together or neither: CloudFront rejects an alias without a certificate that
+# covers it, and that certificate MUST live in us-east-1 whatever region this deployment
+# runs in.
+# marketplace_domain_name     = "agents.example.com"
+# marketplace_certificate_arn = "arn:aws:acm:us-east-1:…"
+
+# ── model proxy ──────────────────────────────────────────────────────────────
+# Initial task count; 0 parks it without removing the service.
+# model_proxy_desired_count = 1

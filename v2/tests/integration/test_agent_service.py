@@ -10,11 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pathlib import Path
 
-from agentd.application import run_context as rc
-from agentd.application.run_context import set_run_outcome
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import AgentSpec, RunMode
-from agentd.domain.messages import UserMessage
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.run_context import set_run_outcome
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.agent import AgentSpec, RunMode
+from agent_runtime.domain.messages import UserMessage
 
 
 async def _sink(_ev):
@@ -52,7 +52,8 @@ class FakeEngine:
         self.calls = []
 
     async def run(
-        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None,
+        model_router=None,
     ):
         self.calls.append(
             {
@@ -61,6 +62,7 @@ class FakeEngine:
                 "tools": tools,
                 "session": session,
                 "model": model,
+                "model_router": model_router,
             }
         )
         return []
@@ -119,7 +121,8 @@ async def test_explicit_agent_id_overrides_session_key_resolution():
 
     class FakeEngine:
         async def run(
-            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None,
+            model_router=None,
         ):
             captured["model"] = model  # support's model identity flows through
 
@@ -166,6 +169,58 @@ async def test_per_agent_model_override_reaches_engine():
     assert engine.calls[0]["model"] == "gemini/gemini-2.5-flash"
 
 
+@pytest.mark.asyncio
+async def test_the_agents_own_router_travels_with_its_own_model():
+    """A router OVERWRITES the model on every turn. So sending the engine an agent's model
+    while it keeps a daemon-wide router is not a partial fix — it is the bug: an agent that
+    named a model had that choice silently discarded whenever cost-efficiency was on anywhere.
+    The pair has to arrive together, which is what resolve_models returns."""
+    engine = FakeEngine()
+    spec = AgentSpec(id="support", name="S", workspace=Path("."), state_dir=Path("."))
+    sentinel = object()  # stands in for THIS agent's CostEfficiencyRouter
+
+    svc = AgentService(
+        engine=engine,
+        tools=[],
+        registry=FakeRegistry(spec),
+        make_session=lambda sid, agent: FakeSession(),
+        build_prompt=lambda tools, agent, mode, query="": "SYS",
+        resolve_models=lambda agent: (f"{agent.id}/brain", sentinel),
+    )
+
+    async def sink(_ev):
+        pass
+
+    await svc.handle_message("agent:support:x", "hi", sink, asyncio.Event())
+    assert engine.calls[0]["model"] == "support/brain"
+    assert engine.calls[0]["model_router"] is sentinel
+
+
+@pytest.mark.asyncio
+async def test_no_resolver_leaves_both_at_the_engines_defaults():
+    """Every caller that does not inject one — a sub-agent run, a tool driving the engine —
+    must behave exactly as before: the agent.toml model, and whatever router the engine was
+    built with. Passing a router of None is how it says 'use yours'."""
+    engine = FakeEngine()
+    spec = AgentSpec(
+        id="support", name="S", workspace=Path("."), state_dir=Path("."), model="openai/gpt-5"
+    )
+    svc = AgentService(
+        engine=engine,
+        tools=[],
+        registry=FakeRegistry(spec),
+        make_session=lambda sid, agent: FakeSession(),
+        build_prompt=lambda tools, agent, mode, query="": "SYS",
+    )
+
+    async def sink(_ev):
+        pass
+
+    await svc.handle_message("agent:support:x", "hi", sink, asyncio.Event())
+    assert engine.calls[0]["model"] == "openai/gpt-5"
+    assert engine.calls[0]["model_router"] is None
+
+
 class _OutcomeEngine:
     """Declares an outcome only on its Nth run — simulates the agent forgetting, then declaring."""
 
@@ -174,7 +229,8 @@ class _OutcomeEngine:
         self._on = declare_on_run
 
     async def run(
-        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+        self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None,
+        model_router=None,
     ):
         self.runs += 1
         if self.runs == self._on:

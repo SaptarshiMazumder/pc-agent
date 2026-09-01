@@ -5,6 +5,12 @@
 # installer still works and falls back to an `agentd` on PATH (see supervisor.ts).
 appId: dev.agentd.desktop
 productName: agentd
+# npm WORKSPACES: electron-builder's implicit "installing production dependencies" step runs an
+# install rooted at the WORKSPACE (clients/), which prunes every devDependency there — it wiped
+# vite/electron-vite/typescript out of clients/node_modules on the first run. Nothing this app
+# externalizes is native (`ws` and `@iarna/toml` are pure JS; the renderer is bundled by vite),
+# so the rebuild buys nothing and is turned off.
+npmRebuild: false
 directories:
   output: dist/core
 files:
@@ -15,6 +21,25 @@ extraResources:
   - from: runtime/cpython
     to: python
     filter: ['**/*']
+  # CHROMIUM. Not a nicety: playwright ships as a python package with NO browser, so without
+  # this every tool that opens a page dies on a fresh machine with "Executable doesn't exist"
+  # and a command line the product never tells anyone to run. supervisor.ts points the daemon
+  # at this folder via PLAYWRIGHT_BROWSERS_PATH.
+  - from: runtime/ms-playwright
+    to: ms-playwright
+    filter: ['**/*']
+  # NODE + npm. An agent's window is a React project compiled from app/ into ui/, and only ui/
+  # is served -- so without this a user who built an agent through Agent Builder has no way to
+  # rebuild its window. supervisor.ts puts this on the daemon's PATH.
+  - from: runtime/node
+    to: node
+    filter: ['**/*']
+  # THE SHARED AGENT-APP DEPENDENCIES. react + vite, installed once for the product rather than
+  # once per agent -- so creating an agent costs no download and works offline. build_app links
+  # each agent's app/node_modules at this tree; supervisor.ts passes the path down.
+  - from: runtime/app-deps
+    to: app-deps
+    filter: ['**/*']
 win:
   target: nsis
   icon: resources/icon.ico
@@ -22,3 +47,7 @@ nsis:
   oneClick: false
   perMachine: false # per-user install: runtime pip-plugins can write, no admin, avoids the Program Files cache-permission errors
   allowToChangeInstallationDirectory: true
+  # THIS is what makes per-agent installers possible. The core build IS the shared engine, and it
+  # records where it landed under HKCU\Software\agentd\Engine so a ~200 KB stub can find it instead
+  # of shipping its own 250 MB copy of the runtime. See the file — it is the whole contract.
+  include: build/engine-register.nsh

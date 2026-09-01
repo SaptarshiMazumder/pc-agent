@@ -9,8 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cryptography.fernet import Fernet
 
-from agentd.domain.credential import Credential
-from agentd.infrastructure.credentials import EncryptedFileCredentialStore, build_credential_store
+from agent_runtime.domain.credential import Credential
+from agent_runtime.infrastructure.credentials import (
+    EncryptedFileCredentialStore,
+    build_credential_store,
+)
 
 KEY = Fernet.generate_key()
 

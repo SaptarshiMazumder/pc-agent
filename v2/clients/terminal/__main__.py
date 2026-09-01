@@ -1,6 +1,6 @@
-"""Shim: `python -m clients.terminal` -> agentd.clients.terminal (moved into the package)."""
+"""Shim: `python -m clients.terminal` -> agent_runtime.clients.terminal (moved into the package)."""
 
-from agentd.clients.terminal.__main__ import main
+from agent_runtime.clients.terminal.__main__ import main
 
 if __name__ == "__main__":
     main()

@@ -65,15 +65,15 @@ def test_schema_matches_openclaw_shape():
 
 
 def test_registered_in_container():
-    from agentd.config import load_config
-    from agentd.main.container import build_service
+    from agent_runtime.config import load_config
+    from agent_runtime.main.container import build_service
 
     svc = build_service(load_config(), None, None)
     assert "update_plan" in [t.name for t in svc._tools]
 
 
 def test_tooling_line_uses_the_tool_description():
-    from agentd.infrastructure.prompt import build_system_prompt
+    from agent_runtime.infrastructure.prompt import build_system_prompt
 
     class _Cfg:
         agent_name = "JARVIS"

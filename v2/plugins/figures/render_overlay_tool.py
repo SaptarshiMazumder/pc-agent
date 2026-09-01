@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.domain.messages import TextContent
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.domain.messages import TextContent
 from figures_common import resolve_path, render_svg_to_png, png_block
 import figures_overlay as overlay
 

@@ -9,14 +9,14 @@ inlined into the LLM request so a vision model can SEE it.
 import base64
 from pathlib import Path
 
-from agentd.domain.messages import (
+from agent_runtime.domain.messages import (
     Artifact,
     UserMessage,
     message_from_dict,
     message_to_dict,
 )
-from agentd.infrastructure.files import image_data_url, save_upload
-from agentd.infrastructure.llm.litellm import messages_to_litellm
+from agent_runtime.infrastructure.files import image_data_url, save_upload
+from agent_runtime.infrastructure.llm.litellm import messages_to_litellm
 
 _PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 _PNG_B64 = base64.b64encode(_PNG_BYTES).decode()
@@ -116,7 +116,7 @@ def test_messages_to_litellm_plain_text_stays_string():
 
 
 def test_router_escalates_on_user_image_attachment():
-    from agentd.infrastructure.llm.model_router import CostEfficiencyRouter
+    from agent_runtime.infrastructure.llm.model_router import CostEfficiencyRouter
 
     r = CostEfficiencyRouter(text_model="deepseek/text", vision_model="gemini/vision")
     img = Artifact(path="x.png", name="x.png", mime="image/png", kind="image", size=1)
@@ -131,8 +131,8 @@ def test_router_escalates_on_user_image_attachment():
 def test_has_image_ignores_tool_declared_artifacts():
     # a tool's DECLARED image deliverable is presentation-only (never sent to the model), so it
     # must NOT trigger the (expensive) vision brain
-    from agentd.domain.messages import ToolResultMessage
-    from agentd.infrastructure.llm.model_router import _has_image
+    from agent_runtime.domain.messages import ToolResultMessage
+    from agent_runtime.infrastructure.llm.model_router import _has_image
 
     art = Artifact(path="out.png", name="out.png", mime="image/png", kind="image", size=1)
     tr = ToolResultMessage(tool_call_id="1", tool_name="render", artifacts=[art])

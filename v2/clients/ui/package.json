@@ -1,0 +1,31 @@
+{
+  "name": "@agentd/ui",
+  "private": true,
+  "version": "0.1.6",
+  "description": "The shared agentd renderer \u2014 ONE React app, built by both shells (Electron desktop + hosted web). Host capabilities are reached only through src/lib/platform.ts.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke:auth": "esbuild scripts/auth-smoke.ts --bundle --platform=node --format=esm --outfile=scripts/auth-smoke.bundle.mjs --log-level=error && node scripts/auth-smoke-run.mjs"
+  },
+  "dependencies": {
+    "@fontsource/bricolage-grotesque": "^5.2.10",
+    "@fontsource/hanken-grotesk": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "fabric": "^7.4.0",
+    "lucide-react": "^1.23.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "zustand": "^5.0.2",
+    "@agentd/auth": "file:../auth",
+    "@agentd/billing": "file:../billing"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

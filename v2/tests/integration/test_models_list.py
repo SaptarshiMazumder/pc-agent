@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.presentation import gateway as gw
+from agent_runtime.presentation import gateway as gw
 
 
 def test_image_catalog_has_image_models_not_text():
@@ -42,7 +42,7 @@ def test_kind_catalogs_are_separated():
 
 def _models_payload_real():
     """models.list over the REAL config so build_catalog actually discovers the plugin tools."""
-    from agentd.config import load_config
+    from agent_runtime.config import load_config
 
     g = object.__new__(gw.Gateway)
     g.config = load_config()
@@ -67,7 +67,7 @@ def test_models_list_reports_brain_and_tool_models_with_kind_and_key():
 def test_kind_default_model_resolution():
     """A tool that names NO model gets the house default for its KIND; config overrides; a tool's own
     default_model wins over the kind default; a per-tool config wins over everything."""
-    from agentd.application.tool_models import kind_default_model, resolve_tool_model
+    from agent_runtime.application.tool_models import kind_default_model, resolve_tool_model
 
     seed = SimpleNamespace(plugins={}, model_defaults={})
     # 1) declare only model_kind (default=None) -> the house per-kind SEED

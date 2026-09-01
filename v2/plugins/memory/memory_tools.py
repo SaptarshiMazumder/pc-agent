@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import time
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
-from agentd.domain.memory import MemoryItem
-from agentd.infrastructure import accounts
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
+from agent_runtime.domain.memory import MemoryItem
+from agent_runtime.infrastructure import accounts
 
 
 def _agent_id() -> str:
@@ -126,8 +126,8 @@ class MemoryConsolidateTool(Tool):
         self._config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        from agentd.infrastructure.memory.consolidate import consolidate
-        from agentd.infrastructure.memory.dreaming import dream
+        from agent_runtime.infrastructure.memory.consolidate import consolidate
+        from agent_runtime.infrastructure.memory.dreaming import dream
 
         agent_id = _agent_id()
         removed = consolidate(self._bank, agent_id)  # exact dups (works without embeddings)

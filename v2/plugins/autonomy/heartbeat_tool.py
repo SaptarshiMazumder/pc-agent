@@ -8,7 +8,7 @@ any connected client); durable recording + channel delivery come in 2b/Phase 5.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class HeartbeatRespondTool(Tool):

@@ -2,7 +2,7 @@
 
 Gating ported from build_tools: registers only when ``verify_tool`` is enabled AND a judge model
 builds. OFF => not registered at all, exactly as if the feature never existed. The judge factory
-lives in agentd.infrastructure.verify (an inner layer this plugin reads — allowed direction).
+lives in agent_runtime.infrastructure.verify (an inner layer this plugin reads — allowed direction).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def _verify_section(tools, agent, config) -> str:
 def register(api, ctx):
     if not getattr(ctx.config, "verify_tool", False):
         return
-    from agentd.infrastructure.verify import LlmJudgeVerifier, build_judge_fn
+    from agent_runtime.infrastructure.verify import LlmJudgeVerifier, build_judge_fn
 
     judge = build_judge_fn(ctx.config)
     if judge is None:

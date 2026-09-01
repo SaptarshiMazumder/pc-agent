@@ -6,6 +6,15 @@ name  = "Google Workspace"
 kind  = "mcp"
 entry = "google_plugin:register"   # contributes the prompt section (no tools — those are the MCP's)
 
+# The launcher this plugin cannot run without. Declared so a machine lacking it SKIPS this
+# plugin with a reason you can read in `agentd plugins list`, instead of loading, advertising
+# Gmail/Drive/Calendar to the model, and then failing at connect time with a bare
+# "[WinError 2] The system cannot find the file specified" in a log nobody opens — while the
+# model happily plans around tools that were never going to exist.
+# `uvx` ships with the `uv` dependency in the [mcp] extra, so a normal install satisfies this.
+[requires]
+bins = ["uvx"]
+
 [mcp]
 command = ["uvx", "workspace-mcp", "--tools", "gmail", "drive", "calendar"]
 env = { OAUTHLIB_INSECURE_TRANSPORT = "1" }

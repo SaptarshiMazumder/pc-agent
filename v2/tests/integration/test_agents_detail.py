@@ -16,7 +16,7 @@ def _skill(dir_: Path, name: str, desc: str) -> None:
 
 
 def test_agents_detail_lists_workspace_and_skills(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     # main: shared skills library + its own workspace
     main_ws = tmp_path / "agents" / "main" / "workspace"
@@ -73,7 +73,7 @@ def test_agents_detail_lists_workspace_and_skills(tmp_path):
 
 
 def test_agents_detail_unknown_agent(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     gw = Gateway(
         config=SimpleNamespace(state_dir=tmp_path, agent_id="main"),

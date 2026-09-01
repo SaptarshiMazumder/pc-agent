@@ -1,0 +1,224 @@
+@startuml agent-builder-config-classes
+' Render (from this folder):
+'   java -jar ../../../../plantuml.jar -tpng agent-builder-config-classes.puml
+title Per-agent config + "override JARVIS" flag\nGREEN = new | ORANGE = modified | GREY = existing, untouched
+
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam class {
+  BorderColor #444
+  ArrowColor #555
+}
+
+legend top left
+  |<#C8E6C9>       | **NEW** |
+  |<#FFE0B2>       | **MODIFIED** (new members marked NEW) |
+  |<#E0E0E0>       | **EXISTING** - reused as-is |
+  == ONE new config key + ONE merge function. No new file, no store. ==
+  == config.get / config.set already read and write every exposed key. ==
+  == The only real work: cost_efficiency is captured at BOOT, so a ==
+  == per-agent one has to be built per RUN instead. ==
+endlegend
+
+' ═══════════════════════ THE CONFIG ITSELF ═══════════════════════
+package "agent_runtime  -  the config object" #F5F5F5 {
+
+  class Config #FFE0B2 {
+    +model / reasoning_effort / max_turns
+    +model_fallbacks / cost_efficiency
+    +plugins : dict
+    .. {plugin_id: {...}} - the EXISTING ..
+    .. nested-by-name key this copies ..
+    __ NEW - one field __
+    +<b>agents : dict</b>
+    .. {agent_id: {override_default, ...}} ..
+  }
+
+  class load_config <<module>> #E0E0E0 {
+    +load_config(path) : Config
+    .. reads the FILE exactly ONCE, ..
+    .. at daemon boot ..
+  }
+
+  class agentd_config_json <<file>> #FFE0B2 {
+    "model": "openai/gpt-5"
+    "cost_efficiency": { ... }
+    __ NEW __
+    "agents": {
+    ..  "agent-builder": {
+    ..     "override_default": true,
+    ..     "model": "openai/gpt-5" } }
+  }
+}
+
+' ═══════════════════════ THE MERGE ═══════════════════════
+package "agent_runtime/domain" #F5F5F5 {
+
+  class agent_config <<module|the ONLY new file>> #C8E6C9 {
+    +OVERRIDABLE_KEYS : frozenset
+    ..
+    model | reasoning_effort | max_turns
+    model_fallbacks | cost_efficiency
+    verify_tool | memory_enabled
+    ..
+    <b>API keys are NOT in here</b>
+    __ the whole function __
+    +resolve(config, agent_id) : (values, sources)
+    ..
+    own = config.agents.get(agent_id, {})
+    if not own.get("override_default", True):
+    ..    return daemon values
+    return {**daemon, **own-keys-in-set}
+    ..
+    sources = key -> "agent" | "daemon"
+    so a settings row can say which
+    __ no file, so nothing to fail __
+    .. an agent with no entry gets the ..
+    .. daemon's values - which is exactly ..
+    .. how it behaves today ..
+  }
+}
+
+' ═══════════════════════ WHERE IT IS USED ═══════════════════════
+package "agent_runtime/application" #F5F5F5 {
+  class AgentService #FFE0B2 {
+    +run(...)
+    __ NEW - about four lines __
+    vals, _ = resolve(config, agent.id)
+    engine.run(model=vals["model"],
+    ..  model_router=router_for(
+    ..      vals["cost_efficiency"]))
+    .. today it passes model only ..
+    ..
+    .. reads config AT USE TIME, so a ..
+    .. Save takes effect on the next ..
+    .. message with no restart ..
+  }
+}
+
+package "agent_runtime/infrastructure" #F5F5F5 {
+
+  class model_router <<module>> #FFE0B2 {
+    +CostEfficiencyRouter
+    +build_model_router(config)
+    __ NEW __
+    +router_for(cost_efficiency : dict)
+    .. same body, fed a plain dict ..
+    .. instead of the global Config ..
+  }
+
+  class NativeEngine #FFE0B2 {
+    -_model / -_model_router
+    +run(..., model=None)
+    __ NEW - the whole structural change __
+    +run(..., <b>model_router=None</b>)
+    ..
+    model_router or self._model_router
+    ..
+    .. two lines, and exactly the shape ..
+    .. `model=None` beside it already has ..
+  }
+
+  class run_agent_loop <<module>> #E0E0E0 {
+    active_model = model_router(model, msgs)
+    .. UNCHANGED. It always took a router. ..
+    .. It just never got a per-agent one. ..
+  }
+}
+
+' ═══════════════════════ PRESENTATION ═══════════════════════
+package "agent_runtime/presentation" #F5F5F5 {
+  class Gateway #FFE0B2 {
+    EXPOSED_CONFIG_KEYS
+    -_config_get(scope) / -_config_set(params)
+    __ NEW - one entry in a tuple __
+    + "agents"
+    ..
+    .. that is it. _config_get already ..
+    .. returns every exposed key and ..
+    .. _config_set already merges and ..
+    .. hot-applies every writable one ..
+  }
+}
+
+' ═══════════════════════ THE PAGES - the actual bulk ═══════════════════════
+package "the settings pages  <<the actual bulk>>" #F5F5F5 {
+
+  class "clients/ui SettingsView.tsx" as JARVIS #E0E0E0 {
+    getPath() / setPath()
+    cost-efficiency toggle + both models
+    .. ALREADY DONE - nothing to do ..
+  }
+
+  class "agent-builder ui/settings.js" as ABUI #FFE0B2 {
+    __ NEW __
+    + getPath() / setPath()  (dotted keys)
+    + Cost efficiency group
+    + "Override JARVIS settings" toggle
+    + per-row "daemon | this agent" badge
+    ..
+    writes agents.<my-id>.<key>
+  }
+
+  class "templates/chat-app/settings.js" as TPLUI #FFE0B2 {
+    __ NEW - the same four __
+    .. every agent built from the ..
+    .. template inherits them ..
+  }
+}
+
+' ═══════════════════════ RELATIONS ═══════════════════════
+load_config --> agentd_config_json : ONCE, at boot
+load_config --> Config : fills
+
+AgentService --> agent_config : resolve(config, agent.id)
+AgentService --> model_router : router_for(...)
+AgentService --> NativeEngine : run(model=, model_router=)
+
+agent_config ..> Config : reads .agents and the daemon values
+NativeEngine --> run_agent_loop : model_router=
+
+Gateway --> Config : setattr() on Save - live, in memory
+Gateway --> agentd_config_json : and writes the file
+
+ABUI  ..> Gateway : config.get / config.set
+TPLUI ..> Gateway : config.get / config.set
+JARVIS ..> Gateway : config.get / config.set
+
+note as N1 #E3F2FD
+  **Why "agents" and not a new file.**
+  `plugins` is already a nested {name: {...}} key in this
+  same config, already exposed, already writable. Adding
+  `agents` the same way means config.get can already read
+  it and config.set can already write and hot-apply it.
+  A separate store would have been a second file, a second
+  read path, and a corrupt-file case to get wrong.
+end note
+
+note as N2 #E3F2FD
+  **The config FILE is read once, at boot.**
+  After that the Config OBJECT is what everything reads,
+  and Save setattr()s straight onto it. So anything that
+  reads config.x WHEN IT NEEDS IT is already live.
+  Only two things copied a value out at boot:
+    brain_model(config)        -> a model string
+    build_model_router(config) -> a router object
+  Both live on the shared engine, which is why they are
+  frozen until restart - and why cost-efficiency cannot
+  currently be per-agent.
+end note
+
+note as N3 #FFF3E0
+  **API keys stay daemon-wide.**
+  Absent from OVERRIDABLE_KEYS on purpose. One shared .env
+  - per-agent copies of the same secret would have no sane
+  precedence, and the redact-for-installed-agents rule
+  already assumes a single source.
+end note
+
+N1 .. Config
+N2 .. NativeEngine
+N3 .. agent_config
+
+@enduml

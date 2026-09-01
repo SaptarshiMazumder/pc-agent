@@ -1,7 +1,7 @@
 """Hatch build hook: ship the built-in content INSIDE the package for WHEEL builds.
 
 The wheel must carry the built-in plugin bundles and starter data in-package
-(agentd/_builtin_plugins, agentd/_data) — their presence is runtime_paths'
+(agent_runtime/_builtin_plugins, agent_runtime/_data) — their presence is runtime_paths'
 packaged-mode marker. A checkout must NEVER contain those dirs (that would flip dev
 installs into packaged mode), so nothing is staged inside the repo: a filtered copy
 goes to a TEMP directory and is mapped into the wheel via ``build_data
@@ -59,13 +59,38 @@ class BuiltinsStagingHook(BuildHookInterface):
         if default_cfg.is_file():
             data_dst.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(default_cfg, data_dst / "config.default.json")
-        starter_skills = root / "agents" / "main" / "skills"
-        if starter_skills.is_dir():
-            _copy_filtered(starter_skills, data_dst / "agents" / "main" / "skills")
+        # Starter agent content, laid out exactly as it will sit under ~/.agentd/agents/
+        # (first_run.seed_user_layout copies this tree file-by-file, never overwriting).
+        #   main/skills          — the SHARED skills library every agent reads
+        #   agent-builder        — a shipped DEFAULT AGENT, whole: definition, prose, own skills
+        #   cloud-agent-builder  — agent-builder's WEB sister (cabbie). Shipped alongside it on
+        #                          purpose: cabbie imports agent-builder's `agent_authoring` package
+        #                          and reads its templates by sibling path, so the two must land in
+        #                          the same agents dir. cabbie is served on hosted (no requires_local);
+        #                          agent-builder rides along withheld, present only for cabbie to reuse.
+        # Add a path here to ship another default agent.
+        for rel in (Path("main") / "skills", Path("agent-builder"), Path("cloud-agent-builder")):
+            src = root / "agents" / rel
+            if src.is_dir():
+                _copy_filtered(src, data_dst / "agents" / rel)
+
+        # THE CLIENT SDK, as a first-class asset rather than a copy hiding inside an agent.
+        #
+        # Every agent app loads `ui/vendor/agentd-client.js`, and that file is COPIED into each
+        # agent at scaffold time. One SDK fix therefore has to reach N independent copies —
+        # repo agents, user-authored agents in the account directory, already-installed agents,
+        # and the embedded runtime's own — and the ones that get missed do not fail loudly, they
+        # fail as "that method is not a function" months later. Shipping the canonical build here
+        # lets `bundle pack` re-vendor from it, so a package can never carry an SDK older than
+        # the engine that packed it.
+        sdk = root / "clients" / "sdk-js" / "dist" / "agentd-client.js"
+        if sdk.is_file():
+            (data_dst / "sdk").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(sdk, data_dst / "sdk" / "agentd-client.js")
 
         force_include = build_data.setdefault("force_include", {})
-        force_include[str(builtins_dst)] = "agentd/_builtin_plugins"
-        force_include[str(data_dst)] = "agentd/_data"
+        force_include[str(builtins_dst)] = "agent_runtime/_builtin_plugins"
+        force_include[str(data_dst)] = "agent_runtime/_data"
         self.app.display_info(
             f"agentd wheel: staged {plugin_count} built-in plugin file(s) + starter data"
         )

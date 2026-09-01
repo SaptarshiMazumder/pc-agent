@@ -7,8 +7,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.tools import Tool, ToolResult
-from agentd.infrastructure.tools.guard import GuardedTool, ToolPolicy, is_transient, resolve_policy
+from agent_runtime.infrastructure.tools import Tool, ToolResult
+from agent_runtime.infrastructure.tools.guard import (
+    GuardedTool,
+    ToolPolicy,
+    is_transient,
+    resolve_policy,
+)
 
 
 class FakeTool(Tool):

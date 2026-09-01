@@ -1,6 +1,6 @@
 # agentd packaging (M1). `pip install .` (or pipx/uv tool install) gives the `agentd`
 # and `jarvis` commands. The wheel carries the built-in plugin bundles + starter data
-# INSIDE the package (agentd/_builtin_plugins, agentd/_data — staged by the build hook,
+# INSIDE the package (agent_runtime/_builtin_plugins, agent_runtime/_data — staged by the build hook,
 # never present in a checkout, which is exactly how runtime_paths detects the mode).
 # An editable install (`pip install -e .`) stays in repo mode on purpose.
 
@@ -9,6 +9,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
+# The DIST name stays `agentd` — it is the product/CLI identity and the wheel glob
+# (`agentd-*.whl`) used by deploy/docker/Dockerfile, release-build.yml and
+# clients/desktop/scripts/build-runtime.ps1. Only the IMPORT package is agent_runtime.
 name = "agentd"
 dynamic = ["version"]
 description = "agentd — a local agent daemon: one gateway, many agents, plugins, skills, and a marketplace."
@@ -44,12 +47,32 @@ dependencies = [
     "openpyxl>=3.1",
     "python-pptx>=1.0",
     "google-genai>=0.3",
+    # IMAGING. Every tool in the figure pipeline (figures, figure-art, vision, vectorize,
+    # figexport) does `from PIL import Image` at call time, and the daemon image installs
+    # `dependencies` + the `mcp` extra ONLY — so while Pillow lived in the `computer` extra
+    # alone, the hosted daemon and the packaged .exe both got a figure agent whose every tool
+    # died on ModuleNotFoundError at the first call, on a machine where a developer checkout
+    # (which has Pillow transitively) works perfectly. Same failure class as pyjwt below.
+    "Pillow>=10",
+    # IDENTITY (v2/identity/, shipped in this wheel). The daemon verifies access tokens locally
+    # against the platform's JWKS, and agent_runtime/infrastructure/accounts.py imports the
+    # verifier at MODULE scope — so a runtime without PyJWT does not degrade, it fails to start.
+    #
+    # It was reaching the dev environment only transitively (mcp, and litellm's `proxy` EXTRA,
+    # which is not installed by default). A packaged .exe builds its embedded runtime from this
+    # wheel's declared dependencies alone, so the shipped app would have died on import while
+    # every developer machine kept working — the worst possible split.
+    "pyjwt>=2.8,<3",
     "cryptography>=42",
 ]
 
 [project.optional-dependencies]
-computer = ["pyautogui>=0.9.54", "Pillow>=10"]   # computer-use tool (AGENTD_COMPUTER_ENABLED=1)
-mcp = ["mcp>=1.0"]                                # external MCP connectors
+computer = ["pyautogui>=0.9.54"]                 # computer-use tool (AGENTD_COMPUTER_ENABLED=1); Pillow is a base dep
+# external MCP connectors. `mcp` is the CLIENT SDK; `uv` is the LAUNCHER — stdio MCP plugins
+# declare commands like ["uvx", "workspace-mcp", …], so without it every such plugin dies at
+# connect time with a bare "file not found". It was already installed explicitly in the Docker
+# image and nowhere else, which is how the container had Gmail and the desktop exe did not.
+mcp = ["mcp>=1.0", "uv>=0.5"]
 # figure vectorization (extract_annotations + trace_image backends). The tools load without these
 # and return actionable install errors — install this extra to enable the extraction route.
 figures-vector = [
@@ -67,14 +90,18 @@ all = ["agentd[computer,mcp,figures-vector]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "import-linter>=2.0", "ruff>=0.6", "mypy>=1.11", "agentd[all]"]
 
 [project.scripts]
-agentd = "agentd.cli.main:main"
-jarvis = "agentd.cli.main:main"
+agentd = "agent_runtime.cli.main:main"
+jarvis = "agent_runtime.cli.main:main"
 
 [tool.hatch.version]
-path = "agentd/__init__.py"
+path = "agent_runtime/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agentd"]
+# `identity` ships WITH the daemon because the daemon verifies access tokens locally
+# (agent_runtime/infrastructure/accounts.py -> identity.infrastructure.jwks_verifier). The
+# alternative was a second copy of the verifier inside agent_runtime, which is how two copies of
+# security code drift until only one of them has the fix.
+packages = ["agent_runtime", "identity"]
 exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
@@ -82,7 +109,8 @@ path = "scripts/hatch_build.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "agentd",
+    "agent_runtime",
+    "identity",
     "plugins",
     "agents/main/skills",
     "SOUL.md",
@@ -129,11 +157,11 @@ ignore = [
 # --- mypy: static type checking (start lenient, scoped to core; ratchet later) -
 [tool.mypy]
 python_version = "3.11"
-files = ["agentd"]
+files = ["agent_runtime"]
 ignore_missing_imports = true    # don't error on untyped 3rd-party libs (litellm, etc.)
 check_untyped_defs = false
 warn_return_any = false
 warn_unused_ignores = false
 no_implicit_optional = true
-exclude = ['agentd/_builtin_plugins/', 'agentd/_data/']
+exclude = ['agent_runtime/_builtin_plugins/', 'agent_runtime/_data/']
 

@@ -1,0 +1,179 @@
+@startuml say-hi-flow-class
+title One turn, enriched: "summarize my June spending" — engine.run internals, expense agent POV
+' Color code (unchanged): arrows LEAVING a ring carry its color.
+'   clients=gray  presentation=blue  application=green  domain=yellow(data, no arrows)
+'   infrastructure=red  agent-folder=orange  main=purple
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+' ===================== clients (gray) =====================
+package "clients" #F2F2F2 {
+  class TerminalClient {
+    you: "summarize my June spending"
+  }
+}
+
+' ===================== presentation (blue) =====================
+package "presentation" #E8F0FE {
+  class Gateway {
+    +on chat.send -> {runId} immediately
+    +on_event -> chat.event frames
+  }
+}
+
+' ===================== application (green) =====================
+package "application" #E6F4EA {
+  class AgentService {
+    steps 1-6: resolve agent, pick toolset,
+    make session, save msg, build prompt, recall
+    step 7: await engine.run(...)
+    (never sees a tool call!)
+  }
+  interface AgentEngine <<interface>> {
+    +run(messages, prompt, tools, on_event, session)
+  }
+  interface LLMService <<interface>> {
+    +stream(model, messages, tools)
+  }
+  interface SessionStore <<interface>> {
+    +load() / append(m)
+  }
+  abstract class Tool <<interface>> {
+    +name / description / parameters(JSON Schema)
+    +concurrency: parallel|sequential
+    +{abstract} execute(id, params, abort) : ToolResult
+    ONE execute per tool — actions
+    are just a param branched inside
+  }
+  class ToolResult <<envelope>> {
+    +content: what the MODEL reads
+    +details: rich data for UIs (hidden from model)
+    +is_error: failure as DATA, not exception
+    +artifacts: file paths produced (chart.png)
+    EVERY tool returns THIS shape
+  }
+}
+
+' ===================== domain (yellow) =====================
+package "domain" #FEF7E0 {
+  class AssistantMessage {
+    text / stop_reason
+    tool_calls: [ToolCallContent]
+  }
+  class ToolCallContent {
+    id, name="exec",
+    arguments={cmd:"python totals.py"}
+  }
+  class ToolResultMessage {
+    tool_call_id, content,
+    is_error, artifacts
+  }
+}
+
+' ===================== infrastructure (red) — INSIDE engine.run =====================
+package "infrastructure  (the loop, opened up)" #FCE8E6 {
+  class NativeEngine {
+    +run(...) -> run_agent_loop
+  }
+  class "run_agent_loop" as Loop {
+    WHILE not done (iteration cap):
+    L1 stream the LLM
+    L2 got tool_calls? -> dispatch
+    L3 persist results + emit events
+    L4 continue (results join the chat)
+    L5 no calls + real answer -> break
+    (planning/empty turn -> inject nudge, retry)
+  }
+  class "_execute_tool_calls" as Dispatch {
+    the ONE dispatch point:
+    a) tool_map[call.name]   (dict lookup)
+    b) validate_args (JSON Schema)
+    c) await tool.execute(...)  <- polymorphic
+    d) crash -> ToolResult(is_error=True)
+    parallel batch first, sequential after
+  }
+  class litellm_stream {
+    serializes messages + ALL tool schemas
+    into the provider request; parses the
+    raw reply into AssistantMessage
+  }
+  class ReadTool {
+    +execute: read a file
+  }
+  class ExecTool {
+    +execute: run subprocess
+    (python: totals, matplotlib)
+  }
+  class LocalSessionStore {
+    JSONL transcript
+  }
+}
+
+' ===================== your agent (orange) =====================
+package "agents/expense-summarizer/  (content, discovered)" #FFF3E0 {
+  class "SKILL.md monthly-report" as Skill {
+    the playbook: find files ->
+    parse -> total -> chart -> report
+  }
+  class "workspace/*.csv" as CSVs
+  class "plugins/page-pdf/  (private plugin)" as PagePdf {
+    class PagePdfTool(Tool)
+    name="page_to_pdf"
+    same shape -> same socket
+  }
+}
+
+' ---------- request path ----------
+TerminalClient -[#5F6368]-> Gateway : (1) chat.send
+Gateway -[#1A73E8]-> AgentService : (2) handle_message
+AgentService -[#1E8E3E]-> SessionStore : (3) load + append
+AgentService -[#1E8E3E]-> AgentEngine : (4) run(...) and AWAIT
+
+' ---------- the loop internals ----------
+NativeEngine .[#D93025].|> AgentEngine
+NativeEngine -[#D93025]-> Loop : delegates
+Loop -[#D93025]-> LLMService : (5) L1 stream\n(schemas ride along EVERY lap)
+litellm_stream .[#D93025].|> LLMService
+litellm_stream .[#D93025].> AssistantMessage : (6) parses wire JSON into
+AssistantMessage .[#D4A017].> ToolCallContent : carries
+Loop -[#D93025]-> Dispatch : (7) L2 tool_calls present
+Dispatch -[#D93025]-> Tool : (8) execute() via the INTERFACE
+ReadTool .[#D93025].|> Tool
+ExecTool .[#D93025].|> Tool
+PagePdf .[#E8710A].|> Tool : private: offered ONLY\nto this agent
+ReadTool .[#D93025].> ToolResult : returns
+ExecTool .[#D93025].> ToolResult : returns
+Dispatch .[#D93025].> ToolResultMessage : (9) wraps envelope into
+Loop -[#D93025]-> SessionStore : (10) L3 append result
+LocalSessionStore .[#D93025].|> SessionStore
+Loop -[#D93025]-> Gateway : L3 on_event: tool start/end,\ntext deltas, artifacts
+Loop -[#D93025]-> Loop : (11) L4 next lap — model READS\nthe results like chat, decides next
+Gateway -[#1A73E8]-> TerminalClient : (12) chat.event stream\nfinal report + chart.png
+
+' ---------- agent content feeding the run ----------
+Skill -[#E8710A]-> Loop : body read ON DEMAND\n(ordinary `read` call, a lap)
+CSVs -[#E8710A]-> ExecTool : parsed by exec's\nsubprocess in workspace cwd
+
+note bottom of Dispatch #FFF8DC
+  ERRORS ARE CONVERSATION, NOT CONTROL FLOW:
+  unknown tool / bad args / crash all become
+  ToolResult(is_error=True) with readable text.
+  Next lap the model READS the error and
+  self-corrects. No retry machinery anywhere.
+end note
+
+note bottom of Loop #F0FFF0
+  THE EXPENSE RUN, LAP BY LAP:
+  lap1  read SKILL.md (playbook into context)
+  lap2  exec: find June files in workspace
+  lap3  read: parse the CSVs found
+  lap4  exec: python totals + categories
+  lap5  exec: matplotlib -> chart.png (artifact!)
+  lap6  text-only answer, tool_calls=[] -> DONE
+  Same spine as "hi" — "hi" was just lap 1
+  with no tool calls.
+end note
+
+@enduml

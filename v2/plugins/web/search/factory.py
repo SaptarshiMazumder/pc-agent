@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 
-from agentd.application.interfaces.search import SearchProvider
+from agent_runtime.application.interfaces.search import SearchProvider
 from search.providers import (
     PARALLEL_MCP_SEARCH_URL,
     BraveProvider,
@@ -26,7 +26,7 @@ def _search_model(config) -> str:
     # Grounding runs on a DEDICATED fast model, not the (possibly heavy) main model —
     # a reasoning model makes grounding slow enough to blow the web_search timeout. Resolved from
     # the unified plugins map (plugins.web.web_search -> plugins.web -> the brain).
-    from agentd.application.tool_models import search_model
+    from agent_runtime.application.tool_models import search_model
 
     return search_model(config)
 
@@ -37,7 +37,7 @@ def _build_parallel(config) -> ParallelSearchProvider:
     # never touches the network or the `mcp` SDK.
     from types import SimpleNamespace
 
-    from agentd.infrastructure.tools.mcp.session import create_http_session
+    from agent_runtime.infrastructure.tools.mcp.session import create_http_session
 
     url = getattr(config, "parallel_search_url", None) or PARALLEL_MCP_SEARCH_URL
     key = getattr(config, "parallel_api_key", None)
@@ -81,7 +81,7 @@ def _default_order(config) -> list[str]:
 
 
 def build_search_providers(config) -> list[SearchProvider]:
-    from agentd.application.tool_models import resolve_tool_provider
+    from agent_runtime.application.tool_models import resolve_tool_provider
 
     registry = _registry(config)
     # The provider CHAIN is a per-TOOL knob: plugins.web.tools.web_search.provider — a list (explicit

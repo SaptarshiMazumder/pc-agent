@@ -3,7 +3,7 @@ now reading SearchResult attributes instead of dict keys)."""
 
 from __future__ import annotations
 
-from agentd.application.interfaces.search import SearchResult
+from agent_runtime.application.interfaces.search import SearchResult
 
 
 def format_results(results: list[SearchResult], provider: str) -> str:

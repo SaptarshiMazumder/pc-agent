@@ -17,6 +17,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -24,10 +28,23 @@ provider "aws" {
   region = "ap-northeast-1"
 }
 
+# CloudFront-region provider — dns.tf mints the marketplace certificate in us-east-1 because
+# CloudFront reads certificates from nowhere else. The module REQUIRES this alias to be passed
+# (configuration_aliases in modules/providers.tf) even when root_domain is empty.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 module "stack" {
   source = "../../modules"
 
-  environment = "prod"
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  environment = "production"
   # prod hardening: image tags are permanent, and destroy can never eat images.
   image_tag_mutability = "IMMUTABLE"
   ecr_force_delete     = false
@@ -40,13 +57,38 @@ output "repository_urls" {
 output "app_url" {
   value = module.stack.app_url
 }
+output "region" {
+  description = "This environment's AWS region (push-images.ps1, set-keys.ps1 and deploy.yml read it)."
+  value       = module.stack.region
+}
+output "hosted_zone_name_servers" {
+  description = "Route 53 nameservers for root_domain — paste these at the registrar (DOMAIN-SETUP.md step 2)."
+  value       = module.stack.hosted_zone_name_servers
+}
+
+output "domain_urls" {
+  description = "Every hostname the managed domain serves — open these to verify the domain end to end."
+  value       = module.stack.domain_urls
+}
+
+
+
+output "platform_url" {
+  description = "[platform] platform_url - THE ONE address a client bakes; everything else is discovered from it."
+  value       = module.stack.platform_url
+}
 
 output "accounts_url" {
   value = module.stack.accounts_url
 }
 
+output "model_proxy_url" {
+  value = module.stack.model_proxy_url
+}
+
+# Deprecated compatibility alias.
 output "model_gateway_url" {
-  value = module.stack.model_gateway_url
+  value = module.stack.model_proxy_url
 }
 
 output "registry_url" {
@@ -55,4 +97,16 @@ output "registry_url" {
 
 output "registry_bucket" {
   value = module.stack.registry_bucket
+}
+
+output "marketplace_url" {
+  value = module.stack.marketplace_url
+}
+
+output "marketplace_site_bucket" {
+  value = module.stack.marketplace_site_bucket
+}
+
+output "marketplace_distribution_id" {
+  value = module.stack.marketplace_distribution_id
 }

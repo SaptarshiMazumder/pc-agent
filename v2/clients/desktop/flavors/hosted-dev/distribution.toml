@@ -1,9 +1,13 @@
 # HOSTED-DEV flavor — the full hosted-platform product wired to LOCALHOST services, for
 # end-to-end testing before (and without) AWS:
-#   accounts:  python v2/deploy/accounts/run-local.py      (:4100)
-#   gateway:   python v2/deploy/gateway/run-local.py       (:4000, custom auth; set
+#   accounts:  python v2/accounts/run-local.py             (:4100)
+#   model proxy: python v2/model_proxy/run-local.py        (:4000, custom auth; set
 #              ACCOUNTS_URL=http://127.0.0.1:4100 and ACCOUNTS_INTERNAL_KEY=devinternal)
 #   registry:  python v2/deploy/registry/publish.py --serve  (:8877, signed local index)
+#
+# Shortcut for the first two: `python v2/deploy/dev.py --model-proxy --no-web` starts accounts
+# + the proxy already wired to each other (and a spare hosted daemon on :8790, harmless here —
+# this flavor's shell spawns its OWN daemon on :8787).
 #
 # Run the desktop shell against it:   AGENTD_FLAVOR=hosted-dev npm run dev
 # Expected flow: sign-in gate on first launch -> signup -> Store lists the published agents
@@ -19,5 +23,23 @@ registry_url = "http://127.0.0.1:8877/index.json"
 # publisher_key = "<paste the base64 public key from `agentd bundle keygen` to test signing>"
 
 [platform]
+# THE ONE ADDRESS THIS BUILD BAKES. Everything else about the deployment — where to sign in,
+# the model proxy, which issuer's tokens to trust, which login providers to offer — is fetched
+# from <platform_url>/.well-known/agentd-platform at runtime.
+#
+# It replaced four independently-baked ALB hostnames. Each of those carries an AWS-assigned
+# suffix that changes on any destroy/recreate, and nothing forced sync-platform-urls to run
+# before a build — so every release froze another stale set, and the artifacts under dist/ point
+# at three different long-dead load balancers. The user-visible symptom was not an obvious
+# failure: two clients built at different times signed in against two different accounts
+# databases, so the same email was two accounts with two separate credit balances.
+#
+# The keys below it are FALLBACKS, used only when discovery cannot be reached (offline) or by a
+# client too old to know about it.
+platform_url = "http://127.0.0.1:4100"
 accounts_url = "http://127.0.0.1:4100"
-model_gateway_url = "http://127.0.0.1:4000"
+model_proxy_url = "http://127.0.0.1:4000"
+# Loopback, so sync-platform-urls leaves it alone (the value IS the intent). `dev.py` starts a
+# local ingest on this port, which is what makes the opt-in diagnostics toggle testable without
+# deploying anything.
+ingest_url = "http://127.0.0.1:4200"

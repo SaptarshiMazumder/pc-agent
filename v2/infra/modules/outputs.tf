@@ -3,34 +3,227 @@ output "repository_urls" {
   value       = { for name, repo in aws_ecr_repository.this : name => repo.repository_url }
 }
 
+output "model_proxy_repo_url" {
+  description = "Where to push the Model Proxy image."
+  value       = aws_ecr_repository.this["model-proxy"].repository_url
+}
+
 output "gateway_repo_url" {
-  description = "Where to push the gateway image."
-  value       = aws_ecr_repository.this["gateway"].repository_url
+  description = "Deprecated compatibility alias for model_proxy_repo_url."
+  value       = aws_ecr_repository.this["model-proxy"].repository_url
+}
+
+# EVERY URL BELOW IS "" WHILE HIBERNATING, because there is no load balancer to name. That empty
+# string is load-bearing rather than sloppy: sync-platform-urls.mjs skips a blank value, so a
+# hibernated environment leaves the desktop flavors holding their last known URLs instead of
+# blanking them into a build that cannot reach anything.
+locals {
+  # ONE place decides scheme + host, so a TLS switch cannot half-apply. These outputs feed the
+  # desktop flavors (sync-platform-urls.mjs) and the web image's build args, so if `app_url` went
+  # https while `accounts_url` stayed http, the app would load over TLS and then be blocked by
+  # the browser for making an insecure request — a failure that looks like the backend is down.
+  #
+  # `public_host` prefers the domain the certificate is for: hitting an https listener via the
+  # ALB's own *.elb.amazonaws.com name fails the certificate check, so once TLS is on, the ALB
+  # hostname is no longer a usable address.
+  url_scheme = local.tls_enabled ? "https" : "http"
+  # Explicit `domain_name` wins (an environment naming a host the module does not manage), then
+  # the managed domain's apex (dns.tf), then the raw ALB hostname — the pre-domain world.
+  public_host = var.domain_name != "" ? var.domain_name : (
+    local.dns_managed ? var.root_domain : local.alb_dns
+  )
+  # With TLS, web sits on 443 and the URL carries no port at all.
+  app_origin = local.public_host == "" ? "" : (
+    local.tls_enabled ? "https://${local.public_host}" : "http://${local.public_host}"
+  )
 }
 
 output "app_url" {
-  description = "The public URL of the app (serves once the containers are healthy)."
-  value       = "http://${aws_lb.main.dns_name}"
+  description = "The public URL of the app (serves once the containers are healthy). Empty while hibernating."
+  value       = local.app_origin
 }
 
-# ── Desktop-flavor wiring: these three values go into the flavors' distribution.toml ──
+# ── Desktop-flavor wiring: these values go into the flavors' distribution.toml ──
+
+output "platform_url" {
+  description = <<-EOT
+    [platform] platform_url — THE ONE address a build bakes. Clients fetch
+    <platform_url>/.well-known/agentd-platform for everything else (sign-in, model proxy, ws,
+    issuer, providers), so a destroy/recreate cannot leave a shipped installer pointing at a dead
+    load balancer. The per-service outputs below remain for builds that predate discovery.
+  EOT
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
+}
 
 output "accounts_url" {
-  description = "[platform] accounts_url for the desktop flavors (sign-in endpoint)."
-  value       = "http://${aws_lb.main.dns_name}:4100"
+  description = "[platform] accounts_url for the desktop flavors (sign-in endpoint). Superseded by platform_url; kept for older builds."
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}"
+}
+
+output "model_proxy_url" {
+  description = "[platform] model_proxy_url for the desktop flavors (platform keys)."
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 }
 
 output "model_gateway_url" {
-  description = "[platform] model_gateway_url for the desktop flavors (platform keys)."
-  value       = "http://${aws_lb.main.dns_name}:4000"
+  description = "Deprecated compatibility alias for model_proxy_url."
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+}
+
+output "ingest_url" {
+  description = "[platform] ingest_url for the desktop flavors and the web build (opt-in client telemetry). Empty in a client's config = the uploader stays off."
+  value       = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["ingest"].port}"
 }
 
 output "registry_url" {
   description = "[store] registry_url for the desktop flavors (public marketplace index)."
-  value       = "https://${aws_s3_bucket.registry.bucket}.s3.${var.region}.amazonaws.com/index.json"
+  value       = local.registry_index_url
 }
 
 output "registry_bucket" {
   description = "Upload target for deploy/registry/publish.py (aws s3 sync)."
   value       = aws_s3_bucket.registry.bucket
+}
+
+# ── the public marketplace ──────────────────────────────────────────────────────────────
+#
+# Unlike every URL above, these do NOT empty while hibernating: the marketplace has no load
+# balancer and no container behind it, so pausing compute leaves the storefront standing.
+
+output "marketplace_url" {
+  description = "The public marketplace. Its own https address with no certificate of ours; also the target a custom domain's ALIAS/CNAME record points at."
+  value       = local.marketplace_domain != "" ? "https://${local.marketplace_domain}" : "https://${aws_cloudfront_distribution.marketplace.domain_name}"
+}
+
+# ── the managed domain (dns.tf) ─────────────────────────────────────────────────────────
+#
+# THE ONE MANUAL STEP after the first apply of a new root_domain: set these four names as the
+# domain's nameservers at the registrar. Until then the zone answers nobody, ACM cannot
+# validate, and the certificate apply waits — see environments/dev/DOMAIN-SETUP.md.
+output "hosted_zone_name_servers" {
+  description = "Route 53 nameservers for root_domain — paste these at the registrar. Empty when the module manages no domain."
+  value       = local.dns_managed ? aws_route53_zone.main[0].name_servers : []
+}
+
+output "domain_urls" {
+  description = "Every hostname the managed domain serves, spelled out — what to open to verify a fresh domain end to end."
+  value = local.dns_managed ? {
+    app         = "https://${var.root_domain}"
+    admin       = var.admin_hostname != "" ? "https://${var.admin_hostname}" : "https://${var.root_domain}/admin"
+    marketplace = "https://marketplace.${var.root_domain}"
+    agents      = { for host, id in var.agent_hostnames : id => "https://${host}" }
+    published   = "https://<bundle-id>.${var.root_domain}"
+    # null, not {}: the two arms of a conditional must be the same TYPE, and an empty object
+    # does not match one with attributes — null matches anything.
+  } : null
+}
+
+output "marketplace_site_bucket" {
+  description = "Where the built page is uploaded (`aws s3 sync clients/marketplace/dist s3://<this>`)."
+  value       = aws_s3_bucket.marketplace.bucket
+}
+
+output "marketplace_distribution_id" {
+  description = "For the invalidation that follows every upload. Skip it and visitors keep the previous page until the cache expires — a deploy that looks like it did nothing."
+  value       = aws_cloudfront_distribution.marketplace.id
+}
+
+output "alerts_topic_arn" {
+  description = "SNS topic every alarm publishes to. Check subscriptions are CONFIRMED, not PendingConfirmation."
+  value       = aws_sns_topic.alerts.arn
+}
+
+output "alarm_names" {
+  description = "Every alarm created, for `aws cloudwatch describe-alarms --alarm-names`. Any of these stuck in INSUFFICIENT_DATA after traffic has flowed means its metric-math search matched nothing."
+  value = concat(
+    [
+      aws_cloudwatch_metric_alarm.unbilled_spend.alarm_name,
+      aws_cloudwatch_metric_alarm.ledger_write_failures.alarm_name,
+      aws_cloudwatch_metric_alarm.ledger_buffer_backlog.alarm_name,
+      aws_cloudwatch_metric_alarm.cap_overspend.alarm_name,
+      aws_cloudwatch_metric_alarm.accounts_unreachable.alarm_name,
+      # `proxy_5xx` and the per-service unhealthy alarms are ALB-bound, so they vanish while
+      # hibernating; the concat below tolerates an empty list rather than failing the plan.
+      aws_cloudwatch_metric_alarm.cost_per_hour.alarm_name,
+      aws_cloudwatch_metric_alarm.resolve_latency.alarm_name,
+      aws_cloudwatch_metric_alarm.login_rejections.alarm_name,
+    ],
+    [for a in aws_cloudwatch_metric_alarm.unhealthy_targets : a.alarm_name],
+    [for a in aws_cloudwatch_metric_alarm.no_successful_logins : a.alarm_name],
+    [aws_cloudwatch_metric_alarm.scheduled_jobs_failing.alarm_name],
+    [for a in aws_cloudwatch_metric_alarm.scheduled_jobs_absent : a.alarm_name],
+  )
+}
+
+output "scheduled_jobs_function" {
+  description = "The Lambda every schedule invokes. Run a job on demand with `aws lambda invoke --function-name <this> --payload '{\"job\":\"manual\",\"path\":\"/ledger/snapshot\"}' --cli-binary-format raw-in-base64-out out.json` — the same payload the clock sends."
+  value       = aws_lambda_function.scheduled_jobs.function_name
+}
+
+output "scheduled_jobs" {
+  description = "Every schedule: when it fires and what it calls, AFTER this environment's overrides — reading var.scheduled_jobs here would report the default cadence rather than the one deployed. `aws scheduler list-schedules` confirms they exist and are ENABLED."
+  value = {
+    for name, job in local.scheduled_jobs : aws_scheduler_schedule.job[name].name => {
+      path     = job.path
+      schedule = "${job.schedule} ${var.scheduled_job_timezone}"
+      enabled  = job.enabled
+    }
+  }
+}
+
+output "scheduled_jobs_log_group" {
+  description = "Where each scheduled run's result is logged (job, outcome, status, result)."
+  value       = aws_cloudwatch_log_group.scheduled_jobs.name
+}
+
+output "dashboard_urls" {
+  description = "Direct links to the two dashboards. Service health during an incident; business daily."
+  value = {
+    service_health = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.service_health.dashboard_name}"
+    business       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.business.dashboard_name}"
+  }
+}
+
+# ── the publish service ─────────────────────────────────────────────────────────────────
+
+output "publish_ecr_repository" {
+  description = "Push the publish image here, then set publish_image_tag and apply again."
+  value       = aws_ecr_repository.publish.repository_url
+}
+
+output "publish_url" {
+  description = "What an author's client sets as publish_target. Empty until publish_image_tag is set."
+  value       = local.publish_public_url
+}
+
+output "publish_creators_table" {
+  description = "DynamoDB table holding creator identities - the table `agentd bundle roster admit` reads."
+  value       = aws_dynamodb_table.creators.name
+}
+
+output "publish_kms_key" {
+  description = "KMS key that wraps creator signing keys - what `agentd bundle roster upload-root` wraps the vaulted root key with."
+  value       = aws_kms_alias.publish.name
+}
+
+# ── builder service (builder.tf) ─────────────────────────────────────────────
+
+output "builder_ecr_repository" {
+  description = "Push the builder image here, then set builder_image_tag and apply again."
+  value       = aws_ecr_repository.builder.repository_url
+}
+
+output "builder_url" {
+  description = "Where the daemon sends builds. Empty until builder_image_tag is set."
+  value       = local.builder_public_url
+}
+
+output "builder_scratch_bucket" {
+  description = "The sources-in / results-out conveyor belt. Everything expires after a day."
+  value       = aws_s3_bucket.builder_scratch.bucket
+}
+
+output "region" {
+  description = "The region this environment lives in — scripts and CI read it from here instead of hardcoding it, so the EU production move is a provider-block change in ONE root module."
+  value       = data.aws_region.current.name
 }

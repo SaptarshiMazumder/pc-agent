@@ -6,11 +6,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure import signing
-from agentd.infrastructure.licensing import entitled_skus, issue_license, load_licenses
-from agentd.infrastructure.licensing.license_store import parse_license
-from agentd.infrastructure.plugins.entitlement import LicenseEntitlement
-from agentd.infrastructure.plugins.manifest import PluginManifest
+from agent_runtime.infrastructure import signing
+from agent_runtime.infrastructure.licensing import entitled_skus, issue_license, load_licenses
+from agent_runtime.infrastructure.licensing.license_store import parse_license
+from agent_runtime.infrastructure.plugins.entitlement import LicenseEntitlement
+from agent_runtime.infrastructure.plugins.manifest import PluginManifest
 
 
 def _keys():

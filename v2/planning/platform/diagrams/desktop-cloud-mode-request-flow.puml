@@ -1,0 +1,247 @@
+@startuml desktop-cloud-mode-request-flow
+' ============================================================================
+'  agentd desktop - CLOUD MODE (platform keys)
+'  Activity-flowchart view. The daemon, state and tools remain LOCAL.
+'
+'  EVERY partition is tagged with WHERE IT RUNS:
+'    (USER PC)     - the user's machine. Gateway, agent loop, tools, transcripts.
+'    (ON AWS)      - our fleet. Accounts + Model Proxy + the provider keys.
+'    (THIRD PARTY) - the model vendor, reached FROM AWS, never from the PC.
+'
+'  Render (from this folder):
+'    java -jar ../../../plantuml.jar -tpng desktop-cloud-mode-request-flow.puml
+' ============================================================================
+
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam ArrowFontColor #444444
+skinparam ArrowFontSize 11
+skinparam ActivityBorderColor #6A6A6A
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFF4E5
+skinparam ActivityDiamondBorderColor #C9A227
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #C9B458
+skinparam partitionBorderColor #9AA0B5
+skinparam partitionFontStyle bold
+skinparam partitionFontSize 13
+
+title Desktop Client - CLOUD Mode (platform keys)\nLocal agentd execution; hosted authentication, model proxy, provider keys and metering\n(USER PC) = runs on the user's machine    (ON AWS) = runs on our fleet    (THIRD PARTY) = the model vendor
+
+start
+
+partition "0 . DESKTOP SIGN-IN - auth.ts   (USER PC)" #E8F0FE {
+  :User enters email + password;
+  :**auth.login()** -> Accounts `POST /login`;
+}
+
+partition "1 . HOSTED ACCOUNTS SERVICE :4100 - v2/accounts/app.py   (ON AWS)" #FFF0F0 {
+  :verify password; create account session;
+  :return {sess_ token, account_id, email};
+}
+
+partition "0 . DESKTOP STARTUP + CLOUD MODE BINDING   (USER PC)" #E8F0FE {
+  :save Session in desktop localStorage;
+  :**Supervisor.ensure()**  (supervisor.ts)\nfind or spawn LOCAL `python -m agent_runtime`;
+  :**GatewayClient.connect()** to localhost :8787\nusing the daemon's separate machine token;
+  :Cloud mode -> **connectPlatform()**  (store.ts)\n`GatewayClient.request("platform.connect", {sess_ token})`;
+}
+
+partition "2 . LOCAL PRESENTATION - Gateway (gateway.py)   (USER PC)" #FDECEA {
+  :**Gateway._handle_conn()** authenticates the desktop\nwith the LOCAL machine token;
+  :**Gateway._platform_connect()**\npersist sess_ token as AGENTD_MODEL_PROXY_KEY\nin local ~/.agentd/.env;
+}
+
+partition "3 . LOCAL INFRASTRUCTURE - model_proxy.py   (USER PC)" #F3E8FF {
+  :**model_proxy.configure(config)**\nenable hosted api_base from distribution/config;\nuse sess_ token as model-proxy credential;
+}
+
+note right
+  TWO DIFFERENT TOKENS
+  - machine token: Desktop -> local Gateway        (never leaves the USER PC)
+  - sess_ token:   local LiteLLM adapter -> hosted Model Proxy   (USER PC -> AWS)
+
+  NEITHER is a provider key. No GEMINI_API_KEY / OPENAI_API_KEY value
+  ever exists on the USER PC in Cloud mode.
+end note
+
+partition "4 . DESKTOP CLIENT - React UI + GatewayClient   (USER PC)" #E8F0FE {
+  :User types a message;
+  :**store.ts :: sendMessage()**\nadd optimistic user bubble; mark session running;
+  :**GatewayClient.request("chat.send")**\n{sessionKey, message, agentId, projectId,\n attachments, idempotencyKey};
+}
+
+partition "5 . LOCAL PRESENTATION - Gateway + RunHandle   (USER PC)" #FDECEA {
+  :**Gateway._dispatch() -> _chat_send()**\nvalidate message/agent; save attachments locally;\napply idempotency + active-run checks;
+  :create **RunHandle**\n{runId, sessionKey, abort, client_id};
+  :start `asyncio.create_task(Gateway._run(...))`;
+  :return correlated WebSocket `res {runId}` IMMEDIATELY\n(the background run continues);
+}
+
+partition "6 . LOCAL APPLICATION - AgentService + RunContext   (USER PC)" #E6F4EA {
+  :**Gateway._run()** creates the EventSink callback\nthen calls **AgentService.handle_message()**;
+  :resolve agent through the injected **AgentRegistry** port;
+}
+
+partition "7 . LOCAL INFRASTRUCTURE - registry adapter   (USER PC)" #F3E8FF {
+  :**FileAgentRegistry.get(agentId)**\nread agents/<id> -> return AgentSpec;
+}
+
+partition "8 . LOCAL DOMAIN - pure types and rules (no I/O)   (USER PC)" #FFF4E5 {
+  :**AgentSpec + RunMode.INTERACTIVE**;
+  :**select_tools() + apply_mode()**\nreturn the tools this agent may use;
+  :construct **UserMessage**;
+}
+
+partition "6 . LOCAL APPLICATION - AgentService + RunContext   (USER PC)" #E6F4EA {
+  :set **RunContext**\n{agent_id, workspace, plugin/model overrides};
+}
+
+partition "7 . LOCAL INFRASTRUCTURE - SessionStore   (USER PC)" #F3E8FF {
+  :**SessionStore.load()** local JSONL transcript;
+  :**SessionStore.append(UserMessage)**;
+}
+
+partition "6 . LOCAL APPLICATION - AgentService   (USER PC)" #E6F4EA {
+  :build system prompt\nidentity + context + skill descriptions + tool schemas;
+  :invoke concrete **NativeEngine.run()** through AgentEngine port;
+}
+
+repeat
+  partition "9 . LOCAL INFRASTRUCTURE - NativeEngine + LiteLLM adapter   (USER PC)" #EDE7F6 {
+    :begin one **run_agent_loop()** turn;
+    :**litellm_stream()** converts local domain Message[]\n+ prompt + tool schemas to completion arguments;
+    :**model_proxy.apply(kwargs)**\nmodel = litellm_proxy/<model>\napi_base = hosted Model Proxy\napi_key = sess_ token;
+  }
+
+  note right
+    ==== THE USER PC / AWS BOUNDARY ====
+    Everything above this line ran on the USER PC.
+    This is the FIRST byte to leave the machine.
+  end note
+
+  partition "10 . HOSTED MODEL PROXY :4000 - v2/model_proxy   (ON AWS)" #FFF0F0 {
+    :receive OpenAI-compatible streaming completion;
+    :**custom_auth.user_api_key_auth()**\nmaster key? NO -> session-token path;
+  }
+
+  if (token -> account_id cached?) then (yes)
+    partition "10 . HOSTED MODEL PROXY :4000   (ON AWS)" #FFF0F0 {
+      :reuse short-TTL account_id cache;
+    }
+  else (no)
+    partition "1 . HOSTED ACCOUNTS SERVICE :4100   (ON AWS)" #FFF0F0 {
+      :Model Proxy calls `GET /resolve`\nAuthorization: Bearer sess_...;
+      if (session token valid?) then (yes)
+        :return account_id;
+      else (no)
+        :reject invalid/expired token;
+        stop
+      endif
+    }
+  endif
+
+  partition "10 . HOSTED MODEL PROXY :4000   (ON AWS)" #FFF0F0 {
+    :authentication accepted;\nload real provider key from model-proxy environment\n(seeded from AWS Secrets Manager - NEVER sent to the USER PC);
+  }
+
+  partition "11 . EXTERNAL MODEL PROVIDER   (THIRD PARTY - called FROM AWS)" #E0F2F1 {
+    :run completion using PLATFORM provider key;
+    :stream thinking, visible text, tool-call chunks and usage;
+  }
+
+  partition "10 . HOSTED MODEL PROXY :4000   (ON AWS)" #FFF0F0 {
+    :proxy streaming chunks back to the local daemon;
+    :**AccountsUsageLogger.async_log_success_event()**\nextract account_id + token counts + cost;
+    :Accounts `POST /usage`\n{account_id, model, in_tokens, out_tokens, cost_usd}\nwith X-Internal-Key;
+  }
+
+  partition "1 . HOSTED ACCOUNTS SERVICE :4100   (ON AWS)" #FFF0F0 {
+    :append the authoritative usage-ledger row;
+  }
+
+  partition "9 . LOCAL INFRASTRUCTURE - NativeEngine + LiteLLM adapter   (USER PC)" #EDE7F6 {
+    :normalize proxied chunks;\nbuild **AssistantMessage** + **AgentEvent** values;
+  }
+
+  partition "12 . LIVE OUTPUT - Local Presentation -> Desktop   (USER PC)" #E3F2FD {
+    :on every delta, **Gateway._broadcast()** wraps the AgentEvent\nas a `chat.event` local WebSocket frame;
+    :**GatewayClient.handleFrame() -> store.handleAgentEvent()**\nrender thinking/text/tool progress immediately;
+  }
+
+  switch (What did AssistantMessage contain?)
+
+  case ( TOOL CALLS )
+    partition "9 . LOCAL INFRASTRUCTURE - local tool execution   (USER PC)" #EDE7F6 {
+      :validate and run selected Tool LOCALLY\nfiles / exec / browser / web / MCP / plugin tool\nthrough its GuardedTool wrapper;
+    }
+    partition "8 . LOCAL DOMAIN - messages.py   (USER PC)" #FFF4E5 {
+      :construct **ToolResultMessage**\n(+ Artifact values / error);
+    }
+    partition "7 . LOCAL INFRASTRUCTURE - SessionStore   (USER PC)" #F3E8FF {
+      :persist AssistantMessage + ToolResultMessage locally;
+    }
+    partition "9 . LOCAL INFRASTRUCTURE - NativeEngine   (USER PC)" #EDE7F6 {
+      :append ToolResultMessage to local Message[];\nnext turn repeats the METERED proxy path;
+    }
+
+  case ( FINAL TEXT )
+    partition "9 . LOCAL INFRASTRUCTURE - completion policy   (USER PC)" #EDE7F6 {
+      if (planning-only, reasoning-only, empty,\nfollow-up queued, or verification requests revision?) then (INCOMPLETE)
+        :inject continuation/follow-up/revision message\nand continue the loop;
+      else (GENUINELY DONE)
+        :accept AssistantMessage as final;
+      endif
+    }
+
+  case ( ERROR / ABORT )
+    partition "9 . LOCAL INFRASTRUCTURE - NativeEngine   (USER PC)" #EDE7F6 {
+      :mark stopReason = error or aborted;
+    }
+
+  endswitch
+
+repeat while (another model turn required?) is (yes) not (no)
+
+partition "13 . FINAL OUTPUT + LOCAL PERSISTENCE   (USER PC)" #E0F2F1 {
+  :**SessionStore.append(AssistantMessage)** locally;
+  :emit **AgentEvent("agent_end", {stopReason})**;
+  :**Gateway._broadcast() -> GatewayClient -> Zustand store**;
+  :mark session not running; show final answer to user;
+}
+
+stop
+
+note right
+  CLOUD MODE BOUNDARY
+  (USER PC): Gateway, AgentService, RunContext, Message[], NativeEngine,
+             SessionStore, workspace and every Tool.
+  (ON AWS):  account authentication, provider keys, model forwarding,
+             account attribution and usage ledger.
+
+  Only ONE hop crosses the boundary: the model call itself. It is made
+  once PER MODEL TURN, so a tool-using answer crosses it several times.
+end note
+
+note right
+  The local desktop daemon has accounts.enabled() == false.
+  It does not authenticate its WebSocket with the account token
+  and does not write usage. Proxy-side metering is authoritative.
+end note
+
+legend left
+  | Layer/service | Runs on | Exact implementation shown |
+  | Desktop | USER PC | Supervisor, GatewayClient, auth.ts, store.ts |
+  | Local Presentation | USER PC | Gateway, RunHandle, WebSocket req/res/event |
+  | Local Application | USER PC | AgentService, RunContext, injected ports |
+  | Local Domain | USER PC | AgentSpec, RunMode, Message types, AgentEvent, rules |
+  | Local Infrastructure | USER PC | FileAgentRegistry, SessionStore, NativeEngine, LiteLLM, Tools |
+  | Hosted Accounts | ON AWS | /login, /resolve, /usage |
+  | Hosted Model Proxy | ON AWS | user_api_key_auth, AccountsUsageLogger, provider secrets |
+  | Model provider | THIRD PARTY | Gemini / OpenAI / DeepSeek, called only from the Model Proxy |
+endlegend
+
+@enduml

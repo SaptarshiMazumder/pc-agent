@@ -7,9 +7,8 @@
 name: CI slow tests
 
 on:
-  push:
-    branches: [develop, main]
-    paths: ['v2/**', '.github/workflows/ci-slow-tests.yml']
+  # NOT on push (removed 2026-08-08, user's call): a push to develop is a DEPLOY, and nothing
+  # test-shaped should run alongside it. On-demand only until asked otherwise.
   workflow_dispatch: {}          # run on-demand from the Actions tab
   # schedule:
   #   - cron: '0 6 * * *'        # (optional) nightly - uncomment to enable
@@ -25,9 +24,9 @@ jobs:
   slow:
     name: Browser + live tests
     runs-on: ubuntu-latest
-    # Fork PRs can't read secrets and shouldn't run this. (No pull_request trigger today, so this
-    # is future-proofing for when live tests + secrets are added.)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # No `if:` guard: workflow_dispatch is the only trigger, and dispatch is already restricted to
+    # people with write access — so the fork-PR-can't-read-secrets case cannot arise. Re-add the
+    # guard together with any pull_request trigger, never separately.
     defaults:
       run:
         working-directory: v2
@@ -41,10 +40,16 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: v2/pyproject.toml
+          cache-dependency-path: |
+            v2/pyproject.toml
+            v2/monitoring/pyproject.toml
 
       - name: Install (editable + dev extras)
         run: pip install -e ".[dev]"
+
+      # Its own distribution, not an extra — see the note in ci-fast-tests.yml.
+      - name: Install telemetry library (v2/monitoring)
+        run: pip install -e monitoring
 
       - name: Install Chromium (with OS deps) for Playwright
         run: python -m playwright install --with-deps chromium

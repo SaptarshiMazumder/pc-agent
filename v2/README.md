@@ -10,7 +10,7 @@ plus a thin terminal client. Any LLM via LiteLLM. Self-contained: keys come from
 terminal client (python -m clients.terminal)
     │  WebSocket: chat.send {sessionKey, message, idempotencyKey}
     ▼
-gateway (python -m agentd)            ← responds {runId} immediately, runs async
+gateway (python -m agent_runtime)            ← responds {runId} immediately, runs async
     │  agent loop: LLM → tool calls → execute → results → LLM … until done
     │  + continuation/verification retries (planning/reasoning/empty, verify hook)
     ▼
@@ -76,7 +76,7 @@ Use the local venv's python so it stays isolated:
 
 ```powershell
 # Terminal 1 (gateway)
-.\.venv\Scripts\python.exe -X utf8 -m agentd
+.\.venv\Scripts\python.exe -X utf8 -m agent_runtime
 
 # Terminal 2 (client)
 .\.venv\Scripts\python.exe -X utf8 -m clients.terminal      # --session <id> to resume
@@ -84,7 +84,7 @@ Use the local venv's python so it stays isolated:
 
 Client commands: `/abort` `/new` `/quit`
 
-Tip: `.\.venv\Scripts\Activate.ps1` once, then plain `python -X utf8 -m agentd`.
+Tip: `.\.venv\Scripts\Activate.ps1` once, then plain `python -X utf8 -m agent_runtime`.
 
 ## Tests
 

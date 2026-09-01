@@ -50,7 +50,7 @@ python -m venv .venv
 # Create v2/.env from .env.example and add a provider key (e.g. GEMINI_API_KEY)
 
 # Terminal 1 — gateway
-.\.venv\Scripts\python.exe -X utf8 -m agentd
+.\.venv\Scripts\python.exe -X utf8 -m agent_runtime
 # Terminal 2 — client
 .\.venv\Scripts\python.exe -X utf8 -m clients.terminal
 ```
@@ -111,7 +111,25 @@ python -m venv .venv
 # .env.example をコピーして v2/.env を作成し、プロバイダーキー（例：GEMINI_API_KEY）を記入
 
 # ターミナル1 — ゲートウェイ
-.\.venv\Scripts\python.exe -X utf8 -m agentd
+.\.venv\Scripts\python.exe -X utf8 -m agent_runtime
 # ターミナル2 — クライアント
 .\.venv\Scripts\python.exe -X utf8 -m clients.terminal
 ```
+
+
+```Bash
+ ./.venv/Scripts/python.exe -m agent_runtime.cli.main chat --agent agent-builder
+
+cd v2/client/desktop
+npx electron-vite dev
+
+
+cd v2
+./deploy/scripts/redeploy.sh staging            # full: terraform, build all 5, push, roll, verify
+./deploy/scripts/redeploy.sh staging --no-build  # just restart what's in ECR
+./deploy/scripts/redeploy.sh staging --only web  # one image
+./deploy/scripts/redeploy.sh staging --skip-tf   # skip terraform
+
+
+cd v2/clients/desktop
+./scripts/build-exe.sh

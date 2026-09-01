@@ -14,11 +14,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.bundle import BundleError, BundleManifest, PluginDep
-from agentd.infrastructure import signing
-from agentd.infrastructure.marketplace import bundle_io
-from agentd.infrastructure.marketplace.factory import build_marketplace_service
-from agentd.infrastructure.marketplace.index_builder import build_index
+from agent_runtime.domain.bundle import BundleError, BundleManifest, PluginDep
+from agent_runtime.infrastructure import signing
+from agent_runtime.infrastructure.marketplace import bundle_io
+from agent_runtime.infrastructure.marketplace.factory import build_marketplace_service
+from agent_runtime.infrastructure.marketplace.index_builder import build_index
 
 
 def _make_agent_dir(root: Path, agent_id: str = "demo-agent") -> Path:
@@ -66,7 +66,7 @@ def _pack(
 def test_default_local_registry(tmp_path):
     """Local-first store: <state_dir>/registry counts as configured ONLY once an
     index.json is built there (empty dir = still 'not set up')."""
-    from agentd.config import default_local_registry
+    from agent_runtime.config import default_local_registry
 
     assert default_local_registry(tmp_path) == ""
     (tmp_path / "registry").mkdir()

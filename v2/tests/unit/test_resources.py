@@ -13,12 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from resource_tool import ResourceTool
 
-from agentd.application import run_context as rc
-from agentd.application.run_context import RunContext
-from agentd.domain.resource import Resource
-from agentd.infrastructure.resources.describe import BasicDescriber, _image_dims
-from agentd.infrastructure.resources.manager import ResourceManager
-from agentd.infrastructure.resources.store import SqliteResourceStore
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.run_context import RunContext
+from agent_runtime.domain.resource import Resource
+from agent_runtime.infrastructure.resources.describe import BasicDescriber, _image_dims
+from agent_runtime.infrastructure.resources.manager import ResourceManager
+from agent_runtime.infrastructure.resources.store import SqliteResourceStore
 
 
 def _png(w, h):
@@ -276,13 +276,13 @@ def test_describe_rich_uses_injected_fn(tmp_path):
 
 
 def test_build_rich_fn_off_by_default():
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     assert build_rich_fn(SimpleNamespace(resource_vision_enabled=False)) is None
 
 
 def test_build_rich_fn_none_without_api_key(monkeypatch):
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -291,7 +291,7 @@ def test_build_rich_fn_none_without_api_key(monkeypatch):
 
 def test_rich_fn_skips_non_images_without_api_call(monkeypatch):
     # builds the fn (key present) but a non-image returns "" BEFORE any client/network use
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fn = build_rich_fn(
@@ -306,7 +306,7 @@ def test_rich_fn_skips_non_images_without_api_call(monkeypatch):
 
 
 def test_build_rich_fn_on_for_summarize_only(monkeypatch):
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fn = build_rich_fn(
@@ -321,7 +321,7 @@ def test_build_rich_fn_on_for_summarize_only(monkeypatch):
 
 def test_summary_tier_needs_no_gemini_key(monkeypatch):
     # text summaries go through litellm -> they do NOT need a Gemini key (the split)
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -337,7 +337,7 @@ def test_summary_tier_needs_no_gemini_key(monkeypatch):
 
 def test_vision_only_without_key_is_none(monkeypatch):
     # vision needs google-genai + a Gemini key; without it (and no summary tier) -> None
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -346,7 +346,7 @@ def test_vision_only_without_key_is_none(monkeypatch):
 
 def test_rich_fn_skips_text_when_summarize_off(monkeypatch):
     # vision ON, summarize OFF -> a script returns "" (no LLM call), stays on basic
-    from agentd.infrastructure.resources.vision import build_rich_fn
+    from agent_runtime.infrastructure.resources.vision import build_rich_fn
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fn = build_rich_fn(
@@ -361,7 +361,7 @@ def test_rich_fn_skips_text_when_summarize_off(monkeypatch):
 
 
 def test_text_for_helper():
-    from agentd.infrastructure.resources.vision import _text_for
+    from agent_runtime.infrastructure.resources.vision import _text_for
 
     assert "print" in _text_for(Path("a.py"), b"print(1)\n")  # text -> decoded
     assert _text_for(Path("a.bin"), b"\x00\x01\x02binary") == ""  # binary non-doc -> ""

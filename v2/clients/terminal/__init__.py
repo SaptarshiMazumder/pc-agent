@@ -1,1 +1,1 @@
-"""Shim: the terminal REPL moved into the package (agentd.clients.terminal)."""
+"""Shim: the terminal REPL moved into the package (agent_runtime.clients.terminal)."""

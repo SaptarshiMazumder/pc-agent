@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 import figures_routing as routing
 
 

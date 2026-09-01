@@ -18,8 +18,8 @@ import json
 import time
 from pathlib import Path
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.infrastructure.tools.browser.snapshot import resolve_snapshot_plan
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.infrastructure.tools.browser.snapshot import resolve_snapshot_plan
 
 _MODIFIER_ALIASES = {
     "ctrl": "Control",

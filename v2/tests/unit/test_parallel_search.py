@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from search import build_search_providers
 from search.providers.parallel import ParallelSearchProvider
 
-from agentd.domain.mcp import McpCallResult
-from agentd.domain.messages import TextContent
+from agent_runtime.domain.mcp import McpCallResult
+from agent_runtime.domain.messages import TextContent
 
 # ---- fakes -----------------------------------------------------------------
 

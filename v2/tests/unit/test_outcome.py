@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from outcome_tool import ReportOutcomeTool
 
-from agentd.application.run_context import set_run_outcome, take_run_outcome
-from agentd.domain.agent import RunMode, apply_mode
-from agentd.infrastructure.prompt import build_system_prompt
+from agent_runtime.application.run_context import set_run_outcome, take_run_outcome
+from agent_runtime.domain.agent import RunMode, apply_mode
+from agent_runtime.infrastructure.prompt import build_system_prompt
 
 
 def test_run_outcome_sink_roundtrip_and_consume():

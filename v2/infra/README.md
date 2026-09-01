@@ -30,7 +30,7 @@ Your app = **4 containers** + a database + user files, behind one public URL:
               └──────┘ └───┬───┘      │
                            │          ▼
                     ┌──────▼──┐   ┌────────┐
-                    │ accounts│   │ gateway│ (LiteLLM → provider keys from Secrets Mgr)
+                    │ accounts│   │model-proxy│ (LiteLLM → provider keys from Secrets Mgr)
                     └────┬────┘   └────────┘
                          │
    EFS (daemon /data, user files)   RDS Postgres (accounts DB)   Secrets Mgr (keys)
@@ -51,10 +51,10 @@ it depends on**.
 | 1.1 | 🔨 **VPC + 2 public subnets + IGW + routes** (`network.tf`) | containers need a network to run in | — |
 | 1.2 | ⬜ **Security groups** (ALB, service, RDS, EFS) | firewall: who may talk to whom | 1.1 |
 | 1.3 | ⬜ **IAM roles** (task-execution + task role) | so tasks can pull images, read secrets, mount EFS | — |
-| 1.4 | ⬜ **ECR — 4 repos** (gateway, accounts, daemon, web) | a home for each image | — (extend `modules/ecr`) |
+| 1.4 | ⬜ **ECR — 4 repos** (model-proxy, accounts, daemon, web) | a home for each image | — (extend `modules/ecr`) |
 | 1.5 | ⬜ **ECS cluster** (empty) | the logical place Fargate tasks run | — |
 | 1.6 | ⬜ **CloudWatch log group** | somewhere for container logs to go | — |
-| 1.7 | ⬜ **Cloud Map private DNS namespace** (`agentd.local`) | so daemon can reach `gateway`/`accounts` by name (like docker-compose does) | 1.1 |
+| 1.7 | ⬜ **Cloud Map private DNS namespace** (`agentd.local`) | so daemon can reach `model-proxy`/`accounts` by name (like docker-compose does) | 1.1 |
 
 ### Phase 2 — Data & secrets (what the containers need to exist first)
 | # | Step | Why | Depends on |

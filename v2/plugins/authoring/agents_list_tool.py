@@ -8,8 +8,8 @@ specialists it is allowed to delegate to (the same allowlist the spawn path enfo
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
 
 
 class AgentsListTool(Tool):
@@ -28,7 +28,7 @@ class AgentsListTool(Tool):
         self._registry = registry
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        from agentd.domain.agent import _matches
+        from agent_runtime.domain.agent import _matches
 
         ctx = current_run_context()
         me = (ctx.agent_id if ctx else "") or "main"

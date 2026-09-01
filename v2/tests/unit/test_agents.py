@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.agent import (
+from agent_runtime.domain.agent import (
     AgentSpec,
     agent_id_from_session_key,
     cron_session_key,
     select_skills,
     select_tools,
 )
-from agentd.infrastructure.agents import FileAgentRegistry
-from agentd.infrastructure.agents.bootstrap import load_bootstrap
+from agent_runtime.infrastructure.agents import FileAgentRegistry
+from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap
 
 
 def _spec(**over):

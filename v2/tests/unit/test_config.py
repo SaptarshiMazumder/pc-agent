@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.config import _dotenv_value
+from agent_runtime.config import _dotenv_value
 
 
 def test_strips_inline_comment():

@@ -3,9 +3,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.skills import Skill
-from agentd.infrastructure.prompt import _skills_section
-from agentd.infrastructure.skills.file_skills import (
+from agent_runtime.application.interfaces.skills import Skill
+from agent_runtime.infrastructure.prompt import _skills_section
+from agent_runtime.infrastructure.skills.file_skills import (
     FileSkillRegistry,
     _parse_frontmatter,
 )

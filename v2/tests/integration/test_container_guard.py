@@ -3,9 +3,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.config import load_config
-from agentd.infrastructure.tools.guard import GuardedTool
-from agentd.main.container import build_service
+from agent_runtime.config import load_config
+from agent_runtime.infrastructure.tools.guard import GuardedTool
+from agent_runtime.main.container import build_service
 
 
 def test_container_wraps_every_tool():

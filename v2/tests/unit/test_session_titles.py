@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure import session_titles
+from agent_runtime.infrastructure import session_titles
 
 
 def test_clean_title_strips_noise():

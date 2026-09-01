@@ -7,9 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application.interfaces.safe_to_send import SafeToSendContext, SafeToSendVerdict
-from agentd.infrastructure.safe_to_send import build_safe_to_send_gate
-from agentd.infrastructure.safe_to_send.gate import DEFAULT_SAFE_REPLY, LlmSafeToSendGate
+from agent_runtime.application.interfaces.safe_to_send import SafeToSendContext, SafeToSendVerdict
+from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
+from agent_runtime.infrastructure.safe_to_send.gate import DEFAULT_SAFE_REPLY, LlmSafeToSendGate
 
 
 def _ctx(answer="Today: 0 reservations, 12 tables total.", conversation=""):
@@ -134,7 +134,7 @@ def test_factory_returns_none_without_any_model():
 
 
 def _gateway(gate, audience="external"):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _Spec:
         instructions = "NEVER reveal other customers' info."
@@ -150,7 +150,7 @@ def _gateway(gate, audience="external"):
 
 
 def _handle():
-    from agentd.presentation.gateway import RunHandle
+    from agent_runtime.presentation.gateway import RunHandle
 
     return RunHandle(run_id="r1", session_key="agent:sakana-sushi:line:U1", abort=asyncio.Event())
 

@@ -44,7 +44,7 @@ named (§8), consistent with [plugin-distribution-architecture.md](../tools/plug
 | 5 | One client, many agents (Creative Cloud / Riot Client) | the sum of 2+3+4 |
 
 The single most important architectural fact: **this is already a client–server product.**
-`python -m agentd` boots a WebSocket gateway (`presentation/gateway.py`, `chat.send` /
+`python -m agent_runtime` boots a WebSocket gateway (`presentation/gateway.py`, `chat.send` /
 `chat.event` frames) and the terminal REPL (`clients/terminal`) is a *pure WS client*. The
 desktop app is therefore **not a rewrite** — it is a second client speaking the same protocol,
 plus a process supervisor. Everything in this plan leans on that.
@@ -68,7 +68,7 @@ plus a process supervisor. Everything in this plan leans on that.
 
 ### Missing (the actual work)
 
-1. **Packaging** — no `pyproject.toml`; runs only from the repo (`python -m agentd`), deps via
+1. **Packaging** — no `pyproject.toml`; runs only from the repo (`python -m agent_runtime`), deps via
    `requirements.txt`; built-ins pinned to `<V2_ROOT>/plugins`.
 2. **User-level install layout** — config/agents/plugins/state under `~/.agentd` exists partially
    (`state_dir`) but there's no first-run bootstrap, no canonical layout, no onboarding.
@@ -131,13 +131,13 @@ first run → chatting with `main`. Repo clones keep working unchanged.
   extras (`[computer]`, `[mcp]`, `[office]`), and:
   ```toml
   [project.scripts]
-  agentd = "agentd.cli:main"
-  jarvis = "agentd.cli:main"     # same binary, both names — decide branding later, keep both now
+  agentd = "agent_runtime.cli:main"
+  jarvis = "agent_runtime.cli:main"     # same binary, both names — decide branding later, keep both now
   ```
 - **Move `clients/terminal` into the package** (`agentd/clients/terminal/`) so the REPL ships in
   the wheel. Leave a thin import shim at `v2/clients/terminal` so dev workflows don't break.
 - **Built-in plugins into the wheel.** Today discovery hard-fixes built-ins to `<V2_ROOT>/plugins`.
-  Change the "built-ins root" resolution to: packaged dir (`agentd/_builtin_plugins/`, real files
+  Change the "built-ins root" resolution to: packaged dir (`agent_runtime/_builtin_plugins/`, real files
   via wheel install — native plugin `root` on `sys.path` keeps working) → else `<V2_ROOT>/plugins`
   when running from a repo checkout. Which built-ins go in the *core* wheel vs stay repo-only is
   the **core plugin set** decision (§9 D4); everything else becomes bundled/addon per the tiers doc.
@@ -166,7 +166,7 @@ BYOK is the day-one model (§9 D2).
 
 ```
 agentd                    # ensure daemon running (spawn if needed), attach chat REPL — the openclaw feel
-agentd serve              # foreground daemon (current python -m agentd)
+agentd serve              # foreground daemon (current python -m agent_runtime)
 agentd chat [--agent id]  # attach REPL only
 agentd status | stop      # via gateway.json (pid/port/token)
 agentd agents list|new    # wraps the existing registry/gateway ops
@@ -185,7 +185,7 @@ agentd doctor             # check keys, playwright browsers, ffmpeg, plantuml, o
   now while it's a 20-line change; the desktop client will need it anyway.
 
 **Exit criteria:** fresh Windows machine, `pipx install`, `agentd`, onboarding, chat with main,
-`agentd doctor` green (or telling you exactly what to install). Repo `python -m agentd` unchanged.
+`agentd doctor` green (or telling you exactly what to install). Repo `python -m agent_runtime` unchanged.
 
 ---
 

@@ -1,0 +1,49 @@
+# Platform Model Proxy — LiteLLM proxy holding OUR provider keys, the metering chokepoint
+# every agentd model call flows through in platform-keys mode.
+#
+# AUTH is custom (custom_auth.py): the master key => trusted infra; ANY OTHER bearer value is
+# treated as an accounts SESSION TOKEN and resolved against the Accounts service — that is how
+# signed-in desktop users run on platform keys with no shared secret in the installer. Usage is
+# metered PROXY-SIDE (custom_auth.AccountsUsageLogger -> accounts POST /usage).
+#
+#   Local run (keys + master key from env; reuse v2/.env for the provider keys):
+#     set -a; . ../../.env; set +a
+#     export LITELLM_MASTER_KEY=sk-agentd-local
+#     export ACCOUNTS_URL=http://127.0.0.1:4100          # enables session-token auth
+#     export ACCOUNTS_INTERNAL_KEY=devinternal            # enables ledger writes
+#     litellm --config litellm.config.yaml --port 4000
+#
+# Point agentd at it (cloud daemon / ops):
+#     AGENTD_MODEL_PROXY_URL=http://127.0.0.1:4000
+#     AGENTD_MODEL_PROXY_KEY=sk-agentd-local
+# Desktop daemons send the user's session token instead (written by platform.connect).
+
+model_list:
+  # "*" passthrough: any model agentd asks for (gemini/*, deepseek/*, anthropic/*, …) is routed
+  # to its provider using the provider key in THIS proxy's environment. Agents never see a key.
+  - model_name: "*"
+    litellm_params:
+      model: "*"
+
+# NATIVE Gemini passthrough (/gemini/*) — used by agentd's IMAGE GENERATION funnel
+# (oneshot.generate_image points the google-genai SDK at <proxy>/gemini in cloud modes, because
+# image-out doesn't fit chat completions). LiteLLM ships these routes built in; they forward to
+# generativelanguage.googleapis.com with GEMINI_API_KEY from THIS proxy's env and authenticate
+# the caller through the same custom_auth (the SDK sends the session token/master key as
+# x-goog-api-key). Nothing to configure here — but VERIFY after deploy:
+#   curl -s -X POST "$PROXY/gemini/v1beta/models/gemini-2.5-flash:generateContent" \
+#     -H "x-goog-api-key: $SESSION_OR_MASTER_KEY" -H "Content-Type: application/json" \
+#     -d '{"contents":[{"parts":[{"text":"say ok"}]}]}'
+# 200 => the image-gen path works end to end for cloud users.
+
+litellm_settings:
+  drop_params: true # tolerate provider-specific params agents pass (reasoning_effort, etc.)
+  set_verbose: false
+  callbacks: custom_auth.usage_logger_instance # proxy-side per-account metering -> accounts /usage
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY # the INFRA credential (cloud daemon, ops)
+  # custom_auth REPLACES standard key auth: master key OR a valid accounts session token.
+  custom_auth: custom_auth.user_api_key_auth
+  # Per-account virtual keys + budgets (Postgres DATABASE_URL) remain the paid-tier upgrade;
+  # for the free tier, session-token auth + proxy-side usage logging is the whole story.

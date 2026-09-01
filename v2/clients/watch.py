@@ -1,7 +1,7 @@
-"""Shim: `python -m clients.watch` -> agentd.clients.watch (moved into the package)."""
+"""Shim: `python -m clients.watch` -> agent_runtime.clients.watch (moved into the package)."""
 
-from agentd.clients.watch import *  # noqa: F401,F403
-from agentd.clients.watch import main
+from agent_runtime.clients.watch import *  # noqa: F401,F403
+from agent_runtime.clients.watch import main
 
 if __name__ == "__main__":
     main()

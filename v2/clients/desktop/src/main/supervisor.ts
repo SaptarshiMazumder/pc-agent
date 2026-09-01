@@ -1,23 +1,23 @@
 /**
  * Daemon supervisor — the desktop shell's half of "the user never sees Python".
  *
- * Ensure-running mirror of agentd/lifecycle.py: find the live daemon via the
+ * Ensure-running mirror of agent_runtime/lifecycle.py: find the live daemon via the
  * rendezvous file, else spawn one DETACHED and wait for the file + an open port.
  * The daemon command resolves (first hit wins):
  *   1. AGENTD_DAEMON_CMD                      (explicit override, also what dev uses)
- *   2. <resources>/python python -m agentd    (packaged: the embedded runtime — a
+ *   2. <resources>/python python -m agent_runtime    (packaged: the embedded runtime — a
  *      RELOCATABLE python-build-standalone CPython, NOT a venv (venvs bake in an
  *      absolute base-interpreter path and don't survive being moved to the user's
  *      machine) and NOT a frozen exe, so marketplace pip-plugins can still install)
  *   3. `agentd` on PATH                        (a pipx/uv install on this machine)
- *   4. `python -m agentd`                      (last resort, dev checkouts)
+ *   4. `python -m agent_runtime`                      (last resort, dev checkouts)
  *
  * The supervisor never stops the daemon on app quit by default: it is a USER-level
  * service (cron jobs, channels keep running) — the shell is just one client of it.
  */
 
 import { app } from 'electron'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import fsSync from 'node:fs'
 import path from 'node:path'
@@ -43,20 +43,96 @@ type StatusListener = (status: SupervisorStatus) => void
 
 const SPAWN_WAIT_MS = 300_000 // cold container builds (imports) can take minutes
 
+const execFileP = (cmd: string, args: string[]): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true }, (err, stdout) =>
+      err ? reject(err) : resolve(String(stdout))
+    )
+  })
+
+/** The ports our spawn could try to bind: explicit override, the stale file's, the default. */
+function candidatePorts(before: GatewayInfo | null): number[] {
+  const ports = new Set<number>()
+  const env = Number(process.env.AGENTD_PORT || '')
+  if (Number.isFinite(env) && env > 0) ports.add(env)
+  if (before?.port) ports.add(before.port)
+  ports.add(8787)
+  return [...ports]
+}
+
+async function listenerPid(port: number): Promise<number | null> {
+  try {
+    if (process.platform === 'win32') {
+      const out = await execFileP('netstat', ['-ano', '-p', 'tcp'])
+      for (const line of out.split(/\r?\n/)) {
+        const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i)
+        if (m && Number(m[1]) === port) return Number(m[2])
+      }
+      return null
+    }
+    const out = await execFileP('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'])
+    const pid = Number(out.trim().split(/\s+/)[0])
+    return Number.isFinite(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+async function processCommandLine(pid: number): Promise<string> {
+  try {
+    if (process.platform === 'win32') {
+      const out = await execFileP('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`
+      ])
+      return out.trim()
+    }
+    const out = await execFileP('ps', ['-o', 'command=', '-p', String(pid)])
+    return out.trim()
+  } catch {
+    return ''
+  }
+}
+
 function commandCandidates(): string[][] {
   const override = (process.env.AGENTD_DAEMON_CMD || '').trim()
   if (override) return [override.split(/\s+/)]
-  const candidates: string[][] = []
   if (app.isPackaged) {
     const embedded =
       process.platform === 'win32'
         ? path.join(process.resourcesPath, 'python', 'python.exe')
         : path.join(process.resourcesPath, 'python', 'bin', 'python')
-    if (fsSync.existsSync(embedded)) candidates.push([embedded, '-m', 'agentd'])
+    // THE ONLY CANDIDATE when it exists. A shipped product carries the exact runtime it was
+    // tested against; falling through to whatever `agentd` or `python` a machine happens to have
+    // would run a DIFFERENT version against this user's state, and on a machine with neither it
+    // buries the real failure under `No module named agent_runtime` — which is what the daemon
+    // log said while the actual error (the port was taken) scrolled past above it.
+    if (fsSync.existsSync(embedded)) return [[embedded, '-m', 'agent_runtime']]
   }
-  candidates.push(['agentd', 'serve'])
-  candidates.push([process.platform === 'win32' ? 'python' : 'python3', '-m', 'agentd'])
-  return candidates
+  return [
+    ['agentd', 'serve'],
+    [process.platform === 'win32' ? 'python' : 'python3', '-m', 'agent_runtime']
+  ]
+}
+
+/**
+ * The directory to put on PATH so `node` and `npm` resolve to the SHIPPED ones, or '' when this
+ * build carries none.
+ *
+ * The two official layouts differ and neither is a detail we get to choose: the Windows zip puts
+ * `node.exe` at the root of the tree, every other platform puts `bin/node` one level down. Probing
+ * for the executable rather than assuming a layout is also what makes this honest about an
+ * incomplete bundle — a directory that exists and holds nothing runnable returns '' and the
+ * developer's own toolchain is used, instead of a PATH entry that shadows it with nothing.
+ */
+function bundledNodeBin(root: string): string {
+  for (const candidate of [root, path.join(root, 'bin')]) {
+    for (const exe of ['node.exe', 'node']) {
+      if (fsSync.existsSync(path.join(candidate, exe))) return candidate
+    }
+  }
+  return ''
 }
 
 export class Supervisor {
@@ -146,7 +222,46 @@ export class Supervisor {
       )
       throw new Error('agentd could not start (circuit-breaker open)')
     }
+    await this.evictSquatters()
     return this.spawnDaemon()
+  }
+
+  /** ORPHAN EVICTION — the port is taken, but nothing answering describes itself in the
+   *  rendezvous file. That is, by construction, an agentd whose file was overwritten or deleted
+   *  (today's dev daemons, a kill that outraced a respawn): nothing can ever adopt it again, so
+   *  every spawn dies on the bind and the breaker opens with a message that names neither cause
+   *  nor cure. Killing it is the RECOVERY, not a risk — but only after reading the process's
+   *  command line and proving it is ours. A port held by anything else is REPORTED, named and
+   *  left alone: killing an arbitrary pid by port number is how somebody's dev server dies.
+   *
+   *  findRunning() ran just before this, so anything adoptable was adopted — whatever holds the
+   *  port now is unreachable by definition. */
+  private async evictSquatters(): Promise<void> {
+    const before = await readGatewayFile()
+    for (const port of candidatePorts(before)) {
+      if (!(await portOpen('127.0.0.1', port))) continue
+      const pid = await listenerPid(port)
+      if (!pid || pid === process.pid) continue
+      const cmd = await processCommandLine(pid)
+      if (!/agent_runtime|agentd/i.test(cmd)) {
+        // Not ours. Say exactly who it is — the honest failure the old message buried.
+        this.set(
+          'starting',
+          `port ${port} is held by pid ${pid} (${cmd.slice(0, 100) || 'unknown process'}) — not an agentd, leaving it alone`
+        )
+        continue
+      }
+      this.set('starting', `evicting an orphaned agentd (pid ${pid}) from port ${port}…`)
+      try {
+        process.kill(pid)
+      } catch {
+        /* already gone */
+      }
+      const deadline = Date.now() + 4000
+      while (Date.now() < deadline && (await portOpen('127.0.0.1', port))) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    }
   }
 
   private async spawnDaemon(): Promise<GatewayInfo> {
@@ -154,16 +269,76 @@ export class Supervisor {
     await fs.mkdir(logDir, { recursive: true })
     const logPath = path.join(logDir, 'daemon.log')
     const logFile = fsSync.openSync(logPath, 'a')
-    // clear any stale rendezvous first, so the file that (re)appears is unambiguously
-    // OUR new daemon's — the console-script wrapper (`agentd`) forks a child python
-    // with a different pid, so we can't match on the spawned pid.
-    await clearGatewayFile()
+    // REMEMBER the rendezvous, do not DELETE it. We still need to tell our daemon's file from a
+    // pre-existing one (the `agentd` console script forks a child python, so the spawned pid does
+    // not match), but deleting is the wrong way to get that: the file belongs to whatever daemon
+    // is alive, and one engine serves every agent app on the machine.
+    //
+    // What deleting it did, once: a product app launched while another agentd held the port,
+    // removed that daemon's file, and made it PERMANENTLY undiscoverable — the token lives in the
+    // file, so nothing can attach to it again. Every later launch then found no daemon, spawned
+    // one, failed to bind, and fell through to a python with no agent_runtime in it. A loop with
+    // no exit, caused entirely by the recovery step.
+    const before = await readGatewayFile()
 
     const env = { ...process.env }
     // A flavored build carries its distribution.toml; the daemon it spawns must be
     // the same product (provisioning, default agent, store wiring) — pass it down.
     const flavorPath = this.getFlavorPath()
     if (flavorPath && !env.AGENTD_DISTRIBUTION) env.AGENTD_DISTRIBUTION = flavorPath
+
+    // THE BUNDLED BROWSER. The installer ships chromium next to the runtime (see
+    // build-runtime.ps1 + extraResources), but playwright only looks in the USER'S cache unless
+    // told otherwise — so without this line the browser is packaged, present, and never found:
+    // every page-opening tool fails on a fresh machine exactly as if we had shipped nothing.
+    //
+    // Only when it is really there. A dev checkout has no bundle, and pointing playwright at an
+    // empty directory would turn "install chromium" into "the download is corrupt".
+    if (app.isPackaged) {
+      const bundled = path.join(process.resourcesPath, 'ms-playwright')
+      if (!env.PLAYWRIGHT_BROWSERS_PATH && fsSync.existsSync(bundled)) {
+        env.PLAYWRIGHT_BROWSERS_PATH = bundled
+      }
+    }
+
+    // THE BUNDLED NODE, for the same reason and by the same route.
+    //
+    // An agent's window is a React project: source in `app/`, built output in `ui/`, and the
+    // daemon serves only the second. Turning one into the other is `npm run build` — so a user
+    // who installed this product and built an agent through Agent Builder needs a toolchain they
+    // never agreed to install, to change a window they own. Shipping it removes the requirement
+    // rather than documenting it.
+    //
+    // ON THE PATH, not only in a variable. Everything that builds an agent shells out (`npm`,
+    // `npx vite`), and a path in an env var that each of those has to remember to consult is a
+    // path one of them will not consult. `AGENTD_NODE_DIR` is set as well, so a tool that wants
+    // to name the executable exactly can, without parsing PATH back apart.
+    //
+    // PREPENDED, so the shipped Node wins over whatever happens to be installed. A user's own
+    // Node may be years old, and an agent that builds here and not on their machine is the exact
+    // class of failure this bundle exists to end. Only when it is really there — a dev checkout
+    // has none, and the developer's own toolchain is the right answer in that case.
+    if (app.isPackaged) {
+      const bin = bundledNodeBin(path.join(process.resourcesPath, 'node'))
+      if (bin) {
+        env.AGENTD_NODE_DIR = bin
+        // WRITE BACK TO THE KEY THAT IS ALREADY THERE. Windows names this variable `Path`, and
+        // `process.env` is only case-insensitive on ITSELF — spreading it into a plain object
+        // above keeps the original casing, so `env.PATH` is undefined here and `env.PATH = …`
+        // ADDS A SECOND VARIABLE holding nothing but this one directory. The child gets both,
+        // picks that one, and every daemon we spawn runs without System32: no `where`, no
+        // `findstr`, no PowerShell, no user-installed CLI. Agent Builder rediscovered that
+        // broken shell by trial and error at the start of every session.
+        const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') ?? 'PATH'
+        env[pathKey] = `${bin}${path.delimiter}${env[pathKey] ?? ''}`
+      }
+      // THE SHARED DEPENDENCY STORE. Every agent app declares the same seven packages, because
+      // they all come from the same starter — so the product carries ONE copy and each agent's
+      // build is pointed at it. Installing per agent would mean a few hundred MB from the network
+      // every time a user creates one, and nothing at all on a machine that is offline.
+      const deps = path.join(process.resourcesPath, 'app-deps', 'node_modules')
+      if (fsSync.existsSync(deps)) env.AGENTD_APP_DEPS = deps
+    }
 
     let lastError = ''
     for (const command of commandCandidates()) {
@@ -187,7 +362,7 @@ export class Supervisor {
             }
           })
         })
-        const info = await Promise.race([this.waitForDaemon(), spawnFailed])
+        const info = await Promise.race([this.waitForDaemon(before), spawnFailed])
         this.consecutiveFailures = 0 // it came up — re-arm the breaker
         this.set('running', `agentd ${info.version} (pid ${info.pid})`, info)
         return info
@@ -200,14 +375,22 @@ export class Supervisor {
     throw new Error(lastError || 'could not start agentd')
   }
 
-  /** Wait for the rendezvous file to (re)appear with an open port. We cleared it
-   *  before spawning, so its reappearance is our daemon — no pid match needed
-   *  (the console-script wrapper's pid differs from the python server's). */
-  private async waitForDaemon(): Promise<GatewayInfo> {
+  /** Wait for a rendezvous that is NOT the one we saw before spawning, with an open port.
+   *
+   *  Identity is (pid, startedAt) rather than the spawned pid, because the `agentd` console
+   *  script forks a child python and the pid we hold is the wrapper's. Comparing against the
+   *  PREVIOUS file gives the same certainty deleting it used to, without destroying state that
+   *  belongs to a daemon which may still be alive and serving other apps.
+   *
+   *  A pre-existing file that is merely STALE costs nothing here: its port is closed, so it never
+   *  satisfies the wait, and our daemon's file replaces it on startup. */
+  private async waitForDaemon(before: GatewayInfo | null): Promise<GatewayInfo> {
+    const isOurs = (info: GatewayInfo): boolean =>
+      before === null || info.pid !== before.pid || info.startedAt !== before.startedAt
     const deadline = Date.now() + SPAWN_WAIT_MS
     while (Date.now() < deadline) {
       const info = await readGatewayFile()
-      if (info && (await portOpen(info.host, info.port))) {
+      if (info && isOurs(info) && (await portOpen(info.host, info.port))) {
         return info
       }
       await new Promise((resolve) => setTimeout(resolve, 400))

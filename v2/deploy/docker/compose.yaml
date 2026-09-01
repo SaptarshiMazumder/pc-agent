@@ -1,7 +1,7 @@
 # Full HOSTED stack, local (docker compose) — mirrors the AWS Fargate topology, one box down.
 # Four services + volumes; the SAME images graduate to ECR/Fargate later (Stage 3).
 #
-#   1) put provider keys in v2/.env   (GEMINI_API_KEY, DEEPSEEK_API_KEY, ...)
+#   1) put provider keys in v2/.env   (GEMINI_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY, ...)
 #   2) from v2/:  docker compose -f deploy/docker/compose.yaml up --build
 #   3) open  http://localhost:8080  -> sign in, chat  (per-account isolated)
 #
@@ -10,30 +10,49 @@
 name: agentd-stack
 
 services:
-  gateway: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
+  model-proxy: # LiteLLM proxy: holds provider keys, meters every model call. PER-USER auth:
     # custom_auth.py accepts the master key (infra) OR an accounts session token (desktop
     # platform-keys mode), and its success callback writes usage to the accounts ledger.
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.gateway }
-    image: agentd-gateway:local
+    # context = v2/ so the image can install the shared telemetry library at v2/monitoring/
+    build: { context: ../.., dockerfile: model_proxy/Dockerfile }
+    image: agentd-model-proxy:local
     env_file: [../../.env] # provider keys (GEMINI_API_KEY, ...) at runtime, never baked
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
       - ACCOUNTS_URL=http://accounts:4100
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal}
+      # LOCAL TOKEN VERIFICATION. With these two the proxy checks a JWT against cached public keys
+      # instead of calling /resolve before every uncached model call. Must match what the accounts
+      # service mints with, or every token is rejected as foreign.
+      - AGENTD_AUTH_ISSUER=http://localhost:4100
+      - AGENTD_AUTH_JWKS_URI=http://accounts:4100/auth/jwks.json
     ports: ["4000:4000"]
     depends_on: [accounts]
     restart: unless-stopped
 
   accounts: # identity + per-account budget/tab (State plane)
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.accounts }
+    build: { context: ../.., dockerfile: accounts/Dockerfile }
     image: agentd-accounts:local
     environment:
       - ACCOUNTS_INTERNAL_KEY=${ACCOUNTS_INTERNAL_KEY:-devinternal} # gates /usage writes
+      # THE TOKEN ISSUER. Stamped into every access token as `iss` and checked by whoever
+      # verifies it, so a token from this local stack is refused by a real deployment (and vice
+      # versa). Must be the address a BROWSER uses, because that is what the discovery document
+      # below hands out — `http://accounts:4100` is a compose-internal name a browser cannot
+      # resolve. Unset it and the service falls back to the legacy `sess_` path.
+      - AGENTD_AUTH_ISSUER=http://localhost:4100
+      # What /.well-known/agentd-platform tells a client. Same rule: public addresses only.
+      - AGENTD_PUBLIC_ACCOUNTS_URL=http://localhost:4100
+      - AGENTD_PUBLIC_WS_URL=ws://localhost:8790
+      - AGENTD_PUBLIC_MODEL_PROXY_URL=http://localhost:4000
+      # Signing keys are stored unencrypted without this; fine locally, set it wherever the
+      # volume is backed up. See identity/infrastructure/sqlite_key_store.py.
+      - AGENTD_IDENTITY_KEK=${AGENTD_IDENTITY_KEK:-}
     volumes: ["accounts-data:/data"]
     ports: ["4100:4100"]
     restart: unless-stopped
 
-  daemon: # the engine (accounts ON; routes model calls through the gateway)
+  daemon: # the engine (accounts ON; routes model calls through the Model Proxy)
     build: { context: ../.., dockerfile: deploy/docker/Dockerfile }
     image: agentd-daemon:local
     environment:
@@ -44,8 +63,8 @@ services:
       - AGENTD_WORKSPACE=/data/workspace
       - AGENTD_TOKEN=${AGENTD_TOKEN:-devtoken}
       - AGENTD_ACCOUNTS_URL=http://accounts:4100 # reach sibling services by compose name
-      - AGENTD_MODEL_GATEWAY_URL=http://gateway:4000
-      - AGENTD_MODEL_GATEWAY_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
+      - AGENTD_MODEL_PROXY_URL=http://model-proxy:4000
+      - AGENTD_MODEL_PROXY_KEY=${LITELLM_MASTER_KEY:-sk-agentd-local}
     volumes:
       - daemon-data:/data
       # Track the checkout's config so host edits (models, cost-efficiency, plugins) are the
@@ -54,13 +73,13 @@ services:
       # saves persist back to the host file (the daemon overwrites in place, safe for a file mount).
       - ../../agentd.config.json:/data/config.json
     ports: ["8790:8787"] # host 8790 -> container 8787 (matches dev.py, avoids the desktop's 8787)
-    depends_on: [accounts, gateway]
+    depends_on: [accounts, model-proxy]
     restart: unless-stopped
 
   web: # the browser UI (static build, nginx). API URLs baked for the local ports.
     build:
-      context: ../../clients/desktop
-      dockerfile: Dockerfile.web
+      context: ../../clients
+      dockerfile: web/Dockerfile
       args:
         VITE_AGENTD_ACCOUNTS_URL: http://localhost:4100
         VITE_AGENTD_URL: ws://localhost:8790

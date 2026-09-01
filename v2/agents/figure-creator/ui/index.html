@@ -8,77 +8,21 @@
     content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' ws: wss: http: https:; font-src 'self' data:"
   />
   <title>Figure Creator</title>
-  <link rel="stylesheet" href="style.css?v=4" />
+  <!-- THE AGENTD SHELL'S OWN STYLESHEET, vendored verbatim by @agentd/canvas. This page is not
+       styled to resemble the product; it is dressed by the product's stylesheet, so a restyle of
+       the shell arrives here on the next `npm run build` in v2/clients/canvas. theme.css after it
+       carries only what is Figure Creator's rather than agentd's — the accent, and the tokens the
+       sign-in gate reads. -->
+  <link rel="stylesheet" href="vendor/agentd-shell.css?v=9" />
+  <link rel="stylesheet" href="theme.css?v=9" />
 </head>
 <body>
-  <!-- sign-in gate: shown only on a hosted build that isn't connected yet -->
-  <div class="gate" id="gate" hidden>
-    <form class="gate-card" id="gateForm" autocomplete="on">
-      <div class="gate-mark" aria-hidden="true">◑</div>
-      <h1 class="gate-title" id="gateTitle">Sign in</h1>
-      <p class="gate-sub" id="gateSub">Figures run on our servers — no API keys to set up.</p>
+  <!-- sign-in is the SDK's shared gate (agentd.mountSignInGate) and it is REQUIRED — see app.js.
+       It injects its own overlay over this page; there is no form here to keep in sync. -->
+  <div id="root" class="app-root"></div>
 
-      <label class="gate-label" for="gateEmail">Email</label>
-      <input class="gate-input" id="gateEmail" type="email" autocomplete="email"
-             placeholder="you@example.com" required />
-
-      <label class="gate-label" for="gatePass">Password</label>
-      <input class="gate-input" id="gatePass" type="password" autocomplete="current-password"
-             placeholder="at least 8 characters" required />
-
-      <div class="gate-error" id="gateError" hidden></div>
-      <button class="gate-btn" id="gateBtn" type="submit">Sign in</button>
-      <button class="gate-toggle" id="gateToggle" type="button">New here? Create an account</button>
-    </form>
-  </div>
-
-  <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="mark" aria-hidden="true">◑</span>
-        <span class="name">Figure&nbsp;Creator</span>
-      </div>
-      <div class="head-right">
-        <div class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">starting…</span></div>
-        <button class="link-btn" id="signOut" type="button" hidden title="Sign out">Sign out</button>
-      </div>
-    </header>
-
-    <main class="body">
-      <section class="stage" id="stage">
-        <div class="empty" id="empty">
-          <div class="empty-mark">◑</div>
-          <h1>Describe a figure</h1>
-          <p>Tell Figure Creator what to draw — a mechanism, a pathway, an anatomy plate, a
-             process. It renders publication-grade artwork with editable labels.</p>
-          <ul class="examples" id="examples">
-            <li>The stages of mitosis, clean shaded style</li>
-            <li>A labeled cross-section of a plant leaf</li>
-            <li>How mRNA vaccines work, as a flowchart</li>
-          </ul>
-        </div>
-
-        <figure class="figure" id="figureWrap" hidden>
-          <img id="figureImg" alt="Generated figure" />
-        </figure>
-
-        <div class="stage-toolbar" id="toolbar" hidden>
-          <a class="tbtn" id="downloadBtn" download>Download</a>
-          <button class="tbtn" id="svgBtn" type="button" title="Re-export as an editable vector (SVG)">Convert to vector</button>
-        </div>
-      </section>
-
-      <aside class="side">
-        <div class="log" id="log"></div>
-        <form class="composer" id="composer">
-          <textarea id="prompt" rows="2" placeholder="Describe the figure you want…" autocomplete="off"></textarea>
-          <button class="send" id="send" type="submit" title="Generate">Generate</button>
-        </form>
-      </aside>
-    </main>
-  </div>
-
-  <script src="vendor/agentd-client.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="vendor/agentd-client.js?v=9"></script>
+  <script src="vendor/agentd-canvas.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

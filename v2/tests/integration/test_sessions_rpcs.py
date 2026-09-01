@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.messages import AssistantMessage, TextContent, UserMessage
-from agentd.infrastructure.memory.local_store import SessionStore, read_session_meta
-from agentd.presentation.gateway import Gateway, RunHandle
-from agentd.presentation.protocol import Request
+from agent_runtime.domain.messages import AssistantMessage, TextContent, UserMessage
+from agent_runtime.infrastructure.memory.local_store import SessionStore, read_session_meta
+from agent_runtime.presentation.gateway import Gateway, RunHandle
+from agent_runtime.presentation.protocol import Request
 
 
 class _CapturingWs:
@@ -55,6 +55,7 @@ def _gw(tmp_path):
     )
     ws = _CapturingWs()
     gw.clients.add(ws)
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     return gw, specs, ws
 
 

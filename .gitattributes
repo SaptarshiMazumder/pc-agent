@@ -1,0 +1,15 @@
+# Generated bundles are compared BYTE FOR BYTE by the test suite (tests/unit/
+# test_vendored_sdk_is_current.py, test_react_starter.py): a vendored copy must equal the dist
+# build it came from. The build tools write LF; core.autocrlf=true rewrites text files to CRLF on
+# checkout — so on Windows every checkout silently broke that equality, and the suite went red
+# with no change to any source file.
+#
+# `-text` means "never convert this path in either direction". These files are build output, never
+# hand-edited, so there is no developer comfort to weigh against it.
+v2/clients/sdk-js/dist/**       -text
+**/vendor/agentd-client.js      -text
+**/vendor/agentd-client.d.ts    -text
+# The web image entrypoint runs inside Alpine: CRLF in a sh script is a crash-loop at
+# container start ("not found" on every line). Pin LF regardless of core.autocrlf.
+v2/clients/web/docker-entrypoint.d/*.sh text eol=lf
+v2/clients/web/nginx.conf.template text eol=lf

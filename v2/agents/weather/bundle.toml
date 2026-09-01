@@ -1,0 +1,27 @@
+# weather as a MARKETPLACE BUNDLE — `agentd bundle pack agents/weather` reads this for the
+# bundle's identity, so packing is one command with no flags. Its tools live in
+# agents/weather/plugins/weather-kit/ (the AGENT-PRIVATE tier), which is inside the agent
+# directory and therefore travels in the artifact automatically — nothing to vendor.
+#
+# WHY THIS FILE EXISTS AT ALL, and why the version matters more than it looks:
+#
+# The daemon image packs this agent into a .agentpkg at build time, and the container entrypoint
+# installs it into /data — a PERSISTENT volume. The entrypoint SKIPS any bundle whose id+version
+# already appear in the installed ledger, which is what makes restarts instant.
+#
+# With no bundle.toml, every build packed the default version "1.0.0". That always matched the
+# ledger, so the install was always skipped, so the copy on the volume stayed frozen at whatever
+# was first installed there — from before the `agentd` -> `agent_runtime` package rename. The
+# deployed daemon logged `failed to load plugin 'weather-kit': No module named 'agentd'` on every
+# boot, and no amount of redeploying could fix it: the image was correct and the volume was not.
+#
+# So: BUMP THIS VERSION whenever the weather agent's files change. It is the only signal a running
+# environment gets that its copy is stale.
+[bundle]
+id = "weather"
+name = "Weather"
+version = "1.0.1" # 1.0.1: force a reinstall over the pre-rename copy stuck on the EFS volume
+description = "Tokyo weather: a daily 8am forecast briefing by email, and a live current-conditions dashboard."
+agentd_compat = ">=0.1,<1"
+publisher = "agentd"
+icon = "cloud"

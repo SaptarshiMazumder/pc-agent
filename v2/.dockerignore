@@ -8,6 +8,33 @@
 # desktop/terminal clients (incl. the ~1GB bundled CPython runtime) and their builds
 clients/
 
+# …EXCEPT the agent-app SDK's source, which the daemon image compiles in its own `sdk` stage
+# (deploy/docker/Dockerfile). Every agent app loads that file, and `clients/` being excluded here
+# — on top of `dist/` being gitignored — is why the built image carried no canonical SDK at all,
+# quietly disabling both pack-time re-vendoring and the serve-time substitution that keeps
+# already-created agents current. Source only: node_modules/ and dist/ stay out (the stage runs
+# its own `npm ci`), and nothing else under clients/ is re-admitted.
+!clients/sdk-js/package.json
+!clients/sdk-js/package-lock.json
+!clients/sdk-js/tsconfig.json
+!clients/sdk-js/tsup.config.ts
+!clients/sdk-js/src
+# …and the two SIBLING packages it imports. The SDK's code lives in three folders, not one:
+# `"@agentd/auth": "file:../auth"` and the same for `@agentd/billing`, both resolved by npm at
+# `../` from the package being installed. Re-admitting only sdk-js left them missing, and the
+# failure surfaced late and misleadingly — `npm ci` succeeded, then tsup died five errors deep
+# with "Could not resolve @agentd/auth", which reads like a broken import rather than an
+# excluded directory. Both are source-only with no dependencies of their own.
+!clients/auth
+!clients/billing
+
+# …and @agentd/auth, which the SDK imports as `file:../auth`. It is the ONE sign-in and
+# token-renewal implementation on this platform (clients/auth), shared with the agentd client so
+# neither owns a second one — which means the sdk stage cannot compile without it. Same rule as
+# above: the manifest and the source, nothing else.
+!clients/auth/package.json
+!clients/auth/src
+
 # delivered per-agent products (installers) — never part of the source image
 agents/*/clients/
 
@@ -19,13 +46,26 @@ docs/
 misc/
 workshops/
 
+# LOCAL TOOLCHAINS — none of this can run in the image, and together it was 3.5 GB of the
+# build context: five minutes of "transferring context" on every single build, before a line
+# of the Dockerfile ran.
+#
+# The terraform ones are the worst offenders and the least obvious: each `terraform init`
+# downloads its own provider plugins, so there is a ~600 MB windows_amd64 AWS binary under
+# EVERY environment directory — four copies of an .exe that a Linux image could not execute
+# even if it wanted to.
+.venv/
+venv/
+**/.terraform/
+tfstates/
+
 # build/junk
 dist/
 **/__pycache__/
 **/*.pyc
 **/node_modules/
 # agent workspace DATA only — never a bare **/workspace/, which would also swallow
-# the agentd.infrastructure.workspace source package (it did, once)
+# the agent_runtime.infrastructure.workspace source package (it did, once)
 agents/*/workspace/
 .agentd/workspace/
 *.agentpkg

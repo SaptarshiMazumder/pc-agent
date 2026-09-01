@@ -15,7 +15,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from agentd.application.run_context import current_workspace
+from agent_runtime.application.run_context import current_workspace
 
 
 def _candidate_dirs(config) -> list[Path]:
@@ -25,7 +25,7 @@ def _candidate_dirs(config) -> list[Path]:
     dirs: list[Path] = []
     knob = None
     try:
-        from agentd.application.tool_models import tool_config
+        from agent_runtime.application.tool_models import tool_config
 
         knob = tool_config(config, "figure-art", "generate_artwork", "templates_dir", default=None)
     except Exception:

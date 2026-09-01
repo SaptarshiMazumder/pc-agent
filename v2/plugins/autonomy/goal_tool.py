@@ -11,9 +11,9 @@ from __future__ import annotations
 import time
 import uuid
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
-from agentd.domain.autonomy import Goal
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
+from agent_runtime.domain.autonomy import Goal
 
 
 class GoalTool(Tool):

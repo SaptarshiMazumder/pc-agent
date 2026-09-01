@@ -16,7 +16,7 @@ for pkg in /opt/agentd/bundles/*.agentpkg; do
 import json, os, sys
 from pathlib import Path
 
-from agentd.infrastructure.marketplace.bundle_io import read_manifest
+from agent_runtime.infrastructure.marketplace.bundle_io import read_manifest
 
 # exit 0 = ledger already records this bundle at this version (skip); 1 = install
 try:

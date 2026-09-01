@@ -1,6 +1,11 @@
 node_modules/
 out/
 dist/
-dist-web/
 runtime/
 flavors/*/bundles/
+
+# electron-vite writes a timestamped copy of the config next to it while bundling. One of these
+# got COMMITTED, and because it is generated it carried an absolute path from the machine that
+# generated it (file:///C:/Users/<someone>/...) into the repo.
+electron.vite.config.*.mjs
+!electron.vite.config.mjs

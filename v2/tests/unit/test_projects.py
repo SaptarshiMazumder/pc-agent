@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.infrastructure.memory import projects_store
-from agentd.infrastructure.memory.local_store import (
+from agent_runtime.infrastructure.memory import projects_store
+from agent_runtime.infrastructure.memory.local_store import (
     SessionStore,
     read_session_meta,
     sessions_in_project,
@@ -47,7 +47,7 @@ def test_sessions_in_project(tmp_path):
 
 
 def _gateway(tmp_path):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _WS:
         def __init__(self, sink):
@@ -65,7 +65,9 @@ def _gateway(tmp_path):
             get=lambda a: SimpleNamespace(state_dir=tmp_path),
         ),
     )
-    gw.clients = {_WS(events)}
+    ws = _WS(events)
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     return gw, events
 
 

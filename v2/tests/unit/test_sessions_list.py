@@ -11,12 +11,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.infrastructure.memory.local_store import SessionStore, write_session_meta
+from agent_runtime.infrastructure.memory.local_store import SessionStore, write_session_meta
 
 
 def _gateway(root: Path, agents: dict):
     """A gateway whose registry maps each agent id -> its own state_dir under `root`."""
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     return Gateway(
         config=SimpleNamespace(state_dir=root),

@@ -1,0 +1,10 @@
+{
+  "color": "#5751d6",
+  "hue": 242.5,
+  "tagline": "expense reports from CSVs",
+  "suggestions": [
+    "Summarize this month's spending across all files",
+    "Show all transactions over ¥5,000 this month",
+    "Generate a spending chart for last month"
+  ]
+}

@@ -1,0 +1,24 @@
+# Build context for the web image = v2/clients/ (the npm workspace root).
+# It needs: package.json, package-lock.json, ui/, web/, auth/ — and NOTHING else.
+# The other workspaces contribute their package.json and nothing more (see the bottom).
+
+**/node_modules
+**/dist
+**/dist-web
+**/out
+**/release
+**/*.log
+**/.vite
+
+# desktop/ is an ENTIRE workspace we don't build here. Excluding it is what keeps
+# desktop/runtime/cpython (619 MB of embedded Python) out of the web build context — the
+# old clients/desktop/.dockerignore never listed it, so every local `docker build` uploaded it.
+# The manifest is re-admitted because `npm ci` fails on a lockfile whose workspaces are missing.
+desktop/**
+!desktop/package.json
+
+# marketplace/ is the PUBLIC store page — a separate static site, deployed to S3 + CloudFront by
+# deploy/scripts/deploy-marketplace.ps1, never served by this nginx. Same rule as desktop: the
+# manifest is re-admitted only because npm ci reads every workspace the lockfile declares.
+marketplace/**
+!marketplace/package.json

@@ -1,0 +1,5 @@
+id = "cost-kit"
+name = "Cost Kit"
+kind = "native"
+entry = "cost_kit:register"
+description = "Local AWS cost bookkeeping: save snapshots, set/list thresholds, compare against limits, and shape the dashboard view."

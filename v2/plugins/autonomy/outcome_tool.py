@@ -12,8 +12,8 @@ same task-local channel pattern as RunContext, so concurrent runs never cross.
 
 from __future__ import annotations
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import set_run_outcome
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import set_run_outcome
 
 _STATUSES = ("done", "blocked", "failed")
 

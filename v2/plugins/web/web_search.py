@@ -11,8 +11,8 @@ from __future__ import annotations
 from search import cache_get, cache_put, format_results
 from search.factory import search_provider_names
 
-from agentd.application.interfaces.search import SearchProvider
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.search import SearchProvider
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
 class WebSearchTool(Tool):

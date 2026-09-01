@@ -1,0 +1,17 @@
+# Accounts service runtime deps. Deliberately tiny: app.py imports ONLY the stdlib plus
+# FastAPI, so this service has zero coupling to agent_runtime and installs in seconds.
+#
+# NOTE: the old deploy/docker/Dockerfile.accounts also installed httpx — the service never
+# imports it. It is needed only by fastapi.testclient (tests/unit/test_accounts_service.py),
+# and agentd already declares httpx, so the test run gets it from the root venv.
+#
+# The identity module (v2/identity/) brings PyJWT + cryptography; they are declared in
+# identity/requirements.txt and installed separately by the Dockerfile, so this file keeps
+# describing only what app.py itself needs.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+# The admin control plane reads key METADATA from Secrets Manager and DynamoDB and rolls services
+# after a secret write (accounts/admin_api.py). Imported lazily and treated as optional at runtime
+# — a laptop with no AWS credentials renders those panels as "not configured" rather than failing —
+# but declared here so the deployed image never has to discover it is missing.
+boto3>=1.34,<2

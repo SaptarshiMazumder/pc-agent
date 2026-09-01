@@ -29,7 +29,7 @@ generalized from "buttons on an artifact" to "panels for an agent".
 
 | Seam | Where | State |
 |---|---|---|
-| `Tool.artifact_action` `{mime[], label, param}` | `v2/agentd/application/interfaces/tool.py:108` (class at :64) | ✅ exists; client adds `tool` key itself (`lib/artifacts.ts:25-30`) |
+| `Tool.artifact_action` `{mime[], label, param}` | `v2/agent_runtime/application/interfaces/tool.py:108` (class at :64) | ✅ exists; client adds `tool` key itself (`lib/artifacts.ts:25-30`) |
 | Tool self-description: `plugin`, `needs_model`, `default_model`, `model_kind`, `provider_options`, `provider_chain` | `tool.py:86-101` | ✅ all present |
 | `plugins.catalog` RPC emits `artifactAction` per tool | `gateway.py:2404-2466` (field at :2451) | ✅ |
 | `tools.invoke` RPC (no-LLM direct tool run) | `gateway.py:1198-1221` | ✅; gate at :1213 admits ONLY tools declaring `artifact_action` |

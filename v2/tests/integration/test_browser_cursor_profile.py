@@ -47,7 +47,7 @@ def _cfg(tmp_path):
 @pytest.mark.asyncio
 async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
     try:
-        from agentd.infrastructure.tools.browser.providers.playwright import (
+        from agent_runtime.infrastructure.tools.browser.providers.playwright import (
             PlaywrightBrowserProvider,
         )
     except ImportError:
@@ -88,7 +88,9 @@ async def test_cursor_scan_refs_and_clicks_non_aria_div(tmp_path):
 
 
 def test_resolve_chrome_profile_by_abs_path(tmp_path):
-    from agentd.infrastructure.tools.browser.providers.playwright import resolve_chrome_profile
+    from agent_runtime.infrastructure.tools.browser.providers.playwright import (
+        resolve_chrome_profile,
+    )
 
     prof = tmp_path / "SomeProfile"
     prof.mkdir()
@@ -97,7 +99,9 @@ def test_resolve_chrome_profile_by_abs_path(tmp_path):
 
 
 def test_seed_profile_copies_excluding_caches_and_is_idempotent(tmp_path):
-    from agentd.infrastructure.tools.browser.providers.playwright import seed_profile_from_chrome
+    from agent_runtime.infrastructure.tools.browser.providers.playwright import (
+        seed_profile_from_chrome,
+    )
 
     # fake Chrome layout: <UserData>/Default + <UserData>/Local State
     user_data = tmp_path / "UserData"
@@ -120,6 +124,8 @@ def test_seed_profile_copies_excluding_caches_and_is_idempotent(tmp_path):
 
 
 def test_seed_profile_missing_source_returns_false(tmp_path):
-    from agentd.infrastructure.tools.browser.providers.playwright import seed_profile_from_chrome
+    from agent_runtime.infrastructure.tools.browser.providers.playwright import (
+        seed_profile_from_chrome,
+    )
 
     assert seed_profile_from_chrome(str(tmp_path / "nope"), tmp_path / "out") is False

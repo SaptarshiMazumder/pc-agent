@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 
-from agentd.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 # Tokyo — this agent's whole world (see IDENTITY.md).
 _LAT, _LON, _TZ = 35.6762, 139.6503, "Asia/Tokyo"

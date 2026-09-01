@@ -23,12 +23,29 @@ plugins = [
 
 [store]
 enabled = true            # a standalone SKU still upsells other agents
-registry_url = "https://agentd-dev-registry-910828b2.s3.ap-northeast-1.amazonaws.com/index.json"
-publisher_key = "gYM/XoS5CZo1yNAdW2Ai4HwnLNDlJhl/nvJUh5TavFY="
+registry_url = "https://agentd-staging-registry-274ab2e9.s3.ap-northeast-1.amazonaws.com/index.json"
+publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
 
 # [platform] — hosted accounts + platform model keys: this build signs in and runs
 # figure-creator on OUR keys (HTTP for the private-testing phase; switch to https + rebuild
 # once TLS lands). Same endpoints as the core flavor.
 [platform]
-accounts_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4100"
-model_gateway_url = "http://agentd-dev-1192385083.ap-northeast-1.elb.amazonaws.com:4000"
+# THE ONE ADDRESS THIS BUILD BAKES. Everything else about the deployment — where to sign in,
+# the model proxy, which issuer's tokens to trust, which login providers to offer — is fetched
+# from <platform_url>/.well-known/agentd-platform at runtime.
+#
+# It replaced four independently-baked ALB hostnames. Each of those carries an AWS-assigned
+# suffix that changes on any destroy/recreate, and nothing forced sync-platform-urls to run
+# before a build — so every release froze another stale set, and the artifacts under dist/ point
+# at three different long-dead load balancers. The user-visible symptom was not an obvious
+# failure: two clients built at different times signed in against two different accounts
+# databases, so the same email was two accounts with two separate credit balances.
+#
+# The keys below it are FALLBACKS, used only when discovery cannot be reached (offline) or by a
+# client too old to know about it.
+platform_url = "https://staging.thorgodofthunder.site:4100"
+accounts_url = "https://staging.thorgodofthunder.site:4100"
+model_proxy_url = "https://staging.thorgodofthunder.site:4000"
+# Opt-in diagnostics, default off. Declared so sync-platform-urls can keep it current — it
+# retargets existing keys and never adds one.
+ingest_url = "https://staging.thorgodofthunder.site:4200"

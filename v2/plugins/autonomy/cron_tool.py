@@ -15,11 +15,11 @@ import time
 import uuid
 from datetime import datetime
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_run_context
-from agentd.domain.agent import cron_session_key
-from agentd.domain.autonomy import ScheduledTask
-from agentd.infrastructure.autonomy.schedule import resolve_schedule
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
+from agent_runtime.domain.agent import cron_session_key
+from agent_runtime.domain.autonomy import ScheduledTask
+from agent_runtime.infrastructure.autonomy.schedule import resolve_schedule
 
 
 class CronTool(Tool):

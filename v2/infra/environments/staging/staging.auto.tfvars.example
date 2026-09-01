@@ -1,0 +1,107 @@
+# Copy to `staging.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
+# automatically, so no -var flag on any command.
+#
+# WHY A FILE AND NOT `-var`. Several of these default to "" or [], and the resources they
+# drive are conditional on being non-empty. Passing one with -var on a Monday and forgetting
+# it on Tuesday does not leave that resource alone — it DESTROYS it. The alarm subscription
+# and the publish Lambda both work exactly that way. An auto-loaded file is what makes it
+# stick; the variables are behaving correctly, the flag is just too easy to forget.
+#
+# THE SAME MENU AS DEV. This file and dev's list the same settings in the same order, so an
+# operator moving between environments sees one vocabulary and a missing knob is visible as
+# a missing knob rather than as "that environment must not support it". Only the VALUES and
+# the commentary differ.
+
+# ── alarms: where they go ────────────────────────────────────────────────────
+# Empty = the SNS topic is created and nobody is subscribed, so all 13 alarms fire into
+# nothing. AWS emails a confirmation link the recipient must click; until they do the
+# subscription is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
+# reports both states. SET THIS before treating staging as a gate.
+alert_email = "you@example.com"
+
+# ── the publish service (deploy/PUBLISH-SERVICE.md) ──────────────────────────
+# EMPTY on the first apply: the image does not exist yet, because ECR is created by that
+# same apply. `publish_enabled` is `var.publish_image_tag != ""`, so an empty tag is not an
+# error — it simply builds no publish Lambda, no creator table and no KMS key, and
+# `publish_url` comes back empty. Push the image to the repository named by the
+# `publish_ecr_repository` output, then set the tag and apply again.
+publish_image_tag = "v2"
+
+# Who may call the publish service's admin endpoints (`agentd bundle roster pending/admit/
+# revoke`): account ids and/or the emails those accounts sign in with. EMPTY = admin door
+# closed, so nobody can admit a creator and nothing can be published.
+publish_admin_identities = ["you@example.com"]
+
+# The builder service (agent window builds out of the daemon) — same two-step bring-up as
+# publish: apply once (ECR repo + scratch bucket, no Lambda, no cost), push the image to the
+# `builder_ecr_repository` output, then set the tag and apply again.
+builder_image_tag = "v2"
+
+# ── the engine a published product's installer downloads ─────────────────────
+# All three or none. A stub refuses a download it cannot verify, so a URL without its
+# sha256 is a product that installs nothing. Empty = read the registry index instead.
+# publish_engine_url     = "https://.../agentd-setup-0.1.11.exe"
+# publish_engine_sha256  = "…"
+# publish_engine_version = "0.1.11"
+
+# ── the domain (../../DOMAIN-SETUP.md) ───────────────────────────────────────
+# DO NOT SET THESE HERE. `root_domain`, `agent_hostnames` and `admin_hostname` now carry real
+# values in main.tf — staging owns `staging.thorgodofthunder.site`, dev owns `dev.…`, and the
+# bare apex is nobody's. A line here would OVERRIDE that (tfvars beat defaults) and silently
+# strand this environment on its old domain, which is trap #2 in the runbook.
+#
+# Staging used to sit on certificate_arn/domain_name instead, borrowing the wildcard
+# certificate DEV's terraform owns — one environment's apply could take the other's HTTPS
+# down. root_domain removes that coupling; each environment mints its own certificates.
+# root_domain     = "staging.example.com"
+# agent_hostnames = { "platform.staging.example.com" = "cloud-agent-builder" }
+# admin_hostname  = "admin.staging.example.com"
+
+# ── payments (v2/payments/) ──────────────────────────────────────────────────
+# The rail's NAME only. Every key — Dodo's API key, webhook secret, pay-what-you-want
+# product id and API host, plus Razorpay's and Stripe's — lives in this environment's
+# Secrets Manager secret and never in this file. Staging runs Dodo and dev runs Razorpay on
+# purpose, so both rails stay exercised.
+# payment_provider = "dodo"
+# Origins /me/checkout may return a paying customer to. Empty = any absolute http(s) URL;
+# set it once staging's client origins are stable, because the alternative in production is
+# an open redirect wearing our domain.
+# checkout_return_origins = ["https://staging.thorgodofthunder.site"]
+
+# ── cost control ─────────────────────────────────────────────────────────────
+# Staging does not need to be up between test runs. `paused` scales every task to 0 and
+# stops the scheduled jobs while KEEPING the ALB — the URL survives and no client needs
+# re-syncing. `hibernate` also removes the ALB: cheaper, and it CHANGES THE URL.
+# paused    = true
+# hibernate = false
+
+# ── alarms: thresholds ───────────────────────────────────────────────────────
+# STAGING'S DEFAULTS ARE PRODUCTION'S VALUES, not dev's loose ones — the point of staging is
+# to find out whether a threshold is right before production has to answer that. Override
+# only to reproduce something specific.
+# cost_per_hour_alarm_usd   = 5
+# proxy_5xx_threshold       = 1
+# resolve_latency_p99_ms    = 1000
+# login_rejection_threshold = 20
+# The two ABSENCE alarms treat missing data as breaching. Turn them on once staging carries
+# continuous traffic and the schedules have run at least once.
+# enable_login_absence_alarm = false
+# enable_job_absence_alarm   = false
+
+# ── the clock ────────────────────────────────────────────────────────────────
+# EMPTY IS THE POINT HERE: staging runs the module's own cadence (hourly renewals) so the
+# production clock is the thing being rehearsed. Dev slows renewals to once daily because it
+# has no subscribers. Override only to reproduce something.
+# scheduled_job_overrides = { subscription-renewals = { schedule = "cron(0 0 * * ? *)" } }
+
+# ── the public marketplace ───────────────────────────────────────────────────
+# Both empty = CloudFront's own https address, needing no DNS and no certificate of ours,
+# which is enough for staging. Set both together or neither: CloudFront rejects an alias
+# without a certificate that covers it, and that certificate MUST live in us-east-1 whatever
+# region this deployment runs in.
+# marketplace_domain_name     = "agents-staging.example.com"
+# marketplace_certificate_arn = "arn:aws:acm:us-east-1:…"
+
+# ── model proxy ──────────────────────────────────────────────────────────────
+# Initial task count; 0 parks it without removing the service.
+# model_proxy_desired_count = 1

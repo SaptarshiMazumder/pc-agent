@@ -1,0 +1,529 @@
+"""create_agent — SCAFFOLD a new persistent AGENT, then get out of the way.
+
+"An agent is a directory": this authors the skeleton (``agent.toml`` + ``IDENTITY.md``, plus
+``AGENTS.md`` when operating rules are given) and hands it to ``registry.create_from`` — THE
+one creation path — which owns the WORLD half: placement (the caller's account overlay when
+the connection has one, else the shared catalogue), layer-aware collision, the ownership
+stamp at birth, and live registration, so the new agent is resolvable on the next message
+WITHOUT a restart. The files it writes are exactly what ``FileAgentRegistry`` /
+``load_bootstrap`` read, so a by-chat agent is identical to a hand-authored one.
+
+This tool used to place, register and collide by ITSELF (write files + ``registry.add``) —
+which meant no ownership record, a collision check blind to the shared layer, and, once
+account overlays arrived, a write target the stale scope refused. Delegating the world half
+is what fixed all three at once: the tool cannot get placement wrong because it never
+answers placement.
+
+DELIBERATELY FROZEN AT THE SKELETON — do not add parameters for the rest of agent.toml.
+
+This tool owns the half of an agent that genuinely needs code:
+  * correct TOML KEY ORDER — every top-level key must precede the first ``[table]``, or TOML
+    scopes it INTO that table and it is silently ignored (the exact bug that made an authored
+    ``color``/``tagline`` under ``[app]`` vanish in favour of a generated sidecar value),
+  * refusing to create or clobber the default agent ``main``,
+  * the refusal wording that hands an "already exists" decision back to the USER.
+
+The other half is open-ended and belongs to ``write``: ``[app]``, ``[tools]``, the display keys,
+``skills``, and above all ``[plugins.<plugin>.tools.<tool>]`` — any plugin x any tool x any knob
+(figure-creator's whole image engine lives there). That has no enumerable shape, so a
+parameterised creator could never be complete; it would grow forever and still miss cases, while
+teaching the model a second grammar for something it already writes fluently as TOML.
+
+The model can do that safely because it has the grammar (the `build-agent` skill, owned by the
+agents/agent-builder/ agent)
+and a checker (``validate_agent``). Anything this tool cannot express, it names in its result so
+the next step is obvious.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import logging
+import re
+from pathlib import Path
+
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.write_scope import WriteRefused, check_write
+
+log = logging.getLogger("agentd")
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+
+
+def _toml_str(s: str) -> str:
+    """A minimally-escaped TOML basic string (backslash + double-quote)."""
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _toml_arr(items: list) -> str:
+    """A TOML array of basic strings, e.g. ["check-*", "lint"]."""
+    return "[" + ", ".join(_toml_str(i) for i in items) + "]"
+
+
+# What this tool writes. Anything else in an agent.toml was authored with `write`, and a
+# re-scaffold silently deletes it — so it has to be named before that happens.
+_SKELETON_KEYS = frozenset({"name", "version", "model", "description", "heartbeat"})
+_SKELETON_TABLES = frozenset({"capabilities", "subagents"})
+
+
+def _authored_sections(path: Path) -> list[str]:
+    """Everything in an existing agent.toml that this tool does NOT own, named the way the
+    author wrote it (``[app]``, ``[tools]``, ``tagline``, ``[plugins.figures...]``).
+
+    Unreadable or absent file -> empty: a caller cannot be warned about content nobody can
+    read, and guessing would be worse than saying nothing."""
+    try:
+        import tomllib
+
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[str] = []
+    for key, value in data.items():
+        if key in _SKELETON_KEYS or key in _SKELETON_TABLES:
+            continue
+        if key == "plugins" and isinstance(value, dict):
+            out += [f"[plugins.{sub}...]" for sub in sorted(value)]
+        elif isinstance(value, dict):
+            out.append(f"[{key}]")
+        else:
+            out.append(key)
+    return sorted(out)
+
+
+class CreateAgentTool(Tool):
+    name = "create_agent"
+    label = "Create Agent"
+    default_retryable = False  # side-effecting (writes a definition); never auto-retry
+    description = (
+        "SCAFFOLD a new persistent AGENT — an agent is a directory of instructions. Call this "
+        "FIRST when asked to build an agent: it writes agents/<id>/ (agent.toml + IDENTITY.md, "
+        "plus AGENTS.md when you give rules) and registers it LIVE, so the agent is usable on the "
+        "next message with no restart. action='list' shows current agents. "
+        "IF THE ID ALREADY EXISTS THIS REFUSES — ask the USER whether to work on that agent or "
+        "make a new one, and never decide it yourself. To edit an existing agent, change the "
+        "specific files with `write`; action='update' RE-SCAFFOLDS from scratch and destroys "
+        "[app], [tools] and plugin wiring, so it needs confirm_overwrite=true and only after the "
+        "user has said they want it rebuilt. "
+        "Provide a kebab-case `id`, a display `name`, an `identity` (who it "
+        "is — role, tone, boundaries), and a `version` (e.g. '1.0.0'); optionally `rules` "
+        "(operating do/don'ts), a `model`, a one-line `description`, and `subagents_allow` "
+        "(ids/globs it may delegate to). For an AUTONOMOUS agent add `heartbeat` (e.g. '30m') + "
+        "`heartbeat_md` and `capabilities` (e.g. {\"autonomy\": true}). "
+        "THIS TOOL ONLY WRITES THE SKELETON. Everything else is authored with `write` against the "
+        "build-agent skill's grammar: the [app] table and ui/, [tools] allow/deny, the top-level "
+        "display keys (tagline/color/suggestions), per-agent tool wiring "
+        "([plugins.<plugin>.tools.<tool>]), and its skills/ — write those as "
+        "skills/<name>/SKILL.md files, NOT with skill_workshop (that only ever writes into the "
+        "CALLING agent's own skills). Use create_tool(agent=<id>) for the agent's private tools. "
+        "When the files are written, call validate_agent, then reload_agent. Cannot create or "
+        "overwrite the default agent 'main'."
+    )
+    # `action` is NOT required: execute() defaults it to "create", and validate_args runs the
+    # schema BEFORE execute — so requiring it made that default unreachable and rejected the
+    # most natural call there is, create_agent(id=..., identity=...). Creating is the
+    # overwhelmingly common case; make the common case the one you can omit.
+    parameters = {
+        "type": "object",
+        "required": [],
+        "properties": {
+            "confirm_overwrite": {
+                "type": "boolean",
+                "description": "REQUIRED for action='update'. Set true ONLY after the user has "
+                "explicitly said to rebuild this agent from scratch — it destroys [app], "
+                "[tools], display keys and plugin wiring. Never set it on your own initiative",
+            },
+            "action": {
+                "type": "string",
+                "enum": ["create", "update", "list"],
+                "description": "create (the default) | update an existing agent | list agents",
+            },
+            "id": {"type": "string", "description": "agent id, kebab-case (e.g. support-bot)"},
+            "name": {"type": "string", "description": "display name (defaults to the id)"},
+            "version": {
+                "type": "string",
+                "description": "agent version, e.g. '1.0.0' (defaults to 1.0.0). Bump it on every "
+                "shipped change — bundle installs supersede an older copy BY VERSION",
+            },
+            "identity": {
+                "type": "string",
+                "description": "IDENTITY.md body: who the agent is, its tone and boundaries",
+            },
+            "rules": {
+                "type": "string",
+                "description": "optional AGENTS.md body: operating rules / red lines",
+            },
+            "model": {"type": "string", "description": "optional model id override for this agent"},
+            "description": {
+                "type": "string",
+                "description": "one line: what this agent is for (shown in agents_list)",
+            },
+            "subagents_allow": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "ids/globs of specialist agents this one may delegate to "
+                "(e.g. ['check-*']); omit for no restriction",
+            },
+            "heartbeat": {
+                "type": "string",
+                "description": "self-wake interval, e.g. '30m' (needs autonomy enabled)",
+            },
+            "heartbeat_md": {
+                "type": "string",
+                "description": "HEARTBEAT.md: the checklist to re-run on each heartbeat tick",
+            },
+            "capabilities": {
+                "type": "object",
+                "description": 'per-agent toggles, e.g. {"autonomy": true, "notify": true}',
+            },
+            "template": {
+                "type": "string",
+                "description": "which window shape a windowed agent starts as: 'chat' (a thread "
+                "and a composer — the default) or 'dashboard' (a panel grid over the agent's own "
+                "tools, with the chat still in the rail). Both carry the four shared screens. "
+                "Only meaningful with window=true; an unknown name falls back to 'chat'",
+            },
+            "window": {
+                "type": "boolean",
+                "description": "does this agent get its own app window? true declares [app] AND "
+                "assembles a complete, working window — shell, chat, sign-in, credits, settings "
+                "and organizations, all already wired. You then EDIT that window; never build one "
+                "from scratch and never scaffold it separately. Ask the user if you do not know; "
+                "adding a window later is a scaffold_react_app call, removing one is deleting a "
+                "directory",
+            },
+        },
+    }
+
+    def __init__(self, registry, validator=None, announce=None, scaffolder=None, builder=None):
+        self._registry = registry
+        # ScaffoldReactAppService. Injected so `window=true` can hand the new agent a complete
+        # window in the same call that creates it, rather than depending on a follow-up nobody is
+        # obliged to make. Optional: a caller without one (minimal tests) simply gets no window,
+        # and is told so.
+        self._scaffolder = scaffolder
+        # BuildAppService. `app/` is source and `ui/` is what the daemon serves, so an agent whose
+        # window was copied but never compiled has nothing to open — `_agent_app` refuses to
+        # advertise an app whose entry file is missing, which is correct and which made a
+        # freshly created agent look like it had no window at all.
+        #
+        # Optional, like the scaffolder: a caller without one gets the source and is told the
+        # window still needs building.
+        self._builder = builder
+        # Injected so a fresh skeleton is validated IN THE SAME RESULT — the model sees
+        # problems without spending a turn deciding to call validate_agent. Optional: a
+        # caller without one (minimal tests) just gets no auto-check.
+        self._validator = validator
+        # `broadcast_agents_changed` — fan an `agents.changed` event out to every connected
+        # client. WITHOUT IT the agent is registered and resolvable but no open window knows:
+        # the daemon has it, the sidebar does not, and the author is told it was created while
+        # looking at a list that does not contain it.
+        #
+        # This used to be reload_agent's job alone, and the tool's own description asks the model
+        # to call it afterwards. That is a hope, not a mechanism — the first real run skipped it,
+        # and the agent was invisible until the window restarted. Announcing something we just
+        # did ourselves does not belong to a later step the caller might not take.
+        self._announce = announce
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        action = (params.get("action") or "create").strip().lower()
+        reg = self._registry
+        if action == "list":
+            ids = reg.list_ids()
+            return ToolResult.text("Agents:\n" + "\n".join(f"- {i}" for i in ids))
+        if action not in ("create", "update"):
+            return ToolResult.text("action must be create / update / list", is_error=True)
+
+        agent_id = _slug(params.get("id", ""))
+        if not agent_id:
+            return ToolResult.text("an agent needs an 'id' (kebab-case)", is_error=True)
+        if agent_id == "main":
+            return ToolResult.text(
+                "'main' is the default agent and cannot be created or overwritten", is_error=True
+            )
+        identity = (params.get("identity") or "").strip()
+        if not identity:
+            return ToolResult.text(
+                "an agent needs an 'identity' (who it is — its role, tone, and boundaries)",
+                is_error=True,
+            )
+        name = (params.get("name") or agent_id).strip()
+        # Default rather than omit: an agent with no version cannot be superseded by a later
+        # install (bundles compare versions), and validate_agent flags its absence.
+        version = (params.get("version") or "1.0.0").strip()
+        model = (params.get("model") or "").strip()
+        rules = (params.get("rules") or "").strip()
+        description = (params.get("description") or "").strip()
+        raw_allow = params.get("subagents_allow")
+        allow = (
+            [str(a).strip() for a in raw_allow if str(a).strip()]
+            if isinstance(raw_allow, list)
+            else []
+        )
+        heartbeat = (params.get("heartbeat") or "").strip()
+        heartbeat_md = (params.get("heartbeat_md") or "").strip()
+        caps = params.get("capabilities") if isinstance(params.get("capabilities"), dict) else {}
+
+        # WHERE the agent lives is the REGISTRY's answer, never built from a path here:
+        # resolve_dir finds an existing agent in whichever layer the caller sees it (shared
+        # catalogue or their account overlay), and create_from picks the write layer for a
+        # new one. Building agents_dir/<id> by hand was how this tool once missed a curated
+        # agent entirely and scaffolded an overlay skeleton that shadowed it.
+        existing = reg.resolve_dir(agent_id)
+        if action == "create" and (existing is not None or agent_id in set(reg.list_ids())):
+            # This message used to read "use action='update' to change it" — a one-step
+            # workaround the model took on its own, which is how an existing agent lost its
+            # [app] table and orphaned a whole ui/ folder. The refusal must hand the decision
+            # BACK to the user, and offer no shortcut.
+            return ToolResult.text(
+                f"agent '{agent_id}' already exists — this is the user's decision, not yours.\n"
+                f"ASK THEM: work on the existing '{agent_id}', or create a new agent?\n"
+                f"  • new agent      -> call again with a DIFFERENT id\n"
+                f"  • edit this one  -> use `write` on the specific files; everything else "
+                f"stays intact\n"
+                f"  • rebuild it     -> only if they explicitly ask for it from scratch: "
+                f"action='update' with confirm_overwrite=true",
+                is_error=True,
+            )
+        if action == "update" and existing is None:
+            return ToolResult.text(
+                f"no agent '{agent_id}' to update — use action='create'", is_error=True
+            )
+
+        # An update REWRITES agent.toml from the skeleton, so anything `write` authored is
+        # gone. Name it before doing it, and refuse without explicit confirmation.
+        destroyed: list[str] = []
+        if action == "update":
+            destroyed = _authored_sections(existing / "agent.toml")
+            if not params.get("confirm_overwrite"):
+                lost = ", ".join(destroyed) if destroyed else "nothing beyond the skeleton"
+                return ToolResult.text(
+                    f"REFUSING to rebuild '{agent_id}' — this would DELETE: {lost}.\n"
+                    f"Ask the user first. If they only want a change, use `write` on the "
+                    f"specific file instead — it keeps everything else.\n"
+                    f"If they genuinely want it rebuilt from scratch, call again with "
+                    f"confirm_overwrite=true.",
+                    is_error=True,
+                )
+
+        window = bool(params.get("window"))
+        template = str(params.get("template") or "chat").strip().lower() or "chat"
+
+        d = existing if action == "update" else Path(reg.agents_dir) / agent_id
+        # This tool writes files directly, so it carries the same scope `write` does.
+        try:
+            check_write(d)
+        except WriteRefused as e:
+            return ToolResult.text(str(e), is_error=True)
+
+        def write_files(dest: Path) -> None:
+            # The CONTENT half — this tool's whole reason to exist. TOML: top-level keys MUST
+            # precede any [table], so emit name/model/description/heartbeat first, then the
+            # [capabilities] / [subagents] tables.
+            top = [f"name = {_toml_str(name)}", f"version = {_toml_str(version)}"]
+            if model:
+                top.append(f"model = {_toml_str(model)}")
+            if description:
+                top.append(f"description = {_toml_str(description)}")
+            if heartbeat:
+                top.append(f"heartbeat = {_toml_str(heartbeat)}")
+            tables: list = []
+            cap_lines = [
+                f"{k} = {'true' if caps.get(k) else 'false'}"
+                for k in ("autonomy", "notify", "channels")
+                if k in caps
+            ]
+            if cap_lines:
+                tables += ["", "[capabilities]"] + cap_lines
+            if allow:
+                tables += ["", "[subagents]", f"allow = {_toml_arr(allow)}"]
+            # [app] IS WRITTEN HERE, not left to `write`, because the skeleton is copied in the
+            # same breath below — and a window on disk that agent.toml never declares is a window
+            # the daemon does not serve. The two facts have to be decided together or an agent
+            # ships an app nobody can open.
+            if window:
+                tables += [
+                    "",
+                    "[app]",
+                    f"title = {_toml_str(name)}",
+                    'mode = "window"',
+                    'entry = "ui/index.html"',
+                    "public = false",
+                ]
+            (dest / "agent.toml").write_text("\n".join(top + tables) + "\n", encoding="utf-8")
+            (dest / "IDENTITY.md").write_text(identity + "\n", encoding="utf-8")
+            if rules:
+                (dest / "AGENTS.md").write_text(rules + "\n", encoding="utf-8")
+            if heartbeat_md:
+                (dest / "HEARTBEAT.md").write_text(heartbeat_md + "\n", encoding="utf-8")
+
+        if action == "create":
+            # THE one creation path: the registry owns placement (the caller's overlay when
+            # they have one), layer-aware collision, the ownership stamp at birth, and live
+            # registration — this tool only authors the files.
+            try:
+                spec = reg.create_from(agent_id, write_files)
+            except ValueError as e:  # the registry's own collision/validity backstop
+                return ToolResult.text(str(e), is_error=True)
+            d = Path(getattr(spec, "dir", d))
+        else:
+            write_files(d)
+            try:
+                reg.add(agent_id)  # re-load LIVE — the rebuilt definition serves next message
+            except Exception as e:  # noqa: BLE001 — files are written; report the load failure
+                return ToolResult.text(
+                    f"wrote agents/{agent_id}/ but could not register it live "
+                    f"({type(e).__name__}: {e}) — a restart will pick it up",
+                    is_error=True,
+                )
+
+        # THE WINDOW, ASSEMBLED NOW rather than left for a later tool call.
+        #
+        # WHY IT IS NOT A SEPARATE STEP. It was: the model created the agent, and was told by the
+        # skill to call `scaffold_react_app` afterwards. That is a hope, not a mechanism — and the
+        # thing hoped for is the entire structural guarantee, because an agent whose window was
+        # never scaffolded has no sign-in, no credits page and no settings, and every one of those
+        # failures is invisible until somebody else installs it.
+        #
+        # Best-effort on the SCAFFOLD, not on the agent: the agent is already created and
+        # registered by this point, and failing the whole call over a window would leave a
+        # registered agent that the caller was told did not get made. Reported instead, with the
+        # one command that fixes it.
+        scaffold_note = ""
+        if window and action == "create" and self._scaffolder is not None:
+            try:
+                # Threaded for the same reason scaffold_react_app is: copying a whole app
+                # template blocks, and it runs while somebody watches an empty chat.
+                built = await asyncio.to_thread(
+                    self._scaffolder.scaffold, agent_id, template=template
+                )
+                scaffold_note = (
+                    f"\n\nIts window is already there — {len(built.written)} files in app/, "
+                    f"including sign-in, credits, settings and organizations, all wired and "
+                    f"working. EDIT it; do not rebuild it, and do not scaffold it again. "
+                    f"`src/common/` is shared and must not be changed at all."
+                )
+                # AND OPENABLE, because source alone cannot be opened. The scaffold normally
+                # installs the template's PREBUILT window as ui/ (built by the vendor pipeline,
+                # long before this call) — no compile runs anywhere at create, which on a hosted
+                # daemon is what keeps a create from being a build. The compile below is the
+                # FALLBACK for a tree whose previews are missing.
+                if getattr(built, "ui_installed", False):
+                    scaffold_note += (
+                        " It is openable right now (the template ships prebuilt); run `build_app` "
+                        "after every change to `app/`, because `ui/` is what the daemon serves."
+                    )
+                elif self._builder is not None:
+                    try:
+                        await asyncio.to_thread(self._builder.build, agent_id)
+                        scaffold_note += (
+                            " It is compiled and openable right now; run `build_app` again after "
+                            "every change to `app/`, because `ui/` is what the daemon serves."
+                        )
+                    except Exception as e:  # noqa: BLE001 — the agent and its source both exist
+                        # NOT FATAL. The source is on disk and one `build_app` fixes it; failing
+                        # the creation would leave a registered agent the caller was told did not
+                        # get made.
+                        scaffold_note += (
+                            f" Its window could NOT be compiled yet ({type(e).__name__}: {e}) — "
+                            f"run `build_app` for '{agent_id}' before anything else, or there is "
+                            f"nothing to open."
+                        )
+            except Exception as e:  # noqa: BLE001 — the agent exists; only its window did not
+                scaffold_note = (
+                    f"\n\nWARNING: the agent was created but its window could not be assembled "
+                    f"({type(e).__name__}: {e}). Run `scaffold_react_app` for '{agent_id}' before "
+                    f"doing anything else — without it this agent has no sign-in, no credits page "
+                    f"and no settings, and cannot be published."
+                )
+
+        # Tell the open windows. `create_from` above owns placement, collision, the ownership
+        # stamp and live registration — but not the clients: an agent can be fully registered
+        # and resolvable while every open sidebar still shows the roster from before it existed.
+        #
+        # Best-effort: a stale sidebar is cosmetic, and failing the creation over it would turn
+        # that into a lost agent.
+        announced = False
+        if callable(self._announce):
+            try:
+                self._announce()
+                announced = True
+            except Exception as e:  # noqa: BLE001 — reported below, never raised
+                log.warning("create_agent: could not announce '%s': %s", agent_id, e)
+
+        verb = "Rebuilt" if action == "update" else "Created"
+        written = ["agent.toml", "IDENTITY.md"]
+        if rules:
+            written.append("AGENTS.md")
+        if heartbeat_md:
+            written.append("HEARTBEAT.md")
+
+        # HAND-OFF: this tool only ever writes the skeleton, so say so and name the next step.
+        # The model's whole picture of a tool is its description + its results, and this is the
+        # moment the remaining work is actionable.
+        lines = [
+            f"{verb} agent '{agent_id}' ({name}) v{version} at {d} — registered live, resolvable "
+            f"on the next message, no restart."
+            + ("" if announced else " (open windows will not show it until they reload)"),
+            f"Wrote: {', '.join(written)}.",
+        ]
+        if destroyed:
+            # Say what was destroyed, in the same message, every time. If this rebuild happened
+            # without the user actually asking for it, this line is how they find out now
+            # instead of when the app window stops opening.
+            lines += [
+                f"DELETED (re-scaffold replaced agent.toml): {', '.join(destroyed)}.",
+                "Re-author anything still needed with `write`.",
+            ]
+        lines += [
+            "",
+            "This is the SKELETON only. Author anything else with `write` (see the build-agent "
+            "skill for the grammar):",
+            "  • [app] + ui/  — to give it its own window / make it packageable as an .exe",
+            "  • [tools] allow/deny  — to narrow what it may use",
+            "  • tagline / color / suggestions  — TOP-LEVEL keys, never inside [app]",
+            "  • [plugins.<plugin>.tools.<tool>]  — per-agent model + tool wiring",
+            "  • skills/<name>/SKILL.md  — its playbooks. Author these with `write`: "
+            "skill_workshop only ever writes into the CALLING agent's own skills dir.",
+            "Then: create_tool(agent='%s') for its private tools." % agent_id,
+            f"After every batch of edits: validate_agent('{agent_id}'), then "
+            f"reload_agent('{agent_id}') to apply agent.toml changes.",
+        ]
+        # Auto-check the skeleton in this same result. Best-effort: a validator failure must
+        # not turn a successful create into an error result.
+        if self._validator is not None:
+            try:
+                report = self._validator.validate(agent_id)
+                notable = [f for f in report.findings if f.level in ("error", "warn")]
+                if notable:
+                    lines += ["", "validate_agent (auto-run on the new skeleton):"] + [
+                        "  " + f.as_line() for f in notable
+                    ]
+                else:
+                    lines += ["", "validate_agent (auto-run): the skeleton is clean."]
+            except Exception:  # noqa: BLE001 — the create succeeded; the check is a bonus
+                pass
+        return ToolResult.text(
+            "\n".join(lines) + scaffold_note,
+            details={
+                "id": agent_id,
+                "version": version,
+                "written": written,
+                "destroyed": destroyed,
+                "scope": "skeleton",
+                "window": window,
+                # WHERE IT ACTUALLY IS, as data. The prose above has always said it, which was
+                # enough while the MODEL made this call and read the answer. The window creates
+                # agents now, so the caller is a UI — and a UI cannot parse "… v1.0.0 at C:\…"
+                # out of a sentence. It needs the path to tell the model, because the model no
+                # longer sees this message at all.
+                #
+                # ABSOLUTE, and that matters: a signed-in caller's agents are placed in their own
+                # account overlay, not the shared catalogue, so no relative path and no guess at
+                # "the agents directory" can find one.
+                "dir": str(d),
+            },
+        )

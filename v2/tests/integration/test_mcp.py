@@ -8,14 +8,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.config import McpServerConfig, load_config
-from agentd.domain.mcp import McpCallResult, McpToolSpec
-from agentd.domain.messages import TextContent
-from agentd.infrastructure.tools.guard import GuardedTool
-from agentd.infrastructure.tools.mcp.factory import build_mcp_provider
-from agentd.infrastructure.tools.mcp.mapping import to_tool_result
-from agentd.infrastructure.tools.mcp.provider import McpProvider
-from agentd.infrastructure.tools.mcp.tool import McpTool
+from agent_runtime.config import McpServerConfig, load_config
+from agent_runtime.domain.mcp import McpCallResult, McpToolSpec
+from agent_runtime.domain.messages import TextContent
+from agent_runtime.infrastructure.tools.guard import GuardedTool
+from agent_runtime.infrastructure.tools.mcp.factory import build_mcp_provider
+from agent_runtime.infrastructure.tools.mcp.mapping import to_tool_result
+from agent_runtime.infrastructure.tools.mcp.provider import McpProvider
+from agent_runtime.infrastructure.tools.mcp.tool import McpTool
 
 # ---- fakes (satisfy the McpSession protocol structurally) -----------------
 
@@ -186,7 +186,7 @@ def test_factory_skips_unknown_transport():
 
 
 def test_resolve_subprocess_inherits_and_expands(monkeypatch):
-    from agentd.infrastructure.tools.mcp.session import resolve_subprocess
+    from agent_runtime.infrastructure.tools.mcp.session import resolve_subprocess
 
     monkeypatch.setenv("MY_CLIENT_ID", "abc123")  # e.g. a value from .env
     monkeypatch.setenv("INHERITED_VAR", "yes")
@@ -196,10 +196,50 @@ def test_resolve_subprocess_inherits_and_expands(monkeypatch):
         env={"GOOGLE_OAUTH_CLIENT_ID": "${MY_CLIENT_ID}", "FLAG": "1"},
     )
     cmd, env = resolve_subprocess(cfg)
-    assert cmd == ["uvx", "workspace-mcp"]
+    # The launcher is resolved to an ABSOLUTE path when we can find it. Handing the child a
+    # PATH is not enough — the OS resolves the executable using the SPAWNING process's PATH,
+    # so a pip-installed `uvx` in our own Scripts dir failed with "file not found" no matter
+    # what PATH we passed. Args are untouched.
+    assert cmd[0].lower().endswith(("uvx", "uvx.exe")) or cmd[0] == "uvx"
+    assert cmd[1:] == ["workspace-mcp"]
     assert env["GOOGLE_OAUTH_CLIENT_ID"] == "abc123"  # ${VAR} expanded from env
     assert env["FLAG"] == "1"  # literal overlay
     assert env["INHERITED_VAR"] == "yes"  # full env inherited (secrets in .env reach the server)
+
+
+def test_resolve_subprocess_finds_a_launcher_installed_beside_us(tmp_path, monkeypatch):
+    """A launcher declared in pyproject lands in this interpreter's script dir, which is NOT
+    on PATH just because the interpreter is running. It must still be found."""
+    import os
+    import sys
+    import sysconfig
+
+    from agent_runtime.infrastructure.tools.mcp.session import resolve_subprocess
+
+    scripts = sysconfig.get_path("scripts")
+    name = "zz-fake-launcher" + (".exe" if sys.platform.startswith("win") else "")
+    fake = os.path.join(scripts, name)
+    with open(fake, "wb") as f:  # contents irrelevant; only resolution is under test
+        f.write(b"")
+    monkeypatch.setenv("PATH", str(tmp_path))  # ambient PATH deliberately lacks it
+    try:
+        cmd, _ = resolve_subprocess(McpServerConfig(name="x", command=["zz-fake-launcher", "--go"]))
+        # case-insensitive: on Windows shutil.which returns the extension as PATHEXT spells
+        # it (".EXE"), not as the file was created
+        assert cmd[0].lower() == fake.lower(), "a launcher beside the interpreter must resolve"
+        assert cmd[1:] == ["--go"]
+    finally:
+        os.remove(fake)
+
+
+def test_resolve_subprocess_leaves_an_unknown_command_alone(monkeypatch, tmp_path):
+    """When the launcher genuinely is not installed, pass the name through untouched so the
+    spawn error names what was missing. Substituting something else would hide the cause."""
+    from agent_runtime.infrastructure.tools.mcp.session import resolve_subprocess
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+    cmd, _ = resolve_subprocess(McpServerConfig(name="x", command=["definitely-not-installed"]))
+    assert cmd == ["definitely-not-installed"]
 
 
 # ---- config conversion -----------------------------------------------------
@@ -230,7 +270,7 @@ def test_config_coerces_mcp_servers_dicts(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gateway_discovers_and_guards_mcp_tools():
-    from agentd.main.container import build_service
+    from agent_runtime.main.container import build_service
 
     svc = build_service(load_config(), None, None)
     before = len(svc._tools)
@@ -243,7 +283,7 @@ async def test_gateway_discovers_and_guards_mcp_tools():
         async def aclose(self):
             pass
 
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     gw = Gateway(config=load_config(), service=svc, mcp_provider=FakeProvider())
     await gw._discover_mcp_tools()

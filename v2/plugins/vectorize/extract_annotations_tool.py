@@ -27,9 +27,9 @@ from pathlib import Path
 
 import vectorize_extract as vx
 
-from agentd.application.interfaces.tool import Tool, ToolResult
-from agentd.application.run_context import current_workspace
-from agentd.application.tool_models import resolve_tool_model
+from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.tool_models import resolve_tool_model
 
 # Strip prompt — same wording the vision plugin uses (read_labels_from_image), duplicated here
 # because plugins are sys.path-isolated siblings; keep the two in step if you edit one.
@@ -144,18 +144,17 @@ def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
     are actually gone; if the model just echoed the input, it retries — escalating through the strip
     model list (config plugins.figure-art.tools.generate_artwork.strip_models, else one retry of the
     primary) — before giving up. Whether it ultimately succeeded is checkable by the caller (and by
-    figure_to_svg's own strip-failure detection) so the agent can be told. Shared by both tools."""
-    import sys as _sys
+    figure_to_svg's own strip-failure detection) so the agent can be told. Shared by both tools.
 
-    igdir = str(Path(__file__).resolve().parent.parent / "figure-art")  # sibling plugin
-    if igdir not in _sys.path:
-        _sys.path.insert(0, igdir)
-    import figure_art_gemini as ig
+    The generation goes through the runtime's model funnel (`oneshot.generate_image`) — imported at
+    call time so the plugin sandbox can serve it host-side — so it is mode-correct (BYOK direct /
+    cloud proxied+metered) and this module holds no credential."""
+    from agent_runtime.application.tool_models import tool_config
+    from agent_runtime.infrastructure.llm.oneshot import generate_image
 
-    from agentd.application.tool_models import tool_config
-
-    key = ig.resolve_key(api_key, config)
-    primary = resolve_tool_model(config, "figure-art", "generate_artwork", default=ig.DEFAULT_MODEL)
+    primary = resolve_tool_model(
+        config, "figure-art", "generate_artwork", default=None, kind="image-gen"
+    )
     extra = (
         tool_config(config, "figure-art", "generate_artwork", "strip_models", default=None) or []
     )
@@ -167,8 +166,9 @@ def strip_labels(config, labelled: Path, api_key, verify: bool = True) -> Path:
     last_exc = None
     for model in attempts:
         try:
-            ig.generate_image(
-                _STRIP_PROMPT, out, model=model, api_key=key, reference_images=[labelled]
+            generate_image(
+                model=model, prompt=_STRIP_PROMPT, out_path=out, api_key=api_key,
+                reference_images=[labelled],
             )
         except Exception as e:  # noqa: BLE001 — try the next model/attempt before failing
             last_exc = e
@@ -224,7 +224,7 @@ class ExtractAnnotationsTool(Tool):
             },
             "api_key": {
                 "type": "string",
-                "description": "Override Gemini key for the auto-strip (else GEMINI_API_KEY/GOOGLE_API_KEY).",
+                "description": "Optional BYOK key override for the auto-strip (else GEMINI_API_KEY/GOOGLE_API_KEY). Ignored in cloud mode.",
             },
         },
     }

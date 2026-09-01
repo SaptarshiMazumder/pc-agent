@@ -11,9 +11,9 @@ import base64
 import re
 from pathlib import Path
 
-from agentd.application.run_context import current_workspace
-from agentd.domain.messages import ImageContent, TextContent
-from agentd.application.interfaces.tool import ToolResult
+from agent_runtime.application.run_context import current_workspace
+from agent_runtime.domain.messages import ImageContent, TextContent
+from agent_runtime.application.interfaces.tool import ToolResult
 
 
 def resolve_path(config, p: str) -> Path:

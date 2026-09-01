@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.application import run_context as rc
-from agentd.application.run_context import RunContext, current_workspace
+from agent_runtime.application import run_context as rc
+from agent_runtime.application.run_context import RunContext, current_workspace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "core_fs"))
 from fs_tools import _resolve  # built-in 'core_fs' bundle

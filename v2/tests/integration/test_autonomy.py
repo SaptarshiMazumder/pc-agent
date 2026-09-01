@@ -11,16 +11,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from heartbeat_tool import HeartbeatRespondTool
 
-from agentd.application.services.agent_service import AgentService
-from agentd.domain.agent import AgentSpec, RunMode, apply_mode
-from agentd.infrastructure.agents import FileAgentRegistry
-from agentd.infrastructure.autonomy.scheduler import (
+from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.domain.agent import AgentSpec, RunMode, apply_mode
+from agent_runtime.infrastructure.agents import FileAgentRegistry
+from agent_runtime.infrastructure.autonomy.scheduler import (
     HeartbeatScheduler,
     in_active_hours,
     parse_active_hours,
     parse_interval,
 )
-from agentd.infrastructure.prompt import build_system_prompt
+from agent_runtime.infrastructure.prompt import build_system_prompt
 
 
 class _T:
@@ -160,7 +160,8 @@ async def test_service_heartbeat_mode_assembly():
 
     class FakeEngine:
         async def run(
-            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None
+            self, *, messages, system_prompt, tools, on_event, abort, session=None, model=None,
+            model_router=None,
         ):
             captured["tools"] = [getattr(t, "name", "") for t in tools]
 

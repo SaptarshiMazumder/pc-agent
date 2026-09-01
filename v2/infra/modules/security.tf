@@ -14,16 +14,29 @@ resource "aws_security_group" "alb" {
 }
 
 # One internet-facing hole per service. All 4 are public today — web (UI), accounts
-# (sign-in), daemon (WebSocket), and gateway (model proxy, public for desktop
+# (sign-in), daemon (WebSocket), and model-proxy (public for desktop
 # platform-keys mode; per-user custom auth guards it).
 resource "aws_vpc_security_group_ingress_rule" "alb_ingress" {
-  for_each = var.services
+  for_each = local.services
 
   security_group_id = aws_security_group.alb.id
   description       = "${each.key} from anywhere"
   ip_protocol       = "tcp"
   from_port         = each.value.port
   to_port           = each.value.port
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
+# :443, only with TLS on. The loop above opens each service's own port; 443 is the one the
+# services map does not name, because it belongs to the load balancer rather than to a container.
+resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  count = local.tls_enabled ? 1 : 0
+
+  security_group_id = aws_security_group.alb.id
+  description       = "https from anywhere"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
 }
 
@@ -43,7 +56,7 @@ resource "aws_security_group" "service" {
 
 # Each service's port is reachable from the ALB (the ALB forwards to it).
 resource "aws_vpc_security_group_ingress_rule" "svc_from_alb" {
-  for_each = var.services
+  for_each = local.services
 
   security_group_id            = aws_security_group.service.id
   description                  = "${each.key} from ALB"
@@ -55,7 +68,7 @@ resource "aws_vpc_security_group_ingress_rule" "svc_from_alb" {
 
 resource "aws_vpc_security_group_ingress_rule" "svc_from_self" {
   security_group_id            = aws_security_group.service.id
-  description                  = "inter-service traffic (daemon to gateway/accounts)"
+  description                  = "inter-service traffic (daemon to model-proxy/accounts)"
   ip_protocol                  = "tcp"
   from_port                    = 0
   to_port                      = 65535

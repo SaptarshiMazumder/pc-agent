@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.agent import AgentSpec
-from agentd.infrastructure.memory import projects_store
-from agentd.infrastructure.memory.local_store import read_session_meta, write_session_meta
+from agent_runtime.domain.agent import AgentSpec
+from agent_runtime.infrastructure.memory import projects_store
+from agent_runtime.infrastructure.memory.local_store import read_session_meta, write_session_meta
 
 # ---------------------------------------------------------------- projects_store
 
@@ -37,7 +37,7 @@ def test_project_workspace_dir(tmp_path):
 
 
 def _gateway(tmp_path, agents=("main",)):
-    from agentd.presentation.gateway import Gateway
+    from agent_runtime.presentation.gateway import Gateway
 
     class _WS:
         def __init__(self, sink):
@@ -56,7 +56,9 @@ def _gateway(tmp_path, agents=("main",)):
             get=lambda a: SimpleNamespace(state_dir=dirs[a]),
         ),
     )
-    gw.clients = {_WS(events)}
+    ws = _WS(events)
+    gw.clients = {ws}
+    gw.client_identities[ws] = frozenset({"local"})  # tenant fan-out is fail-closed
     return gw, events
 
 
@@ -98,7 +100,7 @@ def test_inherit_project_onto_child(tmp_path):
 
 
 def _service(registry, resolve_workspace=None, engine=None):
-    from agentd.application.services.agent_service import AgentService
+    from agent_runtime.application.services.agent_service import AgentService
 
     class _Session:
         def load(self):
@@ -142,7 +144,7 @@ def test_mention_directive(tmp_path):
 def test_workspace_binding(tmp_path):
     """handle_message binds RunContext.workspace via resolve_workspace (project chat), and
     falls back to the agent's own workspace when the resolver is absent."""
-    from agentd.application.run_context import current_run_context
+    from agent_runtime.application.run_context import current_run_context
 
     agent = AgentSpec(
         id="main",

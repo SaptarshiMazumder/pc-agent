@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentd.domain.autonomy import ScheduledTask
-from agentd.domain.memory import MemoryItem
-from agentd.infrastructure.agents.file_registry import FileAgentRegistry
-from agentd.infrastructure.memory.bank import SqliteMemoryBank
-from agentd.infrastructure.tasks.sqlite_store import SqliteTaskStore
-from agentd.presentation.gateway import Gateway
+from agent_runtime.domain.autonomy import ScheduledTask
+from agent_runtime.domain.memory import MemoryItem
+from agent_runtime.infrastructure.agents.file_registry import FileAgentRegistry
+from agent_runtime.infrastructure.memory.bank import SqliteMemoryBank
+from agent_runtime.infrastructure.tasks.sqlite_store import SqliteTaskStore
+from agent_runtime.presentation.gateway import Gateway
 
 # ---- store-level purges ----------------------------------------------------
 

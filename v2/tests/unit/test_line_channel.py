@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from agentd.infrastructure.channels.line_channel import LineChannel
+from agent_runtime.infrastructure.channels.line_channel import LineChannel
 
 SECRET = "shh-secret"
 

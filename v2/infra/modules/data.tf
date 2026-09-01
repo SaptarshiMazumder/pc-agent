@@ -3,21 +3,33 @@
 # NOTE: RDS is intentionally NOT here yet. The accounts app still uses SQLite, so its DB file
 # lives on EFS for now. When we teach accounts to speak Postgres, RDS comes back together with
 # that app change (they're one unit of work).
-#   • Secrets Manager — app secrets (model gateway master key + provider API keys)
+#   • Secrets Manager — app secrets (model-proxy master key + provider API keys)
 #   • EFS             — shared file system (accounts SQLite DB + daemon per-user files)
 
 # ─────────────────────────── Secrets ───────────────────────────
 
-# A generated master key the daemon presents to the model gateway (an arbitrary shared secret).
+# A generated master key the daemon presents to the model proxy (an arbitrary shared secret).
 resource "random_password" "master_key" {
   length  = 32
   special = false
 }
 
 # The accounts service's INTERNAL key: authorizes trusted-infra writes to the spend ledger
-# (the model gateway's usage callback). Never given to clients/desktops.
+# (the model proxy's usage callback). Never given to clients/desktops.
 resource "random_password" "accounts_internal_key" {
   length  = 32
+  special = false
+}
+
+# The KEY-ENCRYPTION KEY for token signing keys. The identity module stores its private signing
+# key in the accounts database (so it can ROTATE without a deploy — see key_store.py); this wraps
+# that key at rest. Without it the private half sits in clear text on EFS, which is exactly the
+# case that matters here because EFS is backed up somewhere this secret is not.
+#
+# Generated, never authored: nobody needs to know it, and a human-chosen value would be the
+# weakest link in the chain that protects every session on the platform.
+resource "random_password" "identity_kek" {
+  length  = 48
   special = false
 }
 
@@ -26,7 +38,7 @@ resource "random_password" "accounts_internal_key" {
 # Terraform state.
 resource "aws_secretsmanager_secret" "app" {
   name                    = "${var.project}/${var.environment}/app"
-  description             = "App secrets (model gateway master key + provider API keys)"
+  description             = "App secrets (model-proxy master key + provider API keys)"
   recovery_window_in_days = 0 # dev: delete immediately on destroy (no 30-day recycle-bin hold)
   tags                    = local.common_tags
 }
@@ -36,8 +48,34 @@ resource "aws_secretsmanager_secret_version" "app" {
   secret_string = jsonencode({
     LITELLM_MASTER_KEY    = "sk-${random_password.master_key.result}"
     ACCOUNTS_INTERNAL_KEY = random_password.accounts_internal_key.result
+    AGENTD_IDENTITY_KEK   = random_password.identity_kek.result
     GEMINI_API_KEY        = "REPLACE_ME"
     DEEPSEEK_API_KEY      = "REPLACE_ME"
+    MOONSHOT_API_KEY      = "REPLACE_ME"
+    OPENAI_API_KEY        = "REPLACE_ME"
+    # MCP server credentials are secrets like any other (workspace-mcp / the google plugin).
+    GOOGLE_OAUTH_CLIENT_ID     = "REPLACE_ME"
+    GOOGLE_OAUTH_CLIENT_SECRET = "REPLACE_ME"
+    # Payment rails (payments/main/payment_gateway_factory.py). All rails' fields exist so
+    # switching provider is a config flip + service roll, never a schema change; only the rail
+    # AGENTD_PAYMENT_PROVIDER names is ever read, so the others may stay placeholders.
+    #
+    # NOTE for an ALREADY-DEPLOYED environment: ignore_changes below means adding fields here
+    # does NOT add them to the live secret — merge them in once via the CLI before any task
+    # definition references them, or the task will fail to launch on the missing JSON key.
+    STRIPE_SECRET_KEY       = "REPLACE_ME"
+    STRIPE_WEBHOOK_SECRET   = "REPLACE_ME"
+    RAZORPAY_KEY_ID         = "REPLACE_ME"
+    RAZORPAY_KEY_SECRET     = "REPLACE_ME"
+    RAZORPAY_WEBHOOK_SECRET = "REPLACE_ME"
+    DODO_API_KEY            = "REPLACE_ME"
+    DODO_WEBHOOK_SECRET     = "REPLACE_ME"
+    # Not credentials, in the vault by the operator's decision: ALL payment-rail values live
+    # in one place. PRODUCT_ID = the one pay-what-you-want catalog product (an MoR only sells
+    # from its catalog); API_BASE_URL = https://test.dodopayments.com for test mode (Dodo
+    # splits test/live by HOST), placeholder = the live host.
+    DODO_PRODUCT_ID         = "REPLACE_ME"
+    DODO_API_BASE_URL       = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from
