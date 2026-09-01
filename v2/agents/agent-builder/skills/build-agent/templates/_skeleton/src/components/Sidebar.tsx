@@ -52,6 +52,10 @@ export function Sidebar({
   extraDestinations = [],
   middle,
   counts = {},
+  showPrimary = true,
+  showConversation = true,
+  groupLabel = '',
+  sharedGroupLabel = '',
 }: {
   view: View
   onView: (v: View) => void
@@ -74,6 +78,19 @@ export function Sidebar({
    *  per-id, so a template that has no figure for one simply passes nothing and the row renders
    *  without it. Never invent one: a count that is a guess is worse than no count. */
   counts?: Partial<Record<string, string>>
+  /** The filled New-conversation button. A template whose conversations live somewhere else — the
+   *  dashboard puts them in its top bar and its agent panel — turns it off rather than showing a
+   *  second button that means the same thing. */
+  showPrimary?: boolean
+  /** The Conversation destination. Off for a template that has no full-width chat view: a nav row
+   *  that selects a screen this window does not have is worse than no row. */
+  showConversation?: boolean
+  /** A heading over `extraDestinations` — "Sections", say. Only drawn when there are entries to
+   *  head, so a template with none gets no orphan label. */
+  groupLabel?: string
+  /** A heading over the shared three (credits / organizations / settings). Two labelled groups is
+   *  what turns a flat list of seven rows into "where I work" and "my account". */
+  sharedGroupLabel?: string
 }) {
   const chats = useApp((s) => s.chats)
   const openSession = useApp((s) => s.openSession)
@@ -104,23 +121,43 @@ export function Sidebar({
 
       {/* THE ONE CONSEQUENTIAL ACTION, filled and unmissable. Everything else in this rail is a
           place to go; this is the thing you came to do. */}
-      <button className="nav-primary" onClick={onNewChat}>
-        <Plus size={16} strokeWidth={2.2} />
-        <span>New conversation</span>
-      </button>
+      {showPrimary && (
+        <button className="nav-primary" onClick={onNewChat}>
+          <Plus size={16} strokeWidth={2.2} />
+          <span>New conversation</span>
+        </button>
+      )}
 
       <nav className="nav-items">
-        <button
-          className={`nav-item${view === 'chat' ? ' on' : ''}`}
-          onClick={() => onView('chat')}
-        >
-          <span className="nav-ico">
-            <MessageSquareText size={15} strokeWidth={1.7} />
-          </span>
-          <span className="nav-item-label">Conversation</span>
-        </button>
+        {showConversation && (
+          <button
+            className={`nav-item${view === 'chat' ? ' on' : ''}`}
+            onClick={() => onView('chat')}
+          >
+            <span className="nav-ico">
+              <MessageSquareText size={15} strokeWidth={1.7} />
+            </span>
+            <span className="nav-item-label">Conversation</span>
+          </button>
+        )}
 
-        {[...extraDestinations, ...DESTINATIONS].map((d) => (
+        {extraDestinations.length > 0 && groupLabel && (
+          <div className="nav-group">{groupLabel}</div>
+        )}
+        {extraDestinations.map((d) => (
+          <button
+            key={d.id}
+            className={`nav-item${view === d.id ? ' on' : ''}`}
+            onClick={() => onView(d.id)}
+          >
+            <span className="nav-ico">{d.icon}</span>
+            <span className="nav-item-label">{d.label}</span>
+            {counts[d.id] ? <span className="nav-count">{counts[d.id]}</span> : null}
+          </button>
+        ))}
+
+        {sharedGroupLabel && <div className="nav-group">{sharedGroupLabel}</div>}
+        {DESTINATIONS.map((d) => (
           <button
             key={d.id}
             className={`nav-item${view === d.id ? ' on' : ''}`}

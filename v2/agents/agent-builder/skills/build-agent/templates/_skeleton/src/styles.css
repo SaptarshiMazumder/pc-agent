@@ -702,7 +702,14 @@ h2 { font-size: var(--fs-lead); }
 /* THE STATUS ROW, copied from agentd: what it is running on, and what it costs. It used to be a
    keyboard hint sharing the action row — so the model actually answering you, and the balance
    paying for it, were nowhere on this screen. */
-.composer-hint { margin: 8px auto 0; text-align: center; font: var(--fs-small) var(--mono); color: var(--faint); }
+/* ONE ROW THAT WRAPS, with the separators generated rather than written. Each piece is
+   conditional, so a hardcoded ` · ` between them shows up orphaned the moment one is absent. */
+.composer-hint {
+  margin: 8px 0 0; display: flex; flex-wrap: wrap; justify-content: center;
+  align-items: baseline; column-gap: 0; row-gap: 2px;
+  font: var(--fs-small) var(--mono); color: var(--faint);
+}
+.composer-hint > * + *::before { content: ' · '; color: var(--faint); white-space: pre; }
 .composer-hint .hint-model { color: var(--accent-text); font-weight: var(--fw-semi); }
 .composer-hint .hint-sep,
 .composer-hint .hint-note { color: var(--faint); }
@@ -914,6 +921,14 @@ h2 { font-size: var(--fs-lead); }
 }
 .nav-item.on .nav-ico { background: var(--accent-soft); color: var(--accent-text); }
 .nav-item-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A HEADING OVER A RUN OF NAV ROWS. Two labelled groups turn a flat list of seven destinations
+   into "where I work" and "my account" — which is the difference between scanning and reading. */
+.nav-group {
+  padding: var(--sp-gap) 10px 5px;
+  font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--faint); font-weight: var(--fw-semi);
+}
+.nav-items > .nav-group:first-child { padding-top: 2px; }
 .nav-count { flex: none; font-family: var(--mono); font-size: var(--fs-small); color: var(--faint); }
 
 /* THE RAIL'S FOOT: who you are, and whose keys are paying — ONE row, in a panel of its own.
@@ -1045,6 +1060,7 @@ h2 { font-size: var(--fs-lead); }
   background: linear-gradient(90deg, var(--accent-deep), var(--accent));
   transition: width var(--dur-slow) var(--ease-smooth);
 }
+.stat-sub { font-size: var(--fs-meta); color: var(--faint); }
 .stat-link {
   align-self: flex-start; padding: 0; border: 0; background: none; cursor: pointer;
   font-family: var(--sans); font-size: var(--fs-meta); color: var(--accent-text);

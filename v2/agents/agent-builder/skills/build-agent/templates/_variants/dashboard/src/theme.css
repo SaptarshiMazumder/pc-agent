@@ -1,67 +1,165 @@
-/* THE WORKBENCH TEMPLATE'S PALETTE — warm paper, burnt orange, an old-style serif for display.
- * A ledger, not a chat bubble.
+/* THE DASHBOARD TEMPLATE'S THEME — white cards on a lavender desk, one indigo accent.
  *
- * THIS TEMPLATE'S THEME. `tokens.css` ships a complete set of defaults and loads first;
- * this file overrides only what this template actually changes, so it is a list of
- * DECISIONS rather than a copy of the contract. Adding a template means writing one of
- * these, not duplicating eighty names and hoping none were missed. Every shared
- * screen and every base component reads only these names, so this one file is most of the
- * difference between this template's look and the chat template's. Yours to change.
+ * THIS TEMPLATE'S THEME. `tokens.css` ships a complete set of defaults and loads first; this file
+ * overrides only what this template actually changes, so it is a list of DECISIONS rather than a
+ * copy of the contract. Adding a template means writing one of these, not duplicating eighty
+ * names and hoping none were missed. Every shared screen and every base component reads only
+ * these names, so this one file is the whole difference between this template's look and the
+ * chat template's.
  *
- * THE DISPLAY FACE IS A SERIF. Headings, the big panel numbers and the brand set in an old-style
- * serif on cream is the whole editorial identity — the UI chrome stays in the sans.
+ * FROM THE DESIGN HANDOFF, whose token names are not ours. The mapping, once:
+ *
+ *     handoff        here            what it is
+ *     --desk         --desk          the ground behind the cards (a gradient, so --bg4 keeps a
+ *                                    solid value for anything that needs a colour)
+ *     --border-2     --border2       buttons, inputs
+ *     --hair         --row-line      row dividers, chart gridlines
+ *     --mid          --faint         the TEXT floor
+ *     --pale         --pale          NON-TEXT only: icons, chevrons
+ *     --track        --track         NON-TEXT only: sparkline tracks, axis rules
+ *     --accent-deep  --accent-text   accent text on a tint
+ *     --bad          --danger        anomaly, overspend, failure
+ *
+ * CONTRAST IS A HARD FLOOR, AND A LIGHT GROUND IS WHERE IT BITES. Two rounds of this design
+ * shipped pale lavender-greys at 2.2-3.4:1. The rule the handoff sets, kept here: TEXT takes
+ * `--faint` (#6b6989, 5.16:1 on white) or darker. `--pale` and `--track` are for borders,
+ * gridlines and sparkline tracks — never for words. Page-level annotation sitting on the tinted
+ * desk needs one step darker again, which is what `--dim` is for.
  */
+
+/* Manrope for the UI, JetBrains Mono for paths, tool names, cadences and timings. Pulled in by
+   THIS template — the chat template has its own faces and must not inherit these. */
+@import '@fontsource/manrope/latin-400.css';
+@import '@fontsource/manrope/latin-500.css';
+@import '@fontsource/manrope/latin-600.css';
+@import '@fontsource/manrope/latin-700.css';
+@import '@fontsource/manrope/latin-800.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
 
 :root {
   color-scheme: light;
 
-  /* --- surfaces: cream paper, stepping DARKER as things nest --- */
-  --bg4: #efe9db;   /* the window frame */
-  --bg:  #faf6ee;   /* the page */
-  --bg2: #f4eee1;   /* the rail, a card, a menu */
-  --bg3: #ece4d2;   /* an input, a hovered row */
-  --border: #e2d9c6;
-  --border2: #c9bc9f;
-  /* visible hairlines between rows — a ledger tabulates */
-  --row-line: #e8e0cd;
+  /* ── surfaces. The desk is a gradient and the cards are plain white on top of it — that
+     contrast is what makes a card read as a card without a shadow under it. ─────────────── */
+  --desk: linear-gradient(150deg, #f2f2fb, #eceefb 44%, #f4f0fb);
+  --bg4: #f2f2fb;    /* the desk as a flat colour, for anything that cannot take a gradient */
+  --bg: #ffffff;     /* every card and panel */
+  --bg2: #fafaff;    /* table header trough, nested panel */
+  --bg3: #f6f6fc;    /* search field, composer */
+  --border: #ecebf5;
+  --border2: #e8e6f4;
+  --row-line: #f1f0f9;
 
-  /* --- text: warm near-black ink on paper --- */
-  --text: #2b241a;
-  --dim: #6d6250;
-  --faint: #9c8f78;
+  /* ── text, loudest to quietest. `--faint` is the floor; below it is non-text only. ────── */
+  --text: #1c1a3f;
+  --body: #4b4a6a;
+  --dim: #5f5d7a;
+  --faint: #6b6989;
+  /* NOT FOR WORDS. Icons, chevrons, gridlines, sparkline tracks — anything whose meaning does
+     not depend on being read. Named so the next person does not have to rediscover the rule. */
+  --pale: #a9a7c0;
+  --track: #c0bed6;
 
-  /* --- one accent, three jobs: burnt orange --- */
-  --accent: #b45309;
-  --accent-text: #9a4708;
-  --accent-soft: rgba(180, 83, 9, 0.1);
-  --prim-bg: #b45309;
-  --prim-bg-h: #cf6212;
-  --prim-ink: #fff8ec;
+  /* ── one accent ───────────────────────────────────────────────────────────────────────── */
+  --accent: #5b5bd6;
+  --accent-text: #4747b8;   /* on a tint, where the flat accent is too light to read */
+  --accent-soft: #eeeefc;
+  --accent-edge: #e6e3f8;
+  --accent-deep: #4747b8;
+  --accent-wash: linear-gradient(160deg, #f4f2fe, #eef0fc);
+  --prim-bg: #5b5bd6;
+  --prim-bg-h: #4747b8;
+  --prim-ink: #ffffff;
 
-  /* --- semantic --- */
-  --danger: #b3261e;
-  --danger-soft: rgba(179, 38, 30, 0.08);
-  --warn: #92400e;
+  /* ── semantic. Each carries a background and an edge, because on a light ground a status
+     needs a tinted tile to read as a status rather than as coloured text. ───────────────── */
+  --ok: #0a7340;
+  --ok-bg: #eefaf2;
+  --ok-edge: #d3eddf;
+  --ok-dot: #18a058;        /* the live dot and sparklines — non-text */
+  --warn: #875a10;
+  --warn-bg: #fff6e6;
+  --danger: #b02c31;
+  --danger-soft: #fdeaea;
 
-  /* --- elevation and shape: hairlines do the work; shadows stay faint, corners tight --- */
-  --shadow: 0 1px 2px rgba(43, 36, 26, 0.06), 0 10px 26px -14px rgba(43, 36, 26, 0.2);
-  --shadow-sm: 0 1px 2px rgba(43, 36, 26, 0.07);
-  --radius: 7px;
+  /* Series colours, in order. A chart with five series repeats the first — deliberately: a
+     sixth invented hue is how a palette stops being a palette. */
+  --chart-1: #5b5bd6;
+  --chart-2: #8b5cf6;
+  --chart-3: #3fb6a8;
+  --chart-4: #e9b949;
 
-  /* --- type: sans for chrome, SERIF for display — see the header note --- */
-  --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --display: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
+  /* ── elevation. CARDS AT REST DO NOT CAST — the hairline does that work. Only the window
+     itself, a lifted card, and the primary button. ──────────────────────────────────────── */
+  --shadow-window: 0 30px 70px -26px rgba(28, 25, 64, 0.34);
+  --shadow-card: 0 10px 28px -12px rgba(28, 25, 64, 0.22);   /* on hover only */
+  --shadow-primary: 0 6px 16px -6px rgba(91, 91, 214, 0.6);
+  --shadow: none;
+  --shadow-sm: none;
 
-  /* weights for a LIGHT surface — dark-on-cream renders lighter, so tiers sit higher */
+  /* ── geometry ─────────────────────────────────────────────────────────────────────────── */
+  --r-window: 22px;
+  --r-card: 18px;      /* a region card */
+  --r-panel: 16px;
+  --r-bubble: 15px;    /* a tile, and the agent panel's bubbles */
+  --radius: 13px;      /* the general-purpose one the shared screens read */
+  --r-input: 11px;
+  --r-control: 11px;
+  --r-chip: 9px;       /* an icon tile */
+  --r-sm: 9px;
+  --r-pill: 999px;
+
+  /* ── type ─────────────────────────────────────────────────────────────────────────────── */
+  --sans: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --display: var(--sans);
+
+  --fs-hero: 42px;        /* the canvas title */
+  --fs-figure: 29px;      /* a panel's number — the thing the dashboard exists to show */
+  --fs-display: 25px;     /* section title */
+  --fs-title: 18px;
+  --fs-lead: 16px;
+  --fs-panel: 14.5px;     /* panel titles */
+  --fs-bubble: 13.5px;
+  --fs-control: 13.5px;   /* row titles and controls */
+  --fs-row: 13.5px;
+  --fs-body: 12.5px;
+  --fs-help: 12.5px;
+  --fs-meta: 11.5px;
+  --fs-small: 11.5px;
+  --fs-label: 10.5px;
+  --fs-tiny: 10px;        /* a cadence, in mono */
+  --tracking-tight: -0.028em;
+  --tracking-label: 0.13em;
+  --lh-body: 1.5;
+  --lh-prose: 1.62;
+
+  /* Manrope has real weights across the range, and a LIGHT ground renders text thinner than a
+     dark one — so every tier sits a step above the dark theme's. */
   --fw-normal: 400;
   --fw-medium: 500;
-  --fw-strong: 550;
+  --fw-strong: 600;
   --fw-semi: 600;
-  --fw-heavy: 650;
-  --fw-bold: 700;
-  --fw-on-accent: 600;
+  --fw-heavy: 700;
+  --fw-bold: 800;
+  --fw-on-accent: 700;
+
+  /* ── spacing ──────────────────────────────────────────────────────────────────────────── */
+  --sp-window: 16px;   /* window padding AND the gap between regions */
+  --sp-card: 22px;     /* inside a region card */
+  --sp-panel: 14px;    /* between panels */
+  --sp-row: 15px;
+  --sp-gap: 13px;      /* between tiles */
+  --sp-icon: 11px;
+  --sp-control: 10px;
+  --sp-tight: 9px;
+
+  /* ── the three regions ────────────────────────────────────────────────────────────────── */
+  --rail-w: 214px;
+  --panel-w: 308px;
+  --icon-btn: 32px;
+  --avatar: 30px;
 }
 
-/* No floor here: `tokens.css` sets it, and restating it would pin values (a literal
-   14px) that the tokens are meant to decide. */
+/* The desk. The window's own background is the gradient; every card on it is plain white. */
+body { background: var(--desk); }

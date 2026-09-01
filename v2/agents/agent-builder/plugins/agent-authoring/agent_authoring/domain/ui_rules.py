@@ -50,6 +50,22 @@ _STRIPPER = JsCommentStripper()
 #     load: a dead window, every time. ONE rule for N components, driven by `requires`.
 _SDK_VENDOR_SUFFIX = "vendor/agentd-client.js"
 
+#: THE PLACEHOLDER MARKER — one token, deliberately not tied to any template.
+#:
+#: A template ships example widgets so a new agent has a window worth looking at before it has a
+#: single tool of its own. They are a LOOK, not a decision, and the failure they invite is an
+#: agent built around whatever the template happened to draw — four KPI tiles because the tile
+#: existed, not because the agent has four numbers.
+#:
+#: So each one carries `@placeholder` in its header, and this rule refuses to let one leave the
+#: author's machine. Adopting a widget means changing it and dropping the tag; not needing one
+#: means deleting the file. Either way the tag is gone by the time anything ships — which is what
+#: makes "is this still scaffolding?" a question with an answer rather than a judgement call.
+#:
+#: A TOKEN, NOT A PATH, so every future template inherits the rule for free: a widget folder in
+#: some later variant needs no change here, and no list of known template files can go stale.
+_PLACEHOLDER_TAG = re.compile(r"@placeholder" + chr(92) + "b")
+
 
 def is_built_app(files) -> bool:
     """Is this app COMPILED from source rather than hand-written into ``ui/``?
@@ -222,10 +238,42 @@ class UiRules:
         self._sdk = sdk_methods
         self._components = tuple(components)
 
+    @staticmethod
+    def _placeholders(sources: dict) -> list[Finding]:
+        """Files still marked as template scaffolding.
+
+        READ FROM THE RAW SOURCE, before comments are stripped — the marker lives in a header
+        comment on purpose, where it is impossible to miss when the file is opened and costs
+        nothing at runtime.
+        """
+        marked = sorted(
+            rel
+            for rel, text in app_sources(sources).items()
+            if _PLACEHOLDER_TAG.search(text)
+        )
+        if not marked:
+            return []
+        shown = ", ".join(marked[:6]) + (f" and {len(marked) - 6} more" if len(marked) > 6 else "")
+        return [
+            Finding(
+                WARN,
+                "UI_PLACEHOLDER_SHIPPED",
+                f"{len(marked)} file{'' if len(marked) == 1 else 's'} still marked "
+                f"`@placeholder` ({shown}). Template scaffolding shows the look and the wiring; "
+                f"it is not this agent's screen, and shipping it tells whoever installs the agent "
+                f"that nobody finished it.",
+                path=marked[0],
+                fix="For each one: ADOPT it — change it to this agent's real data and delete the "
+                "`@placeholder` line (rename the file too, so the imports stop saying "
+                "'Placeholder') — or DELETE it and its references. Never keep one because it "
+                "renders: build what the agent needs and let the rest go.",
+            )
+        ]
+
     def check(self, spec, raw_toml: dict, files: list[str], sources: dict) -> list[Finding]:
         """`sources` maps an agent-relative path -> its text. Only the agent's OWN app code is
         considered — see `app_sources`."""
-        out: list[Finding] = []
+        out: list[Finding] = self._placeholders(sources)
         for rel, src in sorted(app_sources(sources).items()):
             # Comments are not code. Without this the rules fire on a file that WARNS about
             # the very mistake they check for — which is the most careful code they will ever

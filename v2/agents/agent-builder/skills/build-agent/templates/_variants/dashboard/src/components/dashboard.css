@@ -1,152 +1,360 @@
-/* The dashboard's own rules. Tokens only, like everything else — the palette is the agent's
-   `tokens.css`, so restyling the agent restyles these panels with it. */
+/* The dashboard's own rules. Tokens only, like everything else — the palette is this template's
+   `theme.css`, so restyling the agent restyles every panel with it.
 
-.dashboard {
-  height: 100%;
-  overflow-y: auto;
-  padding: 32px 40px;
-}
-
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 20px;
-  max-width: 1100px;
-}
-
-.dash-tile {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  background: var(--bg2);
-  min-height: 140px;
-}
-
-.dash-tile-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 20px 0;
-}
-
-.dash-tile-title {
-  font-size: 11px;
-  font-weight: var(--fw-semi);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-text);
-}
-
-.dash-refresh {
-  border: 0;
-  background: transparent;
-  color: var(--dim);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
-}
-.dash-refresh:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
-.dash-refresh:disabled { opacity: 0.5; cursor: default; }
-
-.dash-tile-body {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 12px 20px 20px;
-  font-size: 14px;
-  color: var(--text);
-  overflow: hidden;
-}
-
-/* The one number a tile exists for. */
-.dash-big {
-  font-family: var(--display);
-  font-size: 34px;
-  font-weight: var(--fw-bold);
-  font-variant-numeric: tabular-nums;
-}
-
-.dash-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--dim);
-}
-
-.dash-dim { color: var(--faint); font-size: 13px; }
-.dash-error { color: var(--danger); font-size: 13px; }
+   THE `dash-` PREFIX IS LOAD-BEARING. The base stylesheet defines `.panel` as a GRID AREA (the
+   old inspector column), so a tile named `panel` inherits `grid-area: panel` and gets flung into
+   a phantom column outside the layout — which is exactly what it looked like. A template's own
+   classes stay out of the base's namespace. */
 
 /* ── the workbench shell: rail | content | agent ─────────────────────────────────────────────
    The base shell is two columns; this template adds the third. The agent panel is a fixed-width
-   column, not a drawer — the mock this shape comes from keeps the agent permanently beside the
-   work, and a drawer that closes is a conversation that stops being ambient. */
+   column, not a drawer — the agent stays permanently beside the work, and a drawer that closes is
+   a conversation that stops being ambient. */
 .shell.shell--workbench {
   grid-template-areas: 'rail main agent';
-  grid-template-columns: var(--rail-w) minmax(0, 1fr) 340px;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--panel-w);
+  background: var(--desk);
+  padding: var(--sp-window);
+  gap: var(--sp-window);
 }
+/* Every region is a CARD on the desk, which is what the gaps above are for. The rail's own
+   border-right belongs to the two-column shell and would read as a seam here. */
+.shell--workbench .rail,
+.shell--workbench .main,
+.shell--workbench .agent-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.shell--workbench .rail { border-right: 1px solid var(--border); }
+.shell--workbench .main { display: flex; flex-direction: column; gap: var(--sp-window); background: none; border: 0; }
 
-/* The mock's headline: the section name set big, in the serif, over a rule. */
+/* ── the top bar ───────────────────────────────────────────────────────────────────────────── */
+.topbar {
+  flex: none; display: flex; align-items: center; gap: var(--sp-control);
+  padding: var(--sp-gap) var(--sp-card);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-panel);
+}
+.topbar-spacer { flex: 1; }
+.daemon-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-tight);
+  padding: 6px 12px; border-radius: var(--r-pill);
+  background: var(--bg2); border: 1px solid var(--border2);
+  font-size: var(--fs-meta); font-weight: var(--fw-medium); color: var(--faint);
+}
+.daemon-chip.is-live { background: var(--ok-bg); border-color: var(--ok-edge); color: var(--ok); }
+.topbar-primary {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 15px; border: 0; border-radius: var(--r-control);
+  background: var(--prim-bg); color: var(--prim-ink);
+  font-family: var(--sans); font-size: var(--fs-control); font-weight: var(--fw-on-accent);
+  cursor: pointer; box-shadow: var(--shadow-primary);
+  transition: background var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth);
+}
+.topbar-primary:hover { background: var(--prim-bg-h); }
+.topbar-primary:active { transform: translateY(1px); }
+
+/* ── the content card ──────────────────────────────────────────────────────────────────────── */
+.content-card {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-card);
+  padding: var(--sp-card);
+}
 .workbench-crumbs {
-  display: flex; align-items: baseline; gap: 6px;
-  margin: 0 40px; padding: 30px 0 16px;
-  border-bottom: 1px solid var(--border2);
+  flex: none; display: flex; align-items: center; gap: 7px;
+  font-size: var(--fs-meta); color: var(--faint);
 }
-.workbench-crumbs .crumb {
-  font-family: var(--display); font-size: 26px; font-weight: var(--fw-medium);
-  color: var(--text); letter-spacing: 0.01em;
+.workbench-crumbs .crumb.is-current { color: var(--body); font-weight: var(--fw-medium); }
+.crumb-sep { color: var(--pale); }
+
+.section-head {
+  flex: none; display: flex; align-items: flex-start; gap: var(--sp-icon);
+  padding: var(--sp-gap) 0 var(--sp-card);
+}
+.section-head-ico {
+  width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-chip); background: var(--accent-soft); color: var(--accent-text);
+}
+.section-head-text { min-width: 0; }
+.section-title {
+  margin: 0; font-family: var(--display); font-size: var(--fs-display);
+  font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); color: var(--text);
+}
+.section-blurb {
+  margin: 5px 0 0; max-width: 76ch;
+  font-size: var(--fs-help); line-height: var(--lh-body); color: var(--faint);
 }
 
+/* ── the panel grid ────────────────────────────────────────────────────────────────────────── */
+.dashboard { flex: 1; min-height: 0; overflow-y: auto; }
+.dashboard-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-gap);
+  align-content: start;
+}
+/* THE SIZES ARE THE LAYOUT. Four numbers across, then two charts on a 1.62/1 split, then the
+   activity list across the bottom — the shape a dashboard has when its figures come first. */
+.dash-tile.is-kpi { grid-column: span 1; }
+.dash-tile.is-half { grid-column: span 2; }
+.dash-tile.is-wide { grid-column: 1 / -1; }
+.dashboard-grid > .dash-tile.is-half:nth-of-type(5) { grid-column: span 2; }
+@media (max-width: 1240px) {
+  .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-tile.is-half { grid-column: 1 / -1; }
+}
+
+.dash-tile {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: var(--r-panel);
+  background: var(--bg);
+  transition: border-color var(--dur-base) ease, box-shadow var(--dur-base) ease,
+              transform var(--dur-base) var(--ease-smooth);
+}
+/* CARDS AT REST DO NOT CAST — the hairline does that work. Only a hovered one lifts. */
+.dash-tile:hover { border-color: var(--accent-edge); box-shadow: var(--shadow-card); transform: translateY(-2px); }
+/* A FAILED TILE IS TINTED, so a wall of panels shows which one is stale without reading them. */
+.dash-tile.is-failed { border-color: var(--danger); }
+
+.dash-tile-head {
+  display: flex; align-items: center; gap: var(--sp-tight);
+  padding: var(--sp-gap) var(--sp-gap) 0;
+}
+.dash-tile-ico {
+  width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-chip); background: var(--accent-soft); color: var(--accent-text);
+}
+.dash-tile-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dash-tile-title {
+  font-size: var(--fs-panel); font-weight: var(--fw-semi); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* HOW OLD THE NUMBER CAN BE. A figure with no cadence is a figure you cannot trust. */
+.dash-tile-cadence { font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint); }
+
+.dash-refresh {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: var(--r-chip); background: transparent; color: var(--pale);
+  cursor: pointer; transition: background var(--dur-base) ease, color var(--dur-base) ease;
+}
+.dash-refresh:hover:not(:disabled) { background: var(--bg2); color: var(--body); }
+.dash-refresh:disabled { opacity: 0.5; cursor: default; }
+.dash-refresh .is-spinning { animation: ag-spin 900ms linear infinite; }
+
+.dash-tile-body {
+  flex: 1; display: flex; flex-direction: column; justify-content: center;
+  padding: var(--sp-gap); font-size: var(--fs-body); color: var(--text); min-width: 0;
+}
+.dash-dim { color: var(--faint); font-size: var(--fs-help); }
+.dash-error { color: var(--danger); font-size: var(--fs-help); font-family: var(--mono); word-break: break-word; }
+/* DELIBERATELY PLAIN. A skeleton that mimics the number invites reading a shape that is not data. */
+.dash-loading { display: inline-flex; align-items: center; gap: var(--sp-tight); color: var(--faint); font-size: var(--fs-help); }
+.dash-spinner {
+  width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border2); border-top-color: var(--accent);
+  animation: ag-spin 900ms linear infinite;
+}
+
+/* ── the KPI widget ────────────────────────────────────────────────────────────────────────── */
+.kpi { display: flex; flex-direction: column; gap: var(--sp-tight); min-width: 0; }
+.kpi-figure {
+  font-family: var(--display); font-size: var(--fs-figure); font-weight: var(--fw-bold);
+  letter-spacing: -0.035em; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1;
+}
+.kpi-foot { display: flex; align-items: center; gap: var(--sp-tight); flex-wrap: wrap; min-width: 0; }
+.kpi-delta {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 8px; border-radius: var(--r-pill);
+  font-size: var(--fs-meta); font-weight: var(--fw-semi);
+}
+/* GOOD OR BAD, never up or down — see the widget for why the caller declares which. */
+.kpi-delta.is-good { background: var(--ok-bg); color: var(--ok); }
+.kpi-delta.is-bad { background: var(--danger-soft); color: var(--danger); }
+.kpi-delta.is-flat { background: var(--bg2); color: var(--faint); }
+.kpi-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  background: var(--ok-bg); color: var(--ok);
+  font-size: var(--fs-meta); font-weight: var(--fw-semi);
+}
+.kpi-compare { font-size: var(--fs-meta); color: var(--faint); min-width: 0; }
+.kpi-spark { margin-top: 2px; }
+
+.spark-track { stroke: var(--track); stroke-width: 1; }
+.spark-line { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── the chart widgets ─────────────────────────────────────────────────────────────────────── */
+.chart { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.chart-svg { width: 100%; height: 168px; display: block; }
+.chart-grid { stroke: var(--row-line); stroke-width: 1; }
+.chart-line { fill: none; stroke: var(--chart-1); stroke-width: 2; stroke-linejoin: round; }
+.chart-ref { stroke: var(--pale); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.chart-axis {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint);
+}
+.chart-ref-label {
+  position: absolute; top: 0; right: 0;
+  font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint);
+}
+
+.donut-wrap { display: flex; align-items: center; gap: var(--sp-card); flex-wrap: wrap; }
+.donut { position: relative; width: 140px; height: 140px; flex: none; }
+.donut svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.donut-track { fill: none; stroke: var(--row-line); stroke-width: 18; }
+.donut-arc { fill: none; stroke-width: 18; transition: stroke-dasharray var(--dur-slow) var(--ease-smooth); }
+.donut-centre {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 1px;
+}
+.donut-total {
+  font-family: var(--display); font-size: var(--fs-lead); font-weight: var(--fw-bold);
+  color: var(--text); letter-spacing: -0.03em;
+}
+.donut-total-label {
+  font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint);
+}
+.donut-legend { flex: 1; min-width: 160px; list-style: none; margin: 0; padding: 0; }
+.donut-legend li {
+  display: flex; align-items: center; gap: var(--sp-tight);
+  padding: 7px 0; border-bottom: 1px solid var(--row-line);
+  font-size: var(--fs-help);
+}
+.donut-legend li:last-child { border-bottom: 0; }
+.donut-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.donut-label { flex: 1; min-width: 0; color: var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.donut-value { color: var(--text); font-weight: var(--fw-semi); font-variant-numeric: tabular-nums; }
+
+/* ── the activity widget ───────────────────────────────────────────────────────────────────── */
+.activity { list-style: none; margin: 0; padding: 0; }
+.activity-row {
+  display: flex; align-items: center; gap: var(--sp-icon); width: 100%;
+  padding: var(--sp-row) 0; border: 0; border-bottom: 1px solid var(--row-line);
+  background: none; text-align: left; font: inherit; color: var(--text);
+}
+.activity li:last-child .activity-row { border-bottom: 0; }
+.activity-row.is-clickable { cursor: pointer; }
+.activity-row.is-clickable:hover { background: var(--bg2); }
+.activity-ico {
+  width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-chip);
+}
+.activity-ico.is-needs-you { background: var(--warn-bg); color: var(--warn); }
+.activity-ico.is-done { background: var(--ok-bg); color: var(--ok); }
+.activity-ico.is-logged { background: var(--bg2); color: var(--faint); }
+.activity-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.activity-action { font-size: var(--fs-control); font-weight: var(--fw-medium); color: var(--text); }
+.activity-target {
+  font-family: var(--mono); font-size: var(--fs-meta); color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.activity-impact { flex: none; font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--body); font-variant-numeric: tabular-nums; }
+.activity-impact.is-good { color: var(--ok); }
+.activity-impact.is-bad { color: var(--danger); }
+.activity-pill {
+  flex: none; padding: 3px 9px; border-radius: var(--r-pill);
+  font-size: var(--fs-meta); font-weight: var(--fw-semi);
+}
+.activity-pill.is-needs-you { background: var(--warn-bg); color: var(--warn); }
+.activity-pill.is-done { background: var(--ok-bg); color: var(--ok); }
+.activity-pill.is-logged { background: var(--bg2); color: var(--faint); }
+.activity-when { flex: none; font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint); }
+.activity-go { flex: none; color: var(--pale); }
+
+/* ── the table widget ──────────────────────────────────────────────────────────────────────── */
+.table-wrap { display: flex; flex-direction: column; gap: var(--sp-gap); min-width: 0; }
+.table-bar { display: flex; align-items: center; gap: var(--sp-control); flex-wrap: wrap; }
+.table-tabs { display: flex; gap: 2px; padding: 3px; background: var(--bg2); border-radius: var(--r-control); }
+.table-tab {
+  padding: 6px 12px; border: 0; border-radius: var(--r-chip); background: transparent;
+  font-family: var(--sans); font-size: var(--fs-meta); font-weight: var(--fw-medium);
+  color: var(--faint); cursor: pointer;
+}
+.table-tab.on { background: var(--bg); color: var(--text); box-shadow: var(--shadow-sm); }
+.table-search {
+  display: inline-flex; align-items: center; gap: 7px; flex: 1; min-width: 160px; max-width: 320px;
+  padding: 7px 11px; background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: var(--r-input); color: var(--pale);
+}
+.table-search input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  font: inherit; font-size: var(--fs-help); color: var(--text);
+}
+.table { width: 100%; border-collapse: collapse; }
+.table th {
+  text-align: left; padding: 10px 12px; background: var(--bg2);
+  font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  font-weight: var(--fw-semi); color: var(--faint); border-bottom: 1px solid var(--border);
+}
+.table th:first-child { border-top-left-radius: var(--r-chip); border-bottom-left-radius: var(--r-chip); }
+.table th:last-child { border-top-right-radius: var(--r-chip); border-bottom-right-radius: var(--r-chip); }
+.table td { padding: 12px; border-bottom: 1px solid var(--row-line); font-size: var(--fs-help); color: var(--body); }
+.table tr:last-child td { border-bottom: 0; }
+.table tr.is-clickable { cursor: pointer; }
+.table tr.is-clickable:hover td { background: var(--bg2); }
+.table .is-right { text-align: right; font-variant-numeric: tabular-nums; }
+.table .mono { font-family: var(--mono); font-size: var(--fs-meta); color: var(--faint); }
+.table-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-control); }
+.table-count { font-size: var(--fs-meta); color: var(--faint); font-variant-numeric: tabular-nums; }
+.table-pager { display: flex; gap: 6px; }
+.table-pager button {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid var(--border2); border-radius: var(--r-chip);
+  background: var(--bg); color: var(--body); cursor: pointer;
+}
+.table-pager button:hover:not(:disabled) { background: var(--bg2); border-color: var(--accent-edge); }
+.table-pager button:disabled { opacity: 0.4; cursor: default; }
+
+/* ── the agent panel ───────────────────────────────────────────────────────────────────────── */
 .agent-panel {
   grid-area: agent;
   display: flex; flex-direction: column; min-height: 0;
-  border-left: 1px solid var(--border2); background: var(--bg2);
 }
 .agent-panel-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 18px; border-bottom: 1px solid var(--border);
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-gap) var(--sp-gap) var(--sp-gap) var(--sp-card);
+  border-bottom: 1px solid var(--border);
 }
 .agent-panel-title {
-  font-size: 11px; font-weight: var(--fw-semi);
-  letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-text);
+  font-size: var(--fs-label); font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--faint);
 }
-.agent-panel-thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.agent-panel-thread { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 /* the base Thread fills whatever holds it; the panel just narrows the bubbles */
-.agent-panel-thread .thread { padding: 18px 16px; }
+.agent-panel-thread .thread { padding: var(--sp-gap); }
+.agent-panel-thread .msg-user .bubble { max-width: 88%; }
 
-.agent-panel-composer {
-  display: flex; align-items: flex-end; gap: 8px;
-  padding: 14px 16px 16px; border-top: 1px solid var(--border);
+/* WHAT THE PANEL IS FOR, in the space that would otherwise be empty. */
+.agent-greeting {
+  flex: none; display: flex; gap: var(--sp-tight); margin: var(--sp-gap);
+  padding: var(--sp-gap); border-radius: var(--r-bubble);
+  background: var(--accent-wash); border: 1px solid var(--accent-edge);
 }
-.agent-panel-input {
-  flex: 1; resize: none; min-height: 36px; max-height: 120px;
-  padding: 8px 11px; font: inherit; font-size: 13px; line-height: 1.45;
-  color: var(--text); background: var(--bg3);
-  border: 1px solid var(--border); border-radius: 9px;
+.agent-greeting p { margin: 0; font-size: var(--fs-help); line-height: var(--lh-body); color: var(--body); }
+.agent-greeting-ico {
+  width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-chip); background: var(--bg); color: var(--accent-text);
 }
-.agent-panel-input:focus { outline: none; border-color: var(--accent); }
-.agent-panel-input:disabled { opacity: 0.6; }
-/* outlined, like the mock's — the panel's send is quiet, the plan's Approve is the loud one */
-.agent-panel-send {
-  flex: none; width: 34px; height: 34px; display: grid; place-items: center;
-  border: 1px solid var(--border2); border-radius: 8px; cursor: pointer;
-  background: transparent; color: var(--text); font-size: 14px;
+
+/* THE FULL COMPOSER, IN A 308px COLUMN. This is the skeleton's `<Composer>` — the same one the
+   chat template renders, with attachments, the credits chip, the model and the context meter.
+   NOTHING IS REMOVED HERE; these rules only re-fit it. It used to be a bespoke text box, which
+   meant a dashboard agent could not be handed a screenshot of the very chart it was being asked
+   about. */
+.agent-panel .composer-wrap { padding: var(--sp-gap); }
+.agent-panel .composer {
+  max-width: none; margin: 0;
+  padding: var(--sp-tight) var(--sp-gap);
+  border-radius: var(--r-panel);
 }
-.agent-panel-send:hover:not(:disabled) { background: var(--bg3); }
-.agent-panel-send:disabled { opacity: 0.4; cursor: default; }
-
-
-/* THE `dash-` PREFIX IS LOAD-BEARING. The base stylesheet defines `.panel` as a GRID AREA (the
-   old inspector column), so a tile named `panel` inherits `grid-area: panel` and gets flung into
-   a phantom column outside the layout — which is exactly what it looked like. A template's own
-   classes stay out of the base's namespace.
-
-   And no "New chat" in the rail here: the agent panel owns conversations in this template, and
-   two buttons that both mean "new conversation" in two places is one too many. */
-.shell--workbench .sidebar .brand + .nav-rows { display: none; }
-
-/* the brand set in the display serif — the rail reads like the mock's masthead */
-.shell--workbench .brand-name { font-family: var(--display); font-size: 19px; }
+/* A panel is tall and thin: the box may take a third of it, not half the screen. */
+.agent-panel .composer textarea { max-height: 30vh; }
+/* Wrapping, not clipping. At this width the action row and the status line need two lines
+   sometimes, and a hidden control is a missing feature. */
+.agent-panel .composer-foot { flex-wrap: wrap; gap: 7px; }
+.agent-panel .composer-hint { line-height: 1.6; }
+/* THE KEYBOARD LESSON GOES, AND ONLY THAT. Three lines of "Enter to send · Shift+Enter for a new
+   line · paste or drop images" in a 308px column is louder than the box it describes, and it
+   teaches what one press of Enter teaches anyway. The model, the balance and every STATUS line
+   (not connected / running / drop to attach) stay — those are facts, not instructions. */
+.agent-panel .hint-keys { display: none; }
+.agent-panel .attachments { flex-wrap: wrap; }

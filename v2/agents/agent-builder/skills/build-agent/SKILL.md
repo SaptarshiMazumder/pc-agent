@@ -279,6 +279,62 @@ declares `[[settings]]` or `[[oauth]]`, anything the user still has to fill in f
 
 ---
 
+
+## Placeholders are a LOOK, not a plan
+
+A window template ships example widgets so a new agent has something worth looking at before it
+has a single tool of its own. Every one of them carries `@placeholder` in its header.
+
+**Find them in any agent, from any template:**
+
+```
+grep -rn "@placeholder" app/src
+```
+
+That is the whole contract — a marker, not a folder and not a list of filenames. Templates come
+and go and each ships different examples; the tag is what they have in common, so this procedure
+never needs to know which template an agent was made from.
+
+**They exist to show you three things and nothing else:** what this template's screens look like,
+what shape its pieces are (a number tile, a table, a chart, a row of activity), and how one is
+wired to a tool. They are sample data behind a real component.
+
+**The failure they invite, and the one rule that prevents it: DECIDE WHAT THE AGENT NEEDS FIRST,
+then look at what the template happened to draw.** An agent with two numbers gets two tiles, not
+the four the template shipped. An agent with nothing to chart loses the chart. Building around a
+placeholder — keeping the donut because a donut was there — produces an agent shaped like a
+template instead of shaped like its job, and it is the single most common way a generated window
+ends up impressive and useless.
+
+**Each one ends in exactly one of two states:**
+
+- **Adopted** — you changed it to this agent's real data. Delete the `@placeholder` line, and
+  rename the file so the imports stop saying `Placeholder`. It is the agent's component now, and
+  the name should say so.
+- **Deleted** — the agent has no use for it. Remove the file *and* every import of it. A widget
+  nothing renders is dead weight that the next person has to read before they can ignore it.
+
+**Some placeholders have a SECOND HALF, and deleting one half is worse than deleting neither.** A
+placeholder that is a whole screen also has a rail entry and a branch that renders it; a
+placeholder section also has a row in the section list. Delete the file alone and the rail keeps a
+row that opens nothing. Delete the entry alone and the screen is unreachable code the bundler
+still carries. **Grep the filename before you delete it** — `grep -rn PlaceholderThing app/src` —
+and remove everything it finds, in one edit.
+
+**Prose that merely NAMES the marker is not a placeholder.** The check reads raw source, so a file
+whose comments talk about the tag gets listed among the files to delete. If that file is one you
+must keep, reword the comment rather than deleting the file — and never write the literal tag into
+a file that is not itself scaffolding.
+
+There is no third state. **By the time the agent is packaged, `grep -rn "@placeholder" app/src`
+must find nothing** — `validate_agent` reports `UI_PLACEHOLDER_SHIPPED` while any remain, and it
+closes the pack and publish gates. It stays a warning while you build, because the widgets are
+supposed to be there on day one; it only becomes fatal when the work leaves this machine.
+
+Sample data goes with them: a template's `SAMPLE_*` constants exist so the window renders before
+a `fetch` does. A panel that quietly falls back to sample data is worse than an empty panel — it
+shows a number that was never measured.
+
 # How to work while you do either path
 
 ## The batching tripwire — read this one twice

@@ -20,7 +20,16 @@
  */
 
 import { useEffect } from 'react'
-import { ArrowRight, ArrowUpRight, Camera, Clock, Link2, Sparkles } from 'lucide-react'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookMarked,
+  Camera,
+  Clock,
+  FileText,
+  Link2,
+  Sparkles,
+} from 'lucide-react'
 
 import { AGENT_ID, useClient } from './agentd/client'
 import { useCredits } from './agentd/credits'
@@ -33,6 +42,17 @@ import { useApp, useSession } from './state/store'
 import { Composer } from './components/Composer'
 import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
+
+/* PLACEHOLDER WIDGETS — see components/widgets/README.md, which lists them and says how each one
+   ends: adopted, or deleted along with its import here. `validate_agent` will not pack or publish
+   while any file still carries the placeholder tag in its header.
+
+   THE TAG IS NOT WRITTEN OUT IN THIS FILE, deliberately: the checker reads raw source, so a file
+   that merely NAMES the marker gets listed among the files to delete — and App.tsx is the one
+   file that can never be one of them. */
+import PlaceholderLibraryView from './components/widgets/PlaceholderLibraryView'
+import PlaceholderNote from './components/widgets/PlaceholderNote'
+import PlaceholderStat from './components/widgets/PlaceholderStat'
 
 import Credits from './common/credits/Credits'
 import LiveReload from './common/dev/LiveReload'
@@ -185,6 +205,12 @@ export default function App() {
         status={status}
         name={AGENT_NAME}
         counts={{ credits: credits === null ? undefined : credits.toLocaleString() }}
+        /* A SCREEN OF THIS AGENT'S OWN, above the shared three. PLACEHOLDER — delete this prop
+           and the branch below along with the widget file if the conversation is the whole
+           product. A rail row that opens a screen of sample data is worse than four rows. */
+        extraDestinations={[
+          { id: 'library', label: 'Saved', icon: <BookMarked size={15} /> },
+        ]}
       />
 
       <main className="main">
@@ -192,6 +218,10 @@ export default function App() {
           <Credits agentId={AGENT_ID} />
         ) : view === 'orgs' ? (
           <OrgView client={client ?? undefined} />
+        ) : view === 'library' ? (
+          /* PLACEHOLDER SCREEN — see components/widgets/README.md. Goes with the
+             `extraDestinations` entry above; delete both together. */
+          <PlaceholderLibraryView name={AGENT_NAME} />
         ) : view === 'settings' ? (
           /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
              `onRestart` too if your window can restart the daemon — some settings only take
@@ -316,6 +346,17 @@ export default function App() {
                     </button>
                   </div>
                 )}
+
+                {/* PLACEHOLDER — the design's third card is whatever THIS agent counts: files
+                    written, rows imported, messages sent. Give it a real figure or delete it. A
+                    card showing a dash teaches people to stop looking at the column. */}
+                <PlaceholderStat
+                  icon={<FileText size={13} strokeWidth={1.7} />}
+                  label="What it made"
+                  value="—"
+                  sub="placeholder — count something real"
+                />
+                <PlaceholderNote />
               </aside>
             </div>
           </>

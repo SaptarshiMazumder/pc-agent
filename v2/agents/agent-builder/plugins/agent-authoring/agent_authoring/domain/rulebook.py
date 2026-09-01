@@ -128,6 +128,14 @@ RULEBOOK: dict[str, Rule] = {
     # THE FOURTH MANDATORY PIECE. Blocks for the same reason the other three do: an agent that
     # cannot be shared with a colleague is not an agent a company can buy, and the failure is
     # silent — the window works perfectly for whoever installed it.
+    # SCAFFOLDING MUST NOT SHIP. Advisory while the agent is being built — the template's widgets
+    # are supposed to be there on day one, and an error every time you validate would train you to
+    # ignore validation. It closes the artifact gates instead: the moment work leaves this machine,
+    # a window still made of the template's examples is an unfinished agent with a finished look.
+    "UI_PLACEHOLDER_SHIPPED": Rule(
+        blocks=(PACK, PUBLISH),
+        note="template scaffolding still tagged @placeholder — adopt it or delete it before shipping",
+    ),
     "UI_NO_ORGS": Rule(
         level=ERROR,
         blocks=(PACK, PUBLISH),
