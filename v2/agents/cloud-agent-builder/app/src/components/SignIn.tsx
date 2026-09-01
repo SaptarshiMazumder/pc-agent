@@ -5,10 +5,19 @@
  * card calls the `login` prop, which routes to cabbie's COOKIE-mode session (see
  * agentd/cookie-session.ts), instead of the SDK's daemon path an app window uses on desktop. The
  * login LOGIC is not here and is not copied — it is `@agentd/auth`, shared with the web shell.
+ *
+ * INDIVIDUAL vs ENTERPRISE is a question about WHERE YOU LAND, not about what an account is —
+ * there is deliberately no second account type. Enterprise is the same email+password form with
+ * an optional invite-code field: the code is redeemed right after sign-in (POST /orgs/join), and
+ * the session lands on the Organizations page instead of chat, where the domain-matched join
+ * offers (your company's org, inferred from your email) and Create both live. This is the same
+ * entry the web shell's SignIn has; it was missing here, so cabbie had no enterprise door at all.
  */
 
 import { useState, type FormEvent } from 'react'
 
+import { joinOrg } from '../lib/orgs'
+import { useApp } from '../state/store'
 import './auth.css'
 
 export default function SignIn({
@@ -23,9 +32,11 @@ export default function SignIn({
   /** Called once the credential is stored, so the caller can re-dial the socket. */
   onDone?: () => void
 }) {
+  const [kind, setKind] = useState<'individual' | 'enterprise'>('individual')
   const [mode, setMode] = useState<'in' | 'up'>('in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -46,6 +57,23 @@ export default function SignIn({
     setBusy(true)
     try {
       await login(email, password, mode === 'up')
+      if (kind === 'enterprise') {
+        // Redeem the code FIRST (if given) so the page opens on the org just joined; a failed
+        // redeem still lands on the Organizations overview, whose own redeem box shows the
+        // server's refusal on retry — signing in succeeded, and bouncing the user back out over a
+        // mistyped code would throw that away. A blank code lands on the overview, where the
+        // domain-matched "Join <company>" offer (or Create) is waiting.
+        const code = inviteCode.trim()
+        let orgId = ''
+        if (code) {
+          try {
+            orgId = (await joinOrg({ inviteToken: code })).id
+          } catch (joinErr) {
+            console.error('[auth] invite code redeem failed', joinErr)
+          }
+        }
+        useApp.getState().viewOrg(orgId)
+      }
       onDone?.()
     } catch (err) {
       console.error('[auth] sign-in failed', err)
@@ -59,8 +87,38 @@ export default function SignIn({
     <div className="signin-wrap">
       <form className="signin-card" onSubmit={onSubmit} noValidate>
         <div className="signin-brand">{product || 'Sign in'}</div>
+
+        <div className="signin-kind" role="tablist" aria-label="Account kind">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kind === 'individual'}
+            className={`signin-kind-btn ${kind === 'individual' ? 'active' : ''}`}
+            onClick={() => setKind('individual')}
+            title="Sign in to your own workspace"
+          >
+            Individual
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kind === 'enterprise'}
+            className={`signin-kind-btn ${kind === 'enterprise' ? 'active' : ''}`}
+            onClick={() => setKind('enterprise')}
+            title="Sign in to your organization — join with an invite code the first time"
+          >
+            Enterprise
+          </button>
+        </div>
+
         <div className="signin-sub">
-          {mode === 'in' ? 'Sign in to continue' : 'Create your account'}
+          {kind === 'enterprise'
+            ? mode === 'in'
+              ? 'Sign in to your organization'
+              : 'Create your account and join your organization'
+            : mode === 'in'
+              ? 'Sign in to continue'
+              : 'Create your account'}
         </div>
 
         <label className="signin-label" htmlFor="signin-email">
@@ -73,7 +131,7 @@ export default function SignIn({
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
+          placeholder={kind === 'enterprise' ? 'you@yourcompany.com' : 'you@example.com'}
           required
         />
 
@@ -90,6 +148,25 @@ export default function SignIn({
           placeholder={mode === 'up' ? 'at least 8 characters' : '••••••••'}
           required
         />
+
+        {kind === 'enterprise' && (
+          <>
+            <label className="signin-label" htmlFor="signin-invite">
+              Organization invite code{' '}
+              <span className="signin-optional">(first time only — members leave this blank)</span>
+            </label>
+            <input
+              id="signin-invite"
+              className="signin-input"
+              type="text"
+              autoComplete="off"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="paste the code your admin sent you"
+              title="A single-use code minted by your organization's admin — redeemed right after sign-in"
+            />
+          </>
+        )}
 
         {error && <div className="signin-error">{error}</div>}
 

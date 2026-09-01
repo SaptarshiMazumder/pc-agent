@@ -254,6 +254,55 @@ def test_a_mismatched_domain_cannot_domain_join(stack):
     assert "joinable_orgs" not in _login(client, "outsider@rival.com")
 
 
+# ── domains: inferred from the founder's email, public providers rejected ─────
+
+
+def test_creating_an_org_claims_the_founders_work_domain(stack):
+    """The domain is INFERRED from the founder's email at creation — never a separate 'add
+    domain' step. That single claim is what lets the next colleague route here."""
+    client, _m, org_id, owner = stack
+    view = client.get(f"/orgs/{org_id}", headers=_auth(owner)).json()
+    assert view["domains"] == ["kajima.co.jp"]  # claimed at /orgs time, nothing else done
+    # so a colleague is OFFERED the org at login with no admin configuration at all
+    assert _login(client, "member@kajima.co.jp")["joinable_orgs"] == [
+        {"id": org_id, "name": "Kajima"}
+    ]
+
+
+def test_a_personal_email_cannot_found_an_org(stack):
+    """gmail.com must never become an org domain — or every unrelated Gmail user would route
+    into whoever founded 'the gmail org' first. So a personal address cannot found one."""
+    client, _m, _org_id, _owner = stack
+    _signup(client, "solo@gmail.com")
+    tok = _token(client, "solo@gmail.com")
+    r = client.post("/orgs", json={"name": "Solo Inc"}, headers=_auth(tok))
+    assert r.status_code == 400 and "work email" in r.json()["detail"]
+
+
+def test_a_public_provider_domain_cannot_be_added_manually(stack):
+    """The same rule holds however the domain arrives — the manual add path refuses it too."""
+    client, _m, org_id, owner = stack
+    r = client.post(
+        f"/orgs/{org_id}/domains", json={"domain": "gmail.com"}, headers=_auth(owner)
+    )
+    assert r.status_code == 400 and "public email provider" in r.json()["detail"]
+
+
+def test_the_public_domain_list_is_config_overridable(monkeypatch, tmp_path):
+    """The seed is a fallback, not policy: an operator can widen it via env with no code change
+    (here, treating a bespoke domain as public blocks founding an org on it)."""
+    module = _load(monkeypatch, tmp_path, AGENTD_PUBLIC_EMAIL_DOMAINS="contractor.example")
+    with TestClient(module.app) as client:
+        _signup(client, "temp@contractor.example")
+        tok = _token(client, "temp@contractor.example")
+        r = client.post("/orgs", json={"name": "Nope"}, headers=_auth(tok))
+        assert r.status_code == 400 and "work email" in r.json()["detail"]
+        # ...and gmail.com is no longer blocked, because the env REPLACES the seed
+        _signup(client, "founder@gmail.com")
+        gtok = _token(client, "founder@gmail.com")
+        assert client.post("/orgs", json={"name": "G"}, headers=_auth(gtok)).status_code == 200
+
+
 # ── seats: gate membership, never model calls ────────────────────────────────
 
 

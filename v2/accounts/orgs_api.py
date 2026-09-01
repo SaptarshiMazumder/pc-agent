@@ -56,6 +56,34 @@ INVITE_TTL_DAYS_MAX = 30.0
 SEATS_DEFAULT = max(1, int(os.environ.get("AGENTD_ORG_FREE_SEATS", "5")))
 SEATS_MAX = 10_000
 
+#: Free/consumer email providers whose domain must NEVER be claimed by an org — otherwise every
+#: person with a @gmail.com address would route into whichever org claimed it first. BOTH the
+#: create path (which infers the domain from the owner's email) and the manual add path skip
+#: these. A SEED only: AGENTD_PUBLIC_EMAIL_DOMAINS (comma/space separated) overrides it, so the
+#: policy is config-owned, not baked in — an operator extends or replaces the list without a code
+#: change. Kept short and obvious; the long tail is the operator's to add.
+_PUBLIC_EMAIL_DOMAINS_SEED = (
+    "gmail.com googlemail.com outlook.com hotmail.com live.com msn.com yahoo.com ymail.com "
+    "icloud.com me.com mac.com aol.com proton.me protonmail.com gmx.com mail.com yandex.com "
+    "zoho.com pm.me hey.com fastmail.com"
+)
+
+
+def public_email_domains() -> frozenset[str]:
+    """Provider domains an org may not claim — the env override wins over the seed entirely."""
+    raw = os.environ.get("AGENTD_PUBLIC_EMAIL_DOMAINS", "").strip() or _PUBLIC_EMAIL_DOMAINS_SEED
+    return frozenset(d.strip().lower() for d in raw.replace(",", " ").split() if d.strip())
+
+
+def is_public_email_domain(domain: str) -> bool:
+    return (domain or "").strip().lower() in public_email_domains()
+
+
+def email_domain(email: str) -> str:
+    """The lowercased domain part of an email, or '' if it has none / looks malformed."""
+    dom = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return "" if (not dom or "@" in dom or "." not in dom) else dom
+
 
 @dataclass(frozen=True)
 class OrgDeps:
@@ -279,6 +307,20 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
         seats = max(1, min(seats, SEATS_MAX))
         with deps.db() as c:
             caller = deps.account_for_token(c, _bearer(authorization))
+            # An org is inferred from — and tied to — the creator's WORK email domain (the
+            # self-serve "workspaces for acme.com" pattern), so the NEXT colleague to sign in
+            # routes here with no extra step. A personal provider cannot own one: claiming
+            # gmail.com would pool every unrelated Gmail user together, so it is refused here
+            # rather than silently creating a domain-less org no colleague could ever find.
+            dom = email_domain(str(caller["email"] or ""))
+            if not dom or is_public_email_domain(dom):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"organizations need a work email — {dom or 'this address'} is a personal "
+                        "provider and cannot own one; use it as an individual account instead"
+                    ),
+                )
             org_id = "org_" + secrets.token_hex(8)
             at = deps.now()
             c.execute(
@@ -290,6 +332,13 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
                 "INSERT INTO org_members (org_id, account_id, role, monthly_credit_cap, "
                 "added_by, added_at, active) VALUES (?, ?, 'owner', 0, '', ?, 1)",
                 (org_id, str(caller["id"]), at),
+            )
+            # Claim the domain now, at creation, from the email — never a separate "add domain"
+            # step. This is the single fact that makes the next colleague's sign-in match here.
+            c.execute(
+                "INSERT INTO org_domains (org_id, domain, verified, added_by, added_at) "
+                "VALUES (?, ?, 0, ?, ?) ON CONFLICT(org_id, domain) DO NOTHING",
+                (org_id, dom, str(caller["id"]), at),
             )
             org = c.execute("SELECT * FROM orgs WHERE id = ?", (org_id,)).fetchone()
             view = _org_view(c, org, "owner")
@@ -496,6 +545,14 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
                     "DELETE FROM org_domains WHERE org_id = ? AND domain = ?", (org_id, domain)
                 )
             else:
+                # Same rule as create: a public provider can never be an org domain, however it is
+                # added. Removing one is always fine (cleanup), so the check guards only the add.
+                if is_public_email_domain(domain):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{domain} is a public email provider — an organization cannot "
+                        "claim it (only a domain your company owns routes teammates here)",
+                    )
                 c.execute(
                     "INSERT INTO org_domains (org_id, domain, verified, added_by, added_at) "
                     "VALUES (?, ?, 0, ?, ?) ON CONFLICT(org_id, domain) DO NOTHING",
