@@ -91,11 +91,26 @@ def resolve_allowlist(declared, operator_allow, operator_deny) -> tuple[str, ...
     NARROWED, never widened. The plugin's declaration is a ceiling the operator can lower and
     can never raise — an operator allowlist that ADDED hosts would let a deployment grant reach
     that the installed package never disclosed, which is the one thing the declaration is for.
+
+    A `${SETTING}` ENTRY SURVIVES UNRESOLVED. It means "the host the person running this put in
+    that setting" — kept as-is because this layer is pure and the value is per-caller; the
+    broker resolves it at call time. It is not a hole: the plugin names a SETTING, never a
+    host, so it reaches only where its user pointed it, and a reader still sees before
+    installing which of their own values it will dial. Without it, an agent wrapping a service
+    the user hosts — their ComfyUI, their database, their internal API — becomes unbuildable
+    the moment it is installed, because the host is unknowable when the plugin is written.
     """
     out = []
     strict = tuple(p for p in (operator_allow or ()) if str(p).strip())
     for entry in declared or ():
-        host = str(entry).strip().lower()
+        raw = str(entry).strip()
+        # CASE IS PRESERVED for a placeholder and folded for a host: setting names are
+        # case-sensitive (`${COMFYUI_URL}` is not `${comfyui_url}`), hostnames are not.
+        if PLACEHOLDER.fullmatch(raw):
+            if raw not in out:
+                out.append(raw)
+            continue
+        host = raw.lower()
         if not host or host == "*":
             continue  # a plugin may not declare "everything"; name the hosts you call
         if deny_matches(host, operator_deny):

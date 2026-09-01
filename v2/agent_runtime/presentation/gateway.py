@@ -6329,18 +6329,36 @@ class Gateway:
             # spawned with ${VAR} substituted — so writing only the file would mean the value took
             # effect on the next daemon start. Somebody who pastes a URL and presses Test expects
             # the test to use it.
+            # PER ACCOUNT, not per agent directory. A declared setting is the CALLER's value —
+            # their key, their endpoint — so it is stored beside that account's sessions and
+            # workspace for this agent, not inside the agent's shipped folder where one copy
+            # served everybody. Desktop has one account and takes the identical path.
             applied_settings: list[str] = []
             if setting_writes and target:
-                from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
+                from agent_runtime.infrastructure.account_settings import (
+                    LOCAL_ACCOUNT,
+                    AccountSettingsStore,
+                )
 
-                store = AgentAuthoredConfig(self.registry.resolve_dir)
-                applied_settings = store.write_settings(target, setting_writes)
-                for name, value in setting_writes.items():
-                    var = setting_env_name(target, name)
-                    if str(value):
-                        os.environ[var] = str(value)
-                    else:
-                        os.environ.pop(var, None)
+                acct = accounts.account_id() or LOCAL_ACCOUNT
+                store = AccountSettingsStore(self.config.state_dir)
+                applied_settings = store.write(acct, target, setting_writes)
+                # LIVE IN THIS PROCESS, on a single-account daemon. Somebody who pastes a URL
+                # and presses Test expects the test to use it, and a sandbox child or an
+                # [[mcp]] subprocess reads the environment. NOT done when hosted: there the
+                # process is shared by every tenant, and one account's value landing in it is
+                # exactly the leak the per-account store exists to close.
+                if not getattr(self.config, "hosted", False):
+                    for name, value in setting_writes.items():
+                        var = setting_env_name(target, name)
+                        if str(value):
+                            os.environ[var] = str(value)
+                        else:
+                            os.environ.pop(var, None)
+                # A live MCP server holds the environment it launched with, so a changed value
+                # means nothing until its process is replaced.
+                if self.mcp_connector is not None:
+                    self.mcp_connector.forget(target)
 
             # The NAMES the caller asked for, in the caller's own terms — a settings page that
             # sent COMFY_URL should not be answered with `comfy-smith__COMFY_URL`.

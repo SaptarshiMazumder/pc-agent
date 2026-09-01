@@ -31,6 +31,9 @@ from identity.application.services.principal_service import PrincipalService
 from identity.domain.errors import IdentityConfigurationError
 from identity.infrastructure.jwt_token_issuer import SUPPORTED, JwtTokenIssuer
 from identity.infrastructure.local_password_provider import LocalPasswordProvider
+from identity.infrastructure.postgres_identity_link_store import PostgresIdentityLinkStore
+from identity.infrastructure.postgres_key_store import PostgresKeyStore
+from identity.infrastructure.postgres_refresh_store import PostgresRefreshStore
 from identity.infrastructure.sqlite_identity_link_store import SqliteIdentityLinkStore
 from identity.infrastructure.sqlite_key_store import SqliteKeyStore
 from identity.infrastructure.sqlite_refresh_store import SqliteRefreshStore
@@ -144,15 +147,34 @@ def build_auth_service(
         raise IdentityConfigurationError(
             "AGENTD_AUTH_ISSUER is not set; this deployment cannot mint tokens"
         )
-    keys = SqliteKeyStore(conn, alg=algorithm())
+    # WHICH ADAPTERS, decided by the connection itself. A Postgres-backed connection announces
+    # `dialect = "postgres"`; a sqlite3.Connection has no such attribute. Reading it beats
+    # importing the wrapper class, which lives in `accounts` and must not be imported from here
+    # — accounts depends on identity, and the arrow only points one way.
+    #
+    # The three stores are chosen TOGETHER because they share one connection and one
+    # transaction: a login writes an identity link, a refresh token and possibly a signing key,
+    # and a mixed set would mean half a login on one backend.
+    postgres = getattr(conn, "dialect", "sqlite") == "postgres"
+    key_store = PostgresKeyStore if postgres else SqliteKeyStore
+    link_store = PostgresIdentityLinkStore if postgres else SqliteIdentityLinkStore
+    refresh_store = PostgresRefreshStore if postgres else SqliteRefreshStore
+
+    # THE RAW CONNECTION, because these adapters write `%s` themselves. The caller's connection
+    # may be the dialect wrapper accounts uses for its own `?`-style SQL, and translating an
+    # already-native statement escapes its placeholders into literals. `raw` is the same
+    # connection, so these stores still share the caller's transaction.
+    target = getattr(conn, "raw", conn) if postgres else conn
+
+    keys = key_store(target, alg=algorithm())
     return AuthService(
         provider=build_identity_provider(directory),
-        principals=PrincipalService(directory, SqliteIdentityLinkStore(conn)),
+        principals=PrincipalService(directory, link_store(target)),
         issuer=JwtTokenIssuer(
             keys, issuer=iss, access_ttl_s=access_ttl_s(), audience=audience()
         ),
-        refresh=SqliteRefreshStore(
-            conn,
+        refresh=refresh_store(
+            target,
             ttl_s=_days("AGENTD_AUTH_REFRESH_TTL_DAYS", 30) * 86_400,
             family_ttl_s=_days("AGENTD_AUTH_REFRESH_FAMILY_DAYS", 90) * 86_400,
         ),

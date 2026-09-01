@@ -45,12 +45,22 @@ COPY auth/src auth/src
 COPY billing/src billing/src
 COPY ui/ ui/
 COPY web/ web/
+# THE ONE ADDRESS A HOSTED BUILD BAKES. Everything else — sign-in, the socket, the model
+# proxy — is read from <platform>/.well-known/agentd-platform at boot, so a destroy and
+# recreate cannot leave a shipped bundle pointing at a dead load balancer.
+ARG VITE_AGENTD_PLATFORM_URL
+# THE TWO BELOW ARE OVERRIDES, not the normal path: unset in a deployed image, set only to
+# aim a build at a stack that does not serve discovery (local compose, dev.py). Baking them
+# in a real deploy is what shipped a bundle whose sign-in call was plain http on a TLS
+# environment — they outrank discovery by design, so a wrong value cannot be corrected at
+# runtime.
 ARG VITE_AGENTD_ACCOUNTS_URL
 ARG VITE_AGENTD_URL
 # Optional: unset leaves the browser RUM reporter inert (no listeners, no socket), which is the
 # right behaviour for an environment that has no ingest service.
 ARG VITE_AGENTD_INGEST_URL
-ENV VITE_AGENTD_ACCOUNTS_URL=$VITE_AGENTD_ACCOUNTS_URL \
+ENV VITE_AGENTD_PLATFORM_URL=$VITE_AGENTD_PLATFORM_URL \
+    VITE_AGENTD_ACCOUNTS_URL=$VITE_AGENTD_ACCOUNTS_URL \
     VITE_AGENTD_URL=$VITE_AGENTD_URL \
     VITE_AGENTD_INGEST_URL=$VITE_AGENTD_INGEST_URL
 RUN npm run build -w agentd-web   # -> web/dist/

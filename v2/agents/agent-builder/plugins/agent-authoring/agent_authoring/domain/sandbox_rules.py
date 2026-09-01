@@ -29,6 +29,7 @@ backend lands, and it breaks on the machine of anyone who installs the agent.
 
 from __future__ import annotations
 
+import re
 import tomllib
 
 from .finding import INFO, WARN, Finding
@@ -144,6 +145,51 @@ class SandboxRules:
                         'and declare the hosts in plugin.toml:  [sandbox]  net = ["api.example.'
                         'com"].  A credential rides as ${NAME} listed under [sandbox] secrets, '
                         "and the plugin never sees its value",
+                    )
+                )
+            # THE HOST THE USER BRINGS. A plugin that builds its URL from a `${SETTING}` is
+            # calling wherever the person running it pointed that setting — which is legitimate
+            # and the whole reason `[sandbox] net = ["${SETTING}"]` exists. What is NOT
+            # legitimate is doing that while declaring only fixed hosts: it works perfectly for
+            # the author (unsandboxed, any host) and is refused for every single installer,
+            # AFTER validate, pack and publish have all passed. That silent-until-sold failure
+            # is exactly what this rule exists to convert into a finding.
+            used = {
+                m.group(1)
+                for m in re.finditer(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", text)
+            }
+            declared_hosts = tuple(declared.get("net") or ())
+            placeholder_hosts = {
+                m.group(1)
+                for h in declared_hosts
+                for m in [re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", str(h).strip())]
+                if m
+            }
+            setting_keys = {
+                str(row.get("key") or "").strip()
+                for row in (raw_toml.get("settings") or [])
+                if isinstance(row, dict)
+            }
+            # Only a setting that plausibly IS an endpoint — a key the agent declares, used in
+            # this plugin's source, and not already covered by a ${…} entry in net.
+            url_ish = {
+                k
+                for k in (used & setting_keys) - placeholder_hosts
+                if any(w in k.upper() for w in ("URL", "HOST", "ENDPOINT", "BASE", "SERVER"))
+            }
+            if url_ish and "fetch(" in text:
+                names = ", ".join(sorted(url_ish))
+                out.append(
+                    Finding(
+                        level=WARN,
+                        code="UNTRUSTED_HOST_FROM_SETTING",
+                        message=f"plugins/{pid}/ builds a request from ${{{names}}} — a host the "
+                        f"user supplies — but [sandbox] net names only fixed hosts. This works "
+                        f"for you and is REFUSED for everyone who installs the agent",
+                        path=f"plugins/{pid}/plugin.toml",
+                        fix=f"declare the setting itself as the host:  [sandbox]  "
+                        f'net = ["${{{sorted(url_ish)[0]}}}"]  — the host is then whatever that '
+                        f"setting holds for whoever is running it",
                     )
                 )
             elif URL_LITERAL.search(text) and not declared.get("net"):

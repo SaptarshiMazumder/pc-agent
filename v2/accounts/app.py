@@ -88,6 +88,7 @@ from payments.application.services.checkout_service import CheckoutService
 from payments.application.services.payment_event_service import PaymentEventService
 from payments.domain.money import Money
 from payments.domain.payment_intent import PaymentIntent
+from payments.infrastructure.postgres_payment_intent_store import PostgresPaymentIntentStore
 from payments.infrastructure.sqlite_payment_intent_store import SqlitePaymentIntentStore
 from payments.main.payment_gateway_factory import (
     build_payment_gateway,
@@ -108,6 +109,7 @@ from identity.domain.errors import (
     RefreshReuseDetected,
     TokenInvalid,
 )
+from identity.infrastructure import postgres_schema as identity_postgres_schema
 from identity.infrastructure import sqlite_schema as identity_schema
 from identity.infrastructure.local_password_provider import PROVIDER_NAME as LOCAL_PROVIDER
 from identity.infrastructure.sqlite_identity_link_store import SqliteIdentityLinkStore
@@ -128,8 +130,11 @@ try:  # pragma: no cover - exercised by whichever path the runtime takes
         PurchaseOrder,
         WebhookPostProcessor,
     )
+    import postgres_connection_pool
+    import postgres_schema as accounts_postgres_schema
     from app_secret_loader import AppSecretLoader, AppSecretUnavailable
     from identity_bridge import SqliteAccountDirectory
+    from sqlite_dialect_connection import SqliteDialectConnection
 except ModuleNotFoundError:  # pragma: no cover
     import importlib.util as _ilu
     import pathlib as _pathlib
@@ -157,6 +162,9 @@ except ModuleNotFoundError:  # pragma: no cover
     _secret_loader = _sibling("app_secret_loader")
     AppSecretLoader = _secret_loader.AppSecretLoader
     AppSecretUnavailable = _secret_loader.AppSecretUnavailable
+    postgres_connection_pool = _sibling("postgres_connection_pool")
+    accounts_postgres_schema = _sibling("postgres_schema")
+    SqliteDialectConnection = _sibling("sqlite_dialect_connection").SqliteDialectConnection
     SqliteAccountDirectory = _sibling("identity_bridge").SqliteAccountDirectory
 
 
@@ -183,9 +191,27 @@ def _month_key(ts: float) -> str:
 
 
 @contextmanager
-def _db() -> Iterator[sqlite3.Connection]:
-    """One short-lived connection per call (SQLite connect is cheap; endpoints run in a
-    threadpool so this never blocks the event loop). WAL keeps readers off writers."""
+def _db():
+    """One connection per call, on whichever backend this deployment has.
+
+    THE ONLY PLACE THAT KNOWS WHICH DATABASE THIS IS. Everything downstream — routers, services,
+    the ledger — receives a connection that answers to the same surface (`execute` with `?`
+    placeholders, rows indexed by column name) and never asks which engine is behind it. That is
+    what let the migration proceed one module at a time instead of forking the service.
+
+    Postgres when `DATABASE_URL` is set: a pooled connection wrapped in the dialect shim, whose
+    context manager commits on a clean exit and rolls back on an exception — the same contract
+    sqlite3 gives, so `with _db() as c:` means exactly what it meant before.
+
+    SQLite otherwise: one short-lived connection (connect is cheap; endpoints run in a threadpool
+    so this never blocks the event loop), WAL keeping readers off writers.
+    """
+    if postgres_connection_pool.configured():
+        with postgres_connection_pool.connection() as conn:
+            # The pool's own context manager owns commit/rollback, so this must NOT commit again.
+            yield SqliteDialectConnection(conn)
+        return
+
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.row_factory = sqlite3.Row
@@ -198,7 +224,39 @@ def _db() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _intent_store(c):
+    """The payment-intent store for whichever backend this connection is.
+
+    Same rule as identity's stores: the connection announces its dialect, so no caller has to
+    ask the environment a second time — and a request that somehow held a SQLite connection
+    could not accidentally get the Postgres adapter, because the choice follows the connection
+    rather than the config.
+    """
+    if getattr(c, "dialect", "sqlite") == "postgres":
+        # The RAW connection: this adapter writes `%s` itself, and the wrapper would translate
+        # an already-native statement. Same connection, so the same transaction.
+        return PostgresPaymentIntentStore(getattr(c, "raw", c))
+    return SqlitePaymentIntentStore(c)
+
+
 def _init_db() -> None:
+    # POSTGRES CREATES ITS TABLES AT THE FINAL SHAPE and returns. The long PRAGMA-then-ALTER
+    # sequence below exists solely to upgrade SQLite databases written by older builds; there is
+    # no such database on Postgres, so translating those steps would be translating scaffolding.
+    # Native DDL modules are used rather than the dialect shim: schema is where the two engines
+    # genuinely differ (identity columns, BIGINT money, partial indexes), and pretending
+    # otherwise is what the shim is explicitly not for.
+    if postgres_connection_pool.configured():
+        with postgres_connection_pool.connection() as conn:
+            accounts_postgres_schema.create_schema(conn)
+            PostgresPaymentIntentStore.create_schema(conn)
+            identity_postgres_schema.create_schema(conn)
+            # Harmless on a fresh database (nothing to adopt) and correct on one that already
+            # has accounts: every account without a `local` identity gets one, so its next login
+            # resolves to the SAME account instead of minting a second.
+            identity_postgres_schema.backfill_local_identities(conn, at=_now())
+        return
+
     with _db() as c:
         c.executescript(
             """
@@ -629,6 +687,10 @@ def _seed_seat_packs() -> None:
 _APP_SECRET_FIELDS = (
     "ACCOUNTS_INTERNAL_KEY",
     "AGENTD_IDENTITY_KEK",
+    # Postgres. Absent = this deployment is still on SQLite, which is a supported state for the
+    # whole of the migration: the adapter is chosen by whether this value exists, so a rollback
+    # is deleting one secret field rather than shipping an image.
+    "DATABASE_URL",
     "STRIPE_SECRET_KEY",
     "STRIPE_WEBHOOK_SECRET",
     "RAZORPAY_KEY_ID",
@@ -1296,19 +1358,24 @@ def _apply_grant(payload: dict) -> dict:
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="unknown account")
         ts = _now()
-        cur = c.execute(
+        # RETURNING rather than `cur.lastrowid`: psycopg cursors have no such attribute, and the
+        # grant id is not cosmetic — it becomes this posting's idempotency key, so losing it
+        # would let a replayed grant post the same credits twice. SQLite has supported RETURNING
+        # since 3.35 (2021), so one statement serves both backends.
+        grant_row = c.execute(
             "INSERT INTO credit_grants (account_id, org_id, scope, credits, credits_used, "
             "credit_class, model_tier_max, expires_at, created_at) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?) RETURNING id",
             (account_id, org_id, scope, credits, credit_class, tier_max, expires_at, ts),
-        )
+        ).fetchone()
+        grant_id = grant_row["id"] if hasattr(grant_row, "keys") else grant_row[0]
         # NO CASH CAME IN, but a liability was still created: we now owe this account service.
         # Posted as a promotional grant whatever the credit_class says, because that is what
         # actually happened -- credits conjured without a payment. /purchase is the only path
         # that books cash, and the only one where a creator accrues anything.
         ledger.post_promotional_grant(
             c, ts, account_id=account_id, credits=credits,
-            ref=f"grant:{cur.lastrowid}", idempotency_key=f"grant:{cur.lastrowid}",
+            ref=f"grant:{grant_id}", idempotency_key=f"grant:{grant_id}",
         )
         view = _funding_view(c, account_id, "", org_id)
     count("credits_granted_total", credits, credit_class=credit_class, _props={"account_id": account_id})
@@ -1537,7 +1604,7 @@ def _apply_purchase(
     )
     checkout = CheckoutService(
         build_payment_gateway(),
-        SqlitePaymentIntentStore(c),
+        _intent_store(c),
         AccountsPostProcessor(c, ledger, order, at=ts),
         clock=lambda: ts,
     )
@@ -1906,7 +1973,7 @@ def my_checkout(
 
         intent, done = CheckoutService(
             build_payment_gateway(),
-            SqlitePaymentIntentStore(c),
+            _intent_store(c),
             AccountsPostProcessor(c, ledger, order, at=ts),
             clock=lambda: ts,
         ).begin(
@@ -1985,7 +2052,12 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
     # rows stay usable after the connection closes.
     with _db() as c:
         due = c.execute(
-            "SELECT s.id, s.account_id, s.product_id, s.renews_at, s.org_id AS sub_org, p.* "
+            # s.id IS ALIASED because `p.*` also carries an `id`. Two columns of the same name in
+            # one row are resolved differently by the two drivers: sqlite3.Row keeps the
+            # FIRST, a mapping row keeps the LAST — so this select silently handed back the
+            # PRODUCT id on Postgres, and that id is half of the renewal idempotency key.
+            "SELECT s.id AS sub_id, s.account_id, s.product_id, s.renews_at, "
+            "s.org_id AS sub_org, p.* "
             "FROM subscriptions s "
             "JOIN products p ON p.id = s.product_id "
             "WHERE s.status = 'active' AND s.renews_at <> 0 AND s.renews_at <= ? AND p.active = 1",
@@ -2012,7 +2084,7 @@ def renew_due(x_internal_key: str | None = Header(default=None)) -> dict:
             skipped += 1
             count("renewal_total", outcome="skipped", _props={"product_id": str(s["product_id"]), "reason": "bad_period"})
             continue
-        idem = f"renew:{int(s['id'])}:{int(float(s['renews_at']))}"
+        idem = f"renew:{int(s['sub_id'])}:{int(float(s['renews_at']))}"
         try:
             with _db() as c:
                 _txn, created, _split, _charge, _exp = _apply_purchase(
@@ -2248,7 +2320,7 @@ def _handle_payment_event(body: bytes, headers: dict) -> dict:
     with _db() as c:
         return PaymentEventService(
             build_webhook_verifier(),
-            SqlitePaymentIntentStore(c),
+            _intent_store(c),
             WebhookPostProcessor(c, ledger, now=_now),
             clock=_now,
         ).handle(body, headers)

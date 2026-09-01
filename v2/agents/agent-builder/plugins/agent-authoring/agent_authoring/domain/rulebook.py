@@ -193,6 +193,13 @@ RULEBOOK: dict[str, Rule] = {
         blocks=(PACK, PUBLISH), note="imports an HTTP client; a sandboxed tool has no socket"
     ),
     "UNTRUSTED_MAYBE_NETWORK": Rule(note="heuristic (a URL somewhere) — advisory only"),
+    # BLOCKS, because the whole failure mode is that nothing else catches it: the agent works
+    # perfectly for its author and is refused for every installer, after validate/pack/publish
+    # have all passed. A finding that did not block would ship anyway.
+    "UNTRUSTED_HOST_FROM_SETTING": Rule(
+        blocks=(PACK, PUBLISH),
+        note="calls a user-supplied host without declaring it — dies on the buyer's machine",
+    ),
     "UNTRUSTED_WANTS_SPAWN": Rule(
         blocks=(PACK, PUBLISH), note="subprocess/os.system — denied outright in the sandbox"
     ),
@@ -234,6 +241,10 @@ RULEBOOK: dict[str, Rule] = {
         blocks=(PACK, PUBLISH),
         note="a real secret inlined in agent.toml ships to every buyer — error AND an "
         "explicit gate block, so even a downgraded severity can never leak a key in an artifact",
+    ),
+    "SETTING_SECRET_DEFAULT": Rule(
+        blocks=(PACK, PUBLISH),
+        note="a secret with a shipped default is a credential sent to every installer",
     ),
     "AUTHORED_SETTING_VALUE": Rule(
         blocks=(PACK, PUBLISH),

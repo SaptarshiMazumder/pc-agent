@@ -53,6 +53,30 @@ function cspAllowApiOrigins(): Plugin {
       /* ignore malformed urls */
     }
   }
+  /** Every port on this url's HOSTNAME, in both the http and ws families. */
+  const addAllPorts = (u?: string): void => {
+    if (!u) return
+    try {
+      const { protocol, hostname } = new URL(u)
+      const secure = protocol === 'https:' || protocol === 'wss:'
+      origins.add(`${secure ? 'https' : 'http'}://${hostname}:*`)
+      origins.add(`${secure ? 'wss' : 'ws'}://${hostname}:*`)
+    } catch {
+      /* ignore malformed urls */
+    }
+  }
+  // THE PLATFORM HOST, EVERY PORT. A CSP is a BUILD-TIME allowlist — it has to be in the
+  // document before the first request — so it cannot be discovered the way addresses now
+  // are. Naming each service's port here would put the rot back exactly where discovery
+  // just removed it: the daemon moves to a new port, or a service is added, and the
+  // symptom is a blocked request that looks like the backend is down.
+  //
+  // So: allow the platform's own host on any port, for both the http and ws families. It
+  // is OUR host — every service on it is one we deployed — and `:*` is valid CSP
+  // host-source syntax. Narrower than it looks, and it never needs editing again.
+  addAllPorts(process.env.VITE_AGENTD_PLATFORM_URL)
+  // The overrides, when a build sets them (local compose, dev.py). Exact origins, because
+  // those are arbitrary hosts rather than our deployment.
   add(process.env.VITE_AGENTD_ACCOUNTS_URL)
   add(process.env.VITE_AGENTD_URL)
   // RUM posts here. Without this the CSP blocks every report on a hosted build, and the only

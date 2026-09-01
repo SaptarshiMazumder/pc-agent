@@ -625,6 +625,14 @@ class AgentService:
                 # under their prefixed names and are read one at a time, at the moment a
                 # credential is substituted into a request.
                 settings=tuple(f.key for f in (getattr(agent, "settings", ()) or ())),
+                # The author's non-secret starting points, and WHOSE stored values override
+                # them — both needed by `current_setting_value`, which is the only place a
+                # setting is read.
+                setting_defaults={
+                    f.key: getattr(f, "default", "")
+                    for f in (getattr(agent, "settings", ()) or ())
+                    if getattr(f, "default", "")
+                },
             )
         )
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode

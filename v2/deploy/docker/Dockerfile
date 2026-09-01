@@ -134,10 +134,25 @@ RUN uv tool install workspace-mcp \
 # work and every call still fails with "Executable doesn't exist". One shared path, readable
 # by all, named here so BUILD and RUNTIME resolve to the same directory.
 #
-# ~450MB, and the reason this image is no longer strictly slim. It sits ABOVE the wheel layer
-# on purpose: rebuilt when this line changes, never on a code-only deploy.
+# HEADLESS SHELL ONLY. `playwright install chromium` fetches TWO builds -- the full browser
+# (428MB, the only one that can run headed) and chromium_headless_shell (272MB) -- and since 1.49
+# a headless launch uses the SHELL. So the full build was 428MB nothing in this image can reach:
+# there is no display server, every launch site here is headless (plugins/figures, plugins/html,
+# plugins/figexport, and the browser tool's `headless` knob, default true), and the one headed
+# entrypoint (main/browser_login.py, headless=False) is a desktop sign-in flow a hosted daemon
+# never runs. THE DESKTOP RUNTIME DELIBERATELY KEEPS BOTH for that flow -- see
+# clients/desktop/scripts/build-runtime.ps1. Point a container at headed and it fails at LAUNCH,
+# loudly, which is the correct way for this to be wrong.
+#
+# `--with-deps` apt-installs chromium's system libraries and never cleans up after itself. The
+# lists are dropped in the SAME layer: an `rm` in a later layer writes a whiteout and shrinks
+# nothing.
+#
+# It sits ABOVE the wheel layer on purpose: rebuilt when this line changes, never on a
+# code-only deploy.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN python -m playwright install --with-deps chromium \
+RUN python -m playwright install --with-deps --only-shell chromium \
+ && rm -rf /var/lib/apt/lists/* \
  && chmod -R a+rX /opt/ms-playwright
 
 # NSIS — the ORG/enterprise exe path. `agents.installer` (gateway) compiles a per-agent Windows

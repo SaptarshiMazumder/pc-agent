@@ -37,6 +37,7 @@ import time
 from agent_runtime.domain.sandbox import CapabilityGrant
 from agent_runtime.domain.sandbox_net import (
     ALLOWED_SCHEMES,
+    PLACEHOLDER,
     host_of,
     matches_any,
     scheme_of,
@@ -126,6 +127,27 @@ class SandboxFetchBroker:
 
     # ------------------------------------------------------------------ policy
 
+    def _effective_allowlist(self) -> tuple[str, ...]:
+        """The declared list with every `${SETTING}` replaced by the host that setting holds.
+
+        RESOLVED PER CALL, because the value belongs to whoever is calling — the same reason
+        credentials are substituted here rather than baked in. A setting that is empty, or
+        holds something with no hostname, contributes nothing: the request is then refused
+        naming the setting, which is the honest answer to "you have not configured this yet".
+        """
+        from agent_runtime.application.run_context import current_setting_value
+
+        out: list[str] = []
+        for entry in self._grant.net_allowlist or ():
+            m = PLACEHOLDER.fullmatch(str(entry).strip())
+            if not m:
+                out.append(entry)
+                continue
+            host = host_of(current_setting_value(m.group(1)) or "")
+            if host:
+                out.append(host)
+        return tuple(out)
+
     def _authorize(self, request: dict) -> tuple[str, dict]:
         """-> (url, headers-with-secrets-substituted). Raises _Refused with a plugin-visible
         message. Every refusal happens HERE, before the call, so each carries its own outcome tag
@@ -157,12 +179,14 @@ class SandboxFetchBroker:
                 outcome="bad-scheme",
             )
         host = host_of(url)
-        if not matches_any(host, self._grant.net_allowlist):
+        if not matches_any(host, self._effective_allowlist()):
             raise _Refused(
                 f"host '{host}' is not one this plugin may reach "
-                f"(allowed: {', '.join(self._grant.net_allowlist)}). The list comes from its "
-                "plugin.toml [sandbox] net, narrowed by this daemon's config — not from the "
-                "request, or a plugin could name any host at call time.",
+                f"(allowed: {', '.join(self._effective_allowlist()) or '(none resolved)'}). "
+                "The list comes from its plugin.toml [sandbox] net, narrowed by this daemon's "
+                "config — not from the request, or a plugin could name any host at call time. "
+                "An entry like ${SETTING} resolves to the host in that setting; if it is empty, "
+                "the setting has not been filled in yet.",
                 outcome="host-denied",
             )
 

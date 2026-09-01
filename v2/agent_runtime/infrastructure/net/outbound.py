@@ -69,7 +69,7 @@ def _resolved(value: str) -> str:
     Everything else is the machine-wide variable it has always been. `current_setting_env` owns
     that rule; this function only has to ask.
     """
-    from agent_runtime.application.run_context import current_oauth_token, current_setting_env
+    from agent_runtime.application.run_context import current_oauth_token, current_setting_value
 
     re = __import__("re")
     # `${oauth:<name>}` — a LIVE token from the connection the agent signed in to, refreshed on
@@ -82,9 +82,13 @@ def _resolved(value: str) -> str:
     )
     names = {}
     for name in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", resolved):
-        env = os.environ.get(current_setting_env(name))
-        if env:
-            names[name] = env
+        # PER CALLER, not per process. `current_setting_value` layers the account's stored
+        # value over the author's default, and falls back to the machine-wide variable only
+        # for a name this agent never declared. Reading `os.environ` here instead is what let
+        # one tenant's key answer for every tenant.
+        got = current_setting_value(name)
+        if got:
+            names[name] = got
     return substitute(resolved, names)
 
 

@@ -455,6 +455,37 @@ def build_service(
 
     _tool_models.set_effective_config_resolver(account_config.effective)
 
+    # WHOSE settings a `${NAME}` reads. One seam, set once: application resolves a setting
+    # through this rather than the process environment, which is what made the first tenant's
+    # value answer for every tenant on a shared daemon.
+    from agent_runtime.application.run_context import set_account_settings_reader
+    from agent_runtime.infrastructure.account_settings import AccountSettingsStore
+
+    _account_settings = AccountSettingsStore(config.state_dir)
+
+    def _settings_for_caller(agent_id: str) -> dict:
+        """This caller's stored values for `agent_id`, falling back to the LEGACY location.
+
+        The fallback is the migration. Values used to live in the agent's own
+        `agent.config.json`, and every desktop that ever filled in a settings page has them
+        there; reading the new path only would look exactly like the user's keys being
+        deleted. First write moves them — `config.set` writes the account file, which then
+        wins — so the legacy read fades out on its own rather than needing a migration step
+        that can fail halfway.
+        """
+        from agent_runtime.infrastructure.account_settings import LOCAL_ACCOUNT
+
+        acct = _current_account_id() or LOCAL_ACCOUNT
+        stored = _account_settings.read(acct, agent_id)
+        if stored:
+            return stored
+        try:
+            return authored_config.settings(agent_id)
+        except Exception:  # noqa: BLE001 — a broken legacy file is not this path's problem
+            return {}
+
+    set_account_settings_reader(_settings_for_caller)
+
     engine = NativeEngine(  # swap here for Claude SDK / LangGraph
         stream_fn,
         brain_model(config),
@@ -860,7 +891,10 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
         cfg = McpServerConfig(
             name=decl.name,
             transport=decl.transport,
-            command=list(decl.command) or None,
+            # RESOLVED like env and headers, not passed raw: the launcher expands ${…} from
+            # os.environ, which is the machine-wide value rather than this agent's — and on a
+            # shared daemon, potentially another account's.
+            command=connector.resolve_list(agent_id, decl.command) or None,
             url=decl.url or None,
             # LITERALS, resolved by the connector against this agent's own settings. Passing the
             # ${…} through would let the infra layer expand it from os.environ, which is the
@@ -879,12 +913,24 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
                 pass
         return _guarded_with_source(tools, config) if tools else []
 
-    return AgentMcpConnector(
+    def _read_setting(agent_id: str, name: str) -> str:
+        """This agent's value for `name`, for the account making the call.
+
+        Goes through the SAME resolver every other `${…}` site uses, so an MCP server and a
+        plugin's `fetch` cannot disagree about what a setting is worth.
+        """
+        from agent_runtime.application.run_context import current_setting_value
+
+        return current_setting_value(name)
+
+    connector = AgentMcpConnector(
         connect=_connect,
         read_env=lambda name: os.environ.get(name, ""),
         setting_env=setting_env_name,
         oauth=oauth_token,  # for a server declaring auth = "oauth:<name>"
+        read_setting=_read_setting,
     )
+    return connector
 
 
 def _add_agent_browser_mcp_server(config: Config) -> None:

@@ -146,6 +146,16 @@ class SettingField:
     kind: str = "text"  # one of SETTING_KINDS
     required: bool = False  # the agent cannot work without it
     help: str = ""  # one line: where the user gets this value
+    # THE AUTHOR'S STARTING POINT, and the one part of a setting whose VALUE does ship. An art
+    # agent that only makes sense on a particular model should arrive on it rather than on
+    # whatever the installer's daemon happens to run — that is a fact about the agent, not a
+    # credential.
+    #
+    # NEVER ON A SECRET. A value that travels to every installer is by definition not a secret,
+    # and the validator refuses the combination rather than leaving it to reviewers to notice.
+    # It is layered UNDER whatever the user stores: a default is where they start, not a
+    # ceiling on what they can change.
+    default: str = ""
 
     @property
     def secret(self) -> bool:

@@ -46,11 +46,15 @@ class AgentMcpConnector:
         environment is not the application layer's job.
     """
 
-    def __init__(self, connect, read_env, setting_env, oauth=None):
+    def __init__(self, connect, read_env, setting_env, oauth=None, read_setting=None):
         self._connect = connect
         self._read_env = read_env
         self._setting_env = setting_env
         self._oauth = oauth
+        #: ``(agent_id, name) -> str``, the CALLER-aware read. Injected; when absent this falls
+        #: back to the process environment, which is right for a desktop and for tests and wrong
+        #: for a daemon serving several people — see `_value`.
+        self._read_setting = read_setting
         #: agent_id -> {server name: list[Tool]} for servers that are UP
         self._tools: dict[str, dict[str, list]] = {}
         #: agent_id -> {server name: why it is not up} — shown to the model, not swallowed
@@ -138,11 +142,18 @@ class AgentMcpConnector:
         answer. That is the whole point: an unfilled AWS key must read as missing, not as the
         daemon's.
         """
-        return [
-            name
-            for name in decl.placeholders
-            if not self._read_env(self._setting_env(agent_id, name))
-        ]
+        return [name for name in decl.placeholders if not self._value(agent_id, name)]
+
+    def _value(self, agent_id: str, name: str) -> str:
+        """What ``${name}`` is worth to THIS agent, for the account making the call.
+
+        One reader, so "is it missing?" and "what is it?" can never disagree — a server that
+        passed the missing-check and then launched with an empty credential is a 401 nobody
+        can explain.
+        """
+        if self._read_setting is not None:
+            return str(self._read_setting(agent_id, name) or "")
+        return str(self._read_env(self._setting_env(agent_id, name)) or "")
 
     def _resolve(self, agent_id: str, values: dict | None) -> dict:
         """``{k: "${NAME}"}`` -> ``{k: <value>}``, resolved for this agent.
@@ -156,9 +167,24 @@ class AgentMcpConnector:
         out = {}
         for key, raw in (values or {}).items():
             out[key] = PLACEHOLDER_NAMES.sub(
-                lambda m: self._read_env(self._setting_env(agent_id, m.group(1))), str(raw)
+                lambda m: self._value(agent_id, m.group(1)), str(raw)
             )
         return out
+
+    def resolve_list(self, agent_id: str, values) -> list:
+        """The same substitution over a LIST — an `[[mcp]] command`.
+
+        A command's `${…}` used to be left for the process launcher to expand from
+        `os.environ`, which finds the machine-wide variable rather than this agent's (and, on a
+        shared daemon, somebody else's account). Resolved here, beside env and headers, so all
+        three arrive literal and all three mean the same thing.
+        """
+        from agent_runtime.domain.agent import PLACEHOLDER_NAMES
+
+        return [
+            PLACEHOLDER_NAMES.sub(lambda m: self._value(agent_id, m.group(1)), str(item))
+            for item in (values or ())
+        ]
 
     # ---- consent ------------------------------------------------------------
 

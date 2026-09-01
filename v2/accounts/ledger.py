@@ -276,7 +276,7 @@ def post(
             "SELECT txn_id FROM ledger_txns WHERE idempotency_key = ?", (idempotency_key,)
         ).fetchone()
         if seen is not None:
-            return str(seen["txn_id"] if isinstance(seen, sqlite3.Row) else seen[0]), False
+            return str(_cell(seen, "txn_id")), False
 
     txn_id = uuid.uuid4().hex
     c.execute(
@@ -492,6 +492,24 @@ def post_payout(
 # --- reading -----------------------------------------------------------------
 
 
+def _cell(row, name: str, index: int = 0):
+    """One column out of a row, whatever kind of row it is.
+
+    THE BUG THIS REPLACED branched on the CLASS: `row["net"] if isinstance(row, sqlite3.Row)
+    else row[0]`. That is a test for "which driver produced this", and it silently picked the
+    wrong branch the moment a second driver existed — psycopg's mapping rows are not
+    sqlite3.Row, so the fallback indexed a dict by the integer 0 and raised `KeyError: 0` from
+    inside the ledger, on the balance check, with nothing naming the database.
+
+    Asking what the row CAN DO instead of what it IS covers every case: sqlite3.Row and
+    psycopg's dict rows both support lookup by name; a connection with no row factory returns
+    a plain tuple, which is what the positional fallback is actually for.
+    """
+    if hasattr(row, "keys"):
+        return row[name]
+    return row[index]
+
+
 def balance_of(c: sqlite3.Connection, account: str) -> int:
     """Signed balance in micros, normalised so a healthy account reads POSITIVE.
 
@@ -503,7 +521,7 @@ def balance_of(c: sqlite3.Connection, account: str) -> int:
         "ELSE -amount_micros END), 0) AS net FROM ledger_entries WHERE account = ?",
         (account,),
     ).fetchone()
-    net = int(row["net"] if isinstance(row, sqlite3.Row) else row[0])
+    net = int(_cell(row, "net"))
     return net if CHART.get(account) in (ASSET, EXPENSE) else -net
 
 
@@ -515,7 +533,7 @@ def balances(c: sqlite3.Connection) -> dict:
         "SELECT COALESCE(SUM(CASE direction WHEN 'debit' THEN amount_micros "
         "ELSE -amount_micros END), 0) AS net FROM ledger_entries"
     ).fetchone()
-    residual = int(row["net"] if isinstance(row, sqlite3.Row) else row[0])
+    residual = int(_cell(row, "net"))
     return {
         "accounts": out,
         # Must be exactly 0. Anything else means a posting bypassed `post()`.
