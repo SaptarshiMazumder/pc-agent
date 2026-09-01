@@ -303,6 +303,17 @@ def test_the_public_domain_list_is_config_overridable(monkeypatch, tmp_path):
         assert client.post("/orgs", json={"name": "G"}, headers=_auth(gtok)).status_code == 200
 
 
+def test_the_catalogue_survives_an_unconfigured_payment_rail(monkeypatch, tmp_path):
+    """The store must RENDER even when this environment's rail (dev defaults to razorpay) has no
+    keys in the secret yet — browsing a price list cannot 500 because checkout is unwired. The
+    symptom this closes: Buy Seats / Top Up Pool stuck on 'Loading…' behind a 500 on /products."""
+    module = _load(monkeypatch, tmp_path, AGENTD_PAYMENT_PROVIDER="razorpay")
+    with TestClient(module.app) as client:
+        r = client.get("/products", params={"kind": "credit_pack"})
+        assert r.status_code == 200, r.text  # NOT the 500 the raw build_payment_gateway would give
+        assert r.json()["provider"] == ""  # degraded to 'no rail', catalogue still returned
+
+
 # ── seats: gate membership, never model calls ────────────────────────────────
 
 

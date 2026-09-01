@@ -1477,11 +1477,22 @@ def list_products(kind: str = "") -> dict:
     # `provider` tells the client which rail is in play, and `payment_note` is the rail's own
     # words for what a purchase will do. The UI DISPLAYS them; it must not branch on them (see
     # payments.py: no code path may work only because payments are mocked).
-    rail = build_payment_gateway()
+    #
+    # The CATALOGUE IS PUBLIC AND MUST RENDER even when checkout is not wired. Reporting the rail's
+    # name/note is a nicety, not a reason to 500 a price list — and a keyless rail throws when
+    # built (dev defaults to `razorpay`, whose keys land in the secret separately). Without this,
+    # a half-configured environment hangs the whole store on "Loading…". A CHECKOUT still fails
+    # loudly (that path calls build_payment_gateway directly); only browsing degrades.
+    try:
+        rail = build_payment_gateway()
+        provider, note = rail.name, rail.purchase_note
+    except Exception as exc:  # noqa: BLE001 - browsing must not depend on a configured rail
+        logging.getLogger("accounts").warning("catalogue served without a rail: %s", exc)
+        provider, note = "", ""
     return {
         "products": [dict(r) for r in rows],
-        "provider": rail.name,
-        "payment_note": rail.purchase_note,
+        "provider": provider,
+        "payment_note": note,
     }
 
 
