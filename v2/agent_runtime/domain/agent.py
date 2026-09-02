@@ -344,6 +344,10 @@ class AgentSpec:
     # = an unscanned/test-constructed spec, which every consumer treats as unrestricted.
     owner: str = ""
     origin: str = "authored"
+    #: The account id that authored/contributed this copy (org shares only; see OwnershipRecord).
+    #: Kept beside `owner` so an org roster can label each agent by its maker even though the org
+    #: owns the copy. Empty for personal agents.
+    author: str = ""
     # A REFERENCE IMPLEMENTATION shipped for people to read and run, from `agents/samples/`.
     #
     # Registered like any agent — an exemplar nobody can run is an exemplar that rots, and this

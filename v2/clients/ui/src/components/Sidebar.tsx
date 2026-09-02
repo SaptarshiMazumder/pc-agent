@@ -152,7 +152,7 @@ export default function Sidebar() {
         ))}
         <div className="rail-spacer" />
         <ProfileMenu variant="rail" />
-        <button className="rail-btn" title="My Agents" onClick={() => setView('myagents')}><LayoutGrid size={18} /></button>
+        <button className="rail-btn" title="Agents" onClick={() => setView('myagents')}><LayoutGrid size={18} /></button>
         {admin && (
           <button
             className={`rail-btn ${view === 'admin' ? 'active' : ''}`}
@@ -202,10 +202,10 @@ export default function Sidebar() {
             below has gone, so it stays in the nav rows rather than only in the rail/footer. */}
         <NavRow
           icon={<LayoutGrid size={17} />}
-          label="My Agents"
+          label="Agents"
           active={view === 'myagents'}
           onClick={() => setView('myagents')}
-          title="My Agents — install, publish, open"
+          title="Agents — every agent you can use, open and share"
         />
         {/* THE ORGANIZATION — present exactly when the account belongs to one (memberships come
             from accounts, so an individual account never sees this). One org opens straight to
@@ -346,7 +346,7 @@ export default function Sidebar() {
         <ProfileMenu variant="footer" />
         {/* Whose keys pay for model calls — always on screen, click to switch. */}
         <RunModeBadge />
-        <button className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`} title="My Agents" onClick={() => setView('myagents')}>
+        <button className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`} title="Agents" onClick={() => setView('myagents')}>
           <LayoutGrid size={17} />
         </button>
         <SettingsMenu variant="footer" />

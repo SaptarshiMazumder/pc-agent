@@ -344,6 +344,7 @@ class FileAgentRegistry:
             spec,
             owner=record.owner if record else default_owner,
             origin=record.origin if record else ownership.AUTHORED,
+            author=record.author if record else "",
         )
 
     def _scan(self, directory: Path, default_owner: str = "") -> dict[str, AgentSpec]:

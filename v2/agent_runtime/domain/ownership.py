@@ -66,6 +66,12 @@ class OwnershipRecord:
     origin: str = AUTHORED
     source_id: str = ""  # registry id, when origin == "installed"/"curated"
     source_version: str = ""
+    #: The ACCOUNT ID of the person who authored/contributed this copy, kept SEPARATELY from
+    #: `owner`. It exists for org shares: there `owner` is the org (so the whole company can use
+    #: the agent), which erases who actually made it — this preserves that, so an org roster can
+    #: label each agent by its author. Empty for a personal agent, where `owner` already IS the
+    #: creator and `mine` answers "whose".
+    author: str = ""
 
 
 def parse_record(raw: object) -> OwnershipRecord | None:
@@ -86,6 +92,7 @@ def parse_record(raw: object) -> OwnershipRecord | None:
         origin=origin if origin in _ORIGINS else AUTHORED,
         source_id=str(source.get("id") or "").strip(),
         source_version=str(source.get("version") or "").strip(),
+        author=str(raw.get("author") or "").strip(),
     )
 
 
@@ -95,6 +102,8 @@ def record_dict(record: OwnershipRecord) -> dict:
     out: dict = {"owner": record.owner, "origin": record.origin}
     if record.source_id:
         out["source"] = {"id": record.source_id, "version": record.source_version}
+    if record.author:
+        out["author"] = record.author
     return out
 
 

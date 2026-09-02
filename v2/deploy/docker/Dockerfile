@@ -140,6 +140,28 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN python -m playwright install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright
 
+# NSIS — the ORG/enterprise exe path. `agents.installer` (gateway) compiles a per-agent Windows
+# installer ON DEMAND with the SAME toolchain the publish service uses (BuildProductService + the
+# stub template), so an organization can hand its agents to someone with no platform WITHOUT
+# publishing to the public registry. makensis is a cross-platform C program, so this Linux daemon
+# produces Windows installers. Without this layer the payload still builds and the button reports
+# "no installer" — a graceful degrade, never a break (an installer also needs an ENGINE reference:
+# set AGENTD_ENGINE_URL + AGENTD_ENGINE_SHA256, or publish an `engine` block to the registry).
+#
+# Sits ABOVE the per-deploy wheel, so a code-only deploy never rebuilds it. Root here; the image
+# drops to USER agentd at the end.
+#
+# The inetc plugin gives the stub a real download progress bar (stub.nsi's HAVE_INETC branch);
+# vendored + digest-checked exactly as services/publish/Dockerfile does, because the DLL ends up
+# inside every installer this daemon builds — a swapped binary must fail the build, never ship.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nsis \
+ && rm -rf /var/lib/apt/lists/*
+COPY services/publish/nsis-plugins/x86-unicode/INetC.dll /tmp/INetC.dll
+RUN echo "85e03805f90f72257dd41bfdaa186237218bbb0ec410ad3b6576a88ea11dccb9  /tmp/INetC.dll" | sha256sum -c - \
+ && install -D /tmp/INetC.dll /usr/share/nsis/Plugins/x86-unicode/INetC.dll \
+ && rm /tmp/INetC.dll
+
 # NO NODE IN THE DAEMON IMAGE, on purpose. An agent's window build (npm + vite) runs in the
 # separate BUILDER LAMBDA (builder.tf / RemoteBuilderBuildBackend), NOT here — a node build's
 # memory peak exceeds this 512 MB task and OOM-killed the daemon mid-create (exit 137, staging,

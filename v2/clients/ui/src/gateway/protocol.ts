@@ -73,6 +73,14 @@ export interface AgentInfo {
   scope?: 'personal' | 'org'
   /** the owning organization when scope === 'org' — named via the accounts /me/orgs fetch */
   orgId?: string
+  /** how it got here: 'authored' (they made it) | 'installed' (a copy) | 'curated' (ours) |
+   *  'web-app'. Drives the "external" tag on the unified Agents shelf (installed/curated read as
+   *  external for an individual). Absent on an older daemon — treat as 'authored'. */
+  origin?: string
+  /** the ACCOUNT ID of who authored this copy — set on org shares, where `owner` is the org and
+   *  would otherwise erase the maker. '' / absent on a personal row (there `mine` answers whose).
+   *  The shelf labels a card by this, resolved to an email when the org roster is in hand. */
+  author?: string
 }
 
 export interface Hello {

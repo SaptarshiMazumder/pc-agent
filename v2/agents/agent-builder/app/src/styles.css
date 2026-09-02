@@ -1492,10 +1492,22 @@ h2 { font-size: 16px; }
 
 .lp-td-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .lp-td-names { display: flex; flex-direction: column; min-width: 0; }
-.lp-td-name { font-size: var(--fs-body); font-weight: var(--fw-strong); color: var(--text); }
+.lp-td-name { font-size: var(--fs-body); font-weight: var(--fw-strong); color: var(--text); display: flex; align-items: center; gap: 6px; min-width: 0; }
 .lp-td-tag {
   font-size: var(--fs-meta); color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* WHO MADE IT — a byline under the tagline, one line, dimmer than the name. */
+.lp-td-by {
+  font-size: var(--fs-meta); color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The row's small pills — 'org' / 'external'. Quiet by default; the name still leads. */
+.lp-tag {
+  flex: none; font-size: 10.5px; font-weight: var(--fw-strong); line-height: 1;
+  padding: 3px 6px; border-radius: 999px;
+  color: var(--dim); background: var(--hover); border: 1px solid var(--line);
+  text-transform: lowercase; letter-spacing: 0.02em;
 }
 
 .lp-td-shape, .lp-td-state {

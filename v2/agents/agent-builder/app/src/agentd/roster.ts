@@ -21,11 +21,19 @@ export interface AgentRow {
   color?: string
   /** Is this the caller's own agent? Absent on an older daemon — see `publishable`. */
   mine?: boolean
-  /** authored | installed | curated. Absent on an older daemon. */
+  /** authored | installed | curated | web-app. Absent on an older daemon. */
   origin?: string
   /** 'account' | 'org' | 'shared' — which layer the caller's copy came from. The My-agents
    *  section keys off this, because `mine` is presumed true for the whole shared catalogue. */
   layer?: string
+  /** whose it is (tenancy E5): 'org' rows are the organization's, spanning every member;
+   *  'personal'/absent is an individual's. Drives the "external" tag for a team. */
+  scope?: 'personal' | 'org'
+  /** the owning organization when scope === 'org'. */
+  orgId?: string
+  /** the ACCOUNT ID of who authored this copy — set on an org share, where `owner` is the org and
+   *  would otherwise erase the maker. '' / absent on a personal row (there `mine` says whose). */
+  author?: string
   /**
    * WHERE THIS AGENT'S DEFINITION IS, absolutely.
    *
@@ -77,3 +85,33 @@ export const publishBlockReason = (a: AgentRow | null): string =>
 const COLORS = ['#8b74ff', '#5ec8c0', '#f0a45d', '#e8749b', '#7bb4f2', '#b88bd8']
 export const agentColor = (a: AgentRow, i: number): string =>
   a.color || COLORS[i % COLORS.length] || '#8b74ff'
+
+/* THE UNIFIED-SHELF LABELS (tenancy E5) — one list of every agent, differentiated on the row by
+   two facts the daemon already sends: who authored it, and whether it came from outside the
+   caller's world. Pure, so the table and any later surface render them the same way. */
+
+/** A short, human-ish account id when no email is known — "labelled by their user id" without the
+ *  full opaque string. */
+export const shortId = (id: string): string => {
+  const s = String(id || '')
+  return s.length > 10 ? `${s.slice(0, 9)}…` : s
+}
+
+/** The byline — who made this copy, resolved to an email via `emails`, else a short id, else
+ *  'you' for the caller's own. '' when the row's own state already says whose (a personal agent
+ *  with no stamped author that is not the caller's). */
+export const agentAuthorLabel = (
+  a: AgentRow,
+  myId: string,
+  emails: Record<string, string>,
+): string => {
+  const author = a.author || ''
+  if (author) return author === myId ? 'you' : emails[author] || shortId(author)
+  if (a.mine !== false && a.scope !== 'org') return 'you'
+  return ''
+}
+
+/** Outside the caller's world: for a team (`enterprise`) that is "not an org agent"; for an
+ *  individual it is an installed/curated copy — something they did not author. */
+export const agentIsExternal = (a: AgentRow, enterprise: boolean): boolean =>
+  enterprise ? a.scope !== 'org' : a.origin === 'installed' || a.origin === 'curated'

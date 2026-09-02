@@ -60,6 +60,19 @@ export function fileUrl(path: string): string {
   return `${httpOrigin}/file?${q.toString()}`
 }
 
+/** Absolute, authed URL to download an agent's built installer (daemon-served
+ *  /product/<id>/installer, returned by the agents.installer RPC). Carries the ACCOUNT session so
+ *  an ORG agent's ownership check resolves the caller's org membership — the machine token rides
+ *  as the desktop fallback, exactly like appLaunchUrl. */
+export function installerUrl(path: string): string {
+  const q = new URLSearchParams()
+  if (authToken) q.set('token', authToken)
+  const session = getSession()?.token
+  if (session) q.set('session', session)
+  const query = q.toString()
+  return `${httpOrigin}${path}${query ? (path.includes('?') ? '&' : '?') + query : ''}`
+}
+
 /** Absolute, tokenized launch URL for an AGENT APP's UI (daemon-served /apps/<id>/) —
  *  same live origin+token as /file; the scope pins the page's connection to its agent.
  *

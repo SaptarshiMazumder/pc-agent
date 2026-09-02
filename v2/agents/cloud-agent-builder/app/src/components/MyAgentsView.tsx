@@ -21,11 +21,53 @@
  */
 
 import { ExternalLink, Pencil, RefreshCw } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { hasWindow, openAgentWindow } from '../agentd/app-window'
-import type { AgentRow } from '../agentd/roster'
+import { agentAuthorLabel, agentIsExternal, type AgentRow } from '../agentd/roster'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
+import { useAuthSession } from '../lib/auth'
+import { fetchMyOrgs, fetchOrgDetail } from '../lib/orgs'
+
+/** The org context the row labels need: is the caller a team (enterprise), who are they, and the
+ *  best-effort author id→email map (org detail names members for an admin; a plain member gets
+ *  none and the byline falls back to the id). Self-contained so the shelf stays a drop-in. */
+function useAuthorship(): { enterprise: boolean; myId: string; emails: Record<string, string> } {
+  const session = useAuthSession()
+  const [state, setState] = useState<{
+    enterprise: boolean
+    myId: string
+    emails: Record<string, string>
+  }>({ enterprise: false, myId: '', emails: {} })
+  useEffect(() => {
+    if (!session) {
+      setState({ enterprise: false, myId: '', emails: {} })
+      return
+    }
+    let live = true
+    fetchMyOrgs()
+      .then(async (d) => {
+        const map: Record<string, string> = {}
+        await Promise.all(
+          d.orgs.map((o) =>
+            fetchOrgDetail(o.id)
+              .then((det) => {
+                for (const m of det.members || []) if (m.accountId) map[m.accountId] = m.email || ''
+              })
+              .catch(() => {}),
+          ),
+        )
+        if (live) setState({ enterprise: d.orgs.length > 0, myId: session.accountId || '', emails: map })
+      })
+      .catch(() => {
+        if (live) setState({ enterprise: false, myId: session.accountId || '', emails: {} })
+      })
+    return () => {
+      live = false
+    }
+  }, [session])
+  return state
+}
 
 export function MyAgentsView({
   agents,
@@ -38,6 +80,7 @@ export function MyAgentsView({
 }) {
   const [opening, setOpening] = useState('')
   const [error, setError] = useState('')
+  const { enterprise, myId, emails } = useAuthorship()
 
   async function open(agent: AgentRow): Promise<void> {
     setOpening(agent.id)
@@ -58,8 +101,12 @@ export function MyAgentsView({
       <div className="page-inner">
         <header className="page-head">
           <div>
-            <h1>My Agents</h1>
-            <p>Everything built on this machine. Open one to use it, or edit one to keep working.</p>
+            <h1>Agents</h1>
+            <p>
+              {enterprise
+                ? 'Every agent you can use — your own and your organization’s. Each card names its author.'
+                : 'Every agent you can use — the ones you built or installed.'}
+            </p>
           </div>
           {onRefresh && (
             <button className="ghost-btn" onClick={onRefresh} title="Re-read the roster">
@@ -80,16 +127,31 @@ export function MyAgentsView({
           </div>
         ) : (
           <div className="cards">
-            {agents.map((a) => (
+            {agents.map((a) => {
+              const author = agentAuthorLabel(a, myId, emails)
+              const external = agentIsExternal(a, enterprise)
+              return (
               <div className="card" key={a.id}>
                 <div className="card-top">
                   <span className="avatar lg" style={{ background: agentColor(a.color, a.id) }}>
                     {agentInitials(a.name, a.id)}
                   </span>
                   <div>
-                    <div className="card-name">{a.name || a.id}</div>
+                    <div className="card-name">
+                      {a.name || a.id}
+                      {a.scope === 'org' && (
+                        <span className="card-tag" title="Your organization's — everyone in it can use it">
+                          org
+                        </span>
+                      )}
+                      {external && (
+                        <span className="card-tag" title="From outside your world — an installed copy, or (in a team) not your organization's">
+                          external
+                        </span>
+                      )}
+                    </div>
                     <div className="card-by">
-                      {a.id}
+                      {author ? `by ${author}` : a.id}
                       {a.version ? ` · v${a.version}` : ''}
                     </div>
                   </div>
@@ -113,7 +175,8 @@ export function MyAgentsView({
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

@@ -230,7 +230,7 @@ export function Sidebar({
         />
         <button
           className={`rail-btn ${view === 'myagents' ? 'active' : ''}`}
-          title="My Agents"
+          title="Agents"
           onClick={() => setView('myagents')}
         >
           <LayoutGrid size={18} />
@@ -387,7 +387,7 @@ export function Sidebar({
         <RunModeBadge client={client} />
         <button
           className={`icon-btn footer-icon push-end ${view === 'myagents' ? 'active' : ''}`}
-          title="My Agents"
+          title="Agents"
           onClick={() => setView('myagents')}
         >
           <LayoutGrid size={17} />

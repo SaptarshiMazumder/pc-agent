@@ -37,11 +37,54 @@ import {
   Pencil,
   RefreshCw,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { hasWindow } from '../agentd/app-window'
-import type { AgentRow } from '../agentd/roster'
+import { agentAuthorLabel, agentIsExternal, type AgentRow } from '../agentd/roster'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
+import { useAuthSession } from '../lib/auth'
+import { fetchMyOrgs, fetchOrgDetail } from '../lib/orgs'
 import { useOpenAgent } from './MyAgentsView'
+
+/** The org context the row labels need: is the caller a team (enterprise) at all, who are they,
+ *  and the best-effort author id→email map (org detail names members for an admin; a plain member
+ *  gets none and the byline falls back to the id). Self-contained so the table stays a drop-in. */
+function useAuthorship(): { enterprise: boolean; myId: string; emails: Record<string, string> } {
+  const session = useAuthSession()
+  const [state, setState] = useState<{
+    enterprise: boolean
+    myId: string
+    emails: Record<string, string>
+  }>({ enterprise: false, myId: '', emails: {} })
+  useEffect(() => {
+    if (!session) {
+      setState({ enterprise: false, myId: '', emails: {} })
+      return
+    }
+    let live = true
+    fetchMyOrgs()
+      .then(async (d) => {
+        const map: Record<string, string> = {}
+        await Promise.all(
+          d.orgs.map((o) =>
+            fetchOrgDetail(o.id)
+              .then((det) => {
+                for (const m of det.members || []) if (m.accountId) map[m.accountId] = m.email || ''
+              })
+              .catch(() => {}),
+          ),
+        )
+        if (live) setState({ enterprise: d.orgs.length > 0, myId: session.accountId || '', emails: map })
+      })
+      .catch(() => {
+        if (live) setState({ enterprise: false, myId: session.accountId || '', emails: {} })
+      })
+    return () => {
+      live = false
+    }
+  }, [session])
+  return state
+}
 
 export function LaunchpadAgentTable({
   agents,
@@ -57,11 +100,12 @@ export function LaunchpadAgentTable({
   onRefresh: () => void
 }) {
   const { opening, error, open } = useOpenAgent()
+  const { enterprise, myId, emails } = useAuthorship()
 
   return (
     <section className="lp-section">
       <div className="lp-section-bar">
-        <h3 className="lp-section-head">Your agents</h3>
+        <h3 className="lp-section-head">Agents</h3>
         <div className="lp-filters">
           <button className="lp-pill active">All</button>
           {/* PLACEHOLDERS — see the header. Disabled until publish state is recorded somewhere
@@ -106,16 +150,36 @@ export function LaunchpadAgentTable({
             <span>State</span>
             <span aria-hidden="true" />
           </div>
-          {agents.map((a) => (
+          {agents.map((a) => {
+            const author = agentAuthorLabel(a, myId, emails)
+            const external = agentIsExternal(a, enterprise)
+            return (
             <div className="lp-tr" key={a.id}>
               <span className="lp-td-who">
                 <span className="avatar" style={{ background: agentColor(a.color, a.id) }}>
                   {agentInitials(a.name, a.id)}
                 </span>
                 <span className="lp-td-names">
-                  <span className="lp-td-name">{a.name || a.id}</span>
+                  <span className="lp-td-name">
+                    {a.name || a.id}
+                    {a.scope === 'org' && (
+                      <span className="lp-tag" title="Your organization's — everyone in it can use it">
+                        org
+                      </span>
+                    )}
+                    {external && (
+                      <span className="lp-tag" title="From outside your world — an installed copy, or (in a team) not your organization's">
+                        external
+                      </span>
+                    )}
+                  </span>
                   {(a.tagline || a.description) && (
                     <span className="lp-td-tag">{a.tagline || a.description}</span>
+                  )}
+                  {author && (
+                    <span className="lp-td-by" title={`Authored by ${author}`}>
+                      by {author}
+                    </span>
                   )}
                 </span>
               </span>
@@ -155,7 +219,8 @@ export function LaunchpadAgentTable({
                 )}
               </span>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>

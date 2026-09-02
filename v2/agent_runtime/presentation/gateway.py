@@ -2000,6 +2000,8 @@ class Gateway:
                 return await self._serve_oauth_callback(split)
             if split.path == "/apps" or split.path.startswith("/apps/"):
                 return await self._serve_app(split, getattr(request, "headers", {}))
+            if split.path.startswith("/product/") and split.path.endswith("/installer"):
+                return await self._serve_installer(split, getattr(request, "headers", {}))
             if split.path.startswith("/template-previews/"):
                 return self._serve_template_preview(split)
             # Aliased app host (config.app_hosts): serve that agent's UI at "/" — but NEVER
@@ -3038,6 +3040,8 @@ class Gateway:
                 payload = await self._agents_approve_org_share(req.params)
             elif req.method == "agents.rejectOrgShare":
                 payload = await self._agents_reject_org_share(req.params)
+            elif req.method == "agents.installer":
+                payload = await self._agents_installer(req.params)
             elif req.method == "cron.list":
                 payload = self._cron_list()
             elif req.method == "cron.add":
@@ -4049,6 +4053,11 @@ class Gateway:
                     # /me/orgs fetch. Personal/curated rows carry 'personal', unchanged.
                     "scope": "org" if _is_org else "personal",
                     **({"orgId": _owner} if _is_org else {}),
+                    # WHO MADE IT, as an account id (tenancy E5) — set on org copies, where `owner`
+                    # is the org and would otherwise erase the maker. '' on personal rows (there
+                    # `owner`/`mine` already answer whose). The client resolves it to an email via
+                    # the org members list it already holds; omitted entirely when there is none.
+                    **({"author": str(getattr(spec, "author", "") or "")} if getattr(spec, "author", "") else {}),
                     # WHERE THE DEFINITION LIVES — host connections only. Agent Builder puts it in
                     # the conversation's preamble, because the alternative was telling the model a
                     # RELATIVE path that resolves against its workspace: it went hunting through
@@ -4571,8 +4580,10 @@ class Gateway:
         if source is None or not (Path(source) / "agent.toml").is_file():
             return {"shared": False, "error": f"unknown agent: {agent_id}"}
 
+        # The author is the sharer — who, by the owns() check above, IS the source agent's owner.
+        author = str((accounts.current_account.get() or {}).get("account_id") or "")
         target = user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id
-        err = self._install_org_definition(Path(source), target, org_id, agent_id)
+        err = self._install_org_definition(Path(source), target, org_id, agent_id, author)
         if err:
             return {"shared": False, "error": err}
         self.registry.refresh()
@@ -4581,11 +4592,20 @@ class Gateway:
         return {"shared": True, "agentId": agent_id, "orgId": org_id}
 
     @staticmethod
-    def _install_org_definition(source: Path, target: Path, org_id: str, agent_id: str) -> str:
+    def _install_org_definition(
+        source: Path, target: Path, org_id: str, agent_id: str, author: str = ""
+    ) -> str:
         """Copy an agent's DEFINITION (not its data) into `target`, atomically, stamped as the
         org's own installed copy. Returns "" on success or an error string. Shared by the direct
         admin share and the approval of a member submission, so both write byte-identical folders
-        — the only difference between the two paths is who is allowed to trigger it."""
+        — the only difference between the two paths is who is allowed to trigger it.
+
+        `author` is the account id of whoever contributed this copy (the sharer / submitter, who
+        by the caller's own `owns()` check IS the source agent's owner). It rides the record so the
+        org roster can label the agent by its maker even though `owner` is the org. On the submit
+        path the record is written now, into pending-agents/, and approval only renames the folder
+        — so the author is preserved across approval without the approver (a different account)
+        ever needing to know it."""
         import shutil
 
         from agent_runtime.domain.agent import definition_entries
@@ -4685,12 +4705,13 @@ class Gateway:
         if (user_state.org_agents_dir(self.config.state_dir, org_id) / agent_id).is_dir():
             return {"submitted": False, "error": f"'{agent_id}' is already shared with this org"}
 
+        acct = accounts.current_account.get() or {}
+        author = str(acct.get("account_id") or "")
         staged_dir, request_file = self._org_pending_paths(org_id, agent_id)
-        err = self._install_org_definition(Path(source), staged_dir, org_id, agent_id)
+        err = self._install_org_definition(Path(source), staged_dir, org_id, agent_id, author)
         if err:
             return {"submitted": False, "error": err}
         spec = self.registry.get(agent_id)
-        acct = accounts.current_account.get() or {}
         request_file.write_text(
             json.dumps(
                 {
@@ -4771,6 +4792,124 @@ class Gateway:
         log.info("agents.rejectOrgShare %s -> %s", agent_id, org_id)
         await self._broadcast_agents_changed()
         return {"rejected": True, "agentId": agent_id, "orgId": org_id}
+
+    async def _agents_installer(self, params: dict) -> dict:
+        """Build (or refresh) the standalone installer for ONE agent this caller may use, and hand
+        back a same-origin download URL. This is the ORG/enterprise exe path — it never touches the
+        public registry (that path is publish, and needs a creator identity + a public listing).
+
+        WHO MAY BUILD ONE. Any agent the caller can OBSERVE — their own, or one their organization
+        shared to them (`may_observe`, the same fence the event fan-out and /file already use) — that
+        declares [app]. The bytes are served by GET /product/<id>/installer behind the SAME fence, so
+        the returned URL is useless to anyone outside the tenant.
+
+        DEGRADES, NEVER FAILS. A deployment with no makensis, or no engine reference for a stub to
+        install, cannot produce an installer; that comes back as {ready: False, reason} carrying the
+        operator-facing sentence the build service already writes — the button then says why, instead
+        of a download that 404s. The payload is always written regardless; only the installer is
+        conditional.
+
+        BUILT FRESH each call (seconds; the payload is ~50 KB): correctness over a cache that would
+        have to detect an edited agent. The file lands under <state>/products/<id>/ and the download
+        endpoint streams whatever is there."""
+        agent_id = str(params.get("agentId") or "").strip()
+        if not agent_id or self.registry is None:
+            return {"ready": False, "reason": "unknown agent"}
+        spec = self.registry.get(agent_id)
+        if spec is None:
+            return {"ready": False, "reason": "unknown agent"}
+        account = accounts.current_account.get()
+        identities = ownership.callers(
+            (account or {}).get("account_id"), self._hosted(), accounts.org_ids_from(account)
+        )
+        if not ownership.may_observe(str(getattr(spec, "owner", "") or ""), identities):
+            # The same answer as an unknown id: never confirm an agent EXISTS to someone who may
+            # not see it (the enumeration leak the egress fence exists to close).
+            return {"ready": False, "reason": "unknown agent"}
+        agent_dir = str(getattr(spec, "dir", "") or "")
+        if not agent_dir or not Path(agent_dir).is_dir():
+            return {"ready": False, "reason": "this agent has no buildable definition on the server."}
+
+        from agent_runtime.application.interfaces.product import ProductSource
+        from agent_runtime.domain.product import ProductError
+        from agent_runtime.infrastructure.marketplace.index_builder import PLATFORM_BY_EXT
+        from agent_runtime.infrastructure.products.factory import build_product_service
+
+        out_dir = Path(self.config.state_dir) / "products" / agent_id
+        service = build_product_service(self.config)
+
+        def _run():
+            # makensis is a subprocess and the packer is synchronous IO — off the event loop.
+            try:
+                return service.build(
+                    ProductSource(agent_dir=Path(agent_dir)), out_dir / "payload", out_dir
+                )
+            except (ProductError, ValueError) as e:
+                return e
+
+        build = await asyncio.to_thread(_run)
+        if isinstance(build, Exception):
+            return {"ready": False, "reason": str(build)}
+        if build.stub is not None:
+            size = 0
+            try:
+                size = build.stub.stat().st_size
+            except OSError:
+                pass
+            return {
+                "ready": True,
+                "url": f"/product/{agent_id}/installer",
+                "filename": build.stub.name,
+                "platform": PLATFORM_BY_EXT.get(build.stub.suffix.lower(), "win"),
+                "size": size,
+                "warnings": list(build.warnings),
+            }
+        return {
+            "ready": False,
+            "reason": build.warnings[0] if build.warnings else "no installer could be built here.",
+            "warnings": list(build.warnings),
+        }
+
+    async def _serve_installer(self, split, headers) -> HttpResponse:
+        """GET /product/<agentId>/installer — stream a built installer as a download, gated by the
+        SAME may_observe fence as the RPC that built it. 404 (never 403) for an agent the caller may
+        not see — an existence check is itself a leak — and 404 when nothing is built yet (call
+        agents.installer first). Auth is `_http_identities`, the one rule /file and the socket share."""
+
+        def deny(code: int, reason: str) -> HttpResponse:
+            return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
+
+        parts = [p for p in split.path.split("/") if p]  # ["product", "<id>", "installer"]
+        if len(parts) != 3:
+            return deny(404, "Not Found")
+        agent_id = unquote(parts[1])
+        q = parse_qs(split.query)
+        identities = await self._http_identities(q, headers)
+        if identities is None:
+            return deny(401, "Unauthorized")
+        spec = self.registry.get(agent_id) if self.registry is not None else None
+        if spec is None or not ownership.may_observe(str(getattr(spec, "owner", "") or ""), identities):
+            return deny(404, "Not Found")
+
+        out_dir = Path(self.config.state_dir) / "products" / agent_id
+        # Only top-level files are installers; the payload lives in out_dir/payload (never served).
+        installers = sorted(out_dir.glob("*.exe")) if out_dir.is_dir() else []
+        if not installers:
+            return deny(404, "Not Found")
+        chosen = installers[-1]
+        try:
+            data = chosen.read_bytes()
+        except OSError:
+            return deny(404, "Not Found")
+
+        name = chosen.name if (chosen.name.isascii() and '"' not in chosen.name) else f"{agent_id}-setup.exe"
+        hdrs = Headers()
+        hdrs["Content-Type"] = "application/octet-stream"
+        hdrs["Content-Length"] = str(len(data))
+        hdrs["Cache-Control"] = "no-store"
+        # attachment, not inline: this is a download, never something the page renders.
+        hdrs["Content-Disposition"] = f'attachment; filename="{name}"'
+        return HttpResponse(200, "OK", hdrs, data)
 
     async def _broadcast_agents_changed(self) -> None:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""

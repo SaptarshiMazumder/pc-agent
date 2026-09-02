@@ -4,42 +4,38 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { gateway } from '../gateway/client'
 import type { AgentInfo, CatalogBundle } from '../gateway/protocol'
 import { agentColor, agentInitials, agentTag, MAIN_AGENT_ID } from '../lib/agentPresentation'
+import { installerUrl } from '../lib/artifacts'
 import { useAuthSession } from '../lib/auth'
 import { hostOs } from '../lib/host'
-import { fetchMyOrgs, type OrgMembership } from '../lib/orgs'
+import { fetchMyOrgs, fetchOrgDetail, type OrgMembership } from '../lib/orgs'
 import { listableAgents } from '../lib/standaloneApps'
 import { useApp } from '../state/store'
-import MarketplaceCards from './MarketplaceCards'
 import { webHref } from './MarketplaceView'
 import NewAgentModal from './NewAgentModal'
 import PageShell from './PageShell'
 
 /**
- * My Agents — the user's own shelf, which REPLACED the marketplace as the sidebar destination.
+ * Agents — ONE shelf of every agent this account can use, whoever made it.
  *
- * The public marketplace is on hold as a product decision, but its two jobs did not go away; they
- * moved here and changed shape around the owner instead of the shopper:
+ * There is a single tab now, not two. "Authored", "installed" and (for a team) "shared into the
+ * organization" all land in this one list; the distinction between them is drawn on the card, by
+ * two facts the daemon already sends per agent:
  *
- *   "what agents do I have?"       — every agent on this account: the platform's and the ones the
- *                                    user (or Agent Builder) authored. From `hello.agents`, which
- *                                    is already per-account on hosted, so tenancy comes free.
- *   "how do I hand one to someone?" — the SAME two doors a store card offered, now on the owner's
- *                                    own card: the hosted web link and the standalone installer.
+ *   the AUTHOR   — who made this copy. On an org share `owner` is the whole company, so the maker
+ *                  would be lost; the roster carries `author` (an account id) to keep it, and the
+ *                  card renders "by <them>" (their email when the org roster is in hand, else the
+ *                  id — "labelled by their user id" either way). Your own work reads "by you".
+ *   EXTERNAL     — did this come from outside your world. For a team, "your world" is the org, so
+ *                  anything that is not an org agent is external. For an individual it is your own
+ *                  authorship, so an installed/curated copy is external. One tag, two boundaries.
  *
- * PUBLISH STATE IS A JOIN, NOT A FLAG. An agent is "published" exactly when the registry lists a
- * bundle with its id — the same signed index every client verifies. Nothing here stores a boolean
- * that could drift from what the registry actually serves; if the row is in the catalog, the share
- * doors render, and if it was unlisted they disappear on the next refresh.
+ * WHAT LEFT. The public-marketplace grid ("From the platform") and its install/uninstall buttons
+ * are gone — the storefront is on hold, and an enterprise wants its own agents, not a catalogue.
+ * `catalog` stays read ONLY as the published-state join: an agent shows its web link + installer
+ * exactly when the signed registry lists a bundle for its id, never from a stored flag.
  *
- * ORGANIZATION AGENTS (tenancy E5) moved to the ORGANIZATION page (OrgView), which renders the
- * same ShelfCard — exported below for exactly that. This page keeps only the bridge: "Share to
- * organization" on a personal card, shown when the caller ADMINISTERS at least one org. The
- * daemon re-checks the role from the token, so the button is a convenience, never the
- * authorization.
- *
- * The catalog grid survives at the bottom as "From the platform": with the store button gone this
- * is the only place a hosted user can still ADD a platform agent to their account, and removing
- * that ability was not part of the decision to shelve the storefront.
+ * The card is exported (ShelfCard) because the same doors — Open, App, Web, Installer, and the
+ * share/unshare controls — are the org page's too.
  */
 
 /** Everything the card needs to say about one agent the user has. */
@@ -49,6 +45,13 @@ export type Shelf = {
 }
 
 const ORG_ADMIN_ROLES = new Set(['owner', 'admin'])
+
+/** A short, human-ish rendering of an account id when no email is known — "labelled by their
+ *  user id" without printing the full opaque string. `acct_9f3c…` reads as a person, not a hash. */
+function shortId(id: string): string {
+  const s = String(id || '')
+  return s.length > 10 ? `${s.slice(0, 9)}…` : s
+}
 
 function shareUrl(bundle: CatalogBundle): string {
   return bundle.webUrl ? webHref(bundle.webUrl) : ''
@@ -64,6 +67,8 @@ export function ShelfCard({
   row,
   adminOrgs,
   memberOrgs = [],
+  authorLabel = '',
+  external = false,
   onShared,
   onError
 }: {
@@ -73,6 +78,12 @@ export function ShelfCard({
   /** orgs the caller is a plain MEMBER of — a personal card can REQUEST to share into these
    *  (an admin approves), the missing half of "only admins could put an agent in the org". */
   memberOrgs?: OrgMembership[]
+  /** who made this copy, already resolved to an email / "you" / a short id ('' => don't show a
+   *  byline — a personal agent whose owner the card's own chip already implies). */
+  authorLabel?: string
+  /** did this come from outside the caller's world (org for a team, own authorship for an
+   *  individual) — renders the one "external" tag. */
+  external?: boolean
   onShared: (msg: string) => void
   onError: (msg: string) => void
 }): ReactNode {
@@ -80,6 +91,7 @@ export function ShelfCard({
   const openAgentApp = useApp((s) => s.openAgentApp)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [building, setBuilding] = useState(false)
 
   const { agent, published } = row
   const link = published ? shareUrl(published) : ''
@@ -96,6 +108,37 @@ export function ShelfCard({
     } catch {
       // The clipboard API needs a secure context; over plain HTTP the fallback is the Open
       // button right next to this one, so a silent miss is acceptable here.
+    }
+  }
+
+  async function downloadExe(): Promise<void> {
+    // BUILD ON DEMAND, then download. The daemon compiles a fresh standalone installer for this
+    // agent (org-scoped — never the public registry) and hands back a same-origin URL; a
+    // deployment without makensis or an engine reference answers not-ready with the reason, which
+    // goes to the same error line rather than a download that 404s.
+    setBuilding(true)
+    try {
+      const r = await gateway.request<{
+        ready?: boolean
+        url?: string
+        filename?: string
+        reason?: string
+      }>('agents.installer', { agentId: agent.id })
+      if (r.ready && r.url) {
+        const a = document.createElement('a')
+        a.href = installerUrl(r.url)
+        if (r.filename) a.download = r.filename
+        a.rel = 'noopener'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } else {
+        onError(r.reason || 'the installer could not be built on this deployment yet.')
+      }
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBuilding(false)
     }
   }
 
@@ -163,20 +206,32 @@ export function ShelfCard({
         <div className="shelf-title-wrap">
           <div className="shelf-title">{agent.name || agent.id}</div>
           <div className="shelf-sub">{agent.tagline || agentTag(agent.id)}</div>
+          {authorLabel && (
+            <div className="shelf-by" title={`Authored by ${authorLabel}`}>
+              by {authorLabel}
+            </div>
+          )}
         </div>
-        {isOrg ? (
-          <span className="admin-chip" title="Shared by your organization — read-only; your chats with it stay yours">
-            organization
-          </span>
-        ) : published ? (
-          <span className="admin-chip admin-chip-ok" title={`Listed on this platform's registry at version ${published.version}`}>
-            published · v{published.version}
-          </span>
-        ) : (
-          <span className="admin-chip" title="Only on this account — publish it from Agent Builder to get share links">
-            private
-          </span>
-        )}
+        <div className="shelf-chips">
+          {external && (
+            <span className="admin-chip" title="From outside your world — an installed copy, or (in a team) an agent that isn't your organization's">
+              external
+            </span>
+          )}
+          {isOrg ? (
+            <span className="admin-chip" title="Shared by your organization — everyone in it can use it; your chats with it stay yours">
+              organization
+            </span>
+          ) : published ? (
+            <span className="admin-chip admin-chip-ok" title={`Listed on this platform's registry at version ${published.version}`}>
+              published · v{published.version}
+            </span>
+          ) : (
+            <span className="admin-chip" title="Only on this account — publish it from Agent Builder to get share links">
+              private
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="shelf-actions">
@@ -199,10 +254,24 @@ export function ShelfCard({
             </button>
           </>
         )}
-        {installer && (
+        {installer ? (
           <a className="btn ghost" href={installer.url} title={`Download the standalone ${installer.label} installer — for someone without this platform`}>
             <Download size={14} />Installer
           </a>
+        ) : (
+          agent.app && (
+            // BUILD-ON-DEMAND exe — for an org or personal agent that was never published to the
+            // public registry. The daemon compiles a standalone installer for it and serves it back.
+            <button
+              className="btn ghost"
+              disabled={building}
+              onClick={() => void downloadExe()}
+              title="Build and download a standalone Windows installer — hand this agent to someone who has no platform"
+            >
+              <Download size={14} />
+              {building ? 'Building…' : 'Download exe'}
+            </button>
+          )
         )}
         {!isOrg && agent.mine !== false && adminOrgs.length > 0 && (
           <select
@@ -263,27 +332,48 @@ export default function MyAgentsView() {
   const agents = useApp((s) => s.hello?.agents) ?? NO_AGENTS
   const catalog = useApp((s) => s.catalog)
   const catalogError = useApp((s) => s.catalogError)
-  const installBusy = useApp((s) => s.installBusy)
-  const installBundle = useApp((s) => s.installBundle)
-  const uninstallBundle = useApp((s) => s.uninstallBundle)
   const refreshCatalog = useApp((s) => s.refreshCatalog)
   const session = useAuthSession()
   const [creating, setCreating] = useState(false)
   const [orgs, setOrgs] = useState<OrgMembership[]>([])
+  // author account id -> email, best-effort. Filled from org detail (which names members for an
+  // admin); a plain member gets none and a card falls back to the short id. Module-free local
+  // state so it clears with the session, never bleeding one account's roster into the next.
+  const [emails, setEmails] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
   // Org names + the caller's roles, from accounts (the daemon only knows ids). Signed-out or
-  // org-less accounts get [] and the whole section simply never renders.
+  // org-less accounts get [] and every org-only affordance (author emails, the enterprise
+  // boundary) simply falls away.
   useEffect(() => {
-    if (!session) return
+    if (!session) {
+      setOrgs([])
+      setEmails({})
+      return
+    }
     let live = true
     fetchMyOrgs()
-      .then((d) => {
-        if (live) setOrgs(d.orgs)
+      .then(async (d) => {
+        if (!live) return
+        setOrgs(d.orgs)
+        const map: Record<string, string> = {}
+        await Promise.all(
+          d.orgs.map((o) =>
+            fetchOrgDetail(o.id)
+              .then((det) => {
+                for (const m of det.members || []) if (m.accountId) map[m.accountId] = m.email || ''
+              })
+              .catch(() => {})
+          )
+        )
+        if (live) setEmails(map)
       })
       .catch(() => {
-        if (live) setOrgs([])
+        if (live) {
+          setOrgs([])
+          setEmails({})
+        }
       })
     return () => {
       live = false
@@ -292,27 +382,34 @@ export default function MyAgentsView() {
 
   const adminOrgs = useMemo(() => orgs.filter((o) => ORG_ADMIN_ROLES.has(o.role)), [orgs])
   const memberOrgs = useMemo(() => orgs.filter((o) => !ORG_ADMIN_ROLES.has(o.role)), [orgs])
+  // ENTERPRISE = the caller belongs to any org. It flips the "external" boundary from "not my own
+  // authorship" (individual) to "not an org agent" (team) — a single line, computed once.
+  const enterprise = orgs.length > 0
+  const myId = session?.accountId || ''
 
+  // ONE shelf — authored, installed and org-shared together. `listableAgents` still drops the
+  // product's own standalone surfaces (Agent Builder et al.); main and samples are filtered out
+  // as before. No personal/org split anymore: the card, not the page, draws that line.
   const shelf: Shelf[] = useMemo(() => {
     const byId = new Map(catalog.map((b) => [b.id, b]))
-    // `listableAgents` drops the product's own surfaces (Agent Builder and the like, which
-    // declare `[app] standalone`). This is the user's shelf — what they built, installed or
-    // were shared — and a feature of the app sitting on it reads as one more thing they chose.
     return listableAgents(agents)
       .filter((a) => a.id !== MAIN_AGENT_ID && !a.sample)
       .map((agent) => ({ agent, published: byId.get(agent.id) || null }))
   }, [agents, catalog])
 
-  // PERSONAL ONLY. Org-shared agents moved to the ORGANIZATION page (OrgView's Agents section)
-  // — that page is where an enterprise sees its whole roster in one view, and repeating the
-  // same cards here mislabelled them as things this person owns. The share-to-org control on a
-  // personal card is the bridge between the two pages.
-  const personal = useMemo(() => shelf.filter((r) => r.agent.scope !== 'org'), [shelf])
-
-  // The add-a-platform-agent grid: catalog rows this account does NOT already have. `installed`
-  // comes from the daemon and is per-account on hosted, so this is "not on MY shelf" rather than
-  // "not on this machine".
-  const available = useMemo(() => catalog.filter((b) => !b.installed), [catalog])
+  // Who made a copy, resolved for display; '' when the card's own chip already says whose it is.
+  const authorLabelFor = (a: AgentInfo): string => {
+    const author = a.author || ''
+    if (author) return author === myId ? 'you' : emails[author] || shortId(author)
+    // No stamped author: a personal row where the owner IS the maker. Yours reads "you"; a
+    // shared/curated copy carrying nobody's name shows no byline rather than a guess.
+    if (a.mine !== false && a.scope !== 'org') return 'you'
+    return ''
+  }
+  // Outside the caller's world: for a team that is "not an org agent", for an individual it is an
+  // installed/curated copy (not something they authored).
+  const isExternal = (a: AgentInfo): boolean =>
+    enterprise ? a.scope !== 'org' : a.origin === 'installed' || a.origin === 'curated'
 
   const actions = (
     <>
@@ -327,26 +424,30 @@ export default function MyAgentsView() {
 
   return (
     <PageShell
-      title="My Agents"
-      sub="The agents you created or installed — your organization's live on its own page."
+      title="Agents"
+      sub={
+        enterprise
+          ? 'Every agent you can use — your own and your organization’s. Each card names its author.'
+          : 'Every agent you can use — the ones you created or installed.'
+      }
       actions={actions}
     >
       {catalogError && <div className="banner banner-error">{catalogError}</div>}
       {error && <div className="banner banner-error">{error}</div>}
       {notice && <div className="banner">{notice}</div>}
 
-      {personal.length === 0 ? (
-        <div className="admin-empty">
-          No agents yet. Create one, or add one from the platform below.
-        </div>
+      {shelf.length === 0 ? (
+        <div className="admin-empty">No agents yet. Create one to get started.</div>
       ) : (
         <div className="shelf-grid">
-          {personal.map((row) => (
+          {shelf.map((row) => (
             <ShelfCard
               key={row.agent.id}
               row={row}
               adminOrgs={adminOrgs}
               memberOrgs={memberOrgs}
+              authorLabel={authorLabelFor(row.agent)}
+              external={isExternal(row.agent)}
               onShared={(m) => {
                 setNotice(m)
                 setError('')
@@ -357,21 +458,6 @@ export default function MyAgentsView() {
               }}
             />
           ))}
-        </div>
-      )}
-
-      {available.length > 0 && (
-        <div className="settings-group shelf-available">
-          <div className="settings-section">From the platform</div>
-          <MarketplaceCards
-            bundles={available}
-            busy={installBusy}
-            onInstall={(id) => void installBundle(id)}
-            onUninstall={(id) => void uninstallBundle(id)}
-            installTarget="your account"
-            webHref={webHref}
-            filtered={false}
-          />
         </div>
       )}
 
