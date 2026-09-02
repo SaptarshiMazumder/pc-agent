@@ -1,7 +1,6 @@
 import { FormEvent, useState } from 'react'
 
 import { login, signup } from '../lib/auth'
-import { joinOrg } from '../lib/orgs'
 import { useApp } from '../state/store'
 
 /**
@@ -11,18 +10,17 @@ import { useApp } from '../state/store'
  *
  * INDIVIDUAL vs ENTERPRISE is a question about WHERE YOU LAND, not about what an account is —
  * there is deliberately no second account type. An enterprise user is an ordinary account plus
- * an org membership (tenancy E5), so the Enterprise tab is the same email+password form with an
- * optional invite-code field: the code is redeemed right after sign-in (POST /orgs/join, the
- * same call the org overview's redeem box makes), and the session lands on the organization
- * page instead of the chat. Members who already joined leave the code blank; the org page also
- * surfaces the domain-matched join offers for accounts whose email domain an org claimed.
+ * an org membership (tenancy E5), so the Enterprise tab is the same email+password form that
+ * simply lands on the organization page instead of the chat. Redeeming an invite is an IN-APP
+ * action on that page (its "Join with an invite" box), NOT a field on this card: a code can only
+ * be taken by an account that already exists, so it belongs after sign-in, not beside it. The org
+ * page also surfaces the domain-matched join offers for accounts whose email domain an org claimed.
  */
 export default function SignIn(): JSX.Element {
   const [kind, setKind] = useState<'individual' | 'enterprise'>('individual')
   const [mode, setMode] = useState<'in' | 'up'>('in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -45,22 +43,10 @@ export default function SignIn(): JSX.Element {
       if (mode === 'up') await signup(email, password)
       else await login(email, password)
       // success: the useAuthSession subscription re-renders App, which bootstraps + connects.
-      if (kind === 'enterprise') {
-        // Land on the organization page. The code (if given) is redeemed FIRST so the page
-        // opens on the org just joined; a failed redeem still lands on the org overview, whose
-        // own redeem box shows the server's refusal on retry — signing in succeeded, and
-        // bouncing the user back out over a mistyped code would throw that away.
-        const code = inviteCode.trim()
-        let orgId = ''
-        if (code) {
-          try {
-            orgId = (await joinOrg({ inviteToken: code })).id
-          } catch (joinErr) {
-            console.error('[auth] invite code redeem failed', joinErr)
-          }
-        }
-        useApp.getState().viewOrg(orgId)
-      }
+      // Enterprise lands on the organization page (overview), where the domain-matched
+      // "Join <company>" offer, the "Join with an invite" box, and Create all live. Redemption
+      // is an in-app action there — a code can only be taken by the account that now exists.
+      if (kind === 'enterprise') useApp.getState().viewOrg('')
     } catch (err) {
       // The full object, not just .message: a rejected IPC call and a CORS failure both
       // stringify to something useless, and this is the one place the cause is still in hand.
@@ -93,7 +79,7 @@ export default function SignIn(): JSX.Element {
             aria-selected={kind === 'enterprise'}
             className={`signin-kind-btn ${kind === 'enterprise' ? 'active' : ''}`}
             onClick={() => setKind('enterprise')}
-            title="Sign in to your organization — join with an invite code the first time"
+            title="Sign in to your organization"
           >
             Enterprise
           </button>
@@ -136,25 +122,6 @@ export default function SignIn(): JSX.Element {
           placeholder={mode === 'up' ? 'at least 8 characters' : '••••••••'}
           required
         />
-
-        {kind === 'enterprise' && (
-          <>
-            <label className="signin-label" htmlFor="signin-invite">
-              Organization invite code{' '}
-              <span className="signin-label-hint">(first time only — members leave this blank)</span>
-            </label>
-            <input
-              id="signin-invite"
-              className="signin-input"
-              type="text"
-              autoComplete="off"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
-              placeholder="paste the code your admin sent you"
-              title="A single-use code minted by your organization's admin — redeemed right after sign-in"
-            />
-          </>
-        )}
 
         {error && <div className="signin-error">{error}</div>}
 

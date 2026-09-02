@@ -375,7 +375,22 @@ export default function App() {
      to call the SDK's vanilla gate, which built its own DOM on top of the page. Raised from the
      account menu; it takes the whole window because signing in is not something to do alongside
      something else. */
-  if (session.wantsSignIn)
+  /* CLOUD IS ACCOUNT-ONLY — there is NO local/BYOK fallback here, so the shell is never shown to a
+     signed-out session. Two gates ahead of it:
+       • until the first session probe resolves, "signed out" is not yet known, so hold a quiet
+         loading state rather than flashing the sign-in card at an already signed-in returning visitor;
+       • once resolved, a signed-out session — a real logout, or an expired/refused cookie — goes to
+         the LOGIN SCREEN. It used to fall through to the shell, whose signed-out state renders as
+         "Local / BYOK" (ProfileMenu) — the "randomly logged out into BYOK mode" bug. */
+  if (!session.resolved)
+    return (
+      <div className="signin-wrap">
+        <div className="signin-card" style={{ textAlign: 'center', color: 'var(--dim)' }}>
+          Loading…
+        </div>
+      </div>
+    )
+  if (session.wantsSignIn || !session.auth.signedIn)
     return (
       <SignIn product="Cloud Agent Builder" login={session.doLogin} onDone={session.signedIn} />
     )

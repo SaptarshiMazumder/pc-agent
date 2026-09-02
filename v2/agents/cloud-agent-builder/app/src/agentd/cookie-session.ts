@@ -46,6 +46,7 @@ const manager = new TokenManager({
 })
 
 let started = false
+let restored = false
 
 /** Start the manager once (idempotent) and try to pick up an existing cookie session. */
 export function startSession(): void {
@@ -53,8 +54,24 @@ export function startSession(): void {
   started = true
   manager.start()
   // Cookie mode: restore() asks the accounts service to mint an access token FROM the cookie, so a
-  // returning visitor is signed in without touching the card.
-  void manager.restore()
+  // returning visitor is signed in without touching the card. Track when that FIRST probe finishes:
+  // until it does, "not signed in" is IGNORANCE, not a fact, and the app must not send an already
+  // signed-in visitor to the login card on every load. restore() resolving — signed in or not — is
+  // what makes the answer real; the finally re-renders the hook. A failed probe (network) still
+  // "resolves" the question to "sign in", which is the honest answer when we cannot confirm a session.
+  void manager
+    .restore()
+    .catch(() => null)
+    .finally(() => {
+      restored = true
+      listeners.forEach((l) => l())
+    })
+}
+
+/** Has the first session probe completed? Before this, treat "signed out" as unknown, not true —
+ *  the cloud shell's sign-in gate waits on it so it never flashes the login card during boot. */
+export function sessionResolved(): boolean {
+  return restored
 }
 
 /** The current access token, refreshed if stale — the credential the daemon socket presents. */
@@ -97,6 +114,8 @@ function snapshot(): CabbieSession {
  */
 export function useCabbieSession(onCredentialChange?: () => void): {
   auth: CabbieSession
+  /** Has the first session probe finished? The shell waits on this before deciding signed-out. */
+  resolved: boolean
   wantsSignIn: boolean
   error: string
   signIn: () => void
@@ -105,12 +124,16 @@ export function useCabbieSession(onCredentialChange?: () => void): {
   doLogin: (email: string, password: string, signup: boolean) => Promise<void>
 } {
   const [auth, setAuth] = useState<CabbieSession>(snapshot)
+  const [resolved, setResolved] = useState(restored)
   const [wantsSignIn, setWantsSignIn] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     startSession()
-    const sync = () => setAuth(snapshot())
+    const sync = () => {
+      setAuth(snapshot())
+      setResolved(restored)
+    }
     listeners.add(sync)
     sync()
     return () => {
@@ -142,5 +165,5 @@ export function useCabbieSession(onCredentialChange?: () => void): {
     onCredentialChange?.()
   }, [onCredentialChange])
 
-  return { auth, wantsSignIn, error, signIn, signedIn, signOut, doLogin }
+  return { auth, resolved, wantsSignIn, error, signIn, signedIn, signOut, doLogin }
 }
