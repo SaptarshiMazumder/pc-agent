@@ -179,6 +179,8 @@ class SqliteMemoryBank:
     def _vector_search(self, agent_id, query, limit):
         """Top-``limit`` (item, score) pairs by cosine over the agent's embedded rows. Returns
         [] on any embedding failure so ``search`` can fall through to keyword."""
+        if agent_id == "":
+            return []
         try:
             qv = self._embed_fn([query])[0]
         except Exception as e:  # noqa: BLE001
@@ -200,6 +202,13 @@ class SqliteMemoryBank:
         can later promote durably-useful notes — this is the signal auto-recall feeds."""
         query = (query or "").strip()
         if not query:
+            return []
+        if agent_id == "":
+            # Fail CLOSED on an EMPTY partition key. agent_id is the per-account partition column
+            # ('<account>::<agent>', always non-empty from memory_partition), so '' here means a
+            # caller's key computation broke — and `agent_sql = "" if not agent_id` below would
+            # then drop the tenant filter and recall EVERY account's memories. None is different:
+            # it is the intentional all-agent scan used by consolidation/tests, and stays allowed.
             return []
         if self._embed_fn is not None:
             scored = self._vector_search(agent_id, query, limit)
@@ -255,6 +264,8 @@ class SqliteMemoryBank:
         return self._row(row) if row else None
 
     def recent(self, agent_id=None, limit=20) -> list[MemoryItem]:
+        if agent_id == "":
+            return []  # empty partition key -> fail closed (see search); None still means all
         if agent_id:
             rows = self._db.execute(
                 f"SELECT {','.join(_COLS)} FROM memory WHERE agent_id=? "

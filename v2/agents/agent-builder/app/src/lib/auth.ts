@@ -5,7 +5,7 @@
  * unchanged; each is the SDK's own implementation wearing agentd's signature.
  */
 
-import { authStatus, billing } from '@agentd/client'
+import { authStatus, billing, onIdentityChanged } from '@agentd/client'
 import { useEffect, useState } from 'react'
 
 export { onCreditsChanged } from '@agentd/client'
@@ -22,11 +22,26 @@ export interface Session {
 export function useAuthSession(): Session | null {
   const [session, setSession] = useState<Session | null>(null)
   useEffect(() => {
-    void authStatus({})
-      .then((s) =>
-        setSession(s.signedIn ? { token: '', accountId: s.accountId, email: s.email } : null),
-      )
-      .catch(() => setSession(null))
+    let live = true
+    const read = () =>
+      void authStatus({})
+        .then((s) => {
+          if (live)
+            setSession(s.signedIn ? { token: '', accountId: s.accountId, email: s.email } : null)
+        })
+        .catch(() => {
+          if (live) setSession(null)
+        })
+    read()
+    // RE-READ on every credential change. The one-shot version read once at mount and never
+    // again, so after a sign-out→sign-in as a different account the copied OrgView kept the
+    // previous user's `session` (and their org name/members/DOMAIN on screen). onIdentityChanged
+    // fires when the SDK's resolved account changes — the reconnect after a sign-in triggers it.
+    const off = onIdentityChanged(read)
+    return () => {
+      live = false
+      off()
+    }
   }, [])
   return session
 }

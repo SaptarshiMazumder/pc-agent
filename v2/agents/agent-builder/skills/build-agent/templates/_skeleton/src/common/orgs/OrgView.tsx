@@ -27,7 +27,7 @@
  *      credits own theirs.
  */
 
-import { authStatus, billing, createOrg, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, joinOrg, mintInvite, onCreditsChanged, updateDomain, updateMember } from '@agentd/client'
+import { authStatus, billing, createOrg, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, joinOrg, mintInvite, onCreditsChanged, onIdentityChanged, updateDomain, updateMember } from '@agentd/client'
 import type { Catalog, CreditPack } from '@agentd/client'
 import type { AgentdClient, MyOrgs, OrgDetail, OrgUsageRow } from '@agentd/client'
 import { useCallback, useEffect, useState } from 'react'
@@ -211,13 +211,33 @@ function Detail({
   // WHO AM I, so the member table can refuse to let somebody remove their own seat. agentd reads
   // this off its session store; here it comes from the same status call everything else uses.
   useEffect(() => {
-    void authStatus({ client })
-      .then((s) => setMe(s.accountId))
-      .catch(() => setMe(''))
+    let live = true
+    const read = () =>
+      void authStatus({ client })
+        .then((s) => {
+          if (live) setMe(s.accountId)
+        })
+        .catch(() => {
+          if (live) setMe('')
+        })
+    read()
+    // Re-read WHO on every credential change, so a user switch actually moves `me` — the id the
+    // reload below is keyed on. The one-shot version read once at mount, so after a switch the
+    // page kept the previous account and, with it, the previous org's members and domains.
+    const off = onIdentityChanged(read)
+    return () => {
+      live = false
+      off()
+    }
   }, [client])
 
   const reload = useCallback(() => {
     setError('')
+    // Clear FIRST: on an account switch the previous org's name, members and DOMAINS must not
+    // linger on screen while the new fetch is in flight — or, if it 404s because the switched-in
+    // account is not a member, stay on screen behind the error.
+    setOrg(null)
+    setUsage(null)
     void fetchOrgDetail(orgId, { client })
       .then((d) => {
         setOrg(d)
@@ -228,7 +248,7 @@ function Detail({
         }
       })
       .catch((e: Error) => setError(e.message))
-  }, [orgId, client])
+  }, [orgId, client, me])
   useEffect(reload, [reload])
 
   const isAdmin = !!org && ADMIN_ROLES.has(org.role)

@@ -206,6 +206,13 @@ function Detail({ orgId }: { orgId: string }): JSX.Element {
 
   const reload = useCallback(() => {
     setError('')
+    // Clear the previous account's org before refetching, or a switch to a NEW user (who is not a
+    // member of this org) leaves the last account's org — name, members, DOMAINS — on screen until
+    // a fetch that then 404s. `session` is in the deps for exactly this: refetch when the ACCOUNT
+    // changes, not only when the org id does. This is the "old domain stayed after I switched
+    // users" bug — the detail was keyed to orgId alone and never re-read on sign-out/sign-in.
+    setOrg(null)
+    setUsage(null)
     fetchOrgDetail(orgId)
       .then((d) => {
         setOrg(d)
@@ -216,7 +223,7 @@ function Detail({ orgId }: { orgId: string }): JSX.Element {
         }
       })
       .catch((e: Error) => setError(e.message))
-  }, [orgId])
+  }, [orgId, session])
   useEffect(reload, [reload])
 
   const isAdmin = !!org && ADMIN_ROLES.has(org.role)

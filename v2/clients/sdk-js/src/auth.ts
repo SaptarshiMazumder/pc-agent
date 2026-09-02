@@ -15,7 +15,7 @@
  */
 
 import type { AgentdClient } from './client'
-import { authUrl, fetchToken, identity } from './identity'
+import { authUrl, fetchToken, forgetIdentityCache, identity } from './identity'
 import { platformStatus, type DaemonOptions } from './platform-status'
 import { loadMode, saveMode, type RunMode } from './session'
 
@@ -94,6 +94,9 @@ export async function authLogin(
   if (!r.ok || d.state !== 'ok') {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`))
   }
+  // The credential just changed — drop any token cached for the PREVIOUS account so orgs/credits
+  // and every identity-based read resolve as who is signed in now, not who was a moment ago.
+  forgetIdentityCache()
   return authStatus(opts)
 }
 
@@ -130,6 +133,7 @@ async function cookieLogin(
     const d = (await r.json().catch(() => ({}))) as { detail?: string; error?: string }
     throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`))
   }
+  forgetIdentityCache() // new cookie account — clear the previous user's cached token (see authLogin)
   return authStatus(opts)
 }
 
@@ -156,6 +160,9 @@ export async function authLogout(opts: AuthOptions = {}): Promise<AuthState> {
     }
   }
   saveMode(null, opts.storageKey)
+  // Signed out — forget the cached access token immediately, so nothing keeps reading as the
+  // account that just left for the ~150s the cache would otherwise hold it.
+  forgetIdentityCache()
   return authStatus(opts)
 }
 

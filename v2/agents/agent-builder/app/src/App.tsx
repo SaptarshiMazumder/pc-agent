@@ -94,6 +94,7 @@ export default function App() {
   const panelOpen = useApp((s) => s.panelOpen)
   const togglePanel = useApp((s) => s.togglePanel)
   const connectStore = useApp((s) => s.connect)
+  const setIdentity = useApp((s) => s.setIdentity)
   // Which start dialog is open, and the suggestion that opened it. One piece of state, because
   // "create" and "edit" are two questions asked by one screen and never both at once.
   // CREATE now opens the Blueprint page below; this dialog still owns EDIT (the agent picker).
@@ -138,6 +139,14 @@ export default function App() {
   useEffect(() => {
     if (ready) connectStore(client)
   }, [ready, client, connectStore])
+
+  /* CLEAR THE PREVIOUS USER when the signed-in account changes. connect() above fires on every
+     socket open including a plain reconnect, so it cannot be the thing that resets state — only a
+     real identity change may. This does: on a sign-in, sign-out or switch, setIdentity wipes the
+     open transcripts, tabs and org view so nothing of the last account survives in this window. */
+  useEffect(() => {
+    setIdentity(platform.auth?.signedIn ? platform.auth.accountId : '')
+  }, [platform.auth?.signedIn, platform.auth?.accountId, setIdentity])
 
   const files = useAgentFiles(client, selected?.id ?? null)
   /* A tool finishing in the OPEN conversation may have written files; re-read the tree. The store

@@ -184,6 +184,20 @@ def _seat_available(c: sqlite3.Connection, org: sqlite3.Row) -> None:
         )
 
 
+def _other_active_org(c: sqlite3.Connection, account_id: str, this_org_id: str) -> str:
+    """The name of another active org this account already belongs to, or '' — the ONE-ORG
+    invariant's single query. Shared by every path that can seat an account (the _add_member
+    writer, create_org's direct insert, and update_member's reactivation) so none can forget it.
+    Pass this_org_id='' at create time (no org id yet); no real org has id '', so the `<>` still
+    matches any existing membership."""
+    row = c.execute(
+        "SELECT o.name FROM org_members m JOIN orgs o ON o.id = m.org_id "
+        "WHERE m.account_id = ? AND m.active = 1 AND o.active = 1 AND m.org_id <> ? LIMIT 1",
+        (account_id, this_org_id),
+    ).fetchone()
+    return str(row["name"]) if row else ""
+
+
 def _add_member(
     c: sqlite3.Connection,
     org: sqlite3.Row,
@@ -203,16 +217,12 @@ def _add_member(
         raise HTTPException(status_code=409, detail="already a member")
     # ONE ORG PER ACCOUNT. Not a simplification — the funding rule depends on it: a member's
     # every turn draws THEIR org's pool, and with two orgs there is no honest answer to which.
-    # Enforced at the one writer every join path uses, so no new path can forget it.
-    elsewhere = c.execute(
-        "SELECT o.name FROM org_members m JOIN orgs o ON o.id = m.org_id "
-        "WHERE m.account_id = ? AND m.active = 1 AND o.active = 1 AND m.org_id <> ? LIMIT 1",
-        (account_id, str(org["id"])),
-    ).fetchone()
-    if elsewhere is not None:
+    # Shared query (_other_active_org) so this writer, create_org and reactivation agree.
+    other = _other_active_org(c, account_id, str(org["id"]))
+    if other:
         raise HTTPException(
             status_code=409,
-            detail=f"this account already belongs to '{elsewhere['name']}' — an account can be "
+            detail=f"this account already belongs to '{other}' — an account can be "
             f"in one organization; leave it first",
         )
     _seat_available(c, org)
@@ -307,6 +317,18 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
         seats = max(1, min(seats, SEATS_MAX))
         with deps.db() as c:
             caller = deps.account_for_token(c, _bearer(authorization))
+            # ONE ORG PER ACCOUNT, enforced on the create path too. create_org writes the owner
+            # membership with a direct INSERT (below), so it must repeat the guard _add_member
+            # applies to every join path — otherwise an account already in org A could found
+            # org B, hold two active memberships, and leave the funding rule with no honest
+            # answer to which pool a turn draws from.
+            other = _other_active_org(c, str(caller["id"]), "")
+            if other:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"this account already belongs to '{other}' — an account can be in "
+                    "one organization; leave it before creating another",
+                )
             # An org is inferred from — and tied to — the creator's WORK email domain (the
             # self-serve "workspaces for acme.com" pattern), so the NEXT colleague to sign in
             # routes here with no extra step. A personal provider cannot own one: claiming
@@ -436,14 +458,22 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
                     raise HTTPException(
                         status_code=403, detail="this invite was issued to a different email"
                     )
+                # Consume the invite ATOMICALLY, before seating the member: the UPDATE matches
+                # only while used_by is still empty, so two simultaneous redemptions of one
+                # single-use link can't both pass — the loser matches 0 rows and gets the same
+                # 404 as a spent token, instead of the read-then-write race seating two people
+                # (and burning two seats). If _add_member below raises, the whole transaction is
+                # discarded on close, so a failed join does not spend the invite.
+                claimed = c.execute(
+                    "UPDATE org_invites SET used_by = ? WHERE token_hash = ? AND used_by = ''",
+                    (account_id, _hash_invite(invite_token)),
+                )
+                if claimed.rowcount != 1:
+                    raise HTTPException(status_code=404, detail="invalid or expired invite")
                 org = _org_row(c, str(inv["org_id"]))
                 _add_member(
                     c, org, account_id, role=str(inv["role"]), added_by=str(inv["created_by"]),
                     at=at,
-                )
-                c.execute(
-                    "UPDATE org_invites SET used_by = ? WHERE token_hash = ?",
-                    (account_id, _hash_invite(invite_token)),
                 )
             elif org_id:
                 # Domain path: the org must have CLAIMED this email's domain. No verification
@@ -516,6 +546,15 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
                     )
                 if active and not target["active"]:
                     _seat_available(c, org)  # re-adding takes a seat like any other join
+                    # ...and honours ONE ORG PER ACCOUNT: a member deactivated here may have
+                    # joined another org since, so reactivation is a join and asks the same guard.
+                    other = _other_active_org(c, member_id, org_id)
+                    if other:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"this account now belongs to '{other}' — it must leave that "
+                            "organization before it can be reactivated here",
+                        )
                 updates.append("active = ?")
                 args.append(active)
             if not updates:

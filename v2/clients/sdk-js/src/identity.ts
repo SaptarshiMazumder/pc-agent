@@ -140,12 +140,26 @@ class TokenFetcher {
   private answer: TokenAnswer | null = null
   private inflight: Promise<TokenAnswer> | null = null
   private readonly clients = new Set<AgentdClient>()
+  /** A stable fingerprint of the last resolved identity ('ok:<accountId>' or the non-ok state),
+   *  so a genuine account change fires the identity-change listeners exactly once and a mere
+   *  token refresh for the SAME account fires nothing. */
+  private sig = ''
 
   constructor(private readonly opts: DaemonOptions) {}
 
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client: AgentdClient): void {
     this.clients.add(client)
+  }
+
+  /** Forget the cached token answer WITHOUT dropping client bindings: the next state()/
+   *  accessToken() re-reads identity from the runtime/cookie. Call this the instant credentials
+   *  change — a sign-out, or a sign-in as a DIFFERENT account — so no caller keeps handing out the
+   *  previous user's token during the ~150s the cache would otherwise serve it. That stale token is
+   *  the "switched users but still saw the old account's orgs/credits/chats" cross-tenant bleed. */
+  forget(): void {
+    this.answer = null
+    this.inflight = null
   }
 
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
@@ -169,6 +183,15 @@ class TokenFetcher {
         const prev = this.answer
         this.answer = a
         this.push(a, prev)
+        // Fire the identity-change listeners when the RESOLVED identity actually changed — a new
+        // account, a sign-out, a sign-in — so a window's auth-facing UI (org view, credits) can
+        // re-read instead of holding boot's first answer forever. A same-account token refresh
+        // keeps the same signature and stays silent.
+        const sig = a.state === 'ok' ? `ok:${a.accountId || ''}` : a.state
+        if (sig !== this.sig) {
+          this.sig = sig
+          notifyIdentityChanged()
+        }
       })
     }
     return this.inflight
@@ -205,6 +228,28 @@ class TokenFetcher {
 
 const fetchers = new Map<string, TokenFetcher>()
 
+/** Global identity-change listeners, fired whenever any fetcher's RESOLVED identity changes
+ *  (sign-in, sign-out, account switch). A window's auth-facing hooks subscribe so they re-read
+ *  after a credential change instead of holding the first answer for the life of the page. */
+const identityListeners = new Set<() => void>()
+
+function notifyIdentityChanged(): void {
+  for (const cb of [...identityListeners]) {
+    try {
+      cb()
+    } catch {
+      /* a listener must never break identity resolution */
+    }
+  }
+}
+
+/** Subscribe to identity changes (sign-in, sign-out, account switch). Returns the unsubscribe.
+ *  Fires only on a genuine change of the resolved account, not on same-account token refreshes. */
+export function onIdentityChanged(cb: () => void): () => void {
+  identityListeners.add(cb)
+  return () => identityListeners.delete(cb)
+}
+
 /** The window's identity handle. One per daemon origin; all state lives in the runtime. */
 export function identity(opts: IdentityOptions = {}): TokenFetcher {
   const key = daemonOrigin(opts)
@@ -215,6 +260,14 @@ export function identity(opts: IdentityOptions = {}): TokenFetcher {
   }
   if (opts.client) f.bind(opts.client)
   return f
+}
+
+/** Drop every fetcher's CACHED token answer (client bindings kept), so the next identity read
+ *  reflects the new credential rather than the previous user's still-cached token. The sign-in
+ *  and sign-out paths call this on a credential change — the one action that closes the "old
+ *  account's data after switching users" bleed at its source (see TokenFetcher.forget). */
+export function forgetIdentityCache(): void {
+  for (const f of fetchers.values()) f.forget()
 }
 
 /** TEST SEAM: forget cached answers (a signed-out test must not see the last test's token). */

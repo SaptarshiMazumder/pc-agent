@@ -114,6 +114,10 @@ interface AppState {
    *  agentd's store names these, because OrgView is agentd's file unchanged and reads both. */
   viewedOrgId: string
   viewOrg(orgId: string): void
+  /** Whose data the store currently holds ('' = nobody yet). Guards setIdentity so ONLY a real
+   *  account change resets state, never a plain socket reconnect (which keeps the same identity
+   *  and must preserve a live run). */
+  identityAccount: string
   /** agentd's name for it, and agentd's meaning: collapsed to the icon rail, never gone. */
   sidebarCollapsed: boolean
   panelOpen: boolean
@@ -127,6 +131,12 @@ interface AppState {
   // ---- actions ------------------------------------------------------------
   connect: (client: AgentdClient) => void
   disconnect: () => void
+  /** Point the store at the signed-in account. On a CHANGE (sign-in, sign-out, switch) it clears
+   *  every user-scoped slice that is NOT server-reloaded — open transcripts, tabs, the org view,
+   *  the composer seed — so a switched-in account never inherits the previous user's data. The
+   *  chats/agents lists are left to reloadChats/reloadAgents, which the socket re-runs scoped to
+   *  the new identity; resetting them here would race that reload. */
+  setIdentity: (accountId: string) => void
   reloadAgents: () => Promise<void>
   reloadChats: () => Promise<void>
   renameSession: (sessionKey: string, title: string) => Promise<void>
@@ -481,6 +491,7 @@ export const useApp = create<AppState>()((set, get) => ({
      you do to an agent, not where you decide which agent. */
   view: 'launchpad',
   viewedOrgId: '',
+  identityAccount: '',
   /* THE ICON RAIL IS THE RESTING STATE — the design's shell. The full sidebar (search, My
      agents, Recents as lists) is one click away and loses nothing; it is the drawer now, not
      the wall. */
@@ -640,6 +651,21 @@ export const useApp = create<AppState>()((set, get) => ({
 
   setView: (view) => set({ view }),
   viewOrg: (viewedOrgId) => set({ view: 'orgs', viewedOrgId }),
+  setIdentity: (accountId) => {
+    // Same account (first sign-in settling, or a plain reconnect) -> nothing to clear. Only a
+    // genuine change wipes state, so a live run survives a network blip but a user switch does not
+    // leave the previous person's transcripts, tabs or org page on screen.
+    if (get().identityAccount === accountId) return
+    set({
+      identityAccount: accountId,
+      sessions: {},
+      currentSessionKey: FIRST_KEY,
+      openTabs: [],
+      view: 'launchpad',
+      viewedOrgId: '',
+      composerSeed: null,
+    })
+  },
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   seedComposer: (text) => set({ composerSeed: { text } }),

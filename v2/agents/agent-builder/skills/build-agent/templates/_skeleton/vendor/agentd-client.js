@@ -135,10 +135,23 @@ var TokenFetcher = class {
     this.answer = null;
     this.inflight = null;
     this.clients = /* @__PURE__ */ new Set();
+    /** A stable fingerprint of the last resolved identity ('ok:<accountId>' or the non-ok state),
+     *  so a genuine account change fires the identity-change listeners exactly once and a mere
+     *  token refresh for the SAME account fires nothing. */
+    this.sig = "";
   }
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client) {
     this.clients.add(client);
+  }
+  /** Forget the cached token answer WITHOUT dropping client bindings: the next state()/
+   *  accessToken() re-reads identity from the runtime/cookie. Call this the instant credentials
+   *  change — a sign-out, or a sign-in as a DIFFERENT account — so no caller keeps handing out the
+   *  previous user's token during the ~150s the cache would otherwise serve it. That stale token is
+   *  the "switched users but still saw the old account's orgs/credits/chats" cross-tenant bleed. */
+  forget() {
+    this.answer = null;
+    this.inflight = null;
   }
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
    *  need to know WHY ask `state()`. */
@@ -158,6 +171,11 @@ var TokenFetcher = class {
         const prev = this.answer;
         this.answer = a;
         this.push(a, prev);
+        const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
+        if (sig !== this.sig) {
+          this.sig = sig;
+          notifyIdentityChanged();
+        }
       });
     }
     return this.inflight;
@@ -186,6 +204,19 @@ var TokenFetcher = class {
   }
 };
 var fetchers = /* @__PURE__ */ new Map();
+var identityListeners = /* @__PURE__ */ new Set();
+function notifyIdentityChanged() {
+  for (const cb of [...identityListeners]) {
+    try {
+      cb();
+    } catch {
+    }
+  }
+}
+function onIdentityChanged(cb) {
+  identityListeners.add(cb);
+  return () => identityListeners.delete(cb);
+}
 function identity(opts = {}) {
   const key = daemonOrigin(opts);
   let f = fetchers.get(key);
@@ -195,6 +226,9 @@ function identity(opts = {}) {
   }
   if (opts.client) f.bind(opts.client);
   return f;
+}
+function forgetIdentityCache() {
+  for (const f of fetchers.values()) f.forget();
 }
 function resetIdentity() {
   fetchers.clear();
@@ -565,7 +599,10 @@ async function authStatus(opts = {}) {
     signedIn,
     email: signedIn && tok.email || "",
     accountId: signedIn && tok.accountId || "",
-    mode: effectiveMode(opts.storageKey, signedIn, canUseCloud),
+    // THE DAEMON'S answer, not a client-side guess: it reads persisted config (and forces cloud on
+    // hosted). This is what fixes "the switch says Cloud but the call ran Local".
+    mode: status.mode === "local" || status.mode === "cloud" ? status.mode : "local",
+    modeLocked: !!status.runModeLocked,
     canUseCloud,
     // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there — a
     // client that guessed "not required" against a daemon that requires it would show no login
@@ -587,6 +624,7 @@ async function authLogin(args, opts = {}) {
   if (!r.ok || d.state !== "ok") {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
   }
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function cookieLogin(args, opts) {
@@ -617,6 +655,7 @@ async function cookieLogin(args, opts) {
     const d = await r.json().catch(() => ({}));
     throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
   }
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function authLogout(opts = {}) {
@@ -636,13 +675,14 @@ async function authLogout(opts = {}) {
     }
   }
   saveMode(null, opts.storageKey);
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function setRunMode(mode, opts = {}) {
   if (mode === "cloud" && !await identity(opts).accessToken()) {
     throw new Error("sign in first \u2014 Cloud mode meters model calls to your account");
   }
-  saveMode(mode, opts.storageKey);
+  await opts.client?.request("config.set", { patch: { run_mode: mode } });
   opts.client?.reconnect();
   return authStatus(opts);
 }
@@ -736,20 +776,24 @@ var BillingClient = class {
    * Buy a pack. THROWS with the server's own message on refusal.
    *
    * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
-   * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
-   * card payment comes back where it started.
+   * place it is ignored, and the returned `checkoutUrl` is empty. The DEFAULT return is the
+   * accounts service's own neutral "checkout finished" page, NOT the caller's URL: a surface's
+   * own href drags its whole query string — session token included — through the rail's redirect
+   * and into browser history, and on desktop it reopens the app in a browser tab instead of the
+   * window the purchase started in. The purchase's real conclusion never travels through that
+   * tab anyway — it arrives on the webhook, and `awaitGrant` is what tells the initiating window.
    */
   async buy(productId, returnUrl = "", orgId = "") {
+    const base = await this.base();
     const body = {
       product_id: productId,
       idempotency_key: this.host.newKey()
     };
     if (orgId) body.org_id = orgId;
-    if (returnUrl) {
-      body.success_url = returnUrl;
-      body.cancel_url = returnUrl;
-    }
-    const r = await fetch(`${await this.base()}/me/checkout`, {
+    const back = returnUrl || `${base}/checkout/complete`;
+    body.success_url = back;
+    body.cancel_url = back;
+    const r = await fetch(`${base}/me/checkout`, {
       method: "POST",
       headers: { ...await this.authed(), "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -768,6 +812,32 @@ var BillingClient = class {
       paymentDetail: String(payment.detail || ""),
       checkoutUrl
     };
+  }
+  /**
+   * Watch for a checkout's credits to land, then ring the credits bus.
+   *
+   * A card purchase finishes on a WEBHOOK, in another tab, minutes later — nothing tells the
+   * window that started it. This polls the balance until it RISES (a grant adds; concurrent
+   * spending only subtracts, so a rise is unambiguous), then fires `notifyCreditsChanged()` so
+   * every listening view refreshes itself — the window the purchase began in included.
+   *
+   * Resolves true when the grant landed, false when the customer walked away (timeout). A false
+   * is "nothing happened", never an error — an abandoned checkout costs nothing and grants
+   * nothing, and the next purchase starts clean.
+   */
+  async awaitGrant(opts = {}) {
+    const { agentId = "", timeoutMs = 18e4, pollMs = 4e3 } = opts;
+    const baseline = (await this.credits(agentId))?.creditsRemaining;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      const now = (await this.credits(agentId))?.creditsRemaining;
+      if (now !== void 0 && (baseline === void 0 || now > baseline)) {
+        notifyCreditsChanged();
+        return true;
+      }
+    }
+    return false;
   }
 };
 
@@ -943,6 +1013,7 @@ export {
   fetchOrgDetail,
   fetchOrgUsage,
   fetchToken,
+  forgetIdentityCache,
   fromPage,
   identity,
   joinOrg,
@@ -951,6 +1022,7 @@ export {
   mintInvite,
   notifyCreditsChanged,
   onCreditsChanged,
+  onIdentityChanged,
   platformStatus,
   resetIdentity,
   resultText,

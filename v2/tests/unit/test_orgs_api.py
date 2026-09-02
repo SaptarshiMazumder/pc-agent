@@ -123,6 +123,46 @@ def test_a_member_of_a_different_org_is_still_a_non_member(stack):
     assert client.get(f"/orgs/{org_id}", headers=_auth(fresh)).status_code == 404
 
 
+def test_an_account_already_in_an_org_cannot_found_another(stack):
+    """ONE ORG PER ACCOUNT holds on the CREATE path too. create_org writes the owner row with a
+    direct INSERT, so it must repeat the guard every join path applies — otherwise an account in
+    org A could found org B, hold two memberships, and leave the funding rule with no honest
+    answer to which pool a turn draws from."""
+    client, _m, org_id, owner = stack
+    _join_by_invite(client, org_id, owner, "member@kajima.co.jp")  # member now belongs to Kajima
+    member = _token(client, "member@kajima.co.jp")
+    r = client.post("/orgs", json={"name": "Side Co"}, headers=_auth(member))
+    assert r.status_code == 409 and "one organization" in r.json()["detail"]
+    # the owner is no exception: already owning Kajima blocks founding a second org too
+    r = client.post(
+        "/orgs", json={"name": "Kajima Two"}, headers=_auth(_token(client, "owner@kajima.co.jp"))
+    )
+    assert r.status_code == 409
+
+
+def test_reactivation_honours_one_org_per_account(stack):
+    """Reactivating a removed member is a JOIN, so it asks the same guard: an account that joined
+    another org while deactivated must leave it before it can be re-seated here — the direct
+    UPDATE in update_member would otherwise sneak past the one-org rule _add_member enforces."""
+    client, _m, org_id, owner = stack
+    member = _join_by_invite(client, org_id, owner, "member@kajima.co.jp")
+    acct = client.get("/resolve", headers=_auth(member)).json()["account_id"]
+    # removed from Kajima (active=False frees the account of its only membership)...
+    assert client.post(
+        f"/orgs/{org_id}/members/{acct}", json={"active": False}, headers=_auth(owner)
+    ).status_code == 200
+    # ...they found their own org while out (now allowed — no active membership)...
+    side = client.post(
+        "/orgs", json={"name": "Side Co"}, headers=_auth(_token(client, "member@kajima.co.jp"))
+    )
+    assert side.status_code == 200
+    # ...so Kajima can no longer simply flip them back on
+    r = client.post(
+        f"/orgs/{org_id}/members/{acct}", json={"active": True}, headers=_auth(owner)
+    )
+    assert r.status_code == 409 and "leave" in r.json()["detail"]
+
+
 def test_a_removed_member_is_refused_on_the_next_call(stack):
     client, _m, org_id, owner = stack
     member = _join_by_invite(client, org_id, owner, "member@kajima.co.jp")

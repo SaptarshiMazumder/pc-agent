@@ -512,6 +512,11 @@ variable "services" {
     accounts = {
       port        = 4100
       health_path = "/health"
+      # 0.5 vCPU, not the 0.25 default: sign-in verifies the password with PBKDF2 at 200k rounds
+      # (app.py), which is CPU-bound BY DESIGN — on 0.25 vCPU a single login crawls even with one
+      # user and no contention. This is the cheapest fix for "why is login so slow".
+      cpu    = 512
+      memory = 1024
       env = {
         AGENTD_ACCOUNTS_DB = "/data/accounts.db"
         # public-exposure hardening (see accounts/app.py header for the contract).
@@ -586,6 +591,12 @@ variable "services" {
     daemon = {
       port        = 8787
       health_path = "/healthz"
+      # 1 vCPU / 2 GB, not the 0.25 / 512 MB default: the daemon loads the WHOLE agent runtime
+      # (Python + agent_runtime + plugins + litellm) and authorizes each socket connect — the slow
+      # step you hit right after login. 0.25 vCPU made cold start and first-connect drag; 512 MB
+      # was also tight for that footprint. This is the other half of the slow-sign-in fix.
+      cpu    = 1024
+      memory = 2048
       env = {
         AGENTD_HOST            = "0.0.0.0"
         AGENTD_PORT            = "8787"

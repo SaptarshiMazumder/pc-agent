@@ -233,6 +233,20 @@ class ProcessTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # Same fence as ExecTool, and for the same reason: _REGISTRY is process-GLOBAL, so on a
+        # shared daemon action=list would spill every tenant's command strings and output. A run
+        # that carries a fence gets no shell surface at all. (Today exec refuses to START a
+        # session under a fence so the registry stays empty there, but this makes the two tools'
+        # guards symmetric instead of one depending on the other.)
+        from agent_runtime.application.run_context import current_run_context
+
+        _ctx = current_run_context()
+        if _ctx is not None and getattr(_ctx, "read_roots", ()):
+            return ToolResult.text(
+                "process is not available on this server: background shell sessions cannot be "
+                "confined to your own files. Use the read/write/edit/ls/find tools instead.",
+                is_error=True,
+            )
         action = params["action"]
         if action == "list":
             if not _REGISTRY.sessions:

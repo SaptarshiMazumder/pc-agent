@@ -134,6 +134,11 @@ export function useMyOrgs(): OrgMembership[] {
   const [orgs, setOrgs] = useState<OrgMembership[]>(session ? (cachedMemberships ?? []) : [])
   useEffect(() => {
     if (!session) {
+      // Null the cross-mount cache too, not just local state: it is a MODULE GLOBAL, so leaving it
+      // set lets the NEXT account (after a sign-out then sign-in) inherit this account's orgs — and
+      // the catch below would even fall back to it when that account's own fetch fails or is slow.
+      // That is the "the old org/domain stayed after I switched users" bleed.
+      cachedMemberships = null
       setOrgs([])
       return
     }

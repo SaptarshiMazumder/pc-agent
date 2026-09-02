@@ -15,7 +15,7 @@
  */
 
 import { TokenManager, memorySessionStore } from '@agentd/auth'
-import { accountsUrl, type AuthState } from '@agentd/client'
+import { accountsUrl, forgetIdentityCache, type AuthState } from '@agentd/client'
 import { useCallback, useEffect, useState } from 'react'
 
 /** Shaped as the SDK's `AuthState` so the sidebar, profile menu and topbar chip — all copied from
@@ -34,7 +34,15 @@ const manager = new TokenManager({
   cookies: true,
   clientId: 'app',
   deviceLabel: () => 'Cloud Agent Builder',
-  onChange: () => listeners.forEach((l) => l()),
+  onChange: () => {
+    // Cabbie's socket runs on THIS manager's token, but orgs/credits and every other identity
+    // read go through the SDK's own token cache (identity.ts), which this manager does not touch.
+    // On any credential change — sign-in, sign-out, or a switch to a different account — drop that
+    // SDK cache so those reads resolve as the new account instead of serving the previous user's
+    // still-cached token. Without this, a switched-in user saw the old account's orgs and credits.
+    forgetIdentityCache()
+    listeners.forEach((l) => l())
+  },
 })
 
 let started = false
@@ -52,6 +60,20 @@ export function startSession(): void {
 /** The current access token, refreshed if stale — the credential the daemon socket presents. */
 export function sessionToken(): Promise<string> {
   return manager.accessToken()
+}
+
+/** Subscribe to session changes (sign-in, sign-out, account switch). Returns the unsubscribe.
+ *  The shim `lib/auth`'s useAuthSession subscribes here so agentd's copied OrgView refetches when
+ *  the account changes — the manager's own listeners are the reactive source of truth, not the
+ *  one-shot status read the shim used to do (which never updated on a switch). */
+export function subscribeSession(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
+}
+
+/** The signed-in account id, or '' — the identity OrgView keys its refetch on. */
+export function sessionAccountId(): string {
+  return manager.current()?.accountId || ''
 }
 
 function snapshot(): CabbieSession {

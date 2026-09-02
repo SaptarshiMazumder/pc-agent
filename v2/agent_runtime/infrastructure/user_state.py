@@ -276,7 +276,11 @@ def tenant_scope(
         reads = (own, *ws, *definition, *org_defs, *shared)
         clamp = (own, *ws)
     else:
-        reads = (*ws, *definition, *shared)
+        # An EMPTY read set means UNRESTRICTED to check_read, exactly as an empty clamp does — so
+        # mirror the clamp's fail-closed here too: a misconfigured hosted daemon that assembled no
+        # ws/definition/shared roots must open NOTHING to a stranger, not everything. The signed-in
+        # branch always carries `own`, so it can never be empty; only this anonymous path can.
+        reads = (*ws, *definition, *shared) or (NOTHING,)
         # No workspace resolved for an anonymous caller => nothing is writable. An empty clamp
         # means UNRESTRICTED (the desktop degenerate case), so fail closed with a root that can
         # never contain a real path instead.

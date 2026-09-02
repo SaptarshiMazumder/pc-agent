@@ -7,6 +7,7 @@
 
 import { authStatus, billing } from '@agentd/client'
 import { useEffect, useState } from 'react'
+import { subscribeSession } from '../agentd/cookie-session'
 
 export { onCreditsChanged } from '@agentd/client'
 export type { Catalog, CreditPack, Credits, Purchase } from '@agentd/client'
@@ -22,11 +23,26 @@ export interface Session {
 export function useAuthSession(): Session | null {
   const [session, setSession] = useState<Session | null>(null)
   useEffect(() => {
-    void authStatus({})
-      .then((s) =>
-        setSession(s.signedIn ? { token: '', accountId: s.accountId, email: s.email } : null),
-      )
-      .catch(() => setSession(null))
+    let live = true
+    const read = () =>
+      void authStatus({})
+        .then((s) => {
+          if (live)
+            setSession(s.signedIn ? { token: '', accountId: s.accountId, email: s.email } : null)
+        })
+        .catch(() => {
+          if (live) setSession(null)
+        })
+    read()
+    // RE-READ on every credential change. The one-shot version this replaced read once at mount
+    // and never again, so after a sign-out→sign-in as a different account the copied OrgView kept
+    // the previous user's `session` — and with it their org name, members and DOMAIN on screen.
+    // cookie-session's listeners are the reactive source (they fire on login/logout/switch).
+    const off = subscribeSession(read)
+    return () => {
+      live = false
+      off()
+    }
   }, [])
   return session
 }

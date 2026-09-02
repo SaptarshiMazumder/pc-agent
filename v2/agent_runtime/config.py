@@ -1249,6 +1249,17 @@ def load_config(path: Path | None = None) -> Config:
     cfg.hosted = cfg.multi_tenant or _accounts_enforced
     if os.environ.get("AGENTD_HOSTED"):
         cfg.hosted = os.environ["AGENTD_HOSTED"].lower() not in ("0", "false", "no", "")
+    # The env hatch may downgrade the accounts-enforced SINGLE-USER case (a private daemon behind
+    # login, one human — fences off is fine). It must NEVER win over multi_tenant: a daemon that
+    # genuinely serves multiple tenants derives every fs/exec fence from cfg.hosted (tenant_scope
+    # returns unrestricted when it is false), so hosted=false there would open every tenant's files
+    # to every other in one flag. That contradiction fails CLOSED — hosted forced on — not open.
+    if cfg.multi_tenant and not cfg.hosted:
+        logging.getLogger("agentd.config").error(
+            "AGENTD_HOSTED=0 ignored: multi_tenant is set, so tenant fences stay ON — a "
+            "multi-tenant daemon cannot run unfenced without exposing every tenant to every other."
+        )
+        cfg.hosted = True
 
     # mcp_servers come from JSON as plain dicts; coerce to typed McpServerConfig.
     cfg.mcp_servers = [
