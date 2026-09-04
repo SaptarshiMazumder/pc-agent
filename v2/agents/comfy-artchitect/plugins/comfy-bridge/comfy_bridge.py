@@ -13,10 +13,10 @@ THE `/api` PREFIX IS DELIBERATE. ComfyUI registers every route twice — `/promp
 serving the web app at `/`. The unprefixed form collides with that; the prefixed one works in
 both places.
 
-WHAT IS NOT HERE: image bytes. `fetch` returns text, and an image is not text. The tools report
-where an output landed (`filename`, `subfolder`, `type`) and the URL that serves it; looking at
-it is the user's job, in the ComfyUI they already have open. Pretending otherwise would mean
-describing pictures nobody has seen.
+IMAGE BYTES CROSS EXACTLY TWICE, both through the host's file lanes: `comfy_upload` sends a
+workspace file up as multipart, and `comfy_download` streams a rendered output down to the
+workspace (fetch's `save_path`), where it becomes an artifact the chat renders. The model still
+never receives the pixels — describing a picture stays the user's job; showing it is now ours.
 """
 
 from __future__ import annotations
@@ -145,6 +145,16 @@ class ComfyProbeTool(Tool):
                     lines.append(f"queue: {n} waiting")
                 except ValueError:
                     pass
+            # Telemetry for the window's Studio dashboard — never load-bearing for the turn.
+            import studio_state
+
+            first = devices[0] if devices else {}
+            studio_state.set_instance(
+                version=system.get("comfyui_version"),
+                gpu=first.get("name") or first.get("type"),
+                vram_free=first.get("vram_free"),
+                vram_total=first.get("vram_total"),
+            )
             return ToolResult.text("\n".join(lines), details=data)
         except Exception as e:  # noqa: BLE001 — a tool reports, it does not crash the turn
             return ToolResult.text(f"comfy_probe failed: {type(e).__name__}: {e}", is_error=True)
@@ -217,6 +227,16 @@ class ComfyInventoryTool(Tool):
                 shown = ", ".join(items[:10])
                 more = f" … and {len(items) - 10} more" if len(items) > 10 else ""
                 lines.append(f"{key} ({len(items)}): {shown}{more}")
+            if not needle:  # a filtered view is a subset — never record it as the whole
+                import studio_state
+
+                studio_state.set_instance(
+                    models=[
+                        {"loader": key, "name": name}
+                        for key in sorted(found)
+                        for name in found[key]
+                    ][:200]
+                )
             return ToolResult.text("\n".join(lines), details=found)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(
@@ -358,6 +378,89 @@ class ComfyUploadTool(Tool):
             return ToolResult.text(f"comfy_upload failed: {type(e).__name__}: {e}", is_error=True)
 
 
+class ComfyDownloadTool(Tool):
+    name = "comfy_download"
+    label = "Download rendered outputs"
+    default_retryable = True
+    description = (
+        "Pull rendered outputs (images, video) from the ComfyUI instance into this run's "
+        "workspace and show them IN THE CHAT as artifacts. Pass the manifest entries comfy_run "
+        "returned (filename/subfolder/type). Use it after a successful run so the user sees the "
+        "result here instead of having to open their instance — then still ask whether it is "
+        "right; you may not be able to see it yourself."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["files"],
+        "properties": {
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["filename"],
+                    "properties": {
+                        "filename": {"type": "string"},
+                        "subfolder": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "description": "'output' (default) or 'temp' for PreviewImage results.",
+                        },
+                    },
+                },
+                "description": "Manifest entries from comfy_run, verbatim.",
+            }
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            entries = [e for e in (params.get("files") or []) if isinstance(e, dict)]
+            if not entries:
+                return ToolResult.text("files must name at least one output", is_error=True)
+
+            root = Path(current_workspace(".") or ".")
+            saved: list[str] = []
+            failures: list[str] = []
+            for e in entries:
+                if abort.is_set():
+                    break
+                filename = str(e.get("filename") or "").strip()
+                if not filename:
+                    failures.append("an entry without a filename — skipped")
+                    continue
+                query = {"filename": filename, "type": str(e.get("type") or "output")}
+                sub = str(e.get("subfolder") or "").strip()
+                if sub:
+                    query["subfolder"] = sub
+                # Basename only for the local file: the server's subfolder is ITS layout, and a
+                # filename with separators must not steer where this run writes.
+                dest = root / "outputs" / Path(filename).name
+                res = fetch(
+                    "${COMFYUI_URL}/api/view",
+                    headers=_headers(),
+                    params=query,
+                    save_path=str(dest),
+                    timeout_s=300.0,
+                )
+                if not res.ok:
+                    failures.append(_failed(res, filename))
+                    continue
+                saved.append(str(dest))
+                import studio_state
+
+                studio_state.render_saved(str(dest))
+
+            lines = [f"downloaded: {p}" for p in saved] + failures
+            return ToolResult.text(
+                "\n".join(lines) or "nothing downloaded",
+                details={"saved": saved, "failed": len(failures)},
+                artifacts=saved,  # what makes the images/videos render in the chat
+                is_error=not saved,
+            )
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_download failed: {type(e).__name__}: {e}", is_error=True)
+
+
 class ComfyRunTool(Tool):
     name = "comfy_run"
     label = "Run a ComfyUI workflow"
@@ -427,11 +530,30 @@ class ComfyRunTool(Tool):
                     is_error=True,
                 )
 
+            # Studio telemetry: the run is on the record from the moment it is queued. The
+            # checkpoint and step count come from the graph itself — the first loader's
+            # *_name and the first KSampler's steps, which is what the dashboard's history
+            # table wants to say about a run.
+            import studio_state
+
+            ckpt, steps = "", None
+            for node in prompt.values():
+                inputs = node.get("inputs") or {} if isinstance(node, dict) else {}
+                for field, value in inputs.items():
+                    if not ckpt and field.endswith("_name") and isinstance(value, str) and (
+                        value.endswith((".safetensors", ".ckpt", ".gguf", ".sft"))
+                    ):
+                        ckpt = value
+                    if steps is None and field == "steps" and isinstance(value, (int, float)):
+                        steps = int(value)
+            studio_state.run_started(path.name, prompt_id, ckpt, steps)
+
             deadline = float(params.get("timeout_s") or 300.0)
             waited = 0.0
             step = 1.0
             while waited < deadline:
                 if abort.is_set():
+                    studio_state.run_finished(prompt_id, "interrupted")
                     return ToolResult.text(
                         f"stopped waiting for {prompt_id}; it may still be running on the "
                         f"instance.",
@@ -456,6 +578,7 @@ class ComfyRunTool(Tool):
                                     files.append({"node": node_id, **item})
                     if status != "success":
                         messages = (entry.get("status") or {}).get("messages") or []
+                        studio_state.run_finished(prompt_id, "failed")
                         return ToolResult.text(
                             f"the run FAILED ({status}). What the instance reported:\n"
                             + json.dumps(messages, indent=2)[:2000],
@@ -463,6 +586,7 @@ class ComfyRunTool(Tool):
                             is_error=True,
                         )
                     if files:
+                        studio_state.run_finished(prompt_id, "complete", outputs=len(files))
                         lines = [f"ran successfully — {len(files)} output(s):"]
                         for f in files:
                             sub = f.get("subfolder") or ""
@@ -472,13 +596,13 @@ class ComfyRunTool(Tool):
                                 + f" [{f.get('type') or 'output'}]"
                             )
                         lines.append(
-                            "They are on the instance, in its output folder — open ComfyUI to "
-                            "look at them. I cannot see images, so tell me whether they are "
-                            "right and what to change."
+                            "Pass these entries to comfy_download to pull them into the chat, "
+                            "then ask whether they are right — you cannot see the pixels."
                         )
                         return ToolResult.text("\n".join(lines), details=entry)
                     # A success whose outputs have not landed yet — a known race. Keep waiting
                     # rather than reporting an empty run as finished.
+                studio_state.run_tick(prompt_id)
                 await asyncio.sleep(step)
                 waited += step
                 step = min(step * 1.5, 5.0)
@@ -489,6 +613,53 @@ class ComfyRunTool(Tool):
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_run failed: {type(e).__name__}: {e}", is_error=True)
+
+
+class ComfyStudioStateTool(Tool):
+    name = "comfy_studio_state"
+    label = "Studio telemetry"
+    default_retryable = True
+    description = (
+        "Run telemetry for this agent's WINDOW (the Studio dashboard): instance facts, run "
+        "history, active run, downloaded renders — returned as structured details. The window "
+        "polls this; the model has no reason to call it (everything here was already reported "
+        "in the turns that produced it)."
+    )
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            import studio_state
+
+            state = studio_state.read()
+            return ToolResult.text(
+                f"studio state: {len(state.get('runs') or [])} run(s), "
+                f"{len(state.get('renders') or [])} render(s)",
+                details=state,
+            )
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_studio_state failed: {type(e).__name__}: {e}", is_error=True)
+
+
+class ComfyInterruptTool(Tool):
+    name = "comfy_interrupt"
+    label = "Interrupt the running job"
+    default_retryable = False
+    description = (
+        "Stop whatever the ComfyUI instance is currently executing (POST /interrupt). Use when "
+        "the user asks to stop a run, or from the window's Interrupt button. The interrupted "
+        "run reports as failed/interrupted in its comfy_run result."
+    )
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            res = _post("/api/interrupt", None, timeout_s=15.0)
+            if not res.ok:
+                return ToolResult.text(_failed(res, "interrupt"), is_error=True)
+            return ToolResult.text("interrupt sent — the instance stops its current node.")
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_interrupt failed: {type(e).__name__}: {e}", is_error=True)
 
 
 def register(api, ctx):
@@ -503,4 +674,7 @@ def register(api, ctx):
     api.register_tool(ComfyNodeSpecTool())
     api.register_tool(ComfyResearchTool())
     api.register_tool(ComfyUploadTool())
+    api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyRunTool())
+    api.register_tool(ComfyStudioStateTool())
+    api.register_tool(ComfyInterruptTool())

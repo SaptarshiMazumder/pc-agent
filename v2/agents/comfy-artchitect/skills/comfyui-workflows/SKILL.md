@@ -125,5 +125,8 @@ pruned branch, not a failure — mention it, do not panic.
 ## Timing and results
 
 `comfy_run` waits for the run and returns the output manifest: node, filename, subfolder, type.
-That is all there is — the images stay on the instance. Report the names and let the user look.
-A first run on a cold model can take minutes; a timeout means still-running, not failed.
+Hand those entries to `comfy_download` verbatim — it pulls the rendered files into the
+workspace and they render in the chat as artifacts, so the user sees the result without opening
+their instance. (`type` matters: `SaveImage` outputs are `output`, `PreviewImage` writes
+`temp`.) A first run on a cold model can take minutes; a timeout means still-running, not
+failed.

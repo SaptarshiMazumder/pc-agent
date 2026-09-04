@@ -55,25 +55,27 @@
   --dim: #b5aec6;
   --faint: #9a93aa;   /* the floor — see the note above */
 
-  /* ── one accent ───────────────────────────────────────────────────────────────────────── */
-  --accent: #c9a3f5;
-  --accent-text: #c9a3f5;
-  --accent-soft: rgba(201, 163, 245, 0.12);
-  --accent-edge: rgba(201, 163, 245, 0.26);
-  --accent-deep: #7b3fbf;   /* the far end of an avatar or brand-tile gradient */
-  --prim-bg: #c9a3f5;
-  --prim-bg-h: #d9bcf8;
-  --prim-ink: #1b0f2b;      /* never white on this fill */
+  /* ── one accent. ComfyUI's lime-yellow on the purple ground — the Studio design's one
+     deliberate token change (design_handoff_agent_studio, Design Tokens). ───────────────── */
+  --accent: #e2f84e;
+  --accent-text: #e2f84e;
+  --accent-soft: rgba(226, 248, 78, 0.13);
+  --accent-edge: rgba(226, 248, 78, 0.30);
+  --accent-deep: rgba(226, 248, 78, 0.45);   /* the far end of a meter gradient */
+  --prim-bg: #e2f84e;
+  --prim-bg-h: #edfd86;
+  --prim-ink: #141a04;      /* never white on this fill */
+  --sky: #e2f84e;
 
   /* ── semantic ─────────────────────────────────────────────────────────────────────────── */
-  --ok: #8be0a8;            /* the connected dot, a completed tool call */
+  --ok: #a3e635;            /* the connected dot, a completed tool call */
   --danger: #f096be;
   --danger-soft: rgba(240, 150, 190, 0.13);
   --warn: #f0c98b;
 
   /* ── ambient light. The two glows the window sits in; off in the defaults. ─────────────── */
   --glow-1: rgba(140, 64, 205, 0.30);   /* corner */
-  --glow-2: rgba(201, 163, 245, 0.18);  /* inside a panel */
+  --glow-2: rgba(226, 248, 78, 0.10);   /* inside a panel */
 
   /* ── elevation. Two things cast, and nothing else does — a flat surface with one lifted
      card reads deeper than a page where everything floats. ──────────────────────────────── */

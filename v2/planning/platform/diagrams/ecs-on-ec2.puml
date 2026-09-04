@@ -1,0 +1,127 @@
+@startuml
+title agentd staging - moving one service from Fargate to ECS on EC2
+
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v23.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/AWSSimplified.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/AvailabilityZone.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/SecurityGroup.puml
+!include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+!include AWSPuml/Containers/ElasticContainerServiceTask.puml
+!include AWSPuml/Containers/ElasticContainerRegistry.puml
+!include AWSPuml/Containers/Fargate.puml
+!include AWSPuml/Compute/EC2.puml
+!include AWSPuml/ManagementGovernance/SystemsManagerParameterStore.puml
+!include AWSPuml/SecurityIdentityCompliance/SecretsManager.puml
+
+hide stereotype
+top to bottom direction
+skinparam linetype ortho
+skinparam shadowing false
+skinparam nodesep 65
+skinparam ranksep 55
+
+rectangle "Browsers\n----\n- Reach the web client over HTTPS\n- Only ever talk to the ALB" as browsers
+
+AWSCloudGroup(aws_cloud, "AWS Cloud") {
+  RegionGroup(aws_region, "ap-northeast-1") {
+
+    rectangle "CONTROL PLANE - regional, not inside the VPC" as control_plane_note #line.dashed
+
+    SystemsManagerParameterStore(ssm_ami, "ECS-optimised AMI\n----\n- /aws/service/ecs/optimized-ami/\n  amazon-linux-2023/recommended\n- Yields an AMI id string\n- Patches come from AWS", "", "")
+
+    rectangle "Launch template\n----\n- image_id = the AMI above\n- instance_type = t3.small\n- iam_instance_profile = ECS instance role\n- associate_public_ip_address = true\n- user_data writes ECS_CLUSTER" as launch_template
+
+    rectangle "Auto Scaling Group\n----\n- min 0 / max 2\n- Spans the public subnets\n- protect_from_scale_in\n- desired_capacity owned by ECS" as asg
+
+    rectangle "ECS capacity provider\n----\n- auto_scaling_group_arn -> ASG\n- Managed scaling\n- Managed termination protection" as capacity_provider
+
+    ElasticContainerService(ecs_cluster, "ECS cluster agentd-staging\n----\n- A rendezvous point, not a registry\n- Nothing lists its instances\n- Holds the capacity provider", "", "")
+
+    rectangle "ECS service - web\n----\n- capacity_provider_strategy\n  REPLACES launch_type = FARGATE\n- desired_count 1\n- minimum_healthy_percent 100" as web_service
+
+    rectangle "Task definition - web\n----\n- Describes ONLY the container\n- network_mode = host\n- requires_compatibilities = EC2\n- Never names the AMI, ASG\n  or capacity provider" as task_definition #line.dashed
+
+    ElasticContainerRegistry(ecr, "ECR\n----\n- Image pulls\n- Reached over the internet", "", "")
+    SecretsManager(secrets, "Secrets Manager\n----\n- agentd/staging/app\n- Read at container start", "", "")
+
+    VPCGroup(agentd_vpc, "agentd-staging VPC - public subnets only, NO NAT gateway") {
+      VPCInternetGateway(internet_gateway, "Internet Gateway\n----\n- Only carries traffic for an\n  interface that HAS a public IP\n- This is why host networking\n  is required on EC2", "", "")
+
+      AvailabilityZoneGroup(availability_zone_a, "Availability Zone A - the migrated service") {
+        PublicSubnetGroup(public_subnet_a, "Public subnet A\nPublic-RT-A: 0.0.0.0/0 -> IGW") {
+
+          SecurityGroupGroup(alb_security_group, "ALB-SG") {
+            ElasticLoadBalancingApplicationLoadBalancer(alb, "Application Load Balancer\n----\n- One logical ALB, both subnets\n- HTTPS listeners per service\n- web target group moves from\n  target_type ip -> instance", "", "")
+          }
+
+          SecurityGroupGroup(instance_security_group, "Instance-SG - now covers every task on the box") {
+            EC2(container_instance, "ECS container instance\n----\n- ASG member, t3.small\n- Public IP from the subnet\n- ECS agent registers it\n- AMI patching is ours now", "", "")
+
+            ElasticContainerServiceTask(web_task, "web task\n----\n- network_mode = host\n- Binds the instance's port 80\n- No ENI of its own\n- Egresses via the instance IP", "", "")
+
+            container_instance -d-> web_task : runs
+          }
+        }
+      }
+
+      AvailabilityZoneGroup(availability_zone_b, "Availability Zone B - still on Fargate") {
+        PublicSubnetGroup(public_subnet_b, "Public subnet B\nPublic-RT-B: 0.0.0.0/0 -> IGW") {
+          SecurityGroupGroup(service_security_group, "Service-SG - per task, awsvpc only") {
+            Fargate(accounts_task, "accounts\n----\n- network_mode = awsvpc\n- Own ENI + assign_public_ip\n- MIGRATES LAST: it is the\n  service everything discovers", "", "")
+
+            Fargate(other_tasks, "daemon / model-proxy / ingest\n----\n- Still Fargate for now\n- Move onto the same instance\n  once web proves the pattern", "", "")
+
+            accounts_task -[hidden]d-> other_tasks
+          }
+        }
+      }
+
+      internet_gateway -[hidden]d-> alb
+    }
+  }
+}
+
+rectangle "Neon Postgres\n----\n- ap-southeast-1 (Singapore)\n- Outside AWS entirely\n- Reached over the public internet" as neon
+
+' ---- the top-down chain: each resource names the next by one field ----
+control_plane_note -[hidden]d-> ssm_ami
+ssm_ami -d-> launch_template : image_id
+launch_template -d-> asg : launch_template
+asg -d-> capacity_provider : auto_scaling_group_arn
+capacity_provider -d-> ecs_cluster : capacity_providers
+web_service -u-> ecs_cluster : capacity_provider_strategy
+web_service -r-> task_definition : task_definition
+
+' ---- the bottom-up half: the instance joins on its own ----
+container_instance -[#DarkOrange]l-> ecs_cluster : registers itself\nECS_CLUSTER in user-data
+asg ..> container_instance : launches into\nthe public subnet
+
+' ---- request path ----
+browsers -d-> alb : HTTPS via IGW
+alb -d-> web_task : target_type = instance\nhost port 80
+
+' ---- egress: the reason for host networking ----
+container_instance -[#RoyalBlue]d-> internet_gateway : outbound via the\ninstance's public IP
+internet_gateway -[#RoyalBlue]d-> neon : TLS 5432
+container_instance .u.> ecr : image pull
+container_instance .u.> secrets : DATABASE_URL et al
+
+legend bottom
+  |= Aspect |= Fargate (today) |= ECS on EC2 (after) |
+  | Who owns the machine | AWS, invisible | You: AMI, ASG, patching |
+  | network_mode | awsvpc (forced) | host |
+  | Task IP | own ENI + public IP | none; uses the instance's |
+  | ALB target_type | ip | instance |
+  | Security group | per task | per instance |
+  | Internet egress | assign_public_ip on the task | instance public IP via IGW |
+  | Tasks per box | n/a | limited by host ports, not ENIs |
+endlegend
+
+@enduml

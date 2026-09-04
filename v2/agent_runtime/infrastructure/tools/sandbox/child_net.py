@@ -105,6 +105,7 @@ def install(bridge: NetBridge) -> None:
         file_path: str = "",
         file_field: str = "file",
         form_fields: dict | None = None,
+        save_path: str = "",
         timeout_s: float = DEFAULT_TIMEOUT_S,
         max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> Response:
@@ -127,6 +128,9 @@ def install(bridge: NetBridge) -> None:
                     "file_path": file_path,
                     "file_field": file_field,
                     "form_fields": dict(form_fields or {}) or None,
+                    # Like file_path: a PATH crosses, the bytes never do — the host streams the
+                    # download to disk after checking the path against the run's write scope.
+                    "save_path": save_path,
                 }
             )
         )

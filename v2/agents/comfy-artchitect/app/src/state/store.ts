@@ -61,6 +61,11 @@ export interface AppState {
   view: View
   setView: (v: View) => void
 
+  /** Which side the conversation column sits on in the studio layout. A preference, kept in
+   *  localStorage: it is about this person's eyes, not about the conversation's data. */
+  chatSide: 'left' | 'right'
+  setChatSide: (side: 'left' | 'right') => void
+
   /** Every open conversation, by session key. */
   sessions: Record<string, ChatSession>
   currentSessionKey: string
@@ -93,6 +98,22 @@ export interface AppState {
 export const useApp = create<AppState>((set) => ({
   view: 'chat',
   setView: (view) => set({ view }),
+
+  chatSide: (() => {
+    try {
+      return localStorage.getItem('comfy.chatSide') === 'right' ? 'right' : 'left'
+    } catch {
+      return 'left' as const
+    }
+  })(),
+  setChatSide: (chatSide) => {
+    try {
+      localStorage.setItem('comfy.chatSide', chatSide)
+    } catch {
+      /* private windows — the preference just does not persist */
+    }
+    set({ chatSide })
+  },
 
   sessions: {},
   currentSessionKey: '',

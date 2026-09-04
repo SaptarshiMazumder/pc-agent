@@ -125,6 +125,20 @@ class SandboxFetchBroker:
                     outcome=refusal.outcome,
                 )
 
+        # A DOWNLOAD DESTINATION — the write-side twin of the upload check above, and stricter:
+        # only the run's own writable roots (its workspace), never the agent's definition dirs,
+        # which are readable-shipped-data and must stay exactly what the author shipped.
+        save_path = str(request.get("save_path") or "")
+        if save_path:
+            try:
+                save_path = str(self._writable(save_path))
+            except _Refused as refusal:
+                return self._reply(
+                    request_id,
+                    outbound.Response(error=str(refusal), url=url),
+                    outcome=refusal.outcome,
+                )
+
         self._calls += 1
         res = await asyncio.to_thread(
             outbound.fetch,
@@ -137,8 +151,11 @@ class SandboxFetchBroker:
             file_path=file_path,
             file_field=str(request.get("file_field") or "file"),
             form_fields=request.get("form_fields") or None,
+            save_path=save_path,
             timeout_s=self._timeout_s,
-            max_bytes=self._max_bytes,
+            # A media download legitimately dwarfs a text response; the text clamp would refuse
+            # every video. 200MB is a generous ceiling for a rendered output, not a policy knob.
+            max_bytes=max(self._max_bytes, 200 * 1024 * 1024) if save_path else self._max_bytes,
         )
         telemetry.timing(
             "sandbox_fetch_ms",
@@ -179,6 +196,34 @@ class SandboxFetchBroker:
             )
         if not resolved.is_file():
             raise _Refused(f"no such file to upload: '{path}'", outcome="file-denied")
+        return resolved
+
+    def _writable(self, path: str):
+        """The resolved path IF this run may write it; raises _Refused otherwise.
+
+        WRITE scope is `fs_paths` alone — `read_paths` (the agent's shipped files) is
+        deliberately absent: a download that could land inside the definition would let a
+        remote server rewrite the agent's own code. Relative means workspace-relative, same as
+        `_readable`.
+        """
+        from pathlib import Path
+
+        from agent_runtime.application.write_scope import is_inside
+
+        roots = [r for r in (self._grant.fs_paths or ()) if r]
+        p = Path(path)
+        if not p.is_absolute() and roots:
+            p = Path(roots[0]) / p
+        try:
+            resolved = p.resolve()
+        except OSError as e:
+            raise _Refused(f"cannot resolve {path!r}: {e}", outcome="file-denied") from e
+        if not any(is_inside(resolved, r) for r in roots):
+            raise _Refused(
+                f"'{path}' is outside this run's writable space (its workspace). A download "
+                "lands in the run's own files, nowhere else.",
+                outcome="file-denied",
+            )
         return resolved
 
     def _host_settings(self) -> tuple[str, ...]:

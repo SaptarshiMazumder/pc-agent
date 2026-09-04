@@ -686,9 +686,19 @@ declare class TokenFetcher {
     private answer;
     private inflight;
     private readonly clients;
+    /** A stable fingerprint of the last resolved identity ('ok:<accountId>' or the non-ok state),
+     *  so a genuine account change fires the identity-change listeners exactly once and a mere
+     *  token refresh for the SAME account fires nothing. */
+    private sig;
     constructor(opts: DaemonOptions);
     /** Register a client to receive `auth.update` pushes. Idempotent. */
     bind(client: AgentdClient): void;
+    /** Forget the cached token answer WITHOUT dropping client bindings: the next state()/
+     *  accessToken() re-reads identity from the runtime/cookie. Call this the instant credentials
+     *  change — a sign-out, or a sign-in as a DIFFERENT account — so no caller keeps handing out the
+     *  previous user's token during the ~150s the cache would otherwise serve it. That stale token is
+     *  the "switched users but still saw the old account's orgs/credits/chats" cross-tenant bleed. */
+    forget(): void;
     /** A current access token, or '' when the machine is signed out / unreachable. Callers that
      *  need to know WHY ask `state()`. */
     accessToken(): Promise<string>;
@@ -707,8 +717,16 @@ declare class TokenFetcher {
         accountId: string;
     } | null;
 }
+/** Subscribe to identity changes (sign-in, sign-out, account switch). Returns the unsubscribe.
+ *  Fires only on a genuine change of the resolved account, not on same-account token refreshes. */
+declare function onIdentityChanged(cb: () => void): () => void;
 /** The window's identity handle. One per daemon origin; all state lives in the runtime. */
 declare function identity(opts?: IdentityOptions): TokenFetcher;
+/** Drop every fetcher's CACHED token answer (client bindings kept), so the next identity read
+ *  reflects the new credential rather than the previous user's still-cached token. The sign-in
+ *  and sign-out paths call this on a credential change — the one action that closes the "old
+ *  account's data after switching users" bleed at its source (see TokenFetcher.forget). */
+declare function forgetIdentityCache(): void;
 /** TEST SEAM: forget cached answers (a signed-out test must not see the last test's token). */
 declare function resetIdentity(): void;
 /** DEAD: windows have no per-window sessions to key any more. Returns a stable string for any
@@ -719,4 +737,4 @@ declare function acceptHostTokens(): () => void;
 /** DEAD: there is nothing to renew in a window. The runtime renews, lazily, when asked. */
 declare function startAuthRenewal(): () => void;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type StoredSession, type TokenAnswer, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authStatus, authUrl, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fetchToken, fromPage, identity, joinOrg, loadMode, loadSession, mintInvite, notifyCreditsChanged, onCreditsChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type StoredSession, type TokenAnswer, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authStatus, authUrl, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fetchToken, forgetIdentityCache, fromPage, identity, joinOrg, loadMode, loadSession, mintInvite, notifyCreditsChanged, onCreditsChanged, onIdentityChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };

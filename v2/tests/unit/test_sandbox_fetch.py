@@ -388,6 +388,79 @@ def test_a_file_outside_the_run_s_scope_is_refused(http_server, tmp_path):
     assert "outside this run's files" in res["error"]
 
 
+# --- a file coming BACK: save_path downloads through the broker -------------
+# The other direction of the multipart lane: a rendered image is not text, `Response.text`
+# would mangle it, so the host streams the bytes to a workspace file and the child gets the
+# path. The write check mirrors the read check — and is stricter: fs_paths only, because a
+# download that could land in `read_paths` would let a remote server rewrite the agent's own
+# shipped code.
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n-fake-but-binary-\x00\xff\xfe"
+
+
+class _MediaHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(PNG_BYTES)))
+        self.end_headers()
+        self.wfile.write(PNG_BYTES)
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture()
+def media_server():
+    srv = HTTPServer(("127.0.0.1", 0), _MediaHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"127.0.0.1:{srv.server_port}"
+    srv.shutdown()
+
+
+def test_a_download_lands_in_the_workspace_bytes_intact(media_server, tmp_path):
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="download",
+        grant=CapabilityGrant(net_allowlist=(), fs_paths=(str(tmp_path),)),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{media_server}/view",
+        save_path="outputs/render.png",  # workspace-relative, like every file tool
+    )
+    assert not res["error"], res["error"]
+    assert res["status"] == 200
+    saved = tmp_path / "outputs" / "render.png"
+    assert saved.read_bytes() == PNG_BYTES  # binary IDENTICAL — a text round-trip corrupts this
+
+
+def test_a_download_may_not_land_outside_the_writable_scope(media_server, tmp_path):
+    """And not in read_paths either: shipped files are what the author published, and a server
+    that could overwrite them would be publishing code into the agent."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    shipped = tmp_path / "agent-def"
+    shipped.mkdir()
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="download",
+        grant=CapabilityGrant(
+            net_allowlist=(), fs_paths=(str(ws),), read_paths=(str(shipped),)
+        ),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{media_server}/view",
+        save_path=str(shipped / "plugin.py"),
+    )
+    assert res["status"] == 0
+    assert "outside this run's writable space" in res["error"]
+    assert not (shipped / "plugin.py").exists()
+
+
 # --- the whole round trip, through a REAL child process ---------------------
 # Everything above tests one side. This spawns a child that really imports `fetch`, really has no
 # socket, and really gets an answer — the only version of this that proves the pipe works.

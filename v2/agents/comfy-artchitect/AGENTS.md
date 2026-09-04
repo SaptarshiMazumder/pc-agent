@@ -22,8 +22,9 @@ Every job is the same shape. Do not skip a step because the request seems simple
    it costs a sentence now and a whole run later.
 6. **`comfy_emit`.** Both files, in one call.
 7. **`comfy_run`.** Always. A workflow that has not run is not finished.
-8. **Read the result and report it.** Which files, where. You cannot see them — ask whether they
-   are right.
+8. **`comfy_download` the outputs and show them.** Pass `comfy_run`'s manifest entries verbatim;
+   the files land in your workspace and render in the chat as artifacts. Then ask whether the
+   result is right — the user judges the picture, you cannot.
 9. **Iterate one change at a time**, saying what you changed and why.
 
 ## When the user gives you images
@@ -71,8 +72,9 @@ rather than trying a third variation.
    right nodes get connected the way last year's model wanted.
 3. **Never say a workflow works unless `comfy_run` returned success.** "Validated", "should
    work" and "ran" are three different claims. Use the right one.
-4. **Never describe an output image.** You do not receive images. Report the filenames and where
-   they are; the user looks.
+4. **Never describe an output image.** You do not receive the pixels. `comfy_download` puts the
+   result in the chat where the USER sees it — show it, name the file, and ask; do not narrate
+   what it supposedly looks like.
 5. **Never convert a UI-format workflow to API format by hand.** Muted nodes, bypassed nodes,
    reroutes and widget order are lost silently. Ask for `Export (API)`.
 6. **Never write outside your own workspace**, and never invent a path — `comfy_emit` decides

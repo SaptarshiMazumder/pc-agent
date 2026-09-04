@@ -135,10 +135,23 @@ var TokenFetcher = class {
     this.answer = null;
     this.inflight = null;
     this.clients = /* @__PURE__ */ new Set();
+    /** A stable fingerprint of the last resolved identity ('ok:<accountId>' or the non-ok state),
+     *  so a genuine account change fires the identity-change listeners exactly once and a mere
+     *  token refresh for the SAME account fires nothing. */
+    this.sig = "";
   }
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client) {
     this.clients.add(client);
+  }
+  /** Forget the cached token answer WITHOUT dropping client bindings: the next state()/
+   *  accessToken() re-reads identity from the runtime/cookie. Call this the instant credentials
+   *  change — a sign-out, or a sign-in as a DIFFERENT account — so no caller keeps handing out the
+   *  previous user's token during the ~150s the cache would otherwise serve it. That stale token is
+   *  the "switched users but still saw the old account's orgs/credits/chats" cross-tenant bleed. */
+  forget() {
+    this.answer = null;
+    this.inflight = null;
   }
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
    *  need to know WHY ask `state()`. */
@@ -158,6 +171,11 @@ var TokenFetcher = class {
         const prev = this.answer;
         this.answer = a;
         this.push(a, prev);
+        const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
+        if (sig !== this.sig) {
+          this.sig = sig;
+          notifyIdentityChanged();
+        }
       });
     }
     return this.inflight;
@@ -186,6 +204,19 @@ var TokenFetcher = class {
   }
 };
 var fetchers = /* @__PURE__ */ new Map();
+var identityListeners = /* @__PURE__ */ new Set();
+function notifyIdentityChanged() {
+  for (const cb of [...identityListeners]) {
+    try {
+      cb();
+    } catch {
+    }
+  }
+}
+function onIdentityChanged(cb) {
+  identityListeners.add(cb);
+  return () => identityListeners.delete(cb);
+}
 function identity(opts = {}) {
   const key = daemonOrigin(opts);
   let f = fetchers.get(key);
@@ -195,6 +226,9 @@ function identity(opts = {}) {
   }
   if (opts.client) f.bind(opts.client);
   return f;
+}
+function forgetIdentityCache() {
+  for (const f of fetchers.values()) f.forget();
 }
 function resetIdentity() {
   fetchers.clear();
@@ -590,6 +624,7 @@ async function authLogin(args, opts = {}) {
   if (!r.ok || d.state !== "ok") {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
   }
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function cookieLogin(args, opts) {
@@ -620,6 +655,7 @@ async function cookieLogin(args, opts) {
     const d = await r.json().catch(() => ({}));
     throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
   }
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function authLogout(opts = {}) {
@@ -639,6 +675,7 @@ async function authLogout(opts = {}) {
     }
   }
   saveMode(null, opts.storageKey);
+  forgetIdentityCache();
   return authStatus(opts);
 }
 async function setRunMode(mode, opts = {}) {
@@ -976,6 +1013,7 @@ export {
   fetchOrgDetail,
   fetchOrgUsage,
   fetchToken,
+  forgetIdentityCache,
   fromPage,
   identity,
   joinOrg,
@@ -984,6 +1022,7 @@ export {
   mintInvite,
   notifyCreditsChanged,
   onCreditsChanged,
+  onIdentityChanged,
   platformStatus,
   resetIdentity,
   resultText,

@@ -105,6 +105,7 @@ def fetch(
     file_path: str = "",
     file_field: str = "file",
     form_fields: dict | None = None,
+    save_path: str = "",
     timeout_s: float = DEFAULT_TIMEOUT_S,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Response:
@@ -120,6 +121,14 @@ def fetch(
     the side that has the filesystem: a sandboxed plugin sends only the path, and the broker
     checks it against the run's readable scope before this runs. ``file_field`` names the form
     part; ``form_fields`` are the plain text parts riding alongside (e.g. a subfolder).
+
+    ``save_path`` DOWNLOADS the response body to a local file, bytes untouched — the other
+    direction of the same asymmetry: a rendered image or video is not text, `Response.text`
+    would mangle it, and the sandbox pipe could not carry it anyway. The bytes are STREAMED to
+    disk on this side; the plugin gets back a Response whose ``text`` names the saved file and
+    size. A response bigger than ``max_bytes`` is refused whole, never truncated — a clipped
+    PNG is a corrupt PNG, which is worse than an honest error. On a non-2xx status nothing is
+    written (an error page saved as `render.png` would LOOK downloaded).
     """
     import httpx
 
@@ -130,6 +139,42 @@ def fetch(
             p = Path(file_path)
             files = {file_field: (p.name, p.read_bytes(), guess_mime(p))}
         with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+            if save_path:
+                dest = Path(save_path)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with client.stream(
+                    method.upper(),
+                    _resolved(url),
+                    headers=req_headers,
+                    params=params or None,
+                ) as r:
+                    if r.status_code >= 300:
+                        r.read()
+                        return Response(
+                            status=r.status_code,
+                            headers={k.lower(): v for k, v in r.headers.items()},
+                            text=r.text[:2000],
+                            url=str(r.url),
+                        )
+                    written = 0
+                    with open(dest, "wb") as out:
+                        for chunk in r.iter_bytes():
+                            written += len(chunk)
+                            if max_bytes and written > max_bytes:
+                                out.close()
+                                dest.unlink(missing_ok=True)
+                                return Response(
+                                    status=r.status_code,
+                                    error=f"response exceeds max_bytes ({max_bytes}); nothing saved",
+                                    url=str(r.url),
+                                )
+                            out.write(chunk)
+                    return Response(
+                        status=r.status_code,
+                        headers={k.lower(): v for k, v in r.headers.items()},
+                        text=f"saved {written} bytes to {dest}",
+                        url=str(r.url),
+                    )
             r = client.request(
                 method.upper(),
                 _resolved(url),

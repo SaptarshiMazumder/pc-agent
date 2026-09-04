@@ -86,7 +86,11 @@ RUN pip install --no-cache-dir --no-deps /dist/agentd-*.whl \
 # (2026-08-29: it read weather-kit plugin source to learn what plugins look like). The cloud
 # catalogue carries exactly what the product needs and nothing else.
  && agentd bundle pack agents/agent-builder --out /bundles \
- && agentd bundle pack agents/cloud-agent-builder --out /bundles
+ && agentd bundle pack agents/cloud-agent-builder --out /bundles \
+ # Comfy Artchitect — IN THE BOX like the builder itself: every account sees it in the agents
+ # list, nobody installs anything. This boot-install path is the one mechanism that puts an
+ # agent in the hosted shared catalogue; each account still brings its own ${COMFYUI_URL}.
+ && agentd bundle pack agents/comfy-artchitect --out /bundles
 
 # --- runtime stage -----------------------------------------------------------------------
 FROM python:3.11-slim

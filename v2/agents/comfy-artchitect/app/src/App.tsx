@@ -24,9 +24,9 @@ import {
   ArrowRight,
   ArrowUpRight,
   Boxes,
-  Clock,
-  FileJson,
   Gauge,
+  PanelLeft,
+  PanelRight,
   Plug,
   Sparkles,
   Workflow as WorkflowIcon,
@@ -48,6 +48,7 @@ import { Thread } from './components/Thread'
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
 import WorkflowShelf, { collectWorkflows } from './components/workflows/WorkflowShelf'
+import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 
 import Credits from './common/credits/Credits'
@@ -126,7 +127,15 @@ export default function App() {
       ),
     [sessions],
   )
-  const workflowCount = useMemo(() => collectWorkflows(artifacts).length, [artifacts])
+  /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
+     the studio is about is named right over the transcript. */
+  const latestWorkflow = useMemo(() => {
+    const wf = collectWorkflows(artifacts)[0]
+    return wf?.api?.name || wf?.ui?.name || ''
+  }, [artifacts])
+
+  const chatSide = useApp((s) => s.chatSide)
+  const setChatSide = useApp((s) => s.setChatSide)
 
   /* THE BALANCE, beside the thing that spends it. Re-read when a run ends, because that is when
      it changed. `null` means "not known" — a build with no accounts service, where showing a
@@ -200,7 +209,6 @@ export default function App() {
   /* WHAT THIS SCREEN IS ABOUT, from what is actually on it. A title invented from sample text
      would be a lie the first time somebody opened a real conversation. */
   const openChat = chats.find((c) => c.sessionId === currentKey)
-  const turns = session.items.filter((i) => i.kind === 'user').length
   const empty = session.items.length === 0
   const pct = session.usage && session.usage.limit > 0 ? Math.round(session.usage.pct) : null
 
@@ -226,7 +234,13 @@ export default function App() {
         ]}
       />
 
-      <main className="main">
+      {/* `is-studio` must track the SAME condition as the branch below — an unknown view falls
+          through to the studio, and a modifier keyed to 'chat' alone would lay it out wrong. */}
+      <main
+        className={`main${
+          ['credits', 'orgs', 'workflows', 'settings'].includes(view) ? '' : ' is-studio'
+        }`}
+      >
         {view === 'credits' ? (
           <Credits agentId={AGENT_ID} />
         ) : view === 'orgs' ? (
@@ -239,26 +253,36 @@ export default function App() {
              effect on a fresh process, and without it a save that needs one can only say so. */
           client && <Settings client={client} agentId={AGENT_ID} />
         ) : (
-          <>
-            <header className="page-head">
-              <div className="page-head-text">
-                <h1 className="page-title">
-                  {empty ? AGENT_NAME : openChat?.title || 'New conversation'}
-                </h1>
-                <p className="page-sub">
-                  {chats.length > 0 && (
-                    <>
-                      {chats.length} conversation{chats.length === 1 ? '' : 's'}
-                      {turns > 0 ? ' · ' : ''}
-                    </>
+          /* THE STUDIO: conversation beside a live dashboard of what the run produced
+             (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
+             KPI row carries the same numbers from the same sources. */
+          <div className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}`}>
+            <div className="st-convo">
+              <div className="st-convo-head">
+                <span className="st-live-dot" />
+                <div className="st-convo-titles">
+                  <span className="st-convo-title">
+                    {empty ? AGENT_NAME : openChat?.title || 'New conversation'}
+                  </span>
+                  {latestWorkflow && (
+                    <span className="st-convo-sub st-mono">{latestWorkflow}</span>
                   )}
-                  {turns > 0 && `${turns} turn${turns === 1 ? '' : 's'} here`}
-                </p>
+                </div>
+                {pct !== null && <span className="st-ctx-pill st-mono">{pct}% ctx</span>}
+                <button
+                  className="st-swap"
+                  title="Swap chat side"
+                  onClick={() => setChatSide(chatSide === 'left' ? 'right' : 'left')}
+                >
+                  {chatSide === 'left' ? (
+                    <PanelRight size={14} strokeWidth={1.7} />
+                  ) : (
+                    <PanelLeft size={14} strokeWidth={1.7} />
+                  )}
+                </button>
               </div>
-            </header>
 
-            <div className="stage">
-              <div className="stage-main">
+              <div className="st-convo-body">
                 {empty ? (
                   /* THE OPENING. Not a placeholder — the only screen guaranteed to be read. */
                   <div className="opening">
@@ -286,13 +310,11 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  /* THE TRANSCRIPT, in a card of its own so the conversation has an edge and the
-                     page around it can carry the numbers without the two running together. */
-                  <div className="convo-card">
-                    <Thread items={session.items} running={session.running} />
-                  </div>
+                  <Thread items={session.items} running={session.running} />
                 )}
+              </div>
 
+              <div className="st-convo-foot">
                 <Composer
                   running={session.running}
                   pending={session.pending}
@@ -305,8 +327,6 @@ export default function App() {
                   maxFiles={MAX_FILES}
                   connected={connected}
                   model={session.usage?.model || ''}
-                  /* HOW FULL THE CONTEXT IS. It reads as a line here and as a card in the aside;
-                     both come from the same number, so they cannot disagree. */
                   meter={
                     pct === null ? null : (
                       <span
@@ -319,64 +339,19 @@ export default function App() {
                   }
                 />
               </div>
-
-              {/* THE RUN'S OWN NUMBERS, beside the run. Only what this window actually knows —
-                  an aside of invented figures is worse than no aside. It folds away under a
-                  narrow window (see styles.css) rather than squeezing the conversation. */}
-              <aside className="stage-aside">
-                {pct !== null && (
-                  <div className="stat-card">
-                    <span className="stat-head">
-                      <Clock size={13} strokeWidth={1.7} />
-                      Context used
-                    </span>
-                    <span className="stat-figure">
-                      {pct}
-                      <span className="stat-unit">%</span>
-                    </span>
-                    {/* The VALUE travels as a custom property, not as a width. A percentage is
-                        data; how it is drawn — height, colour, easing — stays in the stylesheet
-                        where a theme can reach it. */}
-                    <span className="stat-bar">
-                      <span
-                        className="stat-bar-fill"
-                        style={{ '--pct': pct } as React.CSSProperties}
-                      />
-                    </span>
-                  </div>
-                )}
-                {credits !== null && (
-                  <div className="stat-card">
-                    <span className="stat-head">
-                      <Sparkles size={13} strokeWidth={1.7} />
-                      Credits
-                    </span>
-                    <span className="stat-figure">{credits.toLocaleString()}</span>
-                    <button className="stat-link" onClick={() => setView('credits')}>
-                      Buy more
-                    </button>
-                  </div>
-                )}
-
-                {/* WHAT THIS AGENT COUNTS. Drawn only once there is something to count: a card
-                    reading zero on the day you install the agent is a card people learn to skip.
-                    The figure comes from the same list the shelf renders, so the two cannot
-                    disagree. */}
-                {workflowCount > 0 && (
-                  <div className="stat-card">
-                    <span className="stat-head">
-                      <FileJson size={13} strokeWidth={1.7} />
-                      Workflows
-                    </span>
-                    <span className="stat-figure">{workflowCount}</span>
-                    <button className="stat-link" onClick={() => setView('workflows')}>
-                      Open the shelf
-                    </button>
-                  </div>
-                )}
-              </aside>
             </div>
-          </>
+
+            <StudioDashboard
+              client={client ?? undefined}
+              connected={connected}
+              running={session.running}
+              artifacts={artifacts}
+              credits={credits}
+              onCredits={() => setView('credits')}
+              onNewRun={() => seedComposer('Run the workflow again')}
+              accountInitial={(account.auth?.email || '').slice(0, 1).toUpperCase()}
+            />
+          </div>
         )}
       </main>
     </div>

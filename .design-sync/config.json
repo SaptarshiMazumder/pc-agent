@@ -1,0 +1,28 @@
+{
+  "projectId": "12ac4fa1-92e0-4db4-a81a-271418bca4a1",
+  "shape": "package",
+  "pkg": "agent-app",
+  "globalName": "ComfyArtchitect",
+  "componentSrcMap": {
+    "App": null,
+    "Gate": null,
+    "LiveReload": null,
+    "PreviewSurface": null
+  },
+  "libOverrides": {
+    "source-kit.mjs": "app package: synth entry re-exports default-exported components, skips the createRoot bootstrap, and imports the tokens/theme/styles CSS layers the bootstrap carried"
+  },
+  "extraEntries": [
+    "../../../../../../.design-sync/preview-surface.jsx"
+  ],
+  "provider": {
+    "component": "PreviewSurface"
+  },
+  "overrides": {
+    "SignIn": {
+      "cardMode": "single",
+      "viewport": "760x820"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
