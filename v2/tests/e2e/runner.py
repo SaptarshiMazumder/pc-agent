@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
+import mimetypes
 import sys
 import uuid
 from pathlib import Path
@@ -63,15 +65,30 @@ async def _drive_live(scenario: Scenario, daemon: str, token: str, out: Path, mo
         if model:
             await _req(ws, "config.set", {"agentId": scenario.agent_id, "patch": {"model": model}})
 
-        for i, user_msg in enumerate(scenario.turns):
+        for i, turn in enumerate(scenario.turns):
             if i >= scenario.max_turns:
                 break
-            writer.open_turn(i, user_msg)
+            writer.open_turn(i, turn.text)
             run_id = str(uuid.uuid4().hex)
-            await _send(ws, "chat.send", {
+            params = {
                 "sessionKey": session_key, "agentId": scenario.agent_id,
-                "message": user_msg, "traceId": run_id,
-            })
+                "message": turn.text, "traceId": run_id,
+            }
+            # A turn's attachments travel the same way a real client sends them: base64 in
+            # chat.send, saved by the gateway into the agent's uploads/. Paths resolve against
+            # the scenario file so a scenario and its reference images travel together.
+            atts = []
+            for rel in turn.attachments:
+                fp = Path(rel)
+                if not fp.is_absolute():
+                    fp = scenario.base_dir / rel
+                data = base64.b64encode(fp.read_bytes()).decode("ascii")
+                mime, _enc = mimetypes.guess_type(fp.name)
+                atts.append({"name": fp.name, "mimeType": mime or "application/octet-stream",
+                             "dataBase64": data})
+            if atts:
+                params["attachments"] = atts
+            await _send(ws, "chat.send", params)
             ended = await _collect_turn(ws, session_key, i, writer)
             if not ended:
                 truncated = True
