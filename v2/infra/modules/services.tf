@@ -24,6 +24,16 @@ locals {
     # signature verification and leaves only the checksum — see the comment on AGENTD_PUBLISHER_KEY
     # in agent_runtime/config.py for why that is a downgrade and not a shortcut.
     daemon = {
+      # WHERE THE PUBLISH SERVICE IS -- and therefore where an ORGANIZATION'S private registry is
+      # read from. Not just for publishing: `orgs/*` is carved out of the registry bucket's
+      # public-read grant, so a member's org shelf is fetched from that service (authenticated,
+      # membership-checked, artifacts presigned) rather than off the CDN like the public index.
+      #
+      # The accounts service already received this; the daemon did not, and the daemon is the one
+      # that federates a member's shelves into their agent list. Without it publish_url resolves
+      # empty here, no org registry is added, and every member's Agents page silently omits
+      # everything their company published -- with nothing anywhere reporting a fault.
+      AGENTD_PUBLISH_URL   = local.publish_public_url
       AGENTD_REGISTRY      = local.registry_index_url
       AGENTD_PUBLISHER_KEY = var.registry_publisher_key
       # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
@@ -98,14 +108,14 @@ locals {
       # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.
-      AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
+      AGENTD_PUBLIC_ACCOUNTS_URL = local.publish_product_accounts_url
       # THE DAEMON'S OWN ADDRESS, port included. This read `replace(app_origin, "http", "ws")`,
       # and app_origin is the WEB client's origin — so the document handed every browser
       # ws://<host> with no port, i.e. nginx on :80, which serves static files and answers no
       # WebSocket upgrade. Same shape as publish_web_host and the model-proxy line below: one
       # host, each service named with ITS port. wss when TLS is on, because a page loaded over
       # https may not open a ws:// socket.
-      AGENTD_PUBLIC_WS_URL = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
+      AGENTD_PUBLIC_WS_URL          = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 
       # ── the admin control plane (accounts/admin_api.py) ──
@@ -141,7 +151,7 @@ locals {
       AGENTD_KEY_CONSUMERS = jsonencode({
         for secret_key in distinct(flatten([
           for svc in values(local.services) : values(svc.secret_keys)
-        ])) : secret_key => sort([
+          ])) : secret_key => sort([
           for name, svc in local.services :
           "${local.name_prefix}-${name}" if contains(values(svc.secret_keys), secret_key)
         ])
