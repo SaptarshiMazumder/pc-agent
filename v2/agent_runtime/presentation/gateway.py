@@ -5530,6 +5530,27 @@ class Gateway:
             acct = None
         cfg = account_config.for_account(self.config, acct)
         declared = self._declared_settings(scope)
+        # THE CALLER'S OWN SAVED SETTINGS, from the per-account store — where config.set puts
+        # them. Read once; feeds the declared fields' presence flags and readable values below.
+        # `acct` may be None here for the master view / a desktop — LOCAL_ACCOUNT is the same
+        # slot the desktop write path uses.
+        _stored_settings: dict = {}
+        if declared and scope:
+            from agent_runtime.infrastructure.account_settings import (
+                LOCAL_ACCOUNT,
+                AccountSettingsStore,
+            )
+
+            try:
+                # RAW connection account, not `account_config.current_account_id()` — that one is
+                # None on a signed-in DESKTOP, while config.set and the runtime's own reader
+                # (`container._settings_for_caller`) both use the raw account. All three must
+                # name the same slot or the page disagrees with the run.
+                _stored_settings = AccountSettingsStore(self.config.state_dir).read(
+                    accounts.account_id() or LOCAL_ACCOUNT, scope
+                )
+            except Exception:  # noqa: BLE001 — an unreadable store must not break the page
+                _stored_settings = {}
         # The author's own block, read once for the two payload fields below.
         _authored_cfg = self._authored(scope or "")
         values: dict = {}
@@ -5559,8 +5580,14 @@ class Gateway:
             # the page never learns the prefix exists.
             "env": {
                 **{name: bool(os.environ.get(name)) for name in PROVIDER_ENV_KEYS},
+                # STORE FIRST, env second — the same order `current_setting_value` resolves in.
+                # The page reading only the env layer while Save wrote the per-account store is
+                # how a saved URL "disappeared" on the next visit to the page.
                 **{
-                    f.key: bool(os.environ.get(setting_env_name(scope or "", f.key)))
+                    f.key: bool(
+                        _stored_settings.get(f.key)
+                        or os.environ.get(setting_env_name(scope or "", f.key))
+                    )
                     for f in declared
                 },
             },
@@ -5583,7 +5610,10 @@ class Gateway:
             # secret never is, installed or not. `envValues` cannot serve this — it is stripped
             # wholesale for an installed agent, which is exactly where these fields matter most.
             "settingsValues": {
-                f.key: os.environ.get(setting_env_name(scope or "", f.key), "")
+                f.key: (
+                    _stored_settings.get(f.key)
+                    or os.environ.get(setting_env_name(scope or "", f.key), "")
+                )
                 for f in declared
                 if not f.secret
             },
@@ -6006,17 +6036,21 @@ class Gateway:
         return {"saved": True, "target": "master", "path": path, "restartRecommended": False}
 
     def _config_set_for_account(
-        self, acct: str, patch: dict, keys: dict, raw, scope: str | None
+        self, acct: str, patch: dict, keys: dict, raw, scope: str | None, target: str = ""
     ) -> dict:
         """Persist config edits for ONE account, into that account's own overlay.
 
-        Everything a hosted tenant is allowed to change goes through here, and the three refusals
-        are the whole security argument:
+        Everything a hosted tenant is allowed to change goes through here, and the refusals are
+        the whole security argument:
 
-          * ``keys`` — the ``.env`` beside the master config is the MACHINE's, and it is read into
-            one process environment shared by every tenant's runs. Writing a tenant's credential
-            there would hand it to everyone else's agents; per-account secrets need their own
-            store, so until that exists this refuses rather than leaks.
+          * PROVIDER keys — the ``.env`` beside the master config is the MACHINE's, read into one
+            process environment shared by every tenant's runs. Writing a tenant's credential
+            there would hand it to everyone else's agents. Still refused.
+          * An AGENT's DECLARED settings — these now have their own per-account store
+            (``AccountSettingsStore``: their COMFYUI_URL, their tokens, beside their sessions),
+            so they are WRITTEN, not refused. This path refusing them while the accountless path
+            stored them is exactly how "works on the desktop, save silently vanishes on the web"
+            shipped.
           * machine-only keys — ports, paths, storage roots, the sandbox, hosted plumbing. Refused
             BY NAME so the page can say why, instead of reporting a save that changed nothing.
           * the master file — never opened. `raw` is bounded to this account's overlay.
@@ -6027,15 +6061,38 @@ class Gateway:
         effect on this account's next message and on nobody else's, ever.
         """
         if keys:
-            return {
-                "saved": False,
-                "error": (
-                    "provider keys and agent secrets are stored on the machine, which is shared "
-                    "in cloud mode — they cannot be set from an account. Use a local install for "
-                    "your own keys."
-                ),
-                "refused": sorted(keys),
-            }
+            env_writes, setting_writes, refused, ambiguous = self._env_write_plan(
+                keys, target or scope or ""
+            )
+            applied: list[str] = []
+            if setting_writes and (target or scope):
+                from agent_runtime.infrastructure.account_settings import AccountSettingsStore
+
+                store = AccountSettingsStore(self.config.state_dir)
+                applied = store.write(acct, target or scope or "", setting_writes)
+                # A live MCP child holds the environment it launched with — a changed value
+                # means nothing to it until its process is replaced.
+                if self.mcp_connector is not None:
+                    self.mcp_connector.forget(target or scope or "")
+            not_writable = sorted([*env_writes, *refused, *ambiguous])
+            if not_writable:
+                return {
+                    "saved": bool(applied),
+                    "keysApplied": applied,
+                    "error": (
+                        "provider keys are stored on the machine, which is shared in cloud "
+                        f"mode — not settable from an account: {', '.join(not_writable)}. "
+                        "This agent's own declared settings were saved."
+                        if applied
+                        else "provider keys are stored on the machine, which is shared in "
+                        f"cloud mode — not settable from an account: {', '.join(not_writable)}."
+                    ),
+                    "refused": not_writable,
+                }
+            # A save can carry keys AND a patch — return only when there is nothing further to
+            # process, or the patch half of the page would be silently dropped.
+            if applied and not patch and not (isinstance(raw, str) and raw.strip()):
+                return {"saved": True, "keysApplied": applied, "restartRecommended": False}
 
         # (a) whole-document edit (the Advanced editor) — of THEIR overlay, never the daemon's file
         if isinstance(raw, str) and raw.strip():
@@ -6200,7 +6257,9 @@ class Gateway:
             # name. `target` is that ask.
             return _with_locked(self._config_set_master(patch, keys, raw, scope))
         if acct:
-            return _with_locked(self._config_set_for_account(acct, patch, keys, raw, scope))
+            return _with_locked(
+                self._config_set_for_account(acct, patch, keys, raw, scope, target)
+            )
         # FAIL CLOSED. Today `_handle_conn` admits no accountless connection where sign-in is
         # required, so this cannot trigger — which is exactly why it is worth writing down. The
         # branch above keys off "does this connection have an account", and if a future change

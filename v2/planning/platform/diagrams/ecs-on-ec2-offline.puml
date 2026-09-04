@@ -1,0 +1,110 @@
+@startuml ecs-on-ec2-offline
+' ============================================================================
+' agentd staging — moving one service from Fargate to ECS on EC2 (2026-09-04)
+' SPRITE-FREE TWIN of ecs-on-ec2.puml. Same content, no AWS icon includes, so
+' it renders with the bundled plantuml.jar offline and cannot rot when the
+' icon library moves — the same reasoning aws-deployment.puml states.
+' Colour = which plane a box lives in (see legend). PUML only; do not render
+' PNG unless asked.
+' ============================================================================
+title agentd staging — ECS on EC2: what connects to what, and what changes
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 12
+skinparam TitleFontSize 17
+skinparam linetype ortho
+skinparam nodesep 55
+skinparam ranksep 45
+skinparam package {
+  BorderColor #888888
+  BackgroundColor #FCFCFC
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C8B900
+}
+
+' ---- clients + external (NOT on AWS) ---------------------------------------
+actor "Browser user" as USER
+database "**Neon Postgres**\n<<external, ap-southeast-1>>\naccounts' database;\nreached over the public internet" as NEON #F5F5F5
+
+' ---- the control plane: regional resources, NOT inside the VPC --------------
+package "CONTROL PLANE  (regional — none of this is in the VPC)" as CTRL {
+  rectangle "**SSM Parameter Store**\n<<managed parameter>>\n/aws/service/ecs/optimized-ami/\namazon-linux-2023/recommended\nyields an AMI id string" as SSM #FFF7E6
+  rectangle "**Launch template**\n<<EC2 spec>>\nimage_id = that AMI ·\ninstance_type = t3.small ·\ninstance profile · security group ·\nuser_data writes ECS_CLUSTER" as LT #FFF7E6
+  rectangle "**Auto Scaling Group**\n<<EC2 fleet>>\nmin 0 / max 2 · spans both subnets ·\nprotect_from_scale_in ·\ndesired_capacity owned by ECS" as ASG #FFF7E6
+  rectangle "**ECS capacity provider**\n<<scheduler bridge>>\nauto_scaling_group_arn -> ASG ·\nmanaged scaling ·\nmanaged termination protection" as CP #FFF7E6
+  rectangle "**ECS cluster** agentd-staging\n<<rendezvous point>>\nholds the capacity provider;\nNOTHING here lists its instances —\nthey announce themselves" as CLUSTER #EAF3FF
+  rectangle "**ECS service — web**\n<<service>>\ncapacity_provider_strategy\nREPLACES launch_type = FARGATE ·\ndesired_count 1 ·\nminimum_healthy_percent 100" as SVC #EAF3FF
+  rectangle "**Task definition — web**\n<<container spec only>>\nnetwork_mode = host ·\nrequires_compatibilities = EC2 ·\nnames NO AMI, ASG or\ncapacity provider" as TD #F0FFF0
+}
+
+' ---- AWS services the container talks to ------------------------------------
+package "AWS SERVICES (reached over the internet)" as SERVICES {
+  rectangle "**Amazon ECR**\n<<image registry>>\nimage pulls" as ECR #F0FFF0
+  rectangle "**Secrets Manager**\n<<secrets>>\nagentd/staging/app —\nDATABASE_URL and the rail keys" as SEC #FFF0F0
+}
+
+' ---- the VPC ----------------------------------------------------------------
+package "VPC agentd-staging — PUBLIC SUBNETS ONLY, NO NAT GATEWAY" as VPC {
+
+  rectangle "**Internet Gateway**\n<<VPC edge>>\nonly carries traffic for an interface\nthat HAS a public IP —\nthis single fact is why EC2 tasks\nmust use host networking" as IGW #EAF3FF
+
+  rectangle "**Application Load Balancer**\n<<ALB>>\none logical ALB across both subnets;\nweb target group moves\ntarget_type: ip -> instance" as ALB #EAF3FF
+
+  package "Availability Zone A — MIGRATED" as AZA {
+    rectangle "**ECS container instance**\n<<EC2, ASG member>>\nt3.small · public IP from the subnet ·\nECS agent registers it ·\nAMI patching is now ours" as EC2A #FFF7E6
+    rectangle "**web task**\n<<ECS task on EC2>>\nnetwork_mode = host ·\nbinds the instance's port 80 ·\nno ENI of its own ·\negresses via the instance IP" as WEBT #FFF7E6
+    note bottom of EC2A
+      Instance-SG now governs
+      EVERY task on this box —
+      security groups stop being
+      per-task once awsvpc is gone.
+    end note
+  }
+
+  package "Availability Zone B — STILL FARGATE" as AZB {
+    rectangle "**accounts**\n<<ECS Fargate task>>\nnetwork_mode = awsvpc ·\nown ENI + assign_public_ip ·\nMIGRATES LAST: everything\ndiscovers it at accounts.agentd.local" as ACCT #F0FFF0
+    rectangle "**daemon · model-proxy · ingest**\n<<ECS Fargate tasks>>\nmove onto the same instance\nonce web proves the pattern" as REST #F0FFF0
+  }
+}
+
+' ---- the top-down chain: each resource names the next by ONE field ----------
+SSM -down-> LT : image_id
+LT -down-> ASG : launch_template
+ASG -down-> CP : auto_scaling_group_arn
+CP -down-> CLUSTER : capacity_providers
+SVC -up-> CLUSTER : capacity_provider_strategy
+SVC -right-> TD : task_definition
+
+' ---- the bottom-up half: the machine joins on its own -----------------------
+EC2A -[#DarkOrange]-> CLUSTER : **registers itself**\nECS_CLUSTER in user_data
+ASG ..> EC2A : launches into\nthe public subnet
+EC2A -down-> WEBT : runs
+
+' ---- request path ------------------------------------------------------------
+USER -down-> ALB : HTTPS via IGW
+ALB -down-> WEBT : target_type = instance\nhost port 80
+ALB -down-> ACCT : target_type = ip\ntask port 4100
+
+' ---- egress: the reason host networking is required -------------------------
+EC2A -[#RoyalBlue]-> IGW : outbound via the\ninstance's public IP
+IGW -[#RoyalBlue]-> NEON : TLS 5432
+EC2A ..> ECR : image pull
+EC2A ..> SEC : read at container start
+
+legend bottom
+  |= |= Fargate (today) |= ECS on EC2 (after) |
+  |Who owns the machine | AWS, invisibly | you: AMI, ASG, patching |
+  |network_mode | awsvpc (no choice) | host |
+  |Task IP | own ENI + public IP | none — uses the instance's |
+  |ALB target_type | ip | instance |
+  |Security group | per task | per instance |
+  |Internet egress | assign_public_ip on the task | instance public IP via IGW |
+  |Tasks per box | n/a | bounded by host ports, not ENIs |
+  |Colour key | <back:#FFF7E6>EC2 / capacity</back>  <back:#EAF3FF>ECS + network</back>  <back:#F0FFF0>container / service</back>  <back:#FFF0F0>secrets</back> | |
+endlegend
+
+@enduml
