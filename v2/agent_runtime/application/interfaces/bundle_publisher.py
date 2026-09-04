@@ -35,6 +35,11 @@ class PublishRequest:
     # Publish the per-agent INSTALLER alongside the bundle, so a stranger with no agentd can
     # download it from the marketplace. Requires a built stub (or a toolchain to build one).
     with_installer: bool = True
+    #: WHERE IT GOES. "" = the public marketplace (reviewed on a creator's first publish). An
+    #: ``org_`` id = that organization's private registry: same packing, same signing, same
+    #: versioning, no platform review — a company distributing internally is not publishing to
+    #: the world. The service re-checks the id against the author's own memberships.
+    org_id: str = ""
 
 
 @dataclass

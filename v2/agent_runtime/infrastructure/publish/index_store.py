@@ -36,6 +36,38 @@ class S3IndexStore:
         self._prefix = (prefix or "").strip("/")
         self._public_base = (public_base or "").rstrip("/")
 
+    def scoped(self, scope: str) -> "S3IndexStore":
+        """This store, re-rooted at one organization's private registry (``orgs/<org_id>/`` under
+        the current prefix). Empty scope returns self — the public registry is the unscoped one.
+
+        The bucket, client and public base are shared deliberately: an org registry is a PREFIX,
+        not a second deployment, so nothing about artifact serving or the lock changes with it.
+        """
+        scope = (scope or "").strip().strip("/")
+        if not scope:
+            return self
+        return S3IndexStore(
+            self._s3,
+            self._bucket,
+            prefix=f"{self._prefix}/orgs/{scope}" if self._prefix else f"orgs/{scope}",
+            public_base=self._public_base,
+        )
+
+    def presign(self, name: str, expires_s: int = 3600) -> str:
+        """A time-limited GET url for one artifact in THIS store's space.
+
+        For the private shelves. `orgs/*` is carved out of the bucket's public-read grant, so a
+        member's client cannot fetch an org bundle by url the way it fetches a marketplace one.
+        The publish service authenticates the member, checks the membership, and hands back links
+        made here -- the grant travels with the link and expires, instead of the prefix being
+        readable by anyone who learns an org id.
+        """
+        return self._s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": self._key(name)},
+            ExpiresIn=int(expires_s),
+        )
+
     def _key(self, name: str) -> str:
         return f"{self._prefix}/{name}" if self._prefix else name
 

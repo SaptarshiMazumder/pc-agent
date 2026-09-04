@@ -217,6 +217,49 @@ class PublishAgentTool(Tool):
                 return ToolResult.text(self._not_ready(blocked, "ship to your organization"),
                                        is_error=True)
 
+        # ---- THE CLOUD PATH, PREFERRED -----------------------------------------------------
+        # The SAME pipeline as a marketplace publish -- packed, signed, versioned, installer
+        # built -- against the ORGANIZATION's own registry instead of the public one. That is
+        # what makes "publish once, everyone has it" true: a colleague on another machine
+        # installs from that registry exactly as they would a marketplace agent, and a version
+        # can be superseded or rolled back like any other.
+        #
+        # A LOCAL COPY IS THE FALLBACK, NOT THE DEFAULT. It reaches only this machine's own org
+        # layer -- right for a checkout, useless for a company -- so when that is what happened
+        # the result says so, instead of claiming every member has it.
+        from agent_runtime.application.interfaces.bundle_publisher import PublishRequest
+
+        publisher = self._publisher(str(params.get("target") or "").strip())
+        if publisher is not None and not publisher.requirements():
+            result = publisher.publish(
+                PublishRequest(
+                    agent_dir=agent_dir,
+                    dry_run=False,
+                    version=str(params.get("version") or ""),
+                    with_installer=True,
+                    org_id=org_id,
+                )
+            )
+            if not result.ok:
+                return ToolResult.text(
+                    f"could not ship to your organization: {result.message}"
+                    "\n\n(Nothing was published.)",
+                    is_error=True,
+                )
+            out = [
+                (f"Shipped '{agent_id}' {result.version or ''}".rstrip())
+                + " to your organization.",
+                "",
+                "Every member can install it now, on any machine. No review was needed: this is "
+                "internal distribution, not a public listing.",
+            ]
+            if result.installer_url:
+                out.append(f"\ninstaller: {result.installer_url}")
+            if result.url:
+                out.append(f"bundle:    {result.url}")
+            return ToolResult.text("\n".join(out))
+
+        # ---- THE LOCAL FALLBACK ------------------------------------------------------------
         author = accounts.account_id() or ""
         target = user_state.org_agents_dir(self._config.state_dir, org_id) / agent_id
         err = install_org_definition(agent_dir, target, org_id, agent_id, author)
@@ -229,9 +272,12 @@ class PublishAgentTool(Tool):
             refresh()
 
         return ToolResult.text(
-            f"Shipped '{agent_id}' to your organization.\n\n"
-            "Every member resolves it now — read-only, and their chats with it stay their own. "
-            "No review was needed: this is internal distribution, not a public listing."
+            f"Shipped '{agent_id}' to your organization ON THIS MACHINE ONLY.\n\n"
+            "This build has no publish service wired in (store.publish_url in its "
+            "distribution.toml), so the agent was copied into this daemon's own org layer "
+            "rather than uploaded. Anyone signed in to THIS daemon resolves it; a colleague on "
+            "another computer does not.\n\n"
+            "To reach the whole organization, publish from a build with a publish service."
         )
 
     @staticmethod

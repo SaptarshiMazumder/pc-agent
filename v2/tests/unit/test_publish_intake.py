@@ -96,10 +96,22 @@ class FakeSigner:
 
 
 class FakeStore:
+    """The registry's storage. Scoped views are REAL here — a fake that returned ``self`` for
+    every scope would make the one mistake worth testing for (an org bundle on the public shelf)
+    impossible to catch."""
+
     def __init__(self, index=None):
         self.index = index if index is not None else {}
         self.artifacts: dict[str, bytes] = {}
         self.order: list[str] = []
+        #: scope -> the store standing in for that organization's registry.
+        self.scopes: dict[str, "FakeStore"] = {}
+
+    def scoped(self, scope: str):
+        scope = (scope or "").strip()
+        if not scope:
+            return self
+        return self.scopes.setdefault(scope, FakeStore())
 
     def read_index(self):
         return json.loads(json.dumps(self.index)) if self.index else {}
@@ -112,6 +124,9 @@ class FakeStore:
         self.artifacts[name] = data
         self.order.append(name)
         return f"https://cdn.example/{name}"
+
+    def presign(self, name, expires_s=3600):
+        return f"https://signed.example/{name}?exp={expires_s}"
 
 
 class FakeLock:
@@ -180,6 +195,22 @@ class FakeParker:
         self.slots.pop((creator_id, bundle_id), None)
 
 
+class FakeVault:
+    """The platform root key. A REAL keypair, because build_roster genuinely signs — a stub that
+    returned a fixed string would let a roster the clients could never verify pass the tests."""
+
+    def __init__(self):
+        from agent_runtime.infrastructure import signing
+
+        self._private, self._public = signing.generate_keypair()
+
+    def private_key(self):
+        return self._private
+
+    def public_key(self):
+        return self._public
+
+
 def service(**kw):
     parts = {
         "authenticator": FakeAuth(),
@@ -188,6 +219,7 @@ def service(**kw):
         "index_store": FakeStore(),
         "lock": FakeLock(),
         "product_service": FakeProducts(),
+        "root_vault": FakeVault(),
     }
     parts.update(kw)
     return PublishIntakeService(**parts), parts
@@ -664,3 +696,178 @@ def test_a_reserved_id_is_refused_at_parking_time_not_at_admission():
     assert result.status == BAD_REQUEST
     assert "reserved by the platform" in result.message
     assert parker.slots == {}, "a reserved id must never park"
+
+
+# ────────────────────────────── the enterprise destination ──────────────────────────────
+#
+# An org publish is the SAME pipeline against a different shelf: same packing, same signing, same
+# version rules, same lock. Two things differ, and both are load-bearing:
+#
+#   * the platform's review does not apply (the company already vouched for its own staff), and
+#   * the bundle must not land in the public registry, ever.
+#
+# The second is the one worth most of these tests: it fails silently and it cannot be undone.
+
+ORG = "org_82bdccbd70a0ffa7"
+MEMBER = {"account_id": "acc-1", "orgs": [{"id": ORG, "role": "owner"}]}
+
+
+def org_service(**kw):
+    parts = {"authenticator": FakeAuth({"tok": MEMBER})}
+    parts.update(kw)
+    return service(**parts)
+
+
+def test_an_org_publish_lands_in_the_org_registry_and_never_the_public_one():
+    svc, parts = org_service()
+    result = svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    assert result.status == OK, result.message
+    public = parts["index_store"]
+    assert public.index == {}, "the public registry was written to by an internal publish"
+    assert public.artifacts == {}
+    shelf = public.scopes[ORG]
+    assert [b["id"] for b in shelf.index["bundles"]] == ["weather"]
+    assert "weather-1.2.0.agentpkg" in shelf.artifacts
+
+
+def test_an_org_publish_skips_the_review_that_gates_the_marketplace():
+    """A creator with no roster admission still publishes INTERNALLY. On the public path the same
+    creator gets 202 and parks — that contrast is the whole feature."""
+    svc, _ = org_service(creators=FakeCreators(state=PENDING_REVIEW))
+    result = svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    assert result.status == OK, result.message
+
+    svc2, _ = org_service(creators=FakeCreators(state=PENDING_REVIEW))
+    assert svc2.submit(Submission(package=agentpkg(), token="tok")).status == PENDING
+
+
+def test_an_org_you_do_not_belong_to_is_refused_and_nothing_is_written():
+    svc, parts = org_service()
+    result = svc.submit(Submission(package=agentpkg(), token="tok", org_id="org_someone_else"))
+    assert result.status == FORBIDDEN
+    assert ORG in result.message  # says which orgs ARE yours, so the fix is obvious
+    assert parts["index_store"].scopes == {}
+    assert parts["index_store"].index == {}
+
+
+def test_an_account_in_no_org_is_pointed_at_the_marketplace_instead():
+    svc, _ = service(authenticator=FakeAuth({"tok": {"account_id": "acc-1"}}))
+    result = svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    assert result.status == FORBIDDEN
+    assert "marketplace" in result.message
+
+
+def test_membership_is_read_from_the_token_never_from_the_request():
+    """The account resolved from the token says which orgs are real. A submission naming an org
+    the account is not in must not create that org's registry as a side effect."""
+    svc, parts = service(authenticator=FakeAuth({"tok": {"account_id": "acc-1", "orgs": []}}))
+    assert svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG)).status == FORBIDDEN
+    assert ORG not in parts["index_store"].scopes
+
+
+def test_the_org_registry_carries_a_root_signed_roster_naming_the_publisher():
+    from agent_runtime.domain.bundle import parse_publisher_roster, roster_signing_payload
+    from agent_runtime.infrastructure import signing
+
+    vault = FakeVault()
+    svc, parts = org_service(root_vault=vault)
+    svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+
+    block = parts["index_store"].scopes[ORG].index["publishers"]
+    assert [r["id"] for r in block["roster"]] == ["c-abc"]
+    roster = parse_publisher_roster(block)
+    assert signing.verify(
+        vault.public_key(),
+        roster_signing_payload(roster.entries, roster.revoked, roster.issued),
+        block["sig"],
+    ), "the org roster is not verifiable with the pinned root key"
+
+
+def test_a_second_publish_leaves_the_roster_untouched():
+    """Idempotent: re-signing on every publish would churn the rows that vouch for everyone
+    else's bundles, for no gain."""
+    svc, parts = org_service()
+    svc.submit(Submission(package=agentpkg(version="1.0.0"), token="tok", org_id=ORG))
+    first = json.dumps(parts["index_store"].scopes[ORG].index["publishers"], sort_keys=True)
+    svc.submit(Submission(package=agentpkg(version="1.1.0"), token="tok", org_id=ORG))
+    second = json.dumps(parts["index_store"].scopes[ORG].index["publishers"], sort_keys=True)
+    assert first == second
+
+
+def test_without_a_root_key_an_org_publish_is_refused_rather_than_unverifiable():
+    """Fail closed. An org index whose roster does not name the signer would be listed and refuse
+    to install on every member's machine, with nothing anywhere saying why."""
+    svc, parts = org_service(root_vault=None)
+    result = svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    assert result.status == SERVER_ERROR
+    assert parts["index_store"].scopes == {}
+
+
+def test_the_public_path_still_needs_no_vault():
+    """The marketplace's roster is the admin service's business; intake never signs one."""
+    svc, parts = service(root_vault=None)
+    result = svc.submit(Submission(package=agentpkg(), token="tok"))
+    assert result.status == OK, result.message
+    assert [b["id"] for b in parts["index_store"].index["bundles"]] == ["weather"]
+
+
+# ────────────────────────────── reading a private shelf ──────────────────────────────
+#
+# `orgs/*` is carved out of the registry bucket's public-read grant, so this endpoint is the ONLY
+# way a member reads their company's registry. What it must get right: who is asking, whether they
+# belong, and handing back links that work without making the prefix readable to anyone who
+# learns an org id.
+
+
+def test_reading_an_org_shelf_needs_a_session():
+    svc, _ = org_service()
+    status, body = svc.org_index("nope", ORG)
+    assert status == UNAUTHORIZED
+    assert "bundles" not in body
+
+
+def test_reading_someone_elses_org_is_refused():
+    svc, _ = org_service()
+    status, body = svc.org_index("tok", "org_not_mine")
+    assert status == FORBIDDEN
+    assert "bundles" not in body
+
+
+def test_an_org_that_never_published_reads_as_empty_not_an_error():
+    """The client merges shelves, so an empty one contributes nothing. An error here would make
+    every member's store fail until somebody published."""
+    svc, _ = org_service()
+    status, body = svc.org_index("tok", ORG)
+    assert status == OK
+    assert body["bundles"] == []
+
+
+def test_the_artifacts_come_back_presigned():
+    svc, parts = org_service()
+    svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    status, body = svc.org_index("tok", ORG)
+    assert status == OK
+    row = body["bundles"][0]
+    assert row["url"].startswith("https://signed.example/weather-1.2.0.agentpkg")
+    assert parts["index_store"].scopes[ORG].index["bundles"][0]["url"] == "weather-1.2.0.agentpkg"
+
+
+def test_an_absolute_url_is_left_alone():
+    """Someone else put it there; it is not ours to re-sign."""
+    svc, parts = org_service()
+    svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    shelf = parts["index_store"].scopes[ORG]
+    shelf.index["bundles"][0]["url"] = "https://elsewhere.example/weather.agentpkg"
+    _, body = svc.org_index("tok", ORG)
+    assert body["bundles"][0]["url"] == "https://elsewhere.example/weather.agentpkg"
+
+
+def test_the_roster_and_signatures_are_returned_verbatim():
+    """A member verifies an org bundle exactly as strictly as a marketplace one, so this service
+    must not be trusted to vouch for anything it did not sign."""
+    svc, parts = org_service()
+    svc.submit(Submission(package=agentpkg(), token="tok", org_id=ORG))
+    stored = parts["index_store"].scopes[ORG].index
+    _, body = svc.org_index("tok", ORG)
+    assert body["publishers"] == stored["publishers"]
+    assert body["bundles"][0]["sig"] == stored["bundles"][0]["sig"]

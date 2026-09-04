@@ -67,9 +67,23 @@ class RegistryClient:
         registry_url: str,
         pinned_publisher_key: str = "",
         trust_state_path: Path | None = None,
+        auth_token=None,
     ):
+        """:param auth_token: ``() -> str`` supplying a bearer token for INDEX fetches, or None
+        for an anonymous registry (the public marketplace, and every local/file:// shape).
+
+        A CALLABLE, NOT A STRING. An organization's registry is private, so reading it is an
+        authenticated request -- and a session token expires and is renewed while a daemon runs.
+        A token captured at construction would work until the first refresh and then 401 forever,
+        which presents as "my company's agents vanished" long after the cause. Asked for per
+        request, it is always the live one.
+
+        ARTIFACT downloads deliberately do NOT carry it: a private index hands back presigned
+        URLs, which already encode their own grant and must not also receive a bearer token
+        (a redirect to S3 would leak it to a third party)."""
         self._index_url = normalize_registry_url(registry_url)
         self._pinned_key = pinned_publisher_key
+        self._auth_token = auth_token
         self._memory = RosterMemory(trust_state_path)
         # Filled by fetch_index for a schema-2 registry: creator id -> public key. Empty means
         # either schema 1 or "no index has been fetched yet", and `_verify` distinguishes the two
@@ -77,7 +91,7 @@ class RegistryClient:
         self._trusted: dict[str, str] = {}
 
     async def fetch_index(self) -> RegistryIndex:
-        raw = await self._read_bytes(self._index_url)
+        raw = await self._read_bytes(self._index_url, authenticated=True)
         try:
             index = parse_registry_index(json.loads(raw.decode("utf-8")))
         except (ValueError, UnicodeDecodeError) as e:
@@ -182,7 +196,7 @@ class RegistryClient:
 
     # ------------------------------------------------------------ transports
 
-    async def _read_bytes(self, url: str) -> bytes:
+    async def _read_bytes(self, url: str, authenticated: bool = False) -> bytes:
         scheme = urlsplit(url).scheme
         if scheme == "file":
             path = Path(url2pathname(urlsplit(url).path))
@@ -191,9 +205,14 @@ class RegistryClient:
             except OSError as e:
                 raise BundleError(f"cannot read {path}: {e}") from e
         if scheme in ("http", "https"):
+            headers = {}
+            if authenticated and self._auth_token is not None:
+                token = (self._auth_token() or "").strip()
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
             try:
                 async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-                    response = await client.get(url)
+                    response = await client.get(url, headers=headers)
                     response.raise_for_status()
                     return response.content
             except httpx.HTTPError as e:

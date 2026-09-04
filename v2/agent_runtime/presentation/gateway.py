@@ -3593,7 +3593,14 @@ class Gateway:
                 )
             return self.marketplace
 
-        service = self.account_marketplaces.get(acct)
+        # KEYED BY MEMBERSHIP TOO, not by account alone. The listing a member sees includes their
+        # organizations' private registries, so a service built before someone joined an org would
+        # keep serving a store with that org's agents missing for the rest of the daemon's life.
+        # Re-keying rebuilds it the moment the token's own claim changes, which costs one dict
+        # entry and removes a "restart to see it" bug nobody would diagnose.
+        orgs = tuple(accounts.org_ids() or ())
+        key = (acct, orgs)
+        service = self.account_marketplaces.get(key)
         if service is None:
             import dataclasses
 
@@ -3610,8 +3617,9 @@ class Gateway:
                 scoped,
                 on_event=self._marketplace_progress,
                 after_change=self._marketplace_after_change,
+                org_ids=orgs,
             )
-            self.account_marketplaces[acct] = service
+            self.account_marketplaces[key] = service
         return service
 
     def _marketplace_progress(self, payload: dict) -> None:

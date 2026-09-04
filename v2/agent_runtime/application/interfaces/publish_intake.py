@@ -59,6 +59,18 @@ class Submission:
     token: str  # the author's accounts session token
     bundle_id: str = ""  # what they CLAIM to be publishing; checked against the manifest
     filename: str = ""
+    #: WHERE THIS IS GOING. "" = the public marketplace (reviewed). An ``org_`` id = that
+    #: organization's private registry, which is the enterprise path: no platform review, because
+    #: a company distributing to its own staff is not publishing to the world.
+    #:
+    #: IT IS A CLAIM, NOT A PERMISSION. The service checks it against the ORGS ON THE RESOLVED
+    #: TOKEN and refuses anything else — the same rule the daemon's local share uses. A frame
+    #: parameter can say any org id it likes; only the accounts service decides which are true.
+    org_id: str = ""
+
+    @property
+    def is_org(self) -> bool:
+        return bool(self.org_id.strip())
 
 
 @dataclass(frozen=True)
@@ -215,6 +227,18 @@ class BundleSigner(Protocol):
 @runtime_checkable
 class IndexStore(Protocol):
     """The registry's storage: the index document plus the artifacts it points at."""
+
+    def scoped(self, scope: str) -> "IndexStore":
+        """A VIEW of this store for one organization's private registry — its own index document
+        and its own artifact space — or ``self`` when ``scope`` is empty (the public registry).
+
+        A VIEW RATHER THAN A SECOND STORE, because everything else about publishing is identical:
+        the same ordering, the same lock, the same signing, the same installer build. Only the
+        shelf differs. Making the scope a parameter of the three methods instead would put "which
+        registry" into every call site, where it can be forgotten exactly once and publish a
+        company's internal agent to the world.
+        """
+        ...
 
     def read_index(self) -> dict:
         """The current index.json, or {} when the registry is empty."""

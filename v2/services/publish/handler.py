@@ -32,6 +32,10 @@ ADMIN_CREATORS_ROUTE = "/registry/admin/creators"
 ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
 ADMIN_REVOKE_ROUTE = "/registry/admin/revoke"
 ADMIN_UNLIST_ROUTE = "/registry/admin/unlist"
+# The private shelves, read side. `/registry/org/<org_id>` -- a GET, authenticated, and the
+# ONLY way to read an organization's registry: `orgs/*` is carved out of the bucket's public
+# grant precisely so that a url is never enough.
+ORG_INDEX_ROUTE = "/registry/org/"
 
 
 # ────────────────────────────── composition ──────────────────────────────
@@ -102,6 +106,10 @@ def build_services():
         # The hosted web deployment's base url — stamped into the index so every store can
         # render Open-in-browser links for web-delivered agents. Unset => no links, everywhere.
         web_host=os.environ.get("WEB_HOST", ""),
+        # ORG PUBLISHING ONLY. An organization's private registry carries its own roster, and a
+        # roster is the one thing the root key signs. The same vault the admin service uses — an
+        # org registry is a shelf in this registry, not a second deployment with its own trust.
+        root_vault=vault,
     )
     admin = RosterAdminService(
         authenticator=authenticator,
@@ -165,6 +173,22 @@ def service():
 # ────────────────────────────── HTTP ──────────────────────────────
 
 
+def _org_index(event, path: str):
+    """GET /registry/org/<org_id> -> that organization's index, presigned, for a member.
+
+    Thin like every other adapter here: pull the id out of the path, hand the token and the id to
+    the service, render what comes back. Membership is the service's decision, made against the
+    accounts service -- nothing about it is decided from the request.
+    """
+    if _method(event) != "GET":
+        return _json(405, {"message": "GET /registry/org/<org_id>"})
+    org_id = path.rsplit("/", 1)[-1].strip()
+    if not org_id:
+        return _json(400, {"message": "no organization id in the path"})
+    status, body = service().org_index(_bearer(event), org_id)
+    return _json(status, body)
+
+
 def handler(event, context=None):  # noqa: ARG001 — Lambda signature
     """ALB / API Gateway proxy event -> response dict."""
     from agent_runtime.application.interfaces.publish_intake import (
@@ -176,6 +200,8 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
     path = _path(event)
     if _is_admin_route(path):
         return _admin(event, path)
+    if ORG_INDEX_ROUTE in path:
+        return _org_index(event, path)
     if not path.endswith(PUBLISH_ROUTE):
         return _json(404, {"message": f"no route {path}"})
     if _method(event) != "POST":
@@ -197,6 +223,10 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
             or filenames.get("package", "")
             or filenames.get("bundle", "")
         ),
+        # WHERE IT GOES. Absent/empty = the public marketplace. An org id routes it to that
+        # organization's private registry — a CLAIM the service checks against the resolved
+        # token's own memberships, so nothing is trusted about it here.
+        org_id=fields.get("org_id", ""),
     )
     try:
         result = service().submit(submission)

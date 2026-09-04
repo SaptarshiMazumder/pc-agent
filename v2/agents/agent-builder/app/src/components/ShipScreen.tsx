@@ -124,11 +124,18 @@ export function ShipScreen({
     }
   }
 
-  /* SHIPPING TO THE ORG IS ONE STEP, deliberately. The dry-run/confirm pair guards a PUBLIC,
-     irreversible artifact and a registry index every client reads; handing an agent to your own
-     colleagues is neither — it replaces the org's copy and an admin can remove it. Making an
-     enterprise walk a two-step review dance to reach its own staff is the friction this whole
-     path exists to delete. */
+  /* SHIPPING TO THE ORG IS ONE STEP, deliberately.
+
+     It is the SAME pipeline as a marketplace publish -- packed, signed with the author's creator
+     key, versioned, installer built -- against the organization's own private registry instead of
+     the public one. So a colleague on any machine installs it exactly as they would a marketplace
+     agent, and a version supersedes or rolls back like any other.
+
+     What it does NOT have is the review. The dry-run/confirm pair guards a PUBLIC listing that
+     strangers install and that the platform's roster vouches for; reaching your own colleagues is
+     neither, and the company already vouched for its own staff by employing them. Making an
+     enterprise walk a review queue to reach its own people is the friction this path exists to
+     delete. */
   const shipToOrg = async (): Promise<void> => {
     setPub({ step: 'publishing', preview: '' })
     try {
@@ -270,7 +277,7 @@ export function ShipScreen({
                   disabled={!authorship.enterprise}
                   title={
                     authorship.enterprise
-                      ? `Ship straight to ${orgName} — every member gets it, no review`
+                      ? `Ship straight to ${orgName} — every member can install it, on any machine, with no review`
                       : 'You are not in an organization'
                   }
                   onClick={() => setAudience('org')}
@@ -300,7 +307,7 @@ export function ShipScreen({
                   !canPublish
                     ? publishBlockReason(agent)
                     : audience === 'org'
-                      ? `Ship it to ${orgName} — every member gets it immediately, no review`
+                      ? `Ship it to ${orgName} — every member can install it straight away, on any machine, with no review`
                       : 'Dry-run first: shows the index that would be published'
                 }
                 onClick={() => void (audience === 'org' ? shipToOrg() : startPublish())}

@@ -70,6 +70,7 @@ class PublishIntakeService:
         max_bytes: int = MAX_PACKAGE_BYTES,
         parker=None,
         web_host: str = "",
+        root_vault=None,
     ):
         """:param product_service: a BuildProductService. None => publish bundles only, no
         installers, reported as a warning on every publish rather than silently.
@@ -77,7 +78,11 @@ class PublishIntakeService:
         must publish again after admission — the degraded pre-parking behaviour, kept working so
         a deployment without private storage still functions.
         :param web_host: the hosted deployment's base url, stamped into the index so stores can
-        render Open-in-browser links. "" => never stamped (a deployment with no web plane)."""
+        render Open-in-browser links. "" => never stamped (a deployment with no web plane).
+        :param root_vault: the platform ROOT key, needed ONLY to sign an organization registry's
+        roster. None => org publishing is refused rather than producing an index whose bundles no
+        client can verify. The public path never touches it: there, admission is an operator
+        action and the roster is signed by the admin service."""
         self._auth = authenticator
         self._creators = creators
         self._signer = signer
@@ -87,6 +92,7 @@ class PublishIntakeService:
         self._max_bytes = max_bytes
         self._parker = parker
         self._web_host = web_host.strip()
+        self._root_vault = root_vault
 
     # ================================================================== entry point
     def submit(self, submission: Submission) -> IntakeResult:
@@ -113,7 +119,32 @@ class PublishIntakeService:
         )
         if creator.state == "revoked":
             return IntakeResult(FORBIDDEN, "this account may not publish.", creator_id=creator.id)
-        if not creator.may_publish:
+
+        # ── THE TWO DESTINATIONS ────────────────────────────────────────────────────────────
+        # An ORG publish is internal distribution, so the platform is not a party to it and the
+        # roster review does not apply. Everything else about it is identical — same ordering,
+        # same signing, same versioning, same installer — because the shelf is the only thing
+        # that differs (see IndexStore.scoped).
+        if submission.is_org:
+            refusal = self._refuse_unless_member(account, submission.org_id, creator.id)
+            if refusal is not None:
+                return refusal
+            if self._root_vault is None:
+                # REFUSE, never "publish it unsigned". An org index whose roster does not name the
+                # signing creator fails verification on every member's machine — fail-closed, so
+                # the store would list the agent and every install would refuse, with nothing
+                # anywhere saying why. A deployment that cannot sign cannot publish internally.
+                return IntakeResult(
+                    SERVER_ERROR,
+                    "this deployment cannot sign an organization registry (no root key is "
+                    "configured), so nothing was published. An operator has to configure the "
+                    "publish service's root key vault.",
+                    creator_id=creator.id,
+                )
+        elif not creator.may_publish:
+            # PUBLIC only. Admission to the root-signed roster is the marketplace's review step,
+            # and it exists because a stranger installs what it names. Nobody outside the company
+            # installs an org bundle, so making a company queue behind it was the wrong model.
             return self._pend(submission, creator)
 
         import tempfile
@@ -160,6 +191,146 @@ class PublishIntakeService:
             # retry once whatever broke is fixed.
             self._parker.remove(creator.id, parked.bundle_id)
         return results
+
+    # ================================================================== reading an org shelf
+    def org_index(self, token: str, org_id: str) -> tuple[int, dict]:
+        """One organization's registry, for a MEMBER. -> (http status, body).
+
+        THE READ SIDE OF THE ENTERPRISE PATH. `orgs/*` is not publicly readable (the bucket's
+        grant carves it out), so this is the only door: authenticate the caller, check the
+        membership on their resolved token, then hand back the index with every artifact url
+        rewritten to a presigned link. The grant travels with the link and expires, so a company's
+        agents are never fetchable by anyone who merely learns an org id.
+
+        THE INDEX ITSELF IS RETURNED VERBATIM apart from those urls -- above all the `publishers`
+        roster and every `sig`. A member's client verifies an org bundle exactly as strictly as a
+        marketplace one, against the same pinned root key, and this service is not trusted to
+        vouch for anything it did not sign.
+        """
+        account = self._auth.account(token)
+        if not account:
+            return UNAUTHORIZED, {"message": "not signed in, or the session expired."}
+        refusal = self._refuse_unless_member(account, org_id, "")
+        if refusal is not None:
+            return refusal.status, {"message": refusal.message}
+
+        store = self._store.scoped(org_id)
+        index = store.read_index() or {}
+        if not index:
+            # An org that has never published. NOT an error: the client merges shelves, and an
+            # empty one simply contributes nothing.
+            return OK, {"schema": 2, "bundles": []}
+
+        presign = getattr(store, "presign", None)
+        if callable(presign):
+            for row in index.get("bundles") or []:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("url") or "")
+                # Relative names only -- the ones that live in THIS store. An absolute url was put
+                # there by whoever published and is not ours to re-sign.
+                if name and "://" not in name:
+                    row["url"] = presign(name)
+                for asset in row.get("installers") or []:
+                    if not isinstance(asset, dict):
+                        continue
+                    aname = str(asset.get("url") or "")
+                    if aname and "://" not in aname:
+                        asset["url"] = presign(aname)
+        return OK, index
+
+    # ================================================================== org roster
+    def _with_org_roster(self, index: dict, creator) -> dict:
+        """This creator, present in the org registry's own root-signed roster.
+
+        WHY AN ORG REGISTRY HAS A ROSTER AT ALL. Clients derive trust the same way everywhere:
+        the pinned ROOT key signs a roster of creators, and each creator's key signs their own
+        bundles. Nothing about that changes because the shelf is private — a member installing an
+        internal agent runs the identical verification a stranger does. What changes is WHO
+        decides membership: on the marketplace an operator admits a creator after review; here the
+        ORGANIZATION already vouched for them by employing them, and the accounts service proved
+        it on this very request. So admission is automatic and the review step is genuinely gone,
+        while the cryptography is untouched.
+
+        IDEMPOTENT AND ADDITIVE. A creator already listed with the same key leaves the block
+        byte-identical, so a colleague's publish never re-signs (and never disturbs) the roster
+        rows that vouch for everyone else's bundles.
+
+        Called INSIDE the index lock, and the result is written in the SAME put as the bundle row.
+        That is what makes "the roster went first" true here without a second write: there is no
+        moment where a bundle is listed and the key that signed it is not.
+        """
+        from datetime import datetime, timezone
+
+        from agent_runtime.infrastructure.marketplace.roster_builder import build_roster
+
+        block = index.get("publishers") if isinstance(index.get("publishers"), dict) else {}
+        rows = [r for r in (block.get("roster") or []) if isinstance(r, dict)]
+        key = self._signer.public_key(creator.id)
+        if not key:
+            raise BundleError(
+                f"{creator.id} has no signing key, so nothing could vouch for this bundle."
+            )
+        listed = next((r for r in rows if str(r.get("id") or "") == creator.id), None)
+        if listed and str(listed.get("key") or "") == key:
+            return index  # already vouched for, with this exact key — nothing to re-sign
+
+        issued = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        entries = [r for r in rows if str(r.get("id") or "") != creator.id]
+        entries.append(
+            {
+                "id": creator.id,
+                "name": creator.name or creator.id,
+                "key": key,
+                "added": (listed or {}).get("added") or issued,
+            }
+        )
+        merged = dict(index)
+        merged["publishers"] = build_roster(
+            entries,
+            list(block.get("revoked") or []),
+            issued,
+            self._root_vault.private_key(),
+            self._root_vault.public_key(),
+        )
+        return merged
+
+    # ================================================================== org membership
+    @staticmethod
+    def _refuse_unless_member(account: dict, org_id: str, creator_id: str) -> IntakeResult | None:
+        """None when this account really is in that org; a refusal otherwise.
+
+        THE CLAIM IS CHECKED AGAINST THE RESOLVED TOKEN, never taken as given. `org_id` arrives in
+        the request body, where anything can be written; `account["orgs"]` comes back from the
+        accounts service under the author's own bearer token. Same rule as the daemon's local
+        share, and the reason it is worth stating twice: this one decides whether an agent lands
+        in another company's registry.
+
+        An accounts build too old to report memberships sends no `orgs` key at all. That reads as
+        "no memberships" and refuses — fail closed, exactly as the authenticator does with an
+        unreachable service, and for the same reason.
+        """
+        org_id = (org_id or "").strip()
+        memberships = account.get("orgs")
+        mine = {
+            str(o.get("id") or "").strip()
+            for o in (memberships or ())
+            if isinstance(o, dict) and str(o.get("id") or "").strip()
+        }
+        if org_id in mine:
+            return None
+        if not mine:
+            return IntakeResult(
+                FORBIDDEN,
+                "this account belongs to no organization, so there is nowhere internal to "
+                "publish. Publish to the marketplace instead.",
+                creator_id=creator_id,
+            )
+        return IntakeResult(
+            FORBIDDEN,
+            f"you are not a member of '{org_id}'. Your organizations: " + ", ".join(sorted(mine)),
+            creator_id=creator_id,
+        )
 
     # ================================================================== pending
     def _pend(self, submission: Submission, creator) -> IntakeResult:
@@ -209,6 +380,13 @@ class PublishIntakeService:
     # ================================================================== the real work
     def _publish(self, submission: Submission, creator, work: Path) -> IntakeResult:
         from agent_runtime.infrastructure.marketplace import bundle_io
+
+        # WHICH REGISTRY, resolved ONCE and used for every read and write below. An org publish is
+        # this same path against that organization's own shelf; the public marketplace is the
+        # unscoped store. Resolving it here rather than at each call site is deliberate — a single
+        # forgotten `self._store` would publish a company's internal agent to the world, and that
+        # mistake is invisible until a stranger installs it.
+        store = self._store.scoped(submission.org_id)
 
         # The uploaded bytes become a file because everything downstream — manifest reading, the
         # payload writer, makensis — is path-based, and reusing those exact code paths is what
@@ -283,7 +461,7 @@ class PublishIntakeService:
         # bundle inside the installer's payload identical to the one in the registry.
         package = package.rename(work / artifact_name)
 
-        index = self._store.read_index() or {}
+        index = store.read_index() or {}
         published = next(
             (
                 b
@@ -333,9 +511,14 @@ class PublishIntakeService:
             # Re-read INSIDE the lock: the copy above was for the cheap version check, and by now
             # another publish may have committed. Merging against a stale index is the bug the lock
             # exists to prevent, so it must not be defeated by reusing that read.
-            index = self._store.read_index() or {}
+            index = store.read_index() or {}
+            # The org registry vouches for its own publishers. Before the bundle row, and in the
+            # same write as it — see _with_org_roster. A no-op on the marketplace path, where
+            # admission is an operator action.
+            if submission.is_org:
+                index = self._with_org_roster(index, creator)
             entry = self._entry(manifest, package, creator)
-            url = self._store.put_artifact(
+            url = store.put_artifact(
                 artifact_name, submission.package, "application/octet-stream"
             )
             entry["url"] = artifact_name  # relative, like every other registry url
@@ -343,12 +526,12 @@ class PublishIntakeService:
             installer_url = ""
             if installer is not None:
                 data = installer.read_bytes()
-                installer_url = self._store.put_artifact(
+                installer_url = store.put_artifact(
                     installer.name, data, "application/octet-stream"
                 )
                 entry["installers"] = [self._installer_row(installer, data, creator)]
 
-            self._store.write_index(self._merge(index, entry))
+            store.write_index(self._merge(index, entry))
 
         log.info("published %s %s for %s", manifest.id, manifest.version, creator.id)
         if installer is not None:

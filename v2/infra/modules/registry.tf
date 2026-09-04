@@ -43,10 +43,18 @@ resource "aws_s3_bucket_policy" "public_read" {
   bucket     = aws_s3_bucket.registry.id
   depends_on = [aws_s3_bucket_public_access_block.registry]
 
-  # NotResource carves `pending/*` OUT of the public grant: that prefix holds first-publish
-  # uploads from creators nobody has admitted yet — unreviewed, unsigned content that must not be
-  # downloadable from the registry's own domain. With no Allow matching it, the prefix falls back
-  # to default-deny for the public while the publish Lambda's own role grants still apply.
+  # NotResource carves TWO prefixes OUT of the public grant. With no Allow matching them they
+  # fall back to default-deny for the public, while the publish Lambda's own role grants still
+  # apply -- so the service can still write and read both.
+  #
+  #   pending/*   first-publish uploads from creators nobody has admitted yet: unreviewed,
+  #               unsigned content that must not be downloadable from the registry's own domain.
+  #   orgs/*      ORGANIZATIONS' PRIVATE REGISTRIES. A company's internal agents, its index and
+  #               its bundles. Org ids are unguessable in practice, but an id is not a secret --
+  #               it rides in tokens, in the UI, in logs and in support threads -- and "nobody
+  #               will find the URL" is not an access control an enterprise can be sold. Members
+  #               read these through the publish service, which authenticates the caller and
+  #               checks membership before handing back presigned links.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -54,7 +62,10 @@ resource "aws_s3_bucket_policy" "public_read" {
       Effect      = "Allow"
       Principal   = "*"
       Action      = "s3:GetObject"
-      NotResource = "${aws_s3_bucket.registry.arn}/pending/*"
+      NotResource = [
+        "${aws_s3_bucket.registry.arn}/pending/*",
+        "${aws_s3_bucket.registry.arn}/orgs/*",
+      ]
     }]
   })
 }

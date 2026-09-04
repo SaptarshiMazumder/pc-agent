@@ -133,7 +133,7 @@ class HttpRegistryPublisher:
                     detail=self._preview(manifest, package, installer),
                     warnings=warnings,
                 )
-            result = self._post(manifest, package, installer)
+            result = self._post(manifest, package, installer, request.org_id)
             result.warnings = warnings + result.warnings
             return result
 
@@ -176,7 +176,12 @@ class HttpRegistryPublisher:
         ]
         return "\n".join(lines)
 
-    def _post(self, manifest, package: Path, installer: Path | None) -> PublishResult:
+    def _post(
+        self, manifest, package: Path, installer: Path | None, org_id: str = ""
+    ) -> PublishResult:
+        """:param org_id: the destination, PASSED PER CALL rather than held on the instance. This
+        publisher is built once and reused, so a request-scoped fact stored as state would leak
+        into the next publish — a marketplace upload silently landing in the last org used."""
         import httpx
 
         token = platform_session_token(self._config)
@@ -188,6 +193,10 @@ class HttpRegistryPublisher:
                 "application/octet-stream",
             )
         data = {"bundle_id": manifest.id, "version": manifest.version}
+        # Only when there IS one: an absent field means the public marketplace, and sending an
+        # empty string would make "no destination" indistinguishable from a client bug.
+        if org_id:
+            data["org_id"] = org_id
         try:
             response = httpx.post(
                 f"{self._url}{PUBLISH_PATH}",
