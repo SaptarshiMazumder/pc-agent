@@ -608,10 +608,15 @@ def build_orgs_router(deps: OrgDeps) -> APIRouter:
             _org_row(c, org_id)
             month = deps.month_key(deps.now())
             rows = c.execute(
+                # GROUP BY CARRIES a.email TOO. SQLite tolerates a bare column beside an aggregate and
+                # picks an arbitrary row for it; Postgres follows the standard and refuses the
+                # query outright ("must appear in the GROUP BY clause"). Grouping by both is
+                # correct on either, and unambiguous: email is functionally dependent on the
+                # account id, so the extra key cannot split a row into two.
                 "SELECT u.account_id, a.email, COALESCE(SUM(u.credits), 0) AS credits, "
                 "COALESCE(SUM(u.cost_usd), 0.0) AS cost_usd, COUNT(*) AS calls "
                 "FROM usage u LEFT JOIN accounts a ON a.id = u.account_id "
-                "WHERE u.org_id = ? AND u.month = ? GROUP BY u.account_id "
+                "WHERE u.org_id = ? AND u.month = ? GROUP BY u.account_id, a.email "
                 "ORDER BY credits DESC",
                 (org_id, month),
             ).fetchall()

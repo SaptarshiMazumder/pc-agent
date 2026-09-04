@@ -64,6 +64,7 @@ const bridge = isDesktopHost ? candidate : undefined
 // to build a daemon URL), so the two formed a cycle. Re-exported here, unchanged for every
 // existing importer.
 import { isDesktop as isDesktopHost } from './host'
+import { platformDoc } from './discovery'
 export { hostOs, isDesktop, randomUuid } from './host'
 
 
@@ -112,12 +113,22 @@ async function devDaemonUrl(): Promise<string> {
   }
 }
 
-/** Base ws url from ?url= / VITE_AGENTD_URL, else defaultBase() — WITHOUT any token appended
- *  (in accounts mode the token is the session token, added by ensureDaemon). */
+/** Base ws url — WITHOUT any token appended (in accounts mode the token is the session
+ *  token, added by ensureDaemon).
+ *
+ *  THE ORDER IS: deliberate override, then what the DEPLOYMENT says today, then a guess.
+ *  `platformDoc()?.wsUrl` is the middle one and it is why a web build no longer has to bake
+ *  a socket address — the same reasoning as `accountsUrl()` in ./auth.ts, and the reason
+ *  discovery exists at all: a baked ALB hostname rots on the next destroy/recreate.
+ *
+ *  WITHOUT the discovery step this fell through to `defaultBase()`, which dials the page's
+ *  OWN origin — on a TLS deployment that is `wss://host` with no port, i.e. the web
+ *  listener on 443, not the daemon on 8787. It answers, it is simply not the daemon, so
+ *  the failure reads as a socket that connects and then never speaks. */
 function configuredBase(): string {
   const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
   const env = (import.meta as { env?: Record<string, string> }).env || {}
-  return q.get('url') || env.VITE_AGENTD_URL || defaultBase()
+  return q.get('url') || env.VITE_AGENTD_URL || platformDoc()?.wsUrl || defaultBase()
 }
 
 function defaultBase(): string {

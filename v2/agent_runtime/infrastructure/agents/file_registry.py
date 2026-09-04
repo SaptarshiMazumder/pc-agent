@@ -158,6 +158,18 @@ def _settings_fields(raw, agent_id: str = "") -> tuple:
                 kind,
             )
             kind = "text"
+        default = str(row.get("default") or "")
+        if default and kind == "secret":
+            # Dropped here as well as refused by the validator: an agent already on disk with
+            # this mistake must not ship its author's key to whoever opens it, and a warning
+            # nobody reads is not a control.
+            log.warning(
+                "agent %s: [[settings]] %s is a secret and declares a default — IGNORING the "
+                "default; a value that travels to every installer is not a secret",
+                agent_id,
+                key,
+            )
+            default = ""
         seen.add(key)
         out.append(
             SettingField(
@@ -166,6 +178,7 @@ def _settings_fields(raw, agent_id: str = "") -> tuple:
                 kind=kind,
                 required=bool(row.get("required")),
                 help=str(row.get("help") or ""),
+                default=default,
             )
         )
     return tuple(out)

@@ -459,3 +459,84 @@ def test_a_non_admin_asking_for_master_just_gets_their_own(tmp_path, master_file
         accounts.current_account.reset(token)
     assert payload["isAdmin"] is False
     assert payload["accountScoped"] is True and payload["target"] == "account"
+
+
+# ── declared agent settings: an account's save has a store now ───────────────────────────────
+
+
+def _gateway_with_declaring_agent(tmp_path) -> Gateway:
+    """A gateway whose registry holds ONE agent declaring COMFYUI_URL — the user-supplied-host
+    shape the per-account settings store exists for."""
+    from agent_runtime.domain.agent import SettingField
+
+    gw = _gateway(tmp_path)
+    spec = SimpleNamespace(
+        id="comfy",
+        settings=(SettingField(key="COMFYUI_URL", kind="url"),),
+        mcp=(),
+    )
+    gw.registry = SimpleNamespace(
+        get=lambda aid: spec if aid == "comfy" else (_ for _ in ()).throw(KeyError(aid)),
+        list_ids=lambda: ["comfy"],
+    )
+    return gw
+
+
+def test_an_account_save_of_a_declared_setting_lands_in_the_per_account_store(
+    tmp_path, master_file
+):
+    """THE WEB SAVE. This path used to refuse every `keys` write with "per-account secrets need
+    their own store" — a message that outlived the store being built. The refusal meant a hosted
+    user's ComfyUI URL silently vanished on Save while the desktop path stored it happily.
+    """
+    from agent_runtime.infrastructure.account_settings import AccountSettingsStore
+
+    gw = _gateway_with_declaring_agent(tmp_path)
+    token = _as(X)
+    try:
+        res = gw._config_set({"keys": {"COMFYUI_URL": "http://10.0.0.5:8188"}, "agentId": "comfy"})
+    finally:
+        accounts.current_account.reset(token)
+
+    assert res["saved"] is True, res
+    assert res["keysApplied"] == ["COMFYUI_URL"]
+    stored = AccountSettingsStore(tmp_path / "state").read(X, "comfy")
+    assert stored.get("COMFYUI_URL") == "http://10.0.0.5:8188"
+
+
+def test_two_accounts_store_two_different_hosts_for_one_agent(tmp_path, master_file):
+    """The point of the store: one shared daemon, one agent, and each account's URL is its own."""
+    from agent_runtime.infrastructure.account_settings import AccountSettingsStore
+
+    gw = _gateway_with_declaring_agent(tmp_path)
+    for acct, url in ((X, "http://alice.example:8188"), (Y, "http://bob.example:8188")):
+        token = _as(acct)
+        try:
+            gw._config_set({"keys": {"COMFYUI_URL": url}, "agentId": "comfy"})
+        finally:
+            accounts.current_account.reset(token)
+
+    store = AccountSettingsStore(tmp_path / "state")
+    assert store.read(X, "comfy")["COMFYUI_URL"] == "http://alice.example:8188"
+    assert store.read(Y, "comfy")["COMFYUI_URL"] == "http://bob.example:8188"
+
+
+def test_a_provider_key_is_still_refused_while_the_declared_setting_saves(tmp_path, master_file):
+    """The refusal narrowed, it did not vanish: the machine's .env is still shared, so a provider
+    key from an account is still a leak — but it must not take the agent's own settings down
+    with it."""
+    gw = _gateway_with_declaring_agent(tmp_path)
+    token = _as(X)
+    try:
+        res = gw._config_set(
+            {
+                "keys": {"COMFYUI_URL": "http://10.0.0.5:8188", "ANTHROPIC_API_KEY": "sk-mine"},
+                "agentId": "comfy",
+            }
+        )
+    finally:
+        accounts.current_account.reset(token)
+
+    assert res["keysApplied"] == ["COMFYUI_URL"]
+    assert "ANTHROPIC_API_KEY" in res["refused"]
+    assert res["saved"] is True  # the half that could save, did — and the answer says which

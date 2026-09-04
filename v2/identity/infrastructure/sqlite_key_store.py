@@ -1,4 +1,8 @@
-"""Signing keys in SQLite, with optional envelope encryption.
+"""Signing keys in SQLite. The KEY MATERIAL itself — generation and envelope
+encryption — lives in `signing_key_material`, shared with the Postgres adapter so the two can
+never disagree about how a private key is protected at rest.
+
+Original notes:
 
 TWO MODES, AND THE ROW REMEMBERS WHICH ONE MADE IT. When ``AGENTD_IDENTITY_KEK`` is set the
 private half is Fernet-wrapped before it is stored; otherwise it is stored as PEM. The mode is
@@ -17,97 +21,15 @@ compatibility. See jwt_token_issuer.py for why the size difference matters here.
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import logging
-import os
 import sqlite3
 import time
 import uuid
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
-
 from identity.application.interfaces.key_store import SigningKey
-from identity.domain.errors import IdentityConfigurationError
-from identity.infrastructure.jwt_token_issuer import EDDSA, RS256
-
-log = logging.getLogger("identity.keys")
-
-_warned_plaintext = False
-
-
-def _kek() -> bytes | None:
-    """The key-encryption key, derived to Fernet's expected 32 urlsafe-base64 bytes.
-
-    Derived rather than required verbatim so an operator can set any passphrase; SHA-256 of the
-    secret is the standard cheap KDF here and is adequate for a value that is already
-    high-entropy infrastructure config.
-    """
-    raw = (os.environ.get("AGENTD_IDENTITY_KEK") or "").strip()
-    if not raw:
-        return None
-    return base64.urlsafe_b64encode(hashlib.sha256(raw.encode("utf-8")).digest())
-
-
-def _wrap(pem: str) -> tuple[str, bool]:
-    key = _kek()
-    if key is None:
-        global _warned_plaintext
-        if not _warned_plaintext:
-            _warned_plaintext = True
-            log.warning(
-                "identity: signing keys stored UNENCRYPTED (AGENTD_IDENTITY_KEK is not set). "
-                "Fine for local development; set it wherever the database is backed up."
-            )
-        return pem, False
-    from cryptography.fernet import Fernet
-
-    return Fernet(key).encrypt(pem.encode("utf-8")).decode("ascii"), True
-
-
-def _unwrap(stored: str, encrypted: bool) -> str:
-    if not encrypted:
-        return stored
-    key = _kek()
-    if key is None:
-        raise IdentityConfigurationError(
-            "a signing key was stored encrypted but AGENTD_IDENTITY_KEK is not set — "
-            "restore the key-encryption key, or rotate to a new signing key"
-        )
-    from cryptography.fernet import Fernet, InvalidToken
-
-    try:
-        return Fernet(key).decrypt(stored.encode("ascii")).decode("utf-8")
-    except InvalidToken as e:
-        raise IdentityConfigurationError(
-            "AGENTD_IDENTITY_KEK does not decrypt the stored signing key"
-        ) from e
-
-
-def _generate(alg: str) -> tuple[str, str]:
-    """(private_pem, public_pem) for a fresh key pair."""
-    if alg == EDDSA:
-        private = ed25519.Ed25519PrivateKey.generate()
-    elif alg == RS256:
-        private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    else:
-        raise IdentityConfigurationError(f"unsupported signing algorithm '{alg}'")
-    private_pem = private.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode("utf-8")
-    public_pem = (
-        private.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("utf-8")
-    )
-    return private_pem, public_pem
-
+from identity.infrastructure.jwt_token_issuer import EDDSA
+from identity.infrastructure.signing_key_material import generate as _generate
+from identity.infrastructure.signing_key_material import unwrap as _unwrap
+from identity.infrastructure.signing_key_material import wrap as _wrap
 
 class SqliteKeyStore:
     """Takes a live connection, like SqlitePaymentIntentStore — the caller owns the transaction."""

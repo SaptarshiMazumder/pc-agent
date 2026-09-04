@@ -388,7 +388,9 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
                 for r in c.execute(
                     "SELECT u.account_id, a.email, COUNT(*) calls, SUM(u.cost_usd) cost "
                     "FROM usage u LEFT JOIN accounts a ON a.id = u.account_id "
-                    "WHERE u.month = ? GROUP BY u.account_id ORDER BY cost DESC LIMIT 10",
+                    # See orgs_api: a bare column beside an aggregate is SQLite-only.
+                    "WHERE u.month = ? GROUP BY u.account_id, a.email "
+                    "ORDER BY cost DESC LIMIT 10",
                     (month,),
                 )
             ]

@@ -69,9 +69,29 @@ class RunContext:
     # credential for one agent and the machine-wide variable for another. See
     # domain.agent.resolve_setting_env for the rule.
     settings: tuple[str, ...] = ()
+    # The author's DEFAULTS for those keys, from agent.toml `[[settings]] default`. Non-secret
+    # only — the validator refuses a default on a secret, because a value that ships to every
+    # installer is not a secret. Layered UNDER the account's stored value: an author saying
+    # "start on this model" is a starting point, not an override of what the user chose.
+    setting_defaults: dict[str, str] | None = None
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
+
+#: How a setting VALUE is fetched for the CALLER. Injected by the composition root, because
+#: application may not import infrastructure and "who is calling" is a connection fact. Left
+#: None in tests and boot-time callers — where the answer is correctly "nothing stored, use
+#: the author's default".
+_settings_reader = None
+
+
+def set_account_settings_reader(reader) -> None:
+    """:param reader: ``(agent_id) -> {KEY: value}`` for whoever is calling right now. The
+    ACCOUNT is not a parameter: it lives in a contextvar the infrastructure side already pins
+    per connection, and threading it through every call site would be a second source of truth
+    for the same fact."""
+    global _settings_reader
+    _settings_reader = reader
 
 # The run's correlation ids, kept HERE rather than read from the telemetry library, because
 # application may not import infrastructure (see v2/.importlinter). Presentation sets these
@@ -127,6 +147,57 @@ def current_setting_env(name: str) -> str:
     if ctx is None:
         return name
     return resolve_setting_env(name, ctx.agent_id, ctx.settings)
+
+
+def current_setting_value(name: str) -> str:
+    """The VALUE `${name}` resolves to for the current run and the current caller.
+
+    THE ONE PLACE A SETTING IS READ. Every `${NAME}` substitution site goes through this —
+    the direct `fetch`, the sandbox's host-side broker, the MCP connector's env/headers/command
+    — so a plugin cannot work for one of them and 401 on another.
+
+    THREE LAYERS, in order, and no silent step past the first two:
+
+      1. what THIS ACCOUNT stored      — the user's own value, per tenant
+      2. what the AUTHOR declared      — `[[settings]] default`, non-secret, a starting point
+      3. this agent's PREFIXED env var — `<agent-id>__NAME`, the pre-account storage
+      4. the machine-wide variable     — ONLY for a name this agent never declared
+
+    Layer 3 is back-compat and a transport, not a second store: it is how a value already
+    reaches a sandbox child and an `[[mcp]]` subprocess, and it is what every desktop that
+    filled in a settings page before this change is running on. It is per-AGENT, never shared
+    between agents — and on a hosted daemon nothing exports it any more, so the cross-tenant
+    read it used to allow is gone by there being nothing to read.
+
+    Layer 4 is deliberately unreachable for a declared name. A declared setting whose value is
+    unset reads EMPTY, never the daemon's own credential: that is the silent-wrong-account
+    failure the prefix scheme was invented to stop, and it must not come back through a
+    fallback. `resolve_setting_env`'s docstring makes the same argument for the name.
+    """
+    import os
+
+    ctx = _current.get()
+    if ctx is None or name not in (ctx.settings or ()):
+        # Not this agent's setting: the machine-wide variable it has always been (a provider
+        # key, an operator export) — same rule `resolve_setting_env` applies to the name.
+        return os.environ.get(name, "")
+
+    if _settings_reader is not None:
+        try:
+            stored = _settings_reader(ctx.agent_id) or {}
+        except Exception:  # noqa: BLE001 — a broken store must not take the run down
+            stored = {}
+        value = str(stored.get(name) or "")
+        if value:
+            return value
+
+    default = str((ctx.setting_defaults or {}).get(name) or "")
+    if default:
+        return default
+
+    from agent_runtime.domain.agent import setting_env_name
+
+    return os.environ.get(setting_env_name(ctx.agent_id, name), "")
 
 
 # How a plugin asks for a LIVE OAuth token: `Authorization = "Bearer ${oauth:notion}"`. Set by the

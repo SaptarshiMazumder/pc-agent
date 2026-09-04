@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Redeploy — the SAME procedure as a local deploy, run on a runner.
+#
+# WHY THIS EXISTS SEPARATELY FROM deploy.yml. That workflow reimplements the build/push/roll
+# steps in YAML. This one does not implement them at all: it calls
+# `v2/deploy/scripts/redeploy.sh`, the script you run on your own machine. One procedure, one
+# place to change it. The two had already drifted — deploy.yml still bakes
+# VITE_AGENTD_ACCOUNTS_URL and VITE_AGENTD_URL into `web`, which redeploy.sh removed because
+# baking them shipped a bundle asking for http:// on a TLS deployment (blocked as mixed
+# content, and it reads exactly like the backend being down).
+#
+# MANUAL ONLY, deliberately. deploy.yml already fires on pushes to develop/staging/release;
+# adding a second push trigger here would run two deploys against one environment at once.
+#
+# WHAT IT DOES NOT DO: terraform. There is no state on a runner (the s3 backend is still
+# commented out in infra/environments/*/main.tf), so the script is invoked with --from-aws,
+# which reads the registry and public origin from the AWS API instead. Infrastructure changes
+# and lambda releases stay on your machine — the script says so when it skips them.
+#
+# One-time setup (shared with deploy.yml): apply v2/infra/github-oidc/ and set the repo
+# secret AWS_DEPLOY_ROLE_ARN to the role it creates.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment to redeploy"
+        type: choice
+        options: [dev, staging, production]
+        default: staging
+      service:
+        description: "Everything, or one service"
+        type: choice
+        options: [all, model-proxy, accounts, daemon, web, ingest]
+        default: all
+      build:
+        description: "Build images (off = just roll what is already in ECR)"
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write # OIDC to AWS — no long-lived keys stored in GitHub
+  contents: read
+
+# One redeploy per environment at a time. Two concurrent rolls of the same service race each
+# other's deployments and the loser is reported as a failure that never actually happened.
+concurrency:
+  group: redeploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # A job's `environment:` gate is evaluated BEFORE its steps run, so it cannot read a value a
+  # step computed. Passing the input through a job OUTPUT is what makes the reviewer rules on
+  # staging/production actually fire. Same two-job shape as deploy.yml, same reason.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - id: env
+        run: echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+
+  redeploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Required for `--cache`: the registry cache exporter is a buildx feature, and the
+      # default docker driver cannot write one.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Redeploy
+        env:
+          AWS_REGION: ap-northeast-1
+        run: |
+          args=(--from-aws --cache --tag "${GITHUB_SHA}")
+          [ "${{ inputs.service }}" != "all" ] && args+=(--only "${{ inputs.service }}")
+          [ "${{ inputs.build }}" = "false" ] && args+=(--no-build)
+          echo "redeploy.sh ${{ inputs.environment }} ${args[*]}"
+          bash v2/deploy/scripts/redeploy.sh "${{ inputs.environment }}" "${args[@]}"

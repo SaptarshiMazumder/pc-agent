@@ -38,6 +38,36 @@ variable "ecr_force_delete" {
   default     = true
 }
 
+variable "accounts_external_database" {
+  description = <<-EOT
+    This environment's accounts service keeps its data OUTSIDE the container (Postgres), not in
+    SQLite on the shared EFS volume.
+
+    Setting it lifts the two constraints that only ever existed because of that file: the
+    stop-then-start rollout (`single_writer`) and the EFS mount. The service then deploys
+    without its usual 503 gap and can run more than one task.
+
+    IT IS NOT A DATABASE SWITCH. Which database accounts talks to is decided by `DATABASE_URL`
+    in the environment's app secret, at boot. This flag only tells the infrastructure that the
+    switch has already been made — set it on an environment still using SQLite and that
+    environment loses the volume its data is on.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "accounts_desired_count" {
+  description = <<-EOT
+    How many accounts tasks to run — only honoured when `accounts_external_database` is set,
+    because SQLite on one file cannot have two writers.
+
+    2 is the first number that means anything: it is what makes a deploy, an AZ failure or a
+    task replacement invisible to users rather than a short outage.
+  EOT
+  type        = number
+  default     = 2
+}
+
 variable "model_proxy_desired_count" {
   description = "Initial Model Proxy task count. Set to 0 for the one-time live service rename, push the image, then scale up."
   type        = number
@@ -648,6 +678,29 @@ variable "services" {
 }
 
 locals {
+  # ACCOUNTS' TWO SQLITE-ERA CONSTRAINTS, lifted only where its data has actually left SQLite.
+  #
+  # `single_writer` forces a stop-then-start rollout and `efs` mounts the shared volume. BOTH
+  # exist for one reason: SQLite on a file that exactly one task may write. With the database
+  # external (accounts_external_database = true) neither is true any more — the service becomes
+  # ordinary stateless compute that can roll without a gap and run more than one task.
+  #
+  # PER-ENVIRONMENT, and that is the whole point of the flag: staging is on Postgres, dev is
+  # still on SQLite, and dropping the EFS mount from an environment whose database lives on it
+  # would detach that environment from its own data. The flag says "this environment's accounts
+  # keeps its state elsewhere", which is exactly the condition that makes lifting them safe.
+  # Written per-key rather than as one conditional object: Terraform requires both arms of a
+  # `? :` to have the SAME attributes, so `{...} : {}` is a type error rather than "leave it
+  # alone". Each key falls back to what the services map already declared.
+  accounts_service = merge(
+    var.services["accounts"],
+    {
+      single_writer = var.accounts_external_database ? false : var.services["accounts"].single_writer
+      efs           = var.accounts_external_database ? false : var.services["accounts"].efs
+      desired_count = var.accounts_external_database ? var.accounts_desired_count : var.services["accounts"].desired_count
+    }
+  )
+
   services = merge(
     var.services,
     {
@@ -655,6 +708,7 @@ locals {
         var.services["model-proxy"],
         { desired_count = var.model_proxy_desired_count }
       )
+      "accounts" = local.accounts_service
     }
   )
   name_prefix = "${var.project}-${var.environment}"

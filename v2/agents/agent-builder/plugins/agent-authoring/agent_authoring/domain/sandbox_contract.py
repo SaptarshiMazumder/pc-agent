@@ -45,7 +45,12 @@ ENV_READ = re.compile(r"\bos\.environ\b|\bos\.getenv\s*\(|\bgetenv\s*\(|\benviro
 #: Importing a network client. A sandboxed plugin never gets a socket — outbound is INVERTED, the
 #: same as model calls: it declares hosts in ``[sandbox] net`` and the host performs the request.
 NET_IMPORT = re.compile(
-    r"^\s*(?:import|from)\s+(?:httpx|requests|aiohttp|urllib|urllib3|http\.client|socket)\b",
+    # `urllib.parse` and `urllib.error` are pure string/exception helpers — no socket — and
+    # `urllib.parse.urlsplit` is exactly what a plugin SHOULD use to take a URL apart. Only
+    # `urllib.request` (and a bare `import urllib`, which reaches it) is the HTTP client.
+    r"^\s*(?:import|from)\s+"
+    r"(?:httpx|requests|aiohttp|urllib3|http\.client|socket"
+    r"|urllib\.request|urllib(?=\s|$))\b",
     re.MULTILINE,
 )
 

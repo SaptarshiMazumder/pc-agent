@@ -1,0 +1,35 @@
+{
+  "id": "influencer-video-refs-later",
+  "agent_id": "comfy-artchitect",
+  "goal": "Make hyperrealistic influencer videos; references and format come LATER — the agent must build and test a workflow end-to-end now, installing whatever the instance is missing, without stalling on the deferred inputs.",
+
+  "_comment_settings": "Fill COMFYUI_URL with the live vast Copy-URL (token and all) before running. Left as a placeholder here so the scenario is committable; the runner applies it via config.set. If empty, the agent should offer the paste path — which is itself worth observing.",
+  "settings": {
+    "COMFYUI_URL": "PASTE_YOUR_VAST_COMFYUI_URL_HERE"
+  },
+
+  "turns": [
+    "ok now i wanna make workflow to create videos for social media influencers - basically i can provide references, maybe images of a model, and it should create hyperrealistic videos",
+    "i'll upload the references later, and all those customizations can be done later - build and test the workflow first",
+    "install it and test it"
+  ],
+
+  "_comment_checks": "These encode the exact failures from the observed transcript. On today's deployed agent most go RED (it blocks on refs, punts the install). They should go GREEN after the install tool + state-machine/defaults rework ships — that flip is the proof.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "tool_called", "tool": "comfy_probe" },
+    { "name": "tool_called", "tool": "comfy_install", "min": 1 },
+    { "name": "call_order", "first": "comfy_emit", "then": "comfy_install" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_called", "tool": "comfy_run", "min": 1 },
+    { "name": "produced_artifact", "kind": "video" },
+    { "name": "max_turns", "n": 24 }
+  ],
+
+  "max_turns": 24
+}

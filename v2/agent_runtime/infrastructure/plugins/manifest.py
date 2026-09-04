@@ -11,6 +11,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agent_runtime.domain.sandbox_net import PLACEHOLDER as _PLACEHOLDER
+
 log = logging.getLogger("agentd")
 
 VALID_KINDS = ("native", "mcp")
@@ -86,9 +88,18 @@ def load_manifest(path: Path) -> PluginManifest | None:
     requires = {k: v for k, v in requires.items() if v}  # keep only declared keys
     raw_sbx = dict(data.get("sandbox") or {})
     sandbox = {
-        # hosts are lowercased here so every later comparison is against one canonical form;
-        # secret NAMES are not, because an env var name is case-sensitive on POSIX.
-        "net": [str(x).strip().lower() for x in (raw_sbx.get("net") or []) if str(x).strip()],
+        # A real HOST is lowercased so every later comparison is against one canonical form
+        # (DNS is case-insensitive). A `${SETTING}` placeholder is NOT: it names a setting key,
+        # which is case-sensitive — the plugin writes `${COMFYUI_URL}` in its code and the
+        # author declared `COMFYUI_URL`, so lowercasing it here to `${comfyui_url}` makes the
+        # broker's resolve miss and every request fail `scheme '(none)'`. This is the same
+        # rule `resolve_allowlist` applies; it just has to hold here too, since this runs first.
+        # secret NAMES are already case-preserved, and for the same reason.
+        "net": [
+            s if _PLACEHOLDER.fullmatch(s) else s.lower()
+            for x in (raw_sbx.get("net") or [])
+            if (s := str(x).strip())
+        ],
         "secrets": [str(x).strip() for x in (raw_sbx.get("secrets") or []) if str(x).strip()],
     }
     sandbox = {k: v for k, v in sandbox.items() if v}

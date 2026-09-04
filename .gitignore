@@ -71,3 +71,10 @@ v2/.telemetry.jsonl
 # daemon runtime caches (written to state_dir; never source)
 jwks-cache.json
 platform-discovery.json
+
+# design-sync (staged scripts, build output, machine state)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules

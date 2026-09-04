@@ -32,8 +32,10 @@ from __future__ import annotations
 import json as _json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from agent_runtime.domain.sandbox_net import substitute
+from agent_runtime.infrastructure.files import guess_mime
 
 #: Kept modest on purpose. A plugin pulling a 500MB body into a subprocess and back through a pipe
 #: is a memory incident, not a feature; the host clamps this too (`sandbox_fetch_limits`).
@@ -69,7 +71,7 @@ def _resolved(value: str) -> str:
     Everything else is the machine-wide variable it has always been. `current_setting_env` owns
     that rule; this function only has to ask.
     """
-    from agent_runtime.application.run_context import current_oauth_token, current_setting_env
+    from agent_runtime.application.run_context import current_oauth_token, current_setting_value
 
     re = __import__("re")
     # `${oauth:<name>}` — a LIVE token from the connection the agent signed in to, refreshed on
@@ -82,9 +84,13 @@ def _resolved(value: str) -> str:
     )
     names = {}
     for name in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", resolved):
-        env = os.environ.get(current_setting_env(name))
-        if env:
-            names[name] = env
+        # PER CALLER, not per process. `current_setting_value` layers the account's stored
+        # value over the author's default, and falls back to the machine-wide variable only
+        # for a name this agent never declared. Reading `os.environ` here instead is what let
+        # one tenant's key answer for every tenant.
+        got = current_setting_value(name)
+        if got:
+            names[name] = got
     return substitute(resolved, names)
 
 
@@ -96,6 +102,10 @@ def fetch(
     params: dict | None = None,
     json=None,
     data: str = "",
+    file_path: str = "",
+    file_field: str = "file",
+    form_fields: dict | None = None,
+    save_path: str = "",
     timeout_s: float = DEFAULT_TIMEOUT_S,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Response:
@@ -104,19 +114,89 @@ def fetch(
     Never raising is not defensiveness: this is called from inside a tool's `execute`, where an
     exception becomes a crashed tool call instead of an answer the model can act on. The caller
     checks `.ok` and reports; that is the contract every tool in this codebase already follows.
+
+    ``file_path`` UPLOADS A LOCAL FILE as multipart/form-data — the shape browser file inputs
+    and endpoints like ComfyUI's ``/upload/image`` expect, which a string body cannot carry
+    (image bytes are not text, and the sandbox pipe is JSON frames). The FILE IS READ HERE, on
+    the side that has the filesystem: a sandboxed plugin sends only the path, and the broker
+    checks it against the run's readable scope before this runs. ``file_field`` names the form
+    part; ``form_fields`` are the plain text parts riding alongside (e.g. a subfolder).
+
+    ``save_path`` DOWNLOADS the response body to a local file, bytes untouched — the other
+    direction of the same asymmetry: a rendered image or video is not text, `Response.text`
+    would mangle it, and the sandbox pipe could not carry it anyway. The bytes are STREAMED to
+    disk on this side; the plugin gets back a Response whose ``text`` names the saved file and
+    size. A response bigger than ``max_bytes`` is refused whole, never truncated — a clipped
+    PNG is a corrupt PNG, which is worse than an honest error. On a non-2xx status nothing is
+    written (an error page saved as `render.png` would LOOK downloaded).
     """
     import httpx
 
     try:
+        # MERGE params into any query already on the URL — httpx REPLACES the query when
+        # `params` is given, which silently strips credentials the broker folded in from a
+        # user-hosted URL (`?token=…` from a vast/RunPod paste). A dropped token reads as a
+        # baffling 401 on exactly one tool, so the merge happens here, for every caller.
+        if params:
+            from urllib.parse import urlencode, urlsplit, urlunsplit
+
+            p = urlsplit(url)
+            merged = "&".join(q for q in (p.query, urlencode(params)) if q)
+            url = urlunsplit((p.scheme, p.netloc, p.path, merged, p.fragment))
+            params = None
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
+        files = None
+        if file_path:
+            p = Path(file_path)
+            files = {file_field: (p.name, p.read_bytes(), guess_mime(p))}
         with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+            if save_path:
+                dest = Path(save_path)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with client.stream(
+                    method.upper(),
+                    _resolved(url),
+                    headers=req_headers,
+                    params=params or None,
+                ) as r:
+                    if r.status_code >= 300:
+                        r.read()
+                        return Response(
+                            status=r.status_code,
+                            headers={k.lower(): v for k, v in r.headers.items()},
+                            text=r.text[:2000],
+                            url=str(r.url),
+                        )
+                    written = 0
+                    with open(dest, "wb") as out:
+                        for chunk in r.iter_bytes():
+                            written += len(chunk)
+                            if max_bytes and written > max_bytes:
+                                out.close()
+                                dest.unlink(missing_ok=True)
+                                return Response(
+                                    status=r.status_code,
+                                    error=f"response exceeds max_bytes ({max_bytes}); nothing saved",
+                                    url=str(r.url),
+                                )
+                            out.write(chunk)
+                    return Response(
+                        status=r.status_code,
+                        headers={k.lower(): v for k, v in r.headers.items()},
+                        text=f"saved {written} bytes to {dest}",
+                        url=str(r.url),
+                    )
             r = client.request(
                 method.upper(),
                 _resolved(url),
                 headers=req_headers,
                 params=params or None,
                 json=json,
-                content=_resolved(data) if data else None,
+                # httpx builds the multipart body from files= + data=; the two string-body
+                # forms below are only used when no file rides along.
+                files=files,
+                data={str(k): str(v) for k, v in form_fields.items()} if files and form_fields else None,
+                content=_resolved(data) if data and not files else None,
             )
             body = r.text
             if max_bytes and len(body.encode("utf-8", "ignore")) > max_bytes:

@@ -1,0 +1,156 @@
+/* THE CHAT TEMPLATE'S THEME — deep violet, one accent, glass panels on a near-black ground.
+ *
+ * THIS TEMPLATE'S THEME. `tokens.css` ships a complete set of defaults and loads first; this file
+ * overrides only what this template actually changes, so it is a list of DECISIONS rather than a
+ * copy of the contract. Adding a template means writing one of these, not duplicating eighty
+ * names and hoping none were missed. Every shared screen and every base component reads only
+ * these names, so this one file is the whole difference between this template's look and the
+ * dashboard's. Yours to change — restyling the agent means editing the values here.
+ *
+ * FROM THE DESIGN HANDOFF, whose token names are not ours. The mapping, once, so nobody has to
+ * rediscover it while reading a frame:
+ *
+ *     handoff            here          what it is
+ *     --surface          --bg2         panels, cards
+ *     --surface-2        --bg3         active nav item, chips, inputs
+ *     --border-2         --border2     inputs, buttons
+ *     --line             --row-line    the divider between rows in a card
+ *     --muted            --dim         secondary copy
+ *     --dim              --faint       the metadata floor
+ *     --accent-ink       --prim-ink    text on the accent fill
+ *
+ * CONTRAST IS A HARD FLOOR. `--faint` (#9a93aa) is the quietest legal tone for 11-13px text on
+ * this ground — 6.75:1. An earlier pass shipped #6b647d at 3.54:1 and failed AA on every screen.
+ * Anything softer than --faint has to get bigger or brighter instead.
+ */
+
+/* THE FACES, pulled in by THIS TEMPLATE — not by the skeleton, so the dashboard (and every
+   template after it) keeps its own type. `@import` must precede every rule, which is why these
+   sit above :root. Latin only, and only the weights the design actually uses: an agent window
+   downloads what it draws with and nothing else. */
+@import '@fontsource/plus-jakarta-sans/latin-400.css';
+@import '@fontsource/plus-jakarta-sans/latin-500.css';
+@import '@fontsource/plus-jakarta-sans/latin-600.css';
+@import '@fontsource/plus-jakarta-sans/latin-700.css';
+@import '@fontsource/plus-jakarta-sans/latin-800.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+
+:root {
+  color-scheme: dark;
+
+  /* ── surfaces. The panels are TRANSLUCENT rather than a lighter grey: they pick up the glow
+     behind them, which is what makes the window read as glass instead of as boxes. ───────── */
+  --bg4: #06040a;                      /* outside the window */
+  --bg:  #0b0810;                      /* the window ground */
+  --bg2: rgba(255, 255, 255, 0.028);   /* panels, cards */
+  --bg3: rgba(255, 255, 255, 0.055);   /* active nav item, chips, inputs */
+  --border: rgba(255, 255, 255, 0.065);
+  --border2: rgba(255, 255, 255, 0.09);
+  /* ON in this template — the default is transparent. A card of rows needs its rows separated. */
+  --row-line: rgba(255, 255, 255, 0.06);
+
+  /* ── text, loudest to quietest ────────────────────────────────────────────────────────── */
+  --text: #f4f1f8;
+  --body: #cdc6da;    /* assistant prose, a step softer than a heading */
+  --dim: #b5aec6;
+  --faint: #9a93aa;   /* the floor — see the note above */
+
+  /* ── one accent. ComfyUI's lime-yellow on the purple ground — the Studio design's one
+     deliberate token change (design_handoff_agent_studio, Design Tokens). ───────────────── */
+  --accent: #e2f84e;
+  --accent-text: #e2f84e;
+  --accent-soft: rgba(226, 248, 78, 0.13);
+  --accent-edge: rgba(226, 248, 78, 0.30);
+  --accent-deep: rgba(226, 248, 78, 0.45);   /* the far end of a meter gradient */
+  --prim-bg: #e2f84e;
+  --prim-bg-h: #edfd86;
+  --prim-ink: #141a04;      /* never white on this fill */
+  --sky: #e2f84e;
+
+  /* ── semantic ─────────────────────────────────────────────────────────────────────────── */
+  --ok: #a3e635;            /* the connected dot, a completed tool call */
+  --danger: #f096be;
+  --danger-soft: rgba(240, 150, 190, 0.13);
+  --warn: #f0c98b;
+
+  /* ── ambient light. The two glows the window sits in; off in the defaults. ─────────────── */
+  --glow-1: rgba(140, 64, 205, 0.30);   /* corner */
+  --glow-2: rgba(226, 248, 78, 0.10);   /* inside a panel */
+
+  /* ── elevation. Two things cast, and nothing else does — a flat surface with one lifted
+     card reads deeper than a page where everything floats. ──────────────────────────────── */
+  --shadow-window: 0 40px 90px -30px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  --shadow: var(--shadow-card);
+  --shadow-sm: none;
+
+  /* ── geometry. Generous and consistent: the window is the roundest thing on screen and every
+     nested surface steps down from it. ──────────────────────────────────────────────────── */
+  --r-window: 26px;
+  --r-panel: 20px;
+  --r-card: 18px;
+  --r-bubble: 16px;
+  --r-input: 14px;
+  --r-control: 13px;
+  --r-chip: 12px;
+  --r-sm: 6px;      /* the bubble's tail corner — small on purpose */
+  --radius: 16px;   /* the general-purpose one the shared screens read */
+
+  /* ── type. The faces are declared here and installed by the template's package.json; until
+     they are, the fallbacks carry it. ───────────────────────────────────────────────────── */
+  --sans: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --display: var(--sans);
+
+  --fs-hero: 52px;        /* the opening screen's headline */
+  --fs-display: 25px;     /* page title */
+  --fs-figure: 30px;
+  --fs-title: 18px;
+  --fs-panel: 17px;
+  --fs-lead: 16px;
+  --fs-bubble: 14.5px;
+  --fs-body: 14.5px;
+  --fs-control: 13.5px;
+  --fs-row: 13.5px;       /* row titles sit with the controls, not below them */
+  --fs-help: 12.5px;
+  --fs-meta: 12px;
+  --fs-small: 11px;
+  --fs-label: 10.5px;
+  --fs-tiny: 10px;
+  --lh-prose: 1.72;   /* the design's reading measure */
+  --tracking-tight: -0.025em;
+  --tracking-label: 0.13em;
+
+  /* A real face with real weights, so the tiers can separate properly — the defaults are
+     flattened because a system stack on a dark ground has nothing usable between 400 and 600. */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 500;
+  --fw-semi: 600;
+  --fw-heavy: 700;
+  --fw-bold: 800;     /* the design sets titles and figures at 800 */
+  --fw-on-accent: 700;
+
+  /* ── spacing ──────────────────────────────────────────────────────────────────────────── */
+  --sp-window: 24px;
+  --sp-panel: 22px;
+  --sp-card: 20px;
+  --sp-row: 15px;
+  --sp-control: 14px;
+  --sp-gap: 12px;
+  --sp-icon: 11px;
+  --sp-tight: 8px;
+
+  /* ── the shell's proportions ──────────────────────────────────────────────────────────── */
+  --rail-w: 242px;
+  --panel-w: 300px;
+  --icon-btn: 34px;
+  --avatar: 34px;
+
+  /* Motion is left alone on purpose: the defaults already carry the design's rise
+     (480ms, cubic-bezier(.2,.7,.2,1)), and restating a value that matches is how two files
+     start disagreeing. */
+}
+
+/* No floor here: `tokens.css` sets it, and restating it would pin values (a literal
+   14px) that the tokens are meant to decide. */

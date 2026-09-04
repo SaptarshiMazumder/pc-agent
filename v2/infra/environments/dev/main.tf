@@ -49,6 +49,12 @@ provider "aws" {
   region = "us-east-1"
 }
 
+variable "accounts_desired_count" {
+  description = "How many accounts tasks to run. Honoured only when accounts_external_database is set — SQLite on one file cannot have two writers. 2 is what makes a deploy or an AZ failure invisible rather than a short outage."
+  type        = number
+  default     = 2
+}
+
 variable "model_proxy_desired_count" {
   description = "Initial Model Proxy task count; use 0 during the one-time gateway rename."
   type        = number
@@ -293,6 +299,13 @@ module "stack" {
   # origins stay unrestricted by default — dev clients run on changing origins.
   payment_provider        = var.payment_provider
   checkout_return_origins = var.checkout_return_origins
+
+  # DEV IS STILL ON SQLITE (no DATABASE_URL in agentd/dev/app), so accounts keeps the EFS mount
+  # and the single-writer rollout. Flip this the same day dev's database moves, not before —
+  # dropping the volume from an environment whose data is on it detaches it from that data.
+  accounts_external_database = false
+  accounts_desired_count     = var.accounts_desired_count
+
 
   # TLS, DEV'S WAY: these two stay EMPTY here — dev's HTTPS comes from `root_domain` above
   # (the module manages zone + certs + wildcard, dns.tf). Staging does the inverse: it sets

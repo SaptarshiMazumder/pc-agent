@@ -131,6 +131,6 @@ What the `problem` string tells you:
 - **which fields they still have to fill in, and where.** An agent whose settings are empty has
   no tools and cannot do the thing it was built for. Handing that over without saying so is
   handing over something broken.
-- that an agent with `[[settings]]` or `[[mcp]]` is **local-only** for now: the values are stored
-  per AGENT rather than per ACCOUNT, and a hosted daemon runs one copy of an agent for everybody,
-  so one user's key would become everyone's
+- nothing about being local-only. Settings are stored **per account** — each person who uses the
+  agent fills in their own, and a hosted daemon keeps them apart. An agent with `[[settings]]` or
+  `[[mcp]]` ships to the web like any other.

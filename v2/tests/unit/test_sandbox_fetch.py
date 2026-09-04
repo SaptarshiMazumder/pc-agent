@@ -4,12 +4,14 @@ No network was the right default and the wrong end state: "wrap an API" is most 
 build, and a plugin that calls one worked for its author and was dead for everyone who installed
 the agent. Network is now INVERTED like model calls: the plugin asks, the host performs.
 
-Two properties carry the whole design, and every test here defends one of them:
+Two properties carry the design, and every test here defends one of them:
 
-  * the ALLOWLIST is enforced by the side holding the socket, so it is not something a compiled
-    extension can step around the way it steps around a blocked `socket.connect`;
-  * the CREDENTIAL never crosses. A plugin writes `${NAME}` and the host substitutes, so it
-    cannot read the key, keep it, or post it to a host it never declared.
+  * the NETWORK IS OPEN but the socket stays host-side (2026-09): a plugin fetches any host with
+    no declaration, yet still cannot dial for itself — only the operator's own deny/allow knobs
+    (a deployment fencing off its metadata endpoints) refuse a host;
+  * the CREDENTIAL never crosses. A plugin writes `${NAME}` and the host substitutes at send
+    time, so plugin code cannot read the key or keep it — and it can only NAME secrets its
+    manifest declared.
 
 The adversarial cases spawn a REAL child that really tries the escape, on the same principle as
 the rest of the subprocess-sandbox suite: a mocked boundary proves nothing about the boundary.
@@ -184,14 +186,27 @@ def _serve(broker, **request):
     return asyncio.run(broker.serve({"t": "fetch_request", "id": "f1", **request}))
 
 
-def test_an_undeclared_host_is_refused():
-    res = _serve(_broker(), url="https://evil.example/steal")
-    assert res["error"] and "not one this plugin may reach" in res["error"]
+def test_the_network_is_open_no_declaration_needed(http_server):
+    """THE 2026-09 CONTRACT: a plugin with an EMPTY allowlist fetches any host. The per-plugin
+    reach gate is gone — `[sandbox] net` now only names which ${SETTING}s are legal in a URL.
+    Malice is handled at distribution (share-only today, marketplace review later), not here."""
+    res = _serve(_broker(allow=()), url=f"http://{http_server}/v1/anything")
+    assert not res["error"], res["error"]
+    assert res["status"] == 200
 
 
-def test_a_plugin_with_no_grant_is_told_how_to_declare_one():
-    res = _serve(_broker(allow=()), url="https://api.acme.com/x")
-    assert "[sandbox]" in res["error"]
+def test_the_operator_deny_still_binds(http_server):
+    """The deployment's own fence outlives the open network: a hosted daemon can still wall off
+    its metadata endpoints and internal ports. Default empty, so a desktop never sees this."""
+    host = http_server.split(":")[0]
+    broker = SandboxFetchBroker(
+        _Cfg(net_deny=(host,)),
+        plugin_id="acme",
+        tool_name="call_acme",
+        grant=CapabilityGrant(net_allowlist=()),
+    )
+    res = _serve(broker, url=f"http://{http_server}/v1/x")
+    assert res["error"] and "operator" in res["error"]
 
 
 def test_file_urls_are_refused():
@@ -230,6 +245,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body.encode())
+
+    def do_POST(self):  # noqa: N802 — records a multipart upload so a test can prove it landed
+        length = int(self.headers.get("Content-Length") or 0)
+        _Handler.last_post = {
+            "content_type": self.headers.get("Content-Type", ""),
+            "body": self.rfile.read(length),
+        }
+        body = json.dumps({"name": "stored.png"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, *a):  # keep pytest output clean
         pass
@@ -299,6 +327,138 @@ def test_a_key_in_config_answers_a_declared_name(http_server, monkeypatch):
         headers={"Authorization": "Bearer ${ACME_API_KEY}"},
     )
     assert json.loads(res["text"])["auth"] == "Bearer from-settings"
+
+
+# --- a file riding along: multipart upload through the broker ---------------
+# What images need — a LoadImage node eats what is in the SERVER's input folder, and the only
+# way to get a chat attachment there is a multipart POST. Bytes cannot ride the JSON pipe, so
+# the child names a PATH and the host reads and sends it. The path check is the fs sandbox
+# doing its job at this boundary: the run's own files, not the machine's.
+
+
+def test_a_workspace_file_uploads_as_multipart(http_server, tmp_path):
+    img = tmp_path / "uploads" / "face.png"
+    img.parent.mkdir()
+    img.write_bytes(b"\x89PNG-not-really-but-bytes")
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="upload",
+        grant=CapabilityGrant(net_allowlist=(), fs_paths=(str(tmp_path),)),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{http_server}/upload/image",
+        method="POST",
+        file_path="uploads/face.png",  # workspace-RELATIVE, like every file tool
+        file_field="image",
+        form_fields={"subfolder": "chat"},
+    )
+    assert not res["error"], res["error"]
+    assert res["status"] == 200
+    posted = _Handler.last_post
+    assert posted["content_type"].startswith("multipart/form-data")
+    assert b"\x89PNG-not-really-but-bytes" in posted["body"]  # the bytes ARRIVED
+    assert b'name="image"' in posted["body"] and b"face.png" in posted["body"]
+    assert b'name="subfolder"' in posted["body"] and b"chat" in posted["body"]
+
+
+def test_a_file_outside_the_run_s_scope_is_refused(http_server, tmp_path):
+    """The broker must not become a disk-read oracle: an open network plus an unchecked path
+    would let a plugin post any file on the machine to a server of its choice. The fs grant is
+    the boundary that still stands."""
+    secret = tmp_path / "elsewhere" / "id_rsa"
+    secret.parent.mkdir()
+    secret.write_text("PRIVATE", encoding="utf-8")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="upload",
+        grant=CapabilityGrant(net_allowlist=(), fs_paths=(str(ws),)),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{http_server}/upload/image",
+        method="POST",
+        file_path=str(secret),
+    )
+    assert res["status"] == 0
+    assert "outside this run's files" in res["error"]
+
+
+# --- a file coming BACK: save_path downloads through the broker -------------
+# The other direction of the multipart lane: a rendered image is not text, `Response.text`
+# would mangle it, so the host streams the bytes to a workspace file and the child gets the
+# path. The write check mirrors the read check — and is stricter: fs_paths only, because a
+# download that could land in `read_paths` would let a remote server rewrite the agent's own
+# shipped code.
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n-fake-but-binary-\x00\xff\xfe"
+
+
+class _MediaHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(PNG_BYTES)))
+        self.end_headers()
+        self.wfile.write(PNG_BYTES)
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture()
+def media_server():
+    srv = HTTPServer(("127.0.0.1", 0), _MediaHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"127.0.0.1:{srv.server_port}"
+    srv.shutdown()
+
+
+def test_a_download_lands_in_the_workspace_bytes_intact(media_server, tmp_path):
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="download",
+        grant=CapabilityGrant(net_allowlist=(), fs_paths=(str(tmp_path),)),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{media_server}/view",
+        save_path="outputs/render.png",  # workspace-relative, like every file tool
+    )
+    assert not res["error"], res["error"]
+    assert res["status"] == 200
+    saved = tmp_path / "outputs" / "render.png"
+    assert saved.read_bytes() == PNG_BYTES  # binary IDENTICAL — a text round-trip corrupts this
+
+
+def test_a_download_may_not_land_outside_the_writable_scope(media_server, tmp_path):
+    """And not in read_paths either: shipped files are what the author published, and a server
+    that could overwrite them would be publishing code into the agent."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    shipped = tmp_path / "agent-def"
+    shipped.mkdir()
+    broker = SandboxFetchBroker(
+        _Cfg(),
+        plugin_id="acme",
+        tool_name="download",
+        grant=CapabilityGrant(
+            net_allowlist=(), fs_paths=(str(ws),), read_paths=(str(shipped),)
+        ),
+    )
+    res = _serve(
+        broker,
+        url=f"http://{media_server}/view",
+        save_path=str(shipped / "plugin.py"),
+    )
+    assert res["status"] == 0
+    assert "outside this run's writable space" in res["error"]
+    assert not (shipped / "plugin.py").exists()
 
 
 # --- the whole round trip, through a REAL child process ---------------------
@@ -381,15 +541,18 @@ def test_a_real_child_reaches_a_declared_host_and_gets_the_body(
     assert "Bearer sk-child-test" in text
 
 
-def test_a_real_child_cannot_reach_an_undeclared_host(tmp_path, http_server, monkeypatch):
-    """The grant is empty, so the host refuses. The plugin gets a message, not a socket."""
+def test_a_real_child_reaches_a_host_it_never_declared(tmp_path, http_server, monkeypatch):
+    """Open network, proven from inside a real child: an EMPTY allowlist and the request still
+    lands. The child still has no socket of its own — the broker dialled — which is what keeps
+    credential substitution host-side even with reach unrestricted."""
     monkeypatch.setenv("ACME_API_KEY", "sk-child-test")
     ws = tmp_path / "ws"
     ws.mkdir()
-    res = _child_run(_spawn(tmp_path), ws, (), f"http://{http_server}/v1/hello")
+    res = _child_run(
+        _spawn(tmp_path, secrets=("ACME_API_KEY",)), ws, (), f"http://{http_server}/v1/hello"
+    )
     text = "\n".join(getattr(b, "text", "") for b in res.content)
-    assert "status=0" in text
-    assert "not granted network access" in text
+    assert "status=200" in text and "ok=True" in text
 
 
 # --- the docs must not lie about it -----------------------------------------

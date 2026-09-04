@@ -1,0 +1,156 @@
+# Comfy Artchitect — builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
+#
+# WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
+# RunPod, a Modal endpoint — the agent is told a URL and a credential and works against whatever
+# is there. That is why every ComfyUI fact this agent has is READ FROM THE INSTANCE rather than
+# remembered: the model list, the node list, the sampler names. An agent that recites the
+# checkpoints it saw during training writes workflows that fail on the box in front of it.
+#
+# NO SHELL, ON PURPOSE. Everything happens over ComfyUI's HTTP API, so this agent is
+# web-deliverable — `exec` would refuse itself on a hosted daemon and would force
+# `requires_local`. The cost is that installing a missing custom node depends on ComfyUI-Manager
+# being present and permitting it; the agent reports precisely when it is not, rather than
+# pretending it can fix it.
+
+name = "Comfy Artchitect"
+version = "1.4.0"
+description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
+tagline = "design · run · repair · iterate"
+color = "#7C5CFF"
+suggestions = [
+  "Build a text-to-image workflow using what my instance already has",
+  "Connect to my ComfyUI and tell me what models are installed",
+  "Make my last workflow faster without changing the look",
+]
+
+[app]
+title = "Comfy Artchitect"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+# WEB IS NOT AN AFTERTHOUGHT HERE. An agent that can only run on the machine beside the GPU is
+# useless to the person whose GPU is rented, which is most of them — so this agent was built to
+# earn the flag rather than to ask for it: no `exec`, no local paths, every ComfyUI call over
+# HTTP through the host's broker. The instance is reached by URL, so "where the browser is" and
+# "where ComfyUI is" are allowed to be different places.
+[delivery]
+web = true
+
+# The shared tools it may reach. Deliberately short:
+#   read/write/edit/ls/find   author workflow JSON in its own workspace
+#   web_search/web_fetch      research a model or node it has not met — Civitai, HF, docs
+#   update_plan               the build is multi-step and the user watches it
+#   verify_answer             catches "I made a workflow" when it only described one
+#   show_files                its output is files; it should be able to show them
+# NO exec/process: see the header. Its own tools (comfy_*) are implicitly allowed and must never
+# be listed here.
+[tools]
+allow = [
+  "read", "write", "edit", "ls", "find",
+  "web_search", "web_fetch",
+  "update_plan", "verify_answer", "show_files",
+]
+
+# NO [tools.fs] write_roots, and that is deliberate — it is the one declaration that would break
+# this agent on the web.
+#
+# `<agent_dir>` is the agent's DEFINITION folder. On a desktop the workspace sits inside it
+# (`agents/<id>/workspace/`), so fencing writes to `<agent_dir>` reads as "its own folder" and
+# works. On a hosted daemon the definition is the SHARED catalogue — one copy for every account —
+# while the workspace is per account, under `accounts/<acct>/agents/<id>/workspace/`. The
+# workspace is then NOT inside `<agent_dir>`, so that fence refuses the agent's own files and
+# `write`/`edit` fail for everyone on the web while working perfectly for the author on desktop.
+#
+# Declaring nothing is what every non-builder agent does, and it is not "unfenced": the hosted
+# tenant clamp already confines every write to the caller's own slice, whatever the agent asked
+# for. Only the two builders declare roots, because they legitimately write into OTHER agents.
+
+# WHERE YOUR COMFYUI IS. The value is per account: two people using this agent on one hosted
+# daemon each point it at their own box.
+#
+# PASTE THE WHOLE URL, TOKEN AND ALL. vast/RunPod hand you an address like
+# `http://1.2.3.4:35532/?token=abc123` — paste it exactly. The host folds the token onto every
+# request itself (it rides in the query, where ComfyUI reads it), so there is nothing to pull
+# apart and no header to find. A plain `http://127.0.0.1:8188` works the same way, with nothing
+# to fold. `COMFYUI_AUTH` below is only for the rare box that wants a header INSTEAD of a URL
+# token (Modal, a Basic-auth proxy).
+[[settings]]
+key      = "COMFYUI_URL"
+label    = "ComfyUI URL"
+kind     = "url"
+required = true
+help     = "Paste the full URL your provider gives you, including any ?token=… — nothing else needed. e.g. http://1.2.3.4:35532/?token=abc or http://127.0.0.1:8188"
+
+# THE WHOLE Authorization HEADER, and OPTIONAL — most people never touch it, because a
+# vast/RunPod URL already carries its token in the query (see COMFYUI_URL above) and the host
+# folds it in. Fill this only for a box that authenticates by HEADER instead: "Bearer xyz" for
+# ComfyUI-Login, "Basic base64(user:pass)" for a basic-auth proxy. Empty for the normal case.
+[[settings]]
+key   = "COMFYUI_AUTH"
+label = "Authorization header"
+kind  = "secret"
+help  = "Leave empty for an unprotected instance. Otherwise the full value: 'Bearer …' or 'Basic …'."
+
+# Modal sends its credential as two headers rather than one; these are ignored elsewhere.
+[[settings]]
+key   = "COMFYUI_AUTH2"
+label = "Second auth header (Modal)"
+kind  = "secret"
+help  = "Only for Modal proxy auth: put Modal-Key here and Modal-Secret in the field below."
+
+[[settings]]
+key   = "COMFYUI_AUTH3"
+label = "Third auth header (Modal secret)"
+kind  = "secret"
+help  = "Only for Modal proxy auth."
+
+# RESEARCH CREDENTIALS, both optional. `comfy_research` reads model cards and reference
+# workflows from Hugging Face and Civitai; public models need no token. A gated model
+# (FLUX.1-dev, SD3.5) hides its files until the account that accepted its license presents a
+# token — so without this field those models simply report "gated", which is true but unhelpful.
+[[settings]]
+key   = "HF_TOKEN"
+label = "Hugging Face token"
+kind  = "secret"
+help  = "Optional. Needed only for gated models you have accepted access to (hf.co/settings/tokens, 'read' scope)."
+
+[[settings]]
+key   = "CIVITAI_TOKEN"
+label = "Civitai API key"
+kind  = "secret"
+help  = "Optional. Needed only for Civitai models that require an account to view (civitai.com/user/account)."
+
+# OPTIONAL EXTRAS, both off until their setting is filled — the connector refuses a server
+# whose ${SETTING} is empty and reports which field would enable it.
+[[settings]]
+key   = "COMFYUI_MCP_URL"
+label = "Instance MCP URL"
+kind  = "url"
+help  = "Optional. If an MCP server runs beside your ComfyUI (e.g. artokun/comfyui-mcp on the same box), its URL — the agent gains its tools: model installing, live graph editing, whatever it serves."
+
+[[settings]]
+key   = "COMFY_CLOUD_KEY"
+label = "Comfy Cloud API key"
+kind  = "secret"
+help  = "Optional. To generate on Comfy Cloud when you have no instance of your own: platform.comfy.org/profile/api-keys (starts with 'comfyui-')."
+
+# Its servers are DECLARED below; the model does not get to wire up arbitrary ones from chat
+# text — text that can have arrived from a fetched web page.
+[capabilities]
+mcp_workshop = false
+
+# AN MCP SERVER THE USER RUNS, at an address only they know — the same per-account shape as the
+# plugin's ${COMFYUI_URL}, and the reason [[mcp]] url placeholders resolve per caller. URL
+# transport on purpose: a stdio command would spawn on the DAEMON's machine and mark this agent
+# requires_local, which would un-ship it from the web.
+[[mcp]]
+name = "instance-mcp"
+url  = "${COMFYUI_MCP_URL}"
+
+# COMFY CLOUD — generation on comfy.org's GPUs for users with no instance at all. Fixed public
+# URL; the key rides as the header their docs specify.
+[[mcp]]
+name    = "comfy-cloud"
+url     = "https://cloud.comfy.org/mcp"
+headers = { "X-API-Key" = "${COMFY_CLOUD_KEY}" }

@@ -11,6 +11,14 @@
 #   ./redeploy.sh staging --no-build   # just roll what is already in ECR (lambdas skip)
 #   ./redeploy.sh staging --skip-tf    # skip terraform (services already at their counts)
 #
+# CI FLAGS (see .github/workflows/redeploy.yml). They exist so a runner can call THIS script
+# instead of reimplementing it — one deploy procedure, not two that drift:
+#   --from-aws       resolve the registry and public origin from the AWS API instead of
+#                    terraform outputs (a runner has no local state). Implies --skip-tf.
+#   --cache          build with buildx and a per-repo `:buildcache` layer cache. A fresh VM
+#                    has no local cache, so without this every layer rebuilds every run.
+#   --tag <t>        also tag and push `:<t>` (CI passes the git SHA for an immutable ref).
+#
 # WHY THIS EXISTS ALONGSIDE push-images.ps1. That script builds every image and rolls the
 # services only AFTER all of them succeed, so one bad build meant nothing was rolled — services
 # that had a perfectly good new image sat on a failed deployment for hours. This one treats each
@@ -32,12 +40,20 @@ ENVIRONMENT="dev"
 ONLY=""
 DO_BUILD=1
 DO_TF=1
+FROM_AWS=0
+USE_CACHE=0
+EXTRA_TAG=""
 [[ "${1:-}" =~ ^[a-z0-9-]+$ ]] && { ENVIRONMENT="$1"; shift; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --only)     ONLY="$2"; shift 2 ;;
     --no-build) DO_BUILD=0; shift ;;
     --skip-tf)  DO_TF=0; shift ;;
+    # Implies --skip-tf rather than merely allowing it: this mode exists BECAUSE there is no
+    # state to apply against, so an apply here would try to create a second copy of the world.
+    --from-aws) FROM_AWS=1; DO_TF=0; shift ;;
+    --cache)    USE_CACHE=1; shift ;;
+    --tag)      EXTRA_TAG="$2"; shift 2 ;;
     -h|--help)  sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -62,15 +78,61 @@ if [ "$DO_TF" = 1 ]; then
   fi
 fi
 
-# --- 2. read what terraform built --------------------------------------------------------
+# --- 2. WHERE THINGS ARE: terraform outputs locally, the AWS API on a runner -------------
 step "reading outputs"
+if [ "$FROM_AWS" = 1 ]; then
+  # A RUNNER HAS NO TERRAFORM STATE (the s3 backend is still commented out in
+  # infra/environments/*/main.tf), so the same facts are read from the AWS API by the naming
+  # convention terraform itself creates: `agentd-<env>` for the load balancer, and
+  # `agentd-<env>/<service>` for each ECR repo. If that convention ever stops holding, this
+  # branch is where it breaks -- loudly, on the first call, not by deploying to the wrong place.
+  ACCOUNT="$(aws sts get-caller-identity --query Account --output text)" || {
+    echo "could not read the AWS account -- are credentials configured?" >&2; exit 1; }
+  REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
+  ALB_ARN="$(aws elbv2 describe-load-balancers --names "agentd-$ENVIRONMENT" --region "$REGION"              --query 'LoadBalancers[0].LoadBalancerArn' --output text)" || {
+    echo "no load balancer named agentd-$ENVIRONMENT -- is this environment applied?" >&2; exit 1; }
+  ALB_DNS="$(aws elbv2 describe-load-balancers --names "agentd-$ENVIRONMENT" --region "$REGION"              --query 'LoadBalancers[0].DNSName' --output text)"
+  # TLS FROM THE LISTENER, not a constant. This is the same signal terraform's `tls_enabled`
+  # drives its URL outputs from, so the http/https invariant the module establishes survives
+  # the trip through this branch -- the mixed-content failure the block below describes is
+  # exactly what a hardcoded scheme here would reproduce.
+  CERT_ARN="$(aws elbv2 describe-listeners --load-balancer-arn "$ALB_ARN" --region "$REGION"               --query 'Listeners[?Port==`443`].Certificates[0].CertificateArn|[0]'               --output text 2>/dev/null)"
+  if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
+    ALB_HOST="$(aws acm describe-certificate --certificate-arn "$CERT_ARN" --region "$REGION"                 --query 'Certificate.DomainName' --output text)"
+    SCHEME=https
+  else
+    ALB_HOST="$ALB_DNS"
+    SCHEME=http
+  fi
+  APP_URL="$SCHEME://$ALB_HOST"
+  PLATFORM_URL="$SCHEME://$ALB_HOST:4100"
+  ACCOUNTS_URL="$SCHEME://$ALB_HOST:4100"
+  INGEST_URL="$SCHEME://$ALB_HOST:4200"
+  repo_for() { echo "$REGISTRY/agentd-$ENVIRONMENT/$1"; }
+else
 REPOS_JSON="$(terraform "-chdir=$ENV_DIR" output -json repository_urls)" || {
   echo "could not read repository_urls — is this environment applied?" >&2; exit 1; }
 APP_URL="$(terraform "-chdir=$ENV_DIR" output -raw app_url)"
 ALB_HOST="${APP_URL#http://}"; ALB_HOST="${ALB_HOST#https://}"; ALB_HOST="${ALB_HOST%%/*}"
 
+# THE SCHEME IS TERRAFORM'S TO DECIDE, NOT THIS SCRIPT'S. modules/outputs.tf derives every
+# URL below from one `tls_enabled`, precisely so http and https cannot half-apply — and the
+# comment there names the failure this caused: a page served over TLS whose sign-in call is
+# plain http is blocked by the browser as mixed content, which looks exactly like the
+# backend being down. Rebuilding these from a bare ALB_HOST plus a hardcoded `http://` is
+# how this script defeated an invariant the module had already established.
+PLATFORM_URL="$(terraform "-chdir=$ENV_DIR" output -raw platform_url)"
+ACCOUNTS_URL="$(terraform "-chdir=$ENV_DIR" output -raw accounts_url)"
+INGEST_URL="$(terraform "-chdir=$ENV_DIR" output -raw ingest_url)"
+
+# The daemon's own health check is the last place that still needs a scheme spelled out — the
+# BUILD no longer does, because the bundle learns the socket address from discovery. Taken from
+# app_url rather than a constant: http:// against an HTTPS listener is a 400, not a timeout.
+case "$APP_URL" in https://*) SCHEME=https ;; *) SCHEME=http ;; esac
+
 repo_for() { echo "$REPOS_JSON" | python -c "import json,sys; print(json.load(sys.stdin)['$1'])"; }
 REGISTRY="$(repo_for model-proxy)"; REGISTRY="${REGISTRY%%/*}"
+fi
 echo "  registry : $REGISTRY"
 echo "  ALB host : $ALB_HOST"
 
@@ -99,6 +161,16 @@ else
   LAMBDA_TARGETS="$ALL_LAMBDAS"
 fi
 
+# A LAMBDA RELEASE IS A TERRAFORM RELEASE. Its image is pinned by DIGEST, so the release is a
+# new version tag written into the environment's tfvars followed by an apply -- neither of
+# which exists on a runner with no state. Saying so here, once, beats discovering it halfway
+# through when the tfvars edit lands in a workspace nobody will ever commit.
+if [ "$FROM_AWS" = 1 ] && [ -n "$LAMBDA_TARGETS" ]; then
+  echo "!! lambdas ($LAMBDA_TARGETS) skipped: a lambda release needs terraform. Run" >&2
+  echo "   ./redeploy.sh $ENVIRONMENT --only <lambda> locally to release one." >&2
+  LAMBDA_TARGETS=""
+fi
+
 # dockerfile + build context + build args, per image. model-proxy, accounts, daemon and ingest
 # all build from v2/ rather than their own folder so each image can install the shared telemetry
 # library at v2/monitoring/; their Dockerfiles still COPY only the few files each service needs.
@@ -124,20 +196,51 @@ if [ "$DO_BUILD" = 1 ]; then
   fi
 
   for name in $TARGETS; do
-    uri="$(repo_for "$name"):latest"
+    base="$(repo_for "$name")"
+    uri="$base:latest"
     step "build $name -> $uri"
-    args=(build -t "$uri" -f "$(dockerfile_for "$name")")
-    # The web image bakes its API origins at BUILD time (vite inlines VITE_*), so the ALB host
-    # has to be known here rather than at run time.
+    # ONE INVOCATION, TWO SHAPES. `buildx --push` uploads every tag in the same pass the build
+    # runs in, which is also the only way to reach the registry layer cache -- a fresh runner
+    # has no local cache, so without it every apt/pip/npm layer is rebuilt on every run.
+    #
+    # The cache lives in the service's OWN repo under `:buildcache`, so it needs no extra
+    # infrastructure. `ignore-error=true` is load-bearing: populating a cache is an
+    # optimisation, and an optimisation must never be able to fail a deploy (a repo created
+    # with IMMUTABLE tags cannot accept a repeated `:buildcache` push at all).
+    if [ "$USE_CACHE" = 1 ]; then
+      args=(buildx build --push -t "$uri" -f "$(dockerfile_for "$name")"
+            --cache-from "type=registry,ref=$base:buildcache"
+            --cache-to   "type=registry,ref=$base:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true")
+    else
+      args=(build -t "$uri" -f "$(dockerfile_for "$name")")
+    fi
+    # An IMMUTABLE reference alongside the moving one, so a rollback names a build rather than
+    # whatever `:latest` happens to point at today.
+    [ -n "$EXTRA_TAG" ] && args+=(-t "$base:$EXTRA_TAG")
+    # ONE ADDRESS. Vite inlines VITE_* at BUILD time, so anything baked here is frozen into
+    # the bundle and can only be changed by rebuilding — which is why this bakes the
+    # PLATFORM url and nothing else. Sign-in, the socket and the model proxy come from
+    # <platform>/.well-known/agentd-platform at boot, so they follow the deployment instead
+    # of a build. Ingest is the one exception: it is not in the discovery document yet.
+    #
+    # DO NOT ADD VITE_AGENTD_ACCOUNTS_URL OR VITE_AGENTD_URL BACK. They outrank discovery
+    # (deliberately — they are the override channel), so baking them here is what shipped a
+    # bundle asking for http:// on a TLS deployment, which the browser blocked as mixed
+    # content and which read as the backend being down.
     if [ "$name" = "web" ]; then
-      args+=(--build-arg "VITE_AGENTD_ACCOUNTS_URL=http://$ALB_HOST:4100"
-             --build-arg "VITE_AGENTD_URL=ws://$ALB_HOST:8787"
-             --build-arg "VITE_AGENTD_INGEST_URL=http://$ALB_HOST:4200")
+      args+=(--build-arg "VITE_AGENTD_PLATFORM_URL=$PLATFORM_URL"
+             --build-arg "VITE_AGENTD_INGEST_URL=$INGEST_URL")
     fi
     args+=("$(context_for "$name")")
 
     if ! docker "${args[@]}"; then fail "build of $name failed"; continue; fi
-    if ! docker push "$uri";    then fail "push of $name failed";  continue; fi
+    # buildx already pushed (--push). A plain build has not.
+    if [ "$USE_CACHE" = 0 ]; then
+      if ! docker push "$uri"; then fail "push of $name failed"; continue; fi
+      if [ -n "$EXTRA_TAG" ] && ! docker push "$base:$EXTRA_TAG"; then
+        fail "push of $name:$EXTRA_TAG failed"; continue
+      fi
+    fi
     BUILT="$BUILT $name"
   done
 else
@@ -267,9 +370,13 @@ check() {
   [ "$code" = "200" ] || fail "$1 did not answer 200 at $2"
 }
 check web      "$APP_URL/"
-check accounts "http://$ALB_HOST:4100/health"
-check daemon   "http://$ALB_HOST:8787/healthz"
-check ingest   "http://$ALB_HOST:4200/health"
+# Same scheme as everything else. These were hardcoded http://, so a TLS environment
+# reported three failures on every single redeploy — an ALB answers 400 to plain HTTP on an
+# HTTPS listener — and that standing noise is what trained everyone to skip the one section
+# that would have caught the mixed-content bug above on the day it shipped.
+check accounts "$ACCOUNTS_URL/health"
+check daemon   "$SCHEME://$ALB_HOST:8787/healthz"
+check ingest   "$INGEST_URL/health"
 
 # --- 8. verdict ---------------------------------------------------------------------------
 echo

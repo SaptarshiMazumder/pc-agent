@@ -32,8 +32,12 @@ if (-not (Test-Path $envDir)) { throw "No such environment: $envDir" }
 # --- 1. Read what Terraform built (image repos + the public ALB hostname) ---
 Write-Host "Reading Terraform outputs ($Environment)..." -ForegroundColor Cyan
 $repos    = terraform $chdir output -json repository_urls | ConvertFrom-Json
-$appUrl   = terraform $chdir output -raw app_url               # http://<alb-dns>
+$appUrl   = terraform $chdir output -raw app_url               # http(s)://<host>
 $albHost  = ([Uri]$appUrl).Host
+# THE SCHEME IS TERRAFORM'S TO DECIDE — see the same block in redeploy.sh. These outputs
+# already carry it; gluing a hardcoded "http://" onto $albHost is what shipped a web image
+# whose sign-in call the browser blocked as mixed content on a TLS environment.
+$platformUrl = terraform $chdir output -raw platform_url
 $modelProxyRepo = $repos.PSObject.Properties["model-proxy"].Value
 $registry = ($modelProxyRepo -split '/')[0]                    # <acct>.dkr.ecr.<region>.amazonaws.com
 
@@ -74,8 +78,7 @@ $images = @{
   accounts = @{ context = $v2;                   dockerfile = "$v2/accounts/Dockerfile";               args = @{} }
   daemon   = @{ context = $v2;                   dockerfile = "$v2/deploy/docker/Dockerfile";          args = @{} }
   web      = @{ context = "$v2/clients";        dockerfile = "$v2/clients/web/Dockerfile";             args = @{
-      VITE_AGENTD_ACCOUNTS_URL = "http://$albHost`:4100"
-      VITE_AGENTD_URL          = "ws://$albHost`:8787"
+      VITE_AGENTD_PLATFORM_URL = $platformUrl
   } }
   # Same v2/ context and for the same reason: the image carries v2/monitoring/, which is what
   # turns a received event into the EMF line the dashboards read.

@@ -232,12 +232,17 @@ def _capture_env(monkeypatch, tmp_path) -> dict:
     return written
 
 
-def _stored(tmp_path, agent_id: str) -> dict:
-    """What landed in the agent's own config file."""
+def _stored(tmp_path, agent_id: str, account: str = "local") -> dict:
+    """What landed in THIS ACCOUNT's settings file for the agent.
+
+    The location moved again: `agent.config.json` inside the agent directory was one file for
+    everybody, which is right on a desktop and a cross-tenant leak on a daemon serving several
+    people. It is now beside that account's sessions and workspace for this agent.
+    """
     import json
 
-    f = tmp_path / "agents" / agent_id / "agent.config.json"
-    return json.loads(f.read_text(encoding="utf-8")).get("settings", {}) if f.is_file() else {}
+    f = tmp_path / "state" / "accounts" / account / "agents" / agent_id / "settings.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
 
 
 def test_a_declared_setting_lands_in_the_agents_own_config(tmp_path, monkeypatch):

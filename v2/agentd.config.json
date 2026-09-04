@@ -500,6 +500,8 @@
   "resource_summarize_enabled": true,
   "_section_browser_computer": "Browser + computer-use tool KNOBS moved into the plugins block above (plugins.browser.tools.browser.* and plugins.computer.tools.computer.*). Only computer_enabled stays here \u2014 it gates whether the computer tool is registered at all.",
   "computer_enabled": true,
+  "_section_sandbox": "Development switch. Locally an agent in agents/ is FIRST_PARTY, so its private tools run in-process and the sandbox path never executes — the code a buyer would actually hit stays untested until someone packs and installs the agent. Naming an agent here forces it down the untrusted path instead. It can only TIGHTEN (FIRST_PARTY -> THIRD_PARTY_BUNDLE), so leaving it on costs at most a capability that fails loudly. comfy-artchitect is here on purpose: it reads its host from a per-account ${COMFYUI_URL} setting, and that whole mechanism only means anything if it is exercised sandboxed.",
+  "sandbox_untrusted_agents": ["comfy-artchitect"],
   "_section_channels": "MCP servers + messaging channels + webhook ingress.",
   "mcp_servers": [],
   "channels": [

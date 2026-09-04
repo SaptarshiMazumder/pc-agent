@@ -24,7 +24,7 @@ import os
 from contextlib import asynccontextmanager
 
 from agent_runtime.domain.mcp import McpCallResult, McpToolSpec
-from agent_runtime.domain.messages import TextContent
+from agent_runtime.domain.messages import ImageContent, TextContent
 
 log = logging.getLogger("agentd")
 
@@ -156,9 +156,19 @@ class _RunnerMcpSession:
         blocks = []
         for c in getattr(resp, "content", None) or []:
             text = getattr(c, "text", None)
-            blocks.append(
-                TextContent(text=text if text is not None else f"[{getattr(c, 'type', 'content')}]")
-            )
+            if text is not None:
+                blocks.append(TextContent(text=text))
+                continue
+            # An MCP IMAGE block (base64 `data` + `mimeType`) becomes a real ImageContent, so a
+            # server that returns a rendered image (a ComfyUI MCP's get_image, a chart tool)
+            # hands the model something a vision brain can actually SEE. This used to flatten
+            # to the literal string "[image]" — the bytes arrived and were thrown away.
+            data = getattr(c, "data", None)
+            mime = getattr(c, "mimeType", "") or ""
+            if getattr(c, "type", "") == "image" and data and mime.startswith("image/"):
+                blocks.append(ImageContent(data=str(data), mime_type=mime))
+                continue
+            blocks.append(TextContent(text=f"[{getattr(c, 'type', 'content')}]"))
         return McpCallResult(content=blocks, is_error=bool(getattr(resp, "isError", False)))
 
     async def close(self) -> None:

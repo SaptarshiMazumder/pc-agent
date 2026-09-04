@@ -78,9 +78,40 @@ class DeclarationRules:
         out += self._oauth(logins, declared)
         out += self._shipping(raw, settings, servers, logins)
         out += self._authored_setting_values(settings, sources or {})
+        out += self._secret_defaults(settings)
         return out
 
     # ---- the one that decides WHOSE account ---------------------------------
+    def _secret_defaults(self, settings: list[dict]) -> list[Finding]:
+        """A `default` on a `kind = "secret"` field.
+
+        `default` is the one part of a setting whose VALUE travels — it is how an author says
+        "start on this model" or "this endpoint unless you change it". A secret with a default
+        is therefore a credential shipped to every installer, which is a contradiction in terms
+        rather than a risky choice. The runtime drops it too, loudly; this is so the author
+        hears about it while they can still fix it, instead of from a buyer.
+        """
+        out: list[Finding] = []
+        for row in settings:
+            key = str(row.get("key") or "").strip()
+            if not key or str(row.get("kind") or "").strip().lower() != "secret":
+                continue
+            if not str(row.get("default") or "").strip():
+                continue
+            out.append(
+                Finding(
+                    level=ERROR,
+                    code="SETTING_SECRET_DEFAULT",
+                    message=f"[[settings]] {key} is a secret and declares a `default`. A value "
+                    f"that travels to everyone who installs this agent is not a secret",
+                    path="agent.toml",
+                    fix=f"remove `default` from {key} — a secret is filled in by whoever runs "
+                    f"the agent. `default` is for non-secret fields (a model, an endpoint, a "
+                    f"mode) where the author's choice is a starting point, not a credential",
+                )
+            )
+        return out
+
     def _authored_setting_values(self, settings: list[dict], sources: dict) -> list[Finding]:
         """A VALUE written into agent.config.json for a field the OWNER is supposed to fill in.
 
@@ -392,13 +423,15 @@ class DeclarationRules:
                 level=INFO,
                 code="DECLARATIONS_ARE_LOCAL_ONLY",
                 message=(
-                    "this agent declares settings, MCP servers or sign-ins, so it is a DESKTOP "
-                    "agent: the values live in one machine's .env, a stdio server spawns a local "
-                    "process, and the OAuth callback is a loopback URL. A hosted daemon serves "
-                    "every account from one container, where all three are wrong"
+                    "this agent declares settings, MCP servers or sign-ins. Setting VALUES are "
+                    "stored PER ACCOUNT, so it ships to the web like any other agent — each "
+                    "person fills in their own. Two things are still local-only: a stdio "
+                    "[[mcp]] server spawns a process on the daemon's machine, and an OAuth "
+                    "callback to a loopback URL only resolves on a desktop"
                 ),
                 path="agent.toml",
-                fix="say so when you publish it; set requires_local = true to make it explicit",
+                fix="nothing to do unless you declare a stdio [[mcp]] command or a loopback "
+                "OAuth callback — those two make it requires_local = true",
             )
         )
         caps = raw.get("capabilities")
