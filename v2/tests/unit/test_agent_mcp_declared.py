@@ -111,6 +111,49 @@ def test_placeholders_are_found_wherever_they_hide():
     assert set(decl.placeholders) == {"PROFILE", "ONE", "TWO"}
 
 
+def test_a_url_placeholder_counts_as_a_placeholder():
+    """`url = "${SERVICE_MCP_URL}"` is the user-hosted-server case — the address is a per-account
+    setting. Left out of `placeholders`, an empty setting would DIAL THE LITERAL STRING instead
+    of refusing with the field's name, and changing the setting would never invalidate the cached
+    connection (`agents_using` reads the same set)."""
+    decl = McpServerDecl(name="svc", url="${SERVICE_MCP_URL}")
+    assert decl.placeholders == ("SERVICE_MCP_URL",)
+
+
+def test_a_url_placeholder_resolves_to_the_agents_own_value():
+    """And once the setting IS filled, the connection dials the resolved address — resolved per
+    agent and caller like env and headers, never left for anything downstream to expand from
+    `os.environ`."""
+    dialled: list = []
+
+    async def connect(agent_id, decl, env, headers):
+        dialled.append(decl.url)
+        return [_Tool("svc__ping")]
+
+    c = _connector({setting_env_name("wrapper", "SERVICE_MCP_URL"): "http://10.0.0.7:9100/mcp"},
+                   connect=connect)
+    asyncio.run(c.ensure(_agent("wrapper", McpServerDecl(name="svc", url="${SERVICE_MCP_URL}"))))
+
+    assert dialled == ["http://10.0.0.7:9100/mcp"]
+    assert c.problems_for("wrapper") == {}
+
+
+def test_an_empty_url_setting_refuses_and_names_the_field():
+    """The optional-server contract: unfilled means DOWN with the field named — never a dial of
+    the literal `${...}`, which would surface as a DNS error nobody can act on."""
+    dialled: list = []
+
+    async def connect(agent_id, decl, env, headers):
+        dialled.append(decl.url)
+        return [_Tool("svc__ping")]
+
+    c = _connector({}, connect=connect)
+    asyncio.run(c.ensure(_agent("wrapper", McpServerDecl(name="svc", url="${SERVICE_MCP_URL}"))))
+
+    assert dialled == []
+    assert "SERVICE_MCP_URL" in c.problems_for("wrapper")["svc"]
+
+
 # ── the credential rule ─────────────────────────────────────────────────────
 def test_a_missing_credential_refuses_the_connection():
     """THE POINT. The child would inherit the daemon's environment, so connecting without the

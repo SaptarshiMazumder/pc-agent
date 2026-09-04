@@ -1,0 +1,24 @@
+# comfy-bridge — every call this agent makes to a ComfyUI instance.
+#
+# THE HOST IS A SETTING, NOT A LITERAL. A fixed allowlist cannot express "the box this user
+# runs" — their ComfyUI could be on localhost, a rented GPU, or a company VPN, and none of those
+# are knowable when this file is written. `${COMFYUI_URL}` means: the host held by THIS agent's
+# COMFYUI_URL setting, for whoever is calling. The plugin never names a host and never learns
+# one; it names a setting, and reaches only where its own user pointed it.
+#
+# THE CREDENTIALS ARE NAMES. `[sandbox] secrets` lists what may ride along; the host substitutes
+# each `${…}` at the last moment. This code cannot read any of their values, cannot keep one,
+# and cannot post one to a host it was not granted.
+
+id          = "comfy-bridge"
+name        = "ComfyUI Bridge"
+kind        = "native"
+entry       = "comfy_bridge:register"
+description = "Probe a ComfyUI instance, read what it has installed, research what a model needs, emit workflows, submit them and report what came back."
+
+# `net` no longer restricts reach (the network is open for plugins); its one job is making
+# ${COMFYUI_URL} legal inside a URL, resolved per caller. The research tool's calls to
+# huggingface.co / civitai.com need no entry at all.
+[sandbox]
+net     = ["${COMFYUI_URL}"]
+secrets = ["COMFYUI_AUTH", "COMFYUI_AUTH2", "COMFYUI_AUTH3", "HF_TOKEN", "CIVITAI_TOKEN"]

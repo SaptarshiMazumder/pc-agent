@@ -120,6 +120,16 @@ module "stack" {
   payment_provider        = var.payment_provider
   checkout_return_origins = var.checkout_return_origins
 
+  # ACCOUNTS' DATA LIVES IN POSTGRES (Neon), not in SQLite on the EFS volume — verified live
+  # 2026-09-02. That lifts the two constraints the file imposed: the stop-then-start rollout
+  # and the shared mount. The service becomes ordinary stateless compute, so a deploy no longer
+  # has a 503 gap and more than one task can serve.
+  #
+  # WHICH database is still decided by DATABASE_URL in agentd/staging/app; this only tells the
+  # infrastructure that the move already happened. Dev stays false until it migrates.
+  accounts_external_database = true
+  accounts_desired_count     = var.accounts_desired_count
+
   # TLS comes from root_domain above — the module mints this environment's OWN certificates.
   # These two are the other path (ride a certificate that already exists, DNS by hand) and
   # stay empty here; dev keeps them empty for the same reason. They are what staging used
@@ -171,6 +181,12 @@ module "stack" {
 # Values live in `staging.auto.tfvars` (gitignored) or `-var` on the command line — never here.
 # An email address and a list of admins are not secrets exactly, but they are not the kind of
 # thing that belongs in a public repository either.
+
+variable "accounts_desired_count" {
+  description = "How many accounts tasks to run. Honoured only when accounts_external_database is set — SQLite on one file cannot have two writers. 2 is what makes a deploy or an AZ failure invisible rather than a short outage."
+  type        = number
+  default     = 2
+}
 
 variable "model_proxy_desired_count" {
   description = "Initial Model Proxy task count; 0 parks it without removing the service."

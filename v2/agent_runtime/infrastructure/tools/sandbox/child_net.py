@@ -102,12 +102,19 @@ def install(bridge: NetBridge) -> None:
         params: dict | None = None,
         json=None,
         data: str = "",
+        file_path: str = "",
+        file_field: str = "file",
+        form_fields: dict | None = None,
         timeout_s: float = DEFAULT_TIMEOUT_S,
         max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> Response:
         # timeout_s / max_bytes are accepted and NOT forwarded as authority: the host clamps both
         # from `sandbox_fetch_limits`. Accepting them keeps the signature honest; honouring them
         # would let a plugin raise its own ceiling, which is not a ceiling.
+        #
+        # file_path crosses as a PATH, never as bytes: the host checks it against the run's
+        # readable scope and reads it there. The bytes never transit the JSON pipe — which could
+        # not carry them anyway.
         return payload_response(
             bridge.request(
                 {
@@ -117,6 +124,9 @@ def install(bridge: NetBridge) -> None:
                     "params": dict(params or {}) or None,
                     "json": json,
                     "data": data,
+                    "file_path": file_path,
+                    "file_field": file_field,
+                    "form_fields": dict(form_fields or {}) or None,
                 }
             )
         )

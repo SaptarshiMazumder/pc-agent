@@ -1,0 +1,84 @@
+/* The workflow shelf's own rules. Tokens only — `theme.css` decides the look, so restyling the
+ * agent never means editing this file.
+ *
+ * CO-LOCATED and imported by the component that uses them, the same arrangement the scaffold uses:
+ * the styles travel with the screen, and deleting the screen takes its rules out of the bundle.
+ */
+
+.wf-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--sp-gap);
+  align-content: start;
+}
+
+.wf-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-control);
+  padding: var(--sp-card);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-bubble);
+}
+
+.wf-card-head { display: flex; align-items: flex-start; gap: var(--sp-gap); }
+
+.wf-card-ico {
+  flex: none;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.wf-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+/* A workflow name is one long token and will not wrap on a space. Without the break it pushes the
+   card wider than its grid track and the whole shelf loses its columns. */
+.wf-card-title {
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
+  letter-spacing: -0.015em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.wf-card-meta { font-size: var(--fs-meta); color: var(--faint); }
+
+.wf-card-files { display: flex; flex-direction: column; gap: 7px; }
+
+.wf-file {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-control);
+  padding: 8px 11px;
+  border: 1px solid var(--border2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--dim);
+  text-decoration: none;
+  transition: background var(--dur-base) ease, color var(--dur-base) ease,
+              border-color var(--dur-base) ease;
+}
+.wf-file:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-edge);
+  color: var(--accent-text);
+}
+
+.wf-file-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wf-file-name { font-size: var(--fs-meta); font-weight: var(--fw-heavy); color: var(--text); }
+.wf-file-sub { font-size: var(--fs-meta); color: var(--faint); }
+.wf-file-go { flex: none; }
+
+.wf-empty {
+  margin: var(--sp-panel) 0 0;
+  max-width: var(--measure, 60ch);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-body);
+  color: var(--faint);
+}

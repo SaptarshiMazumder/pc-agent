@@ -1,0 +1,189 @@
+/* Organizations and seats.
+ *
+ * YOURS TO EDIT — unlike the .tsx beside it. The BEHAVIOUR of this screen is locked;
+ * how it looks is this agent's own business, and this file is where that is decided.
+ *
+ * NO COLOURS AND NO FONTS OF ITS OWN. Every visual property here is a `var()`, resolved from the
+ * token names the agent defines in `src/tokens.css`. Layout travels with the module; appearance
+ * belongs to the window it lands in, so this page is dark in a dark agent and light in a light one
+ * without a line of it changing. `validate_agent` reports UI_TOKENS_MISSING when an agent does not
+ * define a name read here.
+ *
+ * EVERYTHING IS SCOPED UNDER `.orgs-page`. The classes this page wants — a row, a card, an input,
+ * a table — are exactly the words an agent is likely to have used for its own, and two stylesheets
+ * claiming `.row` differ only in which one the bundler emitted last. `.prime-btn` and `.ghost-btn`
+ * are the shared page buttons, defined the same way settings defines them and with the same
+ * tokens, so where both exist they agree.
+ */
+
+.orgs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* PINNED: the title stays, only the body scrolls. A long member table must not take the way out
+   of the page with it. */
+.orgs-head {
+  flex: none;
+  padding: 22px 28px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.orgs-title {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  color: var(--text);
+}
+.orgs-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.orgs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  align-items: flex-start;
+}
+.orgs-body > * { width: 100%; max-width: 860px; }
+
+.orgs-group { display: flex; flex-direction: column; gap: 8px; }
+.orgs-section {
+  font-size: 11px;
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.orgs-help { margin: 0; font-size: 12px; color: var(--faint); }
+
+.orgs-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  padding: 6px 14px;
+}
+
+.orgs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+.orgs-row:last-child { border-bottom: 0; }
+.orgs-row-click { background: transparent; border: 0; border-bottom: 1px solid var(--row-line); cursor: pointer; }
+.orgs-row-click:hover { background: var(--bg3); }
+.orgs-row-main { display: flex; flex-direction: column; gap: 2px; }
+.orgs-row-title { font-weight: var(--fw-medium); }
+.orgs-row-sub { font-size: 12px; color: var(--faint); }
+
+.orgs-empty { padding: 14px 0; font-size: 13px; color: var(--faint); }
+
+.orgs-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 0; }
+.orgs-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.orgs-input:focus { outline: none; border-color: var(--accent); }
+.orgs-cap { flex: none; width: 92px; min-width: 0; }
+
+.orgs-select {
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.orgs-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  font-size: 11px;
+  border-radius: 999px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.orgs-banner {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  font-size: 13px;
+  color: var(--text);
+}
+.orgs-banner-error { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+
+/* A member table is the one thing here that genuinely does not fit a narrow window, so it scrolls
+   inside its own box rather than making the whole page scroll sideways. */
+.orgs-scroll { overflow-x: auto; }
+.orgs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.orgs-table th {
+  padding: 10px 10px 10px 0;
+  text-align: left;
+  font-size: 11px;
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.orgs-table td {
+  padding: 11px 10px 11px 0;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--text);
+  vertical-align: middle;
+}
+.orgs-table tr:last-child td { border-bottom: 0; }
+
+.orgs-danger { color: var(--danger); border-color: var(--danger-soft); }
+.orgs-danger:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+
+/* The shared page buttons, same tokens as the settings module's copies so the two agree wherever
+   both are loaded. See the note at the top about scoping. */
+.orgs-page button { font: inherit; cursor: pointer; border: 1px solid transparent; }
+.orgs-page button:disabled { opacity: 0.5; cursor: default; }
+.orgs-page .prime-btn {
+  background: var(--prim-bg);
+  color: var(--prim-ink);
+  font-weight: var(--fw-on-accent);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.orgs-page .prime-btn:hover:not(:disabled) { background: var(--prim-bg-h); }
+.orgs-page .ghost-btn {
+  background: transparent;
+  border-color: var(--border2);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 8px 15px;
+  font-size: 13px;
+}
+.orgs-page .ghost-btn:hover:not(:disabled) { background: var(--bg3); color: var(--text); }

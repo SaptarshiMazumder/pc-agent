@@ -109,7 +109,14 @@ class SandboxRules:
             if not text:
                 continue
             declared = self._declared(sources.get(f"plugins/{pid}/plugin.toml", ""))
-            if any(p.search(text) for p in SECRET_PATTERNS):
+            # A `${NAME}` placeholder for a name the plugin DECLARED in [sandbox] secrets is not
+            # a secret read — it is the mechanism this rule's own fix line prescribes, and the
+            # host substitutes it whether the plugin is sandboxed or not. Scanning it would flag
+            # a plugin for doing the correct thing the moment its secret was called *_TOKEN.
+            scanned = text
+            for name in declared.get("secrets") or ():
+                scanned = scanned.replace("${" + str(name) + "}", "")
+            if any(p.search(scanned) for p in SECRET_PATTERNS):
                 out.append(
                     Finding(
                         level=WARN,
@@ -122,18 +129,12 @@ class SandboxRules:
                         f'vouch for the agent via config sandbox_trusted_agents = ["{spec.id}"]',
                     )
                 )
-            # A raw client is ALWAYS wrong (no socket, ever). A URL literal is only a problem
-            # when the plugin never declared where it goes — a plugin that uses the brokered
-            # `fetch` and lists its hosts in [sandbox] net is doing the correct thing, and
-            # warning about it would be warning about the fix.
-            # TWO codes, because only one of them is safe to BLOCK on. An `import httpx` is
-            # unambiguous; a bare `https://` could be a docs link in a docstring. package_agent
-            # refuses the first and ignores the second — a gate that fires on a comment is a
-            # gate people learn to route around.
-            calls_out = NET_IMPORT.search(text) or (
-                URL_LITERAL.search(text) and "fetch(" in text and not declared.get("net")
-            )
-            if calls_out:
+            # A raw client is ALWAYS wrong — a sandboxed child has no socket, whatever it dials.
+            # That is unchanged by the open network (2026-09): reach is unrestricted, but it is
+            # the HOST's reach, through the brokered `fetch`. A plugin using `fetch` with any
+            # URL and no [sandbox] net at all is now the CORRECT shape — net only matters when a
+            # ${SETTING} appears in a URL — so only the own-client import is flagged.
+            if NET_IMPORT.search(text):
                 out.append(
                     Finding(
                         level=WARN,
@@ -142,9 +143,9 @@ class SandboxRules:
                         f"installed agent never gets a socket — outbound goes through the host",
                         path=f"plugins/{pid}/",
                         fix="use `from agent_runtime.infrastructure.net.outbound import fetch` "
-                        'and declare the hosts in plugin.toml:  [sandbox]  net = ["api.example.'
-                        'com"].  A credential rides as ${NAME} listed under [sandbox] secrets, '
-                        "and the plugin never sees its value",
+                        "— it reaches any host through the daemon. A credential rides as "
+                        "${NAME} listed under [sandbox] secrets, and the plugin never sees its "
+                        "value",
                     )
                 )
             # THE HOST THE USER BRINGS. A plugin that builds its URL from a `${SETTING}` is
@@ -184,27 +185,13 @@ class SandboxRules:
                         level=WARN,
                         code="UNTRUSTED_HOST_FROM_SETTING",
                         message=f"plugins/{pid}/ builds a request from ${{{names}}} — a host the "
-                        f"user supplies — but [sandbox] net names only fixed hosts. This works "
-                        f"for you and is REFUSED for everyone who installs the agent",
+                        f"user supplies — but [sandbox] net does not name that setting, so the "
+                        f"placeholder is refused as an undeclared name when a buyer's install "
+                        f"runs it sandboxed. Works for you, fails for them",
                         path=f"plugins/{pid}/plugin.toml",
-                        fix=f"declare the setting itself as the host:  [sandbox]  "
-                        f'net = ["${{{sorted(url_ish)[0]}}}"]  — the host is then whatever that '
-                        f"setting holds for whoever is running it",
-                    )
-                )
-            elif URL_LITERAL.search(text) and not declared.get("net"):
-                # A URL and no request in sight — a docstring link, a default in a comment the
-                # stripper left, an example. Reported, never blocking.
-                out.append(
-                    Finding(
-                        level=WARN,
-                        code="UNTRUSTED_MAYBE_NETWORK",
-                        message=f"plugins/{pid}/ mentions a URL but declares no [sandbox] net "
-                        f"hosts. If it really calls out, an installed copy cannot — if it is a "
-                        f"docs link, ignore this",
-                        path=f"plugins/{pid}/",
-                        fix="if it makes a request, use the brokered `fetch` and declare the "
-                        'hosts:  [sandbox]  net = ["api.example.com"]',
+                        fix=f"name the setting:  [sandbox]  "
+                        f'net = ["${{{sorted(url_ish)[0]}}}"]  — that is what makes the '
+                        f"placeholder legal in a URL; it resolves per caller at request time",
                     )
                 )
             # Spawning is a hard denial (child_guard._SPAWN), not a degradation. Found in the

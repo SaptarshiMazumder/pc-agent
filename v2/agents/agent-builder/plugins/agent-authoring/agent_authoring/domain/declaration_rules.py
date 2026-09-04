@@ -423,13 +423,15 @@ class DeclarationRules:
                 level=INFO,
                 code="DECLARATIONS_ARE_LOCAL_ONLY",
                 message=(
-                    "this agent declares settings, MCP servers or sign-ins, so it is a DESKTOP "
-                    "agent: the values live in one machine's .env, a stdio server spawns a local "
-                    "process, and the OAuth callback is a loopback URL. A hosted daemon serves "
-                    "every account from one container, where all three are wrong"
+                    "this agent declares settings, MCP servers or sign-ins. Setting VALUES are "
+                    "stored PER ACCOUNT, so it ships to the web like any other agent — each "
+                    "person fills in their own. Two things are still local-only: a stdio "
+                    "[[mcp]] server spawns a process on the daemon's machine, and an OAuth "
+                    "callback to a loopback URL only resolves on a desktop"
                 ),
                 path="agent.toml",
-                fix="say so when you publish it; set requires_local = true to make it explicit",
+                fix="nothing to do unless you declare a stdio [[mcp]] command or a loopback "
+                "OAuth callback — those two make it requires_local = true",
             )
         )
         caps = raw.get("capabilities")

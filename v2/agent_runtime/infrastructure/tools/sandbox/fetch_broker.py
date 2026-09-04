@@ -4,40 +4,46 @@ Sibling of `model_broker.py`, and the same inversion for the same reason: rather
 grant so the plugin can dial out, the plugin ASKS and the host performs.
 
     child   {"t":"fetch_request","id":"f1","url":"https://api.acme.com/v1/x","headers":{...}}
-    host    -> check the host against the grant -> substitute ${SECRETS} -> call -> clamp -> reply
+    host    -> resolve ${SETTINGS} -> operator deny/allow -> substitute ${SECRETS} -> call -> reply
     child   {"t":"fetch_response","id":"f1","status":200,"text":"..."}
 
-WHAT THIS BUYS OVER "LET IT HAVE A SOCKET WITH AN ALLOWLIST":
+THE NETWORK IS OPEN (2026-09). Plugins fetch any host; the per-plugin reach allowlist is gone.
+It made the platform's most-wanted tool shape — "research anything on the internet" — impossible
+to write as a plugin, and the threat it guarded against is handled organisationally instead:
+plugins only arrive by explicit share today, and marketplace distribution gets a review step.
+`[sandbox] net` still exists with ONE job: naming which ${SETTING}s may appear inside a URL, so
+`${COMFYUI_URL}/api/x` resolves per-account (that mechanism is untouched).
 
-  * The allowlist is ENFORCED, not requested. Blocking `socket.connect` inside the child is an
-    interpreter-level control that a compiled extension walks past; refusing to dial is not
-    something the caller can argue with, because the caller holds the socket.
-  * The CREDENTIAL never crosses. The plugin writes `${ACME_API_KEY}` and the host substitutes —
-    so it cannot read the key, cannot keep it, and cannot post it to a host it never declared.
+WHAT THE BROKER STILL BUYS:
+
+  * The CREDENTIAL never crosses into plugin code. The plugin writes `${ACME_API_KEY}` and the
+    host substitutes at send time — the value exists only in this process, per request.
+  * A plugin can only NAME secrets it declared — asking for an arbitrary name at call time is
+    still refused, so it cannot read a key it was never given.
+  * The OPERATOR's deny/allow knobs still bind — a hosted deployment can fence off its own
+    metadata endpoints and internal ports. Deployment-level, default empty.
   * It works identically on desktop and hosted, because the side that knows HOW to reach the
     network is the side that does it.
 
-EVERY REFUSAL COMES BACK AS A MESSAGE, never a hang and never a bare failure. A plugin author who
-reads "host 'evil.example' is not one this plugin declared" can fix it; one whose call silently
-returns nothing cannot.
+EVERY REFUSAL COMES BACK AS A MESSAGE, never a hang and never a bare failure.
 
-HONEST LIMIT, stated so nobody over-trusts this: a granted host is still a channel out. A plugin
-can encode data into a path on a host it legitimately calls. This bounds WHO can be talked to and
-keeps credentials host-side; it is not exfiltration prevention. The declaration's real value is
-that a human can read what an agent intends to contact before installing it.
+HONEST LIMIT, stated so nobody over-trusts this: with open reach, a plugin that holds data can
+send it anywhere, and a substituted secret travels to whatever URL the plugin wrote. What remains
+is credential HANDLING hygiene (values never enter plugin code), not exfiltration prevention —
+that is the review step's job.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 
 from agent_runtime.domain.sandbox import CapabilityGrant
 from agent_runtime.domain.sandbox_net import (
     ALLOWED_SCHEMES,
     PLACEHOLDER,
+    deny_matches,
     host_of,
     matches_any,
     scheme_of,
@@ -104,6 +110,21 @@ class SandboxFetchBroker:
                 outcome=refusal.outcome,
             )
 
+        # A FILE RIDING ALONG (multipart upload). The path is checked HERE, not in `fetch`:
+        # the fs sandbox still stands — a child that could name any path would turn the broker
+        # into a disk-read oracle posting /etc/passwd to a server of its choice. The run's own
+        # readable scope (workspace + granted read paths) is exactly what it may send.
+        file_path = str(request.get("file_path") or "")
+        if file_path:
+            try:
+                file_path = str(self._readable(file_path))
+            except _Refused as refusal:
+                return self._reply(
+                    request_id,
+                    outbound.Response(error=str(refusal), url=url),
+                    outcome=refusal.outcome,
+                )
+
         self._calls += 1
         res = await asyncio.to_thread(
             outbound.fetch,
@@ -113,6 +134,9 @@ class SandboxFetchBroker:
             params=request.get("params") or None,
             json=request.get("json"),
             data=str(request.get("data") or ""),
+            file_path=file_path,
+            file_field=str(request.get("file_field") or "file"),
+            form_fields=request.get("form_fields") or None,
             timeout_s=self._timeout_s,
             max_bytes=self._max_bytes,
         )
@@ -127,26 +151,75 @@ class SandboxFetchBroker:
 
     # ------------------------------------------------------------------ policy
 
-    def _effective_allowlist(self) -> tuple[str, ...]:
-        """The declared list with every `${SETTING}` replaced by the host that setting holds.
+    def _readable(self, path: str):
+        """The resolved path IF this run may read it; raises _Refused otherwise.
 
-        RESOLVED PER CALL, because the value belongs to whoever is calling — the same reason
-        credentials are substituted here rather than baked in. A setting that is empty, or
-        holds something with no hostname, contributes nothing: the request is then refused
-        naming the setting, which is the honest answer to "you have not configured this yet".
+        Scope is the grant's own fs view: the run's workspace (`fs_paths`) plus the agent's
+        shipped files (`read_paths`). A relative path means workspace-relative — the same
+        convention as every file tool, so `uploads/photo.png` names the thing a chat
+        attachment just became.
+        """
+        from pathlib import Path
+
+        from agent_runtime.application.write_scope import is_inside
+
+        roots = [r for r in (*(self._grant.fs_paths or ()), *(self._grant.read_paths or ())) if r]
+        p = Path(path)
+        if not p.is_absolute() and roots:
+            p = Path(roots[0]) / p
+        try:
+            resolved = p.resolve()
+        except OSError as e:
+            raise _Refused(f"cannot resolve {path!r}: {e}", outcome="file-denied") from e
+        if not any(is_inside(resolved, r) for r in roots):
+            raise _Refused(
+                f"'{path}' is outside this run's files (workspace and the agent's own "
+                "directory). A plugin uploads the run's files, not the machine's.",
+                outcome="file-denied",
+            )
+        if not resolved.is_file():
+            raise _Refused(f"no such file to upload: '{path}'", outcome="file-denied")
+        return resolved
+
+    def _host_settings(self) -> tuple[str, ...]:
+        """Setting names the plugin declared AS HOSTS in `[sandbox] net`.
+
+        They are legal in a URL for the same reason a declared secret is legal in a header: the
+        plugin named them in its manifest, where a human read them before installing. Without
+        this they would trip the undeclared-placeholder guard, which exists to stop a plugin
+        asking for a name it never disclosed — not to stop it using one it did.
+        """
+        return tuple(
+            m.group(1)
+            for entry in (self._grant.net_allowlist or ())
+            for m in [PLACEHOLDER.fullmatch(str(entry).strip())]
+            if m
+        )
+
+    def _resolve_value(self, name: str) -> str:
+        """One name's value for the CALLER — the same resolver the unsandboxed path uses.
+
+        `current_setting_value` layers the account's stored value over the author's default and
+        the agent's own prefixed variable. Reading `os.environ` directly here (as this did) meant
+        a value stored per account was invisible to a sandboxed plugin while working perfectly
+        in-process — the exact "works for you, 401s for them" split the two paths must not have.
         """
         from agent_runtime.application.run_context import current_setting_value
 
-        out: list[str] = []
-        for entry in self._grant.net_allowlist or ():
-            m = PLACEHOLDER.fullmatch(str(entry).strip())
-            if not m:
-                out.append(entry)
-                continue
-            host = host_of(current_setting_value(m.group(1)) or "")
-            if host:
-                out.append(host)
-        return tuple(out)
+        return current_setting_value(name) or self._from_config(name) or ""
+
+    def _resolve_url(self, url: str) -> str:
+        """Substitute the settings a plugin may use in a URL, BEFORE anything is checked.
+
+        Order matters: scheme and host have to be judged on the address that will actually be
+        dialled. Validating the raw `${COMFYUI_URL}/api/x` instead reads its scheme as "(none)"
+        and refuses a request that was always going to be legitimate.
+        """
+        from agent_runtime.domain.sandbox_net import substitute
+
+        allowed = set(self._host_settings()) | set(self._declared)
+        values = {n: v for n in allowed if (v := self._resolve_value(n))}
+        return substitute(url, values)
 
     def _authorize(self, request: dict) -> tuple[str, dict]:
         """-> (url, headers-with-secrets-substituted). Raises _Refused with a plugin-visible
@@ -155,12 +228,23 @@ class SandboxFetchBroker:
         url = str(request.get("url") or "").strip()
         if not url:
             raise _Refused("a fetch request needs a url", outcome="bad-request")
-        if not self._grant.net_allowlist:
-            raise _Refused(
-                "this plugin is not granted network access. Declare the hosts it calls in its "
-                "plugin.toml:  [sandbox]  net = [\"api.example.com\"]",
-                outcome="not-granted",
-            )
+        # NO REACH GATE. Plugins fetch any host — `[sandbox] net` no longer means "the hosts you
+        # may call"; its one remaining job is naming which ${SETTING}s are legal inside a URL.
+        # The gate was lifted deliberately (2026-09): it made "research anything on the internet"
+        # impossible to build as a plugin tool, and distribution is share-only for now, with a
+        # marketplace review step planned for weeding out malicious plugins instead.
+        # RESOLVED FIRST. Everything below judges the address the host will really dial.
+        url = self._resolve_url(url)
+        # A name that survived substitution is one the user has not filled in. Say THAT, rather
+        # than letting it fall through to "scheme '(none)' is not allowed" — the setting is the
+        # thing they can fix, and the scheme error points at the plugin instead of at them.
+        for m in PLACEHOLDER.finditer(url):
+            if m.group(1) in set(self._host_settings()) | set(self._declared):
+                raise _Refused(
+                    f"setting {m.group(1)} is empty, so this request has no address to go to. "
+                    "Fill it in on this agent's settings and try again.",
+                    outcome="setting-unset",
+                )
         method = str(request.get("method") or "GET").upper()
         if method not in ALLOWED_METHODS:
             raise _Refused(f"method {method!r} is not allowed", outcome="bad-method")
@@ -178,21 +262,25 @@ class SandboxFetchBroker:
                 f"scheme {scheme or '(none)'!r} is not allowed; use http or https",
                 outcome="bad-scheme",
             )
+        # THE OPERATOR'S KNOBS SURVIVE THE OPEN NETWORK. They are the deployment protecting its
+        # own machine (a hosted daemon denying 169.254.169.254 and localhost admin ports), not a
+        # plugin limitation — default empty, so on a desktop this is two no-ops.
         host = host_of(url)
-        if not matches_any(host, self._effective_allowlist()):
+        deny = getattr(self._config, "sandbox_net_deny", None) or ()
+        strict = tuple(
+            p for p in (getattr(self._config, "sandbox_net_allow", None) or ()) if str(p).strip()
+        )
+        if deny_matches(host, deny) or (strict and not matches_any(host, strict)):
             raise _Refused(
-                f"host '{host}' is not one this plugin may reach "
-                f"(allowed: {', '.join(self._effective_allowlist()) or '(none resolved)'}). "
-                "The list comes from its plugin.toml [sandbox] net, narrowed by this daemon's "
-                "config — not from the request, or a plugin could name any host at call time. "
-                "An entry like ${SETTING} resolves to the host in that setting; if it is empty, "
-                "the setting has not been filled in yet.",
+                f"host '{host}' is blocked by this daemon's operator config "
+                "(sandbox_net_deny / sandbox_net_allow) — a deployment-level rule, not the "
+                "plugin's declaration.",
                 outcome="host-denied",
             )
 
         raw_headers = {str(k): str(v) for k, v in (request.get("headers") or {}).items()}
         strings = [url, *raw_headers.values(), str(request.get("data") or "")]
-        stray = undeclared_placeholders(strings, self._declared)
+        stray = undeclared_placeholders(strings, tuple(self._declared) + self._host_settings())
         if stray:
             raise _Refused(
                 f"undeclared secret(s) {', '.join(sorted(stray))} — a plugin may only reference "
@@ -210,16 +298,15 @@ class SandboxFetchBroker:
         by `substitute` — the provider then answers 401 with the placeholder visible, which is a
         debuggable failure, unlike a header that silently went missing.
         """
-        from agent_runtime.application.run_context import current_setting_env
         from agent_runtime.domain.sandbox_net import substitute
 
         values = {}
         for name in self._declared:
-            # Same resolution as the unsandboxed path (`net.outbound._resolved`): a name the
-            # running agent declared reads its own prefixed variable, everything else reads the
-            # machine-wide one. The two MUST agree — a plugin that works in-process and 401s
-            # sandboxed would get blamed on the sandbox.
-            value = os.environ.get(current_setting_env(name)) or self._from_config(name)
+            # Same resolution as the unsandboxed path (`net.outbound._resolved`), through the
+            # one resolver: the caller's stored value, then the author's default, then this
+            # agent's own prefixed variable. The two paths MUST agree — a plugin that works
+            # in-process and 401s sandboxed gets blamed on the sandbox.
+            value = self._resolve_value(name)
             if value:
                 values[name] = value
         missing = [n for n in self._declared if n not in values]

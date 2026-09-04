@@ -32,8 +32,10 @@ from __future__ import annotations
 import json as _json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from agent_runtime.domain.sandbox_net import substitute
+from agent_runtime.infrastructure.files import guess_mime
 
 #: Kept modest on purpose. A plugin pulling a 500MB body into a subprocess and back through a pipe
 #: is a memory incident, not a feature; the host clamps this too (`sandbox_fetch_limits`).
@@ -100,6 +102,9 @@ def fetch(
     params: dict | None = None,
     json=None,
     data: str = "",
+    file_path: str = "",
+    file_field: str = "file",
+    form_fields: dict | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Response:
@@ -108,11 +113,22 @@ def fetch(
     Never raising is not defensiveness: this is called from inside a tool's `execute`, where an
     exception becomes a crashed tool call instead of an answer the model can act on. The caller
     checks `.ok` and reports; that is the contract every tool in this codebase already follows.
+
+    ``file_path`` UPLOADS A LOCAL FILE as multipart/form-data — the shape browser file inputs
+    and endpoints like ComfyUI's ``/upload/image`` expect, which a string body cannot carry
+    (image bytes are not text, and the sandbox pipe is JSON frames). The FILE IS READ HERE, on
+    the side that has the filesystem: a sandboxed plugin sends only the path, and the broker
+    checks it against the run's readable scope before this runs. ``file_field`` names the form
+    part; ``form_fields`` are the plain text parts riding alongside (e.g. a subfolder).
     """
     import httpx
 
     try:
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
+        files = None
+        if file_path:
+            p = Path(file_path)
+            files = {file_field: (p.name, p.read_bytes(), guess_mime(p))}
         with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
             r = client.request(
                 method.upper(),
@@ -120,7 +136,11 @@ def fetch(
                 headers=req_headers,
                 params=params or None,
                 json=json,
-                content=_resolved(data) if data else None,
+                # httpx builds the multipart body from files= + data=; the two string-body
+                # forms below are only used when no file rides along.
+                files=files,
+                data={str(k): str(v) for k, v in form_fields.items()} if files and form_fields else None,
+                content=_resolved(data) if data and not files else None,
             )
             body = r.text
             if max_bytes and len(body.encode("utf-8", "ignore")) > max_bytes:

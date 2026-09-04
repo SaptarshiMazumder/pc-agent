@@ -194,14 +194,25 @@ class McpServerDecl:
 
     @property
     def placeholders(self) -> tuple[str, ...]:
-        """Every ``${NAME}`` this declaration references, in command, env and headers alike.
+        """Every ``${NAME}`` this declaration references — command, url, env and headers alike.
 
         The connector needs the whole set BEFORE connecting: a server whose credential is still
         empty must be refused rather than launched, because the subprocess would inherit the
         daemon's environment and quietly run on whatever account the daemon happens to hold.
+
+        THE URL IS IN THE SET. ``url = "${SERVICE_MCP_URL}"`` is how an agent reaches an MCP
+        server the USER runs (beside their own service, at an address unknowable when the agent
+        is written) — the same per-account shape as a plugin's ``net`` entry. Leaving it out
+        meant such a declaration dialled the literal placeholder string, and changing the
+        setting never invalidated the cached connection (``agents_using`` reads this set too).
         """
         found: list[str] = []
-        for value in (*self.command, *(self.env or {}).values(), *(self.headers or {}).values()):
+        for value in (
+            *self.command,
+            self.url,
+            *(self.env or {}).values(),
+            *(self.headers or {}).values(),
+        ):
             found.extend(PLACEHOLDER_NAMES.findall(str(value)))
         return tuple(dict.fromkeys(found))
 

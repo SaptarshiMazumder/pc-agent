@@ -334,9 +334,12 @@ def test_a_declared_fetch_is_not_reported_as_wanting_network():
     assert "UNTRUSTED_WANTS_NETWORK" not in codes
 
 
-def test_an_undeclared_url_is_still_reported():
+def test_a_fetch_with_no_declaration_is_clean():
+    """The 2026-09 contract: brokered `fetch` to a literal URL needs NO [sandbox] net at all —
+    the network is open, and `net` only exists to make ${SETTING}s legal in URLs. Flagging this
+    shape would warn authors away from exactly the pattern that now works everywhere."""
     src = "res = fetch('https://api.acme.com/x')"
-    assert "UNTRUSTED_WANTS_NETWORK" in _check(src)
+    assert "UNTRUSTED_WANTS_NETWORK" not in _check(src)
 
 
 def test_a_raw_client_is_reported_even_when_hosts_are_declared():

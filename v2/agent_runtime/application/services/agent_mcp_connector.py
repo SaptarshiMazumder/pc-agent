@@ -104,6 +104,7 @@ class AgentMcpConnector:
                 f"needs {', '.join(missing)} — set it in this agent's settings, then try again"
             )
             return
+        decl = self._resolved_url(agent_id, decl)
         headers = self._resolve(agent_id, decl.headers)
         if decl.auth.startswith("oauth:"):
             token = await self._oauth_token(agent_id, decl.auth.split(":", 1)[1])
@@ -154,6 +155,26 @@ class AgentMcpConnector:
         if self._read_setting is not None:
             return str(self._read_setting(agent_id, name) or "")
         return str(self._read_env(self._setting_env(agent_id, name)) or "")
+
+    def _resolved_url(self, agent_id: str, decl):
+        """The declaration with its ``url`` made literal for this agent and caller.
+
+        ``url = "${SERVICE_MCP_URL}"`` is the user-hosted-server case: the address lives in a
+        per-account setting, exactly like a plugin's ``${SETTING}`` host. Resolved on a COPY
+        (the decl is frozen shared data — the resolved address is one caller's, and must not
+        be cached into the declaration every other account reads). The missing-check has
+        already run, so every name here has a value.
+        """
+        from dataclasses import replace
+
+        from agent_runtime.domain.agent import PLACEHOLDER_NAMES
+
+        if not decl.url or not PLACEHOLDER_NAMES.search(decl.url):
+            return decl
+        return replace(
+            decl,
+            url=PLACEHOLDER_NAMES.sub(lambda m: self._value(agent_id, m.group(1)), decl.url),
+        )
 
     def _resolve(self, agent_id: str, values: dict | None) -> dict:
         """``{k: "${NAME}"}`` -> ``{k: <value>}``, resolved for this agent.
