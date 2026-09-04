@@ -4822,6 +4822,18 @@ class Gateway:
         def _run():
             # makensis is a subprocess and the packer is synchronous IO — off the event loop.
             try:
+                # ONE INSTALLER IN THIS FOLDER, EVER. The stub lands beside the payload and its
+                # name carries the VERSION, so a bump leaves the previous exe sitting there and the
+                # download endpoint has to guess which is current. Name order is not version order
+                # (`-1.9.0-` sorts after `-1.10.0-`), so that guess is wrong exactly when it
+                # matters — the user gets an installer carrying the OLD bundle. Clearing first
+                # makes "the file in this folder" mean "the one we just built".
+                #
+                # The payload beneath is already regenerated wholesale by FsPayloadWriter, which
+                # clears its own directory for this same reason; this is the other half.
+                if out_dir.is_dir():
+                    for stale in out_dir.glob("*.exe"):
+                        stale.unlink(missing_ok=True)
                 return service.build(
                     ProductSource(agent_dir=Path(agent_dir)), out_dir / "payload", out_dir
                 )
@@ -4874,7 +4886,16 @@ class Gateway:
 
         out_dir = Path(self.config.state_dir) / "products" / agent_id
         # Only top-level files are installers; the payload lives in out_dir/payload (never served).
-        installers = sorted(out_dir.glob("*.exe")) if out_dir.is_dir() else []
+        # NEWEST BY MTIME, never by name: `-1.9.0-` sorts after `-1.10.0-`, so name order would
+        # hand back an older build. The build step also clears stale exes, so this is belt and
+        # braces — but the endpoint must not depend on that having happened.
+        def _built_at(path: Path) -> float:
+            try:
+                return path.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        installers = sorted(out_dir.glob("*.exe"), key=_built_at) if out_dir.is_dir() else []
         if not installers:
             return deny(404, "Not Found")
         chosen = installers[-1]

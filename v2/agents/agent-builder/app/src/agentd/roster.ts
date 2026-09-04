@@ -111,7 +111,19 @@ export const agentAuthorLabel = (
   return ''
 }
 
-/** Outside the caller's world: for a team (`enterprise`) that is "not an org agent"; for an
- *  individual it is an installed/curated copy — something they did not author. */
-export const agentIsExternal = (a: AgentRow, enterprise: boolean): boolean =>
-  enterprise ? a.scope !== 'org' : a.origin === 'installed' || a.origin === 'curated'
+/** Is this copy the caller's OWN work? On an ORG share `owner` is the org, so `author` is the only
+ *  field still naming the maker; on a personal row there is no author and origin/mine answer it.
+ *  An absent `origin` (an older daemon) reads as authored — when we cannot tell, never brand
+ *  somebody's own agent as a foreign import. */
+const isOwnWork = (a: AgentRow, myId: string): boolean =>
+  a.author ? a.author === myId : (a.origin || 'authored') === 'authored' && a.mine !== false
+
+/** Outside the caller's world — ONE rule carrying both boundaries. Your own work is never external
+ *  (a personal draft you are still building is yours, not something that arrived from outside), and
+ *  for a team its organization's agents are not external either. Everything else is: an installed or
+ *  curated copy, or somebody else's agent.
+ *
+ *  The earlier form said "not an org agent" for a team, which tagged an enterprise user's OWN
+ *  unshared draft as external — literally true and obviously wrong on screen. */
+export const agentIsExternal = (a: AgentRow, enterprise: boolean, myId = ''): boolean =>
+  !isOwnWork(a, myId) && !(enterprise && a.scope === 'org')

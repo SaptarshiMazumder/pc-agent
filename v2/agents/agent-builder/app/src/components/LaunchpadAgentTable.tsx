@@ -109,7 +109,7 @@ export function LaunchpadAgentTable({
           </div>
           {agents.map((a) => {
             const author = agentAuthorLabel(a, myId, emails)
-            const external = agentIsExternal(a, enterprise)
+            const external = agentIsExternal(a, enterprise, myId)
             return (
             <div className="lp-tr" key={a.id}>
               <span className="lp-td-who">

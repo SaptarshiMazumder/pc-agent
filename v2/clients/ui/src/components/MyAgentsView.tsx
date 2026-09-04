@@ -25,9 +25,9 @@ import PageShell from './PageShell'
  *                  would be lost; the roster carries `author` (an account id) to keep it, and the
  *                  card renders "by <them>" (their email when the org roster is in hand, else the
  *                  id — "labelled by their user id" either way). Your own work reads "by you".
- *   EXTERNAL     — did this come from outside your world. For a team, "your world" is the org, so
- *                  anything that is not an org agent is external. For an individual it is your own
- *                  authorship, so an installed/curated copy is external. One tag, two boundaries.
+ *   EXTERNAL     — did this come from outside your world. Your OWN work is never external, whoever
+ *                  you are; for a team its organization's agents are not either. What is left is an
+ *                  installed or curated copy, or somebody else's agent. One tag, both boundaries.
  *
  * WHAT LEFT. The public-marketplace grid ("From the platform") and its install/uninstall buttons
  * are gone — the storefront is on hold, and an enterprise wants its own agents, not a catalogue.
@@ -406,10 +406,16 @@ export default function MyAgentsView() {
     if (a.mine !== false && a.scope !== 'org') return 'you'
     return ''
   }
-  // Outside the caller's world: for a team that is "not an org agent", for an individual it is an
-  // installed/curated copy (not something they authored).
+  // YOUR OWN WORK IS NEVER EXTERNAL. On an org share `owner` is the org, so `author` is the only
+  // field still naming the maker; on a personal row there is no author and origin/mine answer it.
+  // An absent origin (an older daemon) reads as authored — when we cannot tell, never brand
+  // somebody's own agent as something that arrived from outside.
+  const isOwnWork = (a: AgentInfo): boolean =>
+    a.author ? a.author === myId : (a.origin || 'authored') === 'authored' && a.mine !== false
+  // ONE rule carrying both boundaries: your own work is never external, and for a team its
+  // organization's agents are not either. Everything else is — installed, curated, someone else's.
   const isExternal = (a: AgentInfo): boolean =>
-    enterprise ? a.scope !== 'org' : a.origin === 'installed' || a.origin === 'curated'
+    !isOwnWork(a) && !(enterprise && a.scope === 'org')
 
   const actions = (
     <>

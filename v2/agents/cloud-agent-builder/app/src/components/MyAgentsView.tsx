@@ -88,7 +88,7 @@ export function MyAgentsView({
           <div className="cards">
             {agents.map((a) => {
               const author = agentAuthorLabel(a, myId, emails)
-              const external = agentIsExternal(a, enterprise)
+              const external = agentIsExternal(a, enterprise, myId)
               return (
               <div className="card" key={a.id}>
                 <div className="card-top">
