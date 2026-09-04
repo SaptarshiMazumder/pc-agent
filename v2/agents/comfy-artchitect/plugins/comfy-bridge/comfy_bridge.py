@@ -281,11 +281,13 @@ class ComfyInventoryTool(Tool):
                     [f for f in files if needle in f.lower()] if needle else files
                 ) or files
 
+            downloading = _downloads_in_flight()
             if not found:
                 return ToolResult.text(
                     ("nothing matching " + repr(needle) if needle else "no model files")
                     + " — no loader on this instance lists any. If models were just added, "
-                    "ComfyUI only rescans its folders on restart or via its Refresh button.",
+                    "ComfyUI only rescans its folders on restart or via its Refresh button."
+                    + (f"\n{downloading}" if downloading else ""),
                     details={},
                 )
             lines = [f"{len(found)} loader input(s) with model files:"]
@@ -294,6 +296,8 @@ class ComfyInventoryTool(Tool):
                 shown = ", ".join(items[:10])
                 more = f" … and {len(items) - 10} more" if len(items) > 10 else ""
                 lines.append(f"{key} ({len(items)}): {shown}{more}")
+            if downloading:
+                lines.append(downloading)
             if not needle:  # a filtered view is a subset — never record it as the whole
                 import studio_state
 
@@ -722,6 +726,28 @@ def _manager_catalog() -> list[dict]:
         return []
 
 
+def _downloads_in_flight() -> str:
+    """One line when ComfyUI-Manager is still downloading, else ''. The guard against the worst
+    misread this agent made in testing: a mid-download file looks 'missing' or 'corrupt', and
+    designing around it produces a knowingly-wrong graph. Absence of a file proves nothing
+    while this line is non-empty."""
+    st = _get("/manager/queue/status", timeout_s=10.0)
+    try:
+        info = st.json() if st.ok and st.text.strip() else {}
+    except ValueError:
+        info = {}
+    n = int(info.get("in_progress_count") or 0)
+    if not n and not info.get("is_processing"):
+        return ""
+    done = info.get("done_count")
+    total = info.get("total_count")
+    return (
+        f"NOTE: ComfyUI-Manager is STILL DOWNLOADING {n} file(s) ({done}/{total} done). A file "
+        "missing above may simply not have finished — wait and re-check before concluding it "
+        "failed, and NEVER redesign a workflow around a file that is still downloading."
+    )
+
+
 def _catalog_near_matches(catalog: list[dict], filename: str, limit: int = 4) -> list[str]:
     """Cataloged entries closest to a filename Manager refused — shared-token overlap, so the
     model can pick a legal alternative stack instead of retrying a doomed request."""
@@ -1049,6 +1075,127 @@ class ComfyInterruptTool(Tool):
             return ToolResult.text(f"comfy_interrupt failed: {type(e).__name__}: {e}", is_error=True)
 
 
+class ComfyValidateTool(Tool):
+    name = "comfy_validate"
+    label = "Compile-check a workflow"
+    default_retryable = True
+    description = (
+        "Check an emitted API-format workflow against THIS instance before anything is "
+        "installed or run: every node class must exist, every link must point at a node in the "
+        "graph, and every model filename it names must be loadable. The result is pass, or an "
+        "itemized report whose missing-file list IS the install shopping list — design first, "
+        "validate, install exactly what this names, then run. Pass the `.api.json` path "
+        "comfy_emit returned."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["workflow_path"],
+        "properties": {
+            "workflow_path": {
+                "type": "string",
+                "description": "Path to the .api.json file comfy_emit wrote.",
+            }
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            path = str(params.get("workflow_path") or "").strip()
+            try:
+                graph = json.loads(Path(path).read_text(encoding="utf-8"))
+            except OSError as e:
+                return ToolResult.text(f"cannot read {path}: {e}", is_error=True)
+            except ValueError as e:
+                return ToolResult.text(f"{path} is not valid JSON: {e}", is_error=True)
+            if not isinstance(graph, dict) or not graph:
+                return ToolResult.text(f"{path} is empty or not an object", is_error=True)
+            if "nodes" in graph and "links" in graph:
+                return ToolResult.text(
+                    f"{path} is a UI-format workflow — validate the .api.json comfy_emit wrote "
+                    "beside it (the API file is the one that runs).",
+                    is_error=True,
+                )
+
+            res = _get("/api/object_info", timeout_s=60.0)
+            if not res.ok:
+                return ToolResult.text(_failed(res, "validate"), is_error=True)
+            try:
+                catalogue = res.json()
+            except ValueError:
+                return ToolResult.text(
+                    "the instance's node catalogue is too large to fetch whole — validate "
+                    "per-node with comfy_node_spec instead.",
+                    is_error=True,
+                )
+
+            unknown_nodes: list[str] = []
+            missing_files: list[str] = []
+            bad_enums: list[str] = []
+            bad_links: list[str] = []
+            for nid, entry in graph.items():
+                if not isinstance(entry, dict):
+                    continue
+                cls = str(entry.get("class_type") or "")
+                spec = catalogue.get(cls)
+                if not isinstance(spec, dict):
+                    unknown_nodes.append(f"node {nid}: class '{cls}' does not exist here")
+                    continue
+                sections = spec.get("input") or {}
+                specs = {
+                    name: s
+                    for section in ("required", "optional")
+                    for name, s in (sections.get(section) or {}).items()
+                }
+                for field, value in (entry.get("inputs") or {}).items():
+                    if isinstance(value, list) and len(value) == 2:
+                        if str(value[0]) not in graph:
+                            bad_links.append(
+                                f"node {nid}.{field} links to node {value[0]}, not in this graph"
+                            )
+                        continue
+                    s = specs.get(field)
+                    choices = s[0] if isinstance(s, list) and s else None
+                    if not isinstance(choices, list) or not isinstance(value, str):
+                        continue
+                    if value in choices:
+                        continue
+                    if _looks_like_model_list(choices) or (
+                        not choices and value.lower().endswith(_MODEL_EXTS)
+                    ):
+                        missing_files.append(f"{value}  (for {cls}.{field}, node {nid})")
+                    else:
+                        legal = ", ".join(str(c) for c in choices[:8])
+                        bad_enums.append(
+                            f"node {nid}.{field}: '{value}' is not one of [{legal}…]"
+                        )
+
+            downloading = _downloads_in_flight()
+            if not (unknown_nodes or missing_files or bad_enums or bad_links):
+                return ToolResult.text(
+                    f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
+                    "and every model file it names is loadable. Safe to comfy_run."
+                    + (f"\n{downloading}" if downloading else "")
+                )
+            lines = ["the workflow does NOT compile against this instance:"]
+            if unknown_nodes:
+                lines.append("missing node classes (custom pack needed — the user installs those):")
+                lines += [f"  {x}" for x in unknown_nodes]
+            if bad_links:
+                lines.append("broken links:")
+                lines += [f"  {x}" for x in bad_links]
+            if bad_enums:
+                lines.append("invalid values (fix the workflow):")
+                lines += [f"  {x}" for x in bad_enums]
+            if missing_files:
+                lines.append("model files to install (this is the comfy_install shopping list):")
+                lines += [f"  {x}" for x in missing_files]
+            if downloading:
+                lines.append(downloading)
+            return ToolResult.text("\n".join(lines), is_error=True)
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_validate failed: {type(e).__name__}: {e}", is_error=True)
+
+
 def register(api, ctx):
     # Imported by bare name: the loader puts this plugin's folder on sys.path, so siblings are
     # top-level modules here rather than a package.
@@ -1059,6 +1206,7 @@ def register(api, ctx):
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyProbeTool())
     api.register_tool(ComfyEmitTool())
+    api.register_tool(ComfyValidateTool())
     api.register_tool(ComfyInventoryTool())
     api.register_tool(ComfyNodeSpecTool())
     api.register_tool(ComfyResearchTool())

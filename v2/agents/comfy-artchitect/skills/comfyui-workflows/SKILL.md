@@ -33,16 +33,24 @@ The graph is dictated by the model FAMILY, families wire completely differently 
 self-contained checkpoint vs a bare unet with separate text encoders and VAE; cfg 7 vs cfg 1;
 20 steps vs 4), and new families ship monthly — so the wiring is **researched, never recalled**:
 
+0. **Which model at all?** Before committing to a family, sweep the landscape: `web_search`
+   ("best open <task> model <year>", "<task> comfyui workflow") plus `comfy_research` search on
+   Hugging Face and Civitai. Pick the best CURRENT model that fits the probed VRAM — never the
+   first one you remember.
 1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
    usually their **reference workflow**: fetch it by URL with the same tool. That file is the
    answer, written by the people who trained the model.
 2. No reference workflow? Fetch the model card / README and pull the facts out: loader, text
    encoder(s), VAE, latent node, sampler/scheduler/steps/cfg/shift. For anything not on HF or
    Civitai, `web_search` the release announcement and fetch what it links.
-3. `comfy_research(check=[...])` every node class and filename you now believe you need —
-   present or missing on this instance, before a run is spent on it.
-4. The server settles what research got wrong: `node_errors` on submit names the exact input
-   and the values this instance accepts.
+3. **Community pass**: `web_search` the chosen stack against Reddit, GitHub issues and blogs —
+   required companion files, known pitfalls, settings that actually work at this VRAM. Then
+   cross-validate: two independent sources must agree on the architecture and file list before
+   any graph is drawn.
+4. Emit first, then `comfy_validate` the `.api.json` — every node class, link and filename
+   checked against the instance; its missing-file list is the `comfy_install` shopping list.
+   The server settles anything left: `node_errors` on submit names the exact input and the
+   values this instance accepts.
 
 **The user swapping models is a return to step 1**, not an edit — unless it is the same family
 (one SDXL fine-tune for another).
