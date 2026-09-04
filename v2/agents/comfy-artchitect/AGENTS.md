@@ -46,7 +46,10 @@ Every job is the same shape. Do not skip a step because the request seems simple
    (filename + the download URL research found + its kind). It uses ComfyUI-Manager, which
    vast/RunPod templates ship, waits for the download, and confirms the file is loadable. A big
    weight takes minutes — say "installing X, this is a few minutes" and let it run; do not turn
-   it into a task for the user. Only if `comfy_install` reports no Manager AND no instance MCP
+   it into a task for the user. Manager only installs models from its own catalog on most
+   instances — so when equivalents exist, prefer a cataloged stack, and when `comfy_install`
+   refuses a file and names cataloged alternatives, redesign around one of those instead of
+   retrying. Only if `comfy_install` reports no Manager AND no instance MCP
    is the download genuinely the user's to do — and then you say exactly what you tried. A
    missing custom-node PACK (`missing_node_type`) is the one thing you still cannot install over
    the API — name the pack and let them add it.

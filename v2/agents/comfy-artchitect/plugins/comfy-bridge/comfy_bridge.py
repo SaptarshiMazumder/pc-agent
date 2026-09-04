@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
@@ -707,6 +708,37 @@ def _manager_present() -> bool:
     return res.ok
 
 
+def _manager_catalog() -> list[dict]:
+    """Manager's own model catalog, straight from the instance. Its install endpoint WHITELISTS
+    against this list — an install request must match a catalog entry's save_path+base+filename
+    exactly (manager_server.check_whitelist_for_model), so inventing those fields guarantees a
+    400 on any default-security instance. The catalog also carries an `installed` flag."""
+    res = _get("/externalmodel/getlist?mode=cache", timeout_s=60.0)
+    if not res.ok:
+        return []
+    try:
+        return (res.json() or {}).get("models") or []
+    except ValueError:
+        return []
+
+
+def _catalog_near_matches(catalog: list[dict], filename: str, limit: int = 4) -> list[str]:
+    """Cataloged entries closest to a filename Manager refused — shared-token overlap, so the
+    model can pick a legal alternative stack instead of retrying a doomed request."""
+    want = {t for t in re.split(r"[^a-z0-9]+", filename.lower()) if t and t != "safetensors"}
+    scored = []
+    for m in catalog:
+        have = {t for t in re.split(r"[^a-z0-9]+", str(m.get("filename", "")).lower()) if t}
+        overlap = len(want & have)
+        if overlap:
+            scored.append((overlap, m))
+    scored.sort(key=lambda p: -p[0])
+    return [
+        f"{m.get('name')} (filename={m.get('filename')}, {m.get('size')}, type={m.get('type')})"
+        for _s, m in scored[:limit]
+    ]
+
+
 class ComfyInstallTool(Tool):
     name = "comfy_install"
     label = "Install a model on the instance"
@@ -759,16 +791,59 @@ class ComfyInstallTool(Tool):
                 )
 
             save_path, mtype = _MANAGER_DIRS.get(kind, (kind, kind))
-            body = {
-                "ui_id": f"agent-{filename}",
-                "filename": filename,
-                "url": url,
-                "save_path": save_path,
-                "type": mtype,
-                "base": "",
-            }
+
+            # Manager whitelists installs against its own catalog (save_path+base+filename must
+            # match an entry). So: cataloged file -> submit the entry VERBATIM, never our guess.
+            catalog = _manager_catalog()
+            entry = next(
+                (m for m in catalog
+                 if str(m.get("filename", "")).lower() == filename.lower()),
+                None,
+            )
+            if entry is not None:
+                if str(entry.get("installed")) == "True":
+                    return ToolResult.text(
+                        f"{filename} is already installed (models/{entry.get('save_path')}/). "
+                        "Design with it."
+                    )
+                save_path = str(entry.get("save_path") or save_path)
+                body = {
+                    "ui_id": f"agent-{filename}",
+                    "filename": entry.get("filename"),
+                    "url": entry.get("url") or url,
+                    "save_path": entry.get("save_path"),
+                    "type": entry.get("type"),
+                    "base": entry.get("base", ""),
+                    "name": entry.get("name", ""),
+                }
+            else:
+                body = {
+                    "ui_id": f"agent-{filename}",
+                    "filename": filename,
+                    "url": url,
+                    "save_path": save_path,
+                    "type": mtype,
+                    "base": "",
+                }
             res = _post("/manager/queue/install_model", body, timeout_s=30.0)
             if not res.ok:
+                if res.status == 400 and entry is None:
+                    alts = _catalog_near_matches(catalog, filename)
+                    hint = (
+                        f"Closest cataloged models: {'; '.join(alts)}. Consider redesigning the "
+                        "workflow around a cataloged stack and calling comfy_install with that "
+                        "exact filename. "
+                        if alts
+                        else "No close cataloged alternative exists. "
+                    )
+                    return ToolResult.text(
+                        f"install {filename}: this instance's ComfyUI-Manager only installs "
+                        f"models from its own catalog at its current security level, and "
+                        f"'{filename}' is not in that catalog. {hint}Otherwise the file must be "
+                        "added on the instance itself, or Manager's security_level set to "
+                        "'weak' in its config.",
+                        is_error=True,
+                    )
                 return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
             # Manager queues the job; the worker has to be told to run.
             _post("/manager/queue/start", None, timeout_s=15.0)
