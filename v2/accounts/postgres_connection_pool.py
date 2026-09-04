@@ -77,6 +77,18 @@ def _build() -> Any:
         min_size=DEFAULT_MIN_SIZE,
         max_size=DEFAULT_MAX_SIZE,
         timeout=DEFAULT_TIMEOUT_S,
+        # NEON CLOSES IDLE CONNECTIONS (compute autosuspend, proxy idle cutoff — a few minutes),
+        # and it closes them SILENTLY: the pool still holds the socket, and the next request
+        # executes on it and dies with "SSL connection has been closed unexpectedly" — a 500 on
+        # whatever endpoint drew the short straw, then a 200 on the retry once the pool discards
+        # the corpse. That flapping was live on staging (logins failing between working ones).
+        # Two lines close it:
+        #   max_idle  — retire a connection idled past 2 minutes, well inside Neon's cutoff, so
+        #               the pool rarely holds a dead one at all;
+        #   check     — validate at checkout (one cheap round trip), so a connection that died
+        #               anyway is discarded INSIDE the pool instead of 500ing a user request.
+        max_idle=120.0,
+        check=ConnectionPool.check_connection,
         kwargs={
             # See the module docstring: mandatory on a PgBouncer-fronted endpoint.
             "prepare_threshold": None,
@@ -87,12 +99,17 @@ def _build() -> Any:
             # TypeError at runtime rather than an error at import. Matching the row type here
             # is what keeps the ported stores a change of SQL and not a rewrite of their logic.
             "row_factory": dict_row,
+            # TCP keepalives, so a NAT/proxy hop cannot silently kill an in-pool socket without
+            # the OS noticing — the check above then sees a dead socket instead of a hung one.
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
         },
         # Do not block startup on the database being reachable. A task that cannot reach
         # Postgres should fail the REQUEST that needs it, loudly, rather than fail to boot and
         # take the health check (which touches no database) down with it.
         open=True,
-        check=None,
     )
 
 
