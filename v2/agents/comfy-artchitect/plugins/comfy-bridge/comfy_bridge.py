@@ -21,6 +21,7 @@ never receives the pixels — describing a picture stays the user's job; showing
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -552,9 +553,6 @@ class ComfyRunTool(Tool):
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        import asyncio
-        from pathlib import Path
-
         try:
             path = Path(str(params.get("workflow_path") or "").strip())
             if not path.is_file():
@@ -678,6 +676,150 @@ class ComfyRunTool(Tool):
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_run failed: {type(e).__name__}: {e}", is_error=True)
+
+
+#: ComfyUI-Manager's model folders, keyed by the model KIND the agent already reasons in.
+#: Manager needs both a `save_path` (the folder under models/) and a `type` label; these are the
+#: stock ones every template ships. An unknown kind falls back to save_path == kind, which is
+#: what a custom folder would be called anyway.
+_MANAGER_DIRS = {
+    "checkpoint": ("checkpoints", "checkpoints"),
+    "checkpoints": ("checkpoints", "checkpoints"),
+    "unet": ("unet", "unet"),
+    "diffusion_model": ("diffusion_models", "diffusion_models"),
+    "diffusion_models": ("diffusion_models", "diffusion_models"),
+    "vae": ("vae", "VAE"),
+    "text_encoder": ("text_encoders", "text_encoders"),
+    "text_encoders": ("text_encoders", "text_encoders"),
+    "clip": ("clip", "clip"),
+    "lora": ("loras", "loras"),
+    "loras": ("loras", "loras"),
+    "controlnet": ("controlnet", "controlnet"),
+    "upscale": ("upscale_models", "upscale_models"),
+    "upscale_models": ("upscale_models", "upscale_models"),
+}
+
+
+def _manager_present() -> bool:
+    """Does this instance have ComfyUI-Manager? Its queue-status endpoint is the cheapest tell.
+    Present on almost every rented-GPU template (vast, RunPod); absent on a bare install."""
+    res = _get("/manager/queue/status", timeout_s=15.0)
+    return res.ok
+
+
+class ComfyInstallTool(Tool):
+    name = "comfy_install"
+    label = "Install a model on the instance"
+    default_retryable = False
+    description = (
+        "Download a model onto the user's ComfyUI instance — WITHOUT asking them to touch a "
+        "terminal — using ComfyUI-Manager, which most rented-GPU templates (vast, RunPod) ship. "
+        "Give the filename, its download URL (comfy_research finds these on Hugging Face/"
+        "Civitai), and its kind (checkpoint, unet, vae, text_encoder, lora, controlnet, "
+        "upscale…). It queues the download, waits for it, and confirms the file is loadable. "
+        "This is how you FIX a missing-model workflow yourself instead of handing the user a "
+        "list. If the instance has no Manager, it says so and names the fallback."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["filename", "url", "kind"],
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The exact filename to save as, e.g. 'wan2.2_vae.safetensors'.",
+            },
+            "url": {
+                "type": "string",
+                "description": "Direct download URL (a Hugging Face /resolve/ link, a Civitai "
+                "download URL). comfy_research surfaces these.",
+            },
+            "kind": {
+                "type": "string",
+                "description": "Where it belongs: checkpoint | unet | diffusion_model | vae | "
+                "text_encoder | clip | lora | controlnet | upscale.",
+            },
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            filename = str(params.get("filename") or "").strip()
+            url = str(params.get("url") or "").strip()
+            kind = str(params.get("kind") or "").strip().lower()
+            if not (filename and url and kind):
+                return ToolResult.text("filename, url and kind are all required", is_error=True)
+            if not _manager_present():
+                return ToolResult.text(
+                    "this instance has no ComfyUI-Manager, so I cannot install models over its "
+                    "API. Two ways forward: (1) install ComfyUI-Manager on the instance (most "
+                    "rented-GPU templates already have it — check yours), or (2) set this agent's "
+                    "COMFYUI_MCP_URL to an instance MCP that exposes model installing. Failing "
+                    "both, the file has to be downloaded on the instance itself.",
+                    is_error=True,
+                )
+
+            save_path, mtype = _MANAGER_DIRS.get(kind, (kind, kind))
+            body = {
+                "ui_id": f"agent-{filename}",
+                "filename": filename,
+                "url": url,
+                "save_path": save_path,
+                "type": mtype,
+                "base": "",
+            }
+            res = _post("/manager/queue/install_model", body, timeout_s=30.0)
+            if not res.ok:
+                return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
+            # Manager queues the job; the worker has to be told to run.
+            _post("/manager/queue/start", None, timeout_s=15.0)
+
+            # Poll to completion. A 14B fp16 weight is minutes of download, so the ceiling is
+            # generous and the message says "still going" rather than "failed" on a timeout.
+            waited, step, deadline = 0.0, 3.0, 1800.0
+            while waited < deadline:
+                if abort.is_set():
+                    return ToolResult.text(
+                        f"stopped waiting for {filename}; Manager is still downloading it on the "
+                        "instance. Call comfy_inventory shortly to see if it landed.",
+                        is_error=True,
+                    )
+                st = _get("/manager/queue/status", timeout_s=15.0)
+                try:
+                    info = st.json() if st.ok and st.text.strip() else {}
+                except ValueError:
+                    info = {}
+                if info and not info.get("is_processing") and int(info.get("in_progress_count") or 0) == 0:
+                    break
+                await asyncio.sleep(step)
+                waited += step
+                step = min(step * 1.3, 15.0)
+
+            # Confirm it is actually loadable now — a finished queue with the file still invisible
+            # means it landed somewhere a loader does not look (wrong kind), which is worth saying.
+            inv = _get("/api/object_info", timeout_s=60.0)
+            visible = False
+            try:
+                if inv.ok:
+                    visible = any(
+                        filename in files
+                        for _c, _i, files in _model_enums(inv.json())
+                    )
+            except ValueError:
+                pass
+            if visible:
+                return ToolResult.text(
+                    f"installed {filename} into models/{save_path}/ — it is now loadable. "
+                    "Design with it."
+                )
+            return ToolResult.text(
+                f"the download for {filename} finished, but no loader lists it yet. ComfyUI only "
+                "rescans its model folders on restart or a Manager refresh — try comfy_inventory "
+                f"again in a moment. If it still does not appear, the kind may be wrong: I put it "
+                f"in models/{save_path}/.",
+                is_error=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
 
 class ComfyConnectTool(Tool):
@@ -826,6 +968,7 @@ def register(api, ctx):
     from comfy_research import ComfyResearchTool
 
     api.register_tool(ComfyConnectTool())
+    api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyProbeTool())
     api.register_tool(ComfyEmitTool())
     api.register_tool(ComfyInventoryTool())
