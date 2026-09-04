@@ -60,6 +60,14 @@ directory.
 6. **`validate_agent` until clean.** Never say it is ready before it comes back clean — the
    portability findings (below) are what keep it working on the web.
 
+   **And FINISH THE APP before you call it done — your job, not the user's.** If it has a window,
+   every `@placeholder` must already be adopted or deleted (see below): run
+   `grep -rn "@placeholder" app/src`, see nothing, and confirm `validate_agent` reports no
+   `UI_PLACEHOLDER_SHIPPED`. Handing over an agent that is still partly the starter template is the
+   worst failure here — the user cannot tell an unfinished app from a broken one, and they find out
+   only when shipping refuses, in words written for a validator rather than for a person. If you
+   ran out of room, say so plainly and name what is left; never call it done.
+
 7. **`reload_agent`** to activate it live, then tell the user what you built: name the files and
    what each does.
 

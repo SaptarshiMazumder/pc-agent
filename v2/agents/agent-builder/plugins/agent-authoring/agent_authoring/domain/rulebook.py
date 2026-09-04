@@ -42,6 +42,21 @@ from .finding import ERROR, Finding
 PACK = "pack"
 PUBLISH = "publish"
 
+#: Distributing to an ORGANIZATION — an enterprise handing an agent to its own people.
+#:
+#: Deliberately NOT a third column in the table. An org share is a side-loaded install to everyone
+#: in the company, which is precisely what PACK already describes ("the moment work stops being
+#: local — side-loaded installs included"). Giving it its own rows would mean curating two lists
+#: that have to agree forever, and the day they drift is the day an org ships something the
+#: marketplace would have refused. So it RESOLVES to the pack set: ONE bar for "this left my
+#: machine and reached other people", whoever those people are.
+#:
+#: What it does NOT carry over is the marketplace's REVIEW. Approval is a platform judgement about
+#: a public listing; these are quality checks about a working agent. An enterprise gets instant
+#: distribution — no queue, no operator — and still cannot hand two hundred colleagues a half-built
+#: shell.
+ORG_SHARE = "org_share"
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -275,4 +290,7 @@ def apply_policy(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
 
 def blockers(gate: str) -> frozenset[str]:
     """Codes that close ``gate`` even at warn/info level (errors block via the ok-gate)."""
+    if gate == ORG_SHARE:
+        # One bar for every artifact that leaves this machine — see the ORG_SHARE note above.
+        gate = PACK
     return frozenset(code for code, rule in RULEBOOK.items() if gate in rule.blocks)

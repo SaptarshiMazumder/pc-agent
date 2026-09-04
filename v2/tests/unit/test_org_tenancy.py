@@ -326,13 +326,42 @@ def test_share_copies_the_definition_and_never_the_data(tmp_path):
     assert (original / "sessions" / "secret.jsonl").is_file()
 
 
-def test_a_plain_member_may_not_share_or_unshare(tmp_path):
-    gw, run, _cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
+def test_a_plain_member_may_share_but_not_unshare(tmp_path):
+    """SHIPPING TO YOUR OWN ORG IS MEMBERSHIP-GATED, NOT ROLE-GATED.
+
+    Giving an agent to your colleagues is internal distribution, not a public listing, so the
+    platform is not a gatekeeper and neither is an org admin: a member who built something useful
+    used to have to ask someone else to re-create it, which is the friction this path exists to
+    remove. REMOVING one is still admin-only — taking something away from everybody is a different
+    act from adding your own."""
+    gw, run, cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
     _author_agent(tmp_path, "acct_a")
     out = run(gw._agents_share_to_org({"agentId": "kajima-helper", "orgId": ORG}))
-    assert out["shared"] is False and "admin" in out["error"]
+    assert out["shared"] is True
+    assert (
+        user_state.org_agents_dir(cfg.state_dir, ORG) / "kajima-helper" / "agent.toml"
+    ).is_file()
     out = run(gw._agents_unshare_from_org({"agentId": "kajima-helper", "orgId": ORG}))
     assert out["removed"] is False and "admin" in out["error"]
+
+
+def test_a_share_records_who_made_it(tmp_path):
+    """`owner` becomes the ORG so the whole company can use it — which erases the maker. `author`
+    is the only surviving trace, and it is what the roster's "by <someone>" byline reads.
+
+    Pinned because it broke silently once: `_install_org_definition` accepted the parameter, its
+    docstring promised the record carried it, and the OwnershipRecord was built without it — so
+    every byline rendered empty and nothing failed."""
+    from agent_runtime.infrastructure.agents import ownership_store
+
+    gw, run, cfg = _share_gateway(tmp_path, "acct_a", [{"id": ORG, "role": "member"}])
+    _author_agent(tmp_path, "acct_a")
+    assert run(gw._agents_share_to_org({"agentId": "kajima-helper", "orgId": ORG}))["shared"]
+
+    record = ownership_store.read(user_state.org_agents_dir(cfg.state_dir, ORG) / "kajima-helper")
+    assert record is not None
+    assert record.owner == ORG
+    assert record.author == "acct_a"
 
 
 def test_an_admin_of_another_org_cannot_share_into_this_one(tmp_path):

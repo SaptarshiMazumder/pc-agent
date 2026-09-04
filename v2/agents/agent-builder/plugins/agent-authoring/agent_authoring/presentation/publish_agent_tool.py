@@ -52,6 +52,19 @@ class PublishAgentTool(Tool):
         "required": ["agent_id"],
         "properties": {
             "agent_id": {"type": "string", "description": "the agent to publish (e.g. my-agent)"},
+            "destination": {
+                "type": "string",
+                "description": "WHERE it goes. 'org' ships it straight to your organization's "
+                "members — internal distribution, no public listing, no review, and dry_run/"
+                "confirm/version do not apply. 'marketplace' makes a PUBLIC listing (your first "
+                "one files for review). OMIT IT and the right one is chosen: your organization "
+                "when you belong to one, the marketplace otherwise.",
+            },
+            "org_id": {
+                "type": "string",
+                "description": "which organization to ship to — only needed when you belong to "
+                "more than one",
+            },
             "dry_run": {
                 "type": "boolean",
                 "description": "true (default) states the plan and sends nothing",
@@ -120,6 +133,108 @@ class PublishAgentTool(Tool):
         )
 
     @staticmethod
+    def _not_ready(blocked, action: str = "publish") -> str:
+        """The refusal a PERSON reads.
+
+        The old text printed a rule code and a fix line per finding — a validator's output, not an
+        answer to "why can't I publish?". Someone who hit it could not tell whether their agent was
+        BROKEN or merely UNFINISHED, and the most common cause by far is the second one: the app is
+        still the starter template. So the common case gets named in plain words, with the single
+        action that resolves it; the codes stay underneath for whoever wants them."""
+        placeholders = [f for f in blocked if f.code == "UI_PLACEHOLDER_SHIPPED"]
+        if placeholders:
+            head = (
+                f"Not ready to {action} yet — the app is still partly the starter template.\n\n"
+                "Those template widgets show the layout and the wiring, but they are not this "
+                "agent's screens. Handing them over would tell whoever installs it that nobody "
+                "finished the job.\n\n"
+                'WHAT TO DO: ask me to "finish the app" — I will turn the widgets this agent '
+                "actually uses into real screens, delete the rest, and try again."
+            )
+        else:
+            head = (
+                f"Not ready to {action} yet. These are fine while you are building, but handing "
+                "the agent to other people holds a higher bar:"
+            )
+        detail = "\n".join(f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in blocked)
+        return f"{head}\n\nDetails:\n{detail}\n\n(Nothing was built or sent.)"
+
+    def _ship_to_org(self, agent_id: str, agent_dir: Path, params: dict, org_ids) -> ToolResult:
+        """Give this agent to the caller's ORGANIZATION — the enterprise path.
+
+        No packing, no signing, no registry, no reviewer: the definition is copied into the org's
+        shared layer and every member's registry resolves it read-only from that moment. The
+        platform is not a party to this, which is the point — an org distributing to its own people
+        is not publishing to the world, and making them queue behind a marketplace review was the
+        wrong model.
+
+        WHAT STILL BLOCKS. No reviewer, but not no standard: an org share is a side-loaded install
+        to everyone in the company, so it holds the ORG_SHARE bar — which resolves to the same set
+        as packing (see domain/rulebook.py). Errors refuse, and so do the warn-level findings that
+        exist precisely because they only hurt once somebody else runs the agent: an inlined
+        credential, a sandboxed tool that will silently read nothing, and a window still made of
+        the template's examples. Removing the queue is the point; removing the floor is not."""
+        from agent_runtime.infrastructure import accounts, user_state
+        from agent_runtime.infrastructure.agents.org_install import install_org_definition
+
+        org_id = str(params.get("org_id") or "").strip()
+        if not org_id:
+            if len(org_ids) == 1:
+                org_id = org_ids[0]
+            elif not org_ids:
+                return ToolResult.text(
+                    "you do not belong to an organization, so there is nowhere internal to ship "
+                    "this. To put it in front of the public instead, publish with "
+                    "destination='marketplace'.\n\n(Nothing was sent.)",
+                    is_error=True,
+                )
+            else:
+                return ToolResult.text(
+                    "you belong to more than one organization — say which with org_id: "
+                    + ", ".join(org_ids)
+                    + "\n\n(Nothing was sent.)",
+                    is_error=True,
+                )
+        # Membership is re-checked against the VERIFIED token's own claim, never a frame parameter.
+        if org_id not in org_ids:
+            return ToolResult.text(
+                f"you are not a member of '{org_id}'.\n\n(Nothing was sent.)", is_error=True
+            )
+
+        if self._validator is not None:
+            report = self._validator.validate(agent_id)
+            if not report.ok:
+                return ToolResult.text(
+                    "not shipping to your organization — this agent still has errors, and a "
+                    "broken agent would reach every member at once:\n\n"
+                    f"{report.as_text()}\n\n(Nothing was sent.)",
+                    is_error=True,
+                )
+            from ..domain.rulebook import ORG_SHARE, blockers
+
+            blocked = [f for f in report.findings if f.code in blockers(ORG_SHARE)]
+            if blocked:
+                return ToolResult.text(self._not_ready(blocked, "ship to your organization"),
+                                       is_error=True)
+
+        author = accounts.account_id() or ""
+        target = user_state.org_agents_dir(self._config.state_dir, org_id) / agent_id
+        err = install_org_definition(agent_dir, target, org_id, agent_id, author)
+        if err:
+            return ToolResult.text(
+                f"could not ship to the organization: {err}\n\n(Nothing was sent.)", is_error=True
+            )
+        refresh = getattr(self._registry, "refresh", None)
+        if callable(refresh):
+            refresh()
+
+        return ToolResult.text(
+            f"Shipped '{agent_id}' to your organization.\n\n"
+            "Every member resolves it now — read-only, and their chats with it stay their own. "
+            "No review was needed: this is internal distribution, not a public listing."
+        )
+
+    @staticmethod
     def _render(result, publisher_name: str) -> str:
         lines = [result.message]
         if result.pending:
@@ -181,6 +296,30 @@ class PublishAgentTool(Tool):
                 is_error=True,
             )
 
+        # WHERE THIS GOES — decided before anything is validated, packed or sent, because the two
+        # destinations hold genuinely different bars:
+        #
+        #   org          INTERNAL distribution. Membership is the authorization, nobody reviews it,
+        #                no public artifact is made and no version is burned. This is what an
+        #                enterprise means by "publish": give it to my people.
+        #   marketplace  a PUBLIC listing, with every guard it has always had.
+        #
+        # Defaulting by membership is the whole fix: an org user pressing Publish used to be routed
+        # into the public pipeline — the wrong door — and met a reviewer queue and a validator wall
+        # for an agent they only ever wanted their own colleagues to have.
+        from agent_runtime.infrastructure import accounts
+
+        org_ids = accounts.org_ids()
+        destination = (str(params.get("destination") or "").strip().lower()) or "auto"
+        if destination == "auto":
+            destination = "org" if org_ids else "marketplace"
+        if destination not in ("org", "marketplace"):
+            return ToolResult.text(
+                f"unknown destination '{destination}' — use 'org' or 'marketplace'.", is_error=True
+            )
+        if destination == "org":
+            return self._ship_to_org(agent_id, agent_dir, params, org_ids)
+
         # A public artifact must not be broken. Skipped only when no validator was wired in — a
         # build without one still publishes rather than refusing for a reason nobody can act on.
         if self._validator is not None:
@@ -201,12 +340,7 @@ class PublishAgentTool(Tool):
 
             blocked = [f for f in report.findings if f.code in blockers(PUBLISH)]
             if blocked:
-                detail = "\n".join(f"  [{f.code}] {f.message}\n    -> {f.fix}" for f in blocked)
-                return ToolResult.text(
-                    "refusing to publish — these findings are advisory while authoring but "
-                    "block a public listing:\n\n" + detail + "\n\n(Nothing was built or sent.)",
-                    is_error=True,
-                )
+                return ToolResult.text(self._not_ready(blocked), is_error=True)
 
         target = str(params.get("target") or "").strip()
         publisher = self._publisher(target)

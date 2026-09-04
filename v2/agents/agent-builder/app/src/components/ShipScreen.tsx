@@ -39,6 +39,7 @@ import type { AgentdClient } from '@agentd/client'
 import { resultText } from '../agentd/chat'
 import { hasWindow } from '../agentd/app-window'
 import { publishable, publishBlockReason, type AgentRow } from '../agentd/roster'
+import { useAuthorship } from '../lib/authorship'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 
 type RowState = { state: 'idle' | 'running' | 'ok' | 'bad' | 'off'; text: string }
@@ -69,6 +70,19 @@ export function ShipScreen({
   >({ step: 'idle' })
   const [packing, setPacking] = useState(false)
   const [packOut, setPackOut] = useState<{ text: string; bad: boolean } | null>(null)
+
+  // WHERE IT GOES. Defaulted from membership once the answer is known, never guessed before —
+  // defaulting to "marketplace" while the org lookup is still in flight is how an enterprise's
+  // internal agent gets aimed at a public listing.
+  const authorship = useAuthorship()
+  const [audience, setAudience] = useState<'org' | 'marketplace'>('marketplace')
+  const chosen = useRef(false)
+  useEffect(() => {
+    if (!authorship.resolved || chosen.current) return
+    chosen.current = true // a later re-resolve must not overwrite what the user picked
+    setAudience(authorship.enterprise ? 'org' : 'marketplace')
+  }, [authorship.resolved, authorship.enterprise])
+  const orgName = authorship.orgs[0]?.name || 'your organization'
 
   const canPublish = publishable(agent)
 
@@ -110,10 +124,25 @@ export function ShipScreen({
     }
   }
 
+  /* SHIPPING TO THE ORG IS ONE STEP, deliberately. The dry-run/confirm pair guards a PUBLIC,
+     irreversible artifact and a registry index every client reads; handing an agent to your own
+     colleagues is neither — it replaces the org's copy and an admin can remove it. Making an
+     enterprise walk a two-step review dance to reach its own staff is the friction this whole
+     path exists to delete. */
+  const shipToOrg = async (): Promise<void> => {
+    setPub({ step: 'publishing', preview: '' })
+    try {
+      const text = await invoke('publish_agent', { destination: 'org' })
+      setPub({ step: 'done', text, bad: false })
+    } catch (e) {
+      setPub({ step: 'done', text: String((e as Error)?.message || e), bad: true })
+    }
+  }
+
   const startPublish = async (): Promise<void> => {
     setPub({ step: 'previewing' })
     try {
-      const preview = await invoke('publish_agent', { dry_run: true })
+      const preview = await invoke('publish_agent', { destination: 'marketplace', dry_run: true })
       setPub({ step: 'confirm', preview })
     } catch (e) {
       // A dry run that failed — usually "not configured to publish" — ends the flow; asking
@@ -125,7 +154,11 @@ export function ShipScreen({
   const confirmPublish = async (preview: string): Promise<void> => {
     setPub({ step: 'publishing', preview })
     try {
-      const text = await invoke('publish_agent', { dry_run: false, confirm: true })
+      const text = await invoke('publish_agent', {
+        destination: 'marketplace',
+        dry_run: false,
+        confirm: true,
+      })
       setPub({ step: 'done', text, bad: false })
     } catch (e) {
       setPub({ step: 'done', text: String((e as Error)?.message || e), bad: true })
@@ -226,17 +259,34 @@ export function ShipScreen({
             </div>
             <div className="bp-field">
               <span className="bp-label">Audience</span>
+              {/* WIRED, and it decides which pipeline runs. "My org" hands the agent to the
+                  caller's colleagues directly — no public listing, no review; "Marketplace" is the
+                  public path with its dry-run + confirm. Defaulted to the org for anyone who
+                  belongs to one, because that is what an enterprise means by "publish". */}
               <div className="ship-tiles">
-                {['Just me', 'My org', 'Marketplace'].map((a) => (
-                  <span
-                    key={a}
-                    className="ship-tile"
-                    aria-disabled="true"
-                    title="Not wired — the daemon publishes to the registry it is configured for"
-                  >
-                    {a}
-                  </span>
-                ))}
+                <button
+                  type="button"
+                  className={`ship-tile ${audience === 'org' ? 'is-current' : ''}`}
+                  disabled={!authorship.enterprise}
+                  title={
+                    authorship.enterprise
+                      ? `Ship straight to ${orgName} — every member gets it, no review`
+                      : 'You are not in an organization'
+                  }
+                  onClick={() => setAudience('org')}
+                >
+                  My org
+                  <small>{authorship.enterprise ? 'no review' : 'not a member'}</small>
+                </button>
+                <button
+                  type="button"
+                  className={`ship-tile ${audience === 'marketplace' ? 'is-current' : ''}`}
+                  title="Publish a PUBLIC listing — your first one files for review"
+                  onClick={() => setAudience('marketplace')}
+                >
+                  Marketplace
+                  <small>public</small>
+                </button>
               </div>
             </div>
           </div>
@@ -246,11 +296,21 @@ export function ShipScreen({
               <button
                 className="prime-btn"
                 disabled={!canPublish || pub.step === 'previewing'}
-                title={canPublish ? 'Dry-run first: shows the index that would be published' : publishBlockReason(agent)}
-                onClick={() => void startPublish()}
+                title={
+                  !canPublish
+                    ? publishBlockReason(agent)
+                    : audience === 'org'
+                      ? `Ship it to ${orgName} — every member gets it immediately, no review`
+                      : 'Dry-run first: shows the index that would be published'
+                }
+                onClick={() => void (audience === 'org' ? shipToOrg() : startPublish())}
               >
                 <ArrowUp size={15} />
-                {pub.step === 'previewing' ? 'Previewing…' : `Publish${agent.version ? ` v${agent.version}` : ''}`}
+                {pub.step === 'previewing'
+                  ? 'Previewing…'
+                  : audience === 'org'
+                    ? `Ship to ${orgName}`
+                    : `Publish${agent.version ? ` v${agent.version}` : ''}`}
               </button>
             ) : null}
             <button
@@ -264,7 +324,17 @@ export function ShipScreen({
             </button>
           </div>
 
-          {(pub.step === 'confirm' || pub.step === 'publishing') && (
+          {/* An org ship never reaches this block: it has no preview to confirm, and the notice
+              below is about a PUBLIC artifact and a registry index — neither of which it touches.
+              It goes idle -> publishing -> done, and reports underneath like any other run. */}
+          {audience === 'org' && pub.step === 'publishing' && (
+            <p className="ship-confirm-note">
+              <Shield size={14} />
+              Shipping to {orgName} — every member will resolve it read-only.
+            </p>
+          )}
+
+          {audience === 'marketplace' && (pub.step === 'confirm' || pub.step === 'publishing') && (
             <div className="ship-confirm">
               <p className="ship-confirm-note">
                 <Shield size={14} />

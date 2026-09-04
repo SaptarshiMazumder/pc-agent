@@ -214,6 +214,18 @@ being unusable are entirely compatible, and the image is the only thing that sho
 
 ### A7. Show them what you built, against what they ASKED for
 
+**FIRST, FINISH THE APP. This is your job, not the user's, and it is not optional.** If the agent
+has a window, every `@placeholder` must already be adopted or deleted (see "Placeholders are a
+LOOK, not a plan"), and you must confirm it: run `grep -rn "@placeholder" app/src` and see nothing,
+and `validate_agent` with no `UI_PLACEHOLDER_SHIPPED`. Do that **before you say a word about being
+done**.
+
+Handing over an agent that is still partly the starter template is the worst thing this skill can
+do. The user cannot tell an unfinished app from a broken one, they find out only when shipping
+refuses, and the refusal they meet is written for a validator rather than for a person. If you ran
+out of room to finish it, **say so in plain words here and name what is left** — never call it
+done.
+
 Walk the A2 checklist — every requirement, and whether it is done. Not a summary of what you
 built: a comparison. Then name the two or three decisions you took that they might disagree with,
 and say which thing you had to guess at.
@@ -224,10 +236,21 @@ by name and say they live on the agent's settings page. An agent handed over as 
 answers "I can't do that" on the first question is not done, and the user has no way to know the
 difference between a missing key and a broken build. You do.
 
-### A8. `package_agent` — only when they want to SHARE it
+### A8. Shipping it — only when they want to SHARE it
 
-Produces the `.agentpkg`. It re-validates and refuses on errors, so a broken agent never reaches
-anyone else. See `reference/packaging.md`.
+`publish_agent` sends it where it belongs, and **picks the destination from who the user is**:
+
+- **They belong to an organization** → straight to that org's members. Internal distribution: no
+  public listing, no review, nothing queued behind an operator. This is what an enterprise means by
+  "publish", and every member may do it — not just admins.
+- **They do not** → a PUBLIC marketplace listing, which files for review on their first publish.
+
+Override only when they ask for something other than the default: `destination='org'` or
+`'marketplace'`, plus `org_id` when they belong to more than one org. `package_agent` still writes
+a `.agentpkg` file for hand-delivery.
+
+All of them re-validate first and refuse on errors, so a broken agent never reaches anyone else.
+See `reference/packaging.md`.
 
 ---
 

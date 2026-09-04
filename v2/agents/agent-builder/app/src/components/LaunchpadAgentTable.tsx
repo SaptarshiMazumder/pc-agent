@@ -37,54 +37,11 @@ import {
   Pencil,
   RefreshCw,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-
 import { hasWindow } from '../agentd/app-window'
 import { agentAuthorLabel, agentIsExternal, type AgentRow } from '../agentd/roster'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
-import { useAuthSession } from '../lib/auth'
-import { fetchMyOrgs, fetchOrgDetail } from '../lib/orgs'
+import { useAuthorship } from '../lib/authorship'
 import { useOpenAgent } from './MyAgentsView'
-
-/** The org context the row labels need: is the caller a team (enterprise) at all, who are they,
- *  and the best-effort author id→email map (org detail names members for an admin; a plain member
- *  gets none and the byline falls back to the id). Self-contained so the table stays a drop-in. */
-function useAuthorship(): { enterprise: boolean; myId: string; emails: Record<string, string> } {
-  const session = useAuthSession()
-  const [state, setState] = useState<{
-    enterprise: boolean
-    myId: string
-    emails: Record<string, string>
-  }>({ enterprise: false, myId: '', emails: {} })
-  useEffect(() => {
-    if (!session) {
-      setState({ enterprise: false, myId: '', emails: {} })
-      return
-    }
-    let live = true
-    fetchMyOrgs()
-      .then(async (d) => {
-        const map: Record<string, string> = {}
-        await Promise.all(
-          d.orgs.map((o) =>
-            fetchOrgDetail(o.id)
-              .then((det) => {
-                for (const m of det.members || []) if (m.accountId) map[m.accountId] = m.email || ''
-              })
-              .catch(() => {}),
-          ),
-        )
-        if (live) setState({ enterprise: d.orgs.length > 0, myId: session.accountId || '', emails: map })
-      })
-      .catch(() => {
-        if (live) setState({ enterprise: false, myId: session.accountId || '', emails: {} })
-      })
-    return () => {
-      live = false
-    }
-  }, [session])
-  return state
-}
 
 export function LaunchpadAgentTable({
   agents,

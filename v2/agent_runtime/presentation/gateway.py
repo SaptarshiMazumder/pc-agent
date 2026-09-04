@@ -4561,16 +4561,19 @@ class Gateway:
         THE DEFINITION TRAVELS, THE DATA STAYS. Only `definition_entries` (the folder minus
         USER_DATA_DIRS) are copied — the same view the tenant fence grants strangers — so the
         author's sessions/workspace can never ride along into the whole company's read scope.
-        Org admin+ only, proven from the VERIFIED token's own claim, never a frame parameter;
+        ANY MEMBER may share, proven from the VERIFIED token's own claim, never a frame parameter;
         and the caller must own the source agent (`mine`), so nobody shares somebody else's."""
         agent_id = (params.get("agentId") or "").strip().lower()
         org_id = (params.get("orgId") or "").strip()
         if not agent_id or not org_id:
             return {"shared": False, "error": "agentId and orgId required"}
-        role = accounts.org_role(org_id)
-        if role not in ("owner", "admin"):
-            # covers non-members too — fail closed, and don't say which of the two it was
-            return {"shared": False, "error": "requires an org admin or owner"}
+        # MEMBERSHIP IS THE AUTHORIZATION. This is org-INTERNAL distribution, not a public listing:
+        # the platform is not a gatekeeper here. Requiring an admin meant a member who built
+        # something useful had to ask someone else to re-create it, which is the friction this
+        # whole path exists to remove. '' = not a member, so this still fails closed for strangers.
+        # The submit -> approve endpoints below stay intact for orgs that later want that governance.
+        if not accounts.org_role(org_id):
+            return {"shared": False, "error": "you are not a member of this organization"}
         if self.registry is None:
             return {"shared": False, "error": "no agent registry"}
         owns = getattr(self.registry, "owns", None)
@@ -4606,35 +4609,13 @@ class Gateway:
         path the record is written now, into pending-agents/, and approval only renames the folder
         — so the author is preserved across approval without the approver (a different account)
         ever needing to know it."""
-        import shutil
+        from agent_runtime.infrastructure.agents.org_install import install_org_definition
 
-        from agent_runtime.domain.agent import definition_entries
-        from agent_runtime.infrastructure.agents import ownership_store
-
-        staged = target.with_name(target.name + ".installing")
-        try:
-            shutil.rmtree(staged, ignore_errors=True)
-            staged.mkdir(parents=True)
-            for entry in definition_entries(source):
-                entry = Path(entry)
-                if entry.is_dir():
-                    shutil.copytree(entry, staged / entry.name)
-                else:
-                    shutil.copy2(entry, staged / entry.name)
-            # The org's OWN provenance record (the packer-excluded file): owner = the org,
-            # origin = installed — a copy, never the author's original.
-            ownership_store.write(
-                staged,
-                ownership.OwnershipRecord(
-                    owner=org_id, origin=ownership.INSTALLED, source_id=agent_id
-                ),
-            )
-            shutil.rmtree(target, ignore_errors=True)  # replace = re-share of a newer build
-            staged.rename(target)
-        except OSError as e:
-            shutil.rmtree(staged, ignore_errors=True)
-            return f"install failed: {e}"
-        return ""
+        # ONE IMPLEMENTATION, in infrastructure. The `publish_agent` tool needs this exact
+        # operation for its destination="org" path and cannot import the presentation layer to
+        # reach a private static method — so the work moved to org_install.py and this stays as
+        # the gateway's name for it.
+        return install_org_definition(source, target, org_id, agent_id, author)
 
     async def _agents_unshare_from_org(self, params: dict) -> dict:
         """Remove an agent from an org's shared layer. The ORG COPY only — the author's
