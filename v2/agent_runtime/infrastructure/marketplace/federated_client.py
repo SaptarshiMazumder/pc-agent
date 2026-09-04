@@ -82,9 +82,21 @@ class FederatedRegistryClient:
             try:
                 org_index = await client.fetch_index()
             except Exception as e:  # noqa: BLE001 — one shelf must not blank the others
-                # DEBUG, not WARNING: an org that has simply never published has no index, and
-                # that is the common case rather than a fault worth a log line per store open.
-                log.debug("org registry %s unavailable: %s", org_id, e)
+                # WARNING, not debug. This was debug on the reasoning that an org which has never
+                # published has no index, so a quiet skip is the common case — and that reasoning
+                # then hid a real fault for an entire debugging session: the endpoint was being
+                # rewritten into a directory, the service refused it as a non-member, and the only
+                # symptom anywhere was an empty list. A shelf belonging to an org this caller IS a
+                # member of should never be unreadable, so when it is, say so.
+                #
+                # The noise this was avoiding is bounded: one line per store open per org, and an
+                # org that never published is not a state a member sits in for long.
+                log.warning(
+                    "org registry %s could not be read (%s) — its agents are missing from this "
+                    "listing",
+                    org_id,
+                    e,
+                )
                 continue
             for entry in org_index.bundles:
                 # CARRIED EXACTLY. Not re-stamped with the org id, tempting as that is for

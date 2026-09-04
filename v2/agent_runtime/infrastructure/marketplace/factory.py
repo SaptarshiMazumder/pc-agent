@@ -35,7 +35,7 @@ def build_marketplace_service(
     pinned_key = getattr(profile, "publisher_key", "") if profile else ""
     state_dir = Path(config.state_dir)
 
-    def client(index_url: str, auth_token=None) -> RegistryClient:
+    def client(index_url: str, auth_token=None, normalize: bool = True) -> RegistryClient:
         return RegistryClient(
             index_url,
             pinned_publisher_key=pinned_key,
@@ -44,6 +44,7 @@ def build_marketplace_service(
             # is its own: the marketplace service is already built per account.
             trust_state_path=state_dir / "registry_trust.json",
             auth_token=auth_token,
+            normalize=normalize,
         )
 
     public = client(url) if url else None
@@ -69,7 +70,16 @@ def build_marketplace_service(
         return platform_session_token(config)
 
     shelves = [
-        (org, client(org_index_url(profile_publish_url, org), auth_token=session_token))
+        # normalize=False: org_index_url already names the endpoint. Appending "index.json"
+        # would make the org id read as that filename and the service would refuse it.
+        (
+            org,
+            client(
+                org_index_url(profile_publish_url, org),
+                auth_token=session_token,
+                normalize=False,
+            ),
+        )
         for org in org_ids
         if org_index_url(profile_publish_url, org)
     ]

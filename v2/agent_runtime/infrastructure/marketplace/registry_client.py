@@ -68,6 +68,7 @@ class RegistryClient:
         pinned_publisher_key: str = "",
         trust_state_path: Path | None = None,
         auth_token=None,
+        normalize: bool = True,
     ):
         """:param auth_token: ``() -> str`` supplying a bearer token for INDEX fetches, or None
         for an anonymous registry (the public marketplace, and every local/file:// shape).
@@ -80,8 +81,16 @@ class RegistryClient:
 
         ARTIFACT downloads deliberately do NOT carry it: a private index hands back presigned
         URLs, which already encode their own grant and must not also receive a bearer token
-        (a redirect to S3 would leak it to a third party)."""
-        self._index_url = normalize_registry_url(registry_url)
+        (a redirect to S3 would leak it to a third party).
+
+        :param normalize: treat ``registry_url`` as a DIRECTORY and append ``index.json`` unless it
+        already names one. True for a static registry, where pointing at a folder is the normal
+        thing to do. FALSE for an endpoint that is already complete -- an organization's shelf is
+        served by the publish service at ``/registry/org/<org_id>``, and appending a filename there
+        turns the org id into the literal string "index.json": the service then refuses a caller
+        who is, correctly, not a member of an org by that name, and the shelf silently vanishes
+        from every member's list behind a 403 that looks like a permissions problem."""
+        self._index_url = normalize_registry_url(registry_url) if normalize else registry_url
         self._pinned_key = pinned_publisher_key
         self._auth_token = auth_token
         self._memory = RosterMemory(trust_state_path)

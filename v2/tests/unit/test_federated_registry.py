@@ -189,3 +189,29 @@ async def test_with_no_public_registry_an_unknown_id_says_so(tmp_path):
     await federated.fetch_index()
     with pytest.raises(LookupError, match="nowhere-agent"):
         await federated.download(entry("nowhere-agent"), tmp_path)
+
+
+# ────────────────────── the endpoint is not a directory ──────────────────────
+
+
+def test_the_org_endpoint_is_not_rewritten_into_a_directory():
+    """REGRESSION. RegistryClient normalises a registry url by appending `index.json` unless it
+    already names a file -- right for a static registry you point at a folder, wrong for an
+    endpoint that is already complete.
+
+    An org shelf is served at `/registry/org/<org_id>`. Normalised, that became
+    `/registry/org/<org_id>/index.json`, and the service parses the LAST path segment as the org
+    id -- so it saw the literal "index.json", correctly refused a caller who is not a member of an
+    org by that name, and returned 403. Every member's list silently lost their company's agents
+    behind what read as a permissions failure.
+    """
+    from agent_runtime.infrastructure.marketplace.registry_client import RegistryClient
+
+    url = org_index_url("https://api.example", ORG)
+    assert RegistryClient(url, normalize=False)._index_url == url  # noqa: SLF001
+    assert not url.endswith("index.json")
+
+    # And the default still serves a directory-style registry, which is what it is for.
+    assert RegistryClient("https://cdn.example/registry")._index_url.endswith(  # noqa: SLF001
+        "/index.json"
+    )
