@@ -8,7 +8,7 @@ are advertised one line each and read on demand.
 
 Section order (stable): identity -> Language -> Tooling -> Skills ->
 Tool Call Style -> Execution Bias -> Safety -> Workspace ->
-Current Date & Time -> Project Context -> Runtime.
+Current Date (day precision, never a clock) -> Project Context -> Runtime.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import os
 import platform
 import socket
 import sys
+from datetime import date
 from pathlib import Path
 
 log = logging.getLogger("agentd")
@@ -472,15 +473,24 @@ def build_system_prompt(
         "If a file isn't at the expected path, use the find tool to locate it by name."
     )
 
-    # 7. Current Date & Time — INTENTIONALLY OMITTED (do not re-add a live clock here).
-    # The system prompt is the FIRST block of every request, so prefix/implicit caching
-    # (DeepSeek/Gemini and any prompt-cache provider) only hits while this whole string stays
-    # byte-identical turn to turn. A minute-precision clock changed it every minute, which
-    # invalidated the cache for the ENTIRE conversation history on every turn that crossed a
-    # minute boundary — re-billing the full (growing) context at miss price instead of cache-read.
-    # Keeping the prefix stable is what lets the history be cached. If a task needs the current
-    # date/time, fetch it LIVE (exec `date` / the clock) — consistent with the "mutable facts need
-    # live checks: ... clocks" rule in Execution Bias above.
+    # 7. Current DATE — day precision, NEVER a clock (do not re-add time here).
+    # Two forces meet in this section. Prefix caching (DeepSeek/Gemini and any prompt-cache
+    # provider) only hits while the system prompt stays byte-identical turn to turn: a
+    # minute-precision clock invalidated the ENTIRE conversation cache every minute, re-billing
+    # the full growing context at miss price — which is why time is banished. But omitting the
+    # DATE entirely made every model live in its training year: an agent searched "best model
+    # late 2025" in September 2026, and "fetch it live" cannot save a model that does not know
+    # its sense of 'now' is wrong (it never thinks to check). A day-precision date changes the
+    # prefix once per day — at most one cache miss per conversation per midnight — and cures the
+    # unknown-unknown. Time-of-day tasks still fetch a live clock, per Execution Bias.
+    sections.append(
+        "## Current Date\n"
+        f"Today's date is {date.today():%Y-%m-%d}. Trust this over your own sense of 'now': "
+        "your training data ends earlier, so for anything time-sensitive — searching for the "
+        "'latest' or 'best' of something, versions, releases, news — use THIS date's year, and "
+        "expect things newer than you remember to exist. For the time of day, check a live "
+        "clock."
+    )
 
     # 8. Project Context (AGENTS.md / SOUL.md / MEMORY.md if present)
     context_parts = []

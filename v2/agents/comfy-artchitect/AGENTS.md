@@ -70,7 +70,9 @@ to transient instance state.
 
 ### Phase 4 — TEST. Runnable is not tested; only judged output is tested.
 
-7. **`comfy_run`.** Repair from `node_errors` and run again — yours, not theirs.
+7. **`comfy_run`.** Repair from `node_errors` and run again — yours, not theirs. A long render
+   (video) hands back "still rendering" with a prompt_id: that is normal, not a failure — do
+   other work, then collect it with **`comfy_run_status`**.
 8. **`comfy_download` every output and show it in chat.** Then judge: a render that is noise,
    static or obviously broken is a FAILED test even though the run "succeeded" — say so, fix,
    re-run. Never present a run as tested when its output is garbage or when the graph knowingly
