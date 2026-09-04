@@ -259,12 +259,62 @@ class SandboxFetchBroker:
         Order matters: scheme and host have to be judged on the address that will actually be
         dialled. Validating the raw `${COMFYUI_URL}/api/x` instead reads its scheme as "(none)"
         and refuses a request that was always going to be legitimate.
+
+        A USER-HOSTED URL CAN CARRY ITS OWN CREDENTIALS. The address a person pastes for their
+        own service is whatever their provider handed them — for vast/RunPod that is
+        `http://host:port/?token=abc`, a full URL with a token in the query. A plugin writes
+        `${SERVICE_URL}/api/x` and cannot see the value, so it cannot move that token out of the
+        way; naive substitution then yields `http://host:port/?token=abc/api/x` — the token
+        before the path, a broken URL. So a host `${SETTING}` whose value is itself a URL is
+        folded, not pasted: its origin replaces the placeholder, and its query + userinfo are
+        lifted onto the final request. The user pastes ONE thing and never learns what a header
+        is. Generic — every agent wrapping a user-hosted service gets it, none hardcoded.
         """
+        from urllib.parse import urlsplit, urlunsplit
+
         from agent_runtime.domain.sandbox_net import substitute
 
         allowed = set(self._host_settings()) | set(self._declared)
-        values = {n: v for n in allowed if (v := self._resolve_value(n))}
-        return substitute(url, values)
+        values: dict[str, str] = {}
+        carried_query: list[str] = []
+        carried_userinfo = ""
+        for name in allowed:
+            v = self._resolve_value(name)
+            if not v:
+                continue
+            # Only a HOST setting that is a full URL gets folded; a secret (a bare token in a
+            # header) is substituted verbatim, as before.
+            if name in self._host_settings() and "//" in v and scheme_of(v):
+                parts = urlsplit(v)
+                if parts.query:
+                    carried_query.append(parts.query)
+                host = parts.hostname or ""
+                if parts.port:
+                    host = f"{host}:{parts.port}"
+                if parts.username:
+                    carried_userinfo = parts.username + (
+                        f":{parts.password}" if parts.password else ""
+                    )
+                # origin + the setting's own path (trailing slash trimmed so the plugin's
+                # `/api/x` suffix does not double it), nothing after.
+                values[name] = urlunsplit(
+                    (parts.scheme, host, parts.path.rstrip("/"), "", "")
+                )
+            else:
+                values[name] = v
+
+        resolved = substitute(url, values)
+        if not carried_query and not carried_userinfo:
+            return resolved
+
+        # Re-attach what we lifted off the setting value onto the FINAL request, so the token
+        # lands in the query (where ComfyUI et al. read it) and the path stays correct.
+        p = urlsplit(resolved)
+        merged = "&".join(q for q in (p.query, *carried_query) if q)
+        netloc = p.netloc
+        if carried_userinfo and "@" not in netloc:
+            netloc = f"{carried_userinfo}@{netloc}"
+        return urlunsplit((p.scheme, netloc, p.path, merged, p.fragment))
 
     def _authorize(self, request: dict) -> tuple[str, dict]:
         """-> (url, headers-with-secrets-substituted). Raises _Refused with a plugin-visible

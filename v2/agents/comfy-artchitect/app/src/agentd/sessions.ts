@@ -7,6 +7,8 @@
 
 import type { AgentdClient } from '@agentd/client'
 import { AGENT_ID } from './client'
+import { restore } from './chat'
+import type { ThreadItem } from './chat'
 
 export interface ChatRow {
   sessionId: string
@@ -56,6 +58,24 @@ export async function listSessions(client: AgentdClient): Promise<ChatRow[]> {
     messages: Number(r.messages || 0),
     modified: Number(r.modified || r.updatedAt || 0),
   }))
+}
+
+/** One saved conversation's transcript, as the thread items a live run would have produced.
+ *
+ *  This is what makes a Recent-list click RESUME the chat instead of opening a blank one:
+ *  `openSession` only switches the key and seeds an empty session (a live run may still be
+ *  going, so it must not clobber), and nothing was ever fetching the history behind it. The
+ *  daemon's `sessions.history` returns wire-form messages; `restore` folds them into the same
+ *  items the transcript renders. */
+export async function loadHistory(
+  client: AgentdClient,
+  sessionId: string,
+): Promise<ThreadItem[]> {
+  const res: any = await client.request('sessions.history', {
+    agentId: AGENT_ID,
+    sessionKey: sessionId,
+  })
+  return restore(res?.messages || [])
 }
 
 export async function renameSession(

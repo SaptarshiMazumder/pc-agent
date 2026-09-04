@@ -68,17 +68,24 @@ allow = [
 
 # WHERE YOUR COMFYUI IS. The value is per account: two people using this agent on one hosted
 # daemon each point it at their own box.
+#
+# PASTE THE WHOLE URL, TOKEN AND ALL. vast/RunPod hand you an address like
+# `http://1.2.3.4:35532/?token=abc123` — paste it exactly. The host folds the token onto every
+# request itself (it rides in the query, where ComfyUI reads it), so there is nothing to pull
+# apart and no header to find. A plain `http://127.0.0.1:8188` works the same way, with nothing
+# to fold. `COMFYUI_AUTH` below is only for the rare box that wants a header INSTEAD of a URL
+# token (Modal, a Basic-auth proxy).
 [[settings]]
 key      = "COMFYUI_URL"
 label    = "ComfyUI URL"
 kind     = "url"
 required = true
-help     = "Your instance, e.g. http://127.0.0.1:8188 or https://abc-8188.proxy.runpod.net"
+help     = "Paste the full URL your provider gives you, including any ?token=… — nothing else needed. e.g. http://1.2.3.4:35532/?token=abc or http://127.0.0.1:8188"
 
-# THE WHOLE Authorization HEADER, not just a token — because every platform spells it
-# differently and the agent should not have to guess. "Bearer xyz" for vast/RunPod proxies and
-# ComfyUI-Login; "Basic base64(user:pass)" for a basic-auth proxy. Empty for a box with no auth,
-# which is the normal localhost case.
+# THE WHOLE Authorization HEADER, and OPTIONAL — most people never touch it, because a
+# vast/RunPod URL already carries its token in the query (see COMFYUI_URL above) and the host
+# folds it in. Fill this only for a box that authenticates by HEADER instead: "Bearer xyz" for
+# ComfyUI-Login, "Basic base64(user:pass)" for a basic-auth proxy. Empty for the normal case.
 [[settings]]
 key   = "COMFYUI_AUTH"
 label = "Authorization header"

@@ -2459,6 +2459,14 @@ class Gateway:
             "signInRequired": accounts.enabled(),
             # THE ONE RUN MODE, from persisted config, so every window shows the same answer instead
             # of guessing. Locked (no toggle) on hosted, where cloud is the only runnable option.
+            #
+            # KEY IS `mode`, matching `_platform_status` and what the SDK reads (auth.ts:
+            # `status.mode`). It was `runMode` here — a name nothing consumes — so a page that got
+            # this UNAUTHENTICATED reply (a bare marketplace/app open whose token the gate did not
+            # accept) saw `mode: undefined` and the badge fell back to "Local" on a hosted daemon
+            # where cloud is the only option. `runMode` kept as an alias in case anything old reads
+            # it; `mode` is the one that matters.
+            "mode": self._resolved_run_mode(),
             "runMode": self._resolved_run_mode(),
             "runModeLocked": bool(getattr(self.config, "hosted", False)),
         }

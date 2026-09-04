@@ -468,3 +468,60 @@ def test_the_same_plugin_reaches_nothing_when_the_setting_is_empty(
     text = "\n".join(getattr(b, "text", "") for b in result.content)
     assert "COMFYUI_URL" in text, text
     assert not _Stats.seen, "the server was reached with no setting configured"
+
+
+# --- a user-hosted URL that carries its own credentials ---------------------
+# The address a person pastes for their own service is whatever their provider handed them —
+# for vast/RunPod that is `http://host:port/?token=abc`, a full URL with the token in the query.
+# A plugin writes `${SERVICE_URL}/api/x` and cannot see the value, so it cannot move the token
+# out of the way; the broker folds it, so the user pastes ONE thing and never meets a header.
+
+
+def test_a_url_with_an_embedded_token_folds_onto_the_request(instance, settings):
+    """`${SERVICE_URL}/api/status` with the setting = `<instance>/?token=abc` must dial
+    `<instance>/api/status?token=abc` — token AFTER the path, not the broken
+    `<instance>/?token=abc/api/status` naive substitution would produce."""
+    settings.update({"SERVICE_URL": f"{instance}/?token=sk-in-the-url"})
+    broker = _broker(resolve_allowlist(["${SERVICE_URL}"], (), ()))
+
+    resolved = broker._resolve_url("${SERVICE_URL}/api/status")
+
+    assert resolved == f"{instance}/api/status?token=sk-in-the-url"
+
+
+def test_a_plain_url_is_left_exactly_alone(instance, settings):
+    """No query, no userinfo — nothing to fold, and the result is the ordinary join. The folding
+    path must not perturb the common localhost case."""
+    settings.update({"SERVICE_URL": instance})
+    broker = _broker(resolve_allowlist(["${SERVICE_URL}"], (), ()))
+
+    assert broker._resolve_url("${SERVICE_URL}/api/status") == f"{instance}/api/status"
+
+
+def test_a_trailing_slash_in_the_setting_does_not_double(instance, settings):
+    settings.update({"SERVICE_URL": f"{instance}/"})
+    broker = _broker(resolve_allowlist(["${SERVICE_URL}"], (), ()))
+
+    assert broker._resolve_url("${SERVICE_URL}/api/status") == f"{instance}/api/status"
+
+
+def test_userinfo_in_the_setting_is_carried_onto_the_request(settings):
+    settings.update({"SERVICE_URL": "http://user:pass@10.0.0.5:8188"})
+    broker = _broker(resolve_allowlist(["${SERVICE_URL}"], (), ()))
+
+    assert (
+        broker._resolve_url("${SERVICE_URL}/api/status")
+        == "http://user:pass@10.0.0.5:8188/api/status"
+    )
+
+
+def test_the_embedded_token_actually_reaches_the_server(instance, settings):
+    """End to end through the broker: the folded token arrives as a query param the server sees,
+    with NO Authorization header set — which is the whole point (the user filled in only a URL)."""
+    settings.update({"SERVICE_URL": f"{instance}/?token=sk-query-only"})
+    broker = _broker(resolve_allowlist(["${SERVICE_URL}"], (), ()))
+
+    result = _serve(broker, "${SERVICE_URL}/api/status")
+
+    assert result.get("status") == 200, result.get("error")
+    assert result.get("url", "").endswith("?token=sk-query-only")

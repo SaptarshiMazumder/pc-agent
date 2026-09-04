@@ -123,6 +123,26 @@ def test_the_host_brokered_fetch_route_does_not_block():
     assert blocking_defects(code) == []
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "from urllib.parse import urlsplit, urlunsplit",
+        "from urllib.error import HTTPError",
+        "import urllib.parse",
+    ],
+)
+def test_urllib_parse_is_not_a_network_client(code):
+    """`urllib.parse` opens no socket — it takes a URL apart, which is exactly what a plugin
+    folding a user-pasted URL SHOULD do. Flagging it as NET_IMPORT (the old bare-`urllib` match
+    did) warns authors away from the correct tool. `urllib.request` still flags."""
+    assert blocking_defects(code) == []
+
+
+@pytest.mark.parametrize("code", ["import urllib.request", "from urllib.request import urlopen"])
+def test_urllib_request_still_flags(code):
+    assert [c for c, _w, _f in blocking_defects(code)] == ["NET_IMPORT"]
+
+
 def test_a_url_in_a_string_does_not_block():
     """Tier 2 on purpose. A refusal has to be right every time, and a docs link in a comment is
     not evidence of a network call — blocking on it would train the author to route around."""

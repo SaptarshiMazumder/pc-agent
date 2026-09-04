@@ -19,7 +19,7 @@
  * does exactly once, at the moment you had not yet asked.
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   ArrowRight,
   ArrowUpRight,
@@ -37,7 +37,7 @@ import { useCredits } from './agentd/credits'
 import { handleRunEvent } from './agentd/run-events'
 import { MAX_FILES } from './agentd/chat'
 import { useRun } from './agentd/run'
-import { listSessions } from './agentd/sessions'
+import { listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { Composer } from './components/Composer'
@@ -200,6 +200,29 @@ export default function App() {
     if (!currentKey) newSession(false) // a session to type into, NOT a view change
     void listSessions(client).then((rows) => useApp.getState().setChats(rows))
   }, [connected, client, currentKey, newSession])
+
+  /* RESUME A SAVED CHAT. Clicking a Recent row switches `currentKey` to a saved session that
+     `openSession` seeded EMPTY (it must not clobber a live run). Here is where its transcript
+     actually loads: a known-saved session with no items and nothing running gets its history
+     fetched once and dropped in. The guards keep this off a brand-new chat (not in `chats`),
+     a chat already populated, and a running one. */
+  const historyTried = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!connected || !client || !currentKey) return
+    const cur = sessions[currentKey]
+    const isSaved = chats.some((c) => c.sessionId === currentKey)
+    if (!isSaved || !cur || cur.items.length > 0 || cur.running) return
+    if (historyTried.current.has(currentKey)) return
+    historyTried.current.add(currentKey)
+    void loadHistory(client, currentKey).then((items) => {
+      if (!items.length) return
+      // Only fill if still empty — a run may have started streaming while the fetch was in
+      // flight, and the live items win. `patch`, not `openSession`: the session already exists
+      // (seeded empty), and openSession deliberately never overwrites an existing one's items.
+      const now = useApp.getState().sessions[currentKey]
+      if (now && now.items.length === 0) useApp.getState().patch(currentKey, { items })
+    })
+  }, [connected, client, currentKey, chats, sessions])
 
   /* THE CARD OVER EVERYTHING, when the account menu asks to sign in. `<Gate>` in main.tsx
      handles the case where the daemon DEMANDS an account before the app runs; this is the other

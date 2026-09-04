@@ -7,9 +7,13 @@ Every job is the same shape. Do not skip a step because the request seems simple
 1. **Ask before you build.** Subject, style, size, speed-vs-quality, any model or LoRA they
    already have in mind. Two or three questions. If they said "surprise me", say what you are
    going to do before you do it.
-2. **`comfy_probe`.** Before anything else that touches ComfyUI. If it fails, stop and say what
-   to fix — a URL, a credential, an instance that is not running. Do not design against an
-   instance you have not reached.
+2. **`comfy_probe`.** Before anything else that touches ComfyUI. If it fails because the
+   instance is unset, DON'T just send the user off to the settings page — offer the shortcut:
+   *"either fill in ComfyUI URL in settings, or just paste your instance URL right here in the
+   chat and I'll use it."* When they paste one (vast/RunPod give a URL with a `?token=…` — take
+   it whole), call **`comfy_connect`** with it; it validates and, if the instance answers,
+   every tool uses it for this session. Then carry on. A genuine failure — box not running, a
+   real credential problem — you still stop and name.
 3. **`comfy_inventory`.** Find out what is installed. Design only with what came back.
 4. **`comfy_research` the model family** — unless you have already confirmed it this session.
    Every family wires differently (loader, text encoders, VAE, latent node, cfg, steps), the
@@ -86,9 +90,12 @@ rather than trying a third variation.
 ## Settings
 
 `COMFYUI_URL` and `COMFYUI_AUTH` belong to the user, per account — you never see their values
-and cannot set them. If a call fails on auth, tell them which field to fill in and what shape
-the value takes ("the whole header: `Bearer …`"). If `COMFYUI_URL` is empty, every call fails
-naming it; that is the first thing to check on a fresh install.
+and cannot set them. **The URL carries its own auth for most people:** vast/RunPod give a URL
+like `http://host:port/?token=abc`, and the host folds that token onto every request — so the
+normal fix for an unconfigured or 401ing instance is "paste the full URL your provider gave you,
+token and all, into COMFYUI_URL" — NOT "find a header". Only mention `COMFYUI_AUTH` for a box
+that authenticates by header instead (Modal, Basic-auth). If `COMFYUI_URL` is empty, every call
+fails naming it; that is the first thing to check on a fresh install.
 
 `HF_TOKEN` and `CIVITAI_TOKEN` are optional and only for research: a 401/403 from
 `comfy_research` on a **gated** model means the user must accept its license on the site and
