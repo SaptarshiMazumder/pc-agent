@@ -44,9 +44,10 @@ Every job is the same shape. Do not skip a step because the request seems simple
 5. **Install what is missing — DO NOT hand it to the user.** When research says a model or
    encoder or VAE is not on the instance, install it yourself with **`comfy_install`**
    (filename + the download URL research found + its kind). It uses ComfyUI-Manager, which
-   vast/RunPod templates ship, waits for the download, and confirms the file is loadable. A big
-   weight takes minutes — say "installing X, this is a few minutes" and let it run; do not turn
-   it into a task for the user. Manager only installs models from its own catalog on most
+   vast/RunPod templates ship. A big weight keeps downloading on the instance after the tool
+   returns — queue everything you need, do other work (design the graph), then confirm with
+   `comfy_inventory` before running a workflow that needs the file; do not turn the download
+   into a task for the user. Manager only installs models from its own catalog on most
    instances — so when equivalents exist, prefer a cataloged stack, and when `comfy_install`
    refuses a file and names cataloged alternatives, redesign around one of those instead of
    retrying. Only if `comfy_install` reports no Manager AND no instance MCP

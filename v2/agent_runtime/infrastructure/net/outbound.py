@@ -133,6 +133,17 @@ def fetch(
     import httpx
 
     try:
+        # MERGE params into any query already on the URL — httpx REPLACES the query when
+        # `params` is given, which silently strips credentials the broker folded in from a
+        # user-hosted URL (`?token=…` from a vast/RunPod paste). A dropped token reads as a
+        # baffling 401 on exactly one tool, so the merge happens here, for every caller.
+        if params:
+            from urllib.parse import urlencode, urlsplit, urlunsplit
+
+            p = urlsplit(url)
+            merged = "&".join(q for q in (p.query, urlencode(params)) if q)
+            url = urlunsplit((p.scheme, p.netloc, p.path, merged, p.fragment))
+            params = None
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
         files = None
         if file_path:

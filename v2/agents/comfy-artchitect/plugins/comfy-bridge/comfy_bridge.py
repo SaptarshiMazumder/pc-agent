@@ -748,7 +748,9 @@ class ComfyInstallTool(Tool):
         "terminal — using ComfyUI-Manager, which most rented-GPU templates (vast, RunPod) ship. "
         "Give the filename, its download URL (comfy_research finds these on Hugging Face/"
         "Civitai), and its kind (checkpoint, unet, vae, text_encoder, lora, controlnet, "
-        "upscale…). It queues the download, waits for it, and confirms the file is loadable. "
+        "upscale…). It queues the download; small files it confirms loadable on the spot, a "
+        "multi-GB weight keeps downloading on the instance AFTER this returns — do other work, "
+        "then confirm with comfy_inventory before running a workflow that needs the file. "
         "This is how you FIX a missing-model workflow yourself instead of handing the user a "
         "list. If the instance has no Manager, it says so and names the fallback."
     )
@@ -848,16 +850,16 @@ class ComfyInstallTool(Tool):
             # Manager queues the job; the worker has to be told to run.
             _post("/manager/queue/start", None, timeout_s=15.0)
 
-            # Poll to completion. A 14B fp16 weight is minutes of download, so the ceiling is
-            # generous and the message says "still going" rather than "failed" on a timeout.
-            waited, step, deadline = 0.0, 3.0, 1800.0
+            # Poll only BRIEFLY. The sandbox stops any tool at 120s, so waiting out a multi-GB
+            # download here turns a healthy install into a phantom failure (and feeds the loop
+            # guard). Small files finish inside the window; a big one gets a SUCCESS result
+            # saying the download continues server-side — Manager keeps going without us.
+            waited, step, deadline = 0.0, 3.0, 75.0
+            still_downloading = False
             while waited < deadline:
                 if abort.is_set():
-                    return ToolResult.text(
-                        f"stopped waiting for {filename}; Manager is still downloading it on the "
-                        "instance. Call comfy_inventory shortly to see if it landed.",
-                        is_error=True,
-                    )
+                    still_downloading = True
+                    break
                 st = _get("/manager/queue/status", timeout_s=15.0)
                 try:
                     info = st.json() if st.ok and st.text.strip() else {}
@@ -867,6 +869,17 @@ class ComfyInstallTool(Tool):
                     break
                 await asyncio.sleep(step)
                 waited += step
+            else:
+                still_downloading = True
+            if still_downloading:
+                size = str((entry or {}).get("size") or "").strip()
+                return ToolResult.text(
+                    f"queued {filename}{f' ({size})' if size else ''} — the download is running "
+                    f"on the instance and continues after this returns. Do other work (design "
+                    "the graph, install the next file), then confirm it landed with "
+                    f"comfy_inventory before running a workflow that needs it. Target: "
+                    f"models/{save_path}/."
+                )
                 step = min(step * 1.3, 15.0)
 
             # Confirm it is actually loadable now — a finished queue with the file still invisible
