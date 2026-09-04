@@ -519,3 +519,34 @@ def test_submitting_an_already_shared_agent_is_refused(tmp_path):
     _author_agent(tmp_path, "acct_b")
     out = run_m(gw_m._agents_submit_to_org({"agentId": "kajima-helper", "orgId": ORG}))
     assert out["submitted"] is False and "already shared" in out["error"]
+
+
+def test_an_org_share_is_gated_on_safety_not_on_polish():
+    """The two destinations diverge exactly once, and this pins where.
+
+    A marketplace listing reaches strangers, so "still the starter template" is the platform's
+    business. An org share is a company handing its own staff an internal tool -- how finished an
+    internal screen needs to be is that company's call, and the check fired on every agent from
+    birth anyway (the scaffold ships those widgets AND renders them), so it was a toll rather than
+    a bar.
+
+    What must NOT diverge is anything that hurts whoever installs the agent.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents/agent-builder/plugins/agent-authoring"))
+    from agent_authoring.domain.rulebook import ORG_SHARE, PACK, PUBLISH, blockers
+
+    assert blockers(PACK) - blockers(ORG_SHARE) == {"UI_PLACEHOLDER_SHIPPED"}
+    assert "UI_PLACEHOLDER_SHIPPED" in blockers(PUBLISH), "a public listing still holds the bar"
+
+    for safety in (
+        "CREDENTIAL_IN_AGENT_TOML",
+        "UNTRUSTED_WANTS_SECRETS",
+        "UNTRUSTED_WANTS_NETWORK",
+        "UNTRUSTED_WANTS_SPAWN",
+        "UNTRUSTED_MODEL_UNDECLARED",
+        "WIDE_WRITE_ROOTS",
+    ):
+        assert safety in blockers(ORG_SHARE), f"{safety} must still close an org share"

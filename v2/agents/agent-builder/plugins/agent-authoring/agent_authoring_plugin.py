@@ -334,7 +334,9 @@ def register(api, ctx):
     # one, gates on the SAME validator instance, and previews unless told twice to upload.
     from agent_authoring.presentation.publish_agent_tool import PublishAgentTool
 
-    api.register_tool(PublishAgentTool(ctx.config, registry, validator))
+    # `app_builder` so a stale window is REBUILT rather than reported: pressing Publish with
+    # an out-of-date build is not a decision anyone needs to be consulted about.
+    api.register_tool(PublishAgentTool(ctx.config, registry, validator, app_builder))
 
     # --- ACTIVATE -------------------------------------------------------------------
     # register_plugin_live picks up NEW agents/<id>/plugins/; broadcast_agents_changed refreshes

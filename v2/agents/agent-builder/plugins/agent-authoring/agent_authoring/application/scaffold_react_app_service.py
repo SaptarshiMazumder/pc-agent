@@ -177,7 +177,21 @@ class ScaffoldReactAppService:
             return False
         if ui_dir.exists() and any(ui_dir.iterdir()):
             return False
-        shutil.copytree(preview, ui_dir, dirs_exist_ok=True)
+        # `copy_function=copyfile`, NOT the default copy2, and it is load-bearing rather than
+        # tidiness: copy2 preserves the TEMPLATE's mtime, so a window copied in here carried the
+        # date the template was last built -- days or weeks old -- while the app/ sources beside
+        # it (written with copyfile, just above) carried "now".
+        #
+        # The freshness rule compares exactly those two things, so every freshly scaffolded agent
+        # was born failing APP_BUILD_STALE: "your window was built BEFORE its source was last
+        # edited", on an agent nobody had touched yet. The build was not stale -- this preview IS
+        # the build of the source just written, which is the whole point of installing it -- only
+        # the timestamp said otherwise, and it sent authors to fix a defect that did not exist.
+        #
+        # Copying without metadata stamps the window "now". Because ui/ is installed AFTER app/,
+        # that is strictly newer than every source file, which is the truth the rule is asking
+        # about.
+        shutil.copytree(preview, ui_dir, dirs_exist_ok=True, copy_function=shutil.copyfile)
         return True
 
     # ------------------------------------------------------------------ planning

@@ -159,6 +159,34 @@ APP_SCOPED_METHODS = frozenset(
 #
 # READS ONLY. chat.send, sessions.delete, workspace.delete/upload/mkdir are deliberately
 # absent: reading about another agent is the feature, acting or destroying as one is not.
+# EXTRA METHODS FOR A NAMED PRODUCT SURFACE, on top of the stable app tier.
+#
+# Same shape and the same rule as CROSS_AGENT_READS below: a dict in this file, so widening it is
+# a deliberate edit to the gateway rather than something an agent can ask for. Nothing an agent
+# ships can put itself here.
+#
+# WHY THE BUILDERS NEED THE MARKETPLACE THREE. `platform.<root>` serves Cloud Agent Builder, and
+# that window is where a member sees their organization's agents. An org publish writes a signed
+# bundle into the org's REGISTRY, which is not a disk layer -- so `agents.list` (which answers
+# "what is on this daemon's disk") cannot show it, and until somebody installs it the product had
+# no surface that mentioned it at all. Reading the catalogue and installing from it is exactly the
+# missing half.
+#
+# WHY THIS IS NARROW ENOUGH. These stay OUT of APP_SCOPED_METHODS, so an ordinary agent's window
+# still cannot enumerate or install anything -- which is the property the tier exists to protect.
+# The builders are first-party product surfaces (`[app] standalone = true`), already trusted to
+# create and rewrite agents on this machine; installing a bundle the caller is already entitled to
+# see is a smaller power than the one they have.
+#
+# marketplace.installed rides along because a catalogue without it renders every row as
+# "available" forever, including the ones already here.
+APP_METHOD_GRANTS: dict[str, frozenset[str]] = {
+    "agent-builder": frozenset({"marketplace.catalog", "marketplace.install", "marketplace.installed"}),
+    "cloud-agent-builder": frozenset(
+        {"marketplace.catalog", "marketplace.install", "marketplace.installed"}
+    ),
+}
+
 CROSS_AGENT_READS: dict[str, frozenset[str]] = {
     "agent-builder": frozenset(
         {
@@ -2916,7 +2944,9 @@ class Gateway:
         # scoped agent is FORCED onto the params — an app can never act as another agent.
         # (Methods that take no agentId simply ignore the extra key.)
         if scope:
-            if req.method not in APP_SCOPED_METHODS:
+            if req.method not in APP_SCOPED_METHODS and req.method not in APP_METHOD_GRANTS.get(
+                scope, ()
+            ):
                 return Response(
                     id=req.id,
                     ok=False,

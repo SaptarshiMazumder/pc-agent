@@ -94,10 +94,39 @@ class PublishAgentTool(Tool):
         },
     }
 
-    def __init__(self, config, registry, validator=None):
+    def __init__(self, config, registry, validator=None, app_builder=None):
+        """:param app_builder: a BuildAppService, so a STALE WINDOW fixes itself instead of being
+        reported. See `_validated`."""
         self._config = config
         self._registry = registry
         self._validator = validator
+        self._app_builder = app_builder
+
+    # ------------------------------------------------------------------ validation
+    def _validated(self, agent_id: str):
+        """Validate, BUILDING FIRST if the only thing wrong is that the window is out of date.
+
+        A stale build is not a decision. It has exactly one fix, that fix is mechanical, and the
+        author is the wrong person to be told about it: they pressed Publish, and "your window was
+        built before its source was last edited -- call build_app" is the machine asking a human
+        to run an errand it could have run itself. Everything else the validator finds needs a
+        judgement (which placeholder to adopt, which to delete) and is reported as before.
+
+        ONE ATTEMPT, and the second report wins whatever it says. If the build did not clear the
+        finding, something is wrong that rebuilding does not fix, and looping would turn that into
+        a hang instead of a message.
+        """
+        report = self._validator.validate(agent_id)
+        if self._app_builder is None or not any(
+            f.code == "APP_BUILD_STALE" for f in report.findings
+        ):
+            return report
+        try:
+            self._app_builder.build(agent_id)
+        except Exception:  # noqa: BLE001 - a failed build is not a publish error; re-validate and
+            # let the ORIGINAL finding be reported, which says something the author can act on.
+            return report
+        return self._validator.validate(agent_id)
 
     # ------------------------------------------------------------------ helpers
     def _agent_dir(self, agent_id: str) -> Path | None:
@@ -202,7 +231,7 @@ class PublishAgentTool(Tool):
             )
 
         if self._validator is not None:
-            report = self._validator.validate(agent_id)
+            report = self._validated(agent_id)
             if not report.ok:
                 return ToolResult.text(
                     "not shipping to your organization — this agent still has errors, and a "
@@ -369,7 +398,7 @@ class PublishAgentTool(Tool):
         # A public artifact must not be broken. Skipped only when no validator was wired in — a
         # build without one still publishes rather than refusing for a reason nobody can act on.
         if self._validator is not None:
-            report = self._validator.validate(agent_id)
+            report = self._validated(agent_id)
             if not report.ok:
                 # The REPORT, not just the verdict. A refusal that does not say what is wrong is
                 # worse than no check: the author is told to fix something and not told what.

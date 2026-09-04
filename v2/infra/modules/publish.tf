@@ -189,13 +189,25 @@ resource "aws_iam_role_policy" "publish" {
         Resource = "${aws_s3_bucket.registry.arn}/*"
       },
       {
-        # The intake parking area, and ONLY it: listing is how admission finds a creator's parked
-        # uploads, deleting is how a completed (or definitively refused) upload leaves the queue.
-        # Delete stays scoped to pending/* — a bug still cannot unpublish anything public.
-        Effect    = "Allow"
-        Action    = "s3:ListBucket"
-        Resource  = aws_s3_bucket.registry.arn
-        Condition = { StringLike = { "s3:prefix" = "pending/*" } }
+        # LISTBUCKET IS NOT ABOUT LISTING HERE, mostly. S3 answers GetObject on a MISSING key with
+        # 404 NoSuchKey when the caller holds s3:ListBucket, and with 403 AccessDenied when it does
+        # not -- deliberately, so a denial cannot reveal whether an object exists. The intake reads
+        # a registry's index before writing it and treats "no such key" as an empty registry, so
+        # without this it cannot tell an EMPTY shelf from a FORBIDDEN one.
+        #
+        # That is exactly how the first org publish failed: orgs/<id>/index.json does not exist
+        # until something publishes there, the read came back 403 instead of 404, and the function
+        # raised where it should have seen an empty registry.
+        #
+        # pending/*  listing is how admission finds a creator's parked uploads.
+        # orgs/*     every organization's private registry, for the reason above.
+        # Still not the whole bucket: nothing needs to enumerate the public registry.
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.registry.arn
+        Condition = {
+          StringLike = { "s3:prefix" = ["pending/*", "orgs/*"] }
+        }
       },
       {
         Effect   = "Allow"

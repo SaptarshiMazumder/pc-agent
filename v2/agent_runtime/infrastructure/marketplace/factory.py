@@ -54,7 +54,12 @@ def build_marketplace_service(
     # READ THROUGH THE PUBLISH SERVICE, not the CDN: `orgs/*` is not publicly readable, so the
     # index arrives from an authenticated endpoint that checks membership and presigns the
     # artifact links. Hence the publish url here rather than the registry url, and hence a token.
-    profile_publish_url = getattr(profile, "publish_url", "") if profile else ""
+    # profile first (a desktop installer bakes it), then the resolved config value, which is
+    # where a HOSTED daemon's AGENTD_PUBLISH_URL lands. Either way one answer, so a member
+    # sees the same org shelf on the web app and in the desktop app.
+    profile_publish_url = (getattr(profile, "publish_url", "") if profile else "") or str(
+        getattr(config, "publish_target", "") or ""
+    )
 
     def session_token() -> str:
         # Resolved PER REQUEST, never captured: a session is refreshed while the daemon runs, and

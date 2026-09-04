@@ -1172,6 +1172,16 @@ def load_config(path: Path | None = None) -> Config:
     # directory is a release job, and it must be able to override whatever a build was baked with.
     if os.environ.get("AGENTD_PUBLISH_TARGET"):
         cfg.publish_target = os.environ["AGENTD_PUBLISH_TARGET"].strip()
+    elif os.environ.get("AGENTD_PUBLISH_URL"):
+        # A HOSTED daemon is configured by environment and bakes no distribution.toml, so the
+        # profile tier below is empty there. Terraform already exports AGENTD_PUBLISH_URL (the
+        # publish service's public address, derived from the resource itself); reading it here is
+        # what makes the answer the SAME on desktop and hosted instead of only-on-desktop.
+        #
+        # It matters beyond publishing now: an ORGANIZATION'S private registry is read through
+        # that service, so a daemon that does not know the address federates no org shelf, and a
+        # member's agent list silently omits everything their company published.
+        cfg.publish_target = os.environ["AGENTD_PUBLISH_URL"].strip()
     elif not cfg.publish_target:
         cfg.publish_target = cfg.distribution.publish_url
     if os.environ.get("AGENTD_PUBLISHER_KEYFILE"):

@@ -133,7 +133,9 @@ class HttpRegistryPublisher:
                     detail=self._preview(manifest, package, installer),
                     warnings=warnings,
                 )
-            result = self._post(manifest, package, installer, request.org_id)
+            # `installer` is not passed: the service compiles its own. It was built above for
+            # the dry-run preview, which reports what a stranger would actually download.
+            result = self._post(manifest, package, request.org_id)
             result.warnings = warnings + result.warnings
             return result
 
@@ -176,22 +178,30 @@ class HttpRegistryPublisher:
         ]
         return "\n".join(lines)
 
-    def _post(
-        self, manifest, package: Path, installer: Path | None, org_id: str = ""
-    ) -> PublishResult:
+    def _post(self, manifest, package: Path, org_id: str = "") -> PublishResult:
         """:param org_id: the destination, PASSED PER CALL rather than held on the instance. This
         publisher is built once and reused, so a request-scoped fact stored as state would leak
         into the next publish — a marketplace upload silently landing in the last org used."""
         import httpx
 
         token = platform_session_token(self._config)
+        # THE PACKAGE ONLY. An installer is deliberately NOT uploaded, for two reasons that point
+        # the same way:
+        #
+        #   * The service does not read one. It COMPILES the installer itself, from its own stub
+        #     template, because whoever signs must compile -- signing a binary an author built
+        #     would put the platform certificate on code nobody inspected (see the intake
+        #     service's own docstring). The handler reads `package` and nothing else, so an
+        #     uploaded installer was written, sent, and dropped on the floor.
+        #   * It broke publishing outright. A stub embeds the payload, so attaching it roughly
+        #     DOUBLED the request body; multipart is base64 on the wire, and an ALB in front of a
+        #     Lambda refuses a body over 1 MB. Ordinary agents therefore failed with a bare 413
+        #     from the load balancer -- no service message, nothing in the function's logs, and
+        #     an author told only "the package is too large" about a package that was not.
+        #
+        # `installer` is still BUILT by the caller: the dry-run preview reports what a stranger
+        # would download, and that is worth knowing before anything is sent.
         files = {"package": (package.name, package.read_bytes(), "application/octet-stream")}
-        if installer is not None:
-            files["installer"] = (
-                installer.name,
-                installer.read_bytes(),
-                "application/octet-stream",
-            )
         data = {"bundle_id": manifest.id, "version": manifest.version}
         # Only when there IS one: an absent field means the public marketplace, and sending an
         # empty string would make "no destination" indistinguishable from a client bug.

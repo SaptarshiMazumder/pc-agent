@@ -251,3 +251,42 @@ def test_installed_dependencies_do_not_count_as_somebody_s_work(service, tmp_pat
 # --------------------------------------------------------------------------- the instruction
 
 
+
+
+# ────────────────────────── the window's build time ──────────────────────────
+
+
+def test_the_installed_window_is_newer_than_the_source_it_was_built_from(service, tmp_path):
+    """A freshly scaffolded agent must not be born failing the freshness rule.
+
+    The prebuilt window IS the build of the source the scaffold just wrote, so "was this built
+    after its source last changed" is yes. But copytree's default (copy2) preserved the TEMPLATE's
+    mtime, so the window arrived dated whenever the template was last built -- days old -- next to
+    sources dated now. Every new agent then reported APP_BUILD_STALE, telling its author to fix a
+    staleness that did not exist, on an agent they had not yet touched.
+
+    Compared against the NEWEST source rather than a fixed date: that is exactly the comparison
+    FreshnessRules makes (domain/freshness_rules.py), and pinning a date would pass while the real
+    rule failed.
+    """
+    import os
+
+    prebuilt = SKELETON.parent / "_prebuilt" / "chat" / "index.html"
+    if not prebuilt.is_file():
+        pytest.skip("this build ships no prebuilt window; the scaffold compiles instead")
+    # The template genuinely is old on a fresh checkout; make that explicit rather than relying on
+    # whatever the working copy happens to hold.
+    old = 1_600_000_000  # 2020
+    os.utime(prebuilt, (old, old))
+
+    service.scaffold("known")
+    agent = tmp_path / "known"
+
+    built = (agent / "ui" / "index.html").stat().st_mtime
+    newest_source = max(
+        p.stat().st_mtime for p in (agent / "app").rglob("*") if p.is_file()
+    )
+    assert built >= newest_source - 2.0, (
+        "the installed window is older than the source it was built from, so every new agent "
+        "reports APP_BUILD_STALE before its author has changed anything"
+    )

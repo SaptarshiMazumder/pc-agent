@@ -20,13 +20,26 @@
  * invites a click that can never work; no button says "this one is chat-only", which is true.
  */
 
-import { ExternalLink, Pencil, RefreshCw } from 'lucide-react'
-import { useState } from 'react'
+import { Download, ExternalLink, Pencil, RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { hasWindow, openAgentWindow } from '../agentd/app-window'
+import { useClient } from '../agentd/client'
 import { agentAuthorLabel, agentIsExternal, type AgentRow } from '../agentd/roster'
 import { agentColor, agentInitials } from '../lib/agentPresentation'
 import { useAuthorship } from '../lib/authorship'
+
+/** One row of the registry this caller may install and has not — in practice, an agent their
+ *  ORGANIZATION published. Only the handful of fields this page renders. */
+type AvailableBundle = {
+  id: string
+  name: string
+  version: string
+  description: string
+  publisher?: string
+  compatible: boolean
+  installed: boolean
+}
 
 export function MyAgentsView({
   agents,
@@ -40,6 +53,54 @@ export function MyAgentsView({
   const [opening, setOpening] = useState('')
   const [error, setError] = useState('')
   const { enterprise, myId, emails } = useAuthorship()
+  const { client } = useClient()
+  /* WHAT THIS CALLER MAY INSTALL AND HAS NOT.
+   *
+   * `agents.list` answers "what is on this daemon's disk" — the shipped catalogue, this account's
+   * overlay, org layers. A colleague publishing to the ORGANIZATION writes a signed bundle into
+   * the org's registry, which is not a disk layer anywhere; so until somebody installs it, the
+   * publish said "every member can install it now" and every member's page was unchanged.
+   *
+   * `marketplace.catalog` is not in the app tier — it is granted to THIS agent by name in the
+   * gateway (APP_METHOD_GRANTS), so an ordinary agent's window still cannot enumerate or install
+   * anything. A daemon without that grant refuses the call, and the section simply stays empty. */
+  const [available, setAvailable] = useState<AvailableBundle[]>([])
+  const [installing, setInstalling] = useState('')
+
+  useEffect(() => {
+    let live = true
+    const onDisk = new Set(agents.map((a) => a.id))
+    client
+      .request<{ bundles?: AvailableBundle[] }>('marketplace.catalog', {})
+      .then((d) => {
+        if (!live) return
+        setAvailable(
+          (d.bundles || []).filter((b) => b && !b.installed && !onDisk.has(b.id)),
+        )
+      })
+      // Silent on purpose: an older daemon refuses the method, and a red banner about a
+      // capability this build never had is noise on a page that is otherwise working.
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [client, agents])
+
+  async function install(bundle: AvailableBundle): Promise<void> {
+    setInstalling(bundle.id)
+    setError('')
+    try {
+      await client.request('marketplace.install', { id: bundle.id })
+      setAvailable((rows) => rows.filter((r) => r.id !== bundle.id))
+      onRefresh?.()
+    } catch (e) {
+      setError(
+        `could not install ${bundle.name || bundle.id}: ${String((e as Error)?.message || e)}`,
+      )
+    } finally {
+      setInstalling('')
+    }
+  }
 
   async function open(agent: AgentRow): Promise<void> {
     setOpening(agent.id)
@@ -77,7 +138,7 @@ export function MyAgentsView({
 
         {error && <div className="page-error">{error}</div>}
 
-        {agents.length === 0 ? (
+        {agents.length === 0 && available.length === 0 ? (
           <div className="empty-card">
             <p>No agents yet.</p>
             <p className="row-sub">
@@ -86,6 +147,50 @@ export function MyAgentsView({
           </div>
         ) : (
           <div className="cards">
+            {available.map((b) => (
+              <div className="card" key={`available:${b.id}`}>
+                <div className="card-top">
+                  <span className="avatar lg" style={{ background: agentColor('', b.id) }}>
+                    {agentInitials(b.name, b.id)}
+                  </span>
+                  <div>
+                    <div className="card-name">
+                      {b.name || b.id}
+                      <span
+                        className="card-tag"
+                        title="Published where you can install it — not on this machine yet"
+                      >
+                        available
+                      </span>
+                    </div>
+                    <div className="card-by">
+                      {b.publisher ? `by ${b.publisher}` : b.id}
+                      {b.version ? ` · v${b.version}` : ''}
+                    </div>
+                  </div>
+                </div>
+                <p className="card-desc">{b.description || 'No description yet.'}</p>
+                <div className="card-actions">
+                  <button
+                    className="prime-btn"
+                    disabled={installing === b.id || !b.compatible}
+                    onClick={() => void install(b)}
+                    title={
+                      b.compatible
+                        ? `Install ${b.name || b.id}`
+                        : 'Built for a newer agentd than this one'
+                    }
+                  >
+                    <Download size={15} />
+                    {installing === b.id
+                      ? 'Installing…'
+                      : b.compatible
+                        ? 'Install'
+                        : 'Incompatible'}
+                  </button>
+                </div>
+              </div>
+            ))}
             {agents.map((a) => {
               const author = agentAuthorLabel(a, myId, emails)
               const external = agentIsExternal(a, enterprise, myId)

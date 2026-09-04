@@ -44,6 +44,69 @@ export type Shelf = {
   published: CatalogBundle | null
 }
 
+/** A registry row this caller may install and has not — in practice, an agent their organization
+ *  published. Deliberately a SEPARATE card from ShelfCard rather than a not-installed mode on it:
+ *  none of that card's doors exist yet (no window to open, no share link, nothing to unshare, no
+ *  installer of its own), and threading "but not really here" through all of them is how a card
+ *  ends up offering buttons that quietly do nothing. */
+function AvailableCard({
+  bundle,
+  onError
+}: {
+  bundle: CatalogBundle
+  onError: (msg: string) => void
+}): ReactNode {
+  const installBundle = useApp((s) => s.installBundle)
+  const busy = useApp((s) => s.installBusy[bundle.id])
+
+  const install = async (): Promise<void> => {
+    try {
+      await installBundle(bundle.id)
+    } catch (e) {
+      onError(`could not install ${bundle.name || bundle.id}: ${String((e as Error)?.message || e)}`)
+    }
+  }
+
+  return (
+    <div className="shelf-card">
+      <div className="shelf-head">
+        <span className="avatar shelf-avatar" style={{ background: agentColor('', bundle.id) }}>
+          {agentInitials(bundle.name, bundle.id)}
+        </span>
+        <div className="shelf-title-wrap">
+          <div className="shelf-title">{bundle.name || bundle.id}</div>
+          <div className="shelf-sub">{bundle.description || agentTag(bundle.id)}</div>
+          {bundle.publisher && (
+            <div className="shelf-by" title={`Published by ${bundle.publisher}`}>
+              by {bundle.publisher}
+            </div>
+          )}
+        </div>
+        <div className="shelf-chips">
+          <span className="admin-chip" title="Published to a registry you can install from - it is not on this machine yet">
+            available · v{bundle.version}
+          </span>
+        </div>
+      </div>
+      <div className="shelf-actions">
+        <button
+          className="btn btn-primary"
+          disabled={!!busy || !bundle.compatible}
+          onClick={() => void install()}
+          title={
+            bundle.compatible
+              ? `Install ${bundle.name || bundle.id} on this machine`
+              : 'Built for a newer agentd than this one - update first'
+          }
+        >
+          <Download size={14} />
+          {busy ? String(busy) : bundle.compatible ? 'Install' : 'Incompatible'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const ORG_ADMIN_ROLES = new Set(['owner', 'admin'])
 
 /** A short, human-ish rendering of an account id when no email is known — "labelled by their
@@ -397,6 +460,28 @@ export default function MyAgentsView() {
       .map((agent) => ({ agent, published: byId.get(agent.id) || null }))
   }, [agents, catalog])
 
+  /* AVAILABLE, NOT YET HERE — the registry rows this caller may install and has not.
+   *
+   * WHY THE PAGE NEEDS THEM. `agents.list` answers "what is on this daemon's disk": the shipped
+   * catalogue, this account's overlay, org layers. A colleague publishing to the ORGANIZATION
+   * writes a signed bundle into the org's registry, which is not a disk layer anywhere — so
+   * until somebody installs it, it existed and no surface in the product mentioned it. Publish
+   * said "every member can install it now" and every member's Agents page was unchanged.
+   *
+   * NOT THE OLD STOREFRONT. That grid listed the whole public marketplace and was removed on
+   * purpose. This is the same shelf, holding the agents this caller is ENTITLED to and has not
+   * got yet — which, for a member, is exactly what their company published.
+   *
+   * `installed` is the ledger's answer and `agents` is the disk's; a row needs to miss BOTH. A
+   * curated agent shipped inside the image is on disk without a ledger row, and offering to
+   * "install" one already sitting there would be a button that does nothing visible. */
+  const available: CatalogBundle[] = useMemo(() => {
+    const onDisk = new Set(agents.map((a) => a.id))
+    return catalog
+      .filter((b) => !b.installed && !onDisk.has(b.id) && b.id !== MAIN_AGENT_ID)
+      .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+  }, [agents, catalog])
+
   // Who made a copy, resolved for display; '' when the card's own chip already says whose it is.
   const authorLabelFor = (a: AgentInfo): string => {
     const author = a.author || ''
@@ -442,10 +527,20 @@ export default function MyAgentsView() {
       {error && <div className="banner banner-error">{error}</div>}
       {notice && <div className="banner">{notice}</div>}
 
-      {shelf.length === 0 ? (
+      {shelf.length === 0 && available.length === 0 ? (
         <div className="admin-empty">No agents yet. Create one to get started.</div>
       ) : (
         <div className="shelf-grid">
+          {available.map((bundle) => (
+            <AvailableCard
+              key={`available:${bundle.id}`}
+              bundle={bundle}
+              onError={(m) => {
+                setError(m)
+                setNotice('')
+              }}
+            />
+          ))}
           {shelf.map((row) => (
             <ShelfCard
               key={row.agent.id}

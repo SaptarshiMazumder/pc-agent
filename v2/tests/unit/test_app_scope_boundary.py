@@ -148,3 +148,36 @@ def test_cross_agent_reads_are_all_real_app_methods():
 def test_the_file_browsing_method_is_granted():
     """The whole point: Agent Builder's window can list the agent it just built."""
     assert "workspace.list" in CROSS_AGENT_READS["agent-builder"]
+
+
+# ────────────────────── the named-surface grant ──────────────────────
+
+
+def test_marketplace_stays_out_of_the_app_tier():
+    """The tier itself must not gain these. Every agent window would then be able to enumerate the
+    registry and install from it, which is the exact property this boundary exists to hold."""
+    from agent_runtime.presentation.gateway import APP_SCOPED_METHODS
+
+    for method in ("marketplace.catalog", "marketplace.install", "marketplace.installed"):
+        assert method not in APP_SCOPED_METHODS
+
+
+def test_only_the_builders_are_granted_the_marketplace():
+    """A grant NAMED IN THIS FILE, like CROSS_AGENT_READS: nothing an agent ships can put itself
+    here. The builders need it because `platform.<root>` is Cloud Agent Builder, and an agent an
+    organization published lives in a REGISTRY rather than on disk -- so `agents.list` cannot show
+    it and, without this, no surface in the product mentioned it at all.
+    """
+    from agent_runtime.presentation.gateway import APP_METHOD_GRANTS
+
+    assert set(APP_METHOD_GRANTS) == {"agent-builder", "cloud-agent-builder"}
+    for granted in APP_METHOD_GRANTS.values():
+        assert granted == {"marketplace.catalog", "marketplace.install", "marketplace.installed"}
+
+
+def test_an_ordinary_agent_window_is_still_refused():
+    """The whole point of the grant being a dict keyed by agent id."""
+    from agent_runtime.presentation.gateway import APP_METHOD_GRANTS
+
+    assert APP_METHOD_GRANTS.get("figure-creator", frozenset()) == frozenset()
+    assert APP_METHOD_GRANTS.get("some-users-agent", frozenset()) == frozenset()

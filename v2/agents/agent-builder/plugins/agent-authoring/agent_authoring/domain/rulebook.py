@@ -288,9 +288,30 @@ def apply_policy(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
     return tuple(out)
 
 
+#: POLISH, not safety. These close the PUBLIC gates and deliberately do NOT close an org share.
+#:
+#: WHY THE DESTINATIONS DIVERGE HERE. A marketplace listing reaches strangers who did not ask for
+#: it and cannot see inside it, so "this is still the starter template" is the platform's business.
+#: An org share is a company handing its own staff an internal tool: the audience is named, it can
+#: ask the author directly, and how finished an internal screen needs to be is that company's
+#: judgement. Refusing there was us holding an opinion about someone else's work in their own
+#: building.
+#:
+#: IT ALSO FIRED ON EVERYTHING. The scaffold ships these widgets AND renders them from App.tsx, so
+#: every agent failed this check from birth until somebody did the chore by hand. A gate that 100%
+#: of artifacts fail is not a bar, it is a toll, and it teaches authors that the validator is
+#: something to get past rather than something to read.
+#:
+#: SAFETY IS NOT IN HERE, and must never be: a credential in agent.toml, a sandboxed tool reaching
+#: for secrets or the network, builder-grade write scope. Those close BOTH destinations, because
+#: they hurt whoever installs the agent, whoever that turns out to be.
+POLISH_ONLY = frozenset({"UI_PLACEHOLDER_SHIPPED"})
+
+
 def blockers(gate: str) -> frozenset[str]:
     """Codes that close ``gate`` even at warn/info level (errors block via the ok-gate)."""
     if gate == ORG_SHARE:
-        # One bar for every artifact that leaves this machine — see the ORG_SHARE note above.
-        gate = PACK
+        # The PACK bar MINUS the polish-only codes: everything that protects the person who
+        # installs it, nothing that is only an opinion about how finished it looks.
+        return frozenset(c for c, r in RULEBOOK.items() if PACK in r.blocks) - POLISH_ONLY
     return frozenset(code for code, rule in RULEBOOK.items() if gate in rule.blocks)
