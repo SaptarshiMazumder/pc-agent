@@ -303,3 +303,23 @@ def test_default_entitlement_allows_all(tmp_path):
     pdir = _make_plugin(tmp_path, pid="ent3", mod="agentd_ent3_mod")
     tools = discover_plugin_contributions(_cfg(pdir), None, AllowAllEntitlement())[0]
     assert [t.name for t in tools] == ["hello_plugin"]
+
+
+def test_sandbox_net_lowercases_hosts_but_preserves_setting_placeholders(tmp_path):
+    """The bug that made a hosted comfy-artchitect fail every probe with `scheme '(none)'`.
+
+    `[sandbox] net` used to lowercase EVERY entry — right for a DNS host (case-insensitive),
+    wrong for a `${SETTING}` placeholder, whose name is case-sensitive. Lowercased to
+    `${comfyui_url}`, it no longer matched the `${COMFYUI_URL}` the plugin writes and the author
+    declared, so the broker resolved it to empty and refused the request. A host must still
+    fold; a placeholder must not."""
+    p = tmp_path / "plugin.toml"
+    p.write_text(
+        'id = "x"\nname = "X"\nkind = "native"\nentry = "x:register"\n'
+        '[sandbox]\nnet = ["API.Acme.COM", "${COMFYUI_URL}"]\n'
+        'secrets = ["COMFYUI_AUTH"]\n',
+        encoding="utf-8",
+    )
+    m = load_manifest(p)
+    assert m.sandbox["net"] == ["api.acme.com", "${COMFYUI_URL}"]
+    assert m.sandbox["secrets"] == ["COMFYUI_AUTH"]
