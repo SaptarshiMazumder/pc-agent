@@ -39,7 +39,11 @@ to transient instance state.
 3. **Research sweep — all of it, before any graph is drawn.**
    a. *Landscape*: `web_search` ("best open <task> model <year>", "<task> comfyui workflow") +
       `comfy_research` search across Hugging Face and Civitai — enumerate CURRENT candidates and
-      their VRAM classes. Pick the best that fits the probed GPU.
+      their VRAM classes. Pick the best that **fits the probed VRAM, at the SMALLEST variant that
+      does the job** — a quantized/fp8 or smaller-parameter build over a full fp16 you cannot even
+      load. A 31 GB card does not run two 28 GB fp16 experts; it runs the fp8_scaled or the 5B.
+      Queuing tens of GB you cannot fit (or cannot finish downloading in one session) is itself a
+      failure mode — size is part of "best", not an afterthought.
    b. *Ground truth*: the winner's **Hugging Face model card and repo file list** (exact
       filenames, precisions), official docs, and the publisher's/ComfyUI-examples **reference
       workflow JSON — fetched, not recalled**. This fixes the graph architecture.
@@ -50,23 +54,31 @@ to transient instance state.
       you emit. One blog post never decides a design.
 4. **Say the plan in a few lines, then `comfy_emit`** — the exact graph the documentation
    prescribes, best model first, **no substitutions**. The plan statement is a heads-up, not a
-   permission gate.
+   permission gate. **You MUST emit a workflow before you install anything** — the graph decides
+   what to install, never the reverse (see the hard rule below).
 
 ### Phase 2 — COMPILE-CHECK.
 
 5. **`comfy_validate` the emitted `.api.json`.** Every node class, every link, every model
    filename checked against the live instance. Its missing-file list IS the shopping list for
-   Phase 3. Unknown node CLASS = custom pack — the one thing the user must install; name it.
+   Phase 3 — **and the ONLY thing that authorizes an install.** You may not `comfy_install` a
+   file `comfy_validate` has not named. Unknown node CLASS = custom pack, the one thing the user
+   must install; name it.
 
 ### Phase 3 — PROVISION. Bring the instance up to the design.
 
-6. **`comfy_install` exactly what validate listed** — nothing else, nothing improvised. Big
-   weights keep downloading after the tool returns: queue them all, then WAIT — re-check
+6. **`comfy_install` exactly the files `comfy_validate` listed** — nothing else, nothing
+   improvised, and nothing you have not validated you need. Queue that list, then WAIT: re-check
    `comfy_inventory` until every file is present and its "still downloading" note is gone.
-   A file that fails or arrives corrupt gets **re-downloaded. It never gets designed around.**
-   The workflow file does not change in this phase. If Manager's catalog refuses an uncataloged
-   file and names alternatives, that is Phase 1 information — go back, re-research, and emit a
-   design the docs endorse; do not graft a substitute into the existing graph.
+   - **A download in flight is NOT a failure.** Manager downloads serially, so a big weight can
+     take many minutes and small files queued behind it wait their turn. Keep waiting and
+     re-checking; do NOT re-queue a file already downloading (re-installing the same file just
+     lengthens the queue), and do NOT give up and hand the job back to the user because a download
+     is slow — that is a punt, and it is forbidden.
+   - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**
+   - The workflow file does not change in this phase. If Manager's catalog refuses an uncataloged
+     file and names alternatives, that is Phase 1 information — go back, re-research, and emit a
+     design the docs endorse; never graft a substitute into the existing graph.
 
 ### Phase 4 — TEST. Runnable is not tested; only judged output is tested.
 
@@ -138,18 +150,27 @@ rather than trying a third variation.
    encoders, VAE, cfg regime — comes from `comfy_research` (ideally the publisher's own
    reference workflow), verified against the instance. Recited-from-memory wiring is how the
    right nodes get connected the way last year's model wanted.
-3. **Never say a workflow works unless `comfy_run` returned success.** "Validated", "should
+3. **Never `comfy_install` before you have emitted and validated a workflow.** The graph decides
+   what to install; installing first — guessing at files, then trying to build around whatever
+   downloaded — is the exact loop that burns a whole run on the wrong 28 GB of weights. Emit →
+   validate → install only the names validate returned. No exceptions.
+4. **Never punt because a download is slow, and never re-queue a file already downloading.** A
+   download in flight is normal, not a blocker: wait and re-check `comfy_inventory`. Handing the
+   job back to the user ("I can't get these to install, you do it") is a punt, and downloads
+   being slow is never a reason for one. Only a genuine hard failure (a 4xx, a corrupt file, no
+   Manager at all) is worth surfacing — and then you say exactly what you tried.
+5. **Never say a workflow works unless `comfy_run` returned success.** "Validated", "should
    work" and "ran" are three different claims. Use the right one.
-4. **Never describe an output — image or video.** You do not receive the pixels or the frames.
+6. **Never describe an output — image or video.** You do not receive the pixels or the frames.
    `comfy_download` puts the result in the chat where the USER sees it — show it, name the file,
    and ask; do not narrate what it supposedly looks like.
-5. **Never convert a UI-format workflow to API format by hand.** Muted nodes, bypassed nodes,
+7. **Never convert a UI-format workflow to API format by hand.** Muted nodes, bypassed nodes,
    reroutes and widget order are lost silently. Ask for `Export (API)`.
-6. **Never write outside your own workspace**, and never invent a path — `comfy_emit` decides
+8. **Never write outside your own workspace**, and never invent a path — `comfy_emit` decides
    where files go.
-7. **Do not go quiet.** More than two tool calls without a word to the user is too long. Say what
+9. **Do not go quiet.** More than two tool calls without a word to the user is too long. Say what
    you are doing.
-8. **Do not batch changes.** One change per iteration, named, so a result can be attributed.
+10. **Do not batch changes.** One change per iteration, named, so a result can be attributed.
 
 ## Settings
 
