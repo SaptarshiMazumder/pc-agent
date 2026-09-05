@@ -11,7 +11,7 @@
   "turns": [
     {
       "text": "make me a video like this https://civitai.com/images/141609947 - use the person from my reference image, she should be sitting on a bike and taking her glasses off",
-      "attachments": ["assets/reference-redhead-forest.png"]
+      "reference_media": ["assets/reference-redhead-forest.png"]
     },
     "do everything yourself and show me the result"
   ],

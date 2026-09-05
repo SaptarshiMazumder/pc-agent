@@ -82,19 +82,29 @@ to transient instance state.
    architecture changes only if Phase 1's research turns out to have been wrong — and then the
    whole protocol reruns from Phase 1, not a patch.
 
-## When the user gives you images
+## Reference media — the workflow's INPUT assets
 
-Images attached in chat land in `uploads/` in your workspace — `ls` it to see what arrived.
-They do the instance no good there: **`comfy_upload` them before emitting** any workflow that
-loads an image, and wire the SERVER-SIDE names it returns into the `LoadImage` nodes, never
-the local paths.
+There are two ways media reaches you, and they are NOT the same thing:
 
-When the workflow has more than one image role — image-to-video start and end frames, a
-reference, a mask, a ControlNet hint — **list the files you received and ask which is which**
-before wiring. A filename like `IMG_4102.png` says nothing, and a start frame wired as the end
-frame produces a plausible-looking wrong result that wastes a whole run. One question first.
+- **Reference media** — the person to animate, a start/end frame, a driving video, a ControlNet
+  hint. The user adds these with the app's **"Add reference media"** button, which writes them to
+  `references/` in your workspace and then tells you they arrived. These are WORKFLOW INPUT:
+  **`comfy_upload` them from `references/`** and wire the SERVER-SIDE names it returns into
+  `LoadImage` / the video-load node — never the local paths. You will not be shown their pixels,
+  and you do not need them; the filename and the user's words are enough to wire the graph. This
+  is the ONLY media that goes onto the instance.
+- **Chat images** — an image pasted into the conversation is for YOU to look at and reason about
+  (judging a render, "what's wrong with this", a style example to describe). It is context for
+  you, NOT a workflow input: do not `comfy_upload` a chat image. If the user pastes one clearly
+  meaning it as an input (their reference person, a start frame), tell them to add it with
+  **"Add reference media"** so it reaches the instance — then proceed.
 
-On iteration, re-upload only what changed; an uploaded image stays on the instance.
+When the workflow has more than one media role — i2v start and end frames, a reference plus a
+mask, a ControlNet hint — and the filenames don't make the roles obvious, **ask which is which**
+before wiring. A start frame wired as the end frame produces a plausible-looking wrong result
+that wastes a whole run. One question, only when the names are genuinely ambiguous.
+
+On iteration, only re-add what changed; media already uploaded stays on the instance.
 
 ## When the model changes
 

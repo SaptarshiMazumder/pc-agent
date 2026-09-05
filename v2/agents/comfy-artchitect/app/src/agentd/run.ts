@@ -13,7 +13,13 @@ import type { AgentdClient } from '@agentd/client'
 import { useCallback } from 'react'
 
 import { MAX_FILES, readFile } from './chat'
+import { AGENT_ID } from './client'
 import { useApp } from '../state/store'
+
+/** Where reference media lands in the agent's workspace. NOT `uploads/` (chat attachments, which
+ *  the model sees as vision): reference media is INPUT for the ComfyUI workflow, so it goes
+ *  straight to the instance and the model only ever hears its filename. */
+const REFERENCE_DIR = 'references'
 
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
@@ -82,5 +88,63 @@ export function useRun(client: AgentdClient | null) {
     patch(key, { pending: session.pending.filter((_, i) => i !== index) })
   }, [])
 
-  return { send, abort, addFiles, removeFile }
+  /** Reference media — the SEPARATE path from chat attachments.
+   *
+   *  Chat attachments (`addFiles`/`send`) ride the message to the LLM as vision input. Reference
+   *  media does NOT: each file is written straight to the agent's workspace `references/` via
+   *  `workspace.upload` (no message, no model proxy), then ONE text turn tells the agent to push
+   *  them onto the instance with `comfy_upload` and wire them into the workflow. The pixels go
+   *  browser -> workspace -> ComfyUI; the model only ever sees the filenames as text. This is why
+   *  a 10 MB reference image no longer bloats — or breaks — every model call. */
+  const sendReferences = useCallback(
+    async (list: FileList | File[]): Promise<void> => {
+      const files = Array.from(list || [])
+      if (!client || !files.length) return
+      const { currentSessionKey: existing, newSession, append } = useApp.getState()
+      const key = existing || newSession(true)
+
+      const read = await Promise.all(files.map(readFile))
+      const saved: string[] = []
+      const failed: string[] = []
+      for (const f of read) {
+        try {
+          const res: any = await client.request('workspace.upload', {
+            agentId: AGENT_ID,
+            path: REFERENCE_DIR,
+            name: f.name,
+            dataBase64: f.dataBase64,
+          })
+          if (res?.ok) saved.push(String(res.name || f.name))
+          else failed.push(`${f.name} (${res?.error || 'failed'})`)
+        } catch (e) {
+          failed.push(`${f.name} (${String((e as Error)?.message || e)})`)
+        }
+      }
+
+      if (failed.length) {
+        append(key, [
+          {
+            kind: 'system',
+            tone: 'error',
+            text: `Could not add reference media: ${failed.join('; ')}`,
+            ts: Date.now(),
+          },
+        ])
+      }
+      if (!saved.length) return
+
+      // ONE instruction turn, first person so it reads as the user's own ask. Names the files and
+      // the folder so the agent can comfy_upload them without seeing a single pixel.
+      const them = saved.length > 1 ? 'them' : 'it'
+      const list_ = saved.join(', ')
+      const msg =
+        `I've added reference media to my workspace under ${REFERENCE_DIR}/: ${list_}. ` +
+        `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
+        `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again.`
+      await send(msg)
+    },
+    [client, send],
+  )
+
+  return { send, abort, addFiles, removeFile, sendReferences }
 }

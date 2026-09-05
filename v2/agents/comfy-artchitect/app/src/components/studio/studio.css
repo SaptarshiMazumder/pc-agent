@@ -305,6 +305,15 @@
 .st-convo-body .opening { padding: 22px 18px; }
 .st-convo-foot { flex: none; border-top: 1px solid var(--border); padding: 12px 14px; }
 
+/* Reference media — a quiet chip above the composer. Distinct from the composer's own attach
+   button on purpose: this sends INPUT to the workflow, not context to the model. */
+.refmedia { display: flex; margin-bottom: 8px; }
+.refmedia-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
+  border: 1px dashed var(--border); border-radius: 999px; background: transparent;
+  color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; transition: all .12s; }
+.refmedia-btn:hover:not(:disabled) { color: var(--accent-ink, var(--text)); border-color: var(--accent, var(--text)); background: var(--bg3); }
+.refmedia-btn:disabled { opacity: .45; cursor: default; }
+
 /* ── motion ───────────────────────────────────────────────────────────────────────────────── */
 @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes st-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }

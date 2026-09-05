@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.5.0"
+version = "1.6.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"

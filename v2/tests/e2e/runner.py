@@ -69,6 +69,22 @@ async def _drive_live(scenario: Scenario, daemon: str, token: str, out: Path, mo
             if i >= scenario.max_turns:
                 break
             writer.open_turn(i, turn.text)
+
+            # Reference media goes the product's own way FIRST: workspace.upload into the agent's
+            # `references/` (no model call), exactly as the "Add reference media" button does. The
+            # turn text then instructs the agent to comfy_upload them — it never sees the pixels.
+            for rel in turn.reference_media:
+                fp = Path(rel)
+                if not fp.is_absolute():
+                    fp = scenario.base_dir / rel
+                data = base64.b64encode(fp.read_bytes()).decode("ascii")
+                res = await _req(ws, "workspace.upload", {
+                    "agentId": scenario.agent_id, "path": "references",
+                    "name": fp.name, "dataBase64": data,
+                })
+                if not res.get("ok"):
+                    raise RuntimeError(f"reference upload failed for {fp.name}: {res.get('error')}")
+
             run_id = str(uuid.uuid4().hex)
             params = {
                 "sessionKey": session_key, "agentId": scenario.agent_id,

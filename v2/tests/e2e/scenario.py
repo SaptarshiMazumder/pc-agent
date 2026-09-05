@@ -30,12 +30,18 @@ class Check:
 
 @dataclass
 class Turn:
-    """One user message. `attachments` are file paths RELATIVE TO THE SCENARIO FILE (so a
-    scenario and its reference images travel together in the repo); the runner reads and
-    base64-encodes them at send time."""
+    """One user message. Both file lists are paths RELATIVE TO THE SCENARIO FILE (so a scenario
+    and its media travel together in the repo); the runner reads and base64-encodes them.
+
+    Two channels, matching the product's two:
+      * `attachments` ride chat.send to the model as vision input — a "look at this" image.
+      * `reference_media` are workflow INPUT: the runner writes them to the agent's workspace
+        `references/` via workspace.upload (no model call), exactly as the app's "Add reference
+        media" button does — the model only hears their filenames."""
 
     text: str
     attachments: list[str] = field(default_factory=list)
+    reference_media: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -66,6 +72,7 @@ class Scenario:
                 turns.append(Turn(
                     text=str(t.get("text") or ""),
                     attachments=[str(a) for a in (t.get("attachments") or [])],
+                    reference_media=[str(a) for a in (t.get("reference_media") or [])],
                 ))
             else:
                 turns.append(Turn(text=str(t)))
