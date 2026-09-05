@@ -15,6 +15,9 @@ to tell them apart.
 
 from __future__ import annotations
 
+import time
+import uuid
+
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 #: Long enough for a real agent turn with research in it; short enough that a hung run does not
@@ -66,9 +69,12 @@ class RunAgentTool(Tool):
         },
     }
 
-    async def execute(self, tool_call_id, params, abort, on_update=None):
-        from agent_runtime.clients.one_shot_run import run_once
+    def __init__(self, ctx=None):
+        # PluginContext, for `gateway_client` — the in-process transport. Optional so an
+        # existing direct construction (tests) keeps working and falls back to the socket.
+        self._ctx = ctx
 
+    async def execute(self, tool_call_id, params, abort, on_update=None):
         agent_id = str(params.get("agent_id") or "").strip()
         message = str(params.get("message") or "").strip()
         if not agent_id or not message:
@@ -79,18 +85,30 @@ class RunAgentTool(Tool):
             # as a hang, which is when someone kills it.
             on_update(f"running {agent_id}…")
 
-        # WHOSE agents the child may be one of. This tool dials back into the daemon on a fresh
-        # socket, and a fresh socket has no account — so without carrying the caller's, an agent
-        # in their account layer is "unknown" to the very tool built to test it.
-        from agent_runtime.infrastructure import accounts
+        session = str(params.get("session") or "") or None
+        timeout = float(params.get("timeout_s") or DEFAULT_TIMEOUT_S)
 
-        outcome = await run_once(
-            message=message,
-            agent=agent_id,
-            session=str(params.get("session") or "") or None,
-            timeout=float(params.get("timeout_s") or DEFAULT_TIMEOUT_S),
-            act_as=accounts.account_id() or None,
-        )
+        # IN-PROCESS FIRST. The old path dialed the daemon back over a fresh socket carrying
+        # `?act_as=` — which authorises only on a machine-token daemon with accounts off, so on
+        # a hosted daemon this tool simply failed (and cabbie had to deny it). The in-process
+        # gateway client is the same chat.send with the caller's own account carried from the
+        # run context — identical on desktop and hosted. The socket stays as the fallback for
+        # constructions that have no PluginContext (unit tests, older wiring).
+        thunk = getattr(self._ctx, "gateway_client", None)
+        client = thunk() if callable(thunk) else None
+        if client is not None:
+            outcome = await _run_inprocess(client, agent_id, message, session, timeout)
+        else:
+            from agent_runtime.clients.one_shot_run import run_once
+            from agent_runtime.infrastructure import accounts
+
+            outcome = await run_once(
+                message=message,
+                agent=agent_id,
+                session=session,
+                timeout=timeout,
+                act_as=accounts.account_id() or None,
+            )
 
         if outcome.transport_error:
             # Never reached the agent at all — a different problem from the agent failing, and
@@ -119,3 +137,52 @@ class RunAgentTool(Tool):
                 "whether its instructions actually tell it to use them."
             )
         return ToolResult.text("\n".join(lines), is_error=not outcome.ok)
+
+
+async def _run_inprocess(client, agent_id: str, message: str, session: str | None,
+                         timeout: float):
+    """One message over the in-process gateway client, folded into the same RunOutcome the
+    socket path produces — reply text, the tools called in order, how the run ended. The event
+    stream is bound BEFORE chat.send so nothing can fall between starting the run and hearing it."""
+    from agent_runtime.clients.one_shot_run import RunOutcome
+
+    out = RunOutcome()
+    session_key = session or f"ask-{uuid.uuid4().hex[:8]}"
+    reply: list[str] = []
+    stream = client.events(session_key)
+    try:
+        try:
+            await client.send("chat.send", {"message": message, "sessionKey": session_key,
+                                            "agentId": agent_id})
+        except Exception as e:  # noqa: BLE001 — a refused send is a transport fact, not a crash
+            out.transport_error = str(e)
+            return out
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                out.transport_error = f"timed out after {timeout:g}s — the run did not finish"
+                break
+            event = await stream.next(remaining)
+            if event is None:
+                out.transport_error = f"timed out after {timeout:g}s — the run did not finish"
+                break
+            kind = event.get("type") or ""
+            if kind == "tool_execution_start":
+                out.tools.append(str(event.get("name") or event.get("toolName") or "?"))
+            elif kind == "message_end":
+                msg = event.get("message") or {}
+                if msg.get("role") == "assistant":
+                    for block in msg.get("content") or ():
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = str(block.get("text") or "").strip()
+                            if text:
+                                reply.append(text)
+            elif kind == "agent_end":
+                out.stop_reason = str(event.get("stopReason") or "")
+                out.error = str(event.get("error") or "").strip()
+                break
+    finally:
+        stream.close()
+    out.reply = "\n".join(reply).strip()
+    return out

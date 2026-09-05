@@ -21,6 +21,31 @@ from agent_runtime.application.tool_models import tool_config
 OUTPUT_CAP = 50_000
 
 
+def shell_fence_refusal(config, what: str) -> ToolResult | None:
+    """The tenant fence, shared by exec and process: a run that carries read_roots gets no shell
+    surface — a subprocess sees whatever the daemon's OS user sees, so every fs fence would be
+    decorative the moment it ran. Returns the refusal, or None when the shell may proceed.
+
+    THE EXCEPTION IS THE BUILDER. Agents named in `plugins.shell.exec.trusted_agents` keep their
+    shell even under a fence. The default is agent-builder, and that is not a hole in the fence:
+    a `requires_local` agent reaches a hosted daemon ONLY through the operator's own
+    `hosted_agents_allow` opt-in, so the shell rides consent that was already given explicitly —
+    and the trust follows the RUN's agent_id, which a built agent cannot inherit."""
+    from agent_runtime.application.run_context import current_run_context
+
+    ctx = current_run_context()
+    if ctx is None or not getattr(ctx, "read_roots", ()):
+        return None
+    trusted = tool_config(config, "shell", "exec", "trusted_agents", default=("agent-builder",))
+    if str(getattr(ctx, "agent_id", "") or "") in tuple(trusted or ()):
+        return None
+    return ToolResult.text(
+        f"{what} is not available on this server: a shell cannot be confined to your "
+        "own files. Use the read/write/edit/ls/find tools instead.",
+        is_error=True,
+    )
+
+
 def middle_truncate(text: str, cap: int = OUTPUT_CAP) -> str:
     if len(text) <= cap:
         return text
@@ -149,19 +174,12 @@ class ExecTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        # A run that carries a tenant fence (read_roots on its RunContext) cannot be given a
-        # shell: a subprocess reads whatever the daemon's OS user can, so every fs fence would
-        # be decorative the moment this tool ran. Not a mode branch — the same rule as
-        # check_read, decided by the values the run carries. Desktop runs carry none.
-        from agent_runtime.application.run_context import current_run_context
-
-        _ctx = current_run_context()
-        if _ctx is not None and getattr(_ctx, "read_roots", ()):
-            return ToolResult.text(
-                "exec is not available on this server: a shell cannot be confined to your "
-                "own files. Use the read/write/edit/ls/find tools instead.",
-                is_error=True,
-            )
+        # The tenant fence, with the trusted-builder exception — see shell_fence_refusal. Not a
+        # mode branch: the same rule as check_read, decided by the values the run carries.
+        # Desktop runs carry none.
+        refusal = shell_fence_refusal(self.config, "exec")
+        if refusal is not None:
+            return refusal
         command = params["command"]
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
         env = {**os.environ, **(params.get("env") or {})}
@@ -233,20 +251,13 @@ class ProcessTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        # Same fence as ExecTool, and for the same reason: _REGISTRY is process-GLOBAL, so on a
-        # shared daemon action=list would spill every tenant's command strings and output. A run
-        # that carries a fence gets no shell surface at all. (Today exec refuses to START a
-        # session under a fence so the registry stays empty there, but this makes the two tools'
-        # guards symmetric instead of one depending on the other.)
-        from agent_runtime.application.run_context import current_run_context
-
-        _ctx = current_run_context()
-        if _ctx is not None and getattr(_ctx, "read_roots", ()):
-            return ToolResult.text(
-                "process is not available on this server: background shell sessions cannot be "
-                "confined to your own files. Use the read/write/edit/ls/find tools instead.",
-                is_error=True,
-            )
+        # Same fence as ExecTool (same helper, same trusted-agents exception), and for the same
+        # reason: _REGISTRY is process-GLOBAL, so on a shared daemon action=list would spill
+        # every tenant's command strings and output. Symmetric guards, not one depending on the
+        # other.
+        refusal = shell_fence_refusal(self.config, "process")
+        if refusal is not None:
+            return refusal
         action = params["action"]
         if action == "list":
             if not _REGISTRY.sessions:

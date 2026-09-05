@@ -299,7 +299,9 @@ def register(api, ctx):
     # are authored. A tool cannot be missing from PATH.
     from agent_authoring.presentation.run_agent_tool import RunAgentTool
 
-    api.register_tool(RunAgentTool())
+    # ctx carries `gateway_client` — the in-process transport that makes run_agent work on
+    # hosted daemons too (the socket dial-back's ?act_as= never authorised there).
+    api.register_tool(RunAgentTool(ctx))
 
     api.register_tool(
         VerifyAppTool(

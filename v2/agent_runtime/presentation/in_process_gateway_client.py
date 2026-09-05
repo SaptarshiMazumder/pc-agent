@@ -1,13 +1,13 @@
 """InProcessGatewayClient — drive this daemon's own gateway as a client, without a socket.
 
-WHY IT EXISTS. A plugin tool that runs OTHER agents (e2e_run) needs what a ws client has:
-config.set, workspace.upload, chat.send, and the run's event stream. The socket way to get that
-from inside the daemon is `one_shot_run`'s dial-back with `?act_as=` — and act_as is honoured
-ONLY on a machine-token connection with accounts off. On a hosted daemon it does not authorise,
-which is why cabbie's agent.toml has to deny `run_agent` outright. This client is the same
-capability with no socket and no auth dance: it calls the gateway's own dispatch, carrying the
-CURRENT context's account (the run that invoked the tool pinned it — gateway._run), so tenancy,
-metering and workspace resolution are identical on desktop and hosted with zero forked code.
+WHY IT EXISTS. A plugin tool that runs OTHER agents (e2e_run, run_agent) needs what a ws client
+has: config.set, workspace.upload, chat.send, and the run's event stream. The socket way to get
+that from inside the daemon is `one_shot_run`'s dial-back with `?act_as=` — and act_as is
+honoured ONLY on a machine-token connection with accounts off; on a hosted daemon it does not
+authorise (which is why cabbie once had to deny `run_agent`). This client is the same capability
+with no socket and no auth dance: it calls the gateway's own dispatch, carrying the CURRENT
+context's account (the run that invoked the tool pinned it — gateway._run), so tenancy, metering
+and workspace resolution are identical on desktop and hosted with zero forked code.
 
 WHAT IT IS NOT. Not a general bypass: `call` admits only the small method set the e2e drive loop
 speaks (ALLOWED below) — every one an ordinary client method that the real dispatch re-validates.
