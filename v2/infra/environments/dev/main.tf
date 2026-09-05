@@ -49,6 +49,30 @@ provider "aws" {
   region = "us-east-1"
 }
 
+variable "ec2_capacity_enabled" {
+  description = "Build the EC2 capacity provider (launch template, ASG, instance role) so services CAN be moved off Fargate. On its own it moves nothing: no service references it and the ASG starts at zero instances."
+  type        = bool
+  default     = false
+}
+
+variable "ec2_services" {
+  description = "Which services run on EC2 rather than Fargate — the one-at-a-time migration dial. A named service loses A-record service discovery (host networking needs SRV), so services that others discover internally move last."
+  type        = list(string)
+  default     = []
+}
+
+variable "ec2_instance_type" {
+  description = "Size of the ECS container instances. One instance costs more than the Fargate tasks it replaces until several services share it."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "ec2_max_instances" {
+  description = "Ceiling for the container-instance ASG; the floor is always 0. 2 leaves room for a rolling deploy, which needs a second box because host networking takes the service's port on the one it occupies."
+  type        = number
+  default     = 2
+}
+
 variable "accounts_desired_count" {
   description = "How many accounts tasks to run. Honoured only when accounts_external_database is set — SQLite on one file cannot have two writers. 2 is what makes a deploy or an AZ failure invisible rather than a short outage."
   type        = number
@@ -303,6 +327,16 @@ module "stack" {
   # DEV IS STILL ON SQLITE (no DATABASE_URL in agentd/dev/app), so accounts keeps the EFS mount
   # and the single-writer rollout. Flip this the same day dev's database moves, not before —
   # dropping the volume from an environment whose data is on it detaches it from that data.
+
+  # EC2 capacity for ECS (modules/ec2_capacity.tf). Building it moves NOTHING on its own —
+  # every service keeps its Fargate launch type until one is explicitly given a capacity
+  # provider strategy, and the ASG sits at zero instances until a task needs a machine.
+  ec2_capacity_enabled = var.ec2_capacity_enabled
+  ec2_instance_type    = var.ec2_instance_type
+  ec2_max_instances    = var.ec2_max_instances
+  # WHICH services are on EC2 — the one-at-a-time dial. Empty = everything stays on Fargate.
+  ec2_services = var.ec2_services
+
   accounts_external_database = false
   accounts_desired_count     = var.accounts_desired_count
 

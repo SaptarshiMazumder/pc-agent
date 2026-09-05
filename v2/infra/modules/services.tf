@@ -154,8 +154,12 @@ resource "aws_ecs_task_definition" "svc" {
   for_each = local.services
 
   family                   = "${local.name_prefix}-${each.key}"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
+  # HOST networking on EC2, and it is not a preference: this VPC has an internet gateway and no
+  # NAT, an IGW only translates for an interface holding a public IP, and an awsvpc task on EC2
+  # cannot be given one (assign_public_ip is Fargate-only). Under `host` the container leaves
+  # through the instance's public interface, so ECR, Secrets Manager and Neon stay reachable.
+  requires_compatibilities = each.value.on_ec2 ? ["EC2"] : ["FARGATE"]
+  network_mode             = each.value.on_ec2 ? "host" : "awsvpc"
   cpu                      = each.value.cpu
   memory                   = each.value.memory
   execution_role_arn       = aws_iam_role.execution.arn
@@ -183,7 +187,13 @@ resource "aws_ecs_task_definition" "svc" {
     name         = each.key
     image        = "${aws_ecr_repository.this[each.key].repository_url}:${var.image_tag}"
     essential    = true
-    portMappings = [{ containerPort = each.value.port }]
+    # hostPort IS DECLARED, and it exists to stop perpetual drift rather than to change anything.
+    # Under host networking AWS fills the field in for you (it must equal containerPort), so a
+    # definition that omits it never matches what comes back — every plan then reports the task
+    # definition as needing replacement, and every apply redeploys a service for no reason.
+    # Stating the value AWS is going to choose makes config and reality agree. It is also the
+    # legal value under awsvpc, where hostPort may be omitted or set to containerPort.
+    portMappings = [{ containerPort = each.value.port, hostPort = each.value.port }]
     environment  = [for k, v in merge(each.value.env, lookup(local.computed_env, each.key, {})) : { name = k, value = v }]
     # secret_keys: container env var -> JSON key inside the app secret.
     secrets = [for k, v in each.value.secret_keys : {
@@ -206,7 +216,9 @@ resource "aws_ecs_task_definition" "svc" {
 
 # Service discovery: makes each service reachable at <name>.agentd.local.
 resource "aws_service_discovery_service" "svc" {
-  for_each = local.services
+  # Only awsvpc services get one — see the service_registries block below for why an EC2
+  # service cannot use A-record discovery.
+  for_each = { for name, cfg in local.services : name => cfg if !cfg.on_ec2 }
 
   name = each.key
 
@@ -242,7 +254,16 @@ resource "aws_ecs_service" "svc" {
   name            = "${local.name_prefix}-${each.key}"
   cluster         = aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.svc[each.key].arn
-  launch_type     = "FARGATE"
+  # One or the other, never both: a capacity provider strategy IS the EC2 launch type here.
+  launch_type = each.value.on_ec2 ? null : "FARGATE"
+
+  dynamic "capacity_provider_strategy" {
+    for_each = each.value.on_ec2 ? [1] : []
+    content {
+      capacity_provider = aws_ecs_capacity_provider.ec2[0].name
+      weight            = 100
+    }
+  }
 
   # Break-glass shell access (`aws ecs execute-command`) — see var.enable_execute_command.
   enable_execute_command = var.enable_execute_command
@@ -278,14 +299,27 @@ resource "aws_ecs_service" "svc" {
   # that exits is still a failure — so it costs the breaker nothing.
   health_check_grace_period_seconds = each.value.health_check_grace
 
-  network_configuration {
-    subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.service.id]
-    assign_public_ip = true # public subnets, no NAT → tasks need a public IP to reach ECR/internet
+  # awsvpc ONLY. A host-networked task has no ENI of its own to configure — its networking is
+  # the instance's, decided by the launch template — and ECS rejects the block outright.
+  dynamic "network_configuration" {
+    for_each = each.value.on_ec2 ? [] : [1]
+    content {
+      subnets          = aws_subnet.public[*].id
+      security_groups  = [aws_security_group.service.id]
+      assign_public_ip = true # public subnets, no NAT → tasks need a public IP to reach ECR/internet
+    }
   }
 
-  service_registries {
-    registry_arn = aws_service_discovery_service.svc[each.key].arn
+  # NOT REGISTERED WHEN ON EC2. Cloud Map can only publish A records for awsvpc tasks; host
+  # networking requires SRV, which an ordinary HTTP client cannot resolve — so registering would
+  # either fail the deployment or publish a name nothing can use. An EC2 service is reached
+  # through the load balancer instead, which is why the services other things discover
+  # (accounts, model-proxy) are the last to move.
+  dynamic "service_registries" {
+    for_each = each.value.on_ec2 ? [] : [1]
+    content {
+      registry_arn = aws_service_discovery_service.svc[each.key].arn
+    }
   }
 
   load_balancer {
@@ -299,8 +333,19 @@ resource "aws_ecs_service" "svc" {
   # file and reality disagreed by design, and the only way to know whether an environment was
   # paused was to ask AWS. Terraform owns it now (var.paused) — which is also what makes pausing
   # a plain `apply` instead of a separate script.
+  #
+  # `create_before_destroy` USED TO BE HERE TOO, and it could never have worked: an ECS service's
+  # name must be unique within its cluster, so standing the replacement up beside the original is
+  # exactly what AWS refuses — "Creation of service was not idempotent", which reads like a retry
+  # bug rather than a name collision. The `hibernate` variable's own documentation says as much.
+  # It went unnoticed because these services are almost always updated in place; a REPLACEMENT
+  # only happens when something structural changes, such as moving one to a capacity provider.
+  #
+  # So a replaced service is deleted and recreated, which costs that service a short outage
+  # during the swap. That is the same trade `hibernate` already makes deliberately: deleting and
+  # recreating a stateless service is the boring option, and boring is what these moments want.
   lifecycle {
-    create_before_destroy = true
+    create_before_destroy = false
   }
 
   tags = merge(local.common_tags, { Component = each.key })

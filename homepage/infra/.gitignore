@@ -1,0 +1,10 @@
+# Real variable files stay local — only the .example is tracked.
+# Same convention as v2/infra/.gitignore.
+*.tfvars
+!*.tfvars.example
+
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log

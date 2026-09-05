@@ -38,6 +38,74 @@ variable "ecr_force_delete" {
   default     = true
 }
 
+# ── EC2 capacity for ECS (ec2_capacity.tf) ──────────────────────────────────
+
+variable "ec2_capacity_enabled" {
+  description = <<-EOT
+    Build the EC2 capacity provider — launch template, Auto Scaling Group, instance role — so
+    that services CAN be moved off Fargate.
+
+    ON ITS OWN IT MOVES NOTHING. No service references the provider until one is given a
+    `capacity_provider_strategy`, and the ASG starts at zero instances, so enabling this is a
+    reviewable step that changes no running workload and costs nothing while idle.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "ec2_services" {
+  description = <<-EOT
+    Which services run on EC2 container instances instead of Fargate. Everything not named here
+    stays on Fargate, so this is the dial that moves the fleet ONE SERVICE AT A TIME and the
+    thing to shorten to roll a migration back.
+
+    A named service changes in three ways: `network_mode` becomes `host` (the container binds
+    the instance's port and leaves through the instance's public IP — see ec2_capacity.tf for
+    why that is required rather than preferred), its target group takes `instance` targets, and
+    it claims capacity through the provider instead of `launch_type = "FARGATE"`.
+
+    IT ALSO LOSES SERVICE DISCOVERY. Cloud Map can only publish A records for `awsvpc` tasks;
+    under host networking it requires SRV, which an ordinary HTTP client cannot resolve. So a
+    service listed here is NOT registered at `<name>.agentd.local` and must be reached through
+    the load balancer. `accounts` and `model-proxy` are discovery targets today — moving either
+    means repointing their callers first, which is why `web` and `ingest` go first.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(setsubtract(toset(var.ec2_services), toset(["model-proxy", "accounts", "daemon", "web", "ingest"]))) == 0
+    error_message = "ec2_services may only name services that exist: model-proxy, accounts, daemon, web, ingest."
+  }
+}
+
+variable "ec2_instance_type" {
+  description = <<-EOT
+    The container instances' size — where this fleet's entire cost sits.
+
+    t3.small (2 vCPU / 2 GiB) holds the whole five-service fleet at current task sizes, because
+    host networking removes the per-instance limit on network cards that would otherwise cap a
+    box at two tasks. Note that ONE instance costs more than the Fargate tasks it replaces until
+    several services share it — the saving arrives with the third or fourth service, not the
+    first.
+  EOT
+  type        = string
+  default     = "t3.small"
+}
+
+variable "ec2_max_instances" {
+  description = <<-EOT
+    Ceiling for the Auto Scaling Group. The floor is always 0, so an environment with nothing
+    placed on EC2 runs no instances at all.
+
+    2 leaves room for a rolling deploy: under host networking a service's port is taken on the
+    box it occupies, so replacing a task while keeping the old one healthy needs a second
+    machine. Dropping this to 1 reintroduces the deploy gap for EC2 services.
+  EOT
+  type        = number
+  default     = 2
+}
+
 variable "accounts_external_database" {
   description = <<-EOT
     This environment's accounts service keeps its data OUTSIDE the container (Postgres), not in
@@ -701,16 +769,23 @@ locals {
     }
   )
 
-  services = merge(
-    var.services,
-    {
-      "model-proxy" = merge(
-        var.services["model-proxy"],
-        { desired_count = var.model_proxy_desired_count }
-      )
-      "accounts" = local.accounts_service
-    }
-  )
+  # `on_ec2` is derived from var.ec2_services rather than declared per service, so moving a
+  # service between launch types is one list in one environment's tfvars — not an edit to the
+  # shared map that every environment reads.
+  services = {
+    for name, cfg in merge(
+      var.services,
+      {
+        "model-proxy" = merge(
+          var.services["model-proxy"],
+          { desired_count = var.model_proxy_desired_count }
+        )
+        "accounts" = local.accounts_service
+      }
+      ) : name => merge(cfg, {
+      on_ec2 = var.ec2_capacity_enabled && contains(var.ec2_services, name)
+    })
+  }
   name_prefix = "${var.project}-${var.environment}"
   common_tags = {
     Project     = var.project

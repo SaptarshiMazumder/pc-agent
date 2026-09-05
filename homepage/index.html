@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/nakama.svg" />
+    <title>agentd — a personal AI agent that acts on your own machine</title>
+    <meta
+      name="description"
+      content="agentd runs an LLM-to-tool loop on your own PC. Real files, a real shell, a real browser. Any model. Build your own agents — each one is just a directory."
+    />
+    <meta name="theme-color" content="#f4f2ea" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="agentd — your machine, your agent" />
+    <meta
+      property="og:description"
+      content="An LLM-to-tool loop that runs where your files are. Any model, real tools, and an agent builder that ships whole apps."
+    />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/og.png" />
+
+    <!-- Set the theme before first paint so there is no light-mode flash for dark-mode users. -->
+    <script>
+      ;(function () {
+        try {
+          var saved = localStorage.getItem('agentd-site-theme')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          document.documentElement.dataset.theme = saved || (prefersDark ? 'dark' : 'light')
+        } catch (e) {
+          /* private mode / storage blocked — the light default in the tag stands */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

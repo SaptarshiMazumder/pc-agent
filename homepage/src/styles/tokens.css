@@ -1,0 +1,127 @@
+/* =============================================================================
+   agentd homepage — design tokens.
+
+   Ported from the product's design system (v2/clients/ui/src/styles.css) so the
+   marketing site and the app read as one product. Surface/text/accent values are
+   the SAME numbers; anything added here is marketing-only (display type scale,
+   section rhythm) and is namespaced --site-*.
+
+   Theme is set on <html data-theme="light|dark"> — by the inline script in
+   index.html before first paint, then by the header toggle.
+============================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* --- surfaces (warm neutrals, not cold blue-black) --- */
+  --bg: #f4f2ea;
+  --bg2: #ffffff;
+  --bg3: #edeadf;
+  --bg4: #f8f7f1;
+  --border: #e6e2d5;
+  --border2: #d7d2c3;
+
+  /* --- text --- */
+  --text: #211d15;
+  --dim: #6d675a;
+  --faint: #a49d8d;
+
+  /* --- lime accent --- */
+  --accent: #7fbf14;
+  --accent-text: #5c8a08;
+  --accent-soft: rgba(127, 191, 20, 0.15);
+  --prim-bg: #a3e635;
+  --prim-bg-h: #bef264;
+  --prim-ink: #182100;
+
+  /* --- semantic --- */
+  --danger: #c0392b;
+  --danger-soft: rgba(192, 57, 43, 0.1);
+
+  /* --- aurora gradient hues --- */
+  --aur-lime: rgba(127, 191, 20, 0.3);
+  --aur-blue: rgba(111, 176, 255, 0.24);
+  --aur-violet: rgba(179, 162, 255, 0.2);
+
+  /* --- elevation --- */
+  --shadow: 0 1px 2px rgba(60, 50, 25, 0.06), 0 12px 28px -14px rgba(60, 50, 25, 0.22);
+  --shadow-sm: 0 1px 2px rgba(60, 50, 25, 0.07);
+  --shadow-lg: 0 2px 4px rgba(60, 50, 25, 0.06), 0 28px 64px -24px rgba(60, 50, 25, 0.34);
+
+  --radius: 11px;
+  --radius-lg: 18px;
+
+  /* --- type --- */
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', var(--sans);
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 550;
+  --fw-semi: 600;
+  --fw-heavy: 650;
+  --fw-bold: 700;
+  --fw-on-accent: 600;
+
+  /* --- site-only: fluid display scale --- */
+  --site-h1: clamp(2.75rem, 1.6rem + 5.2vw, 5.5rem);
+  --site-h2: clamp(2rem, 1.35rem + 2.6vw, 3.25rem);
+  --site-h3: clamp(1.25rem, 1.05rem + 0.8vw, 1.6rem);
+  --site-lede: clamp(1.05rem, 0.98rem + 0.42vw, 1.3rem);
+
+  /* --- site-only: rhythm --- */
+  --site-max: 1180px;
+  --site-gutter: clamp(1.25rem, 0.6rem + 2.6vw, 3rem);
+  --site-section-y: clamp(5rem, 3rem + 8vw, 9rem);
+
+  /* code/terminal syntax roles — theme-aware, never hardcoded at the call site */
+  --code-key: var(--accent-text);
+  --code-str: #a2591a;
+  --code-comment: var(--faint);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #131210;
+  --bg2: #1a1815;
+  --bg3: #232019;
+  --bg4: #100f0d;
+  --border: #2b2822;
+  --border2: #3a352c;
+
+  --text: #d2cec3;
+  --dim: #a49d8d;
+  --faint: #6c665a;
+
+  /* Weights drop in dark: light-on-dark text renders visually heavier. The one
+     exception is ink on the lime fill, which must go heavier instead. */
+  --fw-normal: 350;
+  --fw-medium: 400;
+  --fw-strong: 450;
+  --fw-semi: 500;
+  --fw-heavy: 600;
+  --fw-bold: 650;
+  --fw-on-accent: 700;
+
+  --accent: #a3e635;
+  --accent-text: #a3e635;
+  --accent-soft: rgba(163, 230, 53, 0.14);
+  --prim-bg: #a3e635;
+  --prim-bg-h: #bef264;
+  --prim-ink: #182100;
+
+  --danger: #f0715f;
+  --danger-soft: rgba(240, 113, 95, 0.13);
+
+  --aur-lime: rgba(163, 230, 53, 0.2);
+  --aur-blue: rgba(95, 155, 240, 0.15);
+  --aur-violet: rgba(143, 134, 245, 0.13);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -14px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.45), 0 34px 72px -26px rgba(0, 0, 0, 0.75);
+
+  --code-str: #d9a05b;
+}
