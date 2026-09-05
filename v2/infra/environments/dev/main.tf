@@ -300,10 +300,24 @@ module "stack" {
   payment_provider        = var.payment_provider
   checkout_return_origins = var.checkout_return_origins
 
-  # DEV IS STILL ON SQLITE (no DATABASE_URL in agentd/dev/app), so accounts keeps the EFS mount
-  # and the single-writer rollout. Flip this the same day dev's database moves, not before —
-  # dropping the volume from an environment whose data is on it detaches it from that data.
-  accounts_external_database = false
+  # ACCOUNTS' DATA LIVES IN POSTGRES (Neon), not in SQLite on the EFS volume. The move happened
+  # 2026-09-05: the EFS database was copied out of a one-off task and into Neon whole — 19,754
+  # rows, 52 accounts, 5 orgs, the full ledger — with row counts, foreign keys and identity
+  # sequences verified on the far side (v2/scripts/migrate_sqlite_to_postgres.py).
+  #
+  # WHICH database is still decided by DATABASE_URL in agentd/dev/app, which the accounts service
+  # loads for itself at startup (_APP_SECRET_FIELDS in accounts/app.py) rather than through an ECS
+  # secret mapping. This flag only tells the infrastructure the move already happened.
+  #
+  # SO THE ORDER IS NOT OPTIONAL, and this line is the last of the three:
+  #   1. deploy an accounts image that HAS psycopg — the driver is only on agent-build and the
+  #      branch merged from it. Without it, DATABASE_URL being set raises PostgresUnavailable at
+  #      startup, which nothing in the codebase catches: the service dies rather than falling back.
+  #   2. put DATABASE_URL in agentd/dev/app.
+  #   3. this flag, which drops the EFS volume.
+  # Applying step 3 first leaves dev on SQLite with no volume under it — writing an accounts
+  # database to ephemeral container storage that every task replacement destroys.
+  accounts_external_database = true
   accounts_desired_count     = var.accounts_desired_count
 
 
