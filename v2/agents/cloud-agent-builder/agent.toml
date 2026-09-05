@@ -16,7 +16,13 @@
 # two agents is this file: which of those tools each one is allowed to call.
 
 name = "Cloud Agent Builder"
-version = "1.0.0"
+# 1.0.1 — the Agents page's installable-org-agent cards, which have been in this repo since the
+# enterprise publish landed and had NEVER reached a hosted daemon. The boot install skips a bundle
+# the ledger already records at the same version (deploy/docker/entrypoint.sh), so every deploy
+# since then rebuilt the image, logged "bundle up to date", and left the OLD ui/ on the volume:
+# four stale asset bundles, not one containing `marketplace.catalog`. Shipping web UI for this
+# agent means bumping this line in the same commit.
+version = "1.0.1"
 description = "Builds cloud agents from chat: their agent.toml, identity, skills, and app UI — web-deliverable by construction. The fenced, hosted sister of Agent Builder."
 tagline = "build · validate · ship — on the web"
 color = "#0EA5A0"
