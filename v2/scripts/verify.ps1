@@ -36,7 +36,8 @@ Invoke-Gate "pytest (integration)" { & $py -m pytest tests/integration -m "not l
 #   pip install -r model-proxy/requirements.txt pytest pytest-asyncio
 # in whichever interpreter this script picks up; model-proxy/pytest.ini drives the run.
 Invoke-Gate "pytest (model-proxy)"  { & $py -m pytest model-proxy -q }
-# tests/e2e (booted-daemon smoke) is NOT a Stage-1 gate; run it explicitly: pytest tests/e2e -m e2e
+# tests/e2e (booted-daemon smoke) is a reserved tier with no tests yet (the dir doesn't exist);
+# the agent-diagnosis harness that used to sit there lives in agent_runtime/e2e/ and is not pytest.
 
 # --- informational (does NOT block; burn the count down, then promote to a gate) ---
 Write-Host "== mypy (informational) ==" -ForegroundColor Cyan

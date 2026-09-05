@@ -8,15 +8,18 @@ tiered by where you put it.
 | --- | --- | --- | --- |
 | `unit/` | One component in isolation; all I/O faked | No composition across layers | Every push/PR (blocking) |
 | `integration/` | Real components wired together in one process (Gateway RPCs, AgentService, the agent loop, stores + services, pipelines) | May cross layers; never crosses a process or network boundary (exceptions opt in via `live` / `browser` / `computer` markers and are excluded from Stage 1) | Every push/PR (blocking) |
-| `e2e/` | Boot the real daemon as a subprocess, connect a real client, assert across the wire | Crosses the process boundary on purpose | Not in Stage 1 yet; run explicitly |
+| `e2e/` | Boot the real daemon as a subprocess, connect a real client, assert across the wire | Crosses the process boundary on purpose | Tier is reserved — no tests written yet, so the directory does not exist |
 
 Commands (from `v2/`):
 
 ```
 pytest tests/unit -q
 pytest tests/integration -m "not live and not browser and not computer" -q
-pytest tests/e2e -m e2e            # requires nothing external; boots its own daemon
+pytest tests/e2e -m e2e            # once the tier has tests; boots its own daemon
 ```
+
+(The agent DIAGNOSIS harness that used to squat in `tests/e2e` is not a pytest tier and now
+lives where it ships: `agent_runtime/e2e/` — see its README.)
 
 `v2/scripts/verify.ps1` runs the first two as blocking gates and mirrors
 `.github/workflows/ci-fast-tests.yml` exactly. The browser/live/computer-marked tests run

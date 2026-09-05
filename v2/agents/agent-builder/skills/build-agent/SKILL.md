@@ -24,6 +24,7 @@ beside this one — read a page when the step you are on needs it, not before:
 | write a private tool | `reference/plugins.md` |
 | build or change the agent's window | `reference/ui.md` |
 | make that window talk to the daemon — events, methods, sign-in | `reference/app-connection.md` |
+| prove it WORKS end to end — author scenarios, run `e2e_run`, triage, fix, judge the output | `reference/testing.md` |
 | package or publish | `reference/packaging.md` |
 | connect a third-party service | the **`connect-mcp`** skill |
 

@@ -1,0 +1,5 @@
+id = "e2e"
+name = "Agent E2E"
+kind = "native"
+entry = "e2e_plugin:register"
+description = "Run e2e scenarios against a built agent and read the diagnosis — the write-check-fix loop's check. Tools: e2e_run, e2e_replay, e2e_checks. First-party; intended for the agent builders (gated by their [tools] allow)."

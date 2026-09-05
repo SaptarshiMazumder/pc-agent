@@ -90,6 +90,12 @@ allow = [
   "skill_workshop", "update_plan", "verify_answer", "show_files",
   "web_search", "web_fetch",
   "spawn_subagent",
+  # E2E — allowed where run_agent is denied, and that is not a contradiction: run_agent dials
+  # back over a socket whose ?act_as= only authorises on a machine-token daemon with accounts
+  # off, so on hosted it cannot carry the caller's tenancy. e2e_run drives the run IN-PROCESS
+  # through the gateway's own dispatch as the caller's account — same tenancy, same metering,
+  # no socket — so cabbie can finally test what it builds.
+  "e2e_run", "e2e_replay", "e2e_checks",
 ]
 deny = [
   "create_tool",
