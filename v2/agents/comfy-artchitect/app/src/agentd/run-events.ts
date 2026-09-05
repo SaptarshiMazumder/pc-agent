@@ -228,12 +228,28 @@ function fold(
         }
         return {}
       })
-      // What the tool produced, if anything. Deduped against what is already waiting.
+      // SHOW THE DELIVERABLE THE MOMENT THE TOOL DECLARES IT — a workflow file, an image, a video
+      // appears at its own point in the timeline, not batched onto the final answer minutes later
+      // at agent_end. For this agent the workflow file IS the point, and a run is one long turn
+      // (research -> emit -> install -> render): holding the emitted graph until the render
+      // finishes would keep the one thing worth seeing invisible for the whole run. Deduped
+      // against everything already shown, so a re-emit of the same name (or the agent_end backstop)
+      // never doubles it.
       const made = readArtifacts(ev.artifacts)
       if (made.length) {
-        on((s) => ({
-          pendingArtifacts: [...s.pendingArtifacts, ...freshArtifacts(s.pendingArtifacts, made)],
-        }))
+        on((s) => {
+          const shown = s.items.flatMap((it) =>
+            it.kind === 'bot' && it.artifacts ? it.artifacts : [],
+          )
+          const fresh = freshArtifacts(shown, made)
+          if (!fresh.length) return {}
+          return {
+            items: [
+              ...s.items,
+              { kind: 'bot' as const, text: '', streaming: false, ts, artifacts: fresh },
+            ],
+          }
+        })
       }
       return
     }
