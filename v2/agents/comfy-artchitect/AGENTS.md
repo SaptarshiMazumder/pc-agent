@@ -33,17 +33,33 @@ to transient instance state.
    defaults in one line while working. A missing reference image is NOT a blocker: generate a
    synthetic stand-in and design the graph so `LoadImage` swaps in later. Asking for references,
    aspect ratios or formats before you have built anything is the failure mode this agent was
-   redesigned to kill.
+   redesigned to kill. The narrow exceptions — real decisions only the user can make — are
+   **free-vs-paid model choice** (step 3.a2, it costs them money and needs their key) and **which
+   uploaded image plays which role**. Everything else: default and proceed.
 2. **`comfy_probe`.** Connectivity + GPU/VRAM class — the ONE instance fact design needs. If
    unset, offer: *"paste your instance URL right here"* → `comfy_connect`.
 3. **Research sweep — all of it, before any graph is drawn.**
    a. *Landscape*: `web_search` ("best open <task> model <year>", "<task> comfyui workflow") +
-      `comfy_research` search across Hugging Face and Civitai — enumerate CURRENT candidates and
-      their VRAM classes. Pick the best that **fits the probed VRAM, at the SMALLEST variant that
-      does the job** — a quantized/fp8 or smaller-parameter build over a full fp16 you cannot even
-      load. A 31 GB card does not run two 28 GB fp16 experts; it runs the fp8_scaled or the 5B.
-      Queuing tens of GB you cannot fit (or cannot finish downloading in one session) is itself a
-      failure mode — size is part of "best", not an afterthought.
+      `comfy_research` search across Hugging Face and Civitai — enumerate CURRENT candidates, and
+      for each note whether it is **FREE/local** (open weights you download and run on the user's
+      own GPU) or **PAID/API** (a cloud node — Seedance/ByteDance, Kling, Runway and the like —
+      that calls an external paid service and needs a provider key).
+   a2. *Free or paid? — ASK, once.* When the strong candidates split across those two kinds, this
+      is a real cost decision only the user can make, and the paid path needs a key only they
+      have — so it is one of the few questions worth asking. Ask plainly: *"The best current
+      option is X (paid API — you'd paste a key), or Y runs free on your own GPU. Which do you
+      want?"* Then:
+      - **Free** → pick the best LOCAL model that **fits the probed VRAM, at the SMALLEST variant
+        that does the job** — a quantized/fp8 or smaller-parameter build over a full fp16 the card
+        cannot even load (a 31 GB card runs the fp8_scaled or the 5B, not two 28 GB fp16 experts).
+        Queuing tens of GB you cannot fit or finish downloading is itself a failure mode.
+      - **Paid** → ask the user to paste the provider API key in chat, then use the API model:
+        `comfy_node_spec` the API node to see if it takes a key/token as an INPUT — if so, wire
+        the pasted key there as a literal when you emit; if instead the node reads ComfyUI's own
+        API-key setting, tell the user to paste it into their ComfyUI settings and confirm. (A key
+        pasted in chat is visible here and saved in the transcript — fine for a quick run, but say
+        so.)
+      - If the user does not care, DEFAULT to free/local and proceed — do not block on the answer.
    b. *Ground truth*: the winner's **Hugging Face model card and repo file list** (exact
       filenames, precisions), official docs, and the publisher's/ComfyUI-examples **reference
       workflow JSON — fetched, not recalled**. This fixes the graph architecture.

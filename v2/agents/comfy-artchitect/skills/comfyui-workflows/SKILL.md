@@ -33,14 +33,20 @@ The graph is dictated by the model FAMILY, families wire completely differently 
 self-contained checkpoint vs a bare unet with separate text encoders and VAE; cfg 7 vs cfg 1;
 20 steps vs 4), and new families ship monthly — so the wiring is **researched, never recalled**:
 
-0. **Which model at all?** Before committing to a family, sweep the landscape: `web_search`
-   ("best open <task> model <year>", "<task> comfyui workflow") plus `comfy_research` search on
-   Hugging Face and Civitai. Pick the best CURRENT model that fits the probed VRAM — never the
-   first one you remember — and at the **SMALLEST variant that does the job**: a quantized/fp8 or
-   smaller-parameter build over a full fp16 the card cannot load (a 31 GB GPU will not hold two
-   28 GB fp16 experts; use the fp8_scaled or the 5B). Download size is part of the choice, not an
-   afterthought — tens of GB you cannot fit, or cannot finish downloading in one session, is a
-   failed choice.
+0. **Which model at all?** Before committing, sweep the landscape: `web_search` ("best open
+   <task> model <year>", "<task> comfyui workflow") plus `comfy_research` search on Hugging Face
+   and Civitai. Note for each candidate whether it is **FREE/local** (open weights you download
+   and run on the user's GPU) or **PAID/API** (a cloud node — Seedance/ByteDance, Kling, Runway —
+   that calls an external paid service and needs a key).
+   - **When the best options split free vs paid, ASK the user which they want** — it is a real
+     cost decision and the paid path needs a key only they have. Default to free if they don't
+     care; never block on the answer.
+   - **Free** → the best LOCAL model that fits the probed VRAM at the **SMALLEST variant that does
+     the job** (fp8/5B over an fp16 the card cannot hold — a 31 GB GPU won't run two 28 GB fp16
+     experts). Size is part of the choice; tens of GB you can't fit or finish downloading is a
+     failed choice.
+   - **Paid** → have the user paste the provider key in chat; `comfy_node_spec` the API node and
+     wire the key into its input if it takes one, else point them at ComfyUI's API-key setting.
 1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
    usually their **reference workflow**: fetch it by URL with the same tool. That file is the
    answer, written by the people who trained the model.
