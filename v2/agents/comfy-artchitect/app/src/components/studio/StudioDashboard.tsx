@@ -9,9 +9,9 @@ import { useState } from 'react'
 import type { AgentdClient } from '@agentd/client'
 
 import type { Artifact } from '../../agentd/artifacts'
-import ArtifactView from '../ArtifactView'
 import WorkflowShelf from '../workflows/WorkflowShelf'
 import { ActiveRunPanel } from './ActiveRunPanel'
+import { FileExplorer } from './FileExplorer'
 import { InstancePanel } from './InstancePanel'
 import { KpiRow } from './KpiRow'
 import { RenderGallery } from './RenderGallery'
@@ -50,10 +50,6 @@ export function StudioDashboard({
   const state = useStudioState(client, running)
   const [rangeDays, setRangeDays] = useState<number>(1)
   const [query, setQuery] = useState('')
-
-  // The shelf eats workflow JSONs; the artifact panel gets the rest (renders have their own
-  // gallery, so images are not double-shown).
-  const nonMedia = artifacts.filter((a) => a.kind === 'file')
 
   return (
     <div className="st-dash">
@@ -99,14 +95,12 @@ export function StudioDashboard({
             <WorkflowShelf artifacts={artifacts} />
           </section>
           <div className="st-side-stack">
-            {nonMedia.length > 0 && (
-              <section className="st-panel">
-                <div className="st-panel-head">
-                  <h2>Artifacts from this session</h2>
-                </div>
-                <ArtifactView artifacts={nonMedia.slice(0, 6)} />
-              </section>
-            )}
+            {/* EVERY file, not just the non-media six. The gallery above answers "what did the
+                renders look like"; this answers "what is in my workspace" — and the two questions
+                want different views of the same set, so this one takes all of them. */}
+            <section className="st-panel">
+              <FileExplorer artifacts={artifacts} />
+            </section>
             <InstancePanel state={state} query={query} client={client} />
           </div>
         </div>

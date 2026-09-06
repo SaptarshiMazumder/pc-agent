@@ -407,10 +407,24 @@ h2 { font-size: var(--fs-lead); }
 
 
 /* ── thread ────────────────────────────────────────────────────────────── */
+/* The scroller's frame — it exists so the jump button can be positioned against the VIEWPORT of
+   the thread rather than against its scrolling content, where it would drift away as you read. */
+.thread-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .thread {
   flex: 1; overflow-y: auto; min-height: 0; padding: var(--sp-panel) 26px var(--sp-tight);
   position: relative;
 }
+/* THE WAY BACK. Shown only while the view is away from the bottom — the one state in which
+   following has silently stopped and, before this existed, sending a message was the only cure. */
+.thread-jump {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5;
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 11.5px;
+  cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); animation: jump-in .14s ease-out;
+}
+.thread-jump:hover { border-color: var(--accent); color: var(--accent-ink, var(--text)); }
+@keyframes jump-in { from { opacity: 0; transform: translate(-50%, 6px); } }
 /* THE CORNER GLOW: the light the window sits in. Painted by the thread rather than by a new
    element, so it costs no markup and no component knows about it; a theme that leaves
    `--glow-1` transparent (the default) renders nothing at all. */
