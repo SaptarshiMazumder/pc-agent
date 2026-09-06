@@ -135,7 +135,7 @@ intent. On iteration an already-uploaded image is still there — only re-upload
 | type | what it means | the fix |
 |---|---|---|
 | `value_not_in_list` | that name is not on this instance | use one from `comfy_inventory`; the error's `details` lists the valid ones |
-| `missing_node_type` | the custom node pack is not installed | say which pack; you cannot install it |
+| `missing_node_type` | that node's PACK is not on this instance | first check it is not just a wrong class NAME; if the pack is genuinely missing, `comfy_node_install` it (it restarts ComfyUI), then re-probe and re-check the class |
 | `required_input_missing` | an input was left out | `comfy_node_spec` shows what is required |
 | `return_type_mismatch` | a link joins incompatible sockets | check which output slot you linked |
 | `bad_linked_input` | a link is not `[id, slot]` | fix the shape |

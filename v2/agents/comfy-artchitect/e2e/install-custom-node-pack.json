@@ -1,0 +1,29 @@
+{
+  "id": "install-custom-node-pack",
+  "agent_id": "comfy-artchitect",
+  "goal": "The agent needs a node class its instance does not have (IPAdapter, for identity-consistent generation). It must install the PACK ITSELF with comfy_node_install, restart ComfyUI, confirm the class exists, and carry on — never hand the install back to the user. This scenario exists because the agent used to say 'I cannot install custom node packs, do it in Manager and tell me done', which is a punt.",
+
+  "_comment_settings": "COMFYUI_URL injected at run time via --set; placeholder keeps the file credential-free.",
+  "settings": {
+    "COMFYUI_URL": "PASTE_YOUR_COMFYUI_URL_HERE"
+  },
+
+  "turns": [
+    "i want identity-consistent images of the same person across generations - use IPAdapter for that. set up whatever the instance needs.",
+    "do it all yourself, don't ask me to install anything"
+  ],
+
+  "_comment_checks": "The pack install must actually happen and succeed, with no punt. comfy_probe after the restart proves the agent waited for the instance to come back rather than assuming.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "tool_called", "tool": "comfy_probe" },
+    { "name": "tool_succeeded", "tool": "comfy_node_install" },
+    { "name": "tool_called", "tool": "comfy_node_spec", "min": 1 },
+    { "name": "max_turns", "n": 24 }
+  ],
+
+  "max_turns": 24
+}

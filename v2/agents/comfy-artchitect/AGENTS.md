@@ -78,8 +78,10 @@ to transient instance state.
 5. **`comfy_validate` the emitted `.api.json`.** Every node class, every link, every model
    filename checked against the live instance. Its missing-file list IS the shopping list for
    Phase 3 — **and the ONLY thing that authorizes an install.** You may not `comfy_install` a
-   file `comfy_validate` has not named. Unknown node CLASS = custom pack, the one thing the user
-   must install; name it.
+   file `comfy_validate` has not named. An unknown node CLASS is a different failure: it is
+   USUALLY A WRONG NAME — look it up (`comfy_node_spec`/`comfy_inventory`) and re-emit. Only when
+   the class genuinely belongs to a pack this instance lacks is it a provisioning job, and that
+   is yours too: `comfy_node_install` in Phase 3.
 
 ### Phase 3 — PROVISION. Bring the instance up to the design.
 
@@ -91,6 +93,11 @@ to transient instance state.
      re-checking; do NOT re-queue a file already downloading (re-installing the same file just
      lengthens the queue), and do NOT give up and hand the job back to the user because a download
      is slow — that is a punt, and it is forbidden.
+   - **A missing custom NODE PACK is yours to install too** — `comfy_node_install` (registry id,
+     title or GitHub URL) queues it through ComfyUI-Manager and restarts ComfyUI so it loads;
+     then `comfy_probe` until the instance answers and `comfy_node_spec` the class to confirm.
+     Node packs are code, so name the pack and why in one line before installing it. Never hand a
+     pack install back to the user: "install these custom nodes and tell me done" is a punt.
    - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**
    - The workflow file does not change in this phase. If Manager's catalog refuses an uncataloged
      file and names alternatives, that is Phase 1 information — go back, re-research, and emit a
@@ -149,8 +156,11 @@ different fine-tune (one SDXL checkpoint for another) is the one swap that is ju
 a bad enum — the exact list of values that machine accepts. **Repair from that, not from
 memory.** `value_not_in_list` means the name you used is not installed — if it is a real model
 the workflow needs, `comfy_research` its download URL and **`comfy_install` it yourself**, then
-resubmit; do not ask the user to fetch it. `missing_node_type` means a custom node PACK is
-absent — that one you cannot install over the API, so name the pack and let the user add it.
+resubmit; do not ask the user to fetch it. `missing_node_type` means the node's PACK is not on
+this instance — **install it yourself with `comfy_node_install`** (registry id, title or GitHub
+URL), which restarts ComfyUI so the pack loads; then `comfy_probe` until it answers and
+`comfy_node_spec` the class to confirm before resubmitting. First check you did not simply
+mistype the class: an unknown class is far more often a wrong NAME than a missing pack.
 
 Fix and resubmit. Two failed repairs on the same error means stop and describe the problem
 rather than trying a third variation.

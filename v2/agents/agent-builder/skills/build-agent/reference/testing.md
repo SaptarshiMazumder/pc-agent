@@ -12,6 +12,27 @@ the agent's fault. Both caveats have their own step below.
 
 ---
 
+## When to run this — the moments that matter
+
+Not only at the end. Each of these is a moment where behaviour can silently change, and every one
+of them has burned a real agent:
+
+- **After adding or changing a TOOL.** A new tool is a new capability the agent must actually
+  REACH FOR — shipping one whose instructions the model never acts on is the most common way a
+  capability exists and does nothing. Write the scenario that forces the tool's path.
+- **After changing instructions** (the protocol, an ordering rule, a default). Instructions are
+  the agent's program; an edit is a code change and deserves the same proof.
+- **When the user reports bad behaviour.** Reproduce it as a scenario FIRST, so it is red, then
+  fix until it is green. A fix with no failing scenario behind it is a guess.
+- **After removing a limitation the agent believed in.** If it used to say "I can't do X" and now
+  it can, the belief lives in its instructions and outlives the fix unless a scenario proves
+  otherwise.
+- **After a platform or dependency change** the agent stands on — a new SDK, a backend version, a
+  changed API. The agent's own files did not change, which is exactly why nobody thinks to test.
+- **Before publishing or handing it over**, and **when swapping the model** it runs on: a weaker
+  or cheaper model follows the same instructions differently, and that difference only shows in a
+  run.
+
 ## The loop
 
 ```

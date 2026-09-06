@@ -995,6 +995,187 @@ class ComfyInstallTool(Tool):
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
 
+def _node_catalog() -> dict:
+    """ComfyUI-Manager's custom-NODE-PACK catalog, keyed by pack id. The sibling of
+    `_manager_catalog` (models): same Manager, different registry. Each entry carries `title`,
+    `repository`, `version`/`cnr_latest` and a `state` of installed / not-installed / disabled."""
+    res = _get("/customnode/getlist?mode=cache", timeout_s=90.0)
+    if not res.ok:
+        return {}
+    try:
+        return (res.json() or {}).get("node_packs") or {}
+    except ValueError:
+        return {}
+
+
+def _resolve_pack(catalog: dict, query: str) -> tuple[str, dict] | None:
+    """A pack id, a title, or a GitHub URL -> (id, entry). Exact wins over fuzzy, so a query that
+    names a pack exactly never resolves to a lookalike."""
+    q = query.strip()
+    if q in catalog:
+        return q, catalog[q]
+    low = q.lower().rstrip("/")
+    for pid, entry in catalog.items():
+        if pid.lower() == low:
+            return pid, entry
+    # A GitHub URL — how a human names a pack, and what research returns.
+    if "github.com" in low:
+        for pid, entry in catalog.items():
+            if str(entry.get("repository", "")).lower().rstrip("/").rstrip(".git") == low.rstrip(".git"):
+                return pid, entry
+    for pid, entry in catalog.items():
+        if str(entry.get("title", "")).lower() == low:
+            return pid, entry
+    return None
+
+
+def _pack_candidates(catalog: dict, query: str, limit: int = 6) -> list[str]:
+    """Closest packs by shared word tokens — what to offer when a query names nothing exactly."""
+    want = {t for t in re.split(r"[^a-z0-9]+", query.lower()) if len(t) > 2}
+    scored = []
+    for pid, entry in catalog.items():
+        hay = f"{pid} {entry.get('title','')}".lower()
+        have = {t for t in re.split(r"[^a-z0-9]+", hay) if t}
+        overlap = len(want & have)
+        if overlap:
+            scored.append((overlap, pid, entry))
+    scored.sort(key=lambda p: -p[0])
+    return [
+        f"{pid}  ({e.get('title')}, {e.get('state')})" for _s, pid, e in scored[:limit]
+    ]
+
+
+class ComfyNodeInstallTool(Tool):
+    name = "comfy_node_install"
+    label = "Install a custom node pack"
+    default_retryable = False
+    description = (
+        "Install a ComfyUI CUSTOM NODE PACK on the user's instance — IPAdapter, PuLID, a LoRA "
+        "trainer, video helpers, anything in ComfyUI-Manager's registry — WITHOUT asking the user "
+        "to touch Manager themselves. Give the pack's registry id, its title, or its GitHub URL "
+        "(research and `comfy_validate`'s missing-node report both give you these). It queues the "
+        "install through ComfyUI-Manager and restarts ComfyUI so the new nodes load. This is how "
+        "you fix a `missing_node_type` / unknown-node-class yourself. Node packs are code: say "
+        "which one you are installing and why before you call this."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["pack"],
+        "properties": {
+            "pack": {
+                "type": "string",
+                "description": "Registry id ('comfyui_ipadapter_plus'), exact title, or GitHub "
+                "URL of the node pack to install.",
+            },
+            "restart": {
+                "type": "boolean",
+                "description": "Restart ComfyUI after installing so the nodes load. Default true "
+                "— a pack that is installed but not loaded still fails a workflow.",
+            },
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            query = str(params.get("pack") or "").strip()
+            if not query:
+                return ToolResult.text("pack is required", is_error=True)
+            if not _manager_present():
+                return ToolResult.text(
+                    "this instance has no ComfyUI-Manager, so custom node packs cannot be "
+                    "installed over its API. Either install ComfyUI-Manager on the instance, or "
+                    "set COMFYUI_MCP_URL to an instance MCP that can install node packs.",
+                    is_error=True,
+                )
+
+            catalog = _node_catalog()
+            if not catalog:
+                return ToolResult.text(
+                    "could not read ComfyUI-Manager's node registry from this instance "
+                    "(/customnode/getlist). Manager may be an old build or still starting.",
+                    is_error=True,
+                )
+            found = _resolve_pack(catalog, query)
+            if found is None:
+                alts = _pack_candidates(catalog, query)
+                return ToolResult.text(
+                    f"no node pack matching {query!r} in this instance's Manager registry "
+                    f"({len(catalog)} packs)."
+                    + (f" Closest: {'; '.join(alts)}. Call again with an exact id." if alts else "")
+                    + " A pack that is genuinely absent from the registry can only be installed "
+                    "from a raw git URL, which Manager refuses on a remote instance.",
+                    is_error=True,
+                )
+            pack_id, entry = found
+            state = str(entry.get("state") or "")
+            title = str(entry.get("title") or pack_id)
+            if state == "installed":
+                return ToolResult.text(
+                    f"{title} ({pack_id}) is already installed on this instance. If its nodes "
+                    "still do not resolve, ComfyUI may need a restart to load them."
+                )
+
+            body = {
+                "ui_id": f"agent-{pack_id}",
+                "id": pack_id,
+                # Manager reads these three directly — a missing key is a 500, not a 400.
+                "version": str(entry.get("version") or entry.get("cnr_latest") or "latest"),
+                "selected_version": "latest",
+                "channel": "default",
+                "mode": "cache",
+                "repository": str(entry.get("repository") or ""),
+            }
+            res = _post("/manager/queue/install", body, timeout_s=30.0)
+            if not res.ok:
+                if res.status in (403, 404):
+                    return ToolResult.text(
+                        f"install {pack_id}: ComfyUI-Manager refused it "
+                        f"(HTTP {res.status}). Its security_level must allow node-pack installs "
+                        "('middle' or lower) — that is a Manager setting on the instance, not "
+                        "something I can change from here. Tell the user exactly that.",
+                        is_error=True,
+                    )
+                return ToolResult.text(_failed(res, f"install {pack_id}"), is_error=True)
+            _post("/manager/queue/start", None, timeout_s=15.0)
+
+            # Same wait discipline as comfy_install: stay under the sandbox's stop, then hand off.
+            waited, step, deadline = 0.0, 3.0, 60.0
+            done = False
+            while waited < deadline:
+                if abort.is_set():
+                    break
+                st = _get("/manager/queue/status", timeout_s=15.0)
+                try:
+                    info = st.json() if st.ok and st.text.strip() else {}
+                except ValueError:
+                    info = {}
+                if info and not info.get("is_processing") and int(info.get("in_progress_count") or 0) == 0:
+                    done = True
+                    break
+                await asyncio.sleep(step)
+                waited += step
+
+            if not (params.get("restart", True)):
+                return ToolResult.text(
+                    f"queued {title} ({pack_id}). ComfyUI must RESTART before its nodes load — "
+                    "call comfy_node_install again with restart, or ask the user to restart."
+                )
+            # A pack that is installed but not loaded is still a missing node. Rebooting is the
+            # step that makes it real, and Manager owns it.
+            _post("/manager/reboot", None, timeout_s=20.0)
+            return ToolResult.text(
+                f"installed {title} ({pack_id})"
+                + ("" if done else " (still finishing)")
+                + " and restarted ComfyUI so its nodes load. The instance takes ~30-60s to come "
+                "back: call comfy_probe until it answers, then comfy_node_spec on the node class "
+                "you need to confirm it is there before emitting a workflow that uses it."
+            )
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(
+                f"comfy_node_install failed: {type(e).__name__}: {e}", is_error=True
+            )
+
+
 class ComfyConnectTool(Tool):
     name = "comfy_connect"
     label = "Connect from a pasted URL"
@@ -1237,7 +1418,12 @@ class ComfyValidateTool(Tool):
                 )
             lines = ["the workflow does NOT compile against this instance:"]
             if unknown_nodes:
-                lines.append("missing node classes (custom pack needed — the user installs those):")
+                lines.append(
+                    "unknown node classes — USUALLY A WRONG NAME, not a missing pack. Look each "
+                    "one up (comfy_node_spec / comfy_inventory) and re-emit with the real class. "
+                    "If the class truly belongs to a pack this instance lacks, install it "
+                    "yourself with comfy_node_install:"
+                )
                 lines += [f"  {x}" for x in unknown_nodes]
             if bad_links:
                 lines.append("broken links:")
@@ -1263,6 +1449,7 @@ def register(api, ctx):
 
     api.register_tool(ComfyConnectTool())
     api.register_tool(ComfyInstallTool())
+    api.register_tool(ComfyNodeInstallTool())
     api.register_tool(ComfyProbeTool())
     api.register_tool(ComfyEmitTool())
     api.register_tool(ComfyValidateTool())
