@@ -209,15 +209,30 @@ export function useSettings(client: AgentdClient, agentId: string) {
 
   /** What actually goes to the daemon: the TOP-LEVEL keys whose value differs from what was
    *  loaded. Nested edits ride inside their own top-level key, which is why `config.set` needs no
-   *  notion of paths. */
+   *  notion of paths.
+   *
+   *  `agents` IS NARROWED TO THIS AGENT, and that is not tidiness — it is the whole save. The
+   *  draft is seeded from `config.get`, which hands back EVERY agent's block, so sending the
+   *  changed top-level key verbatim meant this page asked to write its siblings' settings too.
+   *  The daemon rightly refuses one agent's page writing another's, and it refuses the WHOLE
+   *  patch: the save came back `saved: false` and the model snapped back to the daemon's on the
+   *  next reload (found live on a hosted daemon, where every account has more than one agent —
+   *  and invisible on a fresh desktop, where it has exactly one). */
   const patch = useMemo(() => {
     const out: Record<string, any> = {}
     const values = data?.values || {}
     for (const k of Object.keys(draft)) {
-      if (JSON.stringify(draft[k]) !== JSON.stringify(values[k])) out[k] = draft[k]
+      if (JSON.stringify(draft[k]) === JSON.stringify(values[k])) continue
+      if (k === 'agents') {
+        const own = (draft.agents || {})[agentId]
+        const loaded = (values.agents || {})[agentId]
+        if (JSON.stringify(own) !== JSON.stringify(loaded)) out.agents = { [agentId]: own }
+        continue
+      }
+      out[k] = draft[k]
     }
     return out
-  }, [draft, data])
+  }, [draft, data, agentId])
 
   const dirty = Object.keys(patch).length > 0 || Object.keys(keys).length > 0
 
