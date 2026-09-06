@@ -234,7 +234,12 @@ export default function App() {
      would be a lie the first time somebody opened a real conversation. */
   const openChat = chats.find((c) => c.sessionId === currentKey)
   const empty = session.items.length === 0
-  const pct = session.usage && session.usage.limit > 0 ? Math.round(session.usage.pct) : null
+  /* `pct` ARRIVES AS A FRACTION (0-1), not a percentage — the daemon sends `used / limit`
+     rounded to 4 places. Rounding it straight to an integer floored every real conversation to
+     "0% ctx" (anything under half a window), which read as a broken meter rather than a wrong
+     unit. Scale here; the wire format is what agent-builder's ring already consumes. */
+  const pct =
+    session.usage && session.usage.limit > 0 ? Math.round(session.usage.pct * 100) : null
 
   return (
     <div className="shell">

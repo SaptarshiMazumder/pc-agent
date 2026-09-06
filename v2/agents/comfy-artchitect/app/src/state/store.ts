@@ -32,7 +32,8 @@ export type View = 'chat' | 'credits' | 'orgs' | 'settings' | (string & {})
 export interface ContextUsage {
   used: number
   limit: number
-  /** How full, 0-100. Sent by the daemon rather than derived, so every client agrees. */
+  /** How full, as a FRACTION 0-1 (`used / limit`, 4dp). Sent by the daemon rather than derived,
+   *  so every client agrees on the number — multiply by 100 to display a percentage. */
   pct: number
   model: string
   /** Of `used`, how much was served from the provider's prompt cache. */

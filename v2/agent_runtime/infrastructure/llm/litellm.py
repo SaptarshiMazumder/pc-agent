@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -292,6 +293,100 @@ def _describe_chunk(chunk) -> str:
     return f"finish_reason={finish!r}, carried {'+'.join(carried) if carried else 'NOTHING'}"
 
 
+#: The generic answer, used when the probe itself cannot decide anything.
+_EMPTY_GENERIC = (
+    "The model returned an empty response - nothing at all, not even an error. That is a fault "
+    "on the provider's side, not something wrong with your message or your settings. Try a "
+    "different model."
+)
+
+
+async def _diagnose_empty(model: str, timeout_s: float | None) -> str:
+    """Why did this model stream back nothing? Ask it a trivial question, NOT streamed.
+
+    A provider that refuses a call — an unfunded account, a dead key, a model the gateway will
+    not serve — states the reason in an HTTP error on the ordinary path. Over a STREAM the same
+    refusal can arrive as a well-formed completion carrying zero tokens, and every word of the
+    explanation is lost. Users then read "a fault on the provider's side" and file a bug against
+    us, while the truth ("You have no credits remaining") was one non-streamed call away.
+
+    The probe is deliberately minimal — one token, three words of prompt — because it is spent
+    only to READ AN ERROR, never for content, and only on a turn that has already failed. Its
+    result splits the two causes that look identical from the outside:
+
+      * probe FAILS  -> the account/key/model is the problem; quote the provider verbatim.
+      * probe WORKS  -> the model is reachable and funded, so it is THIS conversation it would
+                        not answer (length, above all else).
+
+    Never raises: a diagnosis that fails takes the generic message with it.
+    """
+    # SETUP FAILURES ARE OURS, NOT THE PROVIDER'S, and must never be quoted as its words — so
+    # building the request sits outside the probe's own try.
+    try:
+        import litellm
+
+        from agent_runtime.infrastructure.llm import model_proxy
+
+        kwargs: dict[str, Any] = dict(
+            model=model,
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+            stream=False,
+        )
+        if timeout_s:
+            # Far below the turn's own ceiling: this runs while somebody waits on an error.
+            kwargs["request_timeout"] = min(float(timeout_s), 30.0)
+        model_proxy.apply(kwargs)  # same routing the real call used, or this proves nothing
+    except Exception:  # noqa: BLE001
+        log.warning("empty-completion probe could not be built for %s", model, exc_info=True)
+        return _EMPTY_GENERIC
+
+    try:
+        await litellm.acompletion(**kwargs)
+    except Exception as e:  # noqa: BLE001 — every failure here is itself the answer
+        reason = _provider_reason(str(e))
+        log.warning("empty-completion probe for %s failed: %s", model, reason)
+        return (
+            f"{model} returned nothing, and asking it directly fails with: {reason} "
+            "That is an account or credential problem at the provider, not your message — fix it "
+            "there, or switch to another model."
+        )
+    log.warning(
+        "empty-completion probe for %s SUCCEEDED — the model is reachable; this conversation is "
+        "what it would not answer", model,
+    )
+    return (
+        f"{model} returned an empty response to this conversation, but it answers a short prompt "
+        "normally — so the provider and your key are fine. Something about this conversation is "
+        "what it will not answer, and length is the usual cause. Start a new chat, or shorten "
+        "this one, or switch models."
+    )
+
+
+def _provider_reason(raw: str) -> str:
+    """The provider's own sentence, dug out of litellm's wrapper text and trimmed.
+
+    litellm stacks its class names in front of the useful part
+    (`litellm.RateLimitError: RateLimitError: OpenAIException - You have no credits remaining`),
+    and pasting that whole string at a user re-creates the problem this function exists to fix.
+    """
+    text = raw or ""
+    # litellm appends its own support boilerplate (and ANSI colour) to provider errors. Shown to
+    # a user it reads as OUR product asking them to file a bug with a library they never chose.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    for noise in ("Give Feedback / Get Help", "LiteLLM.Info:", "Received Model Group="):
+        text = text.split(noise)[0]
+    text = " ".join(text.split())
+    # Keep what follows the LAST ` - ` / `: ` hop, which is where the provider's own words start.
+    for sep in (" - ", "Exception - "):
+        if sep in text:
+            text = text.split(sep)[-1]
+    text = text.strip().strip('"').strip("'")
+    if len(text) > 220:
+        text = text[:219] + "…"
+    return text or "an error the provider did not describe."
+
+
 async def litellm_stream(
     *,
     model: str,
@@ -483,11 +578,13 @@ async def litellm_stream(
         #
         # The log gets everything, because that is where a developer looks and where the detail
         # is worth its noise.
-        error_message = (
-            "The model returned an empty response - nothing at all, not even an error. "
-            "That is a fault on the provider's side, not something wrong with your message "
-            "or your settings. Try a different model."
-        )
+        # ASK THE PROVIDER WHY, because the stream will not say. A refusal that arrives as an
+        # HTTP error on a normal call is delivered here as a valid, empty, zero-token completion
+        # — so the one thing the user needs ("your account is out of credits") exists only on the
+        # NON-streaming path. One tiny probe recovers it, and its outcome is itself the diagnosis:
+        # it fails => quote the provider, the fault is the account/key; it succeeds => the model
+        # is fine and THIS conversation is what it would not answer.
+        error_message = await _diagnose_empty(model, request_timeout_sec)
         log.warning(
             "empty completion from %s: %d chunk(s), usage=%s, finish_reason=%r; chunks: %s",
             model,
