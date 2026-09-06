@@ -51,7 +51,7 @@ import { Thread } from './components/Thread'
    nobody finished the window. */
 import WorkflowShelf, { collectWorkflows } from './components/workflows/WorkflowShelf'
 import { StudioDashboard } from './components/studio/StudioDashboard'
-import type { Artifact } from './agentd/artifacts'
+import { primeFileAuth, type Artifact } from './agentd/artifacts'
 
 import Credits from './common/credits/Credits'
 import LiveReload from './common/dev/LiveReload'
@@ -158,6 +158,10 @@ export default function App() {
     const off = client.on('chat.event', (payload: any) => handleRunEvent(payload))
     return () => off()
   }, [client])
+
+  /* KEEP /file's CREDENTIAL LIVE. Artifact URLs are built synchronously (an <img src> cannot
+     await), so the token they carry has to be mirrored somewhere sync — see primeFileAuth. */
+  useEffect(() => primeFileAuth(), [])
 
   /* A RECONNECT NO LONGER MEANS THE RUN IS DEAD. The daemon keeps a run alive when its window
      drops (detached; reaped only if nobody returns within the grace period) — so the honest move
