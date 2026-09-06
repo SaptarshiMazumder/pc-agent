@@ -1,4 +1,4 @@
-﻿/* useSettings 窶・the two layers of configuration, and the draft between them and Save.
+/* useSettings 窶・the two layers of configuration, and the draft between them and Save.
  *
  * COPIED VERBATIM from the common modules. Do not edit; `validate_agent` compares it against the
  * source. If you need something it does not expose, add it there so every agent gets it.
