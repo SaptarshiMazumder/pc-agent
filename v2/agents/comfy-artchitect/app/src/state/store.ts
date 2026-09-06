@@ -23,6 +23,13 @@ import type { Artifact } from '../agentd/artifacts'
 import type { Attachment } from '@agentd/client'
 import type { ChatRow } from '../agentd/sessions'
 
+/** The conversation column's floor AND its default — the width the studio was designed at. The
+ *  drag handle only ever makes it wider (§ chatWidth), so this is the one number both rules read. */
+export const CHAT_MIN_PX = 430
+/** The dashboard's own floor. The drag ceiling is `container - DASH_MIN_PX`, so widening the chat
+ *  can never squeeze the dashboard below the width its grids are built for. */
+export const DASH_MIN_PX = 560
+
 /** Which screen the main area is showing. Four of these are the shared modules; `chat` is the
  *  agent's own — and the open string tail is how a TEMPLATE adds its own view ('dashboard')
  *  without editing this file: a view is a string and a branch in App.tsx, nothing more. */
@@ -66,6 +73,14 @@ export interface AppState {
    *  localStorage: it is about this person's eyes, not about the conversation's data. */
   chatSide: 'left' | 'right'
   setChatSide: (side: 'left' | 'right') => void
+
+  /** How wide the conversation column is, in px. Dragged by its edge handle and remembered per
+   *  browser — reading a long transcript and watching a dashboard want different splits, and the
+   *  right one is a matter of this person's screen, not of the data. CHAT_MIN_PX is both the
+   *  default and the floor; the ceiling is computed at drag time from the live container so the
+   *  dashboard always keeps its own minimum. */
+  chatWidth: number
+  setChatWidth: (px: number) => void
 
   /** Every open conversation, by session key. */
   sessions: Record<string, ChatSession>
@@ -114,6 +129,24 @@ export const useApp = create<AppState>((set) => ({
       /* private windows — the preference just does not persist */
     }
     set({ chatSide })
+  },
+
+  chatWidth: (() => {
+    try {
+      const held = Number(localStorage.getItem('comfy.chatWidth') || 0)
+      return held >= CHAT_MIN_PX ? held : CHAT_MIN_PX
+    } catch {
+      return CHAT_MIN_PX
+    }
+  })(),
+  setChatWidth: (px) => {
+    const width = Math.max(CHAT_MIN_PX, Math.round(px))
+    try {
+      localStorage.setItem('comfy.chatWidth', String(width))
+    } catch {
+      /* private windows — the preference just does not persist */
+    }
+    set({ chatWidth: width })
   },
 
   sessions: {},

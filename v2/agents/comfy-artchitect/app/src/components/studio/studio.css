@@ -260,7 +260,10 @@
 .st-cols { flex: 1; min-width: 0; display: flex; overflow-x: auto; overflow-y: hidden; }
 
 .st-convo {
-  flex: none; width: 430px; min-width: 360px;
+  /* WIDTH IS SET INLINE from the store (the user's dragged value); 430px is the fallback for a
+     render before that lands, and the floor the resizer enforces — kept equal on purpose, since
+     the column ships at its minimum and only ever grows. */
+  flex: none; width: 430px; min-width: 430px;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--border);
   /* The thread's ambient glow is painted by a positioned child; isolating the column keeps it
@@ -269,6 +272,16 @@
 }
 .st-cols.is-chat-right .st-convo { order: 2; border-right: 0; border-left: 1px solid var(--border); }
 .st-cols.is-chat-right .st-dash { order: 1; }
+
+/* THE SPLIT HANDLE. A 6px hit area with a 1px line inside it: the line is the seam the design
+   already had, the padding is what a human can actually grab. `order` puts it between the two
+   columns whichever side the chat is on, so one element serves both layouts. */
+.st-resizer { flex: none; width: 6px; margin: 0 -3px; z-index: 2; cursor: col-resize;
+  background: transparent; touch-action: none; order: 1; }
+.st-cols.is-chat-right .st-resizer { order: 1; }
+.st-resizer::after { content: ''; display: block; width: 1px; height: 100%; margin: 0 auto;
+  background: transparent; transition: background .12s; }
+.st-resizer:hover::after, .st-resizer:active::after { background: var(--accent); }
 .st-dash { flex: 1 0 560px; min-width: 560px; overflow-y: auto; }
 
 .st-convo-head {
@@ -304,6 +317,21 @@
 .st-convo-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .st-convo-body .opening { padding: 22px 18px; }
 .st-convo-foot { flex: none; border-top: 1px solid var(--border); padding: 12px 14px; }
+
+/* Connection test — the instance panel's own status control. Colour IS the status, so a glance
+   at the dashboard answers "is my box up" without reading a word. */
+.st-conn-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill); background: transparent;
+  color: var(--dim); font: inherit; font-size: 11px; cursor: pointer; transition: all .12s; }
+.st-conn-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink, var(--text)); }
+.st-conn-btn:disabled { cursor: default; opacity: .8; }
+.st-conn-btn.is-live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.st-conn-btn.is-down { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.st-conn-btn .spin { animation: st-spin 1s linear infinite; }
+@keyframes st-spin { to { transform: rotate(360deg); } }
+
+.st-conn-down { display: flex; flex-direction: column; gap: 8px; }
+.st-conn-error { color: var(--danger); font-size: 11.5px; line-height: 1.5; word-break: break-word; }
 
 /* Reference media — a quiet chip above the composer. Distinct from the composer's own attach
    button on purpose: this sends INPUT to the workflow, not context to the model. */

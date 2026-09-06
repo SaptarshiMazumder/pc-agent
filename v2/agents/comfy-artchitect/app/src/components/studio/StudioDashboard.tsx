@@ -107,7 +107,7 @@ export function StudioDashboard({
                 <ArtifactView artifacts={nonMedia.slice(0, 6)} />
               </section>
             )}
-            <InstancePanel state={state} query={query} />
+            <InstancePanel state={state} query={query} client={client} />
           </div>
         </div>
 

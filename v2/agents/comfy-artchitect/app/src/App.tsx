@@ -42,6 +42,7 @@ import { useApp, useSession } from './state/store'
 
 import { Composer } from './components/Composer'
 import { ReferenceMedia } from './components/ReferenceMedia'
+import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
 
@@ -136,6 +137,7 @@ export default function App() {
   }, [artifacts])
 
   const chatSide = useApp((s) => s.chatSide)
+  const chatWidth = useApp((s) => s.chatWidth)
   const setChatSide = useApp((s) => s.setChatSide)
 
   /* THE BALANCE, beside the thing that spends it. Re-read when a run ends, because that is when
@@ -286,7 +288,9 @@ export default function App() {
              (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
              KPI row carries the same numbers from the same sources. */
           <div className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}`}>
-            <div className="st-convo">
+            {/* Width is INLINE because it is user state, not design state — the stylesheet owns
+                the minimum, this owns what the person dragged it to. */}
+            <div className="st-convo" style={{ width: chatWidth }}>
               <div className="st-convo-head">
                 <span className="st-live-dot" />
                 <div className="st-convo-titles">
@@ -373,6 +377,10 @@ export default function App() {
                 />
               </div>
             </div>
+
+            {/* Between the two columns in DOM order, so `is-chat-right` ordering carries it to
+                the correct edge without a second element. */}
+            <ChatResizer side={chatSide} />
 
             <StudioDashboard
               client={client ?? undefined}
