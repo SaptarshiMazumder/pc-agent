@@ -181,7 +181,15 @@ class WsGatewayTransport:
     async def __aenter__(self) -> "WsGatewayTransport":
         import websockets  # lazy: only the socket transport needs it
 
-        self._ws = await websockets.connect(self._url, max_size=None, open_timeout=30)
+        # NO KEEPALIVE PINGS. websockets defaults to a 20s ping with a 20s answer deadline and
+        # kills the connection when it lapses — but a daemon mid-tool can legitimately go quiet
+        # far longer than that (a multi-MB registry fetch, a model download, a render), and the
+        # dropped socket then reads as an agent failure when nothing was wrong with the agent.
+        # Liveness is already covered, better, by `idle_timeout` on the event read: it measures
+        # the thing we actually care about (no PROGRESS), not whether a busy loop answered a ping.
+        self._ws = await websockets.connect(
+            self._url, max_size=None, open_timeout=30, ping_interval=None
+        )
         await self.call("hello", {"protocol": 1})
         return self
 
