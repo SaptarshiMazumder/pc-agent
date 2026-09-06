@@ -16,6 +16,13 @@
 #   ./redeploy-lambda.sh staging --only executor  # one (comma-separated for several)
 #   ./redeploy-lambda.sh staging --no-apply       # build+push+bump tfvars, apply yourself
 #
+# CI MODE (.github/workflows/redeploy-lambda.yml) — the half a runner CAN do:
+#   ./redeploy-lambda.sh staging --push-only --tag <sha> [--only executor]
+# builds and pushes `:<sha>` (repo resolved by naming convention, no terraform touched) and
+# prints the one line to finish locally: set <name>_image_tag = "<sha>" in the environment's
+# tfvars and terraform apply. The tag accepts any string — the vN counter is only what the
+# fully-local path mints for itself.
+#
 # THE LAMBDAS (keep in step with ALL_LAMBDAS below and the *.tf that define them):
 #   builder    modules/builder.tf   agent window builds (npm/vite off the daemon)
 #   publish    modules/publish.tf   registry publishing (+ NSIS installers)
@@ -38,15 +45,22 @@ ALL_LAMBDAS="builder publish executor"
 ENVIRONMENT="dev"
 ONLY=""
 DO_APPLY=1
+PUSH_ONLY=0
+TAG=""
 [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]*$ ]] && { ENVIRONMENT="$1"; shift; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --only)     ONLY="$2"; shift 2 ;;
-    --no-apply) DO_APPLY=0; shift ;;
-    -h|--help)  sed -n '2,28p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --only)      ONLY="$2"; shift 2 ;;
+    --no-apply)  DO_APPLY=0; shift ;;
+    --push-only) PUSH_ONLY=1; shift ;;
+    --tag)       TAG="$2"; shift 2 ;;
+    -h|--help)   sed -n '2,35p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
+if [ "$PUSH_ONLY" = 1 ] && [ -z "$TAG" ]; then
+  echo "--push-only needs --tag <t> (an immutable ref the tfvars will name later)" >&2; exit 2
+fi
 
 ENV_DIR="$V2/infra/environments/$ENVIRONMENT"
 TFVARS="$ENV_DIR/$ENVIRONMENT.auto.tfvars"
@@ -96,6 +110,31 @@ if ! aws ecr get-login-password --region "$REGION" \
      | docker login --username AWS --password-stdin "$REGISTRY"; then
   echo "ECR login failed. Is Docker Desktop running and the AWS CLI logged in?" >&2
   exit 1
+fi
+
+# --- CI mode: build + push an immutable tag, terraform untouched -------------------------
+if [ "$PUSH_ONLY" = 1 ]; then
+  for name in $TARGETS; do
+    step "lambda $name: build + push :$TAG"
+    uri="$REGISTRY/agentd-$ENVIRONMENT/$name:$TAG"
+    # shellcheck disable=SC2046 -- the build args are deliberately word-split
+    if ! docker build -t "$uri" $(build_args_for "$name") \
+         -f "$(dockerfile_for "$name")" "$V2"; then
+      fail "build of lambda $name failed"; continue
+    fi
+    docker push "$uri" || fail "push of lambda $name failed"
+  done
+  echo
+  if [ ${#FAILURES[@]} -gt 0 ]; then
+    echo "FAILURES:"; for f in "${FAILURES[@]}"; do echo "  - $f"; done
+    exit 1
+  fi
+  echo "pushed. To RELEASE, on a machine with the $ENVIRONMENT terraform state:"
+  for name in $TARGETS; do
+    echo "  set ${name}_image_tag = \"$TAG\" in infra/environments/$ENVIRONMENT/$ENVIRONMENT.auto.tfvars"
+  done
+  echo "  then: terraform -chdir=infra/environments/$ENVIRONMENT apply"
+  exit 0
 fi
 
 # --- build -> push vN+1 -> bump tfvars, per lambda ---------------------------------------

@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Redeploy Lambda — the CI half of a Lambda release, via the same script you run locally
+# (v2/deploy/scripts/redeploy-lambda.sh), same one-procedure principle as redeploy.yml.
+#
+# WHAT A RUNNER CAN AND CANNOT DO HERE. A Lambda pins an image DIGEST, so its release is:
+# build -> push a tag -> name that tag in the environment's tfvars -> terraform apply. The
+# runner has no terraform state (the s3 backend is still commented out in
+# infra/environments/*/main.tf), so this workflow does the buildable half — push `:$GITHUB_SHA`
+# — and the job's log ends with the exact tfvars line + apply to run on your machine. When the
+# state ever moves to the bootstrap s3 bucket, the apply can join it here and the release
+# becomes one click.
+#
+# THE EXECUTOR BUILDS FROM THE DAEMON IMAGE (services/executor/Dockerfile says why), so its
+# environment's daemon:latest must already be in ECR — true for any environment CI has ever
+# deployed containers to.
+#
+# MANUAL ONLY, same as redeploy.yml. One-time setup shared with it: apply v2/infra/github-oidc/
+# and set the repo secret AWS_DEPLOY_ROLE_ARN.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Redeploy Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment's registry to push to"
+        type: choice
+        options: [dev, staging, production]
+        default: staging
+      lambda:
+        description: "Every Lambda, or one"
+        type: choice
+        options: [all, builder, publish, executor]
+        default: all
+
+permissions:
+  id-token: write # OIDC to AWS — no long-lived keys stored in GitHub
+  contents: read
+
+# One lambda push per environment at a time — two runs racing the same tag help nobody.
+concurrency:
+  group: redeploy-lambda-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # Same two-job shape as redeploy.yml: the job's `environment:` gate is evaluated before
+  # steps run, so the input travels through a job output for the reviewer rules to fire.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - id: env
+        run: echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+
+  push:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build + push lambda image(s)
+        env:
+          AWS_REGION: ap-northeast-1
+        run: |
+          args=(--push-only --tag "${GITHUB_SHA}")
+          [ "${{ inputs.lambda }}" != "all" ] && args+=(--only "${{ inputs.lambda }}")
+          echo "redeploy-lambda.sh ${{ inputs.environment }} ${args[*]}"
+          bash v2/deploy/scripts/redeploy-lambda.sh "${{ inputs.environment }}" "${args[@]}"
