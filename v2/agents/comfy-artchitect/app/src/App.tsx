@@ -41,6 +41,7 @@ import { listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { Composer } from './components/Composer'
+import { ReferenceMedia } from './components/ReferenceMedia'
 import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
 
@@ -113,7 +114,7 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile } = useRun(client)
+  const { send, abort, addFiles, removeFile, sendReferences } = useRun(client)
 
   /* EVERY FILE THIS AGENT HAS WRITTEN, across every conversation in this window.
      Artifacts hang off the turn that produced them, which is right for the transcript and wrong
@@ -338,6 +339,10 @@ export default function App() {
               </div>
 
               <div className="st-convo-foot">
+                <ReferenceMedia
+                  onReferences={(files) => sendReferences(files)}
+                  disabled={!connected || session.running}
+                />
                 <Composer
                   running={session.running}
                   pending={session.pending}

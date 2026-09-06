@@ -53,8 +53,11 @@ run.log
 .DS_Store
 Thumbs.db
 
-# Reference material (never committed)
-reference/
+# Reference material at the repo root (never committed). ANCHORED on purpose: the unanchored
+# `reference/` also swallowed v2/agents/agent-builder/skills/build-agent/reference/ — the format
+# docs the build-agent skill tells the builder to read — so no clone or CI-built image ever had
+# them. Skill reference pages are product content and must ship.
+/reference/
 
 # Agent scratch workspaces — never committed
 v2/agents/*/workspace/

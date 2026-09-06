@@ -147,3 +147,28 @@ def _completed(trace: Trace, args: dict) -> CheckResult:
     """The run ended on its own rather than wedging."""
     return CheckResult("completed", not trace.truncated,
                        "ran to completion" if not trace.truncated else "run was truncated/wedged")
+
+
+# --------------------------------------------------------------------------- the vocabulary, described
+
+#: Args per check, for `vocabulary()` — kept beside the registry so a new check and its arg doc
+#: land in one review. A check with no entry takes no args.
+_ARGS: dict[str, dict[str, str]] = {
+    "tool_called": {"tool": "tool name (required)", "min": "minimum call count (default 1)"},
+    "call_order": {"first": "tool that must run first (required)",
+                   "then": "tool that must not run before it (required)"},
+    "tool_succeeded": {"tool": "tool name (required)"},
+    "produced_artifact": {"kind": "artifact kind: image / video / file (default: any)"},
+    "max_turns": {"n": "maximum turn count (required)"},
+}
+
+
+def vocabulary() -> list[dict]:
+    """Every check name, its args, and what it asserts — the exact list a scenario author may use.
+    This is what the Agent Builder's `e2e_checks` tool prints, so scenarios never carry an
+    invented check name that fails as 'unknown check' at run time."""
+    out = []
+    for name, fn in _REGISTRY.items():
+        doc = " ".join((fn.__doc__ or "").split())
+        out.append({"name": name, "args": _ARGS.get(name, {}), "asserts": doc})
+    return out

@@ -55,6 +55,12 @@ class PluginContext:
     #                                          agent ROSTER (reload_agent) can refresh their
     #                                          sidebars. Late-bound: the gateway does not exist
     #                                          when plugins are discovered.
+    gateway_client: object = None  # callable() -> in-process gateway client (or None until the
+    #                                gateway exists) — drive OTHER agents through the same
+    #                                chat.send/config.set/workspace.upload a socket client speaks,
+    #                                as the CURRENT caller's account, with no socket. The e2e
+    #                                plugin's run tool is the consumer; a socket dial-back's
+    #                                ?act_as= does not authorise on hosted daemons, this does.
 
     def resource(self, name: str) -> str:
         """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,

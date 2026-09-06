@@ -361,6 +361,12 @@ def build_service(
         if gateway is not None:
             gateway.broadcast_agents_changed()
 
+    def gateway_client():
+        """In-process gateway client for plugin tools that drive OTHER agents (e2e_run) — same
+        late-bound thunk shape as the broadcasts above. None until the gateway exists."""
+        gateway = _late.get("gateway")
+        return gateway.in_process_client() if gateway is not None else None
+
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     # RUN OBSERVERS FROM PLUGINS. The engine has always taken observers; plugins could not
@@ -383,6 +389,7 @@ def build_service(
         "broadcast_agents_changed": broadcast_agents_changed,
         "broadcast_app_rebuilt": broadcast_app_rebuilt,
         "add_run_observer": plugin_run_observers.append,
+        "gateway_client": gateway_client,
     }
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)

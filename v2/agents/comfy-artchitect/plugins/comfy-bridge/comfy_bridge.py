@@ -532,15 +532,94 @@ class ComfyDownloadTool(Tool):
             return ToolResult.text(f"comfy_download failed: {type(e).__name__}: {e}", is_error=True)
 
 
+async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None:
+    """Poll one queued run within `deadline` seconds. Returns the FINAL ToolResult (success or
+    the instance's failure report), or None while the run is still going — the sandbox stops any
+    tool at 120s, so the callers keep their wait window under it and hand a still-running run to
+    comfy_run_status instead of dying mid-wait."""
+    import studio_state
+
+    waited, step = 0.0, 1.0
+    while waited < deadline:
+        if abort.is_set():
+            return None
+        hist = _get(f"/api/history/{prompt_id}")
+        try:
+            entry = hist.json().get(prompt_id) if hist.ok and hist.text.strip() else None
+        except ValueError:
+            entry = None
+        if entry:
+            status = (entry.get("status") or {}).get("status_str") or "unknown"
+            outputs = entry.get("outputs") or {}
+            files = []
+            for node_id, out in outputs.items():
+                if not isinstance(out, dict):
+                    continue
+                # NOT just "images": video nodes write "gifs", audio writes "audio". Any
+                # list of dicts carrying a filename is an output.
+                for values in out.values():
+                    if not isinstance(values, list):
+                        continue
+                    for item in values:
+                        if isinstance(item, dict) and item.get("filename"):
+                            files.append({"node": node_id, **item})
+            if status != "success":
+                messages = (entry.get("status") or {}).get("messages") or []
+                studio_state.run_finished(prompt_id, "failed")
+                return ToolResult.text(
+                    f"the run FAILED ({status}). What the instance reported:\n"
+                    + json.dumps(messages, indent=2)[:2000],
+                    details=entry,
+                    is_error=True,
+                )
+            if files:
+                studio_state.run_finished(prompt_id, "complete", outputs=len(files))
+                lines = [f"ran successfully — {len(files)} output(s):"]
+                for f in files:
+                    sub = f.get("subfolder") or ""
+                    lines.append(
+                        f"  node {f['node']}: {f['filename']}"
+                        + (f" (in {sub})" if sub else "")
+                        + f" [{f.get('type') or 'output'}]"
+                    )
+                lines.append(
+                    "Pass these entries to comfy_download to pull them into the chat, "
+                    "then ask whether they are right — you cannot see the pixels."
+                )
+                return ToolResult.text("\n".join(lines), details=entry)
+            # A success whose outputs have not landed yet — a known race. Keep waiting
+            # rather than reporting an empty run as finished.
+        studio_state.run_tick(prompt_id)
+        await asyncio.sleep(step)
+        waited += step
+        step = min(step * 1.5, 5.0)
+    return None
+
+
+def _still_rendering(prompt_id: str) -> ToolResult:
+    """The NON-error handoff for a run that outlives a tool's wait window."""
+    return ToolResult.text(
+        f"still rendering (prompt {prompt_id}) — a video render takes minutes and continues on "
+        "the instance after this returns. Do other work if any is left, then call "
+        f"comfy_run_status with prompt_id '{prompt_id}' to collect the outputs."
+    )
+
+
+#: The in-tool wait ceiling. The sandbox kills any tool at 120s; finishing under it with a
+#: clean handoff beats dying mid-wait and reading as a phantom failure.
+_RUN_WAIT_CAP_S = 100.0
+
+
 class ComfyRunTool(Tool):
     name = "comfy_run"
     label = "Run a ComfyUI workflow"
     default_retryable = False
     description = (
-        "Submit an API-format workflow to the instance and wait for it. Returns what was "
-        "produced and where. A REJECTED workflow comes back with the server's own node errors, "
-        "which name the bad input and the values it would accept — repair from those rather "
-        "than guessing."
+        "Submit an API-format workflow to the instance. A quick run returns its outputs "
+        "directly; a long render (video) returns 'still rendering' with a prompt_id — collect "
+        "it with comfy_run_status when done. A REJECTED workflow comes back with the server's "
+        "own node errors, which name the bad input and the values it would accept — repair "
+        "from those rather than guessing."
     )
     parameters = {
         "type": "object",
@@ -552,7 +631,8 @@ class ComfyRunTool(Tool):
             },
             "timeout_s": {
                 "type": "number",
-                "description": "How long to wait for the run. Default 300.",
+                "description": "How long to wait in-call before handing off to "
+                "comfy_run_status. Default 75, capped at 100 (the sandbox stops longer waits).",
             },
         },
     }
@@ -616,71 +696,50 @@ class ComfyRunTool(Tool):
                         steps = int(value)
             studio_state.run_started(path.name, prompt_id, ckpt, steps)
 
-            deadline = float(params.get("timeout_s") or 300.0)
-            waited = 0.0
-            step = 1.0
-            while waited < deadline:
-                if abort.is_set():
-                    studio_state.run_finished(prompt_id, "interrupted")
-                    return ToolResult.text(
-                        f"stopped waiting for {prompt_id}; it may still be running on the "
-                        f"instance.",
-                        is_error=True,
-                    )
-                hist = _get(f"/api/history/{prompt_id}")
-                entry = hist.json().get(prompt_id) if hist.ok and hist.text.strip() else None
-                if entry:
-                    status = (entry.get("status") or {}).get("status_str") or "unknown"
-                    outputs = entry.get("outputs") or {}
-                    files = []
-                    for node_id, out in outputs.items():
-                        if not isinstance(out, dict):
-                            continue
-                        # NOT just "images": video nodes write "gifs", audio writes "audio". Any
-                        # list of dicts carrying a filename is an output.
-                        for values in out.values():
-                            if not isinstance(values, list):
-                                continue
-                            for item in values:
-                                if isinstance(item, dict) and item.get("filename"):
-                                    files.append({"node": node_id, **item})
-                    if status != "success":
-                        messages = (entry.get("status") or {}).get("messages") or []
-                        studio_state.run_finished(prompt_id, "failed")
-                        return ToolResult.text(
-                            f"the run FAILED ({status}). What the instance reported:\n"
-                            + json.dumps(messages, indent=2)[:2000],
-                            details=entry,
-                            is_error=True,
-                        )
-                    if files:
-                        studio_state.run_finished(prompt_id, "complete", outputs=len(files))
-                        lines = [f"ran successfully — {len(files)} output(s):"]
-                        for f in files:
-                            sub = f.get("subfolder") or ""
-                            lines.append(
-                                f"  node {f['node']}: {f['filename']}"
-                                + (f" (in {sub})" if sub else "")
-                                + f" [{f.get('type') or 'output'}]"
-                            )
-                        lines.append(
-                            "Pass these entries to comfy_download to pull them into the chat, "
-                            "then ask whether they are right — you cannot see the pixels."
-                        )
-                        return ToolResult.text("\n".join(lines), details=entry)
-                    # A success whose outputs have not landed yet — a known race. Keep waiting
-                    # rather than reporting an empty run as finished.
-                studio_state.run_tick(prompt_id)
-                await asyncio.sleep(step)
-                waited += step
-                step = min(step * 1.5, 5.0)
-            return ToolResult.text(
-                f"still running after {int(deadline)}s (prompt {prompt_id}). It has not failed — "
-                f"check the instance, or call again with a longer timeout_s.",
-                is_error=True,
-            )
+            deadline = min(float(params.get("timeout_s") or 75.0), _RUN_WAIT_CAP_S)
+            result = await _poll_run(prompt_id, deadline, abort)
+            return result if result is not None else _still_rendering(prompt_id)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_run failed: {type(e).__name__}: {e}", is_error=True)
+
+
+class ComfyRunStatusTool(Tool):
+    name = "comfy_run_status"
+    label = "Collect a running render"
+    default_retryable = True
+    description = (
+        "Collect a run comfy_run handed off as 'still rendering'. Give it the prompt_id; it "
+        "returns the outputs (pass them to comfy_download), the instance's failure report, or "
+        "'still rendering' again — call it again after doing other work, a video render is "
+        "minutes."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["prompt_id"],
+        "properties": {
+            "prompt_id": {
+                "type": "string",
+                "description": "The prompt_id comfy_run returned.",
+            },
+            "timeout_s": {
+                "type": "number",
+                "description": "How long to wait in-call. Default 75, capped at 100.",
+            },
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            prompt_id = str(params.get("prompt_id") or "").strip()
+            if not prompt_id:
+                return ToolResult.text("prompt_id is required", is_error=True)
+            deadline = min(float(params.get("timeout_s") or 75.0), _RUN_WAIT_CAP_S)
+            result = await _poll_run(prompt_id, deadline, abort)
+            return result if result is not None else _still_rendering(prompt_id)
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(
+                f"comfy_run_status failed: {type(e).__name__}: {e}", is_error=True
+            )
 
 
 #: ComfyUI-Manager's model folders, keyed by the model KIND the agent already reasons in.
@@ -1213,5 +1272,6 @@ def register(api, ctx):
     api.register_tool(ComfyUploadTool())
     api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyRunTool())
+    api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())
     api.register_tool(ComfyInterruptTool())

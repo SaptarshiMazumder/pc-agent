@@ -1,0 +1,35 @@
+{
+  "id": "civitai-style-i2v",
+  "agent_id": "comfy-artchitect",
+  "goal": "Image-to-video from a real user's lazy brief: a Civitai video link as the style/motion target plus one reference image. The agent must mine the link itself (model, prompt, motion), upload and wire the reference as the start frame, and deliver a video of HER sitting on a bike taking her glasses off — no questions, no punts.",
+
+  "_comment_settings": "COMFYUI_URL is injected at run time via --set; the placeholder keeps the committed file credential-free.",
+  "settings": {
+    "COMFYUI_URL": "PASTE_YOUR_COMFYUI_URL_HERE"
+  },
+
+  "turns": [
+    {
+      "text": "make me a video like this https://civitai.com/images/141609947 - use the person from my reference image, she should be sitting on a bike and taking her glasses off",
+      "reference_media": ["assets/reference-redhead-forest.png"]
+    },
+    "do everything yourself and show me the result"
+  ],
+
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "tool_called", "tool": "comfy_probe" },
+    { "name": "tool_succeeded", "tool": "comfy_upload" },
+    { "name": "call_order", "first": "comfy_emit", "then": "comfy_install" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "produced_artifact", "kind": "video" },
+    { "name": "max_turns", "n": 24 }
+  ],
+
+  "max_turns": 24
+}

@@ -1148,6 +1148,11 @@ class Gateway:
     _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
+    # IN-PROCESS event taps: session_key -> [asyncio.Queue]. How a caller INSIDE the daemon (the
+    # e2e_run plugin tool, via InProcessGatewayClient) observes a run's chat.events without a
+    # socket. Fed by _broadcast; unbounded queues, because silently dropping events would corrupt
+    # the very trace they exist to capture. See add_session_tap.
+    _session_taps: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ serve
 
@@ -7071,20 +7076,62 @@ class Gateway:
         # show the same send time — and it matches the transcript's stored timestamps.
         # `agentId` tags which agent the run belongs to (protocol v1 additive field),
         # so any client — and a scoped app connection — can filter by agent.
-        await self._send_all(
-            dump_frame(
-                Event(
-                    event="chat.event",
-                    payload={
-                        "sessionKey": session_key,
-                        "runId": run_id,
-                        "agentId": self._agent_for_key(session_key, agent_id),
-                        "ts": time.time(),
-                        "event": event.to_dict(),
-                    },
-                )
-            )
-        )
+        payload = {
+            "sessionKey": session_key,
+            "runId": run_id,
+            "agentId": self._agent_for_key(session_key, agent_id),
+            "ts": time.time(),
+            "event": event.to_dict(),
+        }
+        await self._send_all(dump_frame(Event(event="chat.event", payload=payload)))
+        # In-process taps get the SAME payload a socket client would see (post-enrichment, since
+        # _run enriches before broadcasting) — a tapped trace and a ws-captured trace are
+        # byte-equivalent by construction.
+        for q in self._session_taps.get(session_key, ()):
+            q.put_nowait(payload)
+
+    # ---------------------------------------------------------------- in-process access
+    #
+    # The seam behind InProcessGatewayClient (see presentation/in_process_gateway_client.py):
+    # first-party code already inside the daemon — the e2e plugin's e2e_run tool — drives OTHER
+    # agents through the same methods a socket client uses, without a socket. A socket dial-back
+    # authenticates via `?act_as=`, which is honoured only on a machine-token connection with
+    # accounts OFF — it does not authorise on a hosted daemon, and this seam is why it never
+    # needs to.
+
+    def add_session_tap(self, session_key: str) -> asyncio.Queue:
+        """Subscribe to one session's chat.events, in-process. Returns an unbounded
+        asyncio.Queue of chat.event payload dicts; pair with remove_session_tap."""
+        q: asyncio.Queue = asyncio.Queue()
+        self._session_taps.setdefault(session_key, []).append(q)
+        return q
+
+    def remove_session_tap(self, session_key: str, q) -> None:
+        taps = self._session_taps.get(session_key)
+        if not taps:
+            return
+        if q in taps:
+            taps.remove(q)
+        if not taps:
+            self._session_taps.pop(session_key, None)
+
+    async def dispatch_as(self, method: str, params: dict, account: dict | None) -> dict:
+        """Dispatch ONE request exactly as an authenticated host connection would — same
+        handlers, same validation — carrying `account` as the caller's identity (the full
+        account dict of the run that is asking, so the child run bills and resolves against
+        the same tenancy). Raises on refusal instead of returning an ok=False frame, because
+        the in-process caller is code, not a socket."""
+        req = Request(id=uuid.uuid4().hex[:12], method=method, params=dict(params))
+        res = await self._dispatch(req, client_id=None, scope=None, public=False, account=account)
+        if not res.ok:
+            raise RuntimeError(str((res.payload or {}).get("error") or f"{method} refused"))
+        return res.payload or {}
+
+    def in_process_client(self):
+        """The client facade plugins receive (via the container's late-bound thunk)."""
+        from agent_runtime.presentation.in_process_gateway_client import InProcessGatewayClient
+
+        return InProcessGatewayClient(self)
 
     def _hosted(self) -> bool:
         return bool(getattr(self.config, "hosted", False))

@@ -20,6 +20,13 @@ The signals are tuned to the two failures the user is chasing:
   * FLEXIBILITY gaps — stall: asking for, or waiting on, something before doing any work; and
     re-asking for inputs the user explicitly deferred.
 Read together they say, per turn, which way to push the instructions.
+
+Every Finding also carries an ORIGIN — "agent" or "environment" — because most live-run failures
+are NOT the agent's fault (a 429, a dropped connection, an unreachable backend, a provider out of
+balance: the majority of observed live runs hit at least one). The fix loop must edit the agent
+ONLY for agent-origin findings; "fixing" an agent in response to a flaky provider corrupts
+something that was working. The classifier is a heuristic over the failure's own words plus one
+structural rule: a failure with zero agent tool activity around it is almost always environment.
 """
 
 from __future__ import annotations
@@ -30,6 +37,30 @@ from dataclasses import dataclass
 from .trace import Trace, Turn
 
 PROBLEM, WARN, INFO = "problem", "warn", "info"
+ORIGIN_AGENT, ORIGIN_ENV = "agent", "environment"
+
+#: The failure vocabulary of a broken ENVIRONMENT rather than a broken agent: provider throttling
+#: and outages, transport drops, unreachable backends, exhausted balances, absent credentials.
+#: Matched against the failure's OWN words (a tool result, an agent_end error) — never against
+#: the agent's prose, which speculates.
+_ENV_RX = re.compile(
+    r"rate.?limit|too many requests|\b429\b|\b402\b|\b502\b|\b503\b|\b504\b|overloaded|"
+    r"internal ?server ?error|service unavailable|bad gateway|"
+    r"connection (?:refused|reset|error|closed|dropped|aborted)|broken pipe|"
+    r"timed?.?out|unreachable|could not (?:reach|connect)|failed to connect|no route to host|"
+    r"name (?:or service not known|resolution)|getaddrinfo|ssl|certificate|"
+    r"insufficient (?:balance|credits|funds|quota)|out of (?:credits|balance)|quota exceeded|"
+    r"payment required|billing|"
+    r"missing (?:[A-Z0-9_]+ )?(?:api.?key|key|credential|token|secret)|"
+    r"invalid (?:api.?key|token|credential)|unauthorized|\b401\b",
+    re.I,
+)
+
+
+def looks_environmental(text: str) -> bool:
+    """Do these failure words describe the WORLD failing rather than the agent? Public so the
+    checks/report layers and the e2e_run tool can triage with the same single rule."""
+    return bool(text and _ENV_RX.search(text))
 
 #: Tools that constitute DOING THE WORK vs talking about it. Agent-agnostic by construction: a
 #: build tool is one whose name is not a pure read/probe. For a precise verdict a scenario can
@@ -53,10 +84,14 @@ class Finding:
     code: str
     turn: int  # 0 = whole-run
     detail: str
+    #: Who owns the fix. "agent" → edit instructions/tools; "environment" → retry, repair the
+    #: resource, or ask the user — NEVER edit the agent over these.
+    origin: str = ORIGIN_AGENT
 
     def __str__(self) -> str:
         where = f"turn {self.turn}" if self.turn else "run"
-        return f"[{self.severity.upper():7}] {self.code} ({where}): {self.detail}"
+        env = " [env]" if self.origin == ORIGIN_ENV else ""
+        return f"[{self.severity.upper():7}]{env} {self.code} ({where}): {self.detail}"
 
 
 def _acted(turn: Turn) -> bool:
@@ -108,10 +143,17 @@ def thrash(trace: Trace) -> list[Finding]:
             out.append(Finding(WARN, "plan_churn_turn", t.index,
                                f"plan re-emitted {len(t.plans)}× in one turn"))
 
-    # 4. A run that never ended cleanly — the wedge itself.
+    # 4. A run that never ended cleanly — the wedge itself. If the final turn shows ZERO agent
+    #    activity (no tool, no text, no reasoning) the run died waiting on the world — a model
+    #    call or backend that never answered — which is an environment wedge, not an agent one.
     if trace.truncated:
+        last = trace.turns[-1] if trace.turns else None
+        silent = last is not None and not last.tools and not last.assistant and not last.thinking_chars
         out.append(Finding(PROBLEM, "run_truncated", 0,
-                           "run did not end on its own (timeout/kill) — the agent wedged"))
+                           "run did not end on its own (timeout/kill) — "
+                           + ("no agent activity at all before the wedge: the model call or "
+                              "backend likely never answered" if silent else "the agent wedged"),
+                           origin=ORIGIN_ENV if silent else ORIGIN_AGENT))
     return out
 
 
@@ -171,7 +213,8 @@ def holes(trace: Trace) -> list[Finding]:
             sev = WARN if recovered else PROBLEM
             tail = "recovered later" if recovered else "never recovered"
             out.append(Finding(sev, "tool_error", c.turn,
-                               f"{c.name} failed ({tail}): {(c.result_text or '')[:120]}"))
+                               f"{c.name} failed ({tail}): {(c.result_text or '')[:120]}",
+                               origin=ORIGIN_ENV if looks_environmental(c.result_text) else ORIGIN_AGENT))
 
     # Give-up language with no tool attempt in the same turn — the "you'll need to install these
     # four files" punt when a tool could have done it.
@@ -189,6 +232,27 @@ def _first_giveup(text: str) -> str:
         return ""
     s = max(0, m.start() - 10)
     return (text[s:m.end() + 50] or "").strip().replace("\n", " ")[:90]
+
+
+# ─────────────────────────────────────────────────────────── errors ────────────────────────
+
+
+def errors(trace: Trace) -> list[Finding]:
+    """Runs that ENDED IN ERROR, in the runtime's own words — the agent_end that carried an error
+    string (a provider 429, a crashed loop, a dead model call). Kept separate from `holes` because
+    nothing the agent did produced it: it is the run's outcome, and its words are exactly what the
+    origin triage should read."""
+    out: list[Finding] = []
+    for t in trace.turns:
+        failed = t.end_reason == "error" or bool(t.end_error)
+        if not failed:
+            continue
+        words = t.end_error or "run ended with stopReason=error and no message"
+        env = looks_environmental(words)
+        out.append(Finding(PROBLEM, "run_error", t.index,
+                           f"turn ended in error: {words[:140]}",
+                           origin=ORIGIN_ENV if env else ORIGIN_AGENT))
+    return out
 
 
 # ─────────────────────────────────────────────────────────── cost ──────────────────────────
@@ -213,6 +277,6 @@ def cost(trace: Trace) -> list[Finding]:
 
 def diagnose(trace: Trace) -> list[Finding]:
     """Every signal, most-severe first — the full read on one run."""
-    findings = thrash(trace) + stall(trace) + holes(trace) + cost(trace)
+    findings = thrash(trace) + stall(trace) + holes(trace) + errors(trace) + cost(trace)
     order = {PROBLEM: 0, WARN: 1, INFO: 2}
     return sorted(findings, key=lambda f: (order.get(f.severity, 9), f.turn))

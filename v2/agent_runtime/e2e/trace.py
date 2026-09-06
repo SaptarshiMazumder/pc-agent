@@ -68,6 +68,9 @@ class Turn:
     tokens: int = 0
     wall_ms: int = 0
     end_reason: str = ""
+    #: The run's own words when it ended badly ("rate limit", "connection reset", a provider's
+    #: 500). This is what origin triage reads to say "environment, don't edit the agent".
+    end_error: str = ""
     #: Artifacts the runtime attributed to this turn (rendered files). What a "produced a video"
     #: check reads — kind comes from server-side detection, not a guess here.
     artifacts: list[dict] = field(default_factory=list)
@@ -82,6 +85,9 @@ class Trace:
     scenario: str = ""
     model: str = ""
     agent_id: str = ""
+    #: The throwaway session the run used — what the e2e_run tool deletes afterwards so a test
+    #: never lingers in anyone's chat list.
+    session_key: str = ""
     turns: list[Turn] = field(default_factory=list)
     #: True when the run was cut off (timeout, killed, crash) rather than each turn ending on its
     #: own `agent_end`. A truncated trace is a finding, not an error to hide.
@@ -160,6 +166,7 @@ def load_trace(path: str | Path) -> Trace:
             trace.scenario = obj.get("scenario", trace.scenario)
             trace.model = obj.get("model", trace.model)
             trace.agent_id = obj.get("agent_id", trace.agent_id)
+            trace.session_key = obj.get("session_key", trace.session_key)
             if obj.get("truncated"):
                 trace.truncated = True
             continue
@@ -207,6 +214,11 @@ def _fold_event(turn: Turn, ev: dict, pending: dict[str, ToolCall]) -> None:
         for a in ev.get("artifacts") or []:
             if isinstance(a, dict):
                 turn.artifacts.append(a)
+    elif et == "agent_end":
+        turn.end_reason = str(ev.get("stopReason") or ev.get("stop_reason") or "")
+        err = str(ev.get("error") or "").strip()
+        if err:
+            turn.end_error = err
     elif et in ("plan", "update_plan", "plan_update"):
         turn.plans.append(ev.get("plan") or ev.get("steps") or ev.get("payload") or ev)
     elif et == "context_usage":

@@ -43,11 +43,22 @@ resource "aws_lb" "main" {
 resource "aws_lb_target_group" "svc" {
   for_each = local.alb_services
 
-  name        = "${local.name_prefix}-${each.key}"
+  # THE NAME CARRIES THE TARGET TYPE, and that is not decoration. Changing `target_type` forces
+  # a replacement, this resource is create_before_destroy, and two target groups may not share a
+  # name — so a fixed name makes the very apply that moves a service to EC2 fail with
+  # "Target Group already exists" after it has already built the capacity provider. Differing
+  # names let the new group exist beside the old one for the moment the swap takes.
+  #
+  # substr because AWS caps the name at 32 characters and the longest real combination
+  # (agentd-production-model-proxy-ec2) is 33. Truncation is safe for these names: no two of
+  # them collide in the first 32 characters, and none ends on a hyphen.
+  name        = substr("${local.name_prefix}-${each.key}${each.value.on_ec2 ? "-ec2" : ""}", 0, 32)
   port        = each.value.port
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
+  vpc_id = aws_vpc.main.id
+  # `ip` is what an awsvpc task needs — it has its own address. A host-networked task has none
+  # of its own, so the target is the INSTANCE it runs on, at the same port the container binds.
+  target_type = each.value.on_ec2 ? "instance" : "ip"
 
   # How long a REPLACED task keeps draining before ECS may stop it. The AWS default is 300s,
   # and the old deployment is not gone until every one of its targets finishes draining — so

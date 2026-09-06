@@ -1,0 +1,24 @@
+# Copy to homepage.auto.tfvars and fill in. Terraform loads *.auto.tfvars
+# automatically, so `terraform apply` needs no -var-file flag.
+#
+# Leave domain_name empty to serve on the distribution's own *.cloudfront.net
+# name — the site is live over https either way.
+
+region = "ap-northeast-1"
+
+# The hostname for the site. There is no environment in it on purpose: this site
+# calls nothing and reads no config, so the same bundle serves anywhere.
+domain_name = "homepage.example.com"
+
+# ACM certificate in us-east-1 covering domain_name. A wildcard cert for the
+# parent domain covers a one-level host like the above, so an existing one can
+# usually be reused:
+#   aws acm list-certificates --region us-east-1
+certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+
+# Route 53 zone the alias record goes into:
+#   aws route53 list-hosted-zones
+hosted_zone_id = "Z00000000000000000000"
+
+# PriceClass_200 covers NA + EU + Asia-Pacific. _100 is cheaper (NA + EU only).
+price_class = "PriceClass_200"

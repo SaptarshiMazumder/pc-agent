@@ -137,4 +137,9 @@ allow = [
   # exposes cost tools" returns three sentences instead of spending this conversation's budget on
   # pages of documentation. The builder's context is for BUILDING; finding out belongs elsewhere.
   "spawn_subagent",
+  # E2E. run_agent proves one message works; these prove the agent does its JOB: drive a whole
+  # scenario (turns, reference media, settings) in-process, read the diagnosis with its
+  # agent-vs-environment triage, replay traces free, and author checks from the real vocabulary.
+  # The procedure lives in skills/build-agent/reference/testing.md.
+  "e2e_run", "e2e_replay", "e2e_checks",
 ]
