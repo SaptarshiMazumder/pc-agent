@@ -170,13 +170,28 @@ def read_overlay(config, account_id: str) -> dict:
 
 def merge_value(key: str, base, over):
     """One key's merged value. Dict-valued keys merge one level deep (per-plugin, per-agent), so
-    setting one entry never erases its siblings; everything else replaces wholesale."""
+    setting one entry never erases its siblings; everything else replaces wholesale.
+
+    NULL MEANS REMOVE, and the merge is why it has to. Merging preserves every key the patch does
+    not name — which is the point for siblings, and was a trap for the key you meant to CLEAR: a
+    settings page that "hands a value back to the daemon" by omitting it wrote a patch that
+    changed nothing, reported success, and left the override in place forever (found live: a
+    per-agent model that could be set but never unset). Omission cannot mean deletion here
+    without also meaning "erase every sibling", so deletion needs a value of its own, and `null`
+    is the one JSON spelling that is unambiguous — no setting legitimately stores it.
+    """
     if key in _DEEP_KEYS and isinstance(base, dict) and isinstance(over, dict):
         merged = dict(base)
         for k, v in over.items():
             cur = merged.get(k)
-            if isinstance(cur, dict) and isinstance(v, dict):
-                merged[k] = {**cur, **v}
+            if v is None:
+                merged.pop(k, None)
+            elif isinstance(cur, dict) and isinstance(v, dict):
+                inner = {**cur, **v}
+                for ik, iv in v.items():
+                    if iv is None:
+                        inner.pop(ik, None)
+                merged[k] = inner
             else:
                 merged[k] = v
         return merged

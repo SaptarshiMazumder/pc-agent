@@ -71,13 +71,11 @@ async def _roundtrip(probe: Probe, label: str, url: str, token: str, agent: str,
                         f"read back {got!r} (wanted {PROBE_VALUE!r})"
                         + ("" if got == PROBE_VALUE else " — THE SAVE LIED"))
 
-            # restore what was there (delete the probe value by writing the original back,
-            # or the block without `model` when there was none)
+            # Restore what was there. NULL is the remove signal — the overlay MERGES this block,
+            # so omitting the key would leave the probe's value behind forever (which is exactly
+            # the clear-an-override bug this step first caught).
             restored = {**((((after.get("values") or {}).get("agents") or {}).get(agent)) or {})}
-            if original is None:
-                restored.pop("model", None)
-            else:
-                restored["model"] = original
+            restored["model"] = original  # None -> remove the key
             await t.call("config.set", {"agentId": agent, "patch": {"agents": {agent: restored}}})
             final = await t.call("config.get", {})
             back = (((final.get("values") or {}).get("agents") or {}).get(agent) or {}).get("model")

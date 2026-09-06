@@ -194,7 +194,10 @@ export function useSettings(client: AgentdClient, agentId: string) {
   const clearOverride = useCallback(
     (f: FieldSpec) => {
       if (!f.agent) return
-      setDraft((prev) => deletePath(prev, `agents.${agentId}.${f.key}`))
+      // NULL, not a deleted key. The daemon MERGES this block (so setting one field never erases
+      // its siblings), which means an omitted key keeps its old value — a "hand it back" that
+      // reported success and changed nothing. `null` is the explicit remove signal.
+      setDraft((prev) => setPath(prev, `agents.${agentId}.${f.key}`, null))
     },
     [agentId],
   )
