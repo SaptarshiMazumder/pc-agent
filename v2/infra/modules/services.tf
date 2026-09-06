@@ -24,7 +24,11 @@ locals {
     # signature verification and leaves only the checksum — see the comment on AGENTD_PUBLISHER_KEY
     # in agent_runtime/config.py for why that is a downgrade and not a shortcut.
     daemon = {
-      AGENTD_REGISTRY      = local.registry_index_url
+      # Both read the locals above, so the daemon does not care whether accounts and the proxy
+      # are on Fargate or EC2 — only where they answer.
+      AGENTD_ACCOUNTS_URL    = local.accounts_internal_url
+      AGENTD_MODEL_PROXY_URL = local.model_proxy_internal_url
+      AGENTD_REGISTRY        = local.registry_index_url
       AGENTD_PUBLISHER_KEY = var.registry_publisher_key
       # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
       # read, now a third reader. The daemon needs it because the config every tenant inherits is
@@ -48,6 +52,15 @@ locals {
       AGENTD_BUILDER_URL            = local.builder_public_url
       AGENTD_BUILDER_SCRATCH_BUCKET = aws_s3_bucket.builder_scratch.bucket
       AGENTD_BUILDER_INTERNAL_KEY   = random_password.builder_internal_key.result
+      # WHERE UNTRUSTED CODE RUNS (executor.tf). With the executor up, the sandbox backend flips
+      # to "microvm": every untrusted tool call, sandbox enumeration and fenced shell command
+      # leaves this box for a Firecracker microVM. While the executor is not brought up
+      # (executor_image_tag empty) the backend stays "subprocess" — the pre-microvm behaviour —
+      # rather than shipping a backend that fails every untrusted call against a URL that
+      # cannot answer; flipping early is a choice the operator makes by bringing the executor up.
+      AGENTD_EXECUTOR_URL          = local.executor_public_url
+      AGENTD_EXECUTOR_INTERNAL_KEY = random_password.executor_internal_key.result
+      AGENTD_SANDBOX_BACKEND       = local.executor_enabled ? "microvm" : "subprocess"
       # VANITY HOSTNAMES, the daemon's half of the same map that drives the ALB rules
       # (alb.tf agent_host) — one variable, two consumers, so DNS pointing at a daemon that
       # does not know what to serve there cannot happen. "{}" when unset, which the parser
@@ -58,6 +71,16 @@ locals {
       # bundle_owners table is the namespace, and reserved labels never derive
       # (agent_runtime/domain/reserved_hosts.py). Empty = dormant.
       AGENTD_APP_HOST_SUFFIX = var.root_domain
+    }
+
+    # Ingest resolves a caller's token to an account so a telemetry event can be attributed.
+    # OPTIONAL BY DESIGN — unauthenticated events are still accepted, because "the daemon failed
+    # to start" is the most valuable event on this endpoint and a client that cannot start often
+    # cannot sign in either. Losing this value would not fail anything loudly; every event would
+    # simply arrive anonymous, which is exactly the kind of silent degradation worth wiring
+    # through the same local as the rest.
+    ingest = {
+      ACCOUNTS_URL = local.accounts_internal_url
     }
 
     # The web image needs to know which hostname is the ADMIN CONSOLE's: nginx tells the app and
@@ -79,7 +102,8 @@ locals {
       AGENTD_AUTH_ISSUER          = local.publish_product_accounts_url
       # Fetched over service-discovery DNS: a server-to-server call inside the VPC, not something
       # a browser does, so it must NOT use the public host.
-      AGENTD_AUTH_JWKS_URI = "http://accounts.${var.project}.local:${local.services["accounts"].port}/auth/jwks.json"
+      AGENTD_AUTH_JWKS_URI = "${local.accounts_internal_url}/auth/jwks.json"
+      ACCOUNTS_URL         = local.accounts_internal_url
     }
 
     # THE TOKEN ISSUER FOR THIS ENVIRONMENT. Computed rather than configured because it must be
@@ -159,7 +183,7 @@ resource "aws_ecs_task_definition" "svc" {
   # cannot be given one (assign_public_ip is Fargate-only). Under `host` the container leaves
   # through the instance's public interface, so ECR, Secrets Manager and Neon stay reachable.
   requires_compatibilities = each.value.on_ec2 ? ["EC2"] : ["FARGATE"]
-  network_mode             = each.value.on_ec2 ? "host" : "awsvpc"
+  network_mode             = each.value.on_ec2 ? var.ec2_network_mode : "awsvpc"
   cpu                      = each.value.cpu
   memory                   = each.value.memory
   execution_role_arn       = aws_iam_role.execution.arn
@@ -193,7 +217,20 @@ resource "aws_ecs_task_definition" "svc" {
     # definition as needing replacement, and every apply redeploys a service for no reason.
     # Stating the value AWS is going to choose makes config and reality agree. It is also the
     # legal value under awsvpc, where hostPort may be omitted or set to containerPort.
-    portMappings = [{ containerPort = each.value.port, hostPort = each.value.port }]
+    # hostPort 0 under BRIDGE means "ECS picks one", which is what lets several copies of a
+    # service share an instance; ECS registers whichever port it chose with the target group.
+    # Under host and awsvpc it must equal containerPort, and stating it there is what stops the
+    # perpetual drift that otherwise replaces the task definition on every single plan (AWS
+    # fills the field in, a config that omits it never matches what comes back).
+    portMappings = [{
+      containerPort = each.value.port
+      hostPort      = each.value.on_ec2 && var.ec2_network_mode == "bridge" ? 0 : each.value.port
+    }]
+    # A drain is only as long as the shorter of two numbers. The daemon's target group holds
+    # connections open for `deregistration_delay` (120s) so a live conversation is not cut mid
+    # turn — but ECS SIGKILLs a container `stopTimeout` after SIGTERM, and that defaults to 30s,
+    # which would end the turn anyway while the load balancer was still politely waiting.
+    stopTimeout = each.value.stop_timeout
     environment  = [for k, v in merge(each.value.env, lookup(local.computed_env, each.key, {})) : { name = k, value = v }]
     # secret_keys: container env var -> JSON key inside the app secret.
     secrets = [for k, v in each.value.secret_keys : {

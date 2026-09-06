@@ -62,9 +62,15 @@ variable "ec2_services" {
 }
 
 variable "ec2_instance_type" {
-  description = "Size of the ECS container instances. One instance costs more than the Fargate tasks it replaces until several services share it."
+  description = <<-EOT
+    Size of the ECS container instances.
+
+    t3.medium is the FLOOR once the daemon moves: it requests 2048 MiB and a t3.small registers
+    only ~1913 MiB after the OS and agent take their share, so the task is unplaceable — it sits
+    PROVISIONING while managed scaling adds more small instances that cannot help either.
+  EOT
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
 variable "ec2_max_instances" {
@@ -115,6 +121,12 @@ variable "hibernate" {
 # dev.auto.tfvars so it sticks) and apply again.
 variable "builder_image_tag" {
   description = "Image tag in the builder ECR repo. Empty = no builder Lambda (agent window builds then fail on hosted, loudly)."
+  type        = string
+  default     = ""
+}
+
+variable "executor_image_tag" {
+  description = "Image tag in the executor ECR repo. Empty = no executor Lambda; the daemon's sandbox backend then stays 'subprocess' (untrusted tools isolated on-box, the pre-microvm behaviour)."
   type        = string
   default     = ""
 }
@@ -303,6 +315,10 @@ module "stack" {
   # scratch bucket exist from the first apply; the Lambda exists once this tag names a pushed
   # image. redeploy.sh --only builder does the push + bump + apply as one release.
   builder_image_tag = var.builder_image_tag
+
+  # The executor service (modules/executor.tf) — untrusted sandbox jobs off the daemon, one
+  # microVM per call; bringing it up flips the daemon's sandbox backend to "microvm".
+  executor_image_tag = var.executor_image_tag
   publish_engine_url       = var.publish_engine_url
   publish_engine_sha256    = var.publish_engine_sha256
   publish_engine_version   = var.publish_engine_version
@@ -534,4 +550,14 @@ output "builder_url" {
 output "builder_scratch_bucket" {
   description = "The builds' sources-in/results-out conveyor belt (1-day expiry)."
   value       = module.stack.builder_scratch_bucket
+}
+
+output "executor_ecr_repository" {
+  description = "Push the executor image here; redeploy.sh --only executor does push + tag bump + apply."
+  value       = module.stack.executor_ecr_repository
+}
+
+output "executor_url" {
+  description = "Where the hosted daemon ships untrusted sandbox jobs. Empty until executor_image_tag is set."
+  value       = module.stack.executor_url
 }

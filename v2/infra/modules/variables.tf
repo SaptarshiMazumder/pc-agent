@@ -59,13 +59,13 @@ variable "ec2_services" {
     stays on Fargate, so this is the dial that moves the fleet ONE SERVICE AT A TIME and the
     thing to shorten to roll a migration back.
 
-    A named service changes in three ways: `network_mode` becomes `host` (the container binds
-    the instance's port and leaves through the instance's public IP — see ec2_capacity.tf for
-    why that is required rather than preferred), its target group takes `instance` targets, and
-    it claims capacity through the provider instead of `launch_type = "FARGATE"`.
+    A named service changes in three ways: `network_mode` becomes whatever `ec2_network_mode`
+    says (bridge by default — the container leaves through the instance's public IP, which is
+    required rather than preferred; see ec2_capacity.tf), its target group takes `instance`
+    targets, and it claims capacity through the provider instead of `launch_type = "FARGATE"`.
 
     IT ALSO LOSES SERVICE DISCOVERY. Cloud Map can only publish A records for `awsvpc` tasks;
-    under host networking it requires SRV, which an ordinary HTTP client cannot resolve. So a
+    bridge and host both require SRV, which an ordinary HTTP client cannot resolve. So a
     service listed here is NOT registered at `<name>.agentd.local` and must be reached through
     the load balancer. `accounts` and `model-proxy` are discovery targets today — moving either
     means repointing their callers first, which is why `web` and `ingest` go first.
@@ -79,18 +79,48 @@ variable "ec2_services" {
   }
 }
 
+variable "ec2_network_mode" {
+  description = <<-EOT
+    How EC2 tasks attach to the network. `awsvpc` is deliberately not an option here: on EC2 a
+    task's own ENI can only hold a private address (assign_public_ip is Fargate-only), and this
+    VPC has an internet gateway but no NAT — so such a task could reach neither ECR, Secrets
+    Manager nor Neon. Both modes below leave through the INSTANCE's public interface instead.
+
+    bridge (default) — the container gets a private address inside the box and ECS maps its port
+      to a RANDOM host port, registering that port with the target group. Many copies of one
+      service can share an instance, which is what makes bin-packing pay.
+
+    host — the container binds the instance's port directly. Simpler, but only ONE copy of a
+      given service fits per box, because the port is taken.
+
+    NEITHER supports A-record service discovery: Cloud Map needs SRV for both, which ordinary
+    HTTP clients cannot resolve. Services that others reach at `<name>.agentd.local` therefore
+    cannot move until their callers are repointed at the load balancer.
+  EOT
+  type        = string
+  default     = "bridge"
+
+  validation {
+    condition     = contains(["bridge", "host"], var.ec2_network_mode)
+    error_message = "ec2_network_mode must be bridge or host."
+  }
+}
+
 variable "ec2_instance_type" {
   description = <<-EOT
     The container instances' size — where this fleet's entire cost sits.
 
-    t3.small (2 vCPU / 2 GiB) holds the whole five-service fleet at current task sizes, because
-    host networking removes the per-instance limit on network cards that would otherwise cap a
-    box at two tasks. Note that ONE instance costs more than the Fargate tasks it replaces until
-    several services share it — the saving arrives with the third or fourth service, not the
-    first.
+    t3.medium (2 vCPU / 4 GiB) is the floor once the DAEMON moves: it alone requests 2048 MiB,
+    and a t3.small has only ~1900 MiB allocatable after the OS and ECS agent take their share —
+    so the task would never be placed, and the symptom is a task stuck PROVISIONING while the
+    ASG scales to max and still fails. A medium fits web + ingest + daemon together (1536 CPU /
+    3072 MiB) with room to spare, which is bin-packing doing the job EC2 is for.
+
+    Adding model-proxy and accounts brings the fleet to 2304 CPU units, just past one medium's
+    2048 — so the complete migration wants a t3.large or a second instance.
   EOT
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
 variable "ec2_max_instances" {
@@ -570,6 +600,10 @@ variable "services" {
     # Seconds a replaced task keeps draining. Short by default so a rollout isn't held
     # open by idle connections; raise it for services with long-lived ones (see alb.tf).
     deregistration_delay = optional(number, 30)
+    # Seconds between SIGTERM and SIGKILL. Must EXCEED deregistration_delay for a service with
+    # long-lived connections, or the drain the load balancer is patiently running is cut short
+    # by ECS killing the container anyway. AWS's own default is 30.
+    stop_timeout = optional(number, 30)
     # Seconds after a task starts during which ALB health-check failures do NOT kill it.
     # Covers cold start (image pull is already excluded, but interpreter + app boot is not).
     health_check_grace = optional(number, 60)
@@ -593,7 +627,6 @@ variable "services" {
       port        = 4000
       health_path = "/health/liveliness"
       env = {
-        ACCOUNTS_URL = "http://accounts.agentd.local:4100"
       }
       secret_keys = {
         LITELLM_MASTER_KEY    = "LITELLM_MASTER_KEY"
@@ -675,7 +708,6 @@ variable "services" {
       port        = 4200
       health_path = "/health"
       env = {
-        ACCOUNTS_URL = "http://accounts.agentd.local:4100"
         # Generous per IP: one desktop batches every ~30s, and a machine in a reboot
         # loop is exactly what we want to SEE rather than throttle into silence.
         INGEST_RATE_LIMIT   = "60/60"
@@ -701,8 +733,6 @@ variable "services" {
         AGENTD_HOME            = "/data"
         AGENTD_STATE_DIR       = "/data/state"
         AGENTD_WORKSPACE       = "/data/workspace"
-        AGENTD_ACCOUNTS_URL    = "http://accounts.agentd.local:4100"
-        AGENTD_MODEL_PROXY_URL = "http://model-proxy.agentd.local:4000"
         # UNTRUSTED plugin tier -> a child process per tool call. This daemon serves many people
         # off one filesystem, and a marketplace agent's own plugins (agents/<id>/plugins/) are
         # code a stranger wrote. In-process, that code holds everything this task holds: the
@@ -712,12 +742,14 @@ variable "services" {
         # BOTH are needed, and this is the trap: AGENTD_SANDBOX_PLUGINS alone routes untrusted
         # tools through the sandbox SEAM, whose default backend on a daemon that has not set
         # AGENTD_MULTI_TENANT is the in-process passthrough — the boundary would be wired up and
-        # enforcing nothing, with no error to say so. Set explicitly rather than relying on the
-        # multi_tenant default, because this deployment does per-account isolation through the
-        # accounts/user_state overlay and does not flip that flag.
+        # enforcing nothing, with no error to say so.
+        #
+        # AGENTD_SANDBOX_BACKEND is NOT set here any more: it is computed in services.tf
+        # (computed_env, which wins the merge) — "microvm" once the executor service is brought
+        # up, "subprocess" until then — because which backend is right depends on a resource
+        # this static map cannot reference.
         AGENTD_SANDBOX_PLUGINS = "1"
-        AGENTD_SANDBOX_BACKEND = "subprocess"
-        # TRUST the product's OWN curated builder. Cloud Agent Builder ships WITH the product but is
+        # TRUST the product's OWN curated builders. Cloud Agent Builder ships WITH the product but is
         # installed via .agentpkg on boot (the only path that registers an agent on a hosted daemon),
         # which lands it in the marketplace ledger — so classify_origin would treat it as an untrusted
         # stranger's bundle and SANDBOX its authoring tools. That breaks it two ways: create_agent
@@ -726,13 +758,27 @@ variable "services" {
         # It is not a stranger's code; the deployment vouches for it. Its file writes stay fenced to
         # the caller's account by the tenant write-clamp (check_write), which is the real boundary —
         # the sandbox was belt-and-suspenders here and is the wrong tool for the product's own builder.
-        AGENTD_SANDBOX_TRUSTED_AGENTS = "cloud-agent-builder"
+        # agent-builder rides the same .agentpkg path (Dockerfile packs it beside cabbie), so once
+        # the allow below serves it, its authoring tools need the same vouching for the same reason.
+        AGENTD_SANDBOX_TRUSTED_AGENTS = "cloud-agent-builder,agent-builder"
+        # SERVE regular Agent Builder on this hosted daemon. It ships in the image withheld
+        # (requires_local); this is the operator opt-in that lifts the withholding — listed,
+        # resolvable, app served, private tools discovered. Its shell rides the same consent
+        # (plugins.shell.exec.trusted_agents defaults to agent-builder), and run_agent/e2e_run
+        # drive child runs in-process, so the full desktop authoring loop works here. The web
+        # shell's nav still opens cabbie for the agent-builder surface; AB answers at
+        # /apps/agent-builder/ directly.
+        AGENTD_HOSTED_AGENTS_ALLOW = "agent-builder"
       }
       # WebSocket sessions are long-lived, so a replaced daemon gets a real drain window
       # (a 30s cut-off would drop live conversations mid-turn), and a longer boot grace
       # because it loads the whole agent runtime before /healthz answers.
       deregistration_delay = 120
       health_check_grace   = 120
+      # LONGER THAN THE DRAIN ABOVE. The target group holds a live conversation open for 120s
+      # after the task is deregistered; a 30s stop timeout would SIGKILL the daemon a quarter of
+      # the way into that window, ending the very turns the drain exists to protect.
+      stop_timeout = 150
       secret_keys = {
         AGENTD_MODEL_PROXY_KEY = "LITELLM_MASTER_KEY"
         # MCP servers inherit the daemon's environment (mcp/session.py:resolve_subprocess), so
@@ -786,6 +832,33 @@ locals {
       on_ec2 = var.ec2_capacity_enabled && contains(var.ec2_services, name)
     })
   }
+  # WHERE SIBLINGS REACH accounts AND model-proxy — the one place that answers it.
+  #
+  # Both are service-discovery TARGETS: the model proxy, the daemon and the scheduled-jobs
+  # Lambda all resolve `<name>.agentd.local`. That only works for awsvpc tasks — Cloud Map can
+  # publish A records for nothing else — so the moment either moves to EC2 its internal name
+  # stops resolving and every caller breaks at once, in the auth path and the billing clock.
+  #
+  # Hence: while a service is on Fargate its callers keep using the private DNS name (one hop,
+  # no TLS, no load balancer); once it moves they use the PUBLIC address, which is the same ALB
+  # that already fronts it. Callers therefore never encode which launch type is in play, and
+  # moving a service stays a change to one list.
+  #
+  # THE ALB PATH COSTS SOMETHING, and it is worth stating: traffic leaves the VPC and comes back
+  # through the load balancer, paying TLS and a little latency on a call that used to be local.
+  # For a per-request auth check that is real, and it is the price of the launch-type freedom —
+  # revisit it if the proxy's p99 moves.
+  accounts_internal_url = (
+    contains(var.ec2_services, "accounts")
+    ? local.publish_product_accounts_url
+    : "http://accounts.${var.project}.local:${local.services["accounts"].port}"
+  )
+  model_proxy_internal_url = (
+    contains(var.ec2_services, "model-proxy")
+    ? "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+    : "http://model-proxy.${var.project}.local:${local.services["model-proxy"].port}"
+  )
+
   name_prefix = "${var.project}-${var.environment}"
   common_tags = {
     Project     = var.project
@@ -850,6 +923,31 @@ variable "builder_memory_mb" {
   description = "Lambda memory. A node build's working set; Lambda scales CPU with memory, so this is also build speed."
   type        = number
   default     = 3008
+}
+
+# ── the executor service (executor.tf) — same two-step bring-up as builder ───
+variable "executor_image_tag" {
+  description = "Image tag in the executor ECR repo. EMPTY (default) builds no Lambda and costs nothing: first apply creates the repo, push the image (built FROM the daemon image), set the tag, apply again. While empty the daemon's microvm sandbox fails untrusted calls closed."
+  type        = string
+  default     = ""
+}
+
+variable "executor_listener_port" {
+  description = "ALB listener port for the executor. Its own port (:4500), beside builder at :4400 and publish at :4300."
+  type        = number
+  default     = 4500
+}
+
+variable "executor_timeout_seconds" {
+  description = "Lambda timeout — the hard ceiling on ONE untrusted tool call or shell command, including its S3 transfers and any daemon-brokered model/fetch round-trips (which pause the tool's own budget but not this one)."
+  type        = number
+  default     = 900
+}
+
+variable "executor_memory_mb" {
+  description = "Lambda memory for one sandboxed tool call. The daemon-image base is heavy but idle; the tool's own working set is what this sizes."
+  type        = number
+  default     = 2048
 }
 
 # The ENGINE a published stub installs. Normally all three stay EMPTY and the service reads the

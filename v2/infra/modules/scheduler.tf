@@ -133,7 +133,8 @@ resource "aws_lambda_function" "scheduled_jobs" {
 
   environment {
     variables = {
-      ACCOUNTS_URL            = "http://accounts.${var.project}.local:${local.services["accounts"].port}"
+      # Follows accounts wherever it runs — see local.accounts_internal_url.
+      ACCOUNTS_URL            = local.accounts_internal_url
       ACCOUNTS_INTERNAL_KEY   = random_password.accounts_internal_key.result
       REQUEST_TIMEOUT_SECONDS = tostring(var.scheduled_job_timeout_seconds - 5)
     }

@@ -98,17 +98,34 @@ resource "aws_security_group" "ecs_instance" {
   tags        = merge(local.common_tags, { Name = "${local.name_prefix}-ecs-instance" })
 }
 
-# One rule per service port. Under host networking the container binds the INSTANCE's port, so
-# the ALB reaches the task at the same number it uses today — no ephemeral range, which is the
-# other reason host was chosen over bridge.
+# WHICH PORTS THE ALB MAY REACH, and it depends on the network mode:
+#
+#   host   — the container binds the instance's own port, so the ALB uses the same number it
+#            always has. One rule per service, exactly like the Fargate group.
+#   bridge — ECS assigns each task a RANDOM host port from the ephemeral range and registers
+#            that port with the target group. The specific number is unknowable at plan time,
+#            so the range is opened instead. This is the security cost of bridge: any port in
+#            that range on the instance is reachable from the load balancer — not from the
+#            internet, which is what keeps it acceptable.
 resource "aws_vpc_security_group_ingress_rule" "ecs_instance_from_alb" {
-  for_each = local.ec2_capacity == 1 ? local.services : {}
+  for_each = local.ec2_capacity == 1 && var.ec2_network_mode == "host" ? local.services : {}
 
   security_group_id            = aws_security_group.ecs_instance[0].id
   description                  = "${each.key} from ALB"
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
   to_port                      = each.value.port
+  referenced_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ecs_instance_from_alb_ephemeral" {
+  count = local.ec2_capacity == 1 && var.ec2_network_mode == "bridge" ? 1 : 0
+
+  security_group_id            = aws_security_group.ecs_instance[0].id
+  description                  = "bridge-mode dynamic host ports from ALB"
+  ip_protocol                  = "tcp"
+  from_port                    = 32768
+  to_port                      = 65535
   referenced_security_group_id = aws_security_group.alb.id
 }
 
@@ -221,13 +238,28 @@ resource "aws_autoscaling_group" "ecs" {
   instance_refresh {
     strategy = "Rolling"
     preferences {
-      min_healthy_percentage = 100
+      # 50, NOT 100, and the difference is whether the roll can start at all. At 100% the group
+      # must add a replacement BEFORE retiring anything — which needs a free slot above
+      # `desired`, and `desired` reaches `max_size` the moment ECS packs the fleet. The refresh
+      # then waits forever for room the ceiling forbids, and an AMI or instance-type change
+      # never actually reaches the instances. At 50% it retires one first, so the roll always
+      # has somewhere to go; the cost is running at half capacity for a couple of minutes.
+      min_healthy_percentage = 50
     }
   }
 
+  # A VERSION NUMBER, NOT "$Latest", and the difference is whether anything ever rolls.
+  # "$Latest" is a moving pointer: publishing a new template version leaves this resource's
+  # configuration byte-identical, so Terraform reports no change to the ASG — and
+  # `instance_refresh` fires only on an ASG change. New instances would pick the new version up,
+  # existing ones never would, and nothing would say so. That silently strands a security AMI on
+  # the fleet as surely as it stranded the instance-type change here.
+  #
+  # Referencing latest_version makes the new version part of THIS resource's diff, which is what
+  # triggers the roll.
   launch_template {
     id      = aws_launch_template.ecs[0].id
-    version = "$Latest"
+    version = aws_launch_template.ecs[0].latest_version
   }
 
   # ECS reads this tag to confirm it may manage the group.
@@ -291,4 +323,24 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
   count              = local.ec2_capacity
   cluster_name       = aws_ecs_cluster.main.name
   capacity_providers = [aws_ecs_capacity_provider.ec2[0].name]
+}
+
+# ── EFS from the instances ───────────────────────────────────────────────────
+#
+# The daemon mounts EFS for per-account state (agent files, sessions, memory), and the existing
+# rule admits only the FARGATE task security group — so the same task on an instance is refused
+# at the NFS port. The symptom is a task that fails to start with a mount error, naming neither
+# the security group nor EFS in a way that suggests one.
+#
+# Mounting itself needs nothing extra: the ECS-optimised AMI ships amazon-efs-utils, and the
+# access point plus transit encryption in the task definition work identically on EC2.
+resource "aws_vpc_security_group_ingress_rule" "efs_from_ecs_instance" {
+  count = local.ec2_capacity
+
+  security_group_id            = aws_security_group.efs.id
+  description                  = "NFS from ECS container instances"
+  ip_protocol                  = "tcp"
+  from_port                    = 2049
+  to_port                      = 2049
+  referenced_security_group_id = aws_security_group.ecs_instance[0].id
 }

@@ -1,0 +1,33 @@
+{
+  "id": "storyboard-then-video",
+  "agent_id": "comfy-artchitect",
+  "goal": "Two-stage pipeline from a lazy brief: FIRST generate a storyboard — several images of the SAME character (a young Asian woman, black hair, black leather jacket, glasses) using the Moody Pro Mix checkpoint for image quality — THEN animate those frames into a short video. The agent picks a tasteful, unremarkable scene itself (nothing vivid). Success = consistent storyboard images AND a video, no stalls, no punts.",
+
+  "_comment_settings": "COMFYUI_URL injected at run time via --set; placeholder keeps the file credential-free.",
+  "settings": {
+    "COMFYUI_URL": "PASTE_YOUR_COMFYUI_URL_HERE"
+  },
+
+  "turns": [
+    "make a short video of a character — first generate a storyboard of images of her, same girl across all of them, then turn those into the video. she's a young asian girl, black hair, black leather jacket, glasses. use this for the image quality: https://civitai.com/models/620406/moody-pro-mix . you pick a simple everyday scene, nothing over the top",
+    "do everything yourself and show me the result"
+  ],
+
+  "_comment_checks": "Two-stage: storyboard images (Moody Pro Mix) then video. Emit-before-install order, both stages must actually run and produce artifacts of both kinds.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "tool_called", "tool": "comfy_probe" },
+    { "name": "call_order", "first": "comfy_emit", "then": "comfy_install" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "produced_artifact", "kind": "video" },
+    { "name": "max_turns", "n": 30 }
+  ],
+
+  "max_turns": 30
+}
