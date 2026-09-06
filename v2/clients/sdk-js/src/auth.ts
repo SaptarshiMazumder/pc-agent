@@ -91,6 +91,12 @@ export async function authLogin(
   // on the accounts host, which is exactly where the token read looks for it.
   if (r.status === 404) return cookieLogin(args, opts)
   const d = (await r.json().catch(() => ({}))) as { state?: string; error?: string }
+  // SAME RULE AS fetchToken: only a TYPED answer proves a runtime login exists here. 404 is what
+  // a hosted DAEMON returns, but a hosted window is served from the SPA's origin, where this POST
+  // meets nginx instead — a 405 (no POST on a static route), or the catch-all's HTML at 200.
+  // Keying the fallback on 404 alone turned those into "sign-in failed (HTTP 405)" and never
+  // tried the accounts cookie, which is the door that actually works there.
+  if (typeof d.state !== 'string') return cookieLogin(args, opts)
   if (!r.ok || d.state !== 'ok') {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`))
   }

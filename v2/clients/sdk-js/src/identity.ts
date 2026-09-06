@@ -124,7 +124,15 @@ export async function fetchToken(opts: DaemonOptions = {}): Promise<TokenAnswer>
     if (r.status === 404) return fetchCookieToken(opts)
     const d = (await r.json().catch(() => ({}))) as TokenAnswer
     if (d && typeof d.state === 'string') return { ...d, via: 'runtime' }
-    return { state: r.ok ? 'ok' : 'signed_out', via: 'runtime' }
+    // NOT THE RUNTIME'S ANSWER. A typed `state` is the only proof this origin has a runtime
+    // session holder; anything else means it does not, whatever the status code says. A hosted
+    // window is served from the SPA's own origin, where the catch-all hands `/auth/token` the
+    // index page with HTTP 200 — and this used to read that as `state:'ok'` with no token, so
+    // `accessToken()` returned '' while `signedIn()` said yes: the window looked signed in and
+    // every Bearer call ("sign in first" on billing, orgs, credits) failed. Worse, the ONLY
+    // working token source on hosted — the accounts cookie — was never reached, because the
+    // fallback keyed on 404 alone. Fall through exactly as a 404 does.
+    return fetchCookieToken(opts)
   } catch {
     // The RUNTIME itself is unreachable — indistinguishable, for a caller, from the accounts
     // service being away: keep working, retry later. Never "signed out": that answer makes a

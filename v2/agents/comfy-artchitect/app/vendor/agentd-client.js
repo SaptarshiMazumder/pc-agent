@@ -124,7 +124,7 @@ async function fetchToken(opts = {}) {
     if (r.status === 404) return fetchCookieToken(opts);
     const d = await r.json().catch(() => ({}));
     if (d && typeof d.state === "string") return { ...d, via: "runtime" };
-    return { state: r.ok ? "ok" : "signed_out", via: "runtime" };
+    return fetchCookieToken(opts);
   } catch {
     return { state: "accounts_unreachable", retryAfterSec: 15 };
   }
@@ -621,6 +621,7 @@ async function authLogin(args, opts = {}) {
   });
   if (r.status === 404) return cookieLogin(args, opts);
   const d = await r.json().catch(() => ({}));
+  if (typeof d.state !== "string") return cookieLogin(args, opts);
   if (!r.ok || d.state !== "ok") {
     throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
   }
