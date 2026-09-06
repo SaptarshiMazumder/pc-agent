@@ -22,7 +22,6 @@
 
 import type { AgentInfo } from '../gateway/protocol'
 import { appLaunchUrl } from './artifacts'
-import { isDesktop } from './host'
 import { platform } from './platform'
 
 /** Is this agent a surface of the product rather than one of the user's agents?
@@ -49,11 +48,13 @@ export function listableAgents(agents: readonly AgentInfo[]): AgentInfo[] {
  * harmless there and useful for testing the web surface), which would otherwise put two buttons
  * called "Agent Builder" side by side and make the user guess.
  *
- * WHICH ONE WINS is decided by the author's own `requires_local`, not by a list here: on a
- * desktop, prefer the implementation that asked for a machine of its own, because this IS that
- * machine; anywhere else prefer the one that never asked, because the other is not offered there
- * at all. Falling back to the first candidate means a surface always renders, even if the only
- * implementation present is the "wrong" kind.
+ * WHICH ONE WINS is decided by the author's own `requires_local`, not by a list here: prefer the
+ * implementation that asked for a machine of its own WHENEVER IT IS PRESENT. Its presence is the
+ * whole signal — a requires_local agent reaches a roster only where it truly is that machine (a
+ * desktop) or where the operator explicitly vouched for it (hosted_agents_allow), and in both
+ * places it is the full-powered implementation the fenced one merely stands in for. Falling back
+ * to the first candidate means a surface always renders, even where the full one is withheld —
+ * which is exactly what the fenced implementation exists for.
  */
 export function standaloneApps(agents: readonly AgentInfo[]): AgentInfo[] {
   const bySurface = new Map<string, AgentInfo[]>()
@@ -64,8 +65,7 @@ export function standaloneApps(agents: readonly AgentInfo[]): AgentInfo[] {
     else bySurface.set(key, [a])
   }
   return [...bySurface.values()].map(
-    (group) =>
-      group.find((a) => !!a.app?.requiresLocal === isDesktop) ?? group[0]
+    (group) => group.find((a) => !!a.app?.requiresLocal) ?? group[0]
   )
 }
 
