@@ -52,7 +52,15 @@ _ENV_RX = re.compile(
     r"insufficient (?:balance|credits|funds|quota)|out of (?:credits|balance)|quota exceeded|"
     r"payment required|billing|"
     r"missing (?:[A-Z0-9_]+ )?(?:api.?key|key|credential|token|secret)|"
-    r"invalid (?:api.?key|token|credential)|unauthorized|\b401\b",
+    r"invalid (?:api.?key|token|credential)|unauthorized|\b401\b|"
+    # THE PROVIDER ANSWERED WITH NOTHING. A completion that streams zero tokens and stops is a
+    # provider fault the runtime already names in these words ("empty response … not even an
+    # error … a fault on the provider's side"), and it is invisible to every pattern above —
+    # no status code, no transport verb. Left out, a whole run of empty completions reads as the
+    # agent refusing to act, which is the one misdiagnosis that makes a fix loop damage a
+    # working agent.
+    r"empty (?:response|completion)|returned (?:an )?empty|carried nothing|"
+    r"provider'?s side|no visible output|api ?error",
     re.I,
 )
 
@@ -189,9 +197,22 @@ def stall(trace: Trace) -> list[Finding]:
                     break
 
     # Never acted at all across the whole run, despite turns — the extreme stall.
+    #
+    # ORIGIN IS DECIDED BY WHETHER THE AGENT EVER GOT A TURN. When every turn ended in error the
+    # model never answered — a provider outage, a dead key — and the agent had no chance to act;
+    # calling that an agent fault sends the fix loop off to "improve" instructions that were never
+    # executed. Only a run whose turns COMPLETED and still did nothing is the agent's stall.
     if trace.turns and not any(_acted(t) for t in trace.turns):
-        out.append(Finding(PROBLEM, "never_acted", 0,
-                           "no build tool ran in the entire run — all talk, no work"))
+        every_turn_failed = all(
+            t.end_reason == "error" or bool(t.end_error) for t in trace.turns
+        )
+        out.append(Finding(
+            PROBLEM, "never_acted", 0,
+            "no turn ever completed — the model never answered, so the agent never got to act"
+            if every_turn_failed else
+            "no build tool ran in the entire run — all talk, no work",
+            origin=ORIGIN_ENV if every_turn_failed else ORIGIN_AGENT,
+        ))
     return out
 
 

@@ -211,6 +211,14 @@ def _fold_event(turn: Turn, ev: dict, pending: dict[str, ToolCall]) -> None:
         # A finalized assistant message may carry its whole text (not just deltas) + artifacts.
         if (ev.get("role") or ev.get("kind")) in ("assistant", "bot") and ev.get("text"):
             _append_text(turn, str(ev["text"]), replace_if_empty=True)
+        # THE FAILURE'S OWN WORDS, wherever the runtime put them. A model call that fails names
+        # its reason here (`errorMessage` on the finalized message) while `agent_end` often
+        # carries only `stopReason=error` — so reading agent_end alone left the origin triage
+        # with "no message" and it defaulted every provider outage to the AGENT's fault.
+        msg = ev.get("message") if isinstance(ev.get("message"), dict) else ev
+        err = str((msg or {}).get("errorMessage") or "").strip()
+        if err and not turn.end_error:
+            turn.end_error = err
         for a in ev.get("artifacts") or []:
             if isinstance(a, dict):
                 turn.artifacts.append(a)
