@@ -58,8 +58,27 @@ export async function buildAndOpen(
   agent: AgentRow,
   build: boolean,
 ): Promise<void> {
-  if (build) await buildApp(client, agent)
-  await openAgentWindow(agent)
+  // GRAB THE TAB NOW, inside the click — before the build's `await` spends the user gesture and
+  // the browser blocks the pop-up (ported from cabbie, where this shipped first): opening after
+  // an await reads to the browser as a script pop-up (blocked), opening synchronously reads as
+  // a click (allowed). Desktop goes through the bridge and needs no pre-open; a null (pop-ups
+  // hard-blocked) falls through to the helpful error in openAgentWindow.
+  const pre = host()?.openAppWindow ? null : window.open('', `agent-app-${agent.id}`)
+  if (pre) {
+    // Something to look at while vite runs — a blank tab reads as a hang.
+    pre.document.write(
+      '<!doctype html><title>Opening…</title>' +
+        '<body style="font:14px system-ui;margin:0;display:grid;place-items:center;height:100vh;' +
+        'color:#8a94a3;background:#0b0e14">Building and opening the agent…</body>',
+    )
+  }
+  try {
+    if (build) await buildApp(client, agent)
+    await openAgentWindow(agent, pre)
+  } catch (e) {
+    pre?.close() // a tab we opened but never navigated is worse than none
+    throw e
+  }
 }
 
 /** Just the build — the first half of buildAndOpen, split out so the in-app preview pane can
@@ -92,7 +111,7 @@ const host = (): Host | undefined => (globalThis as { agentdHost?: Host }).agent
  * The fallback is for a real browser tab, where there is no desktop app to ask and external is not
  * a downgrade but the only meaning "open" can have.
  */
-export async function openAgentWindow(agent: AgentRow): Promise<void> {
+export async function openAgentWindow(agent: AgentRow, pre?: Window | null): Promise<void> {
   const url = await appLaunchUrl(agent)
   const bridge = host()?.openAppWindow
   if (bridge) {
@@ -100,6 +119,11 @@ export async function openAgentWindow(agent: AgentRow): Promise<void> {
     // Reported, not swallowed. The desktop app refuses this call from any window that is not this
     // one, and a button that silently does nothing is worse than one that says why.
     if (!res?.ok) throw new Error(res?.error || 'the desktop app would not open that window')
+    return
+  }
+  // The tab grabbed on click (buildAndOpen) — navigate it now that the url is ready.
+  if (pre && !pre.closed) {
+    pre.location.href = url
     return
   }
   const opened = window.open(url, `agent-app-${agent.id}`)
