@@ -6,11 +6,14 @@
 # agent is now this agent's job alone, not something JARVIS does on the side.
 
 name = "Agent Builder"
-# 1.0.1 — the Agents page shows installable org agents. THE BUMP IS NOT COSMETIC: the hosted
-# daemon's boot install skips any bundle the ledger already records at the same version
-# (deploy/docker/entrypoint.sh), so shipping a UI change without it builds a new image that is
-# then deliberately ignored — the agent on the volume stays whatever it was.
-version = "1.0.1"
+# THE BUMP IS NOT COSMETIC: the hosted daemon's boot install skips any bundle the ledger already
+# records at the same version (deploy/docker/entrypoint.sh), so shipping a change without it builds
+# a new image that is then deliberately ignored — the agent on the volume stays whatever it was.
+# Anything inside this folder is bundle content, skills and their reference pages included.
+#
+# 1.0.1 — the Agents page shows installable org agents.
+# 1.0.2 — build-agent's SKILL.md and all seven reference pages were rewritten upstream.
+version = "1.0.2"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
 
 # NOTE: `max_turns` is NOT settable here — it is an OVERRIDABLE_KEY resolved from
