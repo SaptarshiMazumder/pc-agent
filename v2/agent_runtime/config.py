@@ -399,6 +399,12 @@ class Config:
     # warned fallback to local. Not the deployment shape — third-party code is isolated on the
     # desktop exactly as in the cloud. AGENTD_SANDBOX_BACKEND overrides by name.
     sandbox_plugin_backend: str = ""
+    # The EXECUTOR service (services/executor) the "microvm" backend ships untrusted work to —
+    # its ALB URL and the shared secret it expects (X-Internal-Key). Empty = no executor: the
+    # microvm backend then fails every untrusted call CLOSED rather than degrading to on-box
+    # isolation the deployment explicitly rejected. AGENTD_EXECUTOR_URL / _EXECUTOR_INTERNAL_KEY.
+    executor_url: str = ""
+    executor_internal_key: str = ""
     # The interpreter the subprocess backend spawns. Empty = the one running the daemon (correct
     # almost always; an embedded runtime that relocates its python.exe is the exception).
     sandbox_python: str = ""
@@ -1050,6 +1056,10 @@ def load_config(path: Path | None = None) -> Config:
     # writable state directory that an agent could conceivably edit.
     if os.environ.get("AGENTD_SANDBOX_BACKEND"):
         cfg.sandbox_plugin_backend = os.environ["AGENTD_SANDBOX_BACKEND"].strip().lower()
+    if os.environ.get("AGENTD_EXECUTOR_URL"):
+        cfg.executor_url = os.environ["AGENTD_EXECUTOR_URL"].strip().rstrip("/")
+    if os.environ.get("AGENTD_EXECUTOR_INTERNAL_KEY"):
+        cfg.executor_internal_key = os.environ["AGENTD_EXECUTOR_INTERNAL_KEY"].strip()
     if os.environ.get("AGENTD_MULTI_TENANT"):
         cfg.multi_tenant = os.environ["AGENTD_MULTI_TENANT"].lower() not in ("0", "false", "no", "")
     if os.environ.get("AGENTD_TENANT_ROOT"):

@@ -144,7 +144,7 @@ ALL_IMAGES="model-proxy accounts daemon web ingest"
 # over a mutable tag changes nothing it runs. Each release is therefore a NEW version tag
 # (v1, v2, ...) written into the environment's tfvars, then `terraform apply` moves the
 # function — which also handles first bring-up (empty tag -> v1) with no separate procedure.
-ALL_LAMBDAS="builder publish"
+ALL_LAMBDAS="builder publish executor"
 LAMBDA_TARGETS=""
 if [ -n "$ONLY" ]; then
   TARGETS=""
@@ -310,8 +310,19 @@ fi
 # --- 6b. LAMBDA services: build -> push vN+1 -> bump tfvars -> apply ----------------------
 lambda_dockerfile_for() {
   case "$1" in
-    builder) echo "$V2/services/builder/Dockerfile" ;;
-    publish) echo "$V2/services/publish/Dockerfile" ;;
+    builder)  echo "$V2/services/builder/Dockerfile" ;;
+    publish)  echo "$V2/services/publish/Dockerfile" ;;
+    executor) echo "$V2/services/executor/Dockerfile" ;;
+  esac
+}
+# Per-lambda build args. The executor builds FROM the daemon image (its Dockerfile says why:
+# the sandbox worker must run with byte-identical site-packages), so the daemon image must be
+# pushed first — a full redeploy does that in section 4; an `--only executor` release relies on
+# the daemon:latest already in ECR, which any live environment has.
+lambda_build_args_for() {
+  case "$1" in
+    executor) echo "--build-arg BASE_IMAGE=$(repo_for daemon):latest" ;;
+    *)        echo "" ;;
   esac
 }
 
@@ -337,7 +348,9 @@ if [ -n "$LAMBDA_TARGETS" ] && [ "$DO_BUILD" = 1 ]; then
     if [ -n "$cur" ]; then next="v$(( ${cur#v} + 1 ))"; else next="v1"; fi
 
     uri="$repo:$next"
-    if ! docker build -t "$uri" -f "$(lambda_dockerfile_for "$name")" "$V2"; then
+    # shellcheck disable=SC2046 -- the build args are deliberately word-split
+    if ! docker build -t "$uri" $(lambda_build_args_for "$name") \
+         -f "$(lambda_dockerfile_for "$name")" "$V2"; then
       fail "build of lambda $name failed"; continue
     fi
     if ! docker push "$uri"; then fail "push of lambda $name failed"; continue; fi

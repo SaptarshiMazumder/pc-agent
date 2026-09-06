@@ -68,6 +68,36 @@ def _forced_untrusted(config, agent_id: str) -> bool:
     return ALL in ids or agent_id in ids
 
 
+def plugin_presumed_untrusted(
+    config, agent_id: str, plugin_id: str, installed_agent_ids: frozenset[str] | None
+) -> bool:
+    """The SAME trust decision as ``classify_origin``, answerable BEFORE any tool object exists —
+    from the manifest's id and the agent's, which is all a pre-load caller has.
+
+    It exists because trust must be decided before IMPORT, not just before execution: importing a
+    module runs its module-level code, so enumerating an untrusted plugin's tools by importing it
+    executes a stranger's code in the daemon one step earlier than the tool call the sandbox
+    guards. Discovery asks this first and, for an untrusted plugin, enumerates through the
+    sandbox instead of loading. One function, delegated to by ``classify_origin``, so the
+    pre-load answer and the wrap-time answer can never disagree.
+    """
+    if not agent_id:
+        return False  # an ordinary shared plugin — never a sandboxed tier
+    if config is not None and _forced_untrusted(config, agent_id):
+        # FORCED, ahead of every exemption. Tightening only, so there is nothing to weigh.
+        return True
+    if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):
+        return False
+    if config is not None and agent_id in _config_ids(config, "sandbox_trusted_agents"):
+        return False  # the operator vouches for this agent
+    if installed_agent_ids is None:
+        return True  # ledger unknown -> fail closed
+    if agent_id in installed_agent_ids:
+        return True  # it came from someone else's package
+    # Shipped with the product, or authored on this machine — same trust as a drop-in plugin.
+    return False
+
+
 def classify_origin(
     tool: Tool, config=None, installed_agent_ids: frozenset[str] | None = None
 ) -> PluginOrigin:
@@ -78,21 +108,8 @@ def classify_origin(
     """
     plugin_id = getattr(tool, "_plugin_id", "") or ""
     agent_id = getattr(tool, "_agent_id", "") or ""
-    if not agent_id:
-        return PluginOrigin.FIRST_PARTY  # an ordinary shared plugin — never a sandboxed tier
-    if config is not None and _forced_untrusted(config, agent_id):
-        # FORCED, ahead of every exemption. Tightening only, so there is nothing to weigh.
-        return PluginOrigin.THIRD_PARTY_BUNDLE
-    if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):
-        return PluginOrigin.FIRST_PARTY
-    if config is not None and agent_id in _config_ids(config, "sandbox_trusted_agents"):
-        return PluginOrigin.FIRST_PARTY  # the operator vouches for this agent
-    if installed_agent_ids is None:
-        return PluginOrigin.THIRD_PARTY_BUNDLE  # ledger unknown -> fail closed
-    if agent_id in installed_agent_ids:
-        return PluginOrigin.THIRD_PARTY_BUNDLE  # it came from someone else's package
-    # Shipped with the product, or authored on this machine — same trust as a drop-in plugin.
-    return PluginOrigin.FIRST_PARTY
+    untrusted = plugin_presumed_untrusted(config, agent_id, plugin_id, installed_agent_ids)
+    return PluginOrigin.THIRD_PARTY_BUNDLE if untrusted else PluginOrigin.FIRST_PARTY
 
 
 def wrap_untrusted(

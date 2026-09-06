@@ -47,8 +47,9 @@ def _emit(stream, payload: dict) -> None:
     stream.flush()
 
 
-def _load_tool(entry: str, plugin_root: str, tool_name: str, config, plugin_id: str):
-    """Import the plugin, register it, and return the named tool. Raises with a real message."""
+def _load_all(entry: str, plugin_root: str, config, plugin_id: str) -> list:
+    """Import the plugin and register it; return every tool it contributed. Raises with a real
+    message — in a one-shot child there is nothing to degrade to."""
     import importlib
 
     from agent_runtime.application.interfaces.plugins import PluginContext
@@ -67,11 +68,36 @@ def _load_tool(entry: str, plugin_root: str, tool_name: str, config, plugin_id: 
     # are all optional by contract, so a plugin that needs the browser or the credential vault
     # guards on None and degrades — it does not get a live one across this line.
     register(api, PluginContext(config=config, plugin_dir=plugin_root))
-    for tool in api.tools:
+    return list(api.tools)
+
+
+def _load_tool(entry: str, plugin_root: str, tool_name: str, config, plugin_id: str):
+    """Import the plugin, register it, and return the named tool. Raises with a real message."""
+    tools = _load_all(entry, plugin_root, config, plugin_id)
+    for tool in tools:
         if getattr(tool, "name", "") == tool_name:
             return tool
-    have = ", ".join(getattr(t, "name", "?") for t in api.tools) or "(none)"
+    have = ", ".join(getattr(t, "name", "?") for t in tools) or "(none)"
     raise RuntimeError(f"plugin '{plugin_id}' registered no tool named '{tool_name}' (has: {have})")
+
+
+def _tool_spec(tool) -> dict:
+    """One tool, as the plain facts a proxy needs to ADVERTISE it (never to run it): the model
+    sees name/description/parameters; the catalog and policy read the rest. Execution always
+    comes back through the sandbox, so behaviour never rides in a spec."""
+    return {
+        "name": str(getattr(tool, "name", "") or ""),
+        "description": str(getattr(tool, "description", "") or ""),
+        "parameters": getattr(tool, "parameters", None) or {},
+        "label": str(getattr(tool, "label", "") or ""),
+        "concurrency": str(getattr(tool, "concurrency", "parallel") or "parallel"),
+        "plugin": str(getattr(tool, "plugin", "") or ""),
+        "needs_model": bool(getattr(tool, "needs_model", False)),
+        "model_kind": str(getattr(tool, "model_kind", "text") or "text"),
+        "default_model": str(getattr(tool, "default_model", "") or ""),
+        "default_timeout_sec": getattr(tool, "default_timeout_sec", None),
+        "default_retryable": bool(getattr(tool, "default_retryable", False)),
+    }
 
 
 def main() -> int:
@@ -86,6 +112,26 @@ def main() -> int:
     plugin_id = str(job.get("plugin_id") or "")
     tool_name = str(job.get("tool_name") or "")
     grant = job.get("grant") or {}
+
+    # ENUMERATE: import + register, answer the tool SPECS, exit — how the daemon learns what an
+    # untrusted plugin ships without importing it in its own process (import runs module code).
+    # No guard: nothing here executes a tool, and the load needs its imports; the process is
+    # already the isolation (a subprocess on desktop, a microVM on hosted).
+    if str(job.get("kind") or "") == "enumerate":
+        config = types.SimpleNamespace(**(job.get("config") or {}))
+        try:
+            tools = _load_all(
+                str(job.get("entry") or ""), str(job.get("plugin_root") or ""), config, plugin_id
+            )
+        except Exception as e:  # noqa: BLE001 — the load failure is the whole answer
+            _emit(protocol, _error(f"enumerate: {type(e).__name__}: {e}"))
+            return 1
+        _emit(protocol, {
+            "t": "result", "isError": False, "artifacts": [],
+            "content": [{"type": "text", "text": f"{len(tools)} tool(s)"}],
+            "details": {"specs": [_tool_spec(t) for t in tools]},
+        })
+        return 0
 
     # Imported before the guard: our own modules, and the ones the run needs.
     from agent_runtime.application.run_context import RunContext, set_run_context, set_trace_ids

@@ -21,25 +21,36 @@ from agent_runtime.application.tool_models import tool_config
 OUTPUT_CAP = 50_000
 
 
-def shell_fence_refusal(config, what: str) -> ToolResult | None:
-    """The tenant fence, shared by exec and process: a run that carries read_roots gets no shell
-    surface — a subprocess sees whatever the daemon's OS user sees, so every fs fence would be
-    decorative the moment it ran. Returns the refusal, or None when the shell may proceed.
+def shell_route(config, what: str) -> tuple[str, ToolResult | None]:
+    """WHERE this shell call may run: ("local", None), ("microvm", None), or ("", refusal).
 
-    THE EXCEPTION IS THE BUILDER. Agents named in `plugins.shell.exec.trusted_agents` keep their
-    shell even under a fence. The default is agent-builder, and that is not a hole in the fence:
-    a `requires_local` agent reaches a hosted daemon ONLY through the operator's own
-    `hosted_agents_allow` opt-in, so the shell rides consent that was already given explicitly —
-    and the trust follows the RUN's agent_id, which a built agent cannot inherit."""
+    No fence (desktop) -> local, unchanged. A run that carries a tenant fence (read_roots) NEVER
+    gets a local shell — a subprocess sees whatever the daemon's OS user sees, so every fs fence
+    would be decorative the moment it ran, and on a hosted daemon the rule is stricter still:
+    nothing the user directs executes on the box that holds every tenant's data.
+
+    Agents named in `plugins.shell.exec.trusted_agents` (default: agent-builder — which only
+    reaches a hosted daemon through the operator's own `hosted_agents_allow` opt-in, and whose
+    run identity a built agent cannot inherit) get the MICROVM shell instead: the command runs
+    in the executor service's Firecracker microVM with the run's workspace synced through
+    (sandbox/microvm_backend.run_shell). Everyone else — and a trusted agent on a daemon with no
+    executor configured — is refused."""
     from agent_runtime.application.run_context import current_run_context
 
     ctx = current_run_context()
     if ctx is None or not getattr(ctx, "read_roots", ()):
-        return None
+        return "local", None
     trusted = tool_config(config, "shell", "exec", "trusted_agents", default=("agent-builder",))
     if str(getattr(ctx, "agent_id", "") or "") in tuple(trusted or ()):
-        return None
-    return ToolResult.text(
+        if str(getattr(config, "executor_url", "") or "").strip():
+            return "microvm", None
+        return "", ToolResult.text(
+            f"{what} cannot run here yet: this agent is shell-trusted, but the daemon has no "
+            "executor service configured (AGENTD_EXECUTOR_URL) to run commands in a microVM — "
+            "and on this server a shell never runs on the daemon's own box.",
+            is_error=True,
+        )
+    return "", ToolResult.text(
         f"{what} is not available on this server: a shell cannot be confined to your "
         "own files. Use the read/write/edit/ls/find tools instead.",
         is_error=True,
@@ -174,10 +185,9 @@ class ExecTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        # The tenant fence, with the trusted-builder exception — see shell_fence_refusal. Not a
-        # mode branch: the same rule as check_read, decided by the values the run carries.
-        # Desktop runs carry none.
-        refusal = shell_fence_refusal(self.config, "exec")
+        # WHERE may this run — see shell_route. Not a mode branch: the same rule as check_read,
+        # decided by the values the run carries. Desktop runs carry none and stay local.
+        route, refusal = shell_route(self.config, "exec")
         if refusal is not None:
             return refusal
         command = params["command"]
@@ -186,6 +196,9 @@ class ExecTool(Tool):
         timeout = params.get("timeout_sec") or tool_config(
             self.config, "shell", "exec", "timeout_sec", default=1800
         )
+
+        if route == "microvm":
+            return await self._execute_microvm(command, cwd, params, float(timeout))
 
         if params.get("background"):
             session_id = await _REGISTRY.start(command, cwd, env)
@@ -225,6 +238,42 @@ class ExecTool(Tool):
         finally:
             abort_task.cancel()
 
+    async def _execute_microvm(self, command: str, cwd: str, params: dict,
+                               timeout: float) -> ToolResult:
+        """The fenced branch: the command runs in the executor's microVM with THIS run's
+        workspace synced through — never on the daemon's own box. Same result shape as the
+        local path, plus a note naming where it ran (so 'why can't I see /etc' is answerable).
+        Background sessions don't exist there: the microVM lives exactly as long as the call."""
+        if params.get("background"):
+            return ToolResult.text(
+                "background sessions are not available on this server — the microVM lives "
+                "exactly as long as one command. Run it in the foreground (raise timeout_sec "
+                "if it is long).",
+                is_error=True,
+            )
+        from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
+            ExecutorError,
+            OversizeError,
+            run_shell,
+        )
+
+        try:
+            ok, output, meta = await run_shell(
+                self.config, command, cwd, timeout, env=params.get("env") or {}
+            )
+        except (ExecutorError, OversizeError) as e:
+            return ToolResult.text(
+                f"the microVM shell could not run this command: {e}\n(This is the environment "
+                "failing, not your command — the executor service was unreachable or refused.)",
+                is_error=True,
+            )
+        status = f"exit code {meta.get('exit_code')}"
+        body = middle_truncate(output)
+        return ToolResult.text(
+            f"(microVM · {status})\n{body}" if body.strip() else f"(microVM · {status}) no output",
+            is_error=not ok,
+        )
+
 
 class ProcessTool(Tool):
     name = "process"
@@ -251,13 +300,19 @@ class ProcessTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        # Same fence as ExecTool (same helper, same trusted-agents exception), and for the same
-        # reason: _REGISTRY is process-GLOBAL, so on a shared daemon action=list would spill
-        # every tenant's command strings and output. Symmetric guards, not one depending on the
-        # other.
-        refusal = shell_fence_refusal(self.config, "process")
+        # Same routing as ExecTool, and for the same reason: _REGISTRY is process-GLOBAL, so on
+        # a shared daemon action=list would spill every tenant's command strings and output.
+        # There is no microvm branch to take here — background sessions do not exist off-box
+        # (the microVM lives exactly as long as one command) — so a fenced-but-trusted agent
+        # gets the honest answer instead of an empty registry pretending to be one.
+        route, refusal = shell_route(self.config, "process")
         if refusal is not None:
             return refusal
+        if route == "microvm":
+            return ToolResult.text(
+                "No background sessions: on this server the shell runs in a per-command microVM, "
+                "which lives exactly as long as the command — nothing persists to manage."
+            )
         action = params["action"]
         if action == "list":
             if not _REGISTRY.sessions:

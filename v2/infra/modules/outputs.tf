@@ -218,6 +218,18 @@ output "builder_url" {
   value       = local.builder_public_url
 }
 
+# ── executor service (executor.tf) ───────────────────────────────────────────
+
+output "executor_ecr_repository" {
+  description = "Push the executor image here (built FROM the daemon image), then set executor_image_tag and apply again."
+  value       = aws_ecr_repository.executor.repository_url
+}
+
+output "executor_url" {
+  description = "Where the daemon ships untrusted sandbox jobs. Empty until executor_image_tag is set."
+  value       = local.executor_public_url
+}
+
 output "builder_scratch_bucket" {
   description = "The sources-in / results-out conveyor belt. Everything expires after a day."
   value       = aws_s3_bucket.builder_scratch.bucket

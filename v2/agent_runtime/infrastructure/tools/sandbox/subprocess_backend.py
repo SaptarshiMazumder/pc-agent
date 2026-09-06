@@ -155,6 +155,41 @@ class SubprocessPluginSandbox:
             str(s) for s in (getattr(tool, "_sandbox_secrets", ()) or ())
         )
 
+    # ------------------------------------------------------------------ enumeration
+
+    def enumerate_tools(self, entry: str, plugin_root: str, agent_dir: str,
+                        plugin_id: str) -> list[dict]:
+        """Import the plugin in a CHILD and answer its tool specs — registration without running
+        untrusted module code in this process (import executes code). SYNC: called from plugin
+        discovery, which runs before the event loop exists. Raises on failure — a plugin whose
+        specs cannot be produced must ship no tools loudly, not quietly load in-process."""
+        import subprocess as _sp
+
+        job = {"kind": "enumerate", "plugin_id": plugin_id, "entry": entry,
+               "plugin_root": plugin_root, "grant": {}, "config": {}}
+        try:
+            # The temp dir doubles as the child's HOME: the runtime's import-time cache redirect
+            # asks Path.home(), and an allowlist env without one kills the interpreter before the
+            # job is even read (found by the first live enumerate).
+            p = _sp.run(
+                self._command(), input=json.dumps(job) + "\n",
+                capture_output=True, text=True, timeout=60.0,
+                env=self._child_env(CapabilityGrant(), tempfile.gettempdir(), tempfile.gettempdir()),
+            )
+        except (_sp.TimeoutExpired, OSError) as e:
+            raise RuntimeError(f"sandbox enumerate could not run: {e}") from e
+        for line in (p.stdout or "").splitlines():
+            payload = protocol.decode_line(line)
+            if payload and payload.get("t") == "result":
+                if payload.get("isError"):
+                    raise RuntimeError(protocol.payload_result(payload).content[0].text
+                                       if payload.get("content") else "enumerate failed")
+                return list((payload.get("details") or {}).get("specs") or [])
+        raise RuntimeError(
+            f"sandbox enumerate produced no result (exit {p.returncode}): "
+            f"{(p.stderr or '')[-400:]}"
+        )
+
     # ------------------------------------------------------------------ the call
 
     async def run_tool(

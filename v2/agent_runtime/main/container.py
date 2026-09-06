@@ -249,6 +249,60 @@ def build_service(
         )
         return _wrap(apply_plugin_enablement(kept, getattr(config, "plugins", None)))
 
+    def _untrusted_spec_loader(classify):
+        """The pre-IMPORT half of the trust boundary, handed to discovery per root.
+
+        Registration used to import every agent-private plugin in-process — and import executes
+        module-level code, so an untrusted plugin ran a stranger's code in the daemon at DISCOVERY,
+        one step before the tool call the sandbox guards (with live plugin_deps in reach). Now:
+        for a plugin `plugin_presumed_untrusted` flags, the SANDBOX enumerates (the worker's
+        `enumerate` job — a subprocess on desktop, a microVM on hosted) and discovery advertises
+        the answered SPECS; the module is never imported here. Specs are cached by a content
+        fingerprint of the plugin's folder, so after the first boot an unchanged plugin costs a
+        file read. Returns None for trusted plugins (load normally) — and for a backend with no
+        `enumerate_tools` (the local passthrough), which provides no isolation the import could
+        undercut."""
+        import hashlib as _hashlib
+        import json as _json
+        from pathlib import Path
+
+        from agent_runtime.infrastructure.tools.sandbox.classify import plugin_presumed_untrusted
+
+        enumerate_tools = getattr(plugin_sandbox, "enumerate_tools", None)
+
+        def _fingerprint(plugin_root) -> str:
+            h = _hashlib.sha256()
+            base = Path(plugin_root)
+            for f in sorted(base.rglob("*")):
+                if not f.is_file() or "__pycache__" in f.parts:
+                    continue
+                st = f.stat()
+                h.update(f"{f.relative_to(base).as_posix()}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+            return h.hexdigest()
+
+        def load(manifest, agent_dir, agent_id: str):
+            if not plugin_presumed_untrusted(config, agent_id, manifest.id, classify):
+                return None
+            if not callable(enumerate_tools):
+                return None  # local passthrough: no isolation exists for the import to undercut
+            root = str(manifest.root or "")
+            cache_dir = Path(getattr(config, "state_dir", "") or ".") / "sandbox_specs"
+            key = f"{agent_id}--{manifest.id}--{_fingerprint(root)}.json"
+            cached = cache_dir / key
+            try:
+                return _json.loads(cached.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            specs = enumerate_tools(manifest.entry, root, str(agent_dir), manifest.id)
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cached.write_text(_json.dumps(specs), encoding="utf-8")
+            except OSError:
+                pass  # a cache that cannot write is slower, not wrong
+            return specs
+
+        return load
+
     def _agent_private_tools() -> dict:
         """Discover + sandbox/gate/wrap the AGENT-PRIVATE tier (agents/<id>/plugins/). Recomputed
         WHOLESALE on hot-reload (a newly installed agent may ship tools), so it stays
@@ -290,7 +344,8 @@ def build_service(
                 else installed
             )
             for aid, tlist in discover_agent_plugins(
-                root, config, plugin_deps, entitlement
+                root, config, plugin_deps, entitlement,
+                spec_loader=_untrusted_spec_loader(classify),
             ).items():
                 # KEYED BY LOCATION, not id. Two accounts can each hold an agent of the same
                 # id; an id-keyed map let the last-scanned layer's tools answer for both — a

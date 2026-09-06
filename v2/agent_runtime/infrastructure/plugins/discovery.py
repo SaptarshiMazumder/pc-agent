@@ -101,7 +101,9 @@ def _agent_dirs(root: Path):
         yield from sorted(samples.iterdir())
 
 
-def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitlement=None) -> dict:
+def discover_agent_plugins(
+    agents_dir, config, deps: dict | None = None, entitlement=None, spec_loader=None
+) -> dict:
     """The AGENT-PRIVATE plugin tier: ``agents/<id>/plugins/<pid>/plugin.toml`` ->
     ``{agent_id: [tools]}``.
 
@@ -112,7 +114,16 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
     the differences are the ROOT (each agent's dir) and that every tool is tagged ``_agent_id``,
     so it is offered ONLY to its owning agent — never to other agents or the global catalog.
     A private plugin contributes TOOLS only (v1): prompt sections / mcp servers / skills belong
-    to the shared tier (an agent's own skills already live in ``agents/<id>/skills/``)."""
+    to the shared tier (an agent's own skills already live in ``agents/<id>/skills/``).
+
+    ``spec_loader`` is the UNTRUSTED-registration seam (injected by the composition root, which
+    owns the trust decision): ``(manifest, agent_dir, agent_id) -> list[spec dict] | None``.
+    None means "trusted — load normally". A list means the plugin's tools are advertised from
+    SPECS the sandbox enumerated, and its module is never imported in this process — importing
+    executes module-level code, which for an untrusted plugin is running a stranger's code in
+    the daemon one step before the tool call the sandbox guards. Loader failures raise inside
+    the spec_loader (its policy); a plugin whose specs cannot be produced ships NO tools, loudly.
+    """
     out: dict = {}
     root = Path(agents_dir or "")
     if not root.is_dir():
@@ -143,8 +154,29 @@ def discover_agent_plugins(agents_dir, config, deps: dict | None = None, entitle
             if not _passes_gates(config, m, entitlement):
                 continue
             seen.add(m.id)
-            native_tools, _sections = load_plugin_entry(m, config, deps)
-            plugin_desc = m.description or _module_doc(m.entry)
+            specs = None
+            if spec_loader is not None:
+                try:
+                    specs = spec_loader(m, agent_dir, agent_id)
+                except Exception as e:  # noqa: BLE001 — one plugin's failure must not sink the tier
+                    log.error(
+                        "plugins: untrusted plugin '%s' (agent '%s') could not be enumerated "
+                        "in the sandbox — it ships NO tools this boot: %s",
+                        m.id, agent_id, e,
+                    )
+                    continue
+            if specs is not None:
+                # Untrusted: advertised from sandbox-enumerated specs; the module is NEVER
+                # imported in this process. Same stamping loop below, same wrap later.
+                from agent_runtime.infrastructure.tools.sandbox.spec_proxy_tool import (
+                    SpecProxyTool,
+                )
+
+                native_tools = [SpecProxyTool(s) for s in specs if s.get("name")]
+                plugin_desc = m.description
+            else:
+                native_tools, _sections = load_plugin_entry(m, config, deps)
+                plugin_desc = m.description or _module_doc(m.entry)
             for t in native_tools:
                 for attr, val in (
                     ("_plugin_id", m.id),

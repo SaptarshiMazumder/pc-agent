@@ -10,6 +10,11 @@ is worse than a noisy one.
   subprocess  a child process per call. The default WHEREVER the host can spawn one — desktop and
               hosted alike, because third-party code is third-party whether one person or a
               thousand are served.
+  microvm     the call leaves the box entirely: the executor service runs the same worker inside
+              a Firecracker microVM (one Lambda invocation per call). The hosted rule — untrusted
+              code never executes on the machine holding every tenant's data — is this backend.
+              Needs AGENTD_EXECUTOR_URL; a microvm daemon without one fails untrusted calls
+              CLOSED rather than quietly running them locally.
 
 Deciding by HOST CAPABILITY, not deployment shape, is deliberate: a marketplace agent's tools rode
 in inside someone else's package, so a desktop that can isolate them should, exactly as the hosted
@@ -26,7 +31,8 @@ log = logging.getLogger("agentd")
 
 LOCAL = "local"
 SUBPROCESS = "subprocess"
-BACKENDS = (LOCAL, SUBPROCESS)
+MICROVM = "microvm"
+BACKENDS = (LOCAL, SUBPROCESS, MICROVM)
 
 
 def host_can_spawn_subprocess() -> bool:
@@ -79,6 +85,20 @@ def build_plugin_sandbox(config):
     from .subprocess_backend import SubprocessPluginSandbox
 
     name = resolve_backend_name(config)
+    if name == MICROVM:
+        from .microvm_backend import MicrovmPluginSandbox
+
+        if not str(getattr(config, "executor_url", "") or "").strip():
+            # Configured for microVMs but no executor to send work to. The backend itself fails
+            # every call closed with the same message — building it anyway (rather than falling
+            # back to subprocess) is the point: a deployment that asked for off-box isolation
+            # must never silently get on-box isolation instead.
+            log.warning(
+                "sandbox: AGENTD_SANDBOX_BACKEND=microvm but AGENTD_EXECUTOR_URL is empty — "
+                "every untrusted tool call will fail closed until it is set"
+            )
+        log.info("sandbox: untrusted plugin tools run OFF-BOX (one microVM per call)")
+        return MicrovmPluginSandbox(config)
     if name == SUBPROCESS:
         log.info("sandbox: untrusted plugin tools run in a SUBPROCESS (one process per call)")
         return SubprocessPluginSandbox(config)
