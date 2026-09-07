@@ -8,6 +8,8 @@
  * with is in its own URL. There is nothing to discover and nothing to keep in step.
  */
 
+import { identity, loadSession, onIdentityChanged } from '@agentd/client'
+
 export type ArtifactKind = 'image' | 'video' | 'audio' | 'file'
 
 export interface Artifact {
@@ -18,12 +20,62 @@ export interface Artifact {
   size?: number
 }
 
-/** The token this window was opened with. Same source as AGENT_ID — see client.ts. */
+/** The MACHINE token this window was opened with, when there is one. Present on a desktop
+ *  daemon; absent on a hosted deployment, where identity is a person rather than a machine. */
 const TOKEN = new URL(location.href).searchParams.get('token') || ''
 
-/** Absolute URL to stream one artifact's bytes from the daemon's guarded /file endpoint. */
+/** The freshest access token this window has seen, kept so `fileUrl` can read it SYNCHRONOUSLY
+ *  (an `<img src>` cannot await a promise). */
+let live = ''
+let primed = false
+
+/** Begin keeping the credential current. Lazy and idempotent — called from `fileUrl` itself, so
+ *  no app has to remember to wire it up and no generated agent can forget to. */
+function prime(): void {
+  if (primed) return
+  primed = true
+  const pull = () => {
+    void identity({})
+      .accessToken()
+      .then((t) => {
+        if (t) live = t
+      })
+      .catch(() => {
+        /* unreachable identity leaves the previous token in place — it may still be valid */
+      })
+  }
+  pull()
+  // A sign-in, sign-out or account switch changes which files this window may read at all.
+  onIdentityChanged(pull)
+  // A quiet window still ages out of its token. Cheap: the fetcher caches and single-flights.
+  setInterval(pull, 4 * 60 * 1000)
+}
+
+/** Absolute URL to stream one artifact's bytes from the daemon's guarded /file endpoint.
+ *
+ *  IT MUST CARRY THE SESSION, NOT JUST THE MACHINE TOKEN. `/file` resolves its caller exactly as
+ *  the socket does — `?session=` first, `?token=`/Bearer as the fallback — and on a hosted
+ *  deployment only the session identifies anybody. Two things then conspire: a hosted window is
+ *  launched with `?session=`, never `?token=`, and the client STRIPS that param from the address
+ *  bar once it has stored it (client.ts), so reading `location.href` here finds nothing. The
+ *  app-session cookie is no rescue either — it is path-scoped to `/apps/<id>/` and never travels
+ *  to `/file`. So every artifact request went out with NO credential and came back 401: images
+ *  rendered blank and file viewers showed "could not read".
+ *
+ *  The token is read LIVE rather than from the session store, because that store is written once
+ *  at boot from the launch URL and never refreshed — an hour in, every read would 401 again. */
 export function fileUrl(path: string): string {
+  prime()
   const q = new URLSearchParams({ path })
+  let session = live
+  if (!session) {
+    try {
+      session = loadSession()?.token || ''
+    } catch {
+      /* no storage (a private window) — fall back to the machine token */
+    }
+  }
+  if (session) q.set('session', session)
   if (TOKEN) q.set('token', TOKEN)
   return `${location.origin}/file?${q.toString()}`
 }

@@ -24,45 +24,16 @@ export interface Artifact {
  *  daemon; absent on a hosted deployment, where identity is a person rather than a machine. */
 const TOKEN = new URL(location.href).searchParams.get('token') || ''
 
-/** Absolute URL to stream one artifact's bytes from the daemon's guarded /file endpoint.
- *
- *  IT MUST CARRY THE SESSION, NOT JUST THE MACHINE TOKEN. `/file` resolves the caller exactly as
- *  the socket does — `?session=` first, `?token=`/Bearer as the fallback — and on a hosted
- *  deployment only the session identifies anybody. Two things then conspire: a hosted window is
- *  opened with `?session=`, never `?token=`, and the client STRIPS that param from the address
- *  bar once it has stored it (client.ts), so reading `location.href` here finds nothing. The
- *  app-session cookie does not rescue it either — it is path-scoped to `/apps/<id>/` and never
- *  travels to `/file`. So every artifact fetch went out with no credential at all and came back
- *  401: images rendered blank and the file viewer showed "could not read this file: HTTP 401".
- *
- *  `loadSession()` is the SDK's own store — the same value the socket connects with, read
- *  synchronously so an `<img src>` can use it too. */
-export function fileUrl(path: string): string {
-  const q = new URLSearchParams({ path })
-  let session = live
-  if (!session) {
-    try {
-      session = loadSession()?.token || ''
-    } catch {
-      /* no storage (private window) — fall through to the machine token */
-    }
-  }
-  if (session) q.set('session', session)
-  if (TOKEN) q.set('token', TOKEN)
-  return `${location.origin}/file?${q.toString()}`
-}
-
-/** The freshest access token this window has seen, kept for `fileUrl` to read SYNCHRONOUSLY.
- *
- *  The stored session cannot be trusted for long: it is written ONCE, at boot, from the launch
- *  URL, and nothing refreshes it (client.ts) — so an hour into a session every image and every
- *  file fetch would start 401ing again. `identity()` does hold a live, auto-renewing token, but
- *  only behind a promise, and `<img src>` cannot await. So the live value is mirrored here as it
- *  changes, and the stored one remains the fallback for the first render. */
+/** The freshest access token this window has seen, kept so `fileUrl` can read it SYNCHRONOUSLY
+ *  (an `<img src>` cannot await a promise). */
 let live = ''
+let primed = false
 
-/** Start keeping `fileUrl`'s credential current. Idempotent; call it once at boot. */
-export function primeFileAuth(): () => void {
+/** Begin keeping the credential current. Lazy and idempotent — called from `fileUrl` itself, so
+ *  no app has to remember to wire it up and no generated agent can forget to. */
+function prime(): void {
+  if (primed) return
+  primed = true
   const pull = () => {
     void identity({})
       .accessToken()
@@ -74,15 +45,39 @@ export function primeFileAuth(): () => void {
       })
   }
   pull()
-  // A sign-in, a sign-out or an account switch changes which files this window may even read.
-  const off = onIdentityChanged(pull)
-  // And a quiet window still ages out of its token, so re-read on a slow beat. Cheap: the
-  // fetcher caches and single-flights, so this is a memory read until the token nears expiry.
-  const timer = setInterval(pull, 4 * 60 * 1000)
-  return () => {
-    off()
-    clearInterval(timer)
+  // A sign-in, sign-out or account switch changes which files this window may read at all.
+  onIdentityChanged(pull)
+  // A quiet window still ages out of its token. Cheap: the fetcher caches and single-flights.
+  setInterval(pull, 4 * 60 * 1000)
+}
+
+/** Absolute URL to stream one artifact's bytes from the daemon's guarded /file endpoint.
+ *
+ *  IT MUST CARRY THE SESSION, NOT JUST THE MACHINE TOKEN. `/file` resolves its caller exactly as
+ *  the socket does — `?session=` first, `?token=`/Bearer as the fallback — and on a hosted
+ *  deployment only the session identifies anybody. Two things then conspire: a hosted window is
+ *  launched with `?session=`, never `?token=`, and the client STRIPS that param from the address
+ *  bar once it has stored it (client.ts), so reading `location.href` here finds nothing. The
+ *  app-session cookie is no rescue either — it is path-scoped to `/apps/<id>/` and never travels
+ *  to `/file`. So every artifact request went out with NO credential and came back 401: images
+ *  rendered blank and file viewers showed "could not read".
+ *
+ *  The token is read LIVE rather than from the session store, because that store is written once
+ *  at boot from the launch URL and never refreshed — an hour in, every read would 401 again. */
+export function fileUrl(path: string): string {
+  prime()
+  const q = new URLSearchParams({ path })
+  let session = live
+  if (!session) {
+    try {
+      session = loadSession()?.token || ''
+    } catch {
+      /* no storage (a private window) — fall back to the machine token */
+    }
   }
+  if (session) q.set('session', session)
+  if (TOKEN) q.set('token', TOKEN)
+  return `${location.origin}/file?${q.toString()}`
 }
 
 export function humanSize(bytes?: number): string {
