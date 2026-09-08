@@ -69,8 +69,25 @@ async def drive(
                 "config.set", {"agentId": scenario.agent_id, "keys": scenario.settings}
             )
         if model:
+            # THE MODEL UNDER TEST MUST ACTUALLY BE THE ONE THAT RUNS. Setting `model` alone is
+            # not enough: `cost_efficiency` overrides it per turn with its own text_model /
+            # vision_model pair, so a run launched with --model gemini quietly executed on
+            # DeepSeek and reported that model's failures as this one's. A harness that cannot
+            # control the variable it names is measuring nothing — so the escalation pair is
+            # pinned to the same model and the switch is turned off for the run.
             await transport.call(
-                "config.set", {"agentId": scenario.agent_id, "patch": {"model": model}}
+                "config.set",
+                {
+                    "agentId": scenario.agent_id,
+                    "patch": {
+                        "model": model,
+                        "cost_efficiency": {
+                            "enabled": False,
+                            "text_model": model,
+                            "vision_model": model,
+                        },
+                    },
+                },
             )
 
         for i, turn in enumerate(scenario.turns):
