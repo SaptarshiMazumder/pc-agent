@@ -198,6 +198,16 @@ def register(api, ctx):
             )
         )
 
+        # A BATCH IS NOT DONE UNTIL IT IS PROVEN. The same observer seam, used to gate the end
+        # of a batch rather than to react to a write: while this run has changes nothing has
+        # tested, the gate returns a reason and the loop sends the model round again instead of
+        # letting it answer. Prose could not do this -- a live session had the builder declare
+        # "built and working -- try it out" having never run a scenario, because the procedure
+        # it follows ends at "does it actually DO it" and nothing sent it further.
+        from agent_authoring.domain.e2e_gate import E2eGate
+
+        add_observer(E2eGate())
+
     api.register_tool(
         CreateAgentTool(
             registry,
@@ -316,6 +326,11 @@ def register(api, ctx):
 
     # --- CHECK (the tool face of the validator built above) ---------------------------
     api.register_tool(ValidateAgentTool(validator))
+
+    # The ONLY door out of that gate, and only the user may open it -- see the tool's own header.
+    from agent_authoring.presentation.skip_e2e_tool import SkipE2eTool
+
+    api.register_tool(SkipE2eTool())
 
     # --- SHIP -----------------------------------------------------------------------
     # The SAME validator instance the tool exposes — packaging gates on it, so "what

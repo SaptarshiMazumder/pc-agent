@@ -146,7 +146,11 @@ write the one skill / one tool / one [[mcp]] block
   -> reload_agent        if you touched agent.toml or added a plugin
   -> mcp_status          if it declares [[mcp]] — did the servers come up, what did they expose
   -> run_agent           does it actually DO it
+  -> e2e_run             does it actually WORK -- a scenario over the slice (A6.5)
 ```
+
+The last line is not optional and not "later": a slice you cannot prove is a slice you do not
+know you have. `run_agent` answering once is the smoke test, not the test.
 
 **`needs <SETTING>` IS NOT A BUG.** It is the platform asking the OWNER a question, routed through
 you: a server that references `${SOME_SETTING}` will not start until that field has a value, and
@@ -212,6 +216,36 @@ Target the VISIBLE TEXT of a control, not a selector. Most windows are fine unti
 the handler that throws only throws on click — so a verification that never interacts reports a
 healthy page with a dead button. **Look at the screenshots it returns**: passing every check and
 being unusable are entirely compatible, and the image is the only thing that shows the difference.
+
+### A6.5 PROVE IT — the batch is not done until a scenario passes
+
+`validate_agent` says the files hold together. `run_agent` says the brain answered once.
+**Neither says the agent WORKS**, and the difference is the whole reason this step exists: a
+live build once ended with "it's built and working, try it out" after exactly one hand-run of
+one tool, and nothing had been tested at all.
+
+So, before you report anything finished:
+
+```
+e2e_checks()                      what a scenario may assert -- never invent a check name
+write agents/<id>/e2e/<name>.json  turns like a real user; checks from what the agent CLAIMS
+e2e_run(scenario_path=...)         drive it, read the diagnosis, fix, re-run
+```
+
+`reference/testing.md` is the full procedure — how to derive checks from requirements, how to
+tell an agent bug from a dead provider, and why green checks still are not "good output".
+
+**When the test needs something only the user has, ASK.** A live instance URL, an API key, a
+sandbox account: say what you need and what you will do with it. Never fabricate a credential,
+and never let a missing one become a silent skip — a partial run you describe honestly beats a
+claim you cannot back.
+
+**The exceptions, and they are narrow.** A pure window change is proven by `verify_app` (A6),
+not by a scenario. And if the USER says to skip testing, call `skip_e2e` with their reason —
+theirs to give, and only for the run they gave it in.
+
+You will be reminded: a batch that changed an agent and proved nothing gets sent back here
+before it can finish.
 
 ### A7. Show them what you built, against what they ASKED for
 

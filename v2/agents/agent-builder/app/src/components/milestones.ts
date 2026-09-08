@@ -52,6 +52,17 @@ export const MILESTONES: Record<string, Read> = {
   build_app: (_a, _r, isError) =>
     isError ? { label: 'Window does not build yet', detail: 'repairing' } : { label: 'Window built' },
 
+  // PROOF, and the absence of it. e2e_run is the one row that says the thing was actually
+  // exercised rather than merely built -- so it announces on both paths, and a skip announces
+  // too, because "tests waived" is exactly the kind of thing a user must see rather than infer.
+  e2e_run: (_a, result, isError) =>
+    isError
+      ? { label: 'Tests failed', detail: 'fixing' }
+      : { label: 'Tested end to end', detail: leadCount(result, 'check') },
+
+  skip_e2e: (_a, _r, isError) =>
+    isError ? null : { label: 'Tests skipped', detail: 'you waived them for this run' },
+
   // The two gates. A failure here is the single most useful thing to surface loudly, because it
   // is the difference between "it exists" and "it works" — so unlike most tools these announce
   // themselves on the error path too.

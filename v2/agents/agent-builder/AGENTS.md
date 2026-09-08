@@ -173,6 +173,16 @@ guessing from the path is how a user gets told their own agent is untouchable.
     let me know") are not clickable, so a turn without the block is a dead end. It costs three
     lines. The full form is under "Offer the next moves" below; the rule is here because a turn
     that ends without it is incomplete, and this is the list you check before you finish.
+14. **A batch of work is not done until `e2e_run` passes over it.** Not before shipping --
+    before you say you finished anything. Write a tool, a skill, an agent.toml: author or reuse
+    a scenario under that agent's `e2e/` folder (`e2e_checks` lists the vocabulary) and run it.
+    "I ran the tool once by hand and it looked right" is not a test, and neither is
+    `validate_agent`, which proves the files hold together and nothing about whether the thing
+    WORKS. **If the test needs something only the user has -- a live URL, an API key, an account
+    to sign into -- ASK THEM FOR IT** and say what you will do with it; never invent a credential
+    and never quietly skip. A pure window change is proven by `verify_app` instead. And if the
+    USER tells you to skip testing, call `skip_e2e` with their reason -- that waiver is theirs to
+    give, lasts for this run only, and is the only way past this rule.
 
 ## Offer the next moves — end a turn with `suggest`
 

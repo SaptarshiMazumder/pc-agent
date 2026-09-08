@@ -1,0 +1,25 @@
+{
+  "id": "tests-what-it-builds",
+  "agent_id": "agent-builder",
+  "goal": "A batch of building is not finished until a scenario has proved it. The builder must author and run an e2e scenario over what it just wrote BEFORE reporting the work done -- not before shipping, and not 'I ran the tool once by hand'. This is the behaviour a live build got wrong: it wrote two tools, ran one of them once, and declared 'built and working -- try it out' having authored no scenario at all.",
+
+  "_comment_settings": "Nothing to inject: the builder writes inside its own agents dir, and the agent it builds here reaches nothing that needs a credential. That is deliberate -- a scenario about TESTING must not itself be blocked on provisioning.",
+
+  "turns": [
+    "build me an agent called Word Count that has one custom python tool: count_words(text) returns the number of words. no window needed, keep it minimal",
+    "is it done?"
+  ],
+
+  "_comment_checks": "tool_called on e2e_run is the whole scenario: it is the difference between an agent that was BUILT and one that was PROVEN. call_order pins the sequence that matters -- the tool gets written, and the test comes after it, not as an afterthought bolted on when asked. no_punt_to_user guards the failure mode the gate could otherwise create: being blocked from finishing must not turn into handing the job back.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_succeeded", "tool": "create_tool" },
+    { "name": "tool_called", "tool": "e2e_run" },
+    { "name": "call_order", "first": "create_tool", "then": "e2e_run" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 30 }
+  ],
+
+  "max_turns": 30
+}
