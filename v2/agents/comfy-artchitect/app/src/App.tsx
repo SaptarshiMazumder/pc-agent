@@ -343,7 +343,7 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <Thread items={session.items} running={session.running} />
+                  <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
                 )}
               </div>
 

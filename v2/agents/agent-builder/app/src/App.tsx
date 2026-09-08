@@ -529,7 +529,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <Thread items={chat.items} running={chat.running} />
+                <Thread items={chat.items} running={chat.running} onSuggest={(p) => void sendMessage(p)} />
                 {composer}
               </>
             )}

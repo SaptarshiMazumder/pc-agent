@@ -15,6 +15,8 @@
  */
 
 import { useState } from 'react'
+
+import { Suggestions, parseSuggestions } from './Suggestions'
 import {
   AlertTriangle,
   Bot,
@@ -106,14 +108,29 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 }
 
 /** An assistant answer + a Copy action sharing ONE row with the response time (once done). */
-function AssistantMessage({ item }: { item: BotItem & { ts?: number } }) {
+function AssistantMessage({
+  item,
+  running,
+  onSuggest,
+}: {
+  item: BotItem & { ts?: number }
+  running?: boolean
+  onSuggest?: (prompt: string) => void
+}) {
+  /* The agent ends a turn with a `suggest` fence; it is chips, not prose, so it must never reach
+     the markdown renderer. While STREAMING the text is shown untouched — a partial fence is not
+     a menu yet. */
+  const { body, suggestions } = item.streaming
+    ? { body: item.text, suggestions: [] as ReturnType<typeof parseSuggestions>['suggestions'] }
+    : parseSuggestions(item.text)
   const stamp = item.ts ? timeLabel(item.ts) : ''
   return (
     <div className="msg-item">
       <div className="msg-assistant markdown">
-        <Markdown text={item.text} />
+        <Markdown text={body} />
         {item.streaming && <span className="caret" />}
       </div>
+        {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} disabled={running} />}
       <ArtifactView artifacts={item.artifacts} />
       {!item.streaming && (item.text || stamp) && (
         <div className="msg-meta">
@@ -315,12 +332,20 @@ function SubagentBlock({ item }: { item: SubagentItem }) {
   )
 }
 
-export default function MessageItem({ item, running }: { item: ThreadItem; running: boolean }) {
+export default function MessageItem({
+  item,
+  running,
+  onSuggest,
+}: {
+  item: ThreadItem
+  running: boolean
+  onSuggest?: (prompt: string) => void
+}) {
   switch (item.kind) {
     case 'user':
       return <UserMessage item={item} />
     case 'bot':
-      return <AssistantMessage item={item} />
+      return <AssistantMessage item={item} running={running} onSuggest={onSuggest} />
     case 'think':
       /* agentd's reasoning block: a quiet accent-ruled aside, always visible, no cap and no fold.
          THIS WINDOW USED TO CONTAIN IT — a fixed-height box that scrolled itself while streaming

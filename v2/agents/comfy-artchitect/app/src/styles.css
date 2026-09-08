@@ -407,6 +407,34 @@ h2 { font-size: var(--fs-lead); }
 
 
 /* ── thread ────────────────────────────────────────────────────────────── */
+/* ── suggested next actions ───────────────────────────────────────────────────────────────── */
+/* Offered, never demanded: the agent has already moved on, and a chip redirects it rather than
+   unblocking it. Sits under the answer it belongs to, so a scrollback keeps its offers in place. */
+.suggests { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.suggest-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.suggest-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink, var(--text)); background: var(--bg3); }
+.suggest-chip:disabled { opacity: .5; cursor: default; }
+.suggest-chip svg { color: var(--faint); }
+.suggest-chip:hover:not(:disabled) svg { color: var(--accent); }
+
+/* ── milestones ───────────────────────────────────────────────────────────────────────────── */
+/* A finished tool that means something, said as what it ACHIEVED. Quieter than a tool row on
+   purpose: this is the spine of the run, and the plumbing underneath stays available. */
+.milestone { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: 12.5px; }
+.milestone-tick {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700;
+  background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok);
+}
+.milestone.is-warn .milestone-tick { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.milestone-label { color: var(--text); }
+.milestone-detail { color: var(--faint); font-size: 11px; }
+
 /* The scroller's frame — it exists so the jump button can be positioned against the VIEWPORT of
    the thread rather than against its scrolling content, where it would drift away as you read. */
 .thread-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }

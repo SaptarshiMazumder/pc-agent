@@ -19,7 +19,15 @@ import { dayLabel, sameDay } from '../lib/timefmt'
 import MessageItem from './MessageItem'
 import { Thinking } from './Thinking'
 
-export function Thread({ items, running }: { items: ThreadItem[]; running: boolean }) {
+export function Thread({
+  items,
+  running,
+  onSuggest,
+}: {
+  items: ThreadItem[]
+  running: boolean
+  onSuggest?: (prompt: string) => void
+}) {
   const boxRef = useRef<HTMLDivElement>(null)
 
   /* STICKY, NOT UNCONDITIONAL. Following the bottom is only right while the user is AT the
@@ -65,7 +73,7 @@ export function Thread({ items, running }: { items: ThreadItem[]; running: boole
       )
     }
     if (item.ts) lastTs = item.ts
-    rendered.push(<MessageItem key={i} item={item} running={running} />)
+    rendered.push(<MessageItem key={i} item={item} running={running} onSuggest={onSuggest} />)
   })
 
   // Shown while the run has nothing to say YET — before the first token, and through every tool

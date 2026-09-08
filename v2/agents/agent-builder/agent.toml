@@ -6,7 +6,7 @@
 # agent is now this agent's job alone, not something JARVIS does on the side.
 
 name = "Agent Builder"
-version = "1.1.0"
+version = "1.2.0"
 description = "Builds new agents: their agent.toml, identity, skills, private tools, and app UI."
 
 # NOTE: `max_turns` is NOT settable here — it is an OVERRIDABLE_KEY resolved from

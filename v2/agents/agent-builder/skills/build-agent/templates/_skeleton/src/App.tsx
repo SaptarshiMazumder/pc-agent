@@ -278,7 +278,7 @@ export default function App() {
                   /* THE TRANSCRIPT, in a card of its own so the conversation has an edge and the
                      page around it can carry the numbers without the two running together. */
                   <div className="convo-card">
-                    <Thread items={session.items} running={session.running} />
+                    <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
                   </div>
                 )}
 

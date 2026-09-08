@@ -1362,3 +1362,19 @@ h2 { font-size: 16px; }
    lists the user's orgs inside its account menu. */
 .app-menu-item--sub { padding-left: 30px; font-size: 12.5px; color: var(--dim); }
 .app-menu-item--sub:hover { color: var(--text); }
+
+/* ── suggested next actions ───────────────────────────────────────────────────────────────── */
+/* Offered, never demanded: the agent has already moved on, and a chip redirects it rather than
+   unblocking it. Sits under the answer it belongs to, so a scrollback keeps its offers in place. */
+.suggests { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.suggest-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.suggest-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink, var(--text)); background: var(--bg3); }
+.suggest-chip:disabled { opacity: .5; cursor: default; }
+.suggest-chip svg { color: var(--faint); }
+.suggest-chip:hover:not(:disabled) svg { color: var(--accent); }
+

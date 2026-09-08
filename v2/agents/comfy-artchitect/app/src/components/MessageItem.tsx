@@ -15,6 +15,9 @@
  */
 
 import { useState } from 'react'
+
+import { milestoneFor } from './milestones'
+import { Suggestions, parseSuggestions } from './Suggestions'
 import {
   AlertTriangle,
   Bot,
@@ -106,8 +109,23 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 }
 
 /** An assistant answer + a Copy action sharing ONE row with the response time (once done). */
-function AssistantMessage({ item }: { item: BotItem & { ts?: number } }) {
+function AssistantMessage({
+  item,
+  running,
+  onSuggest,
+}: {
+  item: BotItem & { ts?: number }
+  running?: boolean
+  onSuggest?: (prompt: string) => void
+}) {
   const stamp = item.ts ? timeLabel(item.ts) : ''
+  /* SPLIT THE OFFER OUT OF THE PROSE. The agent ends a turn with a `suggest` fence; it is chips,
+     not text, so it must never reach the markdown renderer. Parsed on every render rather than
+     memoised: it is one regex over one message, and a stale split would show a half-streamed
+     fence. While STREAMING the raw text is shown untouched — a partial fence is not a menu. */
+  const { body, suggestions } = item.streaming
+    ? { body: item.text, suggestions: [] as ReturnType<typeof parseSuggestions>['suggestions'] }
+    : parseSuggestions(item.text)
   return (
     <div className="msg-item msg-row">
       {/* THE AGENT'S MARK, beside its own words. The user's turn is a bubble and needs no label;
@@ -119,10 +137,13 @@ function AssistantMessage({ item }: { item: BotItem & { ts?: number } }) {
       </span>
       <div className="msg-body">
         <div className="msg-assistant markdown">
-          <Markdown text={item.text} />
+          <Markdown text={body} />
           {item.streaming && <span className="caret" />}
         </div>
         <ArtifactView artifacts={item.artifacts} />
+        {onSuggest && (
+          <Suggestions items={suggestions} onPick={onSuggest} disabled={running} />
+        )}
         {!item.streaming && (item.text || stamp) && (
           <div className="msg-meta">
             {item.text && (
@@ -324,12 +345,21 @@ function SubagentBlock({ item }: { item: SubagentItem }) {
   )
 }
 
-export default function MessageItem({ item, running }: { item: ThreadItem; running: boolean }) {
+export default function MessageItem({
+  item,
+  running,
+  onSuggest,
+}: {
+  item: ThreadItem
+  running: boolean
+  /** Send a suggested next action as the user's next message. Absent = chips are not offered. */
+  onSuggest?: (prompt: string) => void
+}) {
   switch (item.kind) {
     case 'user':
       return <UserMessage item={item} />
     case 'bot':
-      return <AssistantMessage item={item} />
+      return <AssistantMessage item={item} running={running} onSuggest={onSuggest} />
     case 'think':
       /* agentd's reasoning block: a quiet accent-ruled aside, always visible, no cap and no fold.
          THIS WINDOW USED TO CONTAIN IT — a fixed-height box that scrolled itself while streaming
@@ -356,6 +386,26 @@ export default function MessageItem({ item, running }: { item: ThreadItem; runni
             <PlanBlock item={item} running={running} />
           </div>
         )
+      }
+      {
+        // A FINISHED tool that means something to the user is announced as what it achieved;
+        // the row itself stays available underneath for anyone who wants the arguments.
+        const milestone = item.done
+          ? milestoneFor(item.name, item.args, item.result, item.isError)
+          : null
+        if (milestone) {
+          return (
+            <div className="msg-item">
+              <div className={`milestone${item.isError ? ' is-warn' : ''}`}>
+                <span className="milestone-tick">{item.isError ? '!' : '✓'}</span>
+                <span className="milestone-label">{milestone.label}</span>
+                {milestone.detail && (
+                  <span className="milestone-detail st-mono">{milestone.detail}</span>
+                )}
+              </div>
+            </div>
+          )
+        }
       }
       return (
         <div className="msg-item">
